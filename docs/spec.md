@@ -1,4 +1,4 @@
-# DCC Language Specification - Draft v0.1
+# DCC Language Specification - Draft v0.2
 
 ## 1. Primitive Types
 
@@ -6,6 +6,7 @@
 |---------------------------|------------|------------------------------------------------------|
 | `i8`, `i16`, `i32`, `i64` | 1, 2, 4, 8 | Signed two's complement integers                     |
 | `u8`, `u16`, `u32`, `u64` | 1, 2, 4, 8 | Unsigned integers                                    |
+| `usize`, `isize`          | ptr        | Pointer-sized unsigned/signed integers               |
 | `f32`, `f64`              | 4, 8       | IEEE 754 floating point                              |
 | `bool`                    | 1          | `true` / `false`                                     |
 | `char`                    | 1          | ASCII character                                      |
@@ -18,7 +19,9 @@
 
 ### 2.1 Structs
 
-No constructors, destructors, or member functions. Data-only aggregates. Initialization via struct literals. Behavior is attached externally via free functions and UFCS.
+No constructors, destructors, or member functions. Data-only aggregates.
+Initialization via struct literals. Behavior is attached externally via free
+functions and UFCS.
 
 ```dc
 struct Point {
@@ -84,7 +87,8 @@ enum Optional(T) {
 
 ## 3. Pointers & References
 
-Only raw pointers, no references. No `->`, only `.` with automatic dereference through any number of pointer indirections.
+Only raw pointers, no references. No `->`, only `.` with automatic dereference
+through any number of pointer indirections.
 
 ---
 
@@ -130,6 +134,30 @@ The grammar pattern:
 ```dc
 using Vec3 = f32[3];
 using Callback = void(*)(i32, i32);   // function pointer type
+```
+
+#### 6.1.1 Nominal aliases
+
+A plain `using` alias is structural: the alias and its target are the same
+type everywhere, interchangeably. Prefixing the declaration with `@nominal`
+instead creates a distinct type with the same representation as the target,
+but no implicit conversion either way, conversion requires an explicit
+`as` cast, and overload resolution treats it as a different type from its
+target.
+
+```dc
+@nominal using Fd = i32;
+
+Fd make_fd() { return 0 as Fd; } // explicit cast required to produce a Fd
+
+void take_fd(Fd x) {}
+
+void test() {
+    Fd fd = 0 as Fd;
+    i32 raw = fd as i32; // explicit cast required to go back to i32
+
+    take_fd(raw); // error: no matching call, i32 is not Fd
+}
 ```
 
 ### 6.2 Concept definition
@@ -322,6 +350,18 @@ T sum(T)([]const T items) if Addable(T) {
 }
 ```
 
+Struct and enum templates can be constrained the same way; the constraint
+is checked at every instantiation site, including nested ones:
+
+```dc
+struct Slot(T) if Addable(T) {
+    T value;
+}
+
+Slot(i32) good; // OK, i32 satisfies Addable
+Slot(NoAdd) bad; // error: template constraint not satisfied for `Slot`
+```
+
 ### 8.4 `static if` and `static match`
 
 ```dc
@@ -353,6 +393,52 @@ void execute(u8 command)() {
     }
 }
 ```
+
+### 8.5 Variadic templates
+
+A trailing `T...` in a template parameter list declares `T` as a type pack
+rather than a single type. A function parameter declared with a pack type
+becomes a pack parameter: it expands to one parameter per type in the pack
+at instantiation.
+
+```dc
+u64 count(T...)(T x) {
+    return sizeof...(T);
+}
+
+count!(i32)(42); // 1
+count!(i32, i64)(0, 1); // 2
+```
+
+Pack parameters can be indexed with a compile-time constant, and iterated
+with `static for`:
+
+```dc
+void pick(T...)(T args) {
+    take_i32(args.0);
+    take_f64(args.1);
+}
+
+void each(T...)(T args) {
+    static for item in args {
+        process(item);
+    }
+}
+```
+
+A pack parameter can be forwarded to another variadic function by
+re-expanding it with `...`:
+
+```dc
+void inner(T...)(T x) { target(x...); }
+void outer(T...)(T x) { inner(x...); }   // forwards outer's pack to inner
+
+outer!(i32, i64)(0, 1);
+```
+
+Variadic template parameters are allowed on function templates and concept
+definitions (`using Foo(T...) = compiles(T x) { ... };`) but explicitly
+not on struct/enum declarations.
 
 ---
 
@@ -406,6 +492,38 @@ i32 a = function(32); // inferred to i32
 u8 b = function(32); // inferred to u8
 function(32); // value discarded, guessed to i32.
 ```
+
+Character and string literals come in an 8-bit and a UTF-16 form. A plain
+literal is `char`/`[]const char`; a `u`-prefixed literal is `u16`/`[]const u16`,
+with the same escape sequences (`\n`, `\0`, `\xNN`, `\uNNNN`) available in both:
+
+```dc
+const char ch       = 'H';
+[]const char greeting = "hello";
+
+const u16 wch        = u'\u03A9'; // U+03A9, UTF-16 code unit
+[]const u16 wgreeting = u"hi";
+```
+
+### 9.4 Compile-time size/alignment queries
+
+`sizeof`, `alignof`, and `offsetof` are builtins evaluated at compile time;
+all three produce a `usize`.
+
+```dc
+struct S {
+    u8 a;
+    i64 b;
+}
+
+usize sz = sizeof(i32);
+usize al = alignof(S);
+usize off = offsetof(S, b);
+```
+
+Inside a variadic template, `sizeof...(T)` instead queries the number of
+elements in a type pack `T` (see §8.5), using `sizeof...` on a name that
+isn't a pack is an error.
 
 ---
 
@@ -546,7 +664,20 @@ for i32 i = 0; i < n; i++ {
 for item in items {
     process(item);
 }
+
+// for range based for ranges
+for i in 0..n { // exclusive
+    body(i);
+}
+for i in 0..=n { // inclusive
+    body(i);
+}
 ```
+
+A range expression (`a..b`, `a..=b`) is only valid directly inside a
+`for ... in` loop or a `match` pattern (§10), it is not a general-purpose
+first-class value. Index/range bounds default to `usize` unless context forces
+another integer type.
 
 ---
 
@@ -565,14 +696,31 @@ u8[64] buffer;
 @inline
 void hot_path() { ... }
 
+@noinline
+void cold_path() { ... }
+
+@section(".text.cold")
+void in_section() { ... }
+
+@calling_conv("Cdecl")
+void cdecl_func() { ... }
+
 @[deprecated("use new_api instead")]
 void old_api() { ... }
 
 @nomangle
 void c_interop_func(i32 x);
+
+@implicit_construction
+i32 implicit_ctor_target() { ... }
 ```
 
-`[]` can be freely ommitted for one attribute lists.
+`[]` can be freely ommitted for one attribute lists. Attributes can also be
+attached to individual enum variants (e.g. `@[deprecated("...")] None,`).
+
+`@nominal` (§6.1.1) and `@intrinsic` are two more recognized attributes;
+`@intrinsic` marks a declaration as compiler-implemented and is only valid
+inside the `core` module.
 
 ---
 
@@ -590,5 +738,52 @@ i32 add(i32 a, i32 b) { return a + b; }
 
 apply(add, 1, 2);
 ```
+
+---
+
+## 16. Atomics (`core::atomic`)
+
+`core::atomic` is a compiler-provided module (no import path needed beyond
+`import core::atomic;`) exposing atomic memory operations as `@intrinsic`
+functions, they're recognized and lowered directly by the compiler, not
+ordinary library code.
+
+```dc
+public enum MemoryOrder : u8 {
+    Relaxed,
+    Acquire,
+    Release,
+    AcqRel,
+    SeqCst,
+}
+
+public struct Atomic(T) {
+    volatile T value;
+}
+```
+
+Every operation has two overloads: one taking a raw `volatile T*`, and one
+taking an `Atomic(T)*` (a struct wrapper around a single `volatile T`
+field, for when you want the atomic-ness to be part of a type rather than
+threaded through as a separate pointer):
+
+```dc
+import core::atomic;
+using core::atomic::MemoryOrder;
+
+void example(volatile i32* p, core::atomic::Atomic(i32)* a) {
+    i32 v1 = core::atomic::atomic_load(p, MemoryOrder::Acquire);
+    i32 v2 = core::atomic::atomic_load(a, MemoryOrder::Acquire);
+
+    core::atomic::atomic_store(p, 1, MemoryOrder::Release);
+    core::atomic::atomic_fetch_add(p, 1, MemoryOrder::Relaxed);
+    core::atomic::atomic_exchange(p, 2, MemoryOrder::SeqCst);
+    core::atomic::atomic_fence(MemoryOrder::SeqCst);
+}
+```
+
+Available operations: `atomic_load`, `atomic_store`, `atomic_exchange`,
+`atomic_fetch_add`, `atomic_fetch_sub`, `atomic_fetch_and`,
+`atomic_fetch_or`, `atomic_fetch_xor`, `atomic_fence`.
 
 ---
