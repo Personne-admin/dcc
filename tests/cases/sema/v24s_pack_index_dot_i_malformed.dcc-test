@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+void f(T)(T args) {
+    args.i;
+}
+
+void caller() {
+    f!(i32)(0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: field access on non-record type

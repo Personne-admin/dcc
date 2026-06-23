@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module test;
+
+void f(T...)(T args) {
+    static for i in 2..3 {
+        args.i;
+    }
+}
+
+public void caller() {
+    f!(i32, i32)(10, 20);
+}
+
+=== EXPECT-ERRORS ===
+test.dc:5: pack index 2 out of bounds for pack 'args' of length 2

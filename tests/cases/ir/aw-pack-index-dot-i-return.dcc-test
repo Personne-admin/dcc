@@ -1,0 +1,34 @@
+=== FILE: test.dc ===
+module test;
+
+void take_i32(i32 a) {}
+
+i32 f(T...)(T args) {
+    static for i in 0..sizeof...(T) {
+        return args.i;
+    }
+    return 0;
+}
+
+public void caller() {
+    take_i32(f!(i32)(10));
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test8.take_i321i32sv(i32) {
+%entry(i32 %a):
+  ret void
+}
+
+void@_DC0F1.4.test6.caller0v() {
+%entry:
+  %0 = call fn(@_DC0S1.4.test1.f1i32si32sX1ti32s)(i32 #10) -> i32
+  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %0)
+  ret void
+}
+
+linkonce_odr i32@_DC0S1.4.test1.f1i32si32sX1ti32s(i32) {
+%entry(i32 %args):
+  ret i32 %args
+}

@@ -1,0 +1,54 @@
+=== FILE: test.dc ===
+module test;
+
+void use(i32 a) {}
+
+void f(T...)(T args) {
+    static for i in 0..sizeof...(T) {
+        if i == 0 {
+            use(args.i);
+        } else {
+            use(args.i);
+        }
+    }
+}
+
+public void caller() {
+    f!(i32, i32)(10, 20);
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test3.use1i32sv(i32) {
+%entry(i32 %a):
+  ret void
+}
+
+void@_DC0F1.4.test6.caller0v() {
+%entry:
+  call fn(@_DC0S1.4.test1.f2i32si32svX2ti32sti32s)(i32 #10, i32 #20)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test1.f2i32si32svX2ti32sti32s(i32, i32) {
+%entry(i32 %args_0, i32 %args_1):
+  %0 = cmp.eq i32 #0, #0
+  br.cond %0, label %if.then1, label %if.else2
+%if.then1:
+  call fn(@_DC0F1.4.test3.use1i32sv)(i32 %args_0)
+  br label %if.merge3
+%if.else2:
+  call fn(@_DC0F1.4.test3.use1i32sv)(i32 %args_0)
+  br label %if.merge3
+%if.merge3:
+  %1 = cmp.eq i32 #1, #0
+  br.cond %1, label %if.then4, label %if.else5
+%if.then4:
+  call fn(@_DC0F1.4.test3.use1i32sv)(i32 %args_1)
+  br label %if.merge6
+%if.else5:
+  call fn(@_DC0F1.4.test3.use1i32sv)(i32 %args_1)
+  br label %if.merge6
+%if.merge6:
+  ret void
+}
