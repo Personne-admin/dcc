@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+void test() {
+    i32 x = 0;
+    x.0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: cannot pack-index non-pack type

@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module m;
+
+void bad(T)(T.0 x) {}
+
+=== EXPECT-ERRORS ===
+main.dc:4: cannot index non-pack type with .N syntax

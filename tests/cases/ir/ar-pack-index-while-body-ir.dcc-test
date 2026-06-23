@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+void take_i32(i32 a) {}
+
+void f(T...)(T args) {
+    i32 n = 10;
+    while n > 0 {
+        take_i32(args.0);
+        n = n - 1;
+    }
+}
+
+public void caller() {
+    f!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test8.take_i321i32sv(i32) {
+%entry(i32 %a):
+  ret void
+}
+
+void@_DC0F1.4.test6.caller0v() {
+%entry:
+  call fn(@_DC0S1.4.test1.f2i32sf64.vX2ti32stf64.)(i32 #0, f64 #1)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test1.f2i32sf64.vX2ti32stf64.(i32, f64) {
+%entry(i32 %args_0, f64 %args_1):
+  %0 = alloca i32
+  store i32 #10, ptr<i32> %0
+  br label %while.cond1
+%while.cond1:
+  %1 = load i32, ptr<i32> %0
+  %2 = cmp.gt i32 %1, #0
+  br.cond %2, label %while.body2, label %while.exit3
+%while.body2:
+  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %args_0)
+  %3 = load i32, ptr<i32> %0
+  %4 = sub i32 %3, i32 #1
+  store i32 %4, ptr<i32> %0
+  br label %while.cond1
+%while.exit3:
+  ret void
+}

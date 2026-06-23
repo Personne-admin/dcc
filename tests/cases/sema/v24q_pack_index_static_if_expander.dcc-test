@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+void take_i32(i32 a) {}
+
+void f(T...)(T args) {
+    static if sizeof(args) > 0 {
+        take_i32(args.0);
+    }
+}
+
+void caller() {
+    f!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-REGISTRY ===
+fn=f args=[i32, f64] state=2

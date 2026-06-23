@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module test;
+
+void take_i32_ptr(i32* a) {}
+
+void ptr_pass(T...)(T.0* x) {
+    take_i32_ptr(x);
+}
+
+public void caller() {
+    ptr_pass!(i32, f64)(null);
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test12.take_i32_ptr1Pqi32sv(ptr<i32>) {
+%entry(ptr<i32> %a):
+  ret void
+}
+
+void@_DC0F1.4.test6.caller0v() {
+%entry:
+  call fn(@_DC0S1.4.test8.ptr_pass1Pqi32svX2ti32stf64.)(ptr<i32> #null)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test8.ptr_pass1Pqi32svX2ti32stf64.(ptr<i32>) {
+%entry(ptr<i32> %x):
+  call fn(@_DC0F1.4.test12.take_i32_ptr1Pqi32sv)(ptr<i32> %x)
+  ret void
+}

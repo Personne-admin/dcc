@@ -1,0 +1,55 @@
+=== FILE: test.dc ===
+module test;
+
+void take_i32(i32 a) {}
+void take_f64(f64 a) {}
+
+void f(T...)(T args) {
+    match true {
+        true => take_i32(args.0),
+        false => take_f64(args.1),
+    }
+}
+
+public void caller() {
+    f!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test8.take_i321i32sv(i32) {
+%entry(i32 %a):
+  ret void
+}
+
+void@_DC0F1.4.test8.take_f641f64.v(f64) {
+%entry(f64 %a):
+  ret void
+}
+
+void@_DC0F1.4.test6.caller0v() {
+%entry:
+  call fn(@_DC0S1.4.test1.f2i32sf64.vX2ti32stf64.)(i32 #0, f64 #1)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test1.f2i32sf64.vX2ti32stf64.(i32, f64) {
+%entry(i32 %args_0, f64 %args_1):
+  br label %match.arm0.test3
+%match.merge1:
+  ret void
+%match.fail2:
+  unreachable
+%match.arm0.test3:
+  %0 = cmp.eq bool #true, #true
+  br.cond %0, label %match.arm0.body4, label %match.arm1.test5
+%match.arm0.body4:
+  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %args_0)
+  br label %match.merge1
+%match.arm1.test5:
+  %1 = cmp.eq bool #true, #false
+  br.cond %1, label %match.arm1.body6, label %match.fail2
+%match.arm1.body6:
+  call fn(@_DC0F1.4.test8.take_f641f64.v)(f64 %args_1)
+  br label %match.merge1
+}

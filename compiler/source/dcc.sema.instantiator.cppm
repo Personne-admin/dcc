@@ -814,8 +814,14 @@ namespace dcc::sema
                                 if (!tp_ptr)
                                     continue;
                                 auto const* pack = m_bindings.lookup_pack(tp_ptr);
-                                if (pack && index < pack->size())
-                                    return (*pack)[index];
+                                if (pack)
+                                {
+                                    if (index < pack->size())
+                                        return (*pack)[index];
+                                    if (m_diag)
+                                        m_diag->error(pi->range, "pack index {} out of bounds for pack '{}' of length {}", index, name, pack->size());
+                                    return m_types.m_errort();
+                                }
                                 return m_types.m_errort();
                             }
 
@@ -921,11 +927,18 @@ namespace dcc::sema
                         if (auto const* tpp = types::type_cast<types::TemplateParamType>(base_canon))
                         {
                             auto const* pack = m_bindings.lookup_pack(tpp);
-                            if (pack && index < pack->size())
+                            if (pack)
                             {
-                                set_canonical(t->sema, (*pack)[index]);
-                                break;
+                                if (index < pack->size())
+                                {
+                                    set_canonical(t->sema, (*pack)[index]);
+                                    break;
+                                }
+                                if (m_diag)
+                                    m_diag->error(pi->range, "pack index {} out of bounds for pack '{}' of length {}", index, tpp->name, pack->size());
                             }
+                            set_canonical(t->sema, m_types.m_errort());
+                            break;
                         }
                         else if (auto const* tpt = types::type_cast<types::TypePackType>(base_canon))
                         {
@@ -933,10 +946,15 @@ namespace dcc::sema
                             if (auto const* ept = types::type_cast<types::TemplateParamType>(tpt->element))
                             {
                                 auto const* pack = m_bindings.lookup_pack(ept);
-                                if (pack && final_index < pack->size())
+                                if (pack)
                                 {
-                                    set_canonical(t->sema, (*pack)[final_index]);
-                                    break;
+                                    if (final_index < pack->size())
+                                    {
+                                        set_canonical(t->sema, (*pack)[final_index]);
+                                        break;
+                                    }
+                                    if (m_diag)
+                                        m_diag->error(pi->range, "pack index {} out of bounds for pack '{}' of length {}", final_index, ept->name, pack->size());
                                 }
                             }
 
@@ -2340,6 +2358,10 @@ export namespace dcc::sema
                             if (auto* rs = static_cast<ast::ReturnStmt*>(s))
                                 expand_in_expr(rs->value, false);
                             break;
+                        case ast::StmtKind::Break:
+                            break;
+                        case ast::StmtKind::Continue:
+                            break;
                         case ast::StmtKind::While: {
                             auto* ws = static_cast<ast::WhileStmt*>(s);
                             expand_in_expr(ws->condition, false);
@@ -2366,6 +2388,11 @@ export namespace dcc::sema
                             expand_block(fi->body);
                             break;
                         }
+                        case ast::StmtKind::Defer: {
+                            auto* ds = static_cast<ast::DeferStmt*>(s);
+                            expand_in_stmt(ds->body);
+                            break;
+                        }
                         case ast::StmtKind::StaticIf: {
                             auto* si = static_cast<ast::StaticIfStmt*>(s);
                             expand_in_expr(si->condition, false);
@@ -2381,8 +2408,26 @@ export namespace dcc::sema
                             break;
                         }
                         case ast::StmtKind::StaticFor:
+                            if (auto* sf = static_cast<ast::StaticForStmt*>(s))
+                                expand_block(sf->body);
                             break;
+                        case ast::StmtKind::Ambiguous: {
+                            auto* amb = static_cast<ast::AmbiguousStmt*>(s);
+                            if (amb->resolution == ast::AmbiguousStmt::Resolution::AsDecl && amb->as_decl)
+                            {
+                                if (auto* vd = ast::node_cast<ast::VarDecl>(amb->as_decl))
+                                    expand_in_expr(vd->init, false);
+                            }
+                            else if (amb->resolution == ast::AmbiguousStmt::Resolution::AsExpr && amb->as_expr)
+                            {
+                                expand_in_expr(amb->as_expr, false);
+                            }
+                            break;
+                        }
                         default:
+                            if (m_diag)
+                                m_diag->error(s->range, "internal error: unhandled statement kind {} in pack expansion",
+                                              static_cast<int>(s->kind));
                             break;
                     }
                 }

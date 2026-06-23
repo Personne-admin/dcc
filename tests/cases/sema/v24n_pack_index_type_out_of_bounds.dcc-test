@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+void use_i32(i32 a) {}
+
+void f(T...)(T args) {
+    T.2 x = args.0;
+    use_i32(x);
+}
+
+void caller() {
+    f!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: pack index 2 out of bounds for pack 'T' of length 2
