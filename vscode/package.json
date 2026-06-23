@@ -4,7 +4,7 @@
     "description": "Syntax highlighting and language server support for the DC programming language",
     "publisher": "dcc",
     "version": "0.1.0",
-    "license": "GPL-2.0-only",
+    "license": "GPL-3.0-only",
     "repository": {
         "type": "git",
         "url": "https://github.com/yeint-herp/dcc.git",
