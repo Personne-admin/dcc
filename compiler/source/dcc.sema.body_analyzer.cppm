@@ -7,6 +7,7 @@ export module dcc.sema.body_analyzer;
 import std;
 import dcc.ast;
 import dcc.comptime;
+import dcc.const_eval;
 import dcc.diag;
 import dcc.si;
 import dcc.sm;
@@ -4535,65 +4536,13 @@ export namespace dcc::sema
             return bindings->substitute(ty);
         }
 
-        [[nodiscard]] static std::optional<comptime::BinaryOp> token_to_arith_binop(lex::TokenKind op) noexcept
-        {
-            using BO = comptime::BinaryOp;
-            switch (op)
-            {
-                case lex::TokenKind::Plus:
-                    return BO::Add;
-                case lex::TokenKind::Minus:
-                    return BO::Sub;
-                case lex::TokenKind::Star:
-                    return BO::Mul;
-                case lex::TokenKind::Slash:
-                    return BO::Div;
-                case lex::TokenKind::Percent:
-                    return BO::Rem;
-                case lex::TokenKind::Amp:
-                    return BO::BitAnd;
-                case lex::TokenKind::Pipe:
-                    return BO::BitOr;
-                case lex::TokenKind::Caret:
-                    return BO::BitXor;
-                case lex::TokenKind::LtLt:
-                    return BO::Shl;
-                case lex::TokenKind::GtGt:
-                    return BO::Shr;
-                default:
-                    return std::nullopt;
-            }
-        }
+        [[nodiscard]] static std::optional<comptime::BinaryOp> token_to_arith_binop(lex::TokenKind op) noexcept { return const_eval::token_to_arith_binop(op); }
 
-        [[nodiscard]] static std::optional<comptime::BinaryOp> token_to_cmp_binop(lex::TokenKind op) noexcept
-        {
-            using BO = comptime::BinaryOp;
-            switch (op)
-            {
-                case lex::TokenKind::EqEq:
-                    return BO::Eq;
-                case lex::TokenKind::BangEq:
-                    return BO::Ne;
-                case lex::TokenKind::Lt:
-                    return BO::Lt;
-                case lex::TokenKind::LtEq:
-                    return BO::Le;
-                case lex::TokenKind::Gt:
-                    return BO::Gt;
-                case lex::TokenKind::GtEq:
-                    return BO::Ge;
-                default:
-                    return std::nullopt;
-            }
-        }
+        [[nodiscard]] static std::optional<comptime::BinaryOp> token_to_cmp_binop(lex::TokenKind op) noexcept { return const_eval::token_to_cmp_binop(op); }
 
         comptime::Value const* fold_int_binary(lex::TokenKind op, std::int64_t lhs, std::int64_t rhs, types::TypePtr out_type, sm::SourceRange range)
         {
-            auto bop = token_to_arith_binop(op);
-            if (!bop)
-                return nullptr;
-
-            auto result = comptime::Value::fold_int_binary(*bop, lhs, rhs, out_type);
+            auto result = const_eval::fold_int_binary(op, lhs, rhs, out_type);
             if (result)
                 return make_value(std::move(*result));
 
@@ -4607,11 +4556,7 @@ export namespace dcc::sema
 
         comptime::Value const* fold_int_cmp(lex::TokenKind op, std::int64_t lhs, std::int64_t rhs, types::TypePtr out_type)
         {
-            auto bop = token_to_cmp_binop(op);
-            if (!bop)
-                return nullptr;
-
-            auto result = comptime::Value::fold_int_cmp(*bop, lhs, rhs, out_type);
+            auto result = const_eval::fold_int_cmp(op, lhs, rhs, out_type);
             if (result)
                 return make_value(std::move(*result));
 
@@ -5942,41 +5887,19 @@ export namespace dcc::sema
             return make_value(comptime::Value::make_aggregate(std::move(agg_elems), enum_type));
         }
 
-        [[nodiscard]] static bool is_const_kind(comptime::Value const& c, comptime::Value::Kind k) noexcept { return c.kind() == k; }
+        [[nodiscard]] static bool is_const_kind(comptime::Value const& c, comptime::Value::Kind k) noexcept { return const_eval::is_const_kind(c, k); }
 
-        [[nodiscard]] static std::optional<std::int64_t> const_to_int(comptime::Value const& c) noexcept { return c.const_to_int(); }
+        [[nodiscard]] static std::optional<std::int64_t> const_to_int(comptime::Value const& c) noexcept { return const_eval::const_to_int(c); }
 
-        [[nodiscard]] static std::optional<double> const_to_float(comptime::Value const& c) noexcept { return c.const_to_float(); }
+        [[nodiscard]] static std::optional<double> const_to_float(comptime::Value const& c) noexcept { return const_eval::const_to_float(c); }
 
-        [[nodiscard]] static std::optional<bool> const_to_bool(comptime::Value const& c) noexcept { return c.const_to_bool(); }
+        [[nodiscard]] static std::optional<bool> const_to_bool(comptime::Value const& c) noexcept { return const_eval::const_to_bool(c); }
 
-        [[nodiscard]] static std::optional<std::uint64_t> const_to_bits(comptime::Value const& c) noexcept { return c.const_to_bits(); }
+        [[nodiscard]] static std::optional<std::uint64_t> const_to_bits(comptime::Value const& c) noexcept { return const_eval::const_to_bits(c); }
 
         comptime::Value const* fold_unary_constant(lex::TokenKind op, comptime::Value const& c, types::TypePtr out_type)
         {
-            using UO = comptime::UnaryOp;
-            std::optional<comptime::UnaryOp> mapped;
-            switch (op)
-            {
-                case lex::TokenKind::Plus:
-                    mapped = UO::Plus;
-                    break;
-                case lex::TokenKind::Minus:
-                    mapped = UO::Minus;
-                    break;
-                case lex::TokenKind::Bang:
-                    mapped = UO::Not;
-                    break;
-                case lex::TokenKind::Tilde:
-                    mapped = UO::BitNot;
-                    break;
-                default:
-                    break;
-            }
-            if (!mapped)
-                return nullptr;
-
-            auto result = c.fold_unary(*mapped, out_type);
+            auto result = const_eval::fold_unary(op, c, out_type);
             if (result)
                 return make_value(std::move(*result));
 
@@ -5986,54 +5909,16 @@ export namespace dcc::sema
         comptime::Value const* fold_binary_constant(lex::TokenKind op, comptime::Value const& lhs, comptime::Value const& rhs, types::TypePtr out_type,
                                                     sm::SourceRange range)
         {
-            if (op == lex::TokenKind::Plus || op == lex::TokenKind::Minus || op == lex::TokenKind::Star || op == lex::TokenKind::Slash ||
-                op == lex::TokenKind::Percent)
+            auto result = const_eval::fold_binary(op, lhs, rhs, out_type);
+            if (result)
+                return make_value(std::move(*result));
+
+            if (types::type_cast<types::IntType>(out_type) && lhs.kind() == comptime::Value::Kind::Int && rhs.kind() == comptime::Value::Kind::Int)
             {
-                auto const* ft = types::type_cast<types::FloatType>(out_type);
-                auto const* it = types::type_cast<types::IntType>(out_type);
-                if (ft && lhs.kind() == comptime::Value::Kind::Float && rhs.kind() == comptime::Value::Kind::Float)
-                {
-                    if (op == lex::TokenKind::Percent)
-                        return nullptr;
-
-                    double value{};
-                    switch (op)
-                    {
-                        case lex::TokenKind::Plus:
-                            value = lhs.get_float() + rhs.get_float();
-                            break;
-                        case lex::TokenKind::Minus:
-                            value = lhs.get_float() - rhs.get_float();
-                            break;
-                        case lex::TokenKind::Star:
-                            value = lhs.get_float() * rhs.get_float();
-                            break;
-                        case lex::TokenKind::Slash:
-                            value = lhs.get_float() / rhs.get_float();
-                            break;
-                        default:
-                            break;
-                    }
-                    return make_float_const(value, out_type);
-                }
-                if (it && lhs.kind() == comptime::Value::Kind::Int && rhs.kind() == comptime::Value::Kind::Int)
-                    return fold_int_binary(op, lhs.get_int(), rhs.get_int(), out_type, range);
-
-                return nullptr;
-            }
-
-            if (op == lex::TokenKind::EqEq || op == lex::TokenKind::BangEq || op == lex::TokenKind::Lt || op == lex::TokenKind::LtEq ||
-                op == lex::TokenKind::Gt || op == lex::TokenKind::GtEq)
-                return fold_binary_cmp(op, lhs, rhs, out_type);
-
-            if (op == lex::TokenKind::Amp || op == lex::TokenKind::Pipe || op == lex::TokenKind::Caret || op == lex::TokenKind::LtLt ||
-                op == lex::TokenKind::GtGt)
-            {
-                auto const* it = types::type_cast<types::IntType>(out_type);
-                if (it && lhs.kind() == comptime::Value::Kind::Int && rhs.kind() == comptime::Value::Kind::Int)
-                    return fold_int_binary(op, lhs.get_int(), rhs.get_int(), out_type, range);
-
-                return nullptr;
+                if (op == lex::TokenKind::Plus || op == lex::TokenKind::Minus || op == lex::TokenKind::Star)
+                    error(range, "integer overflow in constant expression");
+                else if (op == lex::TokenKind::LtLt || op == lex::TokenKind::GtGt)
+                    error(range, "shift amount out of range in constant expression");
             }
 
             return nullptr;
@@ -6041,71 +5926,16 @@ export namespace dcc::sema
 
         comptime::Value const* fold_binary_cmp(lex::TokenKind op, comptime::Value const& lhs, comptime::Value const& rhs, types::TypePtr out_type)
         {
-            auto bop = token_to_cmp_binop(op);
-            if (!bop)
-                return nullptr;
-
-            if (lhs.kind() == comptime::Value::Kind::Float && rhs.kind() == comptime::Value::Kind::Float)
-            {
-                auto result =
-                    comptime::Value::fold_int_cmp(*bop, static_cast<std::int64_t>(lhs.get_float()), static_cast<std::int64_t>(rhs.get_float()), out_type);
-
-                bool r{};
-                switch (op)
-                {
-                    case lex::TokenKind::EqEq:
-                        r = lhs.get_float() == rhs.get_float();
-                        break;
-                    case lex::TokenKind::BangEq:
-                        r = lhs.get_float() != rhs.get_float();
-                        break;
-                    case lex::TokenKind::Lt:
-                        r = lhs.get_float() < rhs.get_float();
-                        break;
-                    case lex::TokenKind::LtEq:
-                        r = lhs.get_float() <= rhs.get_float();
-                        break;
-                    case lex::TokenKind::Gt:
-                        r = lhs.get_float() > rhs.get_float();
-                        break;
-                    case lex::TokenKind::GtEq:
-                        r = lhs.get_float() >= rhs.get_float();
-                        break;
-                    default:
-                        return nullptr;
-                }
-                return make_bool_const(r, out_type);
-            }
-
-            if ((lhs.kind() == comptime::Value::Kind::Int || lhs.kind() == comptime::Value::Kind::Char || lhs.kind() == comptime::Value::Kind::Bool) &&
-                (rhs.kind() == comptime::Value::Kind::Int || rhs.kind() == comptime::Value::Kind::Char || rhs.kind() == comptime::Value::Kind::Bool))
-            {
-                auto lv = const_to_int(lhs);
-                auto rv = const_to_int(rhs);
-                if (!lv || !rv)
-                    return nullptr;
-
-                return fold_int_cmp(op, *lv, *rv, out_type);
-            }
-
-            if (lhs.kind() == comptime::Value::Kind::Null && rhs.kind() == comptime::Value::Kind::Null)
-            {
-                if (op == lex::TokenKind::EqEq)
-                    return make_bool_const(true, out_type);
-
-                if (op == lex::TokenKind::BangEq)
-                    return make_bool_const(false, out_type);
-            }
+            auto result = const_eval::fold_cmp(op, lhs, rhs, out_type);
+            if (result)
+                return make_value(std::move(*result));
 
             return nullptr;
         }
 
         comptime::Value const* fold_cast_constant(comptime::Value const& c, types::TypePtr dst)
         {
-            if (!dst)
-                return nullptr;
-
-            auto result = c.fold_cast(dst);
+            auto result = const_eval::fold_cast(c, dst);
             if (result)
                 return make_value(std::move(*result));
 
@@ -6440,7 +6270,7 @@ export namespace dcc::sema
             out.is_lvalue = sym->kind == SymbolKind::Variable;
             if (out.is_lvalue)
             {
-                if (auto const* c = lookup_constant(const_env, name))
+                if (auto const* c = const_eval::lookup_identifier(name, [&](std::string_view n) { return lookup_constant(const_env, n); }))
                 {
                     out.constant = c;
                     out.is_constant = true;
@@ -7306,8 +7136,8 @@ export namespace dcc::sema
             return out;
         }
 
-        detail::ExprResult analyze_pack_access(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::PackAccessExpr& pa, int loop_depth, std::uint32_t& next_off,
-                                                types::TypePtr, ConstEnv const* const_env)
+        detail::ExprResult analyze_pack_access(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::PackAccessExpr& pa, int loop_depth,
+                                               std::uint32_t& next_off, types::TypePtr, ConstEnv const* const_env)
         {
             auto obj = analyze_expr_or_error(mod, fn, scope, pa.object, loop_depth, next_off, nullptr, const_env);
             detail::ExprResult out = obj;
@@ -9992,7 +9822,7 @@ export namespace dcc::sema
             return false;
         }
 
-        bool constant_equal(comptime::Value const& a, comptime::Value const& b) const { return a == b; }
+        bool constant_equal(comptime::Value const& a, comptime::Value const& b) const { return const_eval::values_equal(a, b); }
 
         detail::ExprResult analyze_if_branch_result(detail::ExprResult then_result, detail::ExprResult else_result)
         {
@@ -10528,8 +10358,7 @@ export namespace dcc::sema
                         return ResolvedType{.type = m_types.type_pack_t(base, static_cast<std::uint32_t>(*idx_val))};
 
                     if (auto const* type_pack = types::type_cast<types::TypePackType>(base))
-                        return ResolvedType{.type = m_types.type_pack_t(type_pack->element,
-                                                                        type_pack->pack_index + static_cast<std::uint32_t>(*idx_val))};
+                        return ResolvedType{.type = m_types.type_pack_t(type_pack->element, type_pack->pack_index + static_cast<std::uint32_t>(*idx_val))};
 
                     return ResolvedType{.type = base};
                 }
