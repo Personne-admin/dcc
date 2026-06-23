@@ -48,15 +48,15 @@ make install    # installs dcc, dccd, and libdcext to PREFIX (default /usr/local
 
 ## Using dc from a Zig build system
 
-As there is currently no custom build tool for dc projects, a DCC SDK is provided
-for the Zig build system for use in any user projects. In order to create a DCC
-project which uses Zig build, add the SDK to your project:
+As there is currently no custom build tool for dc projects, a DCC SDK is
+provided for the Zig build system for use in any user projects. In order to use
+DCC from a project which uses Zig build, add the SDK to it:
 
 ```bash
 zig fetch --save git+https://github.com/yeint-herp/dcc.git
 ```
 
-then in `build.zig`:
+then in `build.zig` add dc sources:
 
 ```zig
 const dcc = @import("dcc");
