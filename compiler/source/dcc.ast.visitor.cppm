@@ -35,6 +35,7 @@ export namespace dcc::ast
         virtual void visitFamType(FamType const*) {}
         virtual void visitFuncPtrType(FuncPtrType const*) {}
         virtual void visitQualifiedType(QualifiedType const*) {}
+        virtual void visitPackIndexType(PackIndexType const*) {}
 
         virtual void visitIntLiteralExpr(IntLiteralExpr const*) {}
         virtual void visitFloatLiteralExpr(FloatLiteralExpr const*) {}
@@ -52,6 +53,7 @@ export namespace dcc::ast
         virtual void visitCallExpr(CallExpr const*) {}
         virtual void visitFieldAccessExpr(FieldAccessExpr const*) {}
         virtual void visitIndexExpr(IndexExpr const*) {}
+        virtual void visitPackAccessExpr(PackAccessExpr const*) {}
         virtual void visitCastExpr(CastExpr const*) {}
         virtual void visitBlockExpr(BlockExpr const*) {}
         virtual void visitIfExpr(IfExpr const*) {}
@@ -124,6 +126,7 @@ export namespace dcc::ast
         void visitFamType(FamType const*) override;
         void visitFuncPtrType(FuncPtrType const*) override;
         void visitQualifiedType(QualifiedType const*) override;
+        void visitPackIndexType(PackIndexType const*) override;
 
         void visitIntLiteralExpr(IntLiteralExpr const*) override {}
         void visitFloatLiteralExpr(FloatLiteralExpr const*) override {}
@@ -141,6 +144,7 @@ export namespace dcc::ast
         void visitCallExpr(CallExpr const*) override;
         void visitFieldAccessExpr(FieldAccessExpr const*) override;
         void visitIndexExpr(IndexExpr const*) override;
+        void visitPackAccessExpr(PackAccessExpr const*) override;
         void visitCastExpr(CastExpr const*) override;
         void visitBlockExpr(BlockExpr const*) override;
         void visitIfExpr(IfExpr const*) override;
@@ -370,6 +374,9 @@ namespace dcc::ast
             case TypeKind::Qualified:
                 visitQualifiedType(node_cast<QualifiedType>(type_expr));
                 break;
+            case TypeKind::PackIndex:
+                visitPackIndexType(node_cast<PackIndexType>(type_expr));
+                break;
         }
     }
 
@@ -417,6 +424,14 @@ namespace dcc::ast
     {
         if (t->inner)
             visitTypeExpr(t->inner);
+    }
+
+    void RecursiveAstVisitor::visitPackIndexType(PackIndexType const* t)
+    {
+        if (t->base)
+            visitTypeExpr(t->base);
+        if (t->index)
+            visitExpr(t->index);
     }
 
     void RecursiveAstVisitor::visitExpr(Expr const* expr)
@@ -473,6 +488,9 @@ namespace dcc::ast
                 break;
             case ExprKind::Index:
                 visitIndexExpr(node_cast<IndexExpr>(expr));
+                break;
+            case ExprKind::PackAccess:
+                visitPackAccessExpr(node_cast<PackAccessExpr>(expr));
                 break;
             case ExprKind::Cast:
                 visitCastExpr(node_cast<CastExpr>(expr));
@@ -560,6 +578,14 @@ namespace dcc::ast
     }
 
     void RecursiveAstVisitor::visitIndexExpr(IndexExpr const* e)
+    {
+        if (e->object)
+            visitExpr(e->object);
+        if (e->index)
+            visitExpr(e->index);
+    }
+
+    void RecursiveAstVisitor::visitPackAccessExpr(PackAccessExpr const* e)
     {
         if (e->object)
             visitExpr(e->object);

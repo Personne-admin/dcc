@@ -12,4 +12,4 @@ void caller() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:6: pack index must be a compile-time integer
+main.dc:6: use '.N' for pack indexing

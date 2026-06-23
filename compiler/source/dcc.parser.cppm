@@ -942,9 +942,17 @@ export namespace dcc::parser
 
             for (;;)
             {
-                if (match(TK::Star))
+                if (check(TK::Dot) && check_at(1, TK::IntLiteral))
                 {
-                    base = m_ctx.make<ast::PointerType>(range_from(start), base);
+                    advance();
+                    auto tok = advance();
+                    std::int64_t iv = 0;
+                    if (tok.value)
+                        if (auto* vp = std::get_if<std::intmax_t>(&*tok.value))
+                            iv = static_cast<std::int64_t>(*vp);
+
+                    auto idx = m_ctx.make<ast::IntLiteralExpr>(tok.range, iv, tok.interned);
+                    base = m_ctx.make<ast::PackIndexType>(range_from(start), base, idx);
                     continue;
                 }
 
@@ -980,6 +988,12 @@ export namespace dcc::parser
                     expect(TK::RParen, "to close function pointer parameter list");
                     fp->range = range_from(start);
                     base = fp;
+                    continue;
+                }
+
+                if (match(TK::Star))
+                {
+                    base = m_ctx.make<ast::PointerType>(range_from(start), base);
                     continue;
                 }
 
@@ -2095,6 +2109,19 @@ export namespace dcc::parser
                 {
                     case TK::Dot: {
                         advance();
+                        if (check(TK::IntLiteral))
+                        {
+                            auto tok = advance();
+                            std::int64_t iv = 0;
+                            if (tok.value)
+                                if (auto* vp = std::get_if<std::intmax_t>(&*tok.value))
+                                    iv = static_cast<std::int64_t>(*vp);
+
+                            auto idx = m_ctx.make<ast::IntLiteralExpr>(tok.range, iv, tok.interned);
+                            expr = m_ctx.make<ast::PackAccessExpr>(range_from(start), expr, idx);
+                            continue;
+                        }
+
                         auto field = expect(TK::Identifier, "after '.'");
                         if (field.kind != TK::Identifier)
                         {

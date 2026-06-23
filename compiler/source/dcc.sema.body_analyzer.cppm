@@ -632,6 +632,19 @@ export namespace dcc::sema
                         line("<null>");
                     m_indent--;
                     break;
+                case ast::ExprKind::PackAccess:
+                    line_fmt("PackAccess {}", expr_suffix(e));
+                    m_indent++;
+                    if (static_cast<ast::PackAccessExpr const&>(e).object)
+                        print_expr(*static_cast<ast::PackAccessExpr const&>(e).object);
+                    else
+                        line("<null>");
+                    if (static_cast<ast::PackAccessExpr const&>(e).index)
+                        print_expr(*static_cast<ast::PackAccessExpr const&>(e).index);
+                    else
+                        line("<null>");
+                    m_indent--;
+                    break;
                 case ast::ExprKind::Cast:
                     line_fmt("Cast {}", expr_suffix(e));
                     m_indent++;
@@ -2837,6 +2850,7 @@ export namespace dcc::sema
 
             auto ret_ty = f.return_type && f.return_type->sema.canonical ? get_canonical(f.return_type->sema) : m_types.m_voidt();
             ret_ty = bindings.substitute(ret_ty);
+
             auto fp = m_types.funcptr_t(ret_ty, {param_types.data(), param_types.size()});
             auto* fp_type = types::type_cast<types::FuncPtrType>(fp);
 
@@ -6291,6 +6305,9 @@ export namespace dcc::sema
                     case ast::ExprKind::Index:
                         out = analyze_index(mod, fn, scope, static_cast<ast::IndexExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
+                    case ast::ExprKind::PackAccess:
+                        out = analyze_pack_access(mod, fn, scope, static_cast<ast::PackAccessExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        break;
                     case ast::ExprKind::Cast:
                         out = analyze_cast(mod, fn, scope, static_cast<ast::CastExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
@@ -6380,6 +6397,8 @@ export namespace dcc::sema
                                     error(ident->range, "cannot expand '{}': not a pack", ident->name);
                             }
                             else if (ast::node_cast<ast::IndexExpr>(pe.operand))
+                                error(pe.range, "pack-index expression cannot be expanded");
+                            else if (ast::node_cast<ast::PackAccessExpr>(pe.operand))
                                 error(pe.range, "pack-index expression cannot be expanded");
                             else
                                 error(pe.range, "pack expansion requires an identifier");
@@ -7284,6 +7303,24 @@ export namespace dcc::sema
                 }
             }
 
+            return out;
+        }
+
+        detail::ExprResult analyze_pack_access(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::PackAccessExpr& pa, int loop_depth, std::uint32_t& next_off,
+                                                types::TypePtr, ConstEnv const* const_env)
+        {
+            auto obj = analyze_expr_or_error(mod, fn, scope, pa.object, loop_depth, next_off, nullptr, const_env);
+            detail::ExprResult out = obj;
+            if (has_error(obj.type))
+                return out;
+
+            (void)analyze_expr_or_error(mod, fn, scope, pa.index, loop_depth, next_off, nullptr, const_env);
+
+            if (is_pack_indexable_type(obj.type))
+                return out;
+
+            out.type = m_types.m_errort();
+            error(pa.range, "cannot pack-index non-pack type");
             return out;
         }
 
@@ -10465,6 +10502,36 @@ export namespace dcc::sema
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::QualifiedType const*>(t)->inner, fn, next_off_ptr, const_env);
                     inner.quals = qual_or(inner.quals, ast_to_type_qual(static_cast<ast::QualifiedType const*>(t)->quals));
                     return inner;
+                }
+                case ast::TypeKind::PackIndex: {
+                    auto const* pi = static_cast<ast::PackIndexType const*>(t);
+                    auto base = resolve_type_node(mod, scope, pi->base, fn, next_off_ptr, const_env);
+                    if (!base || base->kind == types::TypeKind::Error)
+                        return ResolvedType{.type = m_types.m_errort()};
+
+                    if (!is_pack_indexable_type(base))
+                    {
+                        error(pi->range, "cannot index non-pack type with .N syntax");
+                        return ResolvedType{.type = m_types.m_errort()};
+                    }
+
+                    std::optional<std::int64_t> idx_val;
+                    if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(pi->index))
+                        idx_val = lit->value;
+                    else if (pi->index && pi->index->sema.const_value)
+                        idx_val = pi->index->sema.const_value->const_to_int();
+
+                    if (!idx_val || *idx_val < 0)
+                        return ResolvedType{.type = base};
+
+                    if (types::type_cast<types::TemplateParamType>(base))
+                        return ResolvedType{.type = m_types.type_pack_t(base, static_cast<std::uint32_t>(*idx_val))};
+
+                    if (auto const* type_pack = types::type_cast<types::TypePackType>(base))
+                        return ResolvedType{.type = m_types.type_pack_t(type_pack->element,
+                                                                        type_pack->pack_index + static_cast<std::uint32_t>(*idx_val))};
+
+                    return ResolvedType{.type = base};
                 }
             }
             return {.type = m_types.m_errort()};

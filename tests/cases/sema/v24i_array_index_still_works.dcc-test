@@ -1,0 +1,39 @@
+=== FILE: main.dc ===
+module m;
+
+void take_i32(i32 a) {}
+
+void test() {
+    i32[3] arr = {10, 20, 30};
+    take_i32(arr[0]);
+    take_i32(arr[1]);
+    take_i32(arr[2]);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func take_i32 diverging=false
+    Param a type=i32 storage=param offset=0 index=0
+    Body
+  Func test diverging=false
+    Body
+      Var arr type=i32[3] storage=local offset=0
+        StructLiteral [type=i32[3] const=agg(10, 20, 30) constant]
+          IntLiteral 10 [type=i32 const=10 constant]
+          IntLiteral 20 [type=i32 const=20 constant]
+          IntLiteral 30 [type=i32 const=30 constant]
+      Call [type=void const=<none> decl=take_i32]
+        Ident take_i32 [type=<unresolved> const=<none>]
+        Index [type=i32 const=10 constant decl=arr]
+          Ident arr [type=i32[3] const=agg(10, 20, 30) lvalue constant decl=arr]
+          IntLiteral 0 [type=usize const=0 constant]
+      Call [type=void const=<none> decl=take_i32]
+        Ident take_i32 [type=<unresolved> const=<none>]
+        Index [type=i32 const=20 constant decl=arr]
+          Ident arr [type=i32[3] const=agg(10, 20, 30) lvalue constant decl=arr]
+          IntLiteral 1 [type=usize const=1 constant]
+      Call [type=void const=<none> decl=take_i32]
+        Ident take_i32 [type=<unresolved> const=<none>]
+        Index [type=i32 const=30 constant decl=arr]
+          Ident arr [type=i32[3] const=agg(10, 20, 30) lvalue constant decl=arr]
+          IntLiteral 2 [type=usize const=2 constant]

@@ -165,6 +165,9 @@ export namespace dcc::sema
         if (p.is_pack)
             return true;
 
+        if (p.type && p.type->kind == ast::TypeKind::PackIndex)
+            return false;
+
         auto type = p.type && p.type->sema.canonical ? get_canonical(p.type->sema) : nullptr;
         if (!type)
             return false;
@@ -176,6 +179,24 @@ export namespace dcc::sema
             for (auto const& tp : fn.template_params)
                 if (tp.name == tpt->name && tp.is_pack)
                     return true;
+
+        return false;
+    }
+
+    [[nodiscard]] inline bool is_pack_indexable_type(types::TypePtr type) noexcept
+    {
+        if (!type)
+            return false;
+
+        if (auto const* tpt = types::type_cast<types::TemplateParamType>(type))
+        {
+            if (auto* tp = static_cast<ast::TemplateParam*>(tpt->param))
+                return tp->is_pack;
+            return false;
+        }
+
+        if (auto const* type_pack = types::type_cast<types::TypePackType>(type))
+            return is_pack_indexable_type(type_pack->element);
 
         return false;
     }

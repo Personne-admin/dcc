@@ -668,9 +668,29 @@ export namespace dcc::infer
 
                 case types::TypeKind::TypePack: {
                     auto const* t = static_cast<types::TypePackType const*>(type);
+                    if (auto const* tp = types::type_cast<types::TemplateParamType>(t->element))
+                    {
+                        auto const* pack = lookup_pack(tp);
+                        if (pack && t->pack_index < pack->size())
+                        {
+                            auto result = (*pack)[t->pack_index];
+                            memo.emplace(type, result);
+                            return result;
+                        }
+                    }
                     auto element = substitute_impl(t->element, memo);
+                    if (auto const* tp2 = types::type_cast<types::TemplateParamType>(element))
+                    {
+                        auto const* pack = lookup_pack(tp2);
+                        if (pack && t->pack_index < pack->size())
+                        {
+                            auto result = (*pack)[t->pack_index];
+                            memo.emplace(type, result);
+                            return result;
+                        }
+                    }
                     if (element != t->element)
-                        out = m_types.type_pack_t(element);
+                        out = m_types.type_pack_t(element, t->pack_index);
                     break;
                 }
 

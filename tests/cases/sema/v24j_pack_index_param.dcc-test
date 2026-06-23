@@ -1,0 +1,33 @@
+=== FILE: main.dc ===
+module m;
+
+void take_i32(i32 a) {}
+
+void pass_through(T...)(T.0 x) {
+    take_i32(x);
+}
+
+void caller() {
+    pass_through!(i32, f64)(0);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func take_i32 diverging=false
+    Param a type=i32 storage=param offset=0 index=0
+    Body
+  Func pass_through diverging=false
+    Param x type=pack(T) storage=param offset=0 index=0
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident take_i32 [type=<unresolved> const=<none>]
+        Ident x [type=<unresolved> const=<none>]
+  Func caller diverging=false
+    Body
+      Call [type=void const=<none> decl=pass_through spec=pass_through]
+        TemplateInst [type=void(*)(i32) const=<none> decl=pass_through spec=pass_through]
+          Ident pass_through [type=void(*)(pack(T)) const=<none> decl=pass_through]
+        IntLiteral 0 [type=i32 const=0 constant]
+
+=== EXPECT-REGISTRY ===
+fn=pass_through args=[i32, f64] state=2

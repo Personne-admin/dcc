@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+void f(T)(T x) {
+    x.0;
+}
+
+void g() {
+    f!(i32)(0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: cannot pack-index non-pack type

@@ -4,7 +4,7 @@ module m;
 void fn(i32 x) {}
 
 void expand_index(T...)(T args) {
-    fn(args[0]...);
+    fn(args.0...);
 }
 
 void caller() {

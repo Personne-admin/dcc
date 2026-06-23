@@ -104,6 +104,12 @@ namespace dcc::sema
                     n->sema = e->sema;
                     return n;
                 }
+                case ast::TypeKind::PackIndex: {
+                    auto* e = static_cast<ast::PackIndexType const*>(t);
+                    auto* n = m_ctx.make<ast::PackIndexType>(e->range, clone_type(e->base), e->index ? clone_expr(e->index) : nullptr);
+                    n->sema = e->sema;
+                    return n;
+                }
             }
 
             return nullptr;
@@ -217,6 +223,12 @@ namespace dcc::sema
                 case ast::ExprKind::Index: {
                     auto* ex = static_cast<ast::IndexExpr const*>(e);
                     auto* n = m_ctx.make<ast::IndexExpr>(ex->range, clone_expr(ex->object), clone_expr(ex->index));
+                    n->sema = ex->sema;
+                    return n;
+                }
+                case ast::ExprKind::PackAccess: {
+                    auto* ex = static_cast<ast::PackAccessExpr const*>(e);
+                    auto* n = m_ctx.make<ast::PackAccessExpr>(ex->range, clone_expr(ex->object), clone_expr(ex->index));
                     n->sema = ex->sema;
                     return n;
                 }
@@ -638,8 +650,10 @@ namespace dcc::sema
         class TypeSubstitutor
         {
         public:
-            TypeSubstitutor(infer::TemplateBindings const& b, types::TypeContext& tc, si::InternedHashMap<types::TypePtr> const& name_map)
-                : m_bindings(b), m_types(tc), m_name_map(name_map)
+            TypeSubstitutor(infer::TemplateBindings const& b, types::TypeContext& tc, si::InternedHashMap<types::TypePtr> const& name_map,
+                            std::span<ast::TemplateParam const> tparams = {},
+                            diag::DiagnosticEngine* diag_ptr = nullptr)
+                : m_bindings(b), m_types(tc), m_name_map(name_map), m_template_params(tparams), m_diag(diag_ptr)
             {
             }
 
@@ -650,10 +664,14 @@ namespace dcc::sema
             void substitute_in_pattern(ast::Pattern* p);
             void substitute_in_decl(ast::Decl* d);
 
+            [[nodiscard]] types::TypePtr resolve_pack_index_type(ast::PackIndexType const* pi) const;
+
         private:
             infer::TemplateBindings const& m_bindings;
             types::TypeContext& m_types;
             si::InternedHashMap<types::TypePtr> const& m_name_map;
+            std::span<ast::TemplateParam const> m_template_params;
+            diag::DiagnosticEngine* m_diag{};
 
             [[nodiscard]] types::TypePtr deep_substitute(types::TypePtr type) const
             {
@@ -716,11 +734,17 @@ namespace dcc::sema
                         return type;
                     }
                     case types::TypeKind::TypePack: {
-                        auto const* pt = static_cast<types::TypePackType const*>(static_cast<void const*>(type));
+                        auto const* pt = static_cast<types::TypePackType const*>(type);
+                        if (auto const* tpt = types::type_cast<types::TemplateParamType>(pt->element))
+                        {
+                            auto const* pack = m_bindings.lookup_pack(tpt);
+                            if (pack && pt->pack_index < pack->size())
+                                return (*pack)[pt->pack_index];
+                            return m_types.m_errort();
+                        }
                         auto inner = deep_substitute(pt->element);
                         if (inner != pt->element)
                             return m_types.type_pack_t(inner, pt->pack_index);
-
                         return type;
                     }
                     case types::TypeKind::FuncPtr: {
@@ -758,6 +782,58 @@ namespace dcc::sema
 
             static comptime::Value const* to_local_cv_const(ast::ExprSema const& sema) { return sema.const_value; }
         };
+
+        types::TypePtr TypeSubstitutor::resolve_pack_index_type(ast::PackIndexType const* pi) const
+        {
+            if (pi->base && !pi->base->sema.canonical)
+            {
+                if (auto* base_named = ast::node_cast<ast::NamedType>(pi->base))
+                {
+                    if (base_named->path.is_simple())
+                    {
+                        std::string_view name = base_named->path.simple_name();
+                        std::optional<std::int64_t> idx_val;
+                        if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(pi->index))
+                            idx_val = lit->value;
+                        else if (pi->index && pi->index->sema.const_value)
+                            idx_val = pi->index->sema.const_value->const_to_int();
+
+                        if (!idx_val || *idx_val < 0)
+                            return m_types.m_errort();
+
+                        std::uint32_t index = static_cast<std::uint32_t>(*idx_val);
+
+                        for (auto const& tp : m_template_params)
+                        {
+                            if (tp.name == name && tp.is_pack)
+                            {
+                                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(&tp), tp.name, 0);
+                                if (!param_ty)
+                                    continue;
+                                auto const* tp_ptr = types::type_cast<types::TemplateParamType>(param_ty);
+                                if (!tp_ptr)
+                                    continue;
+                                auto const* pack = m_bindings.lookup_pack(tp_ptr);
+                                if (pack && index < pack->size())
+                                    return (*pack)[index];
+                                return m_types.m_errort();
+                            }
+
+                            if (tp.name == name && m_diag)
+                            {
+                                m_diag->error(pi->range, "cannot index non-pack type with .N syntax");
+                                return m_types.m_errort();
+                            }
+                        }
+
+                        return m_types.m_errort();
+                    }
+                }
+
+                return m_types.m_errort();
+            }
+            return nullptr;
+        }
 
         void TypeSubstitutor::substitute_in_type(ast::TypeExpr* t)
         {
@@ -813,6 +889,68 @@ namespace dcc::sema
                 }
                 case ast::TypeKind::Primitive:
                     break;
+                case ast::TypeKind::PackIndex: {
+                    auto* pi = static_cast<ast::PackIndexType*>(t);
+                    substitute_in_type(pi->base);
+                    if (pi->index)
+                        substitute_in_expr(pi->index);
+
+                    auto resolved = resolve_pack_index_type(pi);
+                    if (resolved)
+                    {
+                        set_canonical(t->sema, resolved);
+                    }
+                    else if (pi->base && pi->base->sema.canonical)
+                    {
+                        auto base_canon = get_canonical(pi->base->sema);
+
+                        std::optional<std::int64_t> idx_val;
+                        if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(pi->index))
+                            idx_val = lit->value;
+                        else if (pi->index && pi->index->sema.const_value)
+                            idx_val = pi->index->sema.const_value->const_to_int();
+
+                        if (!idx_val || *idx_val < 0)
+                        {
+                            set_canonical(t->sema, m_types.m_errort());
+                            break;
+                        }
+
+                        std::uint32_t index = static_cast<std::uint32_t>(*idx_val);
+
+                        if (auto const* tpp = types::type_cast<types::TemplateParamType>(base_canon))
+                        {
+                            auto const* pack = m_bindings.lookup_pack(tpp);
+                            if (pack && index < pack->size())
+                            {
+                                set_canonical(t->sema, (*pack)[index]);
+                                break;
+                            }
+                        }
+                        else if (auto const* tpt = types::type_cast<types::TypePackType>(base_canon))
+                        {
+                            std::uint32_t final_index = tpt->pack_index + index;
+                            if (auto const* ept = types::type_cast<types::TemplateParamType>(tpt->element))
+                            {
+                                auto const* pack = m_bindings.lookup_pack(ept);
+                                if (pack && final_index < pack->size())
+                                {
+                                    set_canonical(t->sema, (*pack)[final_index]);
+                                    break;
+                                }
+                            }
+
+                            auto elem_ty = m_types.type_pack_t(tpt->element, final_index);
+                            set_canonical(t->sema, elem_ty);
+                            break;
+                        }
+
+                        if (m_diag)
+                            m_diag->error(pi->range, "cannot index non-pack type with .N syntax");
+                        set_canonical(t->sema, m_types.m_errort());
+                    }
+                    break;
+                }
             }
         }
 
@@ -873,6 +1011,12 @@ namespace dcc::sema
                 case ast::ExprKind::FieldAccess:
                     substitute_in_expr(static_cast<ast::FieldAccessExpr*>(e)->object);
                     break;
+                case ast::ExprKind::PackAccess: {
+                    auto* ex = static_cast<ast::PackAccessExpr*>(e);
+                    substitute_in_expr(ex->object);
+                    substitute_in_expr(ex->index);
+                    break;
+                }
                 case ast::ExprKind::Index: {
                     auto* ex = static_cast<ast::IndexExpr*>(e);
                     substitute_in_expr(ex->object);
@@ -1580,7 +1724,8 @@ export namespace dcc::sema
     }
 
     [[nodiscard]] std::vector<ast::FuncParam> expand_func_params(ast::FuncDecl const& template_fn, infer::TemplateBindings const& bindings,
-                                                                 ast::AstContext& ast_ctx, types::TypeContext& type_ctx)
+                                                                 ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
+                                                                 diag::DiagnosticEngine* diag = nullptr)
     {
         std::vector<ast::FuncParam> result;
 
@@ -1599,7 +1744,7 @@ export namespace dcc::sema
             auto const& p = template_fn.params[i];
             ast::FuncParam new_param = cloner.clone_func_param(p);
             {
-                TypeSubstitutor sub{const_cast<infer::TemplateBindings&>(bindings), type_ctx, empty_name_map};
+                TypeSubstitutor sub{const_cast<infer::TemplateBindings&>(bindings), type_ctx, empty_name_map, template_fn.template_params, diag};
                 sub.substitute_in_type(new_param.type);
             }
             result.push_back(std::move(new_param));
@@ -1851,6 +1996,12 @@ export namespace dcc::sema
                     case ast::ExprKind::FieldAccess:
                         replace_in_expr(static_cast<ast::FieldAccessExpr*>(e)->object);
                         break;
+                    case ast::ExprKind::PackAccess: {
+                        auto* pa = static_cast<ast::PackAccessExpr*>(e);
+                        replace_in_expr(pa->object);
+                        replace_in_expr(pa->index);
+                        break;
+                    }
                     case ast::ExprKind::Index: {
                         auto* idx = static_cast<ast::IndexExpr*>(e);
                         replace_in_expr(idx->object);
@@ -1980,7 +2131,7 @@ export namespace dcc::sema
         std::vector<ast::FuncParam> expanded_params;
         if (template_fn.body)
         {
-            expanded_params = expand_func_params(template_fn, bindings, ast_ctx, type_ctx);
+            expanded_params = expand_func_params(template_fn, bindings, ast_ctx, type_ctx, diag);
             for (auto& p : expanded_params)
             {
                 if (auto ty = p.type && p.type->sema.canonical ? get_canonical(p.type->sema) : nullptr)
@@ -1996,7 +2147,7 @@ export namespace dcc::sema
             AstCloner cloner{ast_ctx};
             cloned_body = cloner.clone_block(*template_fn.body);
 
-            TypeSubstitutor substitutor{bindings, type_ctx, param_type_map};
+            TypeSubstitutor substitutor{bindings, type_ctx, param_type_map, template_fn.template_params, diag};
             substitutor.substitute_in_block(*cloned_body);
 
             if (!nttp_map.empty())
@@ -2082,6 +2233,9 @@ export namespace dcc::sema
 
             for (auto const& p : template_fn.params)
             {
+                if (p.type && p.type->kind == ast::TypeKind::PackIndex)
+                    continue;
+
                 if (!pack_lookup.count(p.name))
                 {
                     auto canon = p.type && p.type->sema.canonical ? get_canonical(p.type->sema) : nullptr;
@@ -2147,7 +2301,10 @@ export namespace dcc::sema
                         {
                             auto expanded = expand_static_for(*static_cast<ast::StaticForStmt*>(stmt));
                             for (auto* s : expanded)
+                            {
+                                expand_in_stmt(s);
                                 new_stmts.push_back(s);
+                            }
                         }
                         else
                         {
@@ -2173,6 +2330,12 @@ export namespace dcc::sema
                             if (auto* es = static_cast<ast::ExprStmt*>(s))
                                 expand_in_expr(es->expr, false);
                             break;
+                        case ast::StmtKind::DeclStmt: {
+                            auto* ds = static_cast<ast::DeclStmt*>(s);
+                            if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
+                                expand_in_expr(vd->init, false);
+                            break;
+                        }
                         case ast::StmtKind::Return:
                             if (auto* rs = static_cast<ast::ReturnStmt*>(s))
                                 expand_in_expr(rs->value, false);
@@ -2342,6 +2505,20 @@ export namespace dcc::sema
                             }
                         }
 
+                        if (auto* pa = ast::node_cast<ast::PackAccessExpr>(pe->operand))
+                        {
+                            if (auto* obj_ident = ast::node_cast<ast::IdentExpr>(pa->object))
+                            {
+                                auto pit = pack_info.find(obj_ident->name);
+                                if (pit != pack_info.end())
+                                {
+                                    if (m_diag)
+                                        m_diag->error(pe->range, "pack-index expression cannot be expanded");
+                                    return;
+                                }
+                            }
+                        }
+
                         auto* ident = ast::node_cast<ast::IdentExpr>(pe->operand);
                         if (ident)
                         {
@@ -2444,10 +2621,24 @@ export namespace dcc::sema
                             {
                                 auto pit = pack_info.find(obj_ident->name);
                                 if (pit != pack_info.end())
+                                    if (m_diag)
+                                        m_diag->error(idx->range, "use '.N' for pack indexing");
+                            }
+                            break;
+                        }
+                        case ast::ExprKind::PackAccess: {
+                            auto* pa = static_cast<ast::PackAccessExpr*>(e);
+                            expand_in_expr(pa->object, false);
+                            expand_in_expr(pa->index, false);
+
+                            if (auto* obj_ident = ast::node_cast<ast::IdentExpr>(pa->object))
+                            {
+                                auto pit = pack_info.find(obj_ident->name);
+                                if (pit != pack_info.end())
                                 {
                                     auto const& pinfo = pit->second;
                                     auto const& pack_name = obj_ident->name;
-                                    auto idx_val = try_fold_index(idx->index);
+                                    auto idx_val = try_fold_index(pa->index);
                                     if (idx_val)
                                     {
                                         std::int64_t index = *idx_val;
@@ -2473,7 +2664,7 @@ export namespace dcc::sema
                                                     std::memcpy(buf, candidate_str.data(), candidate_str.size() + 1);
                                                     candidate = std::string_view{buf, candidate_str.size()};
                                                 }
-                                                auto* new_ident = ast_ctx.make<ast::IdentExpr>(idx->range, candidate);
+                                                auto* new_ident = ast_ctx.make<ast::IdentExpr>(pa->range, candidate);
                                                 set_resolved_type(new_ident->sema, eit->second);
                                                 if (dit != expanded_decls.end())
                                                     new_ident->sema.resolved_decl = dit->second;
@@ -2487,11 +2678,11 @@ export namespace dcc::sema
                                             }
                                         }
                                         else if (m_diag)
-                                            m_diag->error(idx->range, "pack index {} out of bounds for pack '{}' of length {}", index, pack_name,
+                                            m_diag->error(pa->range, "pack index {} out of bounds for pack '{}' of length {}", index, pack_name,
                                                           pinfo.types.size());
                                     }
                                     else if (m_diag)
-                                        m_diag->error(idx->index->range, "pack index must be a compile-time integer");
+                                        m_diag->error(pa->index->range, "pack index must be a compile-time integer");
                                 }
                             }
                             break;
@@ -2552,6 +2743,7 @@ export namespace dcc::sema
                         default:
                             break;
                     }
+
                 }
 
                 std::pmr::vector<ast::StmtPtr> expand_static_for(ast::StaticForStmt& sf)
@@ -3037,7 +3229,8 @@ export namespace dcc::sema
                             elem_val = &it->second.values[elem_idx];
 
                         bool multi_pack = pack.types.size() > 1;
-                        LoopVarReplacer replacer{ast_ctx, type_ctx, sf.item_name, pack.types[elem_idx], elem_val, it->second.is_value_pack, expanded_decls, pack_name, elem_idx, multi_pack};
+                        LoopVarReplacer replacer{ast_ctx,   type_ctx, sf.item_name, pack.types[elem_idx], elem_val, it->second.is_value_pack, expanded_decls,
+                                                 pack_name, elem_idx, multi_pack};
                         replacer.replace_in_block(cloned_block);
 
                         for (auto* s : cloned_block.stmts)
@@ -3084,8 +3277,20 @@ export namespace dcc::sema
         syn_decl->return_type = template_fn.return_type ? [&]() -> ast::TypeExpr* {
             AstCloner cloner{ast_ctx};
             auto* ty = cloner.clone_type(template_fn.return_type);
-            TypeSubstitutor sub{bindings, type_ctx, param_type_map};
+            TypeSubstitutor sub{bindings, type_ctx, param_type_map, template_fn.template_params, diag};
             sub.substitute_in_type(ty);
+
+            if (ty->sema.canonical)
+            {
+                auto canon = get_canonical(ty->sema);
+                if (canon != fp_type->return_type)
+                {
+                    auto new_ft = type_ctx.funcptr_t(canon, fp_type->params);
+                    if (auto* new_fp = const_cast<types::FuncPtrType*>(types::type_cast<types::FuncPtrType>(new_ft)))
+                        fp_type = new_fp;
+                }
+            }
+
             return ty;
         }()
             : nullptr;
@@ -3098,6 +3303,225 @@ export namespace dcc::sema
         syn_decl->body = std::move(cloned_body);
 
         syn_decl->sema.is_intrinsic = template_fn.sema.is_intrinsic;
+
+        if (diag)
+        {
+            struct Verifier
+            {
+                diag::DiagnosticEngine* d;
+                ast::FuncDecl const* fn;
+
+                void check_canon(sm::SourceRange loc, types::TypePtr canon, char const* ctx) const
+                {
+                    if (!canon)
+                        return;
+                    if (types::type_cast<types::TypePackType>(canon))
+                        d->error(loc, "internal error: TypePackType survived in {} into lowerable code", ctx);
+                    if (types::type_cast<types::TemplateParamType>(canon))
+                        d->error(loc, "internal error: TemplateParamType survived in {} into lowerable code", ctx);
+                }
+
+                void check_type(ast::TypeExpr const* t, char const* ctx) const
+                {
+                    if (!t)
+                        return;
+                    auto canon = get_canonical(t->sema);
+                    bool resolved = canon && !types::type_cast<types::TypePackType>(canon)
+                                    && !types::type_cast<types::TemplateParamType>(canon);
+                    if (t->kind == ast::TypeKind::PackIndex && !resolved)
+                        d->error(t->range, "internal error: PackIndexType survived in {} into lowerable code", ctx);
+                    check_canon(t->range, canon, ctx);
+                }
+
+                void walk_expr(ast::Expr const* e) const
+                {
+                    if (!e)
+                        return;
+                    if (e->kind == ast::ExprKind::PackAccess)
+                        d->error(e->range, "internal error: PackAccessExpr survived into lowerable code");
+                    check_canon(e->range, get_resolved_type(e->sema), "expr type");
+                    switch (e->kind)
+                    {
+                        case ast::ExprKind::Unary:
+                            walk_expr(static_cast<ast::UnaryExpr const*>(e)->operand);
+                            break;
+                        case ast::ExprKind::Postfix:
+                            walk_expr(static_cast<ast::PostfixExpr const*>(e)->operand);
+                            break;
+                        case ast::ExprKind::Binary: {
+                            auto* bin = static_cast<ast::BinaryExpr const*>(e);
+                            walk_expr(bin->lhs);
+                            walk_expr(bin->rhs);
+                            break;
+                        }
+                        case ast::ExprKind::Call: {
+                            auto* call = static_cast<ast::CallExpr const*>(e);
+                            walk_expr(call->callee);
+                            for (auto* a : call->args)
+                                walk_expr(a);
+                            break;
+                        }
+                        case ast::ExprKind::FieldAccess:
+                            walk_expr(static_cast<ast::FieldAccessExpr const*>(e)->object);
+                            break;
+                        case ast::ExprKind::Index: {
+                            auto* idx = static_cast<ast::IndexExpr const*>(e);
+                            walk_expr(idx->object);
+                            walk_expr(idx->index);
+                            break;
+                        }
+                        case ast::ExprKind::Cast: {
+                            auto* c = static_cast<ast::CastExpr const*>(e);
+                            walk_expr(c->operand);
+                            check_type(c->target, "cast target");
+                            break;
+                        }
+                        case ast::ExprKind::Block:
+                            walk_block(static_cast<ast::BlockExpr const*>(e)->body);
+                            break;
+                        case ast::ExprKind::If:
+                            walk_expr(static_cast<ast::IfExpr const*>(e)->condition);
+                            walk_block(static_cast<ast::IfExpr const*>(e)->then_block);
+                            walk_expr(static_cast<ast::IfExpr const*>(e)->else_branch);
+                            break;
+                        case ast::ExprKind::Match: {
+                            auto* me = static_cast<ast::MatchExpr const*>(e);
+                            walk_expr(me->operand);
+                            for (auto const& arm : me->arms)
+                                walk_expr(arm.body);
+                            break;
+                        }
+                        case ast::ExprKind::StructLiteral: {
+                            auto* sl = static_cast<ast::StructLiteralExpr const*>(e);
+                            check_type(sl->type, "struct literal type");
+                            for (auto const& f : sl->fields)
+                                walk_expr(f.value);
+                            break;
+                        }
+                        case ast::ExprKind::Sizeof:
+                            check_type(static_cast<ast::SizeofExpr const*>(e)->target, "sizeof");
+                            break;
+                        case ast::ExprKind::Alignof:
+                            check_type(static_cast<ast::AlignofExpr const*>(e)->target, "alignof");
+                            break;
+                        case ast::ExprKind::Offsetof:
+                            check_type(static_cast<ast::OffsetofExpr const*>(e)->target, "offsetof");
+                            break;
+                        case ast::ExprKind::Compiles:
+                            walk_block(static_cast<ast::CompilesExpr const*>(e)->body);
+                            break;
+                        case ast::ExprKind::TypeAST:
+                            check_type(static_cast<ast::TypeASTExpr const*>(e)->type_node, "type-as-expr");
+                            break;
+                        case ast::ExprKind::TemplateInst: {
+                            auto* ti = static_cast<ast::TemplateInstExpr const*>(e);
+                            walk_expr(ti->callee);
+                            for (auto const& ta : ti->template_args)
+                            {
+                                check_type(ta.type, "template arg");
+                                walk_expr(ta.expr);
+                            }
+                            break;
+                        }
+                        case ast::ExprKind::Range: {
+                            auto* r = static_cast<ast::RangeExpr const*>(e);
+                            walk_expr(r->start);
+                            walk_expr(r->end);
+                            break;
+                        }
+                        case ast::ExprKind::PackExpansion:
+                            walk_expr(static_cast<ast::PackExpansionExpr const*>(e)->operand);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                void walk_stmt(ast::Stmt const* s) const
+                {
+                    if (!s)
+                        return;
+                    switch (s->kind)
+                    {
+                        case ast::StmtKind::Expr:
+                            walk_expr(static_cast<ast::ExprStmt const*>(s)->expr);
+                            break;
+                        case ast::StmtKind::DeclStmt: {
+                            auto* ds = static_cast<ast::DeclStmt const*>(s);
+                            if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
+                            {
+                                check_type(vd->type, "local decl type");
+                                walk_expr(vd->init);
+                            }
+                            break;
+                        }
+                        case ast::StmtKind::Return:
+                            walk_expr(static_cast<ast::ReturnStmt const*>(s)->value);
+                            break;
+                        case ast::StmtKind::While:
+                            walk_expr(static_cast<ast::WhileStmt const*>(s)->condition);
+                            walk_block(static_cast<ast::WhileStmt const*>(s)->body);
+                            break;
+                        case ast::StmtKind::DoWhile:
+                            walk_block(static_cast<ast::DoWhileStmt const*>(s)->body);
+                            walk_expr(static_cast<ast::DoWhileStmt const*>(s)->condition);
+                            break;
+                        case ast::StmtKind::For: {
+                            auto* fs = static_cast<ast::ForStmt const*>(s);
+                            walk_stmt(fs->init);
+                            walk_expr(fs->cond);
+                            walk_expr(fs->update);
+                            walk_block(fs->body);
+                            break;
+                        }
+                        case ast::StmtKind::ForIn:
+                            check_type(static_cast<ast::ForInStmt const*>(s)->item_type, "for-in item type");
+                            walk_expr(static_cast<ast::ForInStmt const*>(s)->iterable);
+                            walk_block(static_cast<ast::ForInStmt const*>(s)->body);
+                            break;
+                        case ast::StmtKind::Defer:
+                            walk_stmt(static_cast<ast::DeferStmt const*>(s)->body);
+                            break;
+                        case ast::StmtKind::StaticIf:
+                            walk_expr(static_cast<ast::StaticIfStmt const*>(s)->condition);
+                            walk_block(static_cast<ast::StaticIfStmt const*>(s)->then_block);
+                            walk_stmt(static_cast<ast::StaticIfStmt const*>(s)->else_branch);
+                            break;
+                        case ast::StmtKind::StaticMatch:
+                            walk_expr(static_cast<ast::StaticMatchStmt const*>(s)->operand);
+                            for (auto const& arm : static_cast<ast::StaticMatchStmt const*>(s)->arms)
+                                walk_expr(arm.body);
+                            break;
+                        case ast::StmtKind::StaticFor:
+                            walk_expr(static_cast<ast::StaticForStmt const*>(s)->pack_expr);
+                            walk_block(static_cast<ast::StaticForStmt const*>(s)->body);
+                            break;
+                        default:
+                            break;
+                    }
+                }
+
+                void walk_block(ast::Block const& blk) const
+                {
+                    for (auto* stmt : blk.stmts)
+                        walk_stmt(stmt);
+                    walk_expr(blk.tail);
+                }
+
+                void run()
+                {
+                    check_type(fn->return_type, "return type");
+
+                    for (auto const& p : fn->params)
+                        check_type(p.type, "parameter type");
+
+                    if (fn->body)
+                        walk_block(*fn->body);
+                }
+            };
+
+            Verifier{diag, syn_decl}.run();
+        }
 
         return InstantiatedFunc{syn_decl, fp_type};
     }

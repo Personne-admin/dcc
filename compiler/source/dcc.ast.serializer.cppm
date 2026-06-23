@@ -164,6 +164,22 @@ export namespace dcc::ast
             visitTypeExpr(t->inner);
         }
 
+        void visitPackIndexType(PackIndexType const* t) override
+        {
+            line("PackIndex");
+            IndentScope is(m_indent_level);
+            line("Base");
+            {
+                IndentScope is2(m_indent_level);
+                visitTypeExpr(t->base);
+            }
+            line("Index");
+            {
+                IndentScope is2(m_indent_level);
+                visitExpr(t->index);
+            }
+        }
+
         void visitIntLiteralExpr(IntLiteralExpr const* e) override { line_fmt("IntLiteral {}", e->value); }
         void visitFloatLiteralExpr(FloatLiteralExpr const* e) override { line_fmt("FloatLiteral {}", e->value); }
         void visitStringLiteralExpr(StringLiteralExpr const* e) override { line_fmt("StringLiteral \"{}\"", std::string_view{e->value}); }
@@ -247,6 +263,21 @@ export namespace dcc::ast
                 visitExpr(e->object);
             }
             line("Subscript");
+            {
+                IndentScope is2(m_indent_level);
+                visitExpr(e->index);
+            }
+        }
+        void visitPackAccessExpr(PackAccessExpr const* e) override
+        {
+            line("PackAccess");
+            IndentScope is(m_indent_level);
+            line("Object");
+            {
+                IndentScope is2(m_indent_level);
+                visitExpr(e->object);
+            }
+            line("Index");
             {
                 IndentScope is2(m_indent_level);
                 visitExpr(e->index);

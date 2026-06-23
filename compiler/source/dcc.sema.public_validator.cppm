@@ -164,6 +164,12 @@ export namespace dcc::sema
                     validate_expr(mod, i.index);
                     break;
                 }
+                case ast::ExprKind::PackAccess: {
+                    auto const& pa = *static_cast<ast::PackAccessExpr const*>(expr);
+                    validate_expr(mod, pa.object);
+                    validate_expr(mod, pa.index);
+                    break;
+                }
                 case ast::ExprKind::Cast: {
                     auto const& c = *static_cast<ast::CastExpr const*>(expr);
                     validate_expr(mod, c.operand);
@@ -283,6 +289,11 @@ export namespace dcc::sema
                 case ast::TypeKind::Qualified:
                     validate_type(mod, static_cast<ast::QualifiedType const*>(node)->inner);
                     return;
+                case ast::TypeKind::PackIndex: {
+                    auto const* pi = static_cast<ast::PackIndexType const*>(node);
+                    validate_type(mod, pi->base);
+                    return;
+                }
             }
         }
 

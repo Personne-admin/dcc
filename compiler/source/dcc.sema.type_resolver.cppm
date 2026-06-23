@@ -491,6 +491,44 @@ export namespace dcc::sema
                     out.quals = detail::qual_or(out.quals, ast_to_type_qual(t->quals));
                     break;
                 }
+                case ast::TypeKind::PackIndex: {
+                    auto* pi = static_cast<ast::PackIndexType*>(node);
+                    auto base = resolve_type_expr(pi->base, mod, env, quiet_unknown);
+                    if (!base.type || base.type->kind == types::TypeKind::Error)
+                    {
+                        out.type = m_types.m_errort();
+                        break;
+                    }
+
+                    if (!is_pack_indexable_type(base.type))
+                    {
+                        m_diag.error(pi->range, "cannot index non-pack type with .N syntax");
+                        out.type = m_types.m_errort();
+                        break;
+                    }
+
+                    auto idx_val = resolve_const_uint(pi->index, mod, env);
+                    if (!idx_val)
+                    {
+                        out.type = m_types.m_errort();
+                        m_diag.error(pi->index->range, "pack index must be a compile-time constant");
+                        break;
+                    }
+
+                    if (types::type_cast<types::TemplateParamType>(base.type))
+                    {
+                        out.type = m_types.type_pack_t(base.type, static_cast<std::uint32_t>(*idx_val));
+                    }
+                    else if (auto const* type_pack = types::type_cast<types::TypePackType>(base.type))
+                    {
+                        if (!types::type_cast<types::TemplateParamType>(type_pack->element))
+                            out.type = type_pack->element;
+                        else
+                            out.type = m_types.type_pack_t(type_pack->element,
+                                                          type_pack->pack_index + static_cast<std::uint32_t>(*idx_val));
+                    }
+                    break;
+                }
             }
 
             apply_sema(*node, out);

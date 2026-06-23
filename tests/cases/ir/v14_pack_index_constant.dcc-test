@@ -5,8 +5,8 @@ void take_i32(i32 a) {}
 void take_f64(f64 a) {}
 
 void pick(T...)(T args) {
-    take_i32(args[0]);
-    take_f64(args[1]);
+    take_i32(args.0);
+    take_f64(args.1);
 }
 
 void caller() {

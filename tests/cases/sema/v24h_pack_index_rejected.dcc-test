@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void fn(i32 x) {}
+
+void bracket_index(T...)(T args) {
+    fn(args[0]);
+}
+
+void caller() {
+    bracket_index!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: use '.N' for pack indexing

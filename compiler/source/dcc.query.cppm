@@ -345,6 +345,14 @@ namespace dcc::query
                         walk_type_expr(t->inner, result, target, opts);
                     break;
                 }
+                case ast::TypeKind::PackIndex: {
+                    auto* t = static_cast<ast::PackIndexType const*>(type_expr);
+                    if (t->base && range_contains_or_touches_end(t->base->range, target))
+                        walk_type_expr(t->base, result, target, opts);
+                    if (t->index && range_contains_or_touches_end(t->index->range, target))
+                        walk_expr(t->index, result, target, opts);
+                    break;
+                }
             }
         }
 
@@ -485,6 +493,14 @@ namespace dcc::query
                 }
                 case ast::ExprKind::Index: {
                     auto* e = static_cast<ast::IndexExpr const*>(expr);
+                    if (e->object && range_contains_or_touches_end(e->object->range, target))
+                        walk_expr(e->object, result, target, opts);
+                    if (e->index && range_contains_or_touches_end(e->index->range, target))
+                        walk_expr(e->index, result, target, opts);
+                    break;
+                }
+                case ast::ExprKind::PackAccess: {
+                    auto* e = static_cast<ast::PackAccessExpr const*>(expr);
                     if (e->object && range_contains_or_touches_end(e->object->range, target))
                         walk_expr(e->object, result, target, opts);
                     if (e->index && range_contains_or_touches_end(e->index->range, target))

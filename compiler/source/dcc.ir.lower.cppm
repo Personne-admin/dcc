@@ -2128,6 +2128,10 @@ export namespace dcc::ir::lower
                     return lower_index_expr(static_cast<ast::IndexExpr const*>(expr));
                 }
 
+                case ast::ExprKind::PackAccess: {
+                    lower_panic(expr, "PackAccess must be resolved before IR lowering");
+                }
+
                 case ast::ExprKind::StructLiteral: {
                     return lower_struct_literal_expr(static_cast<ast::StructLiteralExpr const*>(expr));
                 }
@@ -2680,6 +2684,9 @@ export namespace dcc::ir::lower
             if (operand->kind == ast::ExprKind::Index)
                 return lower_index_lvalue(static_cast<ast::IndexExpr const*>(operand));
 
+            if (operand->kind == ast::ExprKind::PackAccess)
+                lower_panic(operand, "PackAccess must be resolved before IR lowering");
+
             {
                 auto* sema_ty = get_sema_resolved_type(operand);
                 if (sema_ty)
@@ -2999,6 +3006,9 @@ export namespace dcc::ir::lower
                 auto* gep = lower_index_lvalue(static_cast<ast::IndexExpr const*>(expr));
                 return {nullptr, gep};
             }
+
+            if (expr->kind == ast::ExprKind::PackAccess)
+                lower_panic(expr, "PackAccess must be resolved before IR lowering");
 
             if (expr->kind == ast::ExprKind::Unary)
             {

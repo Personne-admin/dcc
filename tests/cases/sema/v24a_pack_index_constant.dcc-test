@@ -5,8 +5,8 @@ void take_i32(i32 a) {}
 void take_f64(f64 a) {}
 
 void pick(T...)(T args) {
-    take_i32(args[0]);
-    take_f64(args[1]);
+    take_i32(args.0);
+    take_f64(args.1);
 }
 
 void caller() {
@@ -26,12 +26,12 @@ Module m
     Body
       Call [type=<unresolved> const=<none>]
         Ident take_i32 [type=<unresolved> const=<none>]
-        Index [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
           Ident args [type=<unresolved> const=<none>]
           IntLiteral 0 [type=<unresolved> const=<none>]
       Call [type=<unresolved> const=<none>]
         Ident take_f64 [type=<unresolved> const=<none>]
-        Index [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
           Ident args [type=<unresolved> const=<none>]
           IntLiteral 1 [type=<unresolved> const=<none>]
   Func caller diverging=false

@@ -1346,7 +1346,7 @@ namespace
                     if (!seen.insert(key).second)
                         continue;
 
-                    auto result = dcc::sema::instantiate_with_bindings(*template_fn, bindings, ast_ctx, type_ctx);
+                    auto result = dcc::sema::instantiate_with_bindings(*template_fn, bindings, ast_ctx, type_ctx, &diag);
                     if (result.decl)
                     {
                         dcc::sema::analyze_instantiated_body(const_cast<dcc::sema::ModuleInfo&>(*mod), *result.decl, diag, ast_ctx, type_ctx, sema.allocator());

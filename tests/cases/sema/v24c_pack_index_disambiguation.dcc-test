@@ -4,16 +4,16 @@ module m;
 void take_i32(i32 a) {}
 void take_f64(f64 a) {}
 
-void mixed(T...)(T args, i32[2] arr) {
+void mixed(T...)(i32[2] arr, T args) {
     take_i32(arr[0]);
-    take_i32(args[0]);
-    take_f64(args[1]);
+    take_i32(args.0);
+    take_f64(args.1);
     take_i32(arr[1]);
 }
 
 void caller() {
     i32[2] arr_val = {10, 20};
-    mixed!(i32, f64)(0, 1.0, arr_val);
+    mixed!(i32, f64)(arr_val, 0, 1.0);
 }
 
 === EXPECT-BODY ===
@@ -25,8 +25,8 @@ Module m
     Param a type=f64 storage=param offset=0 index=0
     Body
   Func mixed diverging=false
-    Param args type=T storage=param offset=0 index=0
-    Param arr type=i32[2] storage=param offset=0 index=1
+    Param arr type=i32[2] storage=param offset=0 index=0
+    Param args type=T storage=param offset=8 index=1
     Body
       Call [type=<unresolved> const=<none>]
         Ident take_i32 [type=<unresolved> const=<none>]
@@ -35,12 +35,12 @@ Module m
           IntLiteral 0 [type=<unresolved> const=<none>]
       Call [type=<unresolved> const=<none>]
         Ident take_i32 [type=<unresolved> const=<none>]
-        Index [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
           Ident args [type=<unresolved> const=<none>]
           IntLiteral 0 [type=<unresolved> const=<none>]
       Call [type=<unresolved> const=<none>]
         Ident take_f64 [type=<unresolved> const=<none>]
-        Index [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
           Ident args [type=<unresolved> const=<none>]
           IntLiteral 1 [type=<unresolved> const=<none>]
       Call [type=<unresolved> const=<none>]
@@ -55,11 +55,11 @@ Module m
           IntLiteral 10 [type=i32 const=10 constant]
           IntLiteral 20 [type=i32 const=20 constant]
       Call [type=void const=<none> decl=mixed spec=mixed]
-        TemplateInst [type=void(*)(i32, f64, i32[2]) const=<none> decl=mixed spec=mixed]
-          Ident mixed [type=void(*)(T, i32[2]) const=<none> decl=mixed]
+        TemplateInst [type=void(*)(i32[2], i32, f64) const=<none> decl=mixed spec=mixed]
+          Ident mixed [type=void(*)(i32[2], T) const=<none> decl=mixed]
+        Ident arr_val [type=i32[2] const=agg(10, 20) lvalue constant decl=arr_val]
         IntLiteral 0 [type=i32 const=0 constant]
         FloatLiteral 1 [type=f64 const=1 constant]
-        Ident arr_val [type=i32[2] const=agg(10, 20) lvalue constant decl=arr_val]
 
 === EXPECT-REGISTRY ===
 fn=mixed args=[i32, f64] state=2

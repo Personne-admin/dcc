@@ -96,6 +96,7 @@ export namespace dcc::ast
         Fam,
         FuncPtr,
         Qualified,
+        PackIndex,
     };
 
     enum class ExprKind : std::uint8_t
@@ -116,6 +117,7 @@ export namespace dcc::ast
         Call,
         FieldAccess,
         Index,
+        PackAccess,
         Cast,
         Block,
         If,
@@ -491,6 +493,14 @@ export namespace dcc::ast
         QualifiedType(sm::SourceRange r, Qual q, TypePtr t) : TypeExpr(Kind, r), quals(q), inner(t) {}
     };
 
+    struct PackIndexType : TypeExpr
+    {
+        static constexpr auto Kind = TypeKind::PackIndex;
+        TypePtr base;
+        ExprPtr index;
+        PackIndexType(sm::SourceRange r, TypePtr b, ExprPtr i) : TypeExpr(Kind, r), base(b), index(i) {}
+    };
+
     struct IntLiteralExpr : Expr
     {
         static constexpr auto Kind = ExprKind::IntLiteral;
@@ -613,6 +623,14 @@ export namespace dcc::ast
         ExprPtr object;
         ExprPtr index;
         IndexExpr(sm::SourceRange r, ExprPtr obj, ExprPtr idx) : Expr(Kind, r), object(obj), index(idx) {}
+    };
+
+    struct PackAccessExpr : Expr
+    {
+        static constexpr auto Kind = ExprKind::PackAccess;
+        ExprPtr object;
+        ExprPtr index;
+        PackAccessExpr(sm::SourceRange r, ExprPtr obj, ExprPtr idx) : Expr(Kind, r), object(obj), index(idx) {}
     };
 
     struct CastExpr : Expr

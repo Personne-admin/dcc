@@ -13,34 +13,5 @@ void caller() {
     indexed_call!(i32, i32)(10, 20);
 }
 
-=== EXPECT-BODY ===
-Module m
-  Func take_i32 diverging=false
-    Param a type=i32 storage=param offset=0 index=0
-    Body
-  Func indexed_call diverging=false
-    Param args type=T storage=param offset=0 index=0
-    Body
-      StaticFor name=i range_for=true
-  Func caller diverging=false
-    Body
-      Call [type=void const=<none> decl=indexed_call spec=indexed_call]
-        TemplateInst [type=void(*)(i32, i32) const=<none> decl=indexed_call spec=indexed_call]
-          Ident indexed_call [type=void(*)(T) const=<none> decl=indexed_call]
-        IntLiteral 10 [type=i32 const=10 constant]
-        IntLiteral 20 [type=i32 const=20 constant]
-
-=== EXPECT-INSTANTIATED-BODY FOR: m ===
-Func indexed_call diverging=false
-  Param args_0 type=i32 storage=param offset=0 index=0
-  Param args_1 type=i32 storage=param offset=4 index=1
-  Body
-    Call [type=void const=<none> decl=take_i32]
-      Ident take_i32 [type=<unresolved> const=<none>]
-      Ident args_0 [type=i32 const=<none> lvalue decl=args_0]
-    Call [type=void const=<none> decl=take_i32]
-      Ident take_i32 [type=<unresolved> const=<none>]
-      Ident args_1 [type=i32 const=<none> lvalue decl=args_1]
-
-=== EXPECT-REGISTRY ===
-fn=indexed_call args=[i32, i32] state=2
+=== EXPECT-ERRORS ===
+main.dc:7: use '.N' for pack indexing

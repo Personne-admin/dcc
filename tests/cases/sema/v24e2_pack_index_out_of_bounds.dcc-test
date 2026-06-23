@@ -4,7 +4,7 @@ module m;
 void fn(i32 x) {}
 
 void out_of_bounds(T...)(T args) {
-    fn(args[5]);
+    fn(args.5);
 }
 
 void caller() {

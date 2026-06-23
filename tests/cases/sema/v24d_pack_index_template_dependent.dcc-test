@@ -8,7 +8,7 @@ void array_first(T)(T x) {
 }
 
 void pack_first(T...)(T args) {
-    take_i32(args[0]);
+    take_i32(args.0);
 }
 
 void caller() {
@@ -35,7 +35,7 @@ Module m
     Body
       Call [type=<unresolved> const=<none>]
         Ident take_i32 [type=<unresolved> const=<none>]
-        Index [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
           Ident args [type=<unresolved> const=<none>]
           IntLiteral 0 [type=<unresolved> const=<none>]
   Func caller diverging=false

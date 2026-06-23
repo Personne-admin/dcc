@@ -1,0 +1,45 @@
+=== FILE: main.dc ===
+module m;
+
+void take_i32(i32 a) {}
+void take_f64(f64 a) {}
+
+T.0 get_first(T...)(T args) {
+    take_i32(args.0);
+    return args.0;
+}
+
+void caller() {
+    get_first!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func take_i32 diverging=false
+    Param a type=i32 storage=param offset=0 index=0
+    Body
+  Func take_f64 diverging=false
+    Param a type=f64 storage=param offset=0 index=0
+    Body
+  Func get_first diverging=false
+    Param args type=T storage=param offset=0 index=0
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident take_i32 [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
+          Ident args [type=<unresolved> const=<none>]
+          IntLiteral 0 [type=<unresolved> const=<none>]
+      Return
+        PackAccess [type=<unresolved> const=<none>]
+          Ident args [type=<unresolved> const=<none>]
+          IntLiteral 0 [type=<unresolved> const=<none>]
+  Func caller diverging=false
+    Body
+      Call [type=i32 const=<none> decl=get_first spec=get_first]
+        TemplateInst [type=i32(*)(i32, f64) const=<none> decl=get_first spec=get_first]
+          Ident get_first [type=pack(T)(*)(T) const=<none> decl=get_first]
+        IntLiteral 0 [type=i32 const=0 constant]
+        FloatLiteral 1 [type=f64 const=1 constant]
+
+=== EXPECT-REGISTRY ===
+fn=get_first args=[i32, f64] state=2

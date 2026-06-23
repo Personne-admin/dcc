@@ -1,0 +1,46 @@
+=== FILE: main.dc ===
+module m;
+
+void take_i32(i32 a) {}
+void take_f64(f64 a) {}
+
+void pick(T...)(T args) {
+    take_i32(args.0);
+    take_f64(args.1);
+}
+
+void caller() {
+    pick!(i32, f64)(0, 1.0);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func take_i32 diverging=false
+    Param a type=i32 storage=param offset=0 index=0
+    Body
+  Func take_f64 diverging=false
+    Param a type=f64 storage=param offset=0 index=0
+    Body
+  Func pick diverging=false
+    Param args type=T storage=param offset=0 index=0
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident take_i32 [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
+          Ident args [type=<unresolved> const=<none>]
+          IntLiteral 0 [type=<unresolved> const=<none>]
+      Call [type=<unresolved> const=<none>]
+        Ident take_f64 [type=<unresolved> const=<none>]
+        PackAccess [type=<unresolved> const=<none>]
+          Ident args [type=<unresolved> const=<none>]
+          IntLiteral 1 [type=<unresolved> const=<none>]
+  Func caller diverging=false
+    Body
+      Call [type=void const=<none> decl=pick spec=pick]
+        TemplateInst [type=void(*)(i32, f64) const=<none> decl=pick spec=pick]
+          Ident pick [type=void(*)(T) const=<none> decl=pick]
+        IntLiteral 0 [type=i32 const=0 constant]
+        FloatLiteral 1 [type=f64 const=1 constant]
+
+=== EXPECT-REGISTRY ===
+fn=pick args=[i32, f64] state=2
