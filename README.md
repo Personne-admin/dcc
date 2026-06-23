@@ -3,7 +3,7 @@
 dc is a small systems language with an LLVM backend, built with a
 freestanding-first mindset: no hosted OS, no libc, and no implicit runtime are
 assumed unless you ask for them. It targets the space C/C++ usually occupies,
-but without C's implicit conversions and without pulling in an C++ style OOP
+but without C's implicit conversions and without pulling in a C++-style OOP
 type system to get generics and basic ergonomics.
 
 The core design choices follow from that:
@@ -12,7 +12,7 @@ The core design choices follow from that:
   that doesn't fit its target type is a compile error, not silent
   truncation.
 - No constructors, inheritance, or member functions on structs. Structs are
-  plain data; behavior is free functions, called with UFCS (`p.length()`
+  plain data; behavior is free functions, called using UFCS (`p.length()`
   instead of `length(p)`) when convenient.
 - Templates, constraints (`if Concept(T)`), and variadics give you generic
   code without runtime cost or a class hierarchy.
@@ -50,7 +50,7 @@ make install    # installs dcc, dccd, and libdcext to PREFIX (default /usr/local
 
 As there is currently no custom build tool for dc projects, a DCC SDK is provided
 for the Zig build system for use in any user projects. In order to create a DCC
-project which uses ZIg build, add the SDK to your project:
+project which uses Zig build, add the SDK to your project:
 
 ```bash
 zig fetch --save git+https://github.com/yeint-herp/dcc.git
@@ -78,8 +78,8 @@ pub fn build(b: *std.Build) void {
 
 `dcc.sdk.CompileOptions` mirrors the driver's flags directly: `libdcext`,
 `position_independent_code`, `no_red_zone`, `no_stack_protector`, `code_model`,
-`bounds_check`, and so on.  
-Supported targets are `x86_64-elf`, `x86-elf`, `x86_64-coff`, and `x86-coff`,  
+`bounds_check`, and so on;  
+Supported targets are `x86_64-elf`, `x86-elf`, `x86_64-coff`, and `x86-coff`;  
 dc doesn't assume a hosted OS, so Zig's `linux` and `freestanding` os tags both
 map to the plain ELF target.
 
