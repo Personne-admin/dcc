@@ -201,4 +201,36 @@ export namespace dcc::sema
         return false;
     }
 
+    [[nodiscard]] inline types::TypePtr variant_effective_payload_type(types::EnumType const* et, ast::EnumVariant const* variant) noexcept
+    {
+        if (!et || !variant || !et->tagged_layout)
+            return nullptr;
+
+        auto* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+        if (!ed)
+            return nullptr;
+
+        std::ptrdiff_t idx = variant - ed->variants.data();
+        if (idx < 0 || static_cast<std::size_t>(idx) >= et->tagged_layout->variant_count)
+            return nullptr;
+
+        return et->tagged_layout->variants[idx].variant_payload_type_or_null;
+    }
+
+    [[nodiscard]] inline bool variant_has_effective_payload(types::EnumType const* et, ast::EnumVariant const* variant) noexcept
+    {
+        return variant_effective_payload_type(et, variant) != nullptr;
+    }
+
+    [[nodiscard]] inline bool is_concrete_void_type(types::TypePtr ty) noexcept
+    {
+        if (!ty)
+            return false;
+
+        while (ty->kind == types::TypeKind::Nominal)
+            ty = static_cast<types::NominalType const*>(ty)->underlying;
+
+        return ty->kind == types::TypeKind::Void;
+    }
+
 } // namespace dcc::sema

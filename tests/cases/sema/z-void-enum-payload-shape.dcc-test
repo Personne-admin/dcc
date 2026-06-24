@@ -1,0 +1,29 @@
+=== FILE: main.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public void test_bare_ok() {
+    Result(void, i32) r = Result::Ok;
+}
+
+public void test_bare_err() {
+    Result(void, i32) r = Result::Err(42);
+}
+
+public void test_match_ok(Result(void, i32) x) {
+    match x {
+        Result::Ok => {},
+        Result::Err(e) => {},
+    };
+}
+
+public void test_match_err(Result(void, i32) x) {
+    match x {
+        Result::Ok => {},
+        Result::Err(e) => {},
+    };
+}
+
+=== EXPECT-ERRORS ===
+=== EXPECT-LLVM FLAGS: -verify ===

@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+public enum Option(T) { Some(T), None, }
+
+public void use_i32(i32 x) {}
+
+public void takes_option(Option(void) x) {}
+
+public Option(void) returnsome() {
+    return Option::Some;
+}
+
+public void test_local_init() {
+    Option(void) o = Option::Some;
+}
+
+public void test_none() {
+    Option(void) o = Option::None;
+}
+
+public void test_param_match(Option(void) x) {
+    match x {
+        Option::Some => {},
+        Option::None => {},
+    };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

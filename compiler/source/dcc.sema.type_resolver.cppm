@@ -461,12 +461,24 @@ export namespace dcc::sema
                 case ast::TypeKind::Array: {
                     auto* t = static_cast<ast::ArrayType*>(node);
                     auto inner = resolve_type_expr(t->element, mod, env, quiet_unknown);
+                    if (inner.type && is_concrete_void_type(inner.type))
+                    {
+                        m_diag.error(t->element->range, "array element type cannot be void");
+                        out.type = m_types.m_errort();
+                        break;
+                    }
                     auto count = resolve_const_uint(t->size, mod, env);
                     out.type = m_types.array_t(inner.type, count.value_or(0));
                     break;
                 }
                 case ast::TypeKind::Slice: {
                     auto inner = resolve_type_expr(static_cast<ast::SliceType*>(node)->element, mod, env, quiet_unknown);
+                    if (inner.type && is_concrete_void_type(inner.type))
+                    {
+                        m_diag.error(node->range, "slice element type cannot be void");
+                        out.type = m_types.m_errort();
+                        break;
+                    }
                     out.type = m_types.slice_t(inner.type, inner.quals);
                     break;
                 }
@@ -611,7 +623,21 @@ export namespace dcc::sema
             resolved_args.reserve(args.size());
             for (auto const& arg : args)
                 if (arg.type)
-                    resolved_args.push_back(resolve_type_expr(arg.type, mod, env, quiet_unknown).type);
+                {
+                    auto arg_resolved = resolve_type_expr(arg.type, mod, env, quiet_unknown);
+                    resolved_args.push_back(arg_resolved.type);
+
+                    if (arg_resolved.type && is_concrete_void_type(arg_resolved.type))
+                    {
+                        auto decl_kind = decl ? decl->kind : ast::DeclKind::Module;
+                        if (decl_kind != ast::DeclKind::Enum)
+                        {
+                            if (!quiet_unknown)
+                                m_diag.error(arg.type->range, "void is not allowed as a type argument to `{}`", detail::decl_name(decl));
+                            resolved_args.back() = m_types.m_errort();
+                        }
+                    }
+                }
                 else
                 {
                     if (!quiet_unknown)
@@ -1073,6 +1099,12 @@ export namespace dcc::sema
 
                 auto const& ts = f.type->sema;
                 auto* can = ts.canonical ? get_canonical(ts) : nullptr;
+                if (can && is_concrete_void_type(can))
+                {
+                    m_diag.error(f.type->range, "struct field `{}` cannot have void type", f.name);
+                    complete = false;
+                    break;
+                }
                 bool is_fam = can && types::is_fam_type(can);
 
                 if (is_fam)
@@ -1210,6 +1242,12 @@ export namespace dcc::sema
                 m_finalizing_stack.back().field_name = {};
 
                 auto const& ts = f.type->sema;
+                if (ts.canonical && is_concrete_void_type(get_canonical(ts)))
+                {
+                    m_diag.error(f.type->range, "union field `{}` cannot have void type", f.name);
+                    complete = false;
+                    break;
+                }
                 if (!ts.canonical || !ts.is_complete)
                 {
                     complete = false;
@@ -1893,6 +1931,9 @@ export namespace dcc::sema
                         auto const& ts = v.payload[0]->sema;
                         ensure_type_finalized(v.payload[0]->sema);
                         payload_type = get_canonical(ts);
+                        if (payload_type && is_concrete_void_type(payload_type))
+                            payload_type = nullptr;
+
                         if (payload_type && payload_type->is_complete)
                         {
                             if (payload_type->byte_align > max_payload_align)

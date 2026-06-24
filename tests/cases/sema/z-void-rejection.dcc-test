@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module test;
+
+public struct Box(T) { T val; }
+
+public void test_void_local() {
+    void x;
+}
+
+public struct BadStruct {
+    void f;
+}
+
+public union BadUnion {
+    void f;
+    i32 g;
+}
+
+public void test_void_slice() {
+    []void x;
+}
+
+public void test_void_array() {
+    void[4] arr;
+}
+
+public void test_box_void() {
+    Box(void) b;
+}
+
+public void test_void_param(void x) {}
+
+public void* get_ptr() {
+    return 0 as void*;
+}
+
+public void returns_void() {}
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public void test_enum_void_ok() {
+    Result(void, i32) r = Result::Ok;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: void type is not allowed in variable type
+main.dc:10: struct field `f` cannot have void type
+main.dc:14: union field `f` cannot have void type
+main.dc:19: slice element type cannot be void
+main.dc:23: array element type cannot be void
+main.dc:27: void is not allowed as a type argument to this struct/union
+main.dc:30: void type is not allowed in parameter type

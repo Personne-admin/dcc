@@ -272,7 +272,8 @@ export namespace dcc::ir::lower
             std::vector<IrType const*> ir_param_types;
             ir_param_types.reserve(decl->params.size());
             for (auto* ct : param_canonical)
-                ir_param_types.push_back(lower_type(ct));
+                if (ct->kind != dcc::types::TypeKind::Void)
+                    ir_param_types.push_back(lower_type(ct));
 
             auto* func_type = dcc::ir::ir_type_cast<dcc::ir::IrFuncType>(m_ctx.func_t(ir_ret_type, ir_param_types));
             auto* ir_func = m_ctx.function(mangled_name, func_type);
@@ -333,7 +334,8 @@ export namespace dcc::ir::lower
             std::vector<IrType const*> ir_param_types;
             ir_param_types.reserve(fd->params.size());
             for (auto* ct : param_canonical)
-                ir_param_types.push_back(lower_type(ct));
+                if (ct->kind != dcc::types::TypeKind::Void)
+                    ir_param_types.push_back(lower_type(ct));
 
             auto* func_type = dcc::ir::ir_type_cast<dcc::ir::IrFuncType>(m_ctx.func_t(ir_ret_type, ir_param_types));
             auto* ir_func = m_ctx.function(mangled_name, func_type);
@@ -524,78 +526,87 @@ export namespace dcc::ir::lower
             std::vector<IrType const*> ir_param_types;
             ir_param_types.reserve(decl->params.size());
             for (auto* ct : param_canonical)
-                ir_param_types.push_back(lower_type(ct));
+                if (ct->kind != dcc::types::TypeKind::Void)
+                    ir_param_types.push_back(lower_type(ct));
 
             auto* entry = m_ctx.basic_block("entry", 0);
             m_current_block = entry;
             ir_func->entry_block = entry;
             ir_func->blocks.push_back(entry);
 
-            for (std::size_t i = 0; i < decl->params.size(); ++i)
             {
-                auto& p = decl->params[i];
-                auto* local = m_ctx.local(p.name, static_cast<std::uint32_t>(i), ir_param_types[i]);
-                entry->params.push_back(local);
-
-                auto* syn_decl = p.synthetic_decl;
-                if (!syn_decl)
-                    lower_panic(decl, std::format("parameter `{}` missing synthetic_decl", p.name));
-
-                bool is_aggregate = false;
-
-                if (ir_param_types[i])
+                std::size_t ir_param_idx = 0;
+                for (std::size_t i = 0; i < decl->params.size(); ++i)
                 {
-                    if (ir_param_types[i]->kind == IrTypeKind::Aggregate || ir_param_types[i]->kind == IrTypeKind::Array ||
-                        ir_param_types[i]->kind == IrTypeKind::Slice)
-                        is_aggregate = true;
-                }
+                    auto& p = decl->params[i];
+                    if (param_canonical[i] && param_canonical[i]->kind == dcc::types::TypeKind::Void)
+                        continue;
 
-                if (!is_aggregate && param_canonical[i])
-                {
-                    auto const sk = param_canonical[i]->kind;
-                    if (sk == types::TypeKind::Struct || sk == types::TypeKind::Union || sk == types::TypeKind::Array || sk == types::TypeKind::Slice)
-                        is_aggregate = true;
-                }
+                    auto* local = m_ctx.local(p.name, static_cast<std::uint32_t>(ir_param_idx), ir_param_types[ir_param_idx]);
+                    entry->params.push_back(local);
 
-                if (is_aggregate)
-                {
-                    auto* ptr_type = m_ctx.pointer_to(ir_param_types[i], ir::Segment::None);
-                    auto* alloca = m_ctx.alloca(ptr_type, ir_param_types[i]);
+                    auto* syn_decl = p.synthetic_decl;
+                    if (!syn_decl)
+                        lower_panic(decl, std::format("parameter `{}` missing synthetic_decl", p.name));
 
-                    std::uint32_t align = 0;
-                    if (syn_decl->sema.alignment != 0)
-                        align = syn_decl->sema.alignment;
-                    else if (syn_decl->sema.byte_align != 0)
-                        align = syn_decl->sema.byte_align;
-                    else if (p.sema.alignment != 0)
-                        align = p.sema.alignment;
-                    else if (p.sema.byte_align != 0)
-                        align = p.sema.byte_align;
+                    bool is_aggregate = false;
 
-                    if (align != 0)
-                        alloca->alignment = align;
-
-                    auto name = ident_name();
-                    alloca->name = m_name_pool.back();
-                    append_inst(alloca);
-
-                    bool is_volatile = false;
-                    if (p.type)
+                    if (ir_param_types[ir_param_idx])
                     {
-                        if (auto* qt = ast::node_cast<ast::QualifiedType>(p.type))
-                            is_volatile = ast::has_qual(qt->quals, ast::Qual::Volatile);
+                        if (ir_param_types[ir_param_idx]->kind == IrTypeKind::Aggregate || ir_param_types[ir_param_idx]->kind == IrTypeKind::Array ||
+                            ir_param_types[ir_param_idx]->kind == IrTypeKind::Slice)
+                            is_aggregate = true;
                     }
 
-                    if (is_volatile)
-                        append_inst(m_ctx.store_volatile(local, alloca));
-                    else
-                        append_inst(m_ctx.store(local, alloca));
+                    if (!is_aggregate && param_canonical[i])
+                    {
+                        auto const sk = param_canonical[i]->kind;
+                        if (sk == types::TypeKind::Struct || sk == types::TypeKind::Union || sk == types::TypeKind::Array || sk == types::TypeKind::Slice)
+                            is_aggregate = true;
+                    }
 
-                    m_value_map[syn_decl] = MapEntry{alloca, true, param_canonical[i], is_volatile};
-                }
-                else
-                {
-                    m_value_map[syn_decl] = MapEntry{local, false, param_canonical[i], false};
+                    if (is_aggregate)
+                    {
+                        auto* ptr_type = m_ctx.pointer_to(ir_param_types[ir_param_idx], ir::Segment::None);
+                        auto* alloca = m_ctx.alloca(ptr_type, ir_param_types[ir_param_idx]);
+
+                        std::uint32_t align = 0;
+                        if (syn_decl->sema.alignment != 0)
+                            align = syn_decl->sema.alignment;
+                        else if (syn_decl->sema.byte_align != 0)
+                            align = syn_decl->sema.byte_align;
+                        else if (p.sema.alignment != 0)
+                            align = p.sema.alignment;
+                        else if (p.sema.byte_align != 0)
+                            align = p.sema.byte_align;
+
+                        if (align != 0)
+                            alloca->alignment = align;
+
+                        auto name = ident_name();
+                        alloca->name = m_name_pool.back();
+                        append_inst(alloca);
+
+                        bool is_volatile = false;
+                        if (p.type)
+                        {
+                            if (auto* qt = ast::node_cast<ast::QualifiedType>(p.type))
+                                is_volatile = ast::has_qual(qt->quals, ast::Qual::Volatile);
+                        }
+
+                        if (is_volatile)
+                            append_inst(m_ctx.store_volatile(local, alloca));
+                        else
+                            append_inst(m_ctx.store(local, alloca));
+
+                        m_value_map[syn_decl] = MapEntry{alloca, true, param_canonical[i], is_volatile};
+                    }
+                    else
+                    {
+                        m_value_map[syn_decl] = MapEntry{local, false, param_canonical[i], false};
+                    }
+
+                    ++ir_param_idx;
                 }
             }
 
@@ -1068,7 +1079,8 @@ export namespace dcc::ir::lower
             if (type->kind == dcc::types::TypeKind::TemplateParam)
             {
                 auto* tp = static_cast<dcc::types::TemplateParamType const*>(type);
-                std::string msg = std::format("TemplateParam '{}' (index {}) reached lower_type: sema failed to substitute (see enum construction)", tp->name, tp->index);
+                std::string msg =
+                    std::format("TemplateParam '{}' (index {}) reached lower_type: sema failed to substitute (see enum construction)", tp->name, tp->index);
                 lower_panic(msg);
             }
 
@@ -2082,17 +2094,14 @@ export namespace dcc::ir::lower
                     {
                         auto* variant = expr->sema.constructed_variant;
                         auto* enum_type = get_sema_resolved_type(expr);
-                        auto* et = types::type_cast<types::EnumType>(enum_type);
-                        if (et && et->is_tagged && !variant->payload.empty())
+                        auto* eff_payload_ty = variant_effective_payload_type_for_lowering(variant, enum_type);
+                        if (eff_payload_ty)
                         {
-                            auto* payload_canon = get_canonical_type(variant->payload[0]);
-                            if (payload_canon)
-                            {
-                                auto* payload_val = lower_string_literal_value(sl, payload_canon);
-                                std::vector<IrValue*> payload_args{payload_val};
-                                return lower_tagged_enum_construction(variant, enum_type, payload_args);
-                            }
+                            auto* payload_val = lower_string_literal_value(sl, eff_payload_ty);
+                            std::vector<IrValue*> payload_args{payload_val};
+                            return lower_tagged_enum_construction(variant, enum_type, payload_args);
                         }
+                        return lower_tagged_enum_construction(variant, enum_type, std::span<IrValue*>{});
                     }
                     auto* target_type = get_sema_resolved_type(expr);
                     return lower_string_literal_value(sl, target_type);
@@ -2104,17 +2113,14 @@ export namespace dcc::ir::lower
                     {
                         auto* variant = expr->sema.constructed_variant;
                         auto* enum_type = get_sema_resolved_type(expr);
-                        auto* et = types::type_cast<types::EnumType>(enum_type);
-                        if (et && et->is_tagged && !variant->payload.empty())
+                        auto* eff_payload_ty = variant_effective_payload_type_for_lowering(variant, enum_type);
+                        if (eff_payload_ty)
                         {
-                            auto* payload_canon = get_canonical_type(variant->payload[0]);
-                            if (payload_canon)
-                            {
-                                auto* payload_val = lower_u16_string_literal_value(sl, payload_canon);
-                                std::vector<IrValue*> payload_args{payload_val};
-                                return lower_tagged_enum_construction(variant, enum_type, payload_args);
-                            }
+                            auto* payload_val = lower_u16_string_literal_value(sl, eff_payload_ty);
+                            std::vector<IrValue*> payload_args{payload_val};
+                            return lower_tagged_enum_construction(variant, enum_type, payload_args);
                         }
+                        return lower_tagged_enum_construction(variant, enum_type, std::span<IrValue*>{});
                     }
                     auto* target_type = get_sema_resolved_type(expr);
                     return lower_u16_string_literal_value(sl, target_type);
@@ -2175,9 +2181,25 @@ export namespace dcc::ir::lower
                 auto* et = types::type_cast<types::EnumType>(enum_type);
                 if (et && et->is_tagged)
                 {
+                    bool has_eff_payload = false;
+                    if (et->tagged_layout)
+                    {
+                        auto const* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+                        if (ed)
+                        {
+                            auto const* variant = call->sema.constructed_variant;
+                            std::ptrdiff_t idx = variant - ed->variants.data();
+                            if (idx >= 0 && static_cast<std::size_t>(idx) < et->tagged_layout->variant_count)
+                                has_eff_payload = et->tagged_layout->variants[idx].variant_payload_type_or_null != nullptr;
+                        }
+                    }
+
                     std::vector<IrValue*> payload_args;
-                    for (std::size_t i = 0; i < call->args.size(); ++i)
-                        payload_args.push_back(lower_expr(call->args[i]));
+                    if (has_eff_payload)
+                    {
+                        for (std::size_t i = 0; i < call->args.size(); ++i)
+                            payload_args.push_back(lower_expr(call->args[i]));
+                    }
 
                     return lower_tagged_enum_construction(call->sema.constructed_variant, enum_type, payload_args);
                 }
@@ -2270,7 +2292,8 @@ export namespace dcc::ir::lower
                         arg_val = coerce_array_to_slice(arg_val, arg_sema_type, param_type);
                 }
 
-                call_inst->args.push_back(arg_val);
+                if (arg_val && arg_val->type && arg_val->type->kind != IrTypeKind::Void)
+                    call_inst->args.push_back(arg_val);
             }
 
             bool is_void_result = (ir_ret_type->kind == IrTypeKind::Void);
@@ -3149,11 +3172,15 @@ export namespace dcc::ir::lower
                 auto* enum_type = get_sema_resolved_type(c);
                 auto* variant = c->sema.constructed_variant;
 
+                auto* eff_payload_ty = variant_effective_payload_type_for_lowering(variant, enum_type);
+                if (!eff_payload_ty)
+                    return lower_tagged_enum_construction(variant, enum_type, std::span<IrValue*>{});
+
                 auto* operand = lower_expr(c->operand);
 
                 if (variant->payload.size() == 1)
                 {
-                    auto* payload_sema_type = variant->payload[0] ? get_canonical_type(variant->payload[0]) : nullptr;
+                    auto* payload_sema_type = eff_payload_ty;
                     if (payload_sema_type)
                     {
                         auto* src_sema_ty = get_sema_resolved_type(c->operand);
@@ -3546,10 +3573,8 @@ export namespace dcc::ir::lower
             }
 
             auto* phi = emit_phi(ir_result_ty);
-            add_phi_incoming(phi, then_val ? then_val : m_ctx.int_const(ir_result_ty, 0),
-                             then_exit ? then_exit : then_bb);
-            add_phi_incoming(phi, else_val ? else_val : m_ctx.int_const(ir_result_ty, 0),
-                             else_exit ? else_exit : else_bb);
+            add_phi_incoming(phi, then_val ? then_val : m_ctx.int_const(ir_result_ty, 0), then_exit ? then_exit : then_bb);
+            add_phi_incoming(phi, else_val ? else_val : m_ctx.int_const(ir_result_ty, 0), else_exit ? else_exit : else_bb);
             return phi;
         }
 
@@ -5880,6 +5905,23 @@ export namespace dcc::ir::lower
             return agg;
         }
 
+        [[nodiscard]] dcc::types::TypePtr variant_effective_payload_type_for_lowering(ast::EnumVariant const* variant, dcc::types::TypePtr enum_type) const
+        {
+            auto* et = dcc::types::type_cast<dcc::types::EnumType>(enum_type);
+            if (!et || !et->tagged_layout)
+                return nullptr;
+
+            auto const* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+            if (!ed)
+                return nullptr;
+
+            std::ptrdiff_t idx = variant - ed->variants.data();
+            if (idx < 0 || static_cast<std::size_t>(idx) >= et->tagged_layout->variant_count)
+                return nullptr;
+
+            return et->tagged_layout->variants[idx].variant_payload_type_or_null;
+        }
+
         IrValue* lower_implicit_enum_construction(ast::Expr const* expr, std::function<IrValue*()> fallback_lower)
         {
             if (expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && expr->sema.constructed_variant)
@@ -5894,6 +5936,9 @@ export namespace dcc::ir::lower
 
                 auto* variant = expr->sema.constructed_variant;
                 auto* ir_enum_ty = lower_type(enum_type);
+
+                if (!variant_effective_payload_type_for_lowering(variant, enum_type))
+                    return lower_tagged_enum_construction(variant, enum_type, std::span<IrValue*>{});
 
                 if (ast::node_cast<ast::CallExpr>(expr))
                 {

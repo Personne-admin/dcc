@@ -1,0 +1,32 @@
+=== FILE: main.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public void test_reject_ok_arg() {
+    Result(void, i32) r = Result::Ok(1);
+}
+
+public void test_reject_ok_block() {
+    Result(void, i32) r = Result::Ok({});
+}
+
+public void test_reject_ok_wildcard(Result(void, i32) x) {
+    match x {
+        Result::Ok(_) => {},
+        Result::Err(e) => {},
+    };
+}
+
+public void test_reject_ok_binding(Result(void, i32) x) {
+    match x {
+        Result::Ok(v) => {},
+        Result::Err(e) => {},
+    };
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: enum variant `Result::Ok` has void payload and cannot be called with arguments
+main.dc:10: enum variant `Result::Ok` has void payload and cannot be called with arguments
+main.dc:15: payloadless tagged enum variant must not use parenthesized pattern
+main.dc:22: payloadless tagged enum variant must not use parenthesized pattern

@@ -232,6 +232,7 @@ export namespace dcc::ast
         bool is_diverging : 1 {};
         bool implicit_deref : 1 {};
         bool implicit_addr_of : 1 {};
+        bool is_from_instantiation : 1 {};
     };
 
     struct TypeSema

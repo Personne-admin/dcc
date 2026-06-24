@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public void test_ok_no_args() {
+    Result(i32, i32) r = Result::Ok();
+}
+
+public void test_ok_too_many(i32 a, i32 b) {
+    Result(i32, i32) r = Result::Ok(a, b);
+}
+
+public void test_err_no_args() {
+    Result(i32, i32) r = Result::Err();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:10: enum variant `Ok` payload arity mismatch: expected 1, got 0
+main.dc:14: enum variant `Ok` payload arity mismatch: expected 1, got 2
+main.dc:18: enum variant `Err` payload arity mismatch: expected 1, got 0

@@ -1,0 +1,33 @@
+=== FILE: main.dc ===
+module test;
+
+public enum X1 { Nothing(void), Something(i32), }
+
+public enum X2 { Nothing, Something(i32), }
+
+public void test_x1() {
+    X1 a = X1::Nothing;
+    X1 b = X1::Something(42);
+}
+
+public void test_x2() {
+    X2 a = X2::Nothing;
+    X2 b = X2::Something(42);
+}
+
+public void match_x1(X1 x) {
+    match x {
+        X1::Nothing => {},
+        X1::Something(v) => {},
+    };
+}
+
+public void match_x2(X2 x) {
+    match x {
+        X2::Nothing => {},
+        X2::Something(v) => {},
+    };
+}
+
+=== EXPECT-ERRORS ===
+=== EXPECT-LLVM FLAGS: -verify ===

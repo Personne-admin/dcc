@@ -1,0 +1,46 @@
+=== FILE: main.dc ===
+module test;
+
+using V = void;
+@nominal using NV = void;
+
+public struct Box(T) { T val; }
+
+public void alias_local() { V x; }
+public void nominal_local() { NV x; }
+
+public struct AliasStructField { V f; }
+public struct NominalStructField { NV f; }
+
+public union AliasUnionField { V f; i32 g; }
+public union NominalUnionField { NV f; i32 g; }
+
+public void alias_array() { V[4] arr; }
+public void nominal_array() { NV[4] arr; }
+
+public void alias_slice() { []V x; }
+public void nominal_slice() { []NV x; }
+
+public void alias_box() { Box(V) b; }
+public void nominal_box() { Box(NV) b; }
+
+public V* alias_void_ptr() { return 0 as void*; }
+public NV* nominal_void_ptr() { return 0 as void*; }
+public void returns_void() {}
+
+public enum Result(T) { Ok(T), }
+public void enum_alias_ok() { Result(V) r = Result::Ok; }
+
+=== EXPECT-ERRORS ===
+main.dc:8: void type is not allowed in variable type
+main.dc:9: void type is not allowed in variable type
+main.dc:11: struct field `f` cannot have void type
+main.dc:12: struct field `f` cannot have void type
+main.dc:14: union field `f` cannot have void type
+main.dc:15: union field `f` cannot have void type
+main.dc:17: array element type cannot be void
+main.dc:18: array element type cannot be void
+main.dc:20: slice element type cannot be void
+main.dc:21: slice element type cannot be void
+main.dc:23: void is not allowed as a type argument to this struct/union
+main.dc:24: void is not allowed as a type argument to this struct/union

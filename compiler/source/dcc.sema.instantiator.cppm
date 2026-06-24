@@ -977,6 +977,8 @@ namespace dcc::sema
             if (!e)
                 return;
 
+            e->sema.is_from_instantiation = true;
+
             if (e->sema.resolved_type)
             {
                 auto canon = get_resolved_type(e->sema);

@@ -1,0 +1,56 @@
+=== FILE: main.dc ===
+module m;
+
+enum Result(T, E) {
+    Ok(T),
+    Err(E),
+}
+
+struct FileWriter {}
+struct LogWriter {}
+struct BadWriter {}
+struct IoError {}
+struct ParseError {}
+struct OtherError {}
+
+Result(void, IoError) write(FileWriter w, []const u8 data) {
+    Result(void, IoError) r;
+    return r;
+}
+
+Result(void, ParseError) write(LogWriter w, []const u8 data) {
+    Result(void, ParseError) r;
+    return r;
+}
+
+Result(void, OtherError) write(BadWriter w, []const u8 data) {
+    Result(void, OtherError) r;
+    return r;
+}
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+void require_writer(W, E)(W w, E e, []const u8 data) if Writer(W, E) {}
+
+void good_call_then_bad_crossed_pair() {
+    u8[0] bytes;
+    FileWriter file;
+    IoError io;
+    require_writer(file, io, bytes);
+
+    ParseError parse;
+    require_writer!(FileWriter, ParseError)(file, parse, bytes);
+}
+
+void bad_writer_return_type() {
+    BadWriter w;
+    IoError e;
+    u8[0] bytes;
+    require_writer(w, e, bytes);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:43: template constraint not satisfied for `require_writer`
+main.dc:50: template constraint not satisfied for `require_writer`

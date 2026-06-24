@@ -1,0 +1,44 @@
+=== FILE: main.dc ===
+module m;
+
+struct Box(T) {
+    T value;
+}
+
+struct File {}
+struct Socket {}
+struct B {}
+struct C {}
+
+Box(B) write(File f) {
+    Box(B) r;
+    return r;
+}
+
+Box(C) write(Socket s) {
+    Box(C) r;
+    return r;
+}
+
+using Writer(T, E) = compiles(T x) {
+    Box(E) r = x.write();
+};
+
+void use(T, E)(T x, E e) if Writer(T, E) {}
+
+void test_ok_file() {
+    File f;
+    B b;
+    use(f, b);
+}
+
+void test_ok_socket() {
+    Socket s;
+    C c;
+    use(s, c);
+}
+
+void test_reject_crossed() {
+    File f;
+    C c;
+}

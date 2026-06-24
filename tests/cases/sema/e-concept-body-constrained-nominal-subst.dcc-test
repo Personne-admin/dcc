@@ -1,0 +1,61 @@
+=== FILE: main.dc ===
+module m;
+
+using IsInt(T) = compiles(T x) {
+    x + 1;
+};
+
+struct NoAdd {}
+
+struct Box(T) if IsInt(T) {
+    T value;
+}
+
+struct Maker {}
+
+Box(i32) make_box(Maker m) {
+    Box(i32) b;
+    return b;
+}
+
+using MakesBox(M, E) = compiles(M m) {
+    Box(E) b = m.make_box();
+};
+
+void require_box(M, E)(M m, E e) if MakesBox(M, E) {}
+
+void positive_substitutes_concept_param_before_resolving_box() {
+    Maker m;
+    i32 value = 1;
+    require_box(m, value);
+}
+
+void negative_rejects_box_when_substituted_param_fails_constraint() {
+    Maker m;
+    NoAdd bad;
+    require_box(m, bad);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:35: template constraint not satisfied for `require_box`
+main.dc:9: = note: required by concept `IsInt` with T = NoAdd
+main.dc:3: = note: in definition of concept `IsInt`
+main.dc:9: = note: required by concept `IsInt` with T = NoAdd
+main.dc:3: = note: in definition of concept `IsInt`
+main.dc:9: = note: required by concept `IsInt` with T = NoAdd
+main.dc:3: = note: in definition of concept `IsInt`
+main.dc:9: = note: required by concept `IsInt` with T = NoAdd
+main.dc:3: = note: in definition of concept `IsInt`
+main.dc:24: = note: required by concept `MakesBox` with M = Maker, E = NoAdd
+main.dc:20: = note: in definition of concept `MakesBox`
+main.dc:9: = note: required by concept `IsInt` with T = NoAdd
+main.dc:3: = note: in definition of concept `IsInt`
+main.dc:4: = note: requirement failed: x + 1: binary operand type mismatch
+main.dc:9: = note: required by concept `IsInt` with T = NoAdd
+main.dc:3: = note: in definition of concept `IsInt`
+main.dc:4: = note: requirement failed: x + 1: binary operand type mismatch
+main.dc:21: = note: requirement failed: Box(E) b = m.make_box(): binary operand type mismatch
+main.dc:21: = note: reason: template constraint not satisfied for `Box`
+main.dc:4: = note: reason: binary operand type mismatch
+main.dc:21: = note: reason: template constraint not satisfied for `Box`
+main.dc:21: = note: reason: initializer type mismatch

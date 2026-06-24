@@ -869,6 +869,27 @@ export namespace dcc::sema
         std::pmr::unordered_map<ast::Decl const*, std::uint32_t> m_decl_writes{};
         std::vector<sm::SourceRange> m_active_defers{};
         std::uint32_t m_defer_depth{};
+
+        struct CanonicalGuard
+        {
+            ast::TypeSema* sema{};
+            types::TypePtr saved{};
+            ~CanonicalGuard()
+            {
+                if (sema)
+                    set_canonical(*sema, saved);
+            }
+
+            CanonicalGuard() = default;
+            CanonicalGuard(CanonicalGuard&& o) noexcept : sema(o.sema), saved(o.saved) { o.sema = nullptr; }
+            CanonicalGuard& operator=(CanonicalGuard&&) = delete;
+            CanonicalGuard(CanonicalGuard const&) = delete;
+            CanonicalGuard& operator=(CanonicalGuard const&) = delete;
+        };
+
+        infer::TemplateBindings const* m_concept_bindings{};
+        std::pmr::vector<CanonicalGuard>* m_concept_canon_guards{};
+
         std::unordered_set<ast::UsingDecl const*> m_concept_evaluation_stack{};
         std::unordered_set<ast::Decl const*> m_constraint_checking_set{};
         std::unordered_set<void const*> m_type_constraint_guard_set{};
@@ -956,6 +977,15 @@ export namespace dcc::sema
         {
             if (!ty || has_error(ty))
                 return;
+
+            if (is_concrete_void_type(ty))
+            {
+                if (context.find("return") == std::string_view::npos)
+                {
+                    error(range, "void type is not allowed in {}", context);
+                    return;
+                }
+            }
 
             if (types::is_fam_type(ty))
             {
@@ -1779,33 +1809,64 @@ export namespace dcc::sema
             ~ConceptFrameGuard() { analyzer.pop_concept_frame(); }
         };
 
-        [[nodiscard]] std::pair<std::optional<bool>, std::vector<RequirementFailure>> check_requirements(ModuleInfo& mod, ast::FuncDecl const* fn, Scope& scope,
-                                                                                                         ast::CompilesExpr const& compiles,
-                                                                                                         infer::TemplateBindings const& bindings,
-                                                                                                         RequirementMode mode)
+        [[nodiscard]] std::pair<std::optional<bool>, std::vector<RequirementFailure>>
+        check_requirements(ModuleInfo& mod, ast::FuncDecl const* fn, Scope& scope, ast::CompilesExpr const& compiles, infer::TemplateBindings const& bindings,
+                           RequirementMode mode, std::span<ast::TemplateParam const> env_params = {})
         {
             std::vector<RequirementFailure> failures;
 
             auto* inner = make_scope(ScopeKind::Block, &scope);
             std::uint32_t tmp_off{};
 
-            struct CanonicalGuard
+            struct ConceptBindingsGuard
             {
-                ast::TypeSema* sema{};
-                types::TypePtr saved{};
-                ~CanonicalGuard()
-                {
-                    if (sema)
-                        set_canonical(*sema, saved);
-                }
-                CanonicalGuard() = default;
-                CanonicalGuard(CanonicalGuard&& o) noexcept : sema(o.sema), saved(o.saved) { o.sema = nullptr; }
-                CanonicalGuard& operator=(CanonicalGuard&&) = delete;
-                CanonicalGuard(CanonicalGuard const&) = delete;
-                CanonicalGuard& operator=(CanonicalGuard const&) = delete;
-            };
+                infer::TemplateBindings const*& slot;
+                infer::TemplateBindings const* saved;
+                ~ConceptBindingsGuard() { slot = saved; }
+                ConceptBindingsGuard(infer::TemplateBindings const*& s, infer::TemplateBindings const* v) : slot(s), saved(s) { s = v; }
+                ConceptBindingsGuard(ConceptBindingsGuard const&) = delete;
+                ConceptBindingsGuard& operator=(ConceptBindingsGuard const&) = delete;
+            } bindings_guard{m_concept_bindings, &bindings};
+
+            for (std::size_t i = 0; i < env_params.size(); ++i)
+            {
+                auto const& tp = env_params[i];
+                if (tp.value_type)
+                    continue;
+
+                auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                if (!param_ty)
+                    continue;
+
+                auto* scope_canon = param_ty;
+                if (auto* concrete = bindings.lookup(static_cast<types::TemplateParamType const*>(param_ty)))
+                    scope_canon = concrete;
+
+                auto* dummy_type = m_ast_ctx.make<ast::PrimitiveType>(tp.range, lex::TokenKind::KwVoid);
+                sema::set_canonical(dummy_type->sema, scope_canon);
+                auto* v = m_ast_ctx.make<ast::VarDecl>(tp.range, tp.name, tp.range);
+                v->type = dummy_type;
+                v->sema.storage = ast::StorageClass::Local;
+                Symbol sym{};
+                sym.name = tp.name;
+                sym.kind = SymbolKind::TypeAlias;
+                sym.decl = v;
+                sym.definition_range = tp.range;
+                inner->define_type(sym);
+            }
+
             std::pmr::vector<CanonicalGuard> canon_guards{m_alloc};
             canon_guards.reserve(compiles.params.size());
+
+            struct CanonGuardsPtrGuard
+            {
+                std::pmr::vector<CanonicalGuard>*& slot;
+                std::pmr::vector<CanonicalGuard>* saved;
+                ~CanonGuardsPtrGuard() { slot = saved; }
+                CanonGuardsPtrGuard(std::pmr::vector<CanonicalGuard>*& s, std::pmr::vector<CanonicalGuard>* v) : slot(s), saved(s) { s = v; }
+                CanonGuardsPtrGuard(CanonGuardsPtrGuard const&) = delete;
+                CanonGuardsPtrGuard& operator=(CanonGuardsPtrGuard const&) = delete;
+            } canon_guards_ptr_guard{m_concept_canon_guards, &canon_guards};
 
             for (auto const& p : compiles.params)
             {
@@ -1821,6 +1882,318 @@ export namespace dcc::sema
                 }
 
                 define_local(*inner, v);
+            }
+
+            {
+                std::unordered_set<ast::TypeSema*> guarded;
+                auto do_guard = [&](ast::TypeExpr* t) {
+                    if (!t || !t->sema.canonical)
+                        return;
+                    if (!guarded.insert(std::addressof(t->sema)).second)
+                        return;
+                    auto canon = get_canonical(t->sema);
+                    auto sub = bindings.substitute(canon);
+                    if (sub && sub != canon)
+                    {
+                        auto& g = canon_guards.emplace_back();
+                        g.sema = std::addressof(t->sema);
+                        g.saved = canon;
+                        set_canonical(t->sema, sub);
+                    }
+                };
+
+                std::function<void(ast::TypeExpr*)> visit_type;
+                std::function<void(ast::Expr*)> visit_expr;
+                std::function<void(ast::Stmt*)> visit_stmt;
+                std::function<void(ast::Decl*)> visit_decl;
+                std::function<void(ast::Block const&)> visit_block;
+
+                visit_type = [&](ast::TypeExpr* t) {
+                    if (!t)
+                        return;
+                    do_guard(t);
+                    switch (t->kind)
+                    {
+                        case ast::TypeKind::Pointer:
+                            visit_type(static_cast<ast::PointerType*>(t)->pointee);
+                            break;
+                        case ast::TypeKind::Array:
+                            visit_type(static_cast<ast::ArrayType*>(t)->element);
+                            break;
+                        case ast::TypeKind::Slice:
+                            visit_type(static_cast<ast::SliceType*>(t)->element);
+                            break;
+                        case ast::TypeKind::Fam:
+                            visit_type(static_cast<ast::FamType*>(t)->element);
+                            break;
+                        case ast::TypeKind::FuncPtr: {
+                            auto* fp = static_cast<ast::FuncPtrType*>(t);
+                            visit_type(fp->return_type);
+                            for (auto* p : fp->params)
+                                visit_type(p);
+                            break;
+                        }
+                        case ast::TypeKind::Qualified:
+                            visit_type(static_cast<ast::QualifiedType*>(t)->inner);
+                            break;
+                        case ast::TypeKind::Named: {
+                            auto* nt = static_cast<ast::NamedType*>(t);
+                            for (auto& ta : nt->template_args)
+                                visit_type(ta.type);
+                            break;
+                        }
+                        case ast::TypeKind::PackIndex:
+                            break;
+                        case ast::TypeKind::Primitive:
+                            break;
+                    }
+                };
+
+                visit_expr = [&](ast::Expr* e) {
+                    if (!e)
+                        return;
+
+                    switch (e->kind)
+                    {
+                        case ast::ExprKind::Cast: {
+                            auto* cast = static_cast<ast::CastExpr*>(e);
+                            visit_type(cast->target);
+                            visit_expr(cast->operand);
+                            return;
+                        }
+                        case ast::ExprKind::StructLiteral: {
+                            auto* sl = static_cast<ast::StructLiteralExpr*>(e);
+                            visit_type(sl->type);
+                            for (auto& f : sl->fields)
+                                visit_expr(f.value);
+                            return;
+                        }
+                        case ast::ExprKind::Sizeof:
+                            visit_type(static_cast<ast::SizeofExpr*>(e)->target);
+                            return;
+                        case ast::ExprKind::Alignof:
+                            visit_type(static_cast<ast::AlignofExpr*>(e)->target);
+                            return;
+                        case ast::ExprKind::Offsetof:
+                            visit_type(static_cast<ast::OffsetofExpr*>(e)->target);
+                            return;
+                        case ast::ExprKind::TypeAST:
+                            visit_type(static_cast<ast::TypeASTExpr*>(e)->type_node);
+                            return;
+                        case ast::ExprKind::Unary:
+                            visit_expr(static_cast<ast::UnaryExpr*>(e)->operand);
+                            return;
+                        case ast::ExprKind::Postfix:
+                            visit_expr(static_cast<ast::PostfixExpr*>(e)->operand);
+                            return;
+                        case ast::ExprKind::Binary: {
+                            auto* b = static_cast<ast::BinaryExpr*>(e);
+                            visit_expr(b->lhs);
+                            visit_expr(b->rhs);
+                            return;
+                        }
+                        case ast::ExprKind::Call: {
+                            auto* c = static_cast<ast::CallExpr*>(e);
+                            visit_expr(c->callee);
+                            for (auto* arg : c->args)
+                                visit_expr(arg);
+                            return;
+                        }
+                        case ast::ExprKind::FieldAccess:
+                            visit_expr(static_cast<ast::FieldAccessExpr*>(e)->object);
+                            return;
+                        case ast::ExprKind::Index:
+                            visit_expr(static_cast<ast::IndexExpr*>(e)->object);
+                            visit_expr(static_cast<ast::IndexExpr*>(e)->index);
+                            return;
+                        case ast::ExprKind::PackAccess:
+                            visit_expr(static_cast<ast::PackAccessExpr*>(e)->object);
+                            visit_expr(static_cast<ast::PackAccessExpr*>(e)->index);
+                            return;
+                        case ast::ExprKind::Block: {
+                            auto* blk = static_cast<ast::BlockExpr*>(e);
+                            visit_block(blk->body);
+                            return;
+                        }
+                        case ast::ExprKind::If: {
+                            auto* ife = static_cast<ast::IfExpr*>(e);
+                            visit_expr(ife->condition);
+                            visit_block(ife->then_block);
+                            visit_expr(ife->else_branch);
+                            return;
+                        }
+                        case ast::ExprKind::Match: {
+                            auto* m = static_cast<ast::MatchExpr*>(e);
+                            visit_expr(m->operand);
+                            for (auto& arm : m->arms)
+                            {
+                                visit_expr(arm.guard);
+                                visit_expr(arm.body);
+                            }
+                            return;
+                        }
+                        case ast::ExprKind::TemplateInst: {
+                            auto* ti = static_cast<ast::TemplateInstExpr*>(e);
+                            visit_expr(ti->callee);
+                            for (auto& ta : ti->template_args)
+                            {
+                                visit_type(ta.type);
+                                visit_expr(ta.expr);
+                            }
+                            return;
+                        }
+                        case ast::ExprKind::Range: {
+                            auto* r = static_cast<ast::RangeExpr*>(e);
+                            visit_expr(r->start);
+                            visit_expr(r->end);
+                            return;
+                        }
+                        default:
+                            return;
+                    }
+                };
+
+                visit_stmt = [&](ast::Stmt* s) {
+                    if (!s)
+                        return;
+                    switch (s->kind)
+                    {
+                        case ast::StmtKind::Expr:
+                            visit_expr(static_cast<ast::ExprStmt*>(s)->expr);
+                            break;
+                        case ast::StmtKind::DeclStmt:
+                            visit_decl(static_cast<ast::DeclStmt*>(s)->decl);
+                            break;
+                        case ast::StmtKind::Return:
+                            visit_expr(static_cast<ast::ReturnStmt*>(s)->value);
+                            break;
+                        case ast::StmtKind::While:
+                            visit_expr(static_cast<ast::WhileStmt*>(s)->condition);
+                            visit_block(static_cast<ast::WhileStmt*>(s)->body);
+                            break;
+                        case ast::StmtKind::DoWhile:
+                            visit_block(static_cast<ast::DoWhileStmt*>(s)->body);
+                            visit_expr(static_cast<ast::DoWhileStmt*>(s)->condition);
+                            break;
+                        case ast::StmtKind::For: {
+                            auto* f = static_cast<ast::ForStmt*>(s);
+                            visit_stmt(f->init);
+                            visit_expr(f->cond);
+                            visit_expr(f->update);
+                            visit_block(f->body);
+                            break;
+                        }
+                        case ast::StmtKind::ForIn: {
+                            auto* fi = static_cast<ast::ForInStmt*>(s);
+                            visit_type(fi->item_type);
+                            visit_expr(fi->iterable);
+                            visit_block(fi->body);
+                            break;
+                        }
+                        case ast::StmtKind::Defer:
+                            visit_stmt(static_cast<ast::DeferStmt*>(s)->body);
+                            break;
+                        case ast::StmtKind::StaticIf: {
+                            auto* si = static_cast<ast::StaticIfStmt*>(s);
+                            visit_expr(si->condition);
+                            visit_block(si->then_block);
+                            visit_stmt(si->else_branch);
+                            break;
+                        }
+                        case ast::StmtKind::StaticMatch: {
+                            auto* sm = static_cast<ast::StaticMatchStmt*>(s);
+                            visit_expr(sm->operand);
+                            for (auto& arm : sm->arms)
+                            {
+                                visit_expr(arm.guard);
+                                visit_expr(arm.body);
+                            }
+                            break;
+                        }
+                        case ast::StmtKind::StaticFor: {
+                            auto* sf = static_cast<ast::StaticForStmt*>(s);
+                            visit_expr(sf->pack_expr);
+                            visit_block(sf->body);
+                            break;
+                        }
+                        case ast::StmtKind::Ambiguous: {
+                            auto* amb = static_cast<ast::AmbiguousStmt*>(s);
+                            visit_decl(amb->as_decl);
+                            visit_expr(amb->as_expr);
+                            break;
+                        }
+                        case ast::StmtKind::Break:
+                        case ast::StmtKind::Continue:
+                            break;
+                    }
+                };
+
+                visit_decl = [&](ast::Decl* d) {
+                    if (!d)
+                        return;
+                    switch (d->kind)
+                    {
+                        case ast::DeclKind::Var: {
+                            auto* v = static_cast<ast::VarDecl*>(d);
+                            visit_type(v->type);
+                            visit_expr(v->init);
+                            break;
+                        }
+                        case ast::DeclKind::Func: {
+                            auto* f = static_cast<ast::FuncDecl*>(d);
+                            visit_type(f->return_type);
+                            for (auto& p : f->params)
+                                visit_type(p.type);
+
+                            break;
+                        }
+                        case ast::DeclKind::Using: {
+                            auto* u = static_cast<ast::UsingDecl*>(d);
+                            visit_type(u->target_type);
+                            break;
+                        }
+                        case ast::DeclKind::Struct: {
+                            auto* sd = static_cast<ast::StructDecl*>(d);
+                            for (auto& f : sd->fields)
+                                visit_type(f.type);
+                            break;
+                        }
+                        case ast::DeclKind::Union: {
+                            auto* ud = static_cast<ast::UnionDecl*>(d);
+                            for (auto& f : ud->fields)
+                                visit_type(f.type);
+                            break;
+                        }
+                        case ast::DeclKind::Enum: {
+                            auto* ed = static_cast<ast::EnumDecl*>(d);
+                            visit_type(ed->backing_type);
+                            for (auto& v : ed->variants)
+                                for (auto& p : v.payload)
+                                    visit_type(p);
+                            break;
+                        }
+                        case ast::DeclKind::StaticIfGroup: {
+                            auto* sig = static_cast<ast::StaticIfGroup*>(d);
+                            visit_expr(sig->condition);
+                            for (auto* td : sig->then_decls)
+                                visit_decl(td);
+                            if (sig->else_group)
+                                visit_decl(sig->else_group);
+                            break;
+                        }
+                        case ast::DeclKind::Module:
+                        case ast::DeclKind::Import:
+                            break;
+                    }
+                };
+
+                visit_block = [&](ast::Block const& blk) {
+                    for (auto* stmt : blk.stmts)
+                        visit_stmt(stmt);
+                    visit_expr(blk.tail);
+                };
+
+                visit_block(compiles.body);
             }
 
             if (mode == RequirementMode::Bool)
@@ -2043,7 +2416,7 @@ export namespace dcc::sema
             {
                 if (mode == RequirementMode::Diagnostic)
                 {
-                    auto [result, failures] = check_requirements(mod, f, scope, *c, bindings, RequirementMode::Diagnostic);
+                    auto [result, failures] = check_requirements(mod, f, scope, *c, bindings, RequirementMode::Diagnostic, env_params);
                     for (auto const& rf : failures)
                     {
                         auto req_loc = format_source_location(rf.requirement_range);
@@ -2079,7 +2452,7 @@ export namespace dcc::sema
                     }
                     return result;
                 }
-                return evaluate_compiles_expr(mod, scope, f, bindings, *c);
+                return evaluate_compiles_expr(mod, scope, f, bindings, *c, env_params);
             }
 
             if (auto const* u = ast::node_cast<ast::UnaryExpr>(&expr))
@@ -2211,9 +2584,9 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] std::optional<bool> evaluate_compiles_expr(ModuleInfo& mod, Scope& scope, ast::FuncDecl const* f, infer::TemplateBindings const& bindings,
-                                                                 ast::CompilesExpr const& compiles)
+                                                                 ast::CompilesExpr const& compiles, std::span<ast::TemplateParam const> env_params = {})
         {
-            auto [result, failures] = check_requirements(mod, f, scope, compiles, bindings, RequirementMode::Bool);
+            auto [result, failures] = check_requirements(mod, f, scope, compiles, bindings, RequirementMode::Bool, env_params);
             std::ignore = failures;
             return result;
         }
@@ -4647,6 +5020,38 @@ export namespace dcc::sema
                     analyze_enum_fields(mod, *ed);
         }
 
+        [[nodiscard]] static bool is_template_specialization_body(ast::FuncDecl const& fn)
+        {
+            if (!fn.body)
+                return false;
+            auto body_has_inst_expr = [](ast::Expr const* e) -> bool {
+                if (!e)
+                    return false;
+                if (e->sema.is_from_instantiation)
+                    return true;
+                return false;
+            };
+
+            for (auto* s : fn.body->stmts)
+            {
+                if (!s)
+                    continue;
+                if (s->kind == ast::StmtKind::Expr)
+                {
+                    if (body_has_inst_expr(static_cast<ast::ExprStmt const*>(s)->expr))
+                        return true;
+                }
+                else if (s->kind == ast::StmtKind::Return)
+                {
+                    if (body_has_inst_expr(static_cast<ast::ReturnStmt const*>(s)->value))
+                        return true;
+                }
+            }
+            if (body_has_inst_expr(fn.body->tail))
+                return true;
+            return false;
+        }
+
         void analyze_function(ModuleInfo& mod, ast::FuncDecl& fn)
         {
             if (fn.sema.storage != ast::StorageClass::Unresolved)
@@ -4655,6 +5060,7 @@ export namespace dcc::sema
             auto* root = make_scope(ScopeKind::Function, nullptr);
             auto* root_consts = make_const_env(nullptr);
             std::uint32_t frame_off = 0;
+            bool is_spec_body = is_template_specialization_body(fn);
             for (std::size_t i = 0; i < fn.params.size(); ++i)
             {
                 auto& p = fn.params[i];
@@ -4673,7 +5079,9 @@ export namespace dcc::sema
                 }
 
                 auto type = p.type && p.type->sema.canonical ? get_canonical(p.type->sema) : nullptr;
-                check_type_valid_for_value(p.range, type, "parameter type");
+
+                if (!is_spec_body || !type || type->kind != types::TypeKind::Void)
+                    check_type_valid_for_value(p.range, type, "parameter type");
                 if (type && mod.own_scope)
                     check_type_constraints_in_type(mod, *mod.own_scope, type, p.range);
                 p.sema.frame_offset = allocate_frame_slot(frame_off, type);
@@ -5662,16 +6070,22 @@ export namespace dcc::sema
                         break;
                     }
 
-                    bool has_payload = !e.resolved_variant->payload.empty();
+                    std::size_t expected_payload_count = e.resolved_variant->payload.size();
+                    if (op_enum && enum_decl->is_tagged && op_enum->tagged_layout && e.resolved_variant->payload.size() <= 1)
+                        if (!variant_has_effective_payload(op_enum, e.resolved_variant))
+                            expected_payload_count = 0;
+
+                    bool has_eff_payload = (expected_payload_count > 0);
+
                     if (enum_decl->is_tagged)
                     {
-                        if (has_payload && !e.has_parens)
+                        if (has_eff_payload && !e.has_parens)
                         {
                             error(e.range, "tagged enum variant with payload requires parenthesized pattern");
                             out.ok = false;
                             break;
                         }
-                        if (!has_payload && e.has_parens)
+                        if (!has_eff_payload && e.has_parens)
                         {
                             error(e.range, "payloadless tagged enum variant must not use parenthesized pattern");
                             out.ok = false;
@@ -5679,20 +6093,22 @@ export namespace dcc::sema
                         }
                     }
 
-                    if (e.payload.size() != e.resolved_variant->payload.size())
+                    if (e.payload.size() != expected_payload_count)
                     {
                         error(e.range, "enum pattern payload arity mismatch");
                         out.ok = false;
                         break;
                     }
 
-                    for (std::size_t i = 0; i < e.payload.size(); ++i)
+                    if (has_eff_payload)
                     {
-                        auto payload_ty = e.resolved_variant->payload[i]
-                                              ? resolve_payload_type(*enum_decl, e.resolved_variant->payload[i], matched_type, mod, scope)
-                                              : m_types.m_errort();
-                        if (e.payload[i])
-                            validate_child(*e.payload[i], payload_ty);
+                        for (std::size_t i = 0; i < e.payload.size(); ++i)
+                        {
+                            auto* pay_ty_node = e.resolved_variant->payload[i];
+                            auto payload_ty = pay_ty_node ? resolve_payload_type(*enum_decl, pay_ty_node, matched_type, mod, scope) : m_types.m_errort();
+                            if (e.payload[i])
+                                validate_child(*e.payload[i], payload_ty);
+                        }
                     }
                     break;
                 }
@@ -6285,13 +6701,6 @@ export namespace dcc::sema
                 auto const* variant = find_enum_variant(*enum_decl, sym->name);
                 if (variant)
                 {
-                    if (!variant->payload.empty() && !m_analyzing_call_callee)
-                    {
-                        out.type = m_types.m_errort();
-                        error(range, "enum variant `{}::{}` requires a payload argument", enum_decl->name, variant->name);
-                        return out;
-                    }
-
                     out.construction_kind = ConstructionKind::Enum;
                     out.constructed_variant = variant;
 
@@ -6312,7 +6721,22 @@ export namespace dcc::sema
 
                     complete_tagged_enum(out.type);
 
-                    if (out.type && variant->payload.empty())
+                    bool has_eff_payload = !variant->payload.empty();
+                    if (out.type)
+                    {
+                        auto const* et = types::type_cast<types::EnumType>(out.type);
+                        if (et && et->is_tagged && et->tagged_layout)
+                            has_eff_payload = variant_has_effective_payload(et, variant);
+                    }
+
+                    if (has_eff_payload && !m_analyzing_call_callee)
+                    {
+                        out.type = m_types.m_errort();
+                        error(range, "enum variant `{}::{}` requires a payload argument", enum_decl->name, variant->name);
+                        return out;
+                    }
+
+                    if (out.type && !has_eff_payload)
                     {
                         out.constant = fold_tagged_enum_construction(variant, out.type, {});
                         if (!out.constant)
@@ -6398,13 +6822,6 @@ export namespace dcc::sema
                 auto const* variant = find_enum_variant(*enum_decl, sym->name);
                 if (variant)
                 {
-                    if (!variant->payload.empty() && !m_analyzing_call_callee)
-                    {
-                        out.type = m_types.m_errort();
-                        error(p.range, "enum variant `{}::{}` requires a payload argument", enum_decl->name, variant->name);
-                        return out;
-                    }
-
                     out.construction_kind = ConstructionKind::Enum;
                     out.constructed_variant = variant;
 
@@ -6427,7 +6844,22 @@ export namespace dcc::sema
 
                     complete_tagged_enum(out.type);
 
-                    if (out.type && variant->payload.empty())
+                    bool has_eff_payload = !variant->payload.empty();
+                    if (out.type)
+                    {
+                        auto const* et = types::type_cast<types::EnumType>(out.type);
+                        if (et && et->is_tagged && et->tagged_layout)
+                            has_eff_payload = variant_has_effective_payload(et, variant);
+                    }
+
+                    if (has_eff_payload && !m_analyzing_call_callee)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "enum variant `{}::{}` requires a payload argument", enum_decl->name, variant->name);
+                        return out;
+                    }
+
+                    if (out.type && !has_eff_payload)
                     {
                         out.constant = fold_tagged_enum_construction(variant, out.type, {});
                         if (!out.constant)
@@ -7164,7 +7596,7 @@ export namespace dcc::sema
             if (c.target)
             {
                 if (!c.target->sema.canonical)
-                    set_canonical(c.target->sema, resolve_type_node(mod, scope, c.target));
+                    std::ignore = resolve_and_substitute_type_expr(mod, scope, c.target);
                 out.type = get_canonical(c.target->sema);
             }
 
@@ -7495,6 +7927,35 @@ export namespace dcc::sema
                         if (variant.payload.size() != 1)
                             continue;
 
+                        bool var_is_void_normalized = false;
+                        if (et->tagged_layout)
+                        {
+                            std::ptrdiff_t idx = &variant - enum_decl->variants.data();
+                            if (idx >= 0 && static_cast<std::size_t>(idx) < et->tagged_layout->variant_count)
+                                var_is_void_normalized = (et->tagged_layout->variants[idx].variant_payload_type_or_null == nullptr);
+                        }
+                        if (var_is_void_normalized)
+                        {
+                            if (!element_expr.sema.is_from_instantiation)
+                                continue;
+
+                            auto val = analyze_expr(mod, fn, scope, element_expr, loop_depth, next_off, nullptr, const_env);
+                            if (!val.type || val.type->kind == types::TypeKind::Error)
+                                continue;
+                            if (!is_concrete_void_type(val.type))
+                                continue;
+
+                            detail::ExprResult result{};
+                            result.type = target_enum_type;
+                            result.construction_kind = ConstructionKind::Enum;
+                            result.constructed_variant = &variant;
+                            result.constant = val.constant;
+                            result.is_constant = val.is_constant;
+                            chosen = result;
+                            chosen_variant = &variant;
+                            break;
+                        }
+
                         auto payload_ty = resolve_payload_type(*enum_decl, variant.payload[0], target_enum_type, mod, scope);
                         if (!payload_ty || has_error(payload_ty))
                             continue;
@@ -7520,8 +7981,19 @@ export namespace dcc::sema
                 if (!chosen)
                     return std::nullopt;
 
-                auto payload_ty = resolve_payload_type(*enum_decl, chosen_variant->payload[0], target_enum_type, mod, scope);
-                std::ignore = analyze_expr(mod, fn, scope, element_expr, loop_depth, next_off, payload_ty, const_env);
+                bool chosen_is_void_normalized = false;
+                if (et->tagged_layout)
+                {
+                    std::ptrdiff_t idx = chosen_variant - enum_decl->variants.data();
+                    if (idx >= 0 && static_cast<std::size_t>(idx) < et->tagged_layout->variant_count)
+                        chosen_is_void_normalized = (et->tagged_layout->variants[idx].variant_payload_type_or_null == nullptr);
+                }
+
+                if (!chosen_is_void_normalized)
+                {
+                    auto payload_ty = resolve_payload_type(*enum_decl, chosen_variant->payload[0], target_enum_type, mod, scope);
+                    std::ignore = analyze_expr(mod, fn, scope, element_expr, loop_depth, next_off, payload_ty, const_env);
+                }
 
                 element_expr.sema.construction_kind = ConstructionKind::Enum;
                 element_expr.sema.constructed_variant = chosen_variant;
@@ -8511,10 +8983,70 @@ export namespace dcc::sema
                     auto const* variant = find_enum_variant(*enum_decl, variant_name);
                     if (variant)
                     {
-                        if (variant->payload.empty())
+                        bool declared_payloadless = variant->payload.empty();
+
+                        if (declared_payloadless)
                         {
                             error(c.range, "enum variant `{}::{}` is payloadless and cannot be called with '()'", enum_decl->name, variant_name);
                             return {m_types.m_errort()};
+                        }
+
+                        types::TypePtr result_type = callee.type;
+
+                        auto opt_bindings = create_template_bindings(*enum_decl, expected_type ? expected_type : callee.type);
+
+                        bool any_arg_error = false;
+                        std::vector<comptime::Value const*> arg_constants;
+                        arg_constants.reserve(c.args.size());
+
+                        bool is_void_normalized = false;
+                        complete_tagged_enum(result_type);
+                        if (result_type)
+                        {
+                            auto const* et = types::type_cast<types::EnumType>(result_type);
+                            if (et && et->tagged_layout)
+                            {
+                                auto* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+                                if (ed)
+                                {
+                                    std::ptrdiff_t idx = variant - ed->variants.data();
+                                    if (idx >= 0 && static_cast<std::size_t>(idx) < et->tagged_layout->variant_count)
+                                        is_void_normalized = (et->tagged_layout->variants[idx].variant_payload_type_or_null == nullptr);
+                                }
+                            }
+                        }
+
+                        if (is_void_normalized)
+                        {
+                            if (!c.sema.is_from_instantiation)
+                            {
+                                error(c.range, "enum variant `{}::{}` has void payload and cannot be called with arguments", enum_decl->name, variant_name);
+                                return {m_types.m_errort()};
+                            }
+
+                            if (c.args.size() != variant->payload.size())
+                            {
+                                error(c.range, "enum variant `{}` payload arity mismatch: expected {}, got {}", variant_name, variant->payload.size(),
+                                      c.args.size());
+                                return {m_types.m_errort()};
+                            }
+                            for (std::size_t ai = 0; ai < c.args.size(); ++ai)
+                            {
+                                auto arg = analyze_expr(mod, fn, scope, *c.args[ai], loop_depth, next_off, nullptr, const_env);
+                                if (has_error(arg.type))
+                                    return {m_types.m_errort()};
+                                if (arg.type && !is_concrete_void_type(arg.type) && arg.type->kind != types::TypeKind::Error)
+                                {
+                                    error(c.args[ai]->range, "enum variant `{}` payload type mismatch", variant_name);
+                                    return {m_types.m_errort()};
+                                }
+                            }
+                            detail::ExprResult out{};
+                            out.type = result_type;
+                            out.resolved_decl = callee.resolved_decl;
+                            out.construction_kind = ConstructionKind::Enum;
+                            out.constructed_variant = variant;
+                            return out;
                         }
 
                         if (c.args.size() != variant->payload.size())
@@ -8524,13 +9056,6 @@ export namespace dcc::sema
                             return {m_types.m_errort()};
                         }
 
-                        auto opt_bindings = create_template_bindings(*enum_decl, expected_type ? expected_type : callee.type);
-
-                        types::TypePtr result_type = callee.type;
-
-                        bool any_arg_error = false;
-                        std::vector<comptime::Value const*> arg_constants;
-                        arg_constants.reserve(c.args.size());
                         for (std::size_t i = 0; i < c.args.size(); ++i)
                         {
                             auto payload_ty = resolve_payload_type(*enum_decl, variant->payload[i], callee.type, mod, scope);
@@ -8627,14 +9152,13 @@ export namespace dcc::sema
                         {
                             bool all_const = !arg_constants.empty();
                             for (auto* arg_c : arg_constants)
-                            {
                                 if (!arg_c)
                                 {
                                     all_const = false;
                                     break;
                                 }
-                            }
-                            if (all_const && !variant->payload.empty())
+
+                            if (all_const)
                             {
                                 out.constant = fold_tagged_enum_construction(variant, out.type, arg_constants);
                                 if (out.constant)
@@ -9430,7 +9954,7 @@ export namespace dcc::sema
                     if (!f.item_name.empty())
                     {
                         if (f.item_type && !f.item_type->sema.canonical)
-                            set_canonical(f.item_type->sema, resolve_type_node(mod, scope, f.item_type));
+                            std::ignore = resolve_and_substitute_type_expr(mod, scope, f.item_type);
 
                         types::TypePtr element_type = nullptr;
                         types::Qual element_quals = types::Qual::None;
@@ -9633,10 +10157,7 @@ export namespace dcc::sema
             {
                 v->sema.storage = fn ? ast::StorageClass::Local : ast::StorageClass::ModuleGlobal;
                 if (v->type && !v->type->sema.canonical)
-                {
-                    auto resolved = resolve_type_node(mod, scope, v->type, fn, &next_off, const_env);
-                    set_canonical(v->type->sema, resolved);
-                }
+                    std::ignore = resolve_and_substitute_type_expr(mod, scope, v->type, fn, &next_off, const_env);
                 if (v->type && v->type->sema.canonical)
                 {
                     auto* canon = get_canonical(v->type->sema);
@@ -9970,6 +10491,28 @@ export namespace dcc::sema
             return nullptr;
         }
 
+        [[nodiscard]] types::TypePtr resolve_and_substitute_type_expr(ModuleInfo& mod, Scope const& scope, ast::TypeExpr const* t, ast::FuncDecl* fn = nullptr,
+                                                                      std::uint32_t* next_off_ptr = nullptr, ConstEnv const* const_env = nullptr)
+        {
+            auto saved = sema::get_canonical(t->sema);
+            auto resolved = resolve_type_node(mod, scope, t, fn, next_off_ptr, const_env);
+            if (m_concept_bindings && resolved)
+            {
+                auto sub = m_concept_bindings->substitute(resolved);
+                if (sub && sub != resolved)
+                    resolved = sub;
+            }
+            sema::set_canonical(const_cast<ast::TypeSema&>(t->sema), resolved);
+
+            if (m_concept_canon_guards && (resolved != saved))
+            {
+                auto& g = m_concept_canon_guards->emplace_back();
+                g.sema = const_cast<ast::TypeSema*>(std::addressof(t->sema));
+                g.saved = saved;
+            }
+            return resolved;
+        }
+
         types::TypePtr decl_type(ast::Decl const& d)
         {
             switch (d.kind)
@@ -10220,12 +10763,22 @@ export namespace dcc::sema
 
                         std::vector<types::TypePtr> resolved_args;
                         resolved_args.reserve(nt->template_args.size());
+                        auto const* void_reject_decl = decl;
                         for (auto const& arg : nt->template_args)
                         {
                             if (!arg.type)
                                 return m_types.m_errort();
 
-                            resolved_args.push_back(resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env));
+                            auto arg_ty = resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env);
+                            if (arg_ty && is_concrete_void_type(arg_ty) && void_reject_decl)
+                            {
+                                if (void_reject_decl->kind != ast::DeclKind::Enum)
+                                {
+                                    error(arg.type->range, "void is not allowed as a type argument to this struct/union");
+                                    return m_types.m_errort();
+                                }
+                            }
+                            resolved_args.push_back(arg_ty);
                         }
 
                         if (auto const* sd = ast::node_cast<ast::StructDecl>(decl))
@@ -10276,6 +10829,11 @@ export namespace dcc::sema
                 }
                 case ast::TypeKind::Array: {
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::ArrayType const*>(t)->element, fn, next_off_ptr, const_env);
+                    if (inner.type && is_concrete_void_type(inner.type))
+                    {
+                        error(static_cast<ast::ArrayType const*>(t)->element->range, "array element type cannot be void");
+                        return {.type = m_types.m_errort()};
+                    }
                     auto const* arr = static_cast<ast::ArrayType const*>(t);
 
                     auto result = try_eval_const_size_expr(mod, scope, arr->size);
@@ -10316,6 +10874,11 @@ export namespace dcc::sema
                 }
                 case ast::TypeKind::Slice: {
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::SliceType const*>(t)->element, fn, next_off_ptr, const_env);
+                    if (inner.type && is_concrete_void_type(inner.type))
+                    {
+                        error(t->range, "slice element type cannot be void");
+                        return {.type = m_types.m_errort()};
+                    }
                     return {.type = m_types.slice_t(materialize_type(inner), inner.quals)};
                 }
                 case ast::TypeKind::Fam: {
@@ -10768,6 +11331,9 @@ export namespace dcc::sema
                 auto concrete = substitute_in_nominal_context(types, payload_type, ty);
                 if (concrete && concrete != payload_type)
                     payload_type = concrete;
+
+                if (payload_type && is_concrete_void_type(payload_type))
+                    payload_type = nullptr;
 
                 if (payload_type && !payload_type->is_complete)
                 {

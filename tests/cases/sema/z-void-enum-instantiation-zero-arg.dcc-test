@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public Result(T, i32) bad_ok(T)() {
+    return Result::Ok();
+}
+
+public void trigger() {
+    Result(void, i32) r = bad_ok!(void)();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:9: enum variant `Ok` payload arity mismatch: expected 1, got 0

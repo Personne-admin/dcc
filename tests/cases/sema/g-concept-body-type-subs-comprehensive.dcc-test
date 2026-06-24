@@ -1,0 +1,96 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T) {
+    T value;
+}
+
+struct Option(T) {
+    T val;
+    bool has;
+}
+
+struct Result2(V, E) {
+    V val;
+    E err;
+}
+
+struct File {}
+struct Socket {}
+struct IoError {}
+struct B {}
+struct C {}
+
+S(IoError) write_to_file(File w) {
+    S(IoError) r;
+    return r;
+}
+
+Result2(Option(i32), IoError) read_number(File w) {
+    Option(i32) opt;
+    Result2(Option(i32), IoError) r;
+    return r;
+}
+
+S(B) make(File f) { S(B) r; return r; }
+S(C) make(Socket s) { S(C) r; return r; }
+B convert(File f) { B r; return r; }
+
+using Writer(T, E) = compiles(T w) {
+    S(E) r = w.write_to_file();
+};
+
+void use_writer(T, E)(T w, E e) if Writer(T, E) {}
+
+void test_basic_subst() {
+    File f;
+    IoError e;
+    use_writer(f, e);
+}
+
+using NestedReader(T, E) = compiles(T r) {
+    Result2(Option(i32), E) v = r.read_number();
+};
+
+void use_reader(T, E)(T r, E e) if NestedReader(T, E) {}
+
+void test_nested_subst() {
+    File f;
+    IoError e;
+    use_reader(f, e);
+}
+
+using HasPointer(T) = compiles(T* p) {
+    T* q = p;
+};
+
+void use_ptr(T)(T* p) if HasPointer(T) {}
+
+void test_ptr() {
+    i32 x = 42;
+    i32* p = &x;
+    use_ptr(p);
+}
+
+using CastWriter(T, E) = compiles(T x) {
+    E y = x.convert() as E;
+};
+
+void use_cast(T, E)(T x, E e) if CastWriter(T, E) {}
+
+void test_cast() {
+    File f; B b;
+    use_cast(f, b);
+}
+
+using CrossWriter(T, E) = compiles(T x) {
+    S(E) r = x.make();
+};
+
+void use_cross_file(T, E)(T x, E e) if CrossWriter(T, E) {}
+void use_cross_socket(T, E)(T x, E e) if CrossWriter(T, E) {}
+
+void test_cross_eval() {
+    File f; B b; use_cross_file(f, b);
+    Socket s; C c; use_cross_socket(s, c);
+}
