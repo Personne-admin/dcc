@@ -5,6 +5,6 @@ module m;
 public i32 main_fn() { return 0; }
 
 === EXPECT-ERRORS ===
-<command-line>:1: expected 'identifier' in declaration
+<command-line -J #1>:1: expected 'identifier' in declaration
 
 === ENTRY: main.dc ===

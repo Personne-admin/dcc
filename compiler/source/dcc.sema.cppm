@@ -78,9 +78,11 @@ export namespace dcc::sema
                 return;
 
             std::vector<ast::Decl*> prepend;
+            int idx = 1;
             for (auto const& snippet : m_opts.injected_decls)
             {
-                auto fid = m_sm.add_synthetic("<command-line>", snippet + "\n");
+                auto src_name = std::format("<command-line -J #{}>", idx++);
+                auto fid = m_sm.add_synthetic(std::move(src_name), snippet + "\n");
                 auto* tu = m_importer.parse_source(fid);
                 if (!tu)
                     continue;
