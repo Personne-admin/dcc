@@ -121,6 +121,7 @@ namespace
         bool position_independent_code{false};
         std::optional<dcc::target::CodeModel> code_model;
         bool omit_frame_pointer{true};
+        std::vector<std::string> injected_decls;
     };
 
     [[nodiscard]] auto parse_args(int argc, char** argv) -> Options
@@ -326,6 +327,27 @@ namespace
                 continue;
             }
 
+            if ((arg == "-J" || arg == "--inject") && i + 1 < argc)
+            {
+                opts.injected_decls.emplace_back(argv[++i]);
+                ++i;
+                continue;
+            }
+
+            if (arg.starts_with("-J"))
+            {
+                opts.injected_decls.emplace_back(arg.substr(2));
+                ++i;
+                continue;
+            }
+
+            if (arg.starts_with("--inject="))
+            {
+                opts.injected_decls.emplace_back(arg.substr(9));
+                ++i;
+                continue;
+            }
+
             if (arg == "-g0" || arg == "-gnone")
             {
                 opts.emit_debug_info = false;
@@ -380,7 +402,8 @@ namespace
     void print_usage()
     {
         std::println(
-            "usage: dcc [-I<dir>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] [-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
+            "usage: dcc [-I<dir>] [-J<decl>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] "
+            "[-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
             "[-fno-red-zone] [-fno-simd] [-fno-x87] [-fno-stack-protector] [-fno-stack-probe] [-fomit-frame-pointer|-fno-omit-frame-pointer] [-fPIC|-fPIE] "
             "[-mcmodel <model>] "
             "[-target <triple>] [-h] [-o "
@@ -635,6 +658,7 @@ auto main(int argc, char** argv) -> int
 
     dcc::session::CompileOptions compile_opts;
     compile_opts.arena_initial_size = 256 * 1024;
+    compile_opts.injected_decls = std::move(opts.injected_decls);
 
     if (!opts.target_triple.empty())
     {

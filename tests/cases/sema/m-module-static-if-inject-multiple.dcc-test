@@ -1,0 +1,14 @@
+=== INJECT: const bool A = true; ===
+=== INJECT: const bool B = false; ===
+=== FILE: main.dc ===
+module m;
+
+static if A && !B {
+    public i32 ok() { return 1; }
+} else {
+    public i32 ok() { return dead_undeclared; }
+}
+
+public i32 use_it() { return ok(); }
+
+=== ENTRY: main.dc ===

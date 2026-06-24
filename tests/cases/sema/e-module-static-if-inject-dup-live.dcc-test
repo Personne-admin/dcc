@@ -1,0 +1,9 @@
+=== INJECT: const bool DEBUG = true; ===
+=== FILE: main.dc ===
+module m;
+const bool DEBUG = false;
+
+=== EXPECT-ERRORS ===
+main.dc:2: redefinition of `DEBUG`
+
+=== ENTRY: main.dc ===

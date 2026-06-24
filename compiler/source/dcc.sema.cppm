@@ -27,6 +27,7 @@ export namespace dcc::sema
         std::size_t arena_initial_size{256 * 1024};
         dcc::si::string_interner* interner{nullptr};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
+        std::vector<std::string> injected_decls;
     };
 
     class SemaContext
@@ -54,9 +55,11 @@ export namespace dcc::sema
             if (!root)
                 return nullptr;
 
+            inject_decls(*root);
+
             load_transitively(m_importer, *root);
 
-            collect_all(m_graph.all(), m_diag, m_alloc);
+            collect_all(m_graph.all(), m_diag, m_types, m_alloc);
             resolve_usings(m_graph.all(), m_diag, m_alloc);
             resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
@@ -69,6 +72,28 @@ export namespace dcc::sema
         }
 
     private:
+        void inject_decls(ModuleInfo& root)
+        {
+            if (m_opts.injected_decls.empty() || !root.tu)
+                return;
+
+            std::vector<ast::Decl*> prepend;
+            for (auto const& snippet : m_opts.injected_decls)
+            {
+                auto fid = m_sm.add_synthetic("<command-line>", snippet + "\n");
+                auto* tu = m_importer.parse_source(fid);
+                if (!tu)
+                    continue;
+
+                for (auto* imp : tu->imports)
+                    root.tu->imports.push_back(imp);
+                for (auto* d : tu->decls)
+                    prepend.push_back(d);
+            }
+
+            root.tu->decls.insert(root.tu->decls.begin(), prepend.begin(), prepend.end());
+        }
+
         sm::SourceManager& m_sm;
         diag::DiagnosticEngine& m_diag;
         ast::AstContext& m_ast_ctx;

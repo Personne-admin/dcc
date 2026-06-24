@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+static if 42 {
+    public i32 a() { return 1; }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: must be a compile-time boolean
+
+=== ENTRY: main.dc ===

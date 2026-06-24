@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+i32 counter = 0;
+
+static if counter {
+    public i32 a() { return 1; }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: `counter` is not a compile-time constant
+
+=== ENTRY: main.dc ===

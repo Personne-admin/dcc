@@ -25,6 +25,7 @@ export namespace dcc::session
         bool inject_libdcext_prelude{false};
         std::size_t arena_initial_size{256 * 1024};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
+        std::vector<std::string> injected_decls;
     };
 
     struct CompileResult
@@ -126,6 +127,7 @@ export namespace dcc::session
             sopts.import_roots = opts.import_roots;
             sopts.interner = &m_interner;
             sopts.target = opts.target;
+            sopts.injected_decls = opts.injected_decls;
 
             auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
 

@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+static if false {
+    public i32 pick() { return then_undeclared; }
+} else static if true {
+    public i32 pick() { return 2; }
+} else {
+    public i32 pick() { return final_undeclared; }
+}
+
+public i32 use_it() { return pick(); }
+
+=== ENTRY: main.dc ===

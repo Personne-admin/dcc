@@ -72,6 +72,7 @@ export namespace dcc::sema
                     break;
                 case ast::DeclKind::Module:
                 case ast::DeclKind::Import:
+                case ast::DeclKind::StaticIfGroup:
                     break;
             }
         }
@@ -181,10 +182,7 @@ export namespace dcc::sema
             m_indent--;
         }
 
-        [[nodiscard]] std::string type_str(void const* t) const
-        {
-            return format_dcc_type(reinterpret_cast<types::TypePtr>(t));
-        }
+        [[nodiscard]] std::string type_str(void const* t) const { return format_dcc_type(reinterpret_cast<types::TypePtr>(t)); }
 
         [[nodiscard]] static std::string decl_name(void const* d)
         {
@@ -213,6 +211,8 @@ export namespace dcc::sema
                     return "module";
                 case ast::DeclKind::Import:
                     return "import";
+                case ast::DeclKind::StaticIfGroup:
+                    return "static if";
             }
             return "<decl>";
         }

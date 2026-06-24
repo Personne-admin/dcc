@@ -749,6 +749,7 @@ namespace dcc::query
             {
                 case ast::DeclKind::Module:
                 case ast::DeclKind::Import:
+                case ast::DeclKind::StaticIfGroup:
                     break;
                 case ast::DeclKind::Using: {
                     auto* d = static_cast<ast::UsingDecl const*>(decl);
@@ -1221,6 +1222,8 @@ namespace dcc::query
                 return static_cast<ast::ImportDecl const*>(decl)->name_range;
             case ast::DeclKind::Using:
                 return static_cast<ast::UsingDecl const*>(decl)->name_range;
+            case ast::DeclKind::StaticIfGroup:
+                return decl->range;
         }
         return {};
     }

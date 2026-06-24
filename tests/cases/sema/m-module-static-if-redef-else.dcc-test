@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+static if false {
+    public i32 foo() { return then_undeclared; }
+} else {
+    public i32 foo() { return 2; }
+}
+
+public i32 use_it() { return foo(); }
+
+=== ENTRY: main.dc ===

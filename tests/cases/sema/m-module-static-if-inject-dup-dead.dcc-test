@@ -1,0 +1,11 @@
+=== INJECT: const bool DEBUG = true; ===
+=== FILE: main.dc ===
+module m;
+
+static if false {
+    const bool DEBUG = false;
+}
+
+public i32 use_it() { return 0; }
+
+=== ENTRY: main.dc ===

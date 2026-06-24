@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+static if UNDEFINED {
+    public i32 a() { return 1; }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: unknown identifier `UNDEFINED`
+
+=== ENTRY: main.dc ===

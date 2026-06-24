@@ -67,6 +67,9 @@ export namespace dcc::sema
 
         [[nodiscard]] diag::DiagnosticEngine& diag() noexcept { return m_diag; }
 
+        // Parse a standalone source file (e.g. a `-J`/`--inject` snippet) using the configured parse callback.
+        [[nodiscard]] ast::TranslationUnit* parse_source(sm::FileId fid) { return m_parse(fid, m_ast_ctx, m_diag); }
+
         ModuleInfo* load_entry(std::filesystem::path const& file)
         {
             auto canonical = std::filesystem::weakly_canonical(file);

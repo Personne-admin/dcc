@@ -1,0 +1,10 @@
+=== INJECT: i32 ; ===
+=== FILE: main.dc ===
+module m;
+
+public i32 main_fn() { return 0; }
+
+=== EXPECT-ERRORS ===
+<command-line>:1: expected 'identifier' in declaration
+
+=== ENTRY: main.dc ===

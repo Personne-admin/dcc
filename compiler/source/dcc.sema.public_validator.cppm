@@ -67,6 +67,7 @@ export namespace dcc::sema
                     break;
                 case ast::DeclKind::Module:
                 case ast::DeclKind::Import:
+                case ast::DeclKind::StaticIfGroup:
                     break;
             }
         }

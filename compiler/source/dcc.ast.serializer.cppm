@@ -838,6 +838,29 @@ export namespace dcc::ast
                 visitExpr(d->init);
             }
         }
+        void visitStaticIfGroup(StaticIfGroup const* g) override
+        {
+            line("StaticIfGroup");
+            IndentScope is(m_indent_level);
+            if (g->condition)
+            {
+                line("Cond");
+                IndentScope is2(m_indent_level);
+                visitExpr(g->condition);
+            }
+            line("Then");
+            {
+                IndentScope is2(m_indent_level);
+                for (auto* d : g->then_decls)
+                    visitDecl(d);
+            }
+            if (g->else_group)
+            {
+                line("Else");
+                IndentScope is2(m_indent_level);
+                visitStaticIfGroup(g->else_group);
+            }
+        }
 
     private:
         std::string m_out;

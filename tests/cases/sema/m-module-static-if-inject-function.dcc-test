@@ -1,0 +1,7 @@
+=== INJECT: i32 injected_answer() { return 42; } ===
+=== FILE: main.dc ===
+module m;
+
+public i32 use_it() { return injected_answer(); }
+
+=== ENTRY: main.dc ===

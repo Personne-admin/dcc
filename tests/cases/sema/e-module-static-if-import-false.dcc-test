@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+static if false {
+    import some_module;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: conditional imports are not supported
+
+=== ENTRY: main.dc ===

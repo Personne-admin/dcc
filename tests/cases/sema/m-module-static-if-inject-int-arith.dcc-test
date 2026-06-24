@@ -1,0 +1,13 @@
+=== INJECT: const i32 LEVEL = 3; ===
+=== FILE: main.dc ===
+module m;
+
+static if LEVEL >= 2 {
+    public i32 advanced() { return 1; }
+} else {
+    public i32 advanced() { return dead_undeclared; }
+}
+
+public i32 use_it() { return advanced(); }
+
+=== ENTRY: main.dc ===

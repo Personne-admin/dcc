@@ -135,6 +135,7 @@ namespace
         std::vector<ExpectRegistry> registry_blocks;
         std::vector<ExpectError> errors;
         std::vector<ExpectExecutable> executable_blocks;
+        std::vector<std::string> injected_decls;
         bool errors_block_present{};
         bool interactive_mode{};
     };
@@ -241,6 +242,8 @@ namespace
                 fx.entry = trim(std::string_view{h}.substr(6));
             else if (starts_with(h, "MODE:") && trim(std::string_view{h}.substr(5)) == "interactive")
                 fx.interactive_mode = true;
+            else if (starts_with(h, "INJECT:"))
+                fx.injected_decls.push_back(trim(std::string_view{h}.substr(7)));
             else if (starts_with(h, "EXPECT-AST FOR:"))
             {
                 ExpectAst e;
@@ -781,6 +784,7 @@ namespace
         dcc::sema::SemaOptions opts;
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
+        opts.injected_decls = fx.injected_decls;
 
         dcc::sema::SemaContext sema{sm, diag, ast_ctx, parse_fn, std::move(opts)};
         sema.analyze_entry(sb->root / fx.entry);
@@ -813,7 +817,7 @@ namespace
                 for (auto const& got : captured)
                 {
                     auto leaf = fs::path{got.file}.lexically_relative(sb->root).string();
-                    if (leaf == want.file && got.line == want.line && got.message.find(want.substring) != std::string::npos)
+                    if ((leaf == want.file || got.file == want.file) && got.line == want.line && got.message.find(want.substring) != std::string::npos)
                     {
                         matched = true;
                         break;

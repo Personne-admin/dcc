@@ -1,0 +1,12 @@
+=== INJECT: import lib; ===
+=== FILE: lib.dc ===
+module lib;
+
+public i32 lib_value() { return 7; }
+
+=== FILE: main.dc ===
+module main;
+
+public i32 use_it() { return lib::lib_value(); }
+
+=== ENTRY: main.dc ===

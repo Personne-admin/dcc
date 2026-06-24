@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+const bool ENABLED = true;
+
+static if ENABLED {
+    public i32 feature() { return 1; }
+} else {
+    public i32 feature() { return dead_undeclared; }
+}
+
+public i32 use_it() { return feature(); }
+
+=== ENTRY: main.dc ===

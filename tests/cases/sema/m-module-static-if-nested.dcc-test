@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+static if true {
+    static if false {
+        public i32 inner_dead() { return inner_undeclared; }
+    } else {
+        public i32 inner_live() { return 1; }
+    }
+} else {
+    public i32 outer_dead() { return outer_undeclared; }
+}
+
+public i32 use_it() { return inner_live(); }
+
+=== ENTRY: main.dc ===

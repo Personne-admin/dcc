@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+static if true {
+    public i32 ok() { return 0; }
+} else {
+    public i32 bad() { return "not an i32"; }
+}
+
+=== ENTRY: main.dc ===

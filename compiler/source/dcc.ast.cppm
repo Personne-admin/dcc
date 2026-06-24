@@ -174,6 +174,7 @@ export namespace dcc::ast
         Enum,
         Func,
         Var,
+        StaticIfGroup,
     };
 
     enum class UsingKind : std::uint8_t
@@ -1066,6 +1067,17 @@ export namespace dcc::ast
         sm::SourceRange name_range;
         ExprPtr init{};
         VarDecl(sm::SourceRange r, std::string_view n, sm::SourceRange nr, Allocator a) : Decl(Kind, r, a), name(n), name_range(nr) {}
+    };
+
+    struct StaticIfGroup : Decl
+    {
+        static constexpr auto Kind = DeclKind::StaticIfGroup;
+        ExprPtr condition{};
+        std::pmr::vector<DeclPtr> then_decls;
+        StaticIfGroup* else_group{};
+        std::int8_t taken_branch{-1};
+
+        StaticIfGroup(sm::SourceRange r, ExprPtr cond, Allocator a) : Decl(Kind, r, a), condition(cond), then_decls(a) {}
     };
 
     struct TranslationUnit

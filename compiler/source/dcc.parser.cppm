@@ -299,6 +299,16 @@ export namespace dcc::parser
         {
             auto start = loc();
 
+            if (check(TK::KwStatic))
+            {
+                if (check_at(1, TK::KwIf))
+                    return parse_static_if_group();
+
+                error_at(single_range(), "only `static if` is allowed at module scope");
+                advance();
+                return nullptr;
+            }
+
             auto attrs = parse_attributes();
 
             bool is_public = match(TK::KwPublic);
@@ -1743,6 +1753,74 @@ export namespace dcc::parser
 
             s->range = range_from(start);
             return s;
+        }
+
+        ast::Decl* parse_static_if_group()
+        {
+            auto start = loc();
+            advance();
+            advance();
+            return finish_static_if_group(start);
+        }
+
+        ast::StaticIfGroup* finish_static_if_group(sm::Location start)
+        {
+            auto* cond = parse_expr(0, true);
+            auto* g = m_ctx.make<ast::StaticIfGroup>(range_from(start), cond);
+            parse_decl_block(g->then_decls);
+
+            if (match(TK::KwElse))
+            {
+                if (check(TK::KwStatic) && check_at(1, TK::KwIf))
+                {
+                    auto chain_start = loc();
+                    advance();
+                    advance();
+                    g->else_group = finish_static_if_group(chain_start);
+                }
+                else if (match(TK::KwIf))
+                {
+                    auto chain_start = previous().range.begin;
+                    g->else_group = finish_static_if_group(chain_start);
+                }
+                else
+                {
+                    auto else_start = loc();
+                    auto* eg = m_ctx.make<ast::StaticIfGroup>(sm::SourceRange{}, nullptr);
+                    parse_decl_block(eg->then_decls);
+                    eg->range = range_from(else_start);
+                    g->else_group = eg;
+                }
+            }
+
+            g->range = range_from(start);
+            return g;
+        }
+
+        void parse_decl_block(std::pmr::vector<ast::DeclPtr>& out)
+        {
+            expect(TK::LBrace, "to begin `static if` branch");
+
+            while (!check(TK::RBrace) && !eof())
+            {
+                auto* item = parse_top_level_item();
+                if (!item)
+                {
+                    synchronize_to_decl();
+                    continue;
+                }
+
+                if (item->kind == ast::DeclKind::Import)
+                    error_at(item->range, "conditional imports are not supported");
+                else
+                    out.push_back(item);
+
+                for ([[maybe_unused]] auto* ed : m_extra_imports)
+                    error_at(ed->range, "conditional imports are not supported");
+                m_extra_imports.clear();
+            }
+
+            expect(TK::RBrace, "to close `static if` branch");
         }
 
         ast::MatchArm parse_type_match_arm()

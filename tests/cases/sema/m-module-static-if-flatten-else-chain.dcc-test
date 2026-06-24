@@ -1,0 +1,22 @@
+=== FILE: main.dc ===
+module m;
+
+static if false {
+    public i32 a = 1;
+} else static if true {
+    public i32 b = 2;
+} else {
+    public i32 c = 3;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Var name=b
+    public
+    Type
+      Primitive i32
+    Init
+      IntLiteral 2

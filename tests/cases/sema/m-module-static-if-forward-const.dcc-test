@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+static if LATER {
+    public i32 a() { return 1; }
+} else {
+    public i32 a() { return dead_undeclared; }
+}
+
+const bool LATER = true;
+
+public i32 use_it() { return a(); }
+
+=== ENTRY: main.dc ===

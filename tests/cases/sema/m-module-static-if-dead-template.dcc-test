@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+static if false {
+    public T wrap(T)(T x) { return never_resolved_symbol; }
+} else {
+    public i32 ok() { return 0; }
+}
+
+public i32 use_it() { return ok(); }
+
+=== ENTRY: main.dc ===

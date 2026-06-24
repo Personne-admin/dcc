@@ -58,6 +58,8 @@ export namespace dcc::sema
                     return "module";
                 case ast::DeclKind::Import:
                     return "import";
+                case ast::DeclKind::StaticIfGroup:
+                    return "static if";
             }
             return "<decl>";
         }
@@ -196,6 +198,7 @@ export namespace dcc::sema
                         break;
                     case ast::DeclKind::Module:
                     case ast::DeclKind::Import:
+                    case ast::DeclKind::StaticIfGroup:
                         break;
                 }
         }
@@ -524,8 +527,7 @@ export namespace dcc::sema
                         if (!types::type_cast<types::TemplateParamType>(type_pack->element))
                             out.type = type_pack->element;
                         else
-                            out.type = m_types.type_pack_t(type_pack->element,
-                                                          type_pack->pack_index + static_cast<std::uint32_t>(*idx_val));
+                            out.type = m_types.type_pack_t(type_pack->element, type_pack->pack_index + static_cast<std::uint32_t>(*idx_val));
                     }
                     break;
                 }

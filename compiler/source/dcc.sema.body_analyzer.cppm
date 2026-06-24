@@ -95,6 +95,8 @@ export namespace dcc::sema
                     return "module";
                 case ast::DeclKind::Import:
                     return "import";
+                case ast::DeclKind::StaticIfGroup:
+                    return "static if";
             }
             return "<decl>";
         }

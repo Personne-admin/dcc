@@ -238,6 +238,8 @@ namespace dccd::semantic_tokens
                         case dcc::ast::DeclKind::Module:
                         case dcc::ast::DeclKind::Import:
                             return TokenType::Namespace;
+                        case dcc::ast::DeclKind::StaticIfGroup:
+                            return TokenType::Variable;
                     }
                 }
 
@@ -748,6 +750,16 @@ namespace dccd::semantic_tokens
                         visitTypeExpr(d->type);
                     if (d->init)
                         visitExpr(d->init);
+                    break;
+                }
+                case dcc::ast::DeclKind::StaticIfGroup: {
+                    for (auto const* g = static_cast<dcc::ast::StaticIfGroup const*>(decl); g; g = g->else_group)
+                    {
+                        if (g->condition)
+                            visitExpr(g->condition);
+                        for (auto* inner : g->then_decls)
+                            visitDecl(inner);
+                    }
                     break;
                 }
             }
