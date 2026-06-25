@@ -340,6 +340,19 @@ export namespace dccd
                 return std::nullopt;
             }
 
+            if (!dcc::query::file_in_module_graph(*m_session, *fid_opt) && !dcc::vfs::is_dcc_core_uri(uri))
+            {
+                std::println(m_log, "[dccd] query_at_params: {} not in module graph; recompiling as entry", uri);
+                recompile_document(uri);
+
+                fid_opt = file_id_from_uri(uri);
+                if (!fid_opt)
+                {
+                    std::println(m_log, "[dccd] query_at_params: no file for uri {} after recompile", uri);
+                    return std::nullopt;
+                }
+            }
+
             auto node = dcc::query::find_node_at(*m_session, *fid_opt, sm_pos);
             if (!node)
             {
@@ -426,6 +439,23 @@ export namespace dccd
             auto loc = source_range_to_lsp_location(target_range);
             if (!loc)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            if (node->resolved_via_using)
+            {
+                auto using_range = dcc::query::decl_name_range(node->resolved_via_using);
+                if (!using_range.valid())
+                    using_range = node->resolved_via_using->range;
+
+                auto using_loc = using_range.valid() ? source_range_to_lsp_location(using_range) : std::nullopt;
+                if (using_loc && !(using_loc->uri == loc->uri && using_loc->range.start.line == loc->range.start.line &&
+                                   using_loc->range.start.character == loc->range.start.character))
+                {
+                    auto arr = protocol::JsonValue::empty_array();
+                    arr.push_back(using_loc->to_json());
+                    arr.push_back(loc->to_json());
+                    return protocol::build_response(rpc.id.value(), std::move(arr));
+                }
+            }
 
             return protocol::build_response(rpc.id.value(), loc->to_json());
         }

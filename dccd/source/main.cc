@@ -137,7 +137,32 @@ auto main() -> int
             continue;
         }
 
-        auto response = server.handle_message(*rpc);
+        std::optional<dccd::protocol::JsonValue> response;
+        try
+        {
+            response = server.handle_message(*rpc);
+        }
+        catch (std::exception const& ex)
+        {
+            std::println(std::cerr, "[dccd] uncaught exception handling message: {}", ex.what());
+            if (rpc->id.has_value())
+            {
+                auto err_resp = dccd::protocol::build_error_response(rpc->id.value(), -32603, std::format("Internal error: {}", ex.what()));
+                send_message(err_resp);
+            }
+            continue;
+        }
+        catch (...)
+        {
+            std::println(std::cerr, "[dccd] uncaught non-standard exception handling message");
+            if (rpc->id.has_value())
+            {
+                auto err_resp = dccd::protocol::build_error_response(rpc->id.value(), -32603, "Internal error");
+                send_message(err_resp);
+            }
+            continue;
+        }
+
         if (response)
             send_message(*response);
     }

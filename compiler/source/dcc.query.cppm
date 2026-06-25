@@ -42,6 +42,7 @@ export namespace dcc::query
         ast::FieldDecl const* resolved_field{};
 
         ast::Decl const* resolved_field_parent{};
+        ast::UsingDecl const* resolved_via_using{};
 
         sm::SourceRange resolved_definition_range{};
         ast::FuncParam const* resolved_param{};
@@ -68,6 +69,8 @@ export namespace dcc::query
     [[nodiscard]] sm::SourceRange field_name_range(ast::FieldDecl const* fd);
 
     [[nodiscard]] std::vector<sm::SourceRange> find_references(session::CompilerSession const& session, ast::Decl const* target_decl);
+
+    [[nodiscard]] bool file_in_module_graph(session::CompilerSession const& session, sm::FileId file);
 
 } // namespace dcc::query
 
@@ -138,6 +141,17 @@ namespace dcc::query
                 result.resolved_type = t;
             if (type_expr->sema.resolved_decl)
                 result.resolved_decl = type_expr->sema.resolved_decl;
+        }
+
+        void apply_resolved_type_symbol(NodeAtLocation& result, sema::Symbol const* sym)
+        {
+            if (!sym || !sym->decl)
+                return;
+
+            result.resolved_decl = sym->decl;
+
+            if (sym->via_using && sym->via_using->using_kind == ast::UsingKind::Alias && static_cast<ast::Decl const*>(sym->via_using) != sym->decl)
+                result.resolved_via_using = sym->via_using;
         }
 
         void walk_block(ast::Block const& block, NodeAtLocation& result, sm::Location target, QueryOptions const& opts)
@@ -299,8 +313,7 @@ namespace dcc::query
                     if (!result.resolved_decl && result.scope && !t->path.is_empty())
                     {
                         auto const* sym = sema::resolve_type_path(*result.scope, t->path);
-                        if (sym && sym->decl)
-                            result.resolved_decl = sym->via_using ? sym->via_using : sym->decl;
+                        apply_resolved_type_symbol(result, sym);
                     }
                     break;
                 }
@@ -1189,8 +1202,7 @@ namespace dcc::query
                     if (!result.resolved_decl && result.scope && !t->path.is_empty())
                     {
                         auto const* sym = sema::resolve_type_path(*result.scope, t->path);
-                        if (sym && sym->decl)
-                            result.resolved_decl = sym->via_using ? sym->via_using : sym->decl;
+                        apply_resolved_type_symbol(result, sym);
                     }
                 }
 
@@ -1275,6 +1287,19 @@ namespace dcc::query
             result->position = position;
 
         return result;
+    }
+
+    bool file_in_module_graph(session::CompilerSession const& session, sm::FileId file)
+    {
+        auto const* sema_ctx = session.sema_context();
+        if (!sema_ctx)
+            return false;
+
+        for (auto const& mod : const_cast<sema::SemaContext*>(sema_ctx)->graph().all())
+            if (mod->file_id == file && mod->tu)
+                return true;
+
+        return false;
     }
 
     std::optional<NodeAtLocation> find_node_at(session::CompilerSession const& session, sm::Location location, QueryOptions opts)
