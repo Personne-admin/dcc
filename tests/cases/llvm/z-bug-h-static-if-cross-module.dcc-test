@@ -1,0 +1,26 @@
+=== FILE: lib.dc ===
+module lib;
+
+// Public generic with static-if, imported by main.dc.
+public i32 handle(T)() {
+    static if T == void {
+        return 0;
+    } else {
+        return 1;
+    }
+}
+
+=== FILE: main.dc ===
+module main;
+import lib;
+
+// Instantiate both branches of the imported generic.
+public i32 entry() {
+    i32 a = lib::handle!(void)();  // T=void  -> then -> 0
+    i32 b = lib::handle!(i32)();   // T=i32   -> else -> 1
+    return a + b;  // 1
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-LLVM FLAGS: -verify ===
