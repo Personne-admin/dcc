@@ -3985,6 +3985,31 @@ export namespace dcc::ir::lower
                                     continue;
 
                                 auto* ir_payload_type = lower_type(payload_sema_canon);
+
+                                if (layout->payload_size == 0 || payload_sema_canon->byte_size == 0)
+                                {
+                                    auto* zero_payload = zero_value(ir_payload_type);
+                                    if (ep.payload[pi]->kind == ast::PatternKind::Binding)
+                                    {
+                                        auto const& bp = static_cast<ast::BindingPattern const&>(*ep.payload[pi]);
+                                        if (bp.by_reference)
+                                        {
+                                            auto* ptr_type = m_ctx.pointer_to(ir_payload_type, ir::Segment::None);
+                                            auto* payload_alloca = m_ctx.alloca(ptr_type, ir_payload_type);
+                                            auto alloca_name = ident_name();
+                                            payload_alloca->name = m_name_pool.back();
+                                            append_inst(payload_alloca);
+                                            if (zero_payload)
+                                                append_inst(m_ctx.store(zero_payload, payload_alloca));
+                                            auto* ptr_sema_ty = make_ptr_sema_type(payload_sema_canon, dcc::types::Qual::None);
+                                            m_named_values[bp.name] = MapEntry{payload_alloca, false, ptr_sema_ty, false};
+                                        }
+                                        else
+                                            m_named_values[bp.name] = MapEntry{zero_payload, false, payload_sema_canon, false};
+                                    }
+                                    continue;
+                                }
+
                                 auto* ir_byte = m_ctx.int_t(8, false);
                                 auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
 
@@ -4041,7 +4066,7 @@ export namespace dcc::ir::lower
                                             m_named_values[bp.name] = MapEntry{payload_buf, false, ptr_sema_ty, false};
                                         }
                                     }
-                                    else if (operand_ir_is_aggregate(ir_payload_type))
+                                    else if (payload_sema_canon->byte_size > 0 && operand_ir_is_aggregate(ir_payload_type))
                                     {
                                         auto* ptr_type = m_ctx.pointer_to(ir_payload_type, ir::Segment::None);
                                         auto* sub_alloca = m_ctx.alloca(ptr_type, ir_payload_type);
@@ -4373,6 +4398,12 @@ export namespace dcc::ir::lower
 
                                 auto* ir_payload_type = lower_type(payload_sema_canon);
 
+                                if (layout->payload_size == 0 || payload_sema_canon->byte_size == 0)
+                                {
+                                    auto* zero_payload = zero_value(ir_payload_type);
+                                    return {zero_payload, ir_payload_type, payload_sema_canon, nullptr};
+                                }
+
                                 auto* ir_byte = m_ctx.int_t(8, false);
                                 auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
                                 IrValue* payload_arr = nullptr;
@@ -4419,7 +4450,19 @@ export namespace dcc::ir::lower
                                     auto const& bp = static_cast<ast::BindingPattern const&>(*ep.payload[pi]);
                                     if (bp.by_reference)
                                     {
-                                        if (operand_expr)
+                                        if (payload_sema_type->byte_size == 0)
+                                        {
+                                            auto* ptr_type = m_ctx.pointer_to(ir_payload_type, ir::Segment::None);
+                                            auto* zst_alloca = m_ctx.alloca(ptr_type, ir_payload_type);
+                                            auto alloca_name = ident_name();
+                                            zst_alloca->name = m_name_pool.back();
+                                            append_inst(zst_alloca);
+                                            if (payload_val)
+                                                append_inst(m_ctx.store(payload_val, zst_alloca));
+                                            auto* ptr_sema_ty = make_ptr_sema_type(payload_sema_type, dcc::types::Qual::None);
+                                            m_named_values[bp.name] = MapEntry{zst_alloca, false, ptr_sema_ty, false};
+                                        }
+                                        else if (operand_expr)
                                         {
                                             auto* ir_byte = m_ctx.int_t(8, false);
                                             auto* l_ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
@@ -4442,7 +4485,7 @@ export namespace dcc::ir::lower
                                             m_named_values[bp.name] = MapEntry{payload_alloca, false, ptr_sema_ty, false};
                                         }
                                     }
-                                    else if (operand_ir_is_aggregate(ir_payload_type))
+                                    else if (payload_sema_type->byte_size > 0 && operand_ir_is_aggregate(ir_payload_type))
                                     {
                                         auto* ptr_type = m_ctx.pointer_to(ir_payload_type, ir::Segment::None);
                                         auto* sub_alloca = m_ctx.alloca(ptr_type, ir_payload_type);
@@ -6057,20 +6100,27 @@ export namespace dcc::ir::lower
             auto* agg = m_ctx.aggregate(ir_ty);
             agg->values.push_back(disc_val);
 
-            if (layout->payload_size > 0 && !payload_args.empty() && variant->payload.size() == 1)
+            auto* concrete_payload_type = static_cast<dcc::types::TypePtr>(nullptr);
+            auto* payload_sema_type = static_cast<dcc::types::TypePtr>(nullptr);
+            auto* payload_sema_canon = static_cast<dcc::types::TypePtr>(nullptr);
+
+            if (variant->payload.size() == 1)
             {
                 auto* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
                 auto variant_index = static_cast<std::size_t>(variant - ed->variants.data());
-                auto* concrete_payload_type = (variant_index < layout->variant_count) ? layout->variants[variant_index].variant_payload_type_or_null : nullptr;
+                concrete_payload_type = (variant_index < layout->variant_count) ? layout->variants[variant_index].variant_payload_type_or_null : nullptr;
 
-                auto* payload_sema_type = variant->payload[0] ? reinterpret_cast<dcc::types::TypePtr>(variant->payload[0]->sema.canonical) : nullptr;
+                payload_sema_type = variant->payload[0] ? reinterpret_cast<dcc::types::TypePtr>(variant->payload[0]->sema.canonical) : nullptr;
                 if (!payload_sema_type)
                     lower_panic("tagged enum payload type not resolved");
 
-                auto* payload_sema_canon = concrete_payload_type ? concrete_payload_type : get_canonical_type(variant->payload[0]);
+                payload_sema_canon = concrete_payload_type ? concrete_payload_type : get_canonical_type(variant->payload[0]);
                 if (!payload_sema_canon)
                     payload_sema_canon = payload_sema_type;
+            }
 
+            if (layout->payload_size > 0 && !payload_args.empty() && variant->payload.size() == 1 && payload_sema_canon && payload_sema_canon->byte_size > 0)
+            {
                 auto* ir_byte = m_ctx.int_t(8, false);
                 auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
                 auto* ir_payload_ptr_ty = m_ctx.pointer_to(ir_payload_arr_ty);

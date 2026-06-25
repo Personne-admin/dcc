@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+struct WriterA {}
+struct WriterB {}
+struct ErrorA {}
+struct ErrorB {}
+
+Result(void, ErrorA) write(WriterA w, []const u8 data) {
+    Result(void, ErrorA) r;
+    return r;
+}
+
+Result(void, ErrorB) write(WriterB w, []const u8 data) {
+    Result(void, ErrorB) r;
+    return r;
+}
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+Result(void, E) forward_write(W, E)(W w, E e, []const u8 data) if Writer(W, E) {
+    Result(void, E) r = w.write(data);
+    return r;
+}
+
+void ok_a() {
+    WriterA w;
+    ErrorA e;
+    u8[1] bytes;
+    Result(void, ErrorA) ra = forward_write(w, e, bytes);
+}
+
+void ok_b() {
+    WriterB w;
+    ErrorB e;
+    u8[1] bytes;
+    Result(void, ErrorB) rb = forward_write(w, e, bytes);
+}
+
+void crossed() {
+    WriterA w;
+    ErrorB e;
+    u8[1] bytes;
+    Result(void, ErrorB) bad = forward_write(w, e, bytes);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:47: template constraint not satisfied for `forward_write`

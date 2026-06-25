@@ -12,4 +12,4 @@ public void trigger() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:9: enum variant `Ok` payload arity mismatch: expected 1, got 0
+main.dc:6: enum variant `Ok` payload arity mismatch: expected 1, got 0

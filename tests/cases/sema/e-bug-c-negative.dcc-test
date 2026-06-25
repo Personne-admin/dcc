@@ -1,0 +1,37 @@
+=== FILE: main.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+struct FileWriter {}
+struct BadWriter {}
+struct IoError {}
+struct OtherError {}
+
+Result(void, IoError) write(FileWriter w, []const u8 data) {
+    Result(void, IoError) r;
+    return r;
+}
+
+Result(void, OtherError) write(BadWriter w, []const u8 data) {
+    Result(void, OtherError) r;
+    return r;
+}
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+void require_writer(W, E)(W w, E e, []const u8 data) if Writer(W, E) {
+    Result(void, E) r = w.write(data);
+}
+
+void bad_implicit() {
+    BadWriter w;
+    IoError e;
+    u8[1] bytes;
+    require_writer(w, e, bytes);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:34: template constraint not satisfied for `require_writer`

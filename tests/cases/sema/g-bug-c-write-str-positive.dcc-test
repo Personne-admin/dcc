@@ -1,0 +1,68 @@
+=== FILE: main.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+struct BufferWriter {}
+struct IoError {}
+
+Result(void, IoError) write(BufferWriter w, []const u8 data) {
+    Result(void, IoError) r;
+    return r;
+}
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+Result(void, E) write_str(W, E)(W writer, []const u8 s) if Writer(W, E) {
+    Result(void, E) r = writer.write(s);
+    return match r {
+        Result::Ok => r,
+        Result::Err(e) => r,
+    };
+}
+
+Result(void, E) write_deduced(W, E)(W writer, E dummy, []const u8 s) if Writer(W, E) {
+    Result(void, E) r = writer.write(s);
+    return match r {
+        Result::Ok => r,
+        Result::Err(e) => r,
+    };
+}
+
+struct Option(T) { T val; bool has; }
+
+Result(Option(i32), IoError) get_opt(BufferWriter w) {
+    Option(i32) opt;
+    return Result::Ok(opt);
+}
+
+using Getter(W, E) = compiles(W w) {
+    Result(Option(i32), E) r = w.get_opt();
+};
+
+Result(Option(i32), E) get_nested(W, E)(W w) if Getter(W, E) {
+    Result(Option(i32), E) r = w.get_opt();
+    return r;
+}
+
+void explicit_inst() {
+    BufferWriter w;
+    u8[1] bytes;
+    Result(void, IoError) r1 = write_str!(BufferWriter, IoError)(w, bytes);
+}
+
+void deduced_inst() {
+    BufferWriter w;
+    IoError e;
+    u8[1] bytes;
+    Result(void, IoError) r2 = write_deduced(w, e, bytes);
+}
+
+void nested_inst() {
+    BufferWriter w;
+    Result(Option(i32), IoError) r3 = get_nested!(BufferWriter, IoError)(w);
+}
+
+=== EXPECT-ERRORS ===

@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+enum Option(T) { Some(T), None }
+
+struct Point { i64 x; i64 y; }
+
+@nomangle
+i64 get_x(Option(Point) opt) {
+    return match opt {
+        Option::Some(p) => p.x,
+        Option::None => 0,
+    };
+}
+
+@nomangle
+bool is_origin(Option(Point) opt) {
+    return match opt {
+        Option::Some(p) => p.x == 0 && p.y == 0,
+        Option::None => false,
+    };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

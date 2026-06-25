@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module test;
+
+struct Holder(T) { T* ptr; }
+
+Holder(T) make_holder(T)(T value, []const T s) {
+    []const T out = s;
+    T local = value;
+    T* p = &local;
+    Holder(T) h;
+    h.ptr = p;
+    return h;
+}
+
+void instantiate_i32() {
+    i32 x = 1;
+    i32[1] xs;
+    Holder(i32) h = make_holder(x, xs);
+}
+
+void instantiate_bool() {
+    bool x = true;
+    bool[1] xs;
+    Holder(bool) h = make_holder(x, xs);
+}
+
+=== EXPECT-ERRORS ===

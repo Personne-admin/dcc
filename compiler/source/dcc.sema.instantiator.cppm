@@ -885,6 +885,15 @@ namespace dcc::sema
                     break;
                 case ast::TypeKind::Named: {
                     auto* nt = static_cast<ast::NamedType*>(t);
+                    if (!t->sema.canonical && nt->path.is_simple() && nt->template_args.empty())
+                    {
+                        auto it = m_name_map.find(nt->path.simple_name());
+                        if (it != m_name_map.end())
+                        {
+                            set_canonical(t->sema, it->second);
+                            break;
+                        }
+                    }
                     for (auto& ta : nt->template_args)
                     {
                         substitute_in_type(ta.type);

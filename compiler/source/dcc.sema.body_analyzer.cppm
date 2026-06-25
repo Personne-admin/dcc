@@ -3685,7 +3685,8 @@ export namespace dcc::sema
         probe_candidate_from_params(ModuleInfo& mod, Scope& scope, Symbol const& sym, std::span<types::TypePtr const> params,
                                     std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off, int loop_depth, ConstEnv const* const_env,
                                     bool* had_suppressed_errors = nullptr, bool* had_constraint_failure = nullptr, bool* had_non_constraint_failure = nullptr,
-                                    types::TypePtr expected_type = nullptr, bool nttps_already_resolved = false, std::string* rejection_reason = nullptr)
+                                    types::TypePtr expected_type = nullptr, bool nttps_already_resolved = false, std::string* rejection_reason = nullptr,
+                                    infer::TemplateBindings const* pre_resolved_bindings = nullptr)
         {
             ast::FuncDecl const* func = nullptr;
             if (sym.decl && sym.decl->kind == ast::DeclKind::Func)
@@ -3949,7 +3950,7 @@ export namespace dcc::sema
                 }
             }
 
-            if (!check_template_constraint(mod, scope, *func, b, false, sym.module))
+            if (!check_template_constraint(mod, scope, *func, pre_resolved_bindings ? *pre_resolved_bindings : b, false, sym.module))
             {
                 if (had_constraint_failure)
                     *had_constraint_failure = true;
@@ -8451,9 +8452,9 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_template_inst(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::TemplateInstExpr& t, int loop_depth,
-                                                 std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
+                                                 std::uint32_t& next_off, [[maybe_unused]] types::TypePtr expected_type, ConstEnv const* const_env)
         {
-            auto callee = analyze_expr_or_error(mod, fn, scope, t.callee, loop_depth, next_off, expected_type, const_env);
+            auto callee = analyze_expr_or_error(mod, fn, scope, t.callee, loop_depth, next_off, nullptr, const_env);
             if (has_error(callee.type))
                 return callee;
 
@@ -8719,7 +8720,8 @@ export namespace dcc::sema
                         std::string rejection_reason;
                         if (auto probe =
                                 probe_candidate_from_params(mod, scope, *cand.sym, cand.fp->params, c.args, next_off, loop_depth, const_env, &probe_error,
-                                                            &probe_constraint_failure, &probe_non_constraint_failure, expected_type, true, &rejection_reason);
+                                                            &probe_constraint_failure, &probe_non_constraint_failure, expected_type, true, &rejection_reason,
+                                                            cand.template_fn ? &cand.bindings : nullptr);
                             probe)
                         {
                             probe->explicit_fp = cand.fp;
@@ -10769,7 +10771,8 @@ export namespace dcc::sema
                             if (!arg.type)
                                 return m_types.m_errort();
 
-                            auto arg_ty = resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env);
+                            auto arg_ty = arg.type->sema.canonical ? get_canonical(arg.type->sema)
+                                                                    : resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env);
                             if (arg_ty && is_concrete_void_type(arg_ty) && void_reject_decl)
                             {
                                 if (void_reject_decl->kind != ast::DeclKind::Enum)
