@@ -1,0 +1,41 @@
+=== FILE: test.dc ===
+module test;
+
+void take_u16([]const u16 v) {}
+
+void fmt_u16(T...)(T args) {
+    static for arg in args {
+        take_u16(arg);
+    }
+}
+
+public void test() {
+    fmt_u16(u"hi");
+}
+
+=== EXPECT-IR ===
+module "test"
+
+const global @.u16str.0 : [2 x u16] = aggregate [2 x u16], #104, #105
+
+
+void@_DC0F1.4.test8.take_u161SCqi16uv([]u16) {
+%entry([]u16 %v):
+  %0 = alloca []u16
+  store []u16 %v, ptr<[]u16> %0
+  ret void
+}
+
+void@_DC0F1.4.test4.test0v() {
+%entry:
+  call fn(@_DC0S1.4.test7.fmt_u161SCqi16uvX1tSCqi16u)([]u16 aggregate []u16, @.u16str.0, #2)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test7.fmt_u161SCqi16uvX1tSCqi16u([]u16) {
+%entry([]u16 %args):
+  %0 = alloca []u16
+  store []u16 %args, ptr<[]u16> %0
+  call fn(@_DC0F1.4.test8.take_u161SCqi16uv)([]u16 aggregate []u16, @.u16str.0, #2)
+  ret void
+}

@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+i32 take_slice([]const char v) { return 42; }
+
+i32 fmt_char(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = take_slice(arg);
+    }
+
+    return result;
+}
+
+public i32 test_char() {
+    return fmt_char("hello");
+}
+
+=== EXPECT-IR ===
+module "test"
+
+const global @.str.0 : [5 x u8] = aggregate [5 x u8], #104, #101, #108, #108, #111
+
+
+i32@_DC0F1.4.test10.take_slice1SCqci32s([]u8) {
+%entry([]u8 %v):
+  %0 = alloca []u8
+  store []u8 %v, ptr<[]u8> %0
+  ret i32 #42
+}
+
+i32@_DC0F1.4.test9.test_char0i32s() {
+%entry:
+  %0 = call fn(@_DC0S1.4.test8.fmt_char1SCqci32sX1tSCqc)([]u8 aggregate []u8, @.str.0, #5) -> i32
+  ret i32 %0
+}
+
+linkonce_odr i32@_DC0S1.4.test8.fmt_char1SCqci32sX1tSCqc([]u8) {
+%entry([]u8 %args):
+  %0 = alloca []u8
+  store []u8 %args, ptr<[]u8> %0
+  %1 = alloca i32
+  store i32 #0, ptr<i32> %1
+  %2 = call fn(@_DC0F1.4.test10.take_slice1SCqci32s)([]u8 aggregate []u8, @.str.0, #5) -> i32
+  store i32 %2, ptr<i32> %1
+  %3 = load i32, ptr<i32> %1
+  ret i32 %3
+}

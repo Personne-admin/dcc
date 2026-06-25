@@ -65,7 +65,8 @@ export namespace dcc::infer
             return resolve_impl(type, seen);
         }
 
-        [[nodiscard]] bool bind_pack(types::TemplateParamType const* param, std::vector<types::TypePtr> types)
+        [[nodiscard]] bool bind_pack(types::TemplateParamType const* param, std::vector<types::TypePtr> types,
+                                     std::vector<comptime::Value> values = {})
         {
             if (!param)
                 return false;
@@ -80,10 +81,13 @@ export namespace dcc::infer
                         if (pb.types[i] != types[i])
                             return false;
 
+                    if (!values.empty() && values.size() == types.size())
+                        pb.values = std::move(values);
+
                     return true;
                 }
 
-            m_pack_bindings.push_back({param, std::move(types)});
+            m_pack_bindings.push_back({param, std::move(types), std::move(values)});
             return true;
         }
 
@@ -95,6 +99,18 @@ export namespace dcc::infer
             for (auto const& pb : m_pack_bindings)
                 if (pb.param == param)
                     return &pb.types;
+
+            return nullptr;
+        }
+
+        [[nodiscard]] std::vector<comptime::Value> const* lookup_pack_values(types::TemplateParamType const* param) const
+        {
+            if (!param)
+                return nullptr;
+
+            for (auto const& pb : m_pack_bindings)
+                if (pb.param == param)
+                    return &pb.values;
 
             return nullptr;
         }
@@ -318,6 +334,7 @@ export namespace dcc::infer
         {
             types::TemplateParamType const* param{};
             std::vector<types::TypePtr> types;
+            std::vector<comptime::Value> values;
         };
 
         struct ValuePackBinding

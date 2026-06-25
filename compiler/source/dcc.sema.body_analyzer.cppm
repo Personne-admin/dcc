@@ -3619,86 +3619,83 @@ export namespace dcc::sema
 
             auto actual = analyzed.type;
 
+            if (arg.kind == ast::ExprKind::StringLiteral)
+            {
+                if (auto const* st = types::type_cast<types::SliceType>(param))
+                {
+                    auto const* elem = st->element;
+                    bool is_char = elem->kind == types::TypeKind::Char;
+                    bool is_u8 = elem->kind == types::TypeKind::Int && static_cast<types::IntType const*>(elem)->bits == 8 &&
+                                 !static_cast<types::IntType const*>(elem)->is_signed;
+
+                    bool is_const = types::has_qual(st->element_quals, types::Qual::Const);
+
+                    if (is_char)
+                        return is_const ? CallRank::StringLiteralCharSliceConst : CallRank::StringLiteralCharSliceMutable;
+                    if (is_u8)
+                        return is_const ? CallRank::StringLiteralU8SliceConst : CallRank::StringLiteralU8SliceMutable;
+                }
+                if (auto const* pt = types::type_cast<types::PointerType>(param))
+                {
+                    auto const* pointee = pt->pointee;
+                    bool is_char = pointee->kind == types::TypeKind::Char;
+                    bool is_u8 = pointee->kind == types::TypeKind::Int && static_cast<types::IntType const*>(pointee)->bits == 8 &&
+                                 !static_cast<types::IntType const*>(pointee)->is_signed;
+                    bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
+
+                    if (is_char)
+                        return is_const ? CallRank::StringLiteralCharPointerConst : CallRank::StringLiteralCharPointerMutable;
+                    if (is_u8)
+                        return is_const ? CallRank::StringLiteralU8PointerConst : CallRank::StringLiteralU8PointerMutable;
+                }
+            }
+            else if (arg.kind == ast::ExprKind::U16StringLiteral)
+            {
+                if (auto const* st = types::type_cast<types::SliceType>(param))
+                {
+                    auto const* elem = st->element;
+                    bool is_u16 = elem->kind == types::TypeKind::Int && static_cast<types::IntType const*>(elem)->bits == 16 &&
+                                  !static_cast<types::IntType const*>(elem)->is_signed;
+                    bool is_const = types::has_qual(st->element_quals, types::Qual::Const);
+
+                    if (is_u16)
+                        return is_const ? CallRank::U16StringLiteralSliceConst : CallRank::U16StringLiteralSliceMutable;
+                }
+                if (auto const* pt = types::type_cast<types::PointerType>(param))
+                {
+                    auto const* pointee = pt->pointee;
+                    bool is_u16 = pointee->kind == types::TypeKind::Int && static_cast<types::IntType const*>(pointee)->bits == 16 &&
+                                  !static_cast<types::IntType const*>(pointee)->is_signed;
+                    bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
+
+                    if (is_u16)
+                        return is_const ? CallRank::U16StringLiteralPointerConst : CallRank::U16StringLiteralPointerMutable;
+                }
+            }
+
             if (actual == param)
             {
-                if (arg.kind == ast::ExprKind::StringLiteral)
+                switch (analyzed.construction_kind)
                 {
-                    if (auto const* st = types::type_cast<types::SliceType>(param))
-                    {
-                        auto const* elem = st->element;
-                        bool is_char = elem->kind == types::TypeKind::Char;
-                        bool is_u8 = elem->kind == types::TypeKind::Int && static_cast<types::IntType const*>(elem)->bits == 8 &&
-                                     !static_cast<types::IntType const*>(elem)->is_signed;
-
-                        bool is_const = types::has_qual(st->element_quals, types::Qual::Const);
-
-                        if (is_char)
-                            return is_const ? CallRank::StringLiteralCharSliceConst : CallRank::StringLiteralCharSliceMutable;
-                        if (is_u8)
-                            return is_const ? CallRank::StringLiteralU8SliceConst : CallRank::StringLiteralU8SliceMutable;
-                    }
-                    if (auto const* pt = types::type_cast<types::PointerType>(param))
-                    {
-                        auto const* pointee = pt->pointee;
-                        bool is_char = pointee->kind == types::TypeKind::Char;
-                        bool is_u8 = pointee->kind == types::TypeKind::Int && static_cast<types::IntType const*>(pointee)->bits == 8 &&
-                                     !static_cast<types::IntType const*>(pointee)->is_signed;
-                        bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
-
-                        if (is_char)
-                            return is_const ? CallRank::StringLiteralCharPointerConst : CallRank::StringLiteralCharPointerMutable;
-                        if (is_u8)
-                            return is_const ? CallRank::StringLiteralU8PointerConst : CallRank::StringLiteralU8PointerMutable;
-                    }
+                    case ConstructionKind::Struct:
+                        return CallRank::StructContextualExact;
+                    case ConstructionKind::Array:
+                        return CallRank::ArrayContextualExact;
+                    case ConstructionKind::Slice:
+                        return CallRank::SliceContextualExact;
+                    case ConstructionKind::Enum:
+                        return CallRank::EnumContextualExact;
+                    case ConstructionKind::None:
+                        break;
                 }
-                else if (arg.kind == ast::ExprKind::U16StringLiteral)
-                {
-                    if (auto const* st = types::type_cast<types::SliceType>(param))
-                    {
-                        auto const* elem = st->element;
-                        bool is_u16 = elem->kind == types::TypeKind::Int && static_cast<types::IntType const*>(elem)->bits == 16 &&
-                                      !static_cast<types::IntType const*>(elem)->is_signed;
-                        bool is_const = types::has_qual(st->element_quals, types::Qual::Const);
 
-                        if (is_u16)
-                            return is_const ? CallRank::U16StringLiteralSliceConst : CallRank::U16StringLiteralSliceMutable;
-                    }
-                    if (auto const* pt = types::type_cast<types::PointerType>(param))
-                    {
-                        auto const* pointee = pt->pointee;
-                        bool is_u16 = pointee->kind == types::TypeKind::Int && static_cast<types::IntType const*>(pointee)->bits == 16 &&
-                                      !static_cast<types::IntType const*>(pointee)->is_signed;
-                        bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
-
-                        if (is_u16)
-                            return is_const ? CallRank::U16StringLiteralPointerConst : CallRank::U16StringLiteralPointerMutable;
-                    }
-                }
+                return is_contextual_literal(arg) ? CallRank::LiteralContextualExact : CallRank::ConcreteExact;
             }
 
-            if (actual != param)
-            {
-                if (actual && param && actual->kind == types::TypeKind::Array && param->kind == types::TypeKind::Slice)
-                    return CallRank::SliceContextualExact;
+            if (actual && param && actual->kind == types::TypeKind::Array && param->kind == types::TypeKind::Slice)
+                return CallRank::SliceContextualExact;
 
-                return CallRank::ConcreteExact;
-            }
-
-            switch (analyzed.construction_kind)
-            {
-                case ConstructionKind::Struct:
-                    return CallRank::StructContextualExact;
-                case ConstructionKind::Array:
-                    return CallRank::ArrayContextualExact;
-                case ConstructionKind::Slice:
-                    return CallRank::SliceContextualExact;
-                case ConstructionKind::Enum:
-                    return CallRank::EnumContextualExact;
-                case ConstructionKind::None:
-                    break;
-            }
-
-            return is_contextual_literal(arg) ? CallRank::LiteralContextualExact : CallRank::ConcreteExact;
+            return CallRank::ConcreteExact;
         }
 
         [[nodiscard]] std::optional<std::pair<UfcsReceiverMatch, types::TypePtr>> match_ufcs_receiver(detail::ExprResult const& analyzed, types::TypePtr param)
@@ -3955,6 +3952,7 @@ export namespace dcc::sema
             }
 
             std::vector<types::TypePtr> pack_arg_types;
+            std::vector<comptime::Value> pack_arg_values;
             if (has_func_pack)
             {
                 auto pack_param_ty = b.substitute(params.back());
@@ -3982,6 +3980,10 @@ export namespace dcc::sema
                     }
                     args.push_back(r);
                     pack_arg_types.push_back(r.type);
+                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                        pack_arg_values.push_back(*r.constant);
+                    else
+                        pack_arg_values.push_back(comptime::Value{});
                 }
             }
 
@@ -4050,7 +4052,11 @@ export namespace dcc::sema
                                                              static_cast<std::uint32_t>(func->template_params.size() - 1));
                     if (pack_ty)
                     {
-                        std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
+                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        if (has_any_value)
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
+                        else
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
                     }
                 }
             }
@@ -4261,6 +4267,7 @@ export namespace dcc::sema
             std::vector<detail::ExprResult> args;
             args.reserve(func_arg_count);
             std::vector<types::TypePtr> pack_arg_types;
+            std::vector<comptime::Value> pack_arg_values;
 
             std::size_t non_pack_after_receiver = non_pack_func_params > 0 ? non_pack_func_params - 1 : 0;
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
@@ -4310,6 +4317,10 @@ export namespace dcc::sema
                     }
                     args.push_back(r);
                     pack_arg_types.push_back(r.type);
+                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                        pack_arg_values.push_back(*r.constant);
+                    else
+                        pack_arg_values.push_back(comptime::Value{});
                 }
             }
 
@@ -4380,7 +4391,13 @@ export namespace dcc::sema
                     auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
                                                              static_cast<std::uint32_t>(f.template_params.size() - 1));
                     if (pack_ty)
-                        std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
+                    {
+                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        if (has_any_value)
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
+                        else
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
+                    }
                 }
             }
 
@@ -4566,6 +4583,7 @@ export namespace dcc::sema
             std::vector<detail::ExprResult> args;
             args.reserve(func_arg_count);
             std::vector<types::TypePtr> pack_arg_types;
+            std::vector<comptime::Value> pack_arg_values;
 
             std::size_t non_pack_after_receiver = non_pack_func_params > 0 ? non_pack_func_params - 1 : 0;
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
@@ -4595,6 +4613,10 @@ export namespace dcc::sema
 
                     args.push_back(r);
                     pack_arg_types.push_back(r.type);
+                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                        pack_arg_values.push_back(*r.constant);
+                    else
+                        pack_arg_values.push_back(comptime::Value{});
                 }
             }
 
@@ -4653,18 +4675,6 @@ export namespace dcc::sema
                 return std::nullopt;
             }
 
-            if (has_func_pack && !pack_arg_types.empty())
-            {
-                if (!f.template_params.empty() && f.template_params.back().is_pack)
-                {
-                    auto const& tp = f.template_params.back();
-                    auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                             static_cast<std::uint32_t>(f.template_params.size() - 1));
-                    if (pack_ty)
-                        std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
-                }
-            }
-
             if (expected_type && !f.template_params.empty() && f.return_type)
             {
                 auto return_ty = get_canonical(f.return_type->sema);
@@ -4688,6 +4698,24 @@ export namespace dcc::sema
                     break;
                 case UfcsReceiverMatch::None:
                     return std::nullopt;
+            }
+
+            if (has_func_pack && !pack_arg_types.empty())
+            {
+                if (!f.template_params.empty() && f.template_params.back().is_pack)
+                {
+                    auto const& tp = f.template_params.back();
+                    auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                             static_cast<std::uint32_t>(f.template_params.size() - 1));
+                    if (pack_ty)
+                    {
+                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        if (has_any_value)
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
+                        else
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
+                    }
+                }
             }
 
             detail::CommittedSpecialization committed_spec{};
@@ -6578,8 +6606,24 @@ export namespace dcc::sema
                                 break;
                             }
                         }
+                        else if (auto const* pt = types::type_cast<types::PointerType>(expected_type))
+                        {
+                            auto const* pointee = pt->pointee;
+                            bool is_char = pointee->kind == types::TypeKind::Char;
+                            bool is_u8 = pointee->kind == types::TypeKind::Int &&
+                                         static_cast<types::IntType const*>(pointee)->bits == 8 &&
+                                         !static_cast<types::IntType const*>(pointee)->is_signed;
+                            bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
+                            if ((is_char || is_u8) && is_const)
+                            {
+                                out.type = m_types.pointer_to(pointee, pt->pointee_quals);
+                                out.constant = make_str_const(std::string_view{e.value}, out.type);
+                                out.is_constant = true;
+                                break;
+                            }
+                        }
 
-                        out.type = m_types.pointer_to(m_types.m_chart(), types::Qual::Const);
+                        out.type = m_types.slice_t(m_types.m_chart(), types::Qual::Const);
                         out.constant = make_str_const(std::string_view{e.value}, out.type);
                         out.is_constant = true;
                         break;
@@ -6599,8 +6643,23 @@ export namespace dcc::sema
                                 break;
                             }
                         }
+                        else if (auto const* pt = types::type_cast<types::PointerType>(expected_type))
+                        {
+                            auto const* pointee = pt->pointee;
+                            bool is_u16 = pointee->kind == types::TypeKind::Int &&
+                                          static_cast<types::IntType const*>(pointee)->bits == 16 &&
+                                          !static_cast<types::IntType const*>(pointee)->is_signed;
+                            bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
+                            if (is_u16 && is_const)
+                            {
+                                out.type = m_types.pointer_to(pointee, pt->pointee_quals);
+                                out.constant = make_u16_str_const(e.value, out.type);
+                                out.is_constant = true;
+                                break;
+                            }
+                        }
 
-                        out.type = m_types.pointer_to(u16_type, types::Qual::Const);
+                        out.type = m_types.slice_t(u16_type, types::Qual::Const);
                         out.constant = make_u16_str_const(e.value, out.type);
                         out.is_constant = true;
                         break;
@@ -9524,6 +9583,7 @@ export namespace dcc::sema
             std::vector<detail::ExprResult> args;
             args.reserve(func_arg_count);
             std::vector<types::TypePtr> pack_arg_types;
+            std::vector<comptime::Value> pack_arg_values;
 
             for (std::size_t i = 0; i < non_pack_func_params; ++i)
             {
@@ -9541,6 +9601,10 @@ export namespace dcc::sema
                         expected_ty = b.substitute(pt->element);
                     auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env);
                     pack_arg_types.push_back(r.type);
+                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                        pack_arg_values.push_back(*r.constant);
+                    else
+                        pack_arg_values.push_back(comptime::Value{});
                     args.push_back(std::move(r));
                 }
             }
@@ -9627,7 +9691,13 @@ export namespace dcc::sema
                     auto* pack_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
                                                              static_cast<std::uint32_t>(f.template_params.size() - 1));
                     if (pack_ty)
-                        std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
+                    {
+                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        if (has_any_value)
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
+                        else
+                            std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types);
+                    }
                 }
             }
 

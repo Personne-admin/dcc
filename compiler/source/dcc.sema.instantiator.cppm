@@ -2225,6 +2225,9 @@ export namespace dcc::sema
                     {
                         PackInfo pi;
                         pi.types = *p;
+                        auto* vals = const_cast<infer::TemplateBindings&>(bindings).lookup_pack_values(tp_ptr);
+                        if (vals && vals->size() == p->size())
+                            pi.values = *vals;
                         pack_lookup[tp.name] = std::move(pi);
                     }
                 }
@@ -2245,6 +2248,9 @@ export namespace dcc::sema
                     {
                         PackInfo pi;
                         pi.types = *p;
+                        auto* vals = const_cast<infer::TemplateBindings&>(bindings).lookup_pack_values(tp_ptr);
+                        if (vals && vals->size() == p->size())
+                            pi.values = *vals;
                         pack_lookup[tp.name] = std::move(pi);
                     }
                     else
@@ -3243,15 +3249,58 @@ export namespace dcc::sema
                                             e->sema.is_constant = true;
                                             e->sema.const_value = ctx.own_value(*elem_value);
                                         }
+                                        else if (elem_value && elem_value->kind() == comptime::Value::Kind::String)
+                                        {
+                                            auto const& raw = elem_value->get_string();
+
+                                            bool is_u16 = false;
+                                            if (auto const* st = types::type_cast<types::SliceType>(elem_value->type))
+                                            {
+                                                if (auto const* it = types::type_cast<types::IntType>(st->element))
+                                                    is_u16 = it->bits == 16 && !it->is_signed;
+                                            }
+                                            else if (auto const* pt = types::type_cast<types::PointerType>(elem_value->type))
+                                            {
+                                                if (auto const* it = types::type_cast<types::IntType>(pt->pointee))
+                                                    is_u16 = it->bits == 16 && !it->is_signed;
+                                            }
+
+                                            if (is_u16)
+                                            {
+                                                std::size_t u16len = raw.size() / sizeof(char16_t);
+                                                std::u16string aligned;
+                                                aligned.resize(u16len);
+                                                std::memcpy(aligned.data(), raw.data(), raw.size());
+                                                std::u16string_view u16v(aligned.data(), u16len);
+                                                auto* lit = ctx.make<ast::U16StringLiteralExpr>(e->range, u16v, std::string_view{});
+                                                set_resolved_type(lit->sema, elem_type);
+                                                lit->sema.is_constant = true;
+                                                lit->sema.const_value = ctx.own_value(*elem_value);
+                                                e = lit;
+                                            }
+                                            else
+                                            {
+                                                std::string_view str = raw;
+                                                auto* lit = ctx.make<ast::StringLiteralExpr>(e->range, str, std::string(str));
+                                                set_resolved_type(lit->sema, elem_type);
+                                                lit->sema.is_constant = true;
+                                                lit->sema.const_value = ctx.own_value(*elem_value);
+                                                e = lit;
+                                            }
+                                        }
                                         else
                                             set_resolved_type(e->sema, elem_type);
 
-                                        std::string name_key = multi ? std::format("{}_{}", pack_param_name, elem_index) : std::string{pack_param_name};
-                                        auto dit = expanded_decls.find(name_key);
-                                        if (dit != expanded_decls.end())
+                                        if (e->kind == ast::ExprKind::Ident)
                                         {
-                                            ident->name = dit->second->name;
-                                            e->sema.resolved_decl = dit->second;
+                                            auto* id = static_cast<ast::IdentExpr*>(e);
+                                            std::string name_key = multi ? std::format("{}_{}", pack_param_name, elem_index) : std::string{pack_param_name};
+                                            auto dit = expanded_decls.find(name_key);
+                                            if (dit != expanded_decls.end())
+                                            {
+                                                id->name = dit->second->name;
+                                                e->sema.resolved_decl = dit->second;
+                                            }
                                         }
                                         return;
                                     }
@@ -3350,6 +3399,8 @@ export namespace dcc::sema
 
                         comptime::Value const* elem_val = nullptr;
                         if (it->second.is_value_pack && elem_idx < it->second.values.size())
+                            elem_val = &it->second.values[elem_idx];
+                        else if (!it->second.values.empty() && elem_idx < it->second.values.size())
                             elem_val = &it->second.values[elem_idx];
 
                         bool multi_pack = pack.types.size() > 1;

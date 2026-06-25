@@ -1,0 +1,132 @@
+=== FILE: main.dc ===
+module m;
+
+i32 take_slice([]const char v) { return 42; }
+
+i32 fmt(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = take_slice(arg);
+    }
+
+    return result;
+}
+
+i32 test_pack_to_slice() {
+    return fmt("hello");
+}
+
+i32 hit_char([]const char v) { return 42; }
+i32 hit_u8([]const u8 v) { return 99; }
+
+i32 pick(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = hit_char(arg);
+    }
+
+    return result;
+}
+
+i32 test_char_slice_beats_u8_slice() {
+    return pick("hello");
+}
+
+i32 only_u8([]const u8 v) { return 77; }
+
+i32 pick_u8(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = only_u8(arg);
+    }
+
+    return result;
+}
+
+i32 test_fallback_to_u8_slice() {
+    return pick_u8("hello");
+}
+
+i32 take_ptr(const char* v) { return 55; }
+
+i32 pick_ptr(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = take_ptr(arg);
+    }
+
+    return result;
+}
+
+i32 test_pointer_fallback() {
+    return pick_ptr("hello");
+}
+
+enum WriteResult { HitInt, HitU64, HitU8, }
+
+WriteResult write_one(const char* w, i32 v) { return WriteResult::HitInt; }
+WriteResult write_one(const char* w, u64 v) { return WriteResult::HitU64; }
+WriteResult write_one(const char* w, []const u8 v) { return WriteResult::HitU8; }
+
+WriteResult format(T...)(const char* w, T args) {
+    WriteResult last;
+    static for arg in args {
+        last = write_one(w, arg);
+    }
+
+    return last;
+}
+
+i32 test_heterogeneous() {
+    const char* w = "";
+    WriteResult r = format(w, 1, 2 as u64, "hello");
+    return match r {
+        WriteResult::HitInt => 1,
+        WriteResult::HitU64 => 2,
+        WriteResult::HitU8 => 3,
+    };
+}
+
+i32 hit_char_ol([]const char v) { return 100; }
+i32 hit_u8_ol([]const u8 v) { return 200; }
+
+i32 pick_best(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = hit_char_ol(arg);
+    }
+    return result;
+}
+
+i32 test_char_slice_ranking() {
+    return pick_best("hello");
+}
+
+i32 handle_i32(i32 v) { return v; }
+
+i32 pass_i32(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = handle_i32(arg);
+    }
+    return result;
+}
+
+i32 test_non_string_pack() {
+    return pass_i32(42);
+}
+
+i32 pass_mixed(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = result + arg;
+    }
+
+    return result;
+}
+
+i32 test_mixed_non_string() {
+    return pass_mixed(10, 20, 30);
+}
+
+=== ENTRY: main.dc ===

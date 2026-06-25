@@ -13,6 +13,6 @@ void test_valid_brace() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:7: no matching UFCS function for `write` on receiver type `const char*`
+main.dc:7: no matching UFCS function for `write` on receiver type `[]const char`
 main.dc:3: = note: candidate `write(const char*, []const char*)`
 main.dc:3: = note: reason: cannot convert argument 1: expected `[]const char*`

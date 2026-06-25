@@ -1,0 +1,104 @@
+=== FILE: main.dc ===
+module m;
+
+i32 pick_slice([]const u16 v) { return 1; }
+
+i32 pack_to_slice(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = pick_slice(arg);
+    }
+    return result;
+}
+
+i32 test_u16_pack_to_slice() {
+    return pack_to_slice(u"hi");
+}
+
+i32 pick_best([]const u16 x) { return 10; }
+i64 pick_best(const u16* x) { return 20; }
+
+i32 pack_ranking(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = pick_best(arg);
+    }
+
+    return result;
+}
+
+i32 test_u16_pack_ranking() {
+    return pack_ranking(u"hello");
+}
+
+i32 pick_char_slice([]const char v) { return 1; }
+i32 pick_char_ptr(const char* v) { return 2; }
+
+i32 narrow_pack_ranking(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        result = pick_char_slice(arg);
+    }
+
+    return result;
+}
+
+i32 test_narrow_pack_ranking() {
+    return narrow_pack_ranking("hello");
+}
+
+i32 pick_u16([]const u16 v) { return 100; }
+i32 pick_narrow([]const char v) { return 200; }
+
+i32 mixed_pack(T...)(T args) {
+    i32 result = 0;
+    static for arg in args {
+        _ = arg;
+    }
+
+    return result;
+}
+
+i32 test_mixed_usage() {
+    return pick_u16(u"test") + pick_narrow("test");
+}
+
+=== EXPECT-TYPES ===
+Module m
+  Func pick_slice
+    Return: i32
+    Param x: []const u16
+  Func pack_to_slice
+    Return: i32
+  Func test_u16_pack_to_slice
+    Return: i32
+  Func pick_best
+    Return: i32
+    Param x: []const u16
+  Func pick_best
+    Return: i64
+    Param x: const u16*
+  Func pack_ranking
+    Return: i32
+  Func test_u16_pack_ranking
+    Return: i32
+  Func pick_char_slice
+    Return: i32
+    Param v: []const char
+  Func pick_char_ptr
+    Return: i32
+    Param v: const char*
+  Func narrow_pack_ranking
+    Return: i32
+  Func test_narrow_pack_ranking
+    Return: i32
+  Func pick_u16
+    Return: i32
+    Param v: []const u16
+  Func pick_narrow
+    Return: i32
+    Param v: []const char
+  Func mixed_pack
+    Return: i32
+  Func test_mixed_usage
+    Return: i32
