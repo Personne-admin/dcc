@@ -1,0 +1,35 @@
+=== FILE: lib.dc ===
+module lib;
+
+public struct MyType {}
+
+public void foo(MyType t) {}
+public void bar(MyType t) {}
+
+public using HasFoo(T) = compiles(T t) {
+    t.foo();
+};
+
+public using HasFooAndBar(T) = compiles(T t) {
+    t.bar();
+} && HasFoo(T);
+
+public void do_thing(T)(T val) if HasFooAndBar(T) {}
+
+=== FILE: main.dc ===
+module main;
+
+import lib;
+
+public using HasFoo(T) = compiles(T t) {
+    t.baz();
+};
+
+void entry() {
+    lib::MyType mt;
+    lib::do_thing(mt);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===

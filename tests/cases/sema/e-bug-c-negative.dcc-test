@@ -34,4 +34,4 @@ void bad_implicit() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:34: template constraint not satisfied for `require_writer`
+main.dc:32: template constraint not satisfied for `require_writer`

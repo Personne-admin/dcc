@@ -1,0 +1,46 @@
+=== FILE: std/io.dc ===
+module std::io;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public struct IoError {}
+public struct BufferWriter {}
+
+public Result(void, IoError) write(BufferWriter w, []const u8 data) {
+    return Result::Ok;
+}
+
+=== FILE: std/fmt.dc ===
+module std::fmt;
+
+import std::io;
+public import std::io;
+using io::*;
+
+public using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+public Result(void, E) write_str(W, E)(W writer, []const u8 data) if Writer(W, E) {
+    Result(void, E) r = writer.write(data);
+    return r;
+}
+
+=== FILE: main.dc ===
+module main;
+
+import std::fmt;
+
+struct OtherError {}
+
+void entry() {
+    std::fmt::BufferWriter w;
+    u8[0] bytes;
+    std::fmt::Result(void, OtherError) r =
+        std::fmt::write_str!(std::fmt::BufferWriter, OtherError)(w, bytes);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:12: template constraint not satisfied for `std::fmt::write_str`

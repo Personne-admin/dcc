@@ -1692,8 +1692,8 @@ export namespace dcc::sema
                                                arg);
         }
 
-        [[nodiscard]] static ast::UsingDecl const* resolve_concept_decl(ModuleInfo& mod, Scope const& scope, ast::Expr const& callee,
-                                                                        ModuleInfo const* defining_mod = nullptr)
+        [[nodiscard]] ast::UsingDecl const* resolve_concept_decl(ModuleInfo& mod, Scope const& scope, ast::Expr const& callee,
+                                                                 ModuleInfo const* defining_mod = nullptr)
         {
             auto try_lookup = [](Scope const* s, std::string_view name) -> ast::UsingDecl const* {
                 if (!s)
@@ -1707,31 +1707,47 @@ export namespace dcc::sema
                 return use && use->using_kind == ast::UsingKind::Concept ? use : nullptr;
             };
 
+            if (!defining_mod)
+                defining_mod = m_specialization_defining_module;
+
             if (auto const* id = ast::node_cast<ast::IdentExpr>(&callee))
             {
-                if (auto const* use = try_lookup(&scope, id->name))
-                    return use;
+                auto search_imports = [&](ModuleInfo const& m) -> ast::UsingDecl const* {
+                    for (auto const& imp : m.imports)
+                    {
+                        if (imp.target)
+                        {
+                            if (imp.target->export_scope)
+                                if (auto const* use = try_lookup(imp.target->export_scope, id->name))
+                                    return use;
 
-                if (auto const* use = try_lookup(mod.own_scope, id->name))
-                    return use;
+                            if (imp.target->own_scope)
+                                if (auto const* use = try_lookup(imp.target->own_scope, id->name))
+                                    return use;
+                        }
+                    }
+                    return nullptr;
+                };
 
                 if (defining_mod && defining_mod != &mod)
+                {
                     if (auto const* use = try_lookup(defining_mod->own_scope, id->name))
                         return use;
-
-                for (auto const& imp : mod.imports)
-                {
-                    if (imp.target)
-                    {
-                        if (imp.target->export_scope)
-                            if (auto const* use = try_lookup(imp.target->export_scope, id->name))
-                                return use;
-
-                        if (imp.target->own_scope)
-                            if (auto const* use = try_lookup(imp.target->own_scope, id->name))
-                                return use;
-                    }
+                    if (auto const* use = search_imports(*defining_mod))
+                        return use;
+                    if (auto const* use = try_lookup(&scope, id->name))
+                        return use;
                 }
+                else
+                {
+                    if (auto const* use = try_lookup(&scope, id->name))
+                        return use;
+                    if (auto const* use = try_lookup(mod.own_scope, id->name))
+                        return use;
+                }
+
+                if (auto const* use = search_imports(mod))
+                    return use;
 
                 return nullptr;
             }
@@ -1740,9 +1756,50 @@ export namespace dcc::sema
             {
                 auto resolve_path = [&](ast::Path const& p) -> ast::UsingDecl const* {
                     if (p.is_simple())
+                    {
+                        if (defining_mod && defining_mod != &mod)
+                        {
+                            if (auto const* use = try_lookup(defining_mod->own_scope, p.simple_name()))
+                                return use;
+
+                            for (auto const& imp : defining_mod->imports)
+                            {
+                                if (imp.target)
+                                {
+                                    if (imp.target->export_scope)
+                                        if (auto const* use = try_lookup(imp.target->export_scope, p.simple_name()))
+                                            return use;
+                                    if (imp.target->own_scope)
+                                        if (auto const* use = try_lookup(imp.target->own_scope, p.simple_name()))
+                                            return use;
+                                }
+                            }
+                            return try_lookup(&scope, p.simple_name());
+                        }
                         return try_lookup(&scope, p.simple_name());
+                    }
                     if (mod.own_scope)
+                    {
+                        if (defining_mod && defining_mod != &mod)
+                        {
+                            if (auto const* use = try_lookup(defining_mod->own_scope, p.simple_name()))
+                                return use;
+
+                            for (auto const& imp : defining_mod->imports)
+                            {
+                                if (imp.target)
+                                {
+                                    if (imp.target->export_scope)
+                                        if (auto const* use = try_lookup(imp.target->export_scope, p.simple_name()))
+                                            return use;
+                                    if (imp.target->own_scope)
+                                        if (auto const* use = try_lookup(imp.target->own_scope, p.simple_name()))
+                                            return use;
+                                }
+                            }
+                        }
                         return try_lookup(mod.own_scope, p.simple_name());
+                    }
                     return nullptr;
                 };
 
@@ -2328,7 +2385,7 @@ export namespace dcc::sema
                 }
             }
             if (ok)
-                std::ignore = check_template_constraint(mod, scope, f, bindings, true);
+                std::ignore = check_template_constraint(mod, scope, f, bindings, true, find_defining_module(f));
         }
 
         void diagnose_implicit_constraint_failure(ModuleInfo& mod, Scope& scope, std::span<Symbol const> syms, std::span<ast::Expr* const> arg_exprs,
@@ -2607,6 +2664,19 @@ export namespace dcc::sema
                 ~StackGuard() { stack.erase(value); }
             } guard{m_concept_evaluation_stack, &concept_decl};
 
+            auto* concept_defining_mod = find_defining_module(concept_decl);
+            auto* saved_concept_mod = m_specialization_defining_module;
+            if (concept_defining_mod && concept_defining_mod != m_specialization_defining_module)
+                m_specialization_defining_module = concept_defining_mod;
+
+            struct ConceptDefiningModGuard
+            {
+                ModuleInfo*& slot;
+                ModuleInfo* saved;
+                ~ConceptDefiningModGuard() { slot = saved; }
+            } cdmg{m_specialization_defining_module, saved_concept_mod};
+            std::ignore = cdmg;
+
             if (mode == RequirementMode::Diagnostic)
             {
                 auto concept_name = concept_decl.alias_path.is_empty() ? std::string_view{} : concept_decl.alias_path.segments.back().name;
@@ -2647,6 +2717,18 @@ export namespace dcc::sema
             auto const* concept_decl = resolve_concept_decl(mod, scope, *call->callee, defining_mod);
             if (!concept_decl)
                 return false;
+
+            auto* saved_defining_mod = m_specialization_defining_module;
+            if (defining_mod && defining_mod != m_specialization_defining_module)
+                m_specialization_defining_module = const_cast<ModuleInfo*>(defining_mod);
+
+            struct DefiningModGuard
+            {
+                ModuleInfo*& slot;
+                ModuleInfo* saved;
+                ~DefiningModGuard() { slot = saved; }
+            } dm_guard{m_specialization_defining_module, saved_defining_mod};
+            std::ignore = dm_guard;
 
             {
                 [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
@@ -2696,6 +2778,18 @@ export namespace dcc::sema
             auto const* concept_decl = resolve_concept_decl(mod, scope, *call->callee, defining_mod);
             if (!concept_decl)
                 return false;
+
+            auto* saved_defining_mod = m_specialization_defining_module;
+            if (defining_mod && defining_mod != m_specialization_defining_module)
+                m_specialization_defining_module = const_cast<ModuleInfo*>(defining_mod);
+
+            struct DefiningModGuard
+            {
+                ModuleInfo*& slot;
+                ModuleInfo* saved;
+                ~DefiningModGuard() { slot = saved; }
+            } dm_guard{m_specialization_defining_module, saved_defining_mod};
+            std::ignore = dm_guard;
 
             {
                 [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
@@ -2783,7 +2877,8 @@ export namespace dcc::sema
             }
 
             auto& mutable_scope = const_cast<Scope&>(scope);
-            auto result = check_template_constraint(mod, mutable_scope, template_params, constraint, bindings, true);
+            auto* defining_mod = find_defining_module(*decl);
+            auto result = check_template_constraint(mod, mutable_scope, template_params, constraint, bindings, true, defining_mod);
 
             if (!result)
                 error(use_range, "template constraint not satisfied for `{}`", decl_name);
@@ -2799,6 +2894,7 @@ export namespace dcc::sema
             ast::Expr const* constraint = nullptr;
             std::span<ast::TemplateParam const> template_params;
             std::string_view decl_name;
+            ast::Decl const* decl = nullptr;
 
             if (auto const* st = types::type_cast<types::StructType>(ty))
             {
@@ -2806,6 +2902,7 @@ export namespace dcc::sema
                 constraint = sd->constraint;
                 template_params = {sd->template_params.data(), sd->template_params.size()};
                 decl_name = sd->name;
+                decl = static_cast<ast::Decl const*>(sd);
             }
             else if (auto const* et = types::type_cast<types::EnumType>(ty))
             {
@@ -2813,6 +2910,7 @@ export namespace dcc::sema
                 constraint = ed->constraint;
                 template_params = {ed->template_params.data(), ed->template_params.size()};
                 decl_name = ed->name;
+                decl = static_cast<ast::Decl const*>(ed);
             }
 
             if (!constraint)
@@ -2841,7 +2939,8 @@ export namespace dcc::sema
             std::ignore = guard;
 
             auto& mutable_scope = const_cast<Scope&>(scope);
-            if (!check_template_constraint(mod, mutable_scope, template_params, constraint, *opt_bindings, true))
+            auto* defining_mod = decl ? find_defining_module(*decl) : nullptr;
+            if (!check_template_constraint(mod, mutable_scope, template_params, constraint, *opt_bindings, true, defining_mod))
                 error(use_range, "template constraint not satisfied for `{}`", decl_name);
         }
 
@@ -2907,17 +3006,23 @@ export namespace dcc::sema
             sema.resolved_specialization = spec ? spec->decl : nullptr;
         }
 
-        [[nodiscard]] ModuleInfo* find_template_defining_module(ast::FuncDecl const& f) noexcept
+        [[nodiscard]] ModuleInfo* find_defining_module(ast::Decl const& decl) noexcept
         {
-            if (f.range.begin.fileId == sm::FileId::Invalid)
+            auto* range = &decl.range;
+            if (auto const* fd = ast::node_cast<ast::FuncDecl>(&decl); fd && fd->name_range.valid())
+                range = &fd->name_range;
+
+            if (range->begin.fileId == sm::FileId::Invalid)
                 return nullptr;
 
             for (auto const& m : m_modules)
-                if (m && m->tu && m->file_id == f.range.begin.fileId)
+                if (m && m->tu && m->file_id == range->begin.fileId)
                     return m.get();
 
             return nullptr;
         }
+
+        [[nodiscard]] ModuleInfo* find_template_defining_module(ast::FuncDecl const& f) noexcept { return find_defining_module(f); }
 
         [[nodiscard]] Symbol const* resolve_value_path_with_fallback(Scope& primary, ast::Path const& path) const
         {
@@ -3200,7 +3305,7 @@ export namespace dcc::sema
                 }
             }
 
-            if (!check_template_constraint(mod, scope, f, bindings))
+            if (!check_template_constraint(mod, scope, f, bindings, false, find_defining_module(f)))
             {
                 if (failure)
                     *failure = ExplicitInstFailure::Constraint;
@@ -8718,10 +8823,9 @@ export namespace dcc::sema
                         bool probe_constraint_failure = false;
                         bool probe_non_constraint_failure = false;
                         std::string rejection_reason;
-                        if (auto probe =
-                                probe_candidate_from_params(mod, scope, *cand.sym, cand.fp->params, c.args, next_off, loop_depth, const_env, &probe_error,
-                                                            &probe_constraint_failure, &probe_non_constraint_failure, expected_type, true, &rejection_reason,
-                                                            cand.template_fn ? &cand.bindings : nullptr);
+                        if (auto probe = probe_candidate_from_params(mod, scope, *cand.sym, cand.fp->params, c.args, next_off, loop_depth, const_env,
+                                                                     &probe_error, &probe_constraint_failure, &probe_non_constraint_failure, expected_type,
+                                                                     true, &rejection_reason, cand.template_fn ? &cand.bindings : nullptr);
                             probe)
                         {
                             probe->explicit_fp = cand.fp;
@@ -10771,8 +10875,8 @@ export namespace dcc::sema
                             if (!arg.type)
                                 return m_types.m_errort();
 
-                            auto arg_ty = arg.type->sema.canonical ? get_canonical(arg.type->sema)
-                                                                    : resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env);
+                            auto arg_ty =
+                                arg.type->sema.canonical ? get_canonical(arg.type->sema) : resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env);
                             if (arg_ty && is_concrete_void_type(arg_ty) && void_reject_decl)
                             {
                                 if (void_reject_decl->kind != ast::DeclKind::Enum)

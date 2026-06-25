@@ -1,0 +1,29 @@
+=== FILE: lib/defs.dc ===
+module lib::defs;
+
+public struct Console {}
+public void write_data(Console c, u8 b) {}
+
+public using Writable(T) = compiles(T t, u8 b) {
+    t.write_data(b);
+};
+
+public struct Buffer(T) if Writable(T) {
+    T inner;
+    u8[64] data;
+}
+
+=== FILE: main.dc ===
+module main;
+
+import lib::defs;
+using lib::defs::*;
+
+void entry() {
+    Buffer(Console) buf;
+    buf.inner = Console{};
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===

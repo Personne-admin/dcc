@@ -1,0 +1,31 @@
+=== FILE: lib.dc ===
+module lib;
+
+public struct MyWriter {}
+
+public void write(MyWriter w, []const u8 data) {}
+
+public using Writer(T) = compiles(T t, []const u8 data) {
+    t.write(data);
+};
+
+public void do_write(T)(T w, []const u8 data) if Writer(T) {}
+
+=== FILE: main.dc ===
+module main;
+
+import lib;
+
+public using Writer(T) = compiles(T t) {
+    t.foo();
+};
+
+void entry() {
+    lib::MyWriter w;
+    u8[0] buf;
+    lib::do_write(w, buf);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===

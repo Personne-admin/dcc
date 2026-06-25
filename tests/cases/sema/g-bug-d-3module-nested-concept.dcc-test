@@ -1,0 +1,43 @@
+=== FILE: common.dc ===
+module common;
+
+public using HasFoo(T) = compiles(T t) {
+    t.foo();
+};
+
+=== FILE: lib.dc ===
+module lib;
+import common;
+
+public struct MyType {}
+
+public void foo(MyType t) {}
+public void bar(MyType t) {}
+
+public using Outer(T) = compiles(T t) {
+    t.bar();
+} && HasFoo(T);
+
+public void do_thing(T)(T val) if Outer(T) {}
+
+=== FILE: main.dc ===
+module main;
+
+import lib;
+
+public using HasFoo(T) = compiles(T t) {
+    t.baz();
+};
+
+public using Nested(T) = compiles(T t) {
+    t.qux();
+};
+
+void entry() {
+    lib::MyType mt;
+    lib::do_thing(mt);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
