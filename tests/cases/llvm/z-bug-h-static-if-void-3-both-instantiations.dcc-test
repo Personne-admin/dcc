@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+// Test 3: Both void and non-void instantiations in one program.
+// No leakage between specializations.
+public i32 f(T)() {
+    static if T == void {
+        return 100;
+    } else {
+        return 200;
+    }
+}
+
+public i32 entry() {
+    i32 a = f!(void)();
+    i32 b = f!(i32)();
+    i32 c = f!(f64)();
+    return a + b + c;  // 100 + 200 + 200 = 500
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

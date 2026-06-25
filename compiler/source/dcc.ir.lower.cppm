@@ -1983,6 +1983,10 @@ export namespace dcc::ir::lower
                     break;
                 }
 
+                case ast::StmtKind::StaticIf: {
+                    lower_panic(stmt, "StaticIf reached IR lowering (should have been folded during instantiation)");
+                }
+
                 case ast::StmtKind::StaticFor: {
                     lower_panic(stmt, "StaticFor reached IR lowering");
                 }

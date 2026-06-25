@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+// Nested generic static-if: three-level branching with two type parameters.
+//   T == void  ->  (E == i32 ? 1 : 2)
+//   T != void  ->  3
+
+public i32 f(T, E)() {
+    static if T == void {
+        static if E == i32 {
+            return 1;
+        } else {
+            return 2;
+        }
+    } else {
+        return 3;
+    }
+}
+
+public i32 entry() {
+    i32 a = f!(void, i32)();   // T=void, E=i32  -> then / then  -> 1
+    i32 b = f!(void, u64)();   // T=void, E=u64  -> then / else  -> 2
+    i32 c = f!(i32, i32)();    // T=i32, E=i32   -> else         -> 3
+    return a + b + c;  // 6
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
