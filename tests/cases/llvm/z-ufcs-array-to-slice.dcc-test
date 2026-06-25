@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+struct BufferWriter {}
+
+void write(BufferWriter w, []const u8 data) {}
+void write_mut(BufferWriter w, []u8 data) {}
+
+void entry(BufferWriter w) {
+    u8[20] b;
+    w.write(b);
+    u8[0] z;
+    w.write(z);
+    u8[16] m;
+    w.write_mut(m);
+}
+
+void free_call(BufferWriter w) {
+    u8[10] a;
+    write(w, a);
+}
+
+void local_init() {
+    u8[4] b;
+    []const u8 s = b;
+}
+
+[]const u8 ret_arr() {
+    u8[8] b;
+    return b;
+}
+
+void param_arr([]const u8 s) {}
+
+void call_with_arr_param() {
+    u8[4] b;
+    param_arr(b);
+}
+
+struct Container {}
+void handle_i32(Container c, []i32 data) {}
+void generic_entry() {
+    Container c;
+    i32[5] arr;
+    c.handle_i32(arr);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

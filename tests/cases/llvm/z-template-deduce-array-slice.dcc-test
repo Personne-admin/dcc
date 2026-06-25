@@ -1,0 +1,13 @@
+=== FILE: test.dc ===
+module test;
+
+T first(T)([]const T s) {
+    return s[0];
+}
+
+public u8 test() {
+    u8[4] arr = {10, 20, 30, 40};
+    return first(arr);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

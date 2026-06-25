@@ -2266,17 +2266,29 @@ export namespace dcc::ir::lower
 
             auto* call_inst = m_ctx.call(ir_ret_type, callee_value);
 
-            if (call->sema.ufcs_callee)
+            bool is_ufcs = (call->sema.ufcs_callee != nullptr);
+            if (is_ufcs)
             {
                 auto* field_access = ast::node_cast<ast::FieldAccessExpr>(callee_expr);
                 if (field_access)
                 {
                     auto* obj_val = lower_expr(field_access->object);
+
+                    if (direct_target && !direct_target->params.empty())
+                    {
+                        auto* obj_sema_type = get_sema_resolved_type(field_access->object);
+                        auto* first_param_type = get_canonical_type(direct_target->params[0].type);
+                        if (first_param_type && first_param_type->kind == types::TypeKind::Slice
+                            && obj_sema_type && obj_sema_type->kind == types::TypeKind::Array)
+                            obj_val = coerce_array_to_slice(obj_val, obj_sema_type, first_param_type);
+                    }
+
                     call_inst->args.push_back(obj_val);
                 }
             }
 
             auto* callee_decl = direct_target;
+            std::size_t param_offset = (is_ufcs && callee_decl) ? 1 : 0;
             for (std::size_t i = 0; i < call->args.size(); ++i)
             {
                 auto* arg_expr = call->args[i];
@@ -2285,9 +2297,9 @@ export namespace dcc::ir::lower
 
                 auto* arg_sema_type = get_sema_resolved_type(arg_expr);
 
-                if (callee_decl && i < callee_decl->params.size())
+                if (callee_decl && (i + param_offset) < callee_decl->params.size())
                 {
-                    auto* param_type = get_canonical_type(callee_decl->params[i].type);
+                    auto* param_type = get_canonical_type(callee_decl->params[i + param_offset].type);
                     if (param_type && param_type->kind == types::TypeKind::Slice && arg_sema_type && arg_sema_type->kind == types::TypeKind::Array)
                         arg_val = coerce_array_to_slice(arg_val, arg_sema_type, param_type);
                 }

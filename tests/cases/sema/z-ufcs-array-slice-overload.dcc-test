@@ -1,0 +1,28 @@
+=== FILE: main.dc ===
+module main;
+
+struct HitSlice {}
+struct HitPtr {}
+
+HitSlice dispatch([]const u8 slice) { return HitSlice{}; }
+HitPtr dispatch(u8* ptr) { return HitPtr{}; }
+
+HitSlice receive([]const u8 slice) { return HitSlice{}; }
+HitPtr receive(u8* ptr) { return HitPtr{}; }
+
+struct Container {}
+HitSlice handle(Container c, []const u8 data) { return HitSlice{}; }
+HitPtr handle(Container c, u8* data) { return HitPtr{}; }
+
+void entry() {
+    u8[4] arr;
+    Container c;
+
+    HitSlice r1 = arr.receive();
+
+    HitSlice r2 = c.handle(arr);
+
+    HitSlice r3 = dispatch(arr);
+}
+
+=== ENTRY: main.dc ===

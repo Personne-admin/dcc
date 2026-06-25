@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+struct IoError {}
+struct BufferWriter {}
+
+Result(void, IoError) write(BufferWriter w, []const u8 data) {
+    Result(void, IoError) r;
+    return r;
+}
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+Result(void, E) write_str(W, E)(W writer, []const u8 s) if Writer(W, E) {
+    Result(void, E) r = writer.write(s);
+    return match r {
+        Result::Ok => Result::Ok,
+        Result::Err(e) => Result::Err(e),
+    };
+}
+
+void entry(BufferWriter writer) {
+    u8[20] bytes;
+    Result(void, IoError) r = write_str!(BufferWriter, IoError)(writer, bytes);
+}
+
+void entry_zero(BufferWriter writer) {
+    u8[0] bytes;
+    Result(void, IoError) r = write_str!(BufferWriter, IoError)(writer, bytes);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

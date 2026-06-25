@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void take(T)([]const T s) {
+    T x = s[0];
+}
+
+void test() {
+    u8[4] arr = {10, 20, 30, 40};
+    take(arr);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===

@@ -1254,25 +1254,27 @@ export namespace dcc::sema
             ReceiverAutoRefConst = 2,
             ReceiverAutoRefQualMismatch = 3,
             ReceiverAutoDeref = 4,
-            ConcreteExact = 5,
-            StringLiteralCharSliceConst = 6,
-            StringLiteralCharSliceMutable = 7,
-            StringLiteralU8SliceConst = 8,
-            StringLiteralU8SliceMutable = 9,
-            StringLiteralCharPointerConst = 10,
-            StringLiteralCharPointerMutable = 11,
-            StringLiteralU8PointerConst = 12,
-            StringLiteralU8PointerMutable = 13,
-            U16StringLiteralSliceConst = 14,
-            U16StringLiteralSliceMutable = 15,
-            U16StringLiteralPointerConst = 16,
-            U16StringLiteralPointerMutable = 17,
-            StructContextualExact = 18,
-            ArrayContextualExact = 19,
-            SliceContextualExact = 20,
-            EnumContextualExact = 21,
-            LiteralContextualExact = 22,
-            TemplateExact = 23,
+            ReceiverArrayToSlice = 5,
+            ArrayToSliceExact = 6,
+            ConcreteExact = 7,
+            StringLiteralCharSliceConst = 8,
+            StringLiteralCharSliceMutable = 9,
+            StringLiteralU8SliceConst = 10,
+            StringLiteralU8SliceMutable = 11,
+            StringLiteralCharPointerConst = 12,
+            StringLiteralCharPointerMutable = 13,
+            StringLiteralU8PointerConst = 14,
+            StringLiteralU8PointerMutable = 15,
+            U16StringLiteralSliceConst = 16,
+            U16StringLiteralSliceMutable = 17,
+            U16StringLiteralPointerConst = 18,
+            U16StringLiteralPointerMutable = 19,
+            StructContextualExact = 20,
+            ArrayContextualExact = 21,
+            SliceContextualExact = 22,
+            EnumContextualExact = 23,
+            LiteralContextualExact = 24,
+            TemplateExact = 25,
         };
 
         enum class UfcsReceiverMatch : std::uint8_t
@@ -1283,6 +1285,7 @@ export namespace dcc::sema
             AutoRefConst,
             AutoRefQualMismatch,
             AutoDeref,
+            ArrayToSlice,
         };
 
         struct RankedCandidate
@@ -3693,7 +3696,7 @@ export namespace dcc::sema
             }
 
             if (actual && param && actual->kind == types::TypeKind::Array && param->kind == types::TypeKind::Slice)
-                return CallRank::SliceContextualExact;
+                return CallRank::ArrayToSliceExact;
 
             return CallRank::ConcreteExact;
         }
@@ -3744,6 +3747,14 @@ export namespace dcc::sema
             auto const* recv_ptr = types::type_cast<types::PointerType>(analyzed.type);
             if (recv_ptr && recv_ptr->pointee == param)
                 return std::pair{UfcsReceiverMatch::AutoDeref, param};
+
+            if (analyzed.type->kind == types::TypeKind::Array && param->kind == types::TypeKind::Slice)
+            {
+                auto const* recv_arr = types::type_cast<types::ArrayType>(analyzed.type);
+                auto const* param_slice = types::type_cast<types::SliceType>(param);
+                if (recv_arr && param_slice && recv_arr->element == param_slice->element)
+                    return std::pair{UfcsReceiverMatch::ArrayToSlice, analyzed.type};
+            }
 
             if (contains_template_param(param))
                 return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
@@ -4440,6 +4451,9 @@ export namespace dcc::sema
                 case UfcsReceiverMatch::AutoDeref:
                     out.ranks.push_back(CallRank::ReceiverAutoDeref);
                     break;
+                case UfcsReceiverMatch::ArrayToSlice:
+                    out.ranks.push_back(CallRank::ReceiverArrayToSlice);
+                    break;
                 case UfcsReceiverMatch::None:
                     if (had_suppressed_errors)
                         *had_suppressed_errors = suppress.had_suppressed_errors();
@@ -4687,6 +4701,7 @@ export namespace dcc::sema
             switch (match->first)
             {
                 case UfcsReceiverMatch::Exact:
+                case UfcsReceiverMatch::ArrayToSlice:
                     break;
                 case UfcsReceiverMatch::AutoRef:
                 case UfcsReceiverMatch::AutoRefConst:

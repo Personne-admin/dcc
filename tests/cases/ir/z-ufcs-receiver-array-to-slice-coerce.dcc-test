@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module test;
+
+usize sum([]const u8 s) {
+    usize total = 0;
+    for i in 0..s.len {
+        total += s[i] as usize;
+    }
+    return total;
+}
+
+public usize test() {
+    u8[4] arr = {10, 20, 30, 40};
+    return arr.sum();
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

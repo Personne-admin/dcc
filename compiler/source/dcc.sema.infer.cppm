@@ -518,6 +518,8 @@ export namespace dcc::infer
 
                 if (slice->element == array_elem)
                     return ok();
+
+                return deduce(slice->element, array_elem);
             }
 
             if (!lhs || !rhs || lhs->kind != rhs->kind)
