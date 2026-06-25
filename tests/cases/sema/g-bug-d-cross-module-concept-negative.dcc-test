@@ -43,4 +43,4 @@ void entry() {
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===
-main.dc:12: template constraint not satisfied for `std::fmt::write_str`
+main.dc:11: template constraint not satisfied for `std::fmt::write_str`

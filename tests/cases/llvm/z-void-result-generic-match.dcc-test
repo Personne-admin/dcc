@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+struct IoError {}
+
+public void handle_generic_void(E)(Result(void, E) r) {
+    match r {
+        Result::Ok => {},
+        Result::Err(e) => {},
+    };
+}
+
+public void entry() {
+    handle_generic_void!(i32)(Result::Ok);
+    handle_generic_void!(i64)(Result::Err(42));
+    handle_generic_void!(IoError)(Result::Ok);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

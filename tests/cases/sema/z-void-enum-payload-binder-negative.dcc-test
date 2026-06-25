@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public void test_reject_ok_pattern(Result(void, i32) x) {
+    match x {
+        Result::Ok(v) => {},
+        Result::Err(e) => {},
+    };
+}
+
+public void test_reject_ok_construct() {
+    Result(void, i32) r = Result::Ok(42);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:7: payloadless tagged enum variant must not use parenthesized pattern
+main.dc:13: enum variant `Result::Ok` has void payload and cannot be called with arguments

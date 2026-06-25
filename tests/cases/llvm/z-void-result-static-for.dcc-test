@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+public enum Result(T, E) { Ok(T), Err(E), }
+
+public void handle_void_result(Result(void, i32) r) {
+    match r {
+        Result::Ok => {},
+        Result::Err(e) => {},
+    };
+}
+
+public void process_pack(T...)(T args) {
+    static for arg in args {
+        handle_void_result(Result::Ok);
+    }
+}
+
+public void entry() {
+    process_pack(1, 2, 3);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

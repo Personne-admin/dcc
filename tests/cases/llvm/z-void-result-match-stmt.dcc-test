@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+struct IoError {}
+
+void handle_void_result(Result(void, IoError) r) {
+    match r {
+        Result::Ok => {},
+        Result::Err(e) => {},
+    };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

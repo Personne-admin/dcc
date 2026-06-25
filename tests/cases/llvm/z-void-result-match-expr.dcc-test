@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+struct IoError {}
+
+void unwrap_or_result_void(Result(void, IoError) r, i32 fallback) {
+    i32 v = match r {
+        Result::Ok => fallback,
+        Result::Err(e) => fallback,
+    };
+}
+
+void test_caller() {
+    unwrap_or_result_void(Result::Ok, 42);
+    unwrap_or_result_void(Result::Err(IoError{}), 42);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

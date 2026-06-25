@@ -29,4 +29,4 @@ void entry() {
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===
-main.dc:8: template constraint not satisfied for `Buffer`
+main.dc:7: template constraint not satisfied for `Buffer`

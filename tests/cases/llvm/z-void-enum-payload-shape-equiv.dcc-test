@@ -1,0 +1,28 @@
+=== FILE: test.dc ===
+module test;
+
+enum A(E) { Ok, Err(E), }
+enum B(E) { Ok(void), Err(E), }
+
+struct IoError {}
+
+void use_a(A(IoError) x) {
+    match x {
+        A::Ok => {},
+        A::Err(e) => {},
+    };
+}
+
+void use_b(B(IoError) x) {
+    match x {
+        B::Ok => {},
+        B::Err(e) => {},
+    };
+}
+
+void entry() {
+    use_a(A::Ok);
+    use_b(B::Ok);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
