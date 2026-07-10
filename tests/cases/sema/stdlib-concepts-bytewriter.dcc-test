@@ -1,0 +1,47 @@
+=== FILE: main.dc ===
+module main;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+using ByteWriter(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+struct MyWriter {}
+struct MyError {}
+struct OtherError {}
+
+Result(void, MyError) write(MyWriter w, []const u8 data) {
+    return Result::Ok;
+}
+
+void require_bytewriter(W, E)(W w, E e, []const u8 data) if ByteWriter(W, E) {}
+
+void test_positive() {
+    MyWriter w;
+    MyError e;
+    u8[0] bytes;
+    require_bytewriter(w, e, bytes);
+}
+
+void test_negative_wrong_err() {
+    MyWriter w;
+    OtherError bad;
+    u8[0] bytes;
+    require_bytewriter!(MyWriter, OtherError)(w, bad, bytes);
+}
+
+struct NoWrite {}
+
+void test_negative_no_write() {
+    NoWrite w;
+    MyError e;
+    u8[0] bytes;
+    require_bytewriter!(NoWrite, MyError)(w, e, bytes);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:42: template constraint not satisfied for `require_bytewriter`
+main.dc:53: template constraint not satisfied for `require_bytewriter`

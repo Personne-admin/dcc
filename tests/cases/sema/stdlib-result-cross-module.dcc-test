@@ -1,0 +1,120 @@
+=== FILE: lib/result.dc ===
+module lib::result;
+
+public enum Result(T, E) {
+    Ok(T),
+    Err(E),
+}
+
+public bool is_ok(T, E)(Result(T, E) r) {
+    return match r {
+        Result::Err(_) => false,
+        _ => true,
+    };
+}
+
+public bool is_err(T, E)(Result(T, E) r) {
+    return match r {
+        Result::Err(_) => true,
+        _ => false,
+    };
+}
+
+=== FILE: main.dc ===
+module main;
+
+import lib::result;
+using lib::result::*;
+
+void test_ok_construct() {
+    Result(i32, i32) r = Result::Ok(42);
+}
+
+void test_err_construct() {
+    Result(i32, i32) r = Result::Err(1);
+}
+
+void test_void_ok() {
+    Result(void, i32) r = Result::Ok;
+}
+
+void test_void_err() {
+    Result(void, i32) r = Result::Err(42);
+}
+
+i32 test_match_nonvoid(Result(i32, i32) x) {
+    return match x {
+        Result::Ok(v) => v,
+        Result::Err(e) => e,
+    };
+}
+
+void test_match_void(Result(void, i32) x) {
+    match x {
+        Result::Ok => {},
+        Result::Err(e) => {},
+    };
+}
+
+bool test_is_ok_ok() {
+    Result(i32, i32) r = Result::Ok(1);
+    return is_ok(r);
+}
+
+bool test_is_ok_err() {
+    Result(i32, i32) r = Result::Err(0);
+    return is_ok(r);
+}
+
+bool test_is_err_ok() {
+    Result(i32, i32) r = Result::Ok(1);
+    return is_err(r);
+}
+
+bool test_is_err_err() {
+    Result(i32, i32) r = Result::Err(0);
+    return is_err(r);
+}
+
+bool test_void_is_ok_ok() {
+    Result(void, i32) r = Result::Ok;
+    return is_ok(r);
+}
+
+bool test_void_is_ok_err() {
+    Result(void, i32) r = Result::Err(1);
+    return is_ok(r);
+}
+
+bool test_void_is_err_ok() {
+    Result(void, i32) r = Result::Ok;
+    return is_err(r);
+}
+
+bool test_void_is_err_err() {
+    Result(void, i32) r = Result::Err(1);
+    return is_err(r);
+}
+
+void entry() {
+    test_ok_construct();
+    test_err_construct();
+    test_void_ok();
+    test_void_err();
+    i32 a = test_match_nonvoid(Result::Ok(42));
+    i32 b = test_match_nonvoid(Result::Err(1));
+    test_match_void(Result::Ok);
+    test_match_void(Result::Err(0));
+    bool b1 = test_is_ok_ok();
+    bool b2 = test_is_ok_err();
+    bool b3 = test_is_err_ok();
+    bool b4 = test_is_err_err();
+    bool b5 = test_void_is_ok_ok();
+    bool b6 = test_void_is_ok_err();
+    bool b7 = test_void_is_err_ok();
+    bool b8 = test_void_is_err_err();
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
