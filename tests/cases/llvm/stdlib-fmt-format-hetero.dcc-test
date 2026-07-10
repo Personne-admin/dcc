@@ -1,0 +1,102 @@
+=== FILE: test.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+struct NullWriter {}
+struct VoidErr {}
+
+Result(void, VoidErr) write(NullWriter w, []const u8 data) {
+    return Result::Ok;
+}
+
+Result(void, E) write_str(W, E)(W writer, []const u8 data) if Writer(W, E) {
+    Result(void, E) r = writer.write(data);
+    return match r {
+        Result::Ok => Result::Ok,
+        Result::Err(e) => Result::Err(e),
+    };
+}
+
+Result(void, E) write_byte(W, E)(W writer, u8 byte) if Writer(W, E) {
+    u8[1] buf;
+    buf[0] = byte;
+    return write_str(writer, buf);
+}
+
+Result(void, E) write_one(W, E)(W writer, []const u8 s) if Writer(W, E) {
+    return write_str(writer, s);
+}
+
+Result(void, E) write_one(W, E)(W writer, u64 val) if Writer(W, E) {
+    u8[20] buf;
+    u64 n = val;
+    u64 idx = 0;
+
+    if n == 0 {
+        buf[0] = '0' as u8;
+        idx = 1;
+    } else {
+        while n > 0 {
+            buf[idx] = ('0' as u8) + (n % 10) as u8;
+            n = n / 10;
+            idx = idx + 1;
+        }
+    }
+
+    Result(void, E) acc = Result::Ok;
+    if idx > 0 {
+        u64 i = idx;
+        while i > 0 {
+            i = i - 1;
+            acc = match acc {
+                Result::Ok => write_byte(writer, buf[i]),
+                Result::Err(e) => Result::Err(e),
+            };
+        }
+    }
+    return acc;
+}
+
+Result(void, E) write_one(W, E)(W writer, i64 val) if Writer(W, E) {
+    return write_one(writer, val as u64);
+}
+
+Result(void, E) format(W, E, T...)(W writer, T args) if Writer(W, E) {
+    Result(void, E) acc = Result::Ok;
+    static for arg in args {
+        acc = match acc {
+            Result::Ok => write_one(writer, arg),
+            Result::Err(e) => Result::Err(e),
+        };
+    }
+    return acc;
+}
+
+void test_hetero() {
+    NullWriter w;
+    Result(void, VoidErr) r = format(w, "x=", 123 as u64, " y=", 456 as u64);
+}
+
+void test_zero_arg() {
+    NullWriter w;
+    Result(void, VoidErr) r = format(w);
+}
+
+void test_mixed_types() {
+    NullWriter w;
+    i64 neg = -1;
+    Result(void, VoidErr) r = format(w, "str", 42 as u64, "neg", neg);
+}
+
+void entry() {
+    test_hetero();
+    test_zero_arg();
+    test_mixed_types();
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

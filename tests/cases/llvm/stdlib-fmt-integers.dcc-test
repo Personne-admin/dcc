@@ -1,0 +1,181 @@
+=== FILE: test.dc ===
+module test;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+struct NullWriter {}
+struct VoidErr {}
+
+Result(void, VoidErr) write(NullWriter w, []const u8 data) {
+    return Result::Ok;
+}
+
+Result(void, E) write_str(W, E)(W writer, []const u8 data) if Writer(W, E) {
+    Result(void, E) r = writer.write(data);
+    return match r {
+        Result::Ok => Result::Ok,
+        Result::Err(e) => Result::Err(e),
+    };
+}
+
+Result(void, E) write_byte(W, E)(W writer, u8 byte) if Writer(W, E) {
+    u8[1] buf;
+    buf[0] = byte;
+    return write_str(writer, buf);
+}
+
+Result(void, E) write_one(W, E)(W writer, u64 val) if Writer(W, E) {
+    u8[20] buf;
+    u64 n = val;
+    u64 idx = 0;
+
+    if n == 0 {
+        buf[0] = '0' as u8;
+        idx = 1;
+    } else {
+        while n > 0 {
+            buf[idx] = ('0' as u8) + (n % 10) as u8;
+            n = n / 10;
+            idx = idx + 1;
+        }
+    }
+
+    Result(void, E) acc = Result::Ok;
+    if idx > 0 {
+        u64 i = idx;
+        while i > 0 {
+            i = i - 1;
+            acc = match acc {
+                Result::Ok => write_byte(writer, buf[i]),
+                Result::Err(e) => Result::Err(e),
+            };
+        }
+    }
+    return acc;
+}
+
+Result(void, E) write_one(W, E)(W writer, i64 val) if Writer(W, E) {
+    u8[21] buf;
+    u64 n;
+    bool neg = false;
+    u64 idx = 0;
+
+    if val < 0 {
+        neg = true;
+        n = (~(val as u64)) + 1;
+    } else {
+        n = val as u64;
+    }
+
+    if n == 0 {
+        buf[0] = '0' as u8;
+        idx = 1;
+    } else {
+        while n > 0 {
+            buf[idx] = ('0' as u8) + (n % 10) as u8;
+            n = n / 10;
+            idx = idx + 1;
+        }
+    }
+
+    if neg {
+        buf[idx] = '-' as u8;
+        idx = idx + 1;
+    }
+
+    Result(void, E) acc = Result::Ok;
+    if idx > 0 {
+        u64 i = idx;
+        while i > 0 {
+            i = i - 1;
+            acc = match acc {
+                Result::Ok => write_byte(writer, buf[i]),
+                Result::Err(e) => Result::Err(e),
+            };
+        }
+    }
+    return acc;
+}
+
+Result(void, E) write_one(W, E)(W writer, u32 val) if Writer(W, E) {
+    return write_one(writer, val as u64);
+}
+
+Result(void, E) write_one(W, E)(W writer, i32 val) if Writer(W, E) {
+    return write_one(writer, val as i64);
+}
+
+Result(void, E) write_one(W, E)(W writer, []const u8 s) if Writer(W, E) {
+    return write_str(writer, s);
+}
+
+Result(void, E) write_one(W, E)(W writer, bool val) if Writer(W, E) {
+    if val {
+        u8[4] buf;
+        buf[0] = 't' as u8;
+        buf[1] = 'r' as u8;
+        buf[2] = 'u' as u8;
+        buf[3] = 'e' as u8;
+        return write_str(writer, buf);
+    } else {
+        u8[5] buf;
+        buf[0] = 'f' as u8;
+        buf[1] = 'a' as u8;
+        buf[2] = 'l' as u8;
+        buf[3] = 's' as u8;
+        buf[4] = 'e' as u8;
+        return write_str(writer, buf);
+    }
+}
+
+void test_u64_values() {
+    NullWriter w;
+    Result(void, VoidErr) r1 = write_one(w, 0 as u64);
+    Result(void, VoidErr) r2 = write_one(w, 42 as u64);
+    Result(void, VoidErr) r3 = write_one(w, 1000000 as u64);
+}
+
+void test_i64_values() {
+    NullWriter w;
+    i64 neg = -1;
+    Result(void, VoidErr) r4 = write_one(w, 0 as i64);
+    Result(void, VoidErr) r5 = write_one(w, 7 as i64);
+    Result(void, VoidErr) r6 = write_one(w, neg);
+}
+
+void test_u32_value() {
+    NullWriter w;
+    Result(void, VoidErr) r7 = write_one(w, 99 as u32);
+}
+
+void test_i32_value() {
+    NullWriter w;
+    i32 neg = -42;
+    Result(void, VoidErr) r8 = write_one(w, neg);
+}
+
+void test_bool_values() {
+    NullWriter w;
+    Result(void, VoidErr) r9 = write_one(w, true);
+    Result(void, VoidErr) r10 = write_one(w, false);
+}
+
+void test_slice_value() {
+    NullWriter w;
+    Result(void, VoidErr) r11 = write_one(w, "hello");
+}
+
+void entry() {
+    test_u64_values();
+    test_i64_values();
+    test_u32_value();
+    test_i32_value();
+    test_bool_values();
+    test_slice_value();
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

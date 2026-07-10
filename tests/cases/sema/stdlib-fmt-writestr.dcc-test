@@ -1,0 +1,80 @@
+=== FILE: main.dc ===
+module main;
+
+enum Result(T, E) { Ok(T), Err(E), }
+
+using Writer(W, E) = compiles(W w, []const u8 data) {
+    Result(void, E) r = w.write(data);
+};
+
+Result(void, E) write_str(W, E)(W writer, []const u8 data) if Writer(W, E) {
+    Result(void, E) r = writer.write(data);
+    return match r {
+        Result::Ok => Result::Ok,
+        Result::Err(e) => Result::Err(e),
+    };
+}
+
+struct Recorder {
+    u8[64] buf;
+    u64 pos;
+}
+
+struct NoError {}
+
+Result(void, NoError) write(Recorder* r, []const u8 data) {
+    u64 i = 0;
+    while i < data.len {
+        r.buf[r.pos] = data[i];
+        r.pos = r.pos + 1;
+        i = i + 1;
+    }
+
+    return Result::Ok;
+}
+
+void test_string_literal(Recorder* r) {
+    Result(void, NoError) res = write_str(r, "hello");
+}
+
+void test_explicit_slice(Recorder* r) {
+    []const u8 s = "world";
+    Result(void, NoError) res = write_str(r, s);
+}
+
+void test_u8_array(Recorder* r) {
+    u8[3] arr = {65, 66, 67};
+    Result(void, NoError) res = write_str(r, arr);
+}
+
+void test_zero_array(Recorder* r) {
+    u8[0] empty;
+    Result(void, NoError) res = write_str(r, empty);
+}
+
+struct ErrWriter {}
+
+struct WriteErr {}
+
+Result(void, WriteErr) write(ErrWriter w, []const u8 data) {
+    return Result::Err(WriteErr{});
+}
+
+void test_error_forwarding() {
+    ErrWriter w;
+    Result(void, WriteErr) res = write_str(w, "fail");
+}
+
+void entry() {
+    Recorder rec;
+    rec.pos = 0;
+    test_string_literal(&rec);
+    test_explicit_slice(&rec);
+    test_u8_array(&rec);
+    test_zero_array(&rec);
+    test_error_forwarding();
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
