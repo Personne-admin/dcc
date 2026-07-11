@@ -289,6 +289,26 @@ namespace dcc::backend
                     return slice_ty;
                 }
 
+                if (t->kind == IrTypeKind::Func)
+                {
+                    auto* ft = static_cast<IrFuncType const*>(t);
+                    auto* ret_ty = get(ft->return_type, for_memory);
+                    if (!ret_ty)
+                        ret_ty = LLVMVoidTypeInContext(ctx);
+                    std::vector<LLVMTypeRef> param_tys;
+                    param_tys.reserve(ft->params.size());
+                    for (auto* pt : ft->params)
+                    {
+                        auto* lt = get(pt, for_memory);
+                        if (!lt)
+                            lt = LLVMInt32TypeInContext(ctx);
+                        param_tys.push_back(lt);
+                    }
+                    auto* func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
+                    map[t] = func_ty;
+                    return func_ty;
+                }
+
                 auto* opaque = LLVMStructCreateNamed(ctx, "");
                 map[t] = opaque;
 

@@ -1,0 +1,29 @@
+=== FILE: lib.dc ===
+module lib;
+
+public i32 add(i32 a, i32 b) { return a + b; }
+
+public using BinOp = i32(*)(i32, i32);
+
+public i32 apply(BinOp f, i32 a, i32 b) { return f(a, b); }
+
+=== FILE: main.dc ===
+module main;
+import lib;
+
+void test() {
+    i32 r = lib::apply(lib::add, 1, 2);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-BODY ===
+Module main
+  Func test diverging=false
+    Body
+      Var r type=i32 storage=local offset=0
+        Call [type=i32 const=<none> decl=apply]
+          Path lib::apply [type=<unresolved> const=<none>]
+          Path lib::add [type=i32(*)(i32, i32) const=<none> decl=add]
+          IntLiteral 1 [type=i32 const=1 constant]
+          IntLiteral 2 [type=i32 const=2 constant]

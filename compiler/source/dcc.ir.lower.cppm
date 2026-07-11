@@ -1795,7 +1795,7 @@ export namespace dcc::ir::lower
                 if (!self_func)
                     lower_panic("__assert not found in function map while compiling assert module");
                 m_assert_func = self_func;
-                m_assert_func_ref = m_ctx.make<IrGlobalRef>(m_assert_func, func_type);
+                m_assert_func_ref = m_ctx.make<IrGlobalRef>(m_assert_func, m_ctx.pointer_to(func_type));
             }
             else
             {
@@ -1804,7 +1804,7 @@ export namespace dcc::ir::lower
                 m_assert_func->linkage = ir::Linkage::External;
                 m_module->functions.push_back(m_assert_func);
 
-                m_assert_func_ref = m_ctx.make<IrGlobalRef>(m_assert_func, func_type);
+                m_assert_func_ref = m_ctx.make<IrGlobalRef>(m_assert_func, m_ctx.pointer_to(func_type));
             }
         }
 

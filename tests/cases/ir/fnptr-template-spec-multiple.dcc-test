@@ -13,9 +13,9 @@ module "test"
 void@_DC0F1.4.test9.multi_ref0v() {
 %entry:
   %0 = alloca ptr<fn(i32) -> i32>
-  store fn(i32) -> i32 @_DC0S1.4.test8.identity1i32si32sX1ti32s, ptr<ptr<fn(i32) -> i32>> %0
+  store ptr<fn(i32) -> i32> @_DC0S1.4.test8.identity1i32si32sX1ti32s, ptr<ptr<fn(i32) -> i32>> %0
   %1 = alloca ptr<fn(f64) -> f64>
-  store fn(f64) -> f64 @_DC0S1.4.test8.identity1f64.f64.X1tf64., ptr<ptr<fn(f64) -> f64>> %1
+  store ptr<fn(f64) -> f64> @_DC0S1.4.test8.identity1f64.f64.X1tf64., ptr<ptr<fn(f64) -> f64>> %1
   ret void
 }
 

@@ -1,0 +1,41 @@
+=== FILE: lib.dc ===
+module lib;
+
+public i32 add_i32(i32 a, i32 b) { return a + b; }
+
+public using I32BinOp = i32(*)(i32, i32);
+public using F32BinOp = f32(*)(f32, f32);
+
+public i32 apply_i32(I32BinOp f, i32 a, i32 b) { return f(a, b); }
+public f32 apply_f32(F32BinOp f, f32 a, f32 b) { return f(a, b); }
+
+public i32 target(i32 a, i32 b) { return a - b; }
+public f32 target(f32 a, f32 b) { return a - b; }
+
+=== FILE: main.dc ===
+module main;
+import lib;
+
+void test() {
+    i32 r1 = lib::apply_i32(lib::target, 10, 3);
+    f32 r2 = lib::apply_f32(lib::target, 10.0, 3.0);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-BODY ===
+Module main
+  Func test diverging=false
+    Body
+      Var r1 type=i32 storage=local offset=0
+        Call [type=i32 const=<none> decl=apply_i32]
+          Path lib::apply_i32 [type=<unresolved> const=<none>]
+          Path lib::target [type=i32(*)(i32, i32) const=<none> decl=target]
+          IntLiteral 10 [type=i32 const=10 constant]
+          IntLiteral 3 [type=i32 const=3 constant]
+      Var r2 type=f32 storage=local offset=4
+        Call [type=f32 const=<none> decl=apply_f32]
+          Path lib::apply_f32 [type=<unresolved> const=<none>]
+          Path lib::target [type=f32(*)(f32, f32) const=<none> decl=target]
+          FloatLiteral 10 [type=f32 const=10 constant]
+          FloatLiteral 3 [type=f32 const=3 constant]

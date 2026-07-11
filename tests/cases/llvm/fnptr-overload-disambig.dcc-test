@@ -1,0 +1,39 @@
+=== FILE: lib.dc ===
+module lib;
+
+public i32 target(i32 a, i32 b) { return a + b; }
+public f32 target(f32 a, f32 b) { return a + b; }
+
+public using I32BinOp = i32(*)(i32, i32);
+
+public i32 apply(I32BinOp f, i32 a, i32 b) { return f(a, b); }
+
+=== FILE: main.dc ===
+module main;
+import lib;
+
+@nomangle
+public i32 main() {
+    i32 r = lib::apply(lib::target, 10, 3);
+    return r;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'main'
+source_filename = "main"
+target triple = "x86_64-unknown-linux-gnu"
+
+define i32 @main() {
+entry:
+  %"0" = alloca i32, align 4
+  %"1" = call i32 @_DC0F1.3.lib5.apply3pi32s2i32si32si32si32si32s(ptr @_DC0F1.3.lib6.target2i32si32si32s, i32 10, i32 3)
+  store i32 %"1", ptr %"0", align 4
+  %"2" = load i32, ptr %"0", align 4
+  ret i32 %"2"
+}
+
+declare i32 @_DC0F1.3.lib5.apply3pi32s2i32si32si32si32si32s(ptr, i32, i32)
+
+declare i32 @_DC0F1.3.lib6.target2i32si32si32s(i32, i32)

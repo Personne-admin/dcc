@@ -12,7 +12,7 @@ module "test"
 void@_DC0F1.4.test9.store_ref0v() {
 %entry:
   %0 = alloca ptr<fn(i32) -> i32>
-  store fn(i32) -> i32 @_DC0S1.4.test8.identity1i32si32sX1ti32s, ptr<ptr<fn(i32) -> i32>> %0
+  store ptr<fn(i32) -> i32> @_DC0S1.4.test8.identity1i32si32sX1ti32s, ptr<ptr<fn(i32) -> i32>> %0
   ret void
 }
 
