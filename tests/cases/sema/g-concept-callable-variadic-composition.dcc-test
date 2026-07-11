@@ -1,0 +1,26 @@
+=== FILE: main.dc ===
+module m;
+
+void fn(i32 x) {}
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+using GoodPred(F, P...) = CallableWith(F, P...);
+
+void require_good(F, P...)(F f, P args) if GoodPred(F, P...) {}
+
+void test_pos() {
+    void(*)(i32) fp = &fn;
+    require_good(fp, 1);
+}
+
+using AndAlsoCallable(F, P...) = CallableWith(F, P...) & CallableWith(F, P...);
+
+void require_and(F, P...)(F f, P args) if AndAlsoCallable(F, P...) {}
+
+void test_and() {
+    void(*)(i32) fp = &fn;
+    require_and(fp, 1);
+}

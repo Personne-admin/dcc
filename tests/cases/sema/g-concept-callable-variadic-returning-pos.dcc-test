@@ -1,0 +1,24 @@
+=== FILE: main.dc ===
+module m;
+
+i32 plus_one(i32 x) { return x + 1; }
+
+using CallableReturning(F, R, P...) = compiles(F f, P args) {
+    R r = f(args...);
+};
+
+void require_returning(F, R, P...)(F f, P args) if CallableReturning(F, R, P...) {}
+
+void test_pos() {
+    i32(*)(i32) fp = &plus_one;
+    require_returning!(i32(*)(i32), i32, i32)(fp, 1);
+}
+
+using GoodPred(F, R, P...) = CallableReturning(F, R, P...);
+
+void require_good(F, R, P...)(F f, P args) if GoodPred(F, R, P...) {}
+
+void test_alias() {
+    i32(*)(i32) fp = &plus_one;
+    require_good!(i32(*)(i32), i32, i32)(fp, 1);
+}

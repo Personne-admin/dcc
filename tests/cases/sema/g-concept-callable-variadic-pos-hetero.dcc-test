@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void hetero(i32 x, bool b) {}
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void test_pos() {
+    void(*)(i32, bool) fp = &hetero;
+    require_callable(fp, 1, true);
+}

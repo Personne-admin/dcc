@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+i32 add(i32 a, i32 b) { return a + b; }
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void test_pos() {
+    i32(*)(i32, i32) fp = &add;
+    require_callable(fp, 1, 2);
+}

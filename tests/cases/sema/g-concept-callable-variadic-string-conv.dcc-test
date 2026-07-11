@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void write_slice([]const char msg) {}
+
+void test_string_slice_pos() {
+    void(*)([]const char) fp = &write_slice;
+    require_callable(fp, "hello");
+}

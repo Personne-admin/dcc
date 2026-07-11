@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void target() {}
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void test_pos() {
+    void(*)() fp = &target;
+    require_callable(fp);
+}

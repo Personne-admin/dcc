@@ -1,0 +1,28 @@
+=== FILE: mylib.dc ===
+module mylib;
+
+public using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+public using CallableReturning(F, R, P...) = compiles(F f, P args) {
+    R r = f(args...);
+};
+
+=== FILE: main.dc ===
+module main;
+
+import mylib;
+
+using mylib::CallableWith;
+
+void fn(i32 x) {}
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void test_callable_pos() {
+    void(*)(i32) fp = &fn;
+    require_callable(fp, 1);
+}
+
+=== ENTRY: main.dc ===

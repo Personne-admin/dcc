@@ -1,0 +1,28 @@
+=== FILE: main.dc ===
+module m;
+
+i32 plus_one(i32 x) { return x + 1; }
+
+using CallableReturning(F, R, P...) = compiles(F f, P args) {
+    R r = f(args...);
+};
+
+void require_returning(F, R, P...)(F f, P args) if CallableReturning(F, R, P...) {}
+
+void test_neg_wrong_return() {
+    i32(*)(i32) fp = &plus_one;
+    require_returning!(i32(*)(i32), bool, i32)(fp, 1);
+}
+
+using BadPred(F, R, P...) = CallableReturning(F, R, P...);
+
+void require_bad(F, R, P...)(F f, P args) if BadPred(F, R, P...) {}
+
+void test_neg_alias() {
+    i32(*)(i32) fp = &plus_one;
+    require_bad!(i32(*)(i32), bool, i32)(fp, 1);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: template constraint not satisfied for `require_returning`
+main.dc:22: template constraint not satisfied for `require_bad`

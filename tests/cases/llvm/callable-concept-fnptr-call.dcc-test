@@ -1,0 +1,22 @@
+=== FILE: main.dc ===
+module main;
+
+i32 add_one(i32 x) { return x + 1; }
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+i32 apply(F, P...)(F f, P args) if CallableWith(F, P...) {
+    return f(args...);
+}
+
+@nomangle
+i32 main() {
+    i32(*)(i32) fp = &add_one;
+    return apply(fp, 1);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-LLVM FLAGS: -verify ===
