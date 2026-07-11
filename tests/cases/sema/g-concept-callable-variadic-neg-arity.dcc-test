@@ -1,0 +1,29 @@
+=== FILE: main.dc ===
+module m;
+
+void fn2(i32 a, i32 b) {}
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void test_neg_too_few() {
+    void(*)(i32, i32) fp = &fn2;
+    require_callable!(void(*)(i32, i32), i32)(fp, 1);
+}
+
+void test_neg_too_many() {
+    void(*)(i32, i32) fp = &fn2;
+    require_callable!(void(*)(i32, i32), i32, i32, i32)(fp, 1, 2, 3);
+}
+
+void test_pos() {
+    void(*)(i32, i32) fp = &fn2;
+    require_callable(fp, 1, 2);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: template constraint not satisfied for `require_callable`
+main.dc:18: template constraint not satisfied for `require_callable`

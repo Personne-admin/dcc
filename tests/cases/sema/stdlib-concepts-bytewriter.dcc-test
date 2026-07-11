@@ -43,5 +43,5 @@ void test_negative_no_write() {
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===
-main.dc:42: template constraint not satisfied for `require_bytewriter`
-main.dc:53: template constraint not satisfied for `require_bytewriter`
+main.dc:30: template constraint not satisfied for `require_bytewriter`
+main.dc:39: template constraint not satisfied for `require_bytewriter`

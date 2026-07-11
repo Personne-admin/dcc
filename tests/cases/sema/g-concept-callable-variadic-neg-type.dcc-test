@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module m;
+
+void fn(i32 x) {}
+
+using CallableWith(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void require_callable(F, P...)(F f, P args) if CallableWith(F, P...) {}
+
+void test_neg_type() {
+    void(*)(i32) fp = &fn;
+    require_callable!(void(*)(i32), []const u8)(fp, "hello");
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: template constraint not satisfied for `require_callable`

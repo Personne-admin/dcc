@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module m;
+
+void fn2(i32 a, i32 b) {}
+
+using TestBare(F, P...) = compiles(F f, P args) {
+    f(args);
+};
+
+void require_bare(F, P...)(F f, P args) if TestBare(F, P...) {}
+
+void test_bare_fails() {
+    void(*)(i32, i32) fp = &fn2;
+    require_bare!(void(*)(i32, i32), i32, i32)(fp, 1, 2);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: template constraint not satisfied for `require_bare`
