@@ -1790,28 +1790,25 @@ export namespace dcc::sema
                         }
                         return try_lookup(&scope, p.simple_name());
                     }
-                    if (mod.own_scope)
-                    {
-                        if (defining_mod && defining_mod != &mod)
-                        {
-                            if (auto const* use = try_lookup(defining_mod->own_scope, p.simple_name()))
-                                return use;
 
-                            for (auto const& imp : defining_mod->imports)
-                            {
-                                if (imp.target)
-                                {
-                                    if (imp.target->export_scope)
-                                        if (auto const* use = try_lookup(imp.target->export_scope, p.simple_name()))
-                                            return use;
-                                    if (imp.target->own_scope)
-                                        if (auto const* use = try_lookup(imp.target->own_scope, p.simple_name()))
-                                            return use;
-                                }
-                            }
+                    auto resolve_qualified = [&](Scope const& start) -> ast::UsingDecl const* {
+                        if (auto const* sym = resolve_type_path(start, p))
+                        {
+                            auto const* use = ast::node_cast<ast::UsingDecl>(sym->decl);
+                            if (use && use->using_kind == ast::UsingKind::Concept)
+                                return use;
                         }
-                        return try_lookup(mod.own_scope, p.simple_name());
-                    }
+                        return nullptr;
+                    };
+
+                    if (defining_mod && defining_mod != &mod && defining_mod->own_scope)
+                        if (auto const* result = resolve_qualified(*defining_mod->own_scope))
+                            return result;
+
+                    if (mod.own_scope)
+                        if (auto const* result = resolve_qualified(*mod.own_scope))
+                            return result;
+
                     return nullptr;
                 };
 
