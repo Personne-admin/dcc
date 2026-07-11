@@ -1301,7 +1301,7 @@ export namespace dcc::ir
         [[nodiscard]] IrLocal* local(std::string_view name, std::uint32_t id, IrType const* t = nullptr) { return make<IrLocal>(name, id, t); }
 
         [[nodiscard]] IrGlobalRef* global_ref(IrGlobal const* g, IrType const* t) { return make<IrGlobalRef>(g, t); }
-        [[nodiscard]] IrGlobalRef* func_ref(IrFunction const* f) { return make<IrGlobalRef>(f, f->func_type); }
+        [[nodiscard]] IrGlobalRef* func_ref(IrFunction const* f) { return make<IrGlobalRef>(f, pointer_to(f->func_type)); }
         [[nodiscard]] IrGlobalRef* symbol_ref(std::string_view name, IrType const* t) { return make<IrGlobalRef>(name, t); }
 
         [[nodiscard]] IrAddInst* add(IrType const* t, IrValue* l, IrValue* r) { return make<IrAddInst>(t, l, r); }

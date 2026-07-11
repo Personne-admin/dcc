@@ -1,0 +1,39 @@
+=== FILE: test.dc ===
+module test;
+
+using Fn = i32(*)(i32, i32);
+
+i32 add(i32 a, i32 b) { return a + b; }
+
+i32 apply(Fn f, i32 a, i32 b) { return f(a, b); }
+
+i32 test() { return apply(add, 1, 2); }
+
+=== EXPECT-BODY ===
+Module test
+  Func add diverging=true
+    Param a type=i32 storage=param offset=0 index=0
+    Param b type=i32 storage=param offset=4 index=1
+    Body
+      Return
+        Binary + [type=i32 const=<none>]
+          Ident a [type=i32 const=<none> lvalue decl=a]
+          Ident b [type=i32 const=<none> lvalue decl=b]
+  Func apply diverging=true
+    Param f type=i32(*)(i32, i32) storage=param offset=0 index=0
+    Param a type=i32 storage=param offset=8 index=1
+    Param b type=i32 storage=param offset=12 index=2
+    Body
+      Return
+        Call [type=i32 const=<none>]
+          Ident f [type=i32(*)(i32, i32) const=<none> lvalue decl=f]
+          Ident a [type=i32 const=<none> lvalue decl=a]
+          Ident b [type=i32 const=<none> lvalue decl=b]
+  Func test diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none> decl=apply]
+          Ident apply [type=<unresolved> const=<none>]
+          Ident add [type=i32(*)(i32, i32) const=<none> decl=add]
+          IntLiteral 1 [type=i32 const=1 constant]
+          IntLiteral 2 [type=i32 const=2 constant]

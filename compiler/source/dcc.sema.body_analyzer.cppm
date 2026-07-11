@@ -4063,7 +4063,8 @@ export namespace dcc::sema
                                                              static_cast<std::uint32_t>(func->template_params.size() - 1));
                     if (pack_ty)
                     {
-                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        bool has_any_value =
+                            std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
                         if (has_any_value)
                             std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
                         else
@@ -4403,7 +4404,8 @@ export namespace dcc::sema
                                                              static_cast<std::uint32_t>(f.template_params.size() - 1));
                     if (pack_ty)
                     {
-                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        bool has_any_value =
+                            std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
                         if (has_any_value)
                             std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
                         else
@@ -4724,7 +4726,8 @@ export namespace dcc::sema
                                                              static_cast<std::uint32_t>(f.template_params.size() - 1));
                     if (pack_ty)
                     {
-                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        bool has_any_value =
+                            std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
                         if (has_any_value)
                             std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
                         else
@@ -6625,8 +6628,7 @@ export namespace dcc::sema
                         {
                             auto const* pointee = pt->pointee;
                             bool is_char = pointee->kind == types::TypeKind::Char;
-                            bool is_u8 = pointee->kind == types::TypeKind::Int &&
-                                         static_cast<types::IntType const*>(pointee)->bits == 8 &&
+                            bool is_u8 = pointee->kind == types::TypeKind::Int && static_cast<types::IntType const*>(pointee)->bits == 8 &&
                                          !static_cast<types::IntType const*>(pointee)->is_signed;
                             bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
                             if ((is_char || is_u8) && is_const)
@@ -6661,8 +6663,7 @@ export namespace dcc::sema
                         else if (auto const* pt = types::type_cast<types::PointerType>(expected_type))
                         {
                             auto const* pointee = pt->pointee;
-                            bool is_u16 = pointee->kind == types::TypeKind::Int &&
-                                          static_cast<types::IntType const*>(pointee)->bits == 16 &&
+                            bool is_u16 = pointee->kind == types::TypeKind::Int && static_cast<types::IntType const*>(pointee)->bits == 16 &&
                                           !static_cast<types::IntType const*>(pointee)->is_signed;
                             bool is_const = types::has_qual(pt->pointee_quals, types::Qual::Const);
                             if (is_u16 && is_const)
@@ -6710,7 +6711,7 @@ export namespace dcc::sema
                         out.is_constant = true;
                         break;
                     case ast::ExprKind::Ident:
-                        out = analyze_name(mod, scope, static_cast<ast::IdentExpr&>(expr).name, static_cast<ast::IdentExpr&>(expr).range, const_env);
+                        out = analyze_name(mod, scope, static_cast<ast::IdentExpr&>(expr).name, static_cast<ast::IdentExpr&>(expr).range, const_env, expected_type);
                         break;
                     case ast::ExprKind::PathExpr:
                         out = analyze_path_expr(mod, scope, static_cast<ast::PathExpr&>(expr), expected_type, const_env);
@@ -6850,18 +6851,121 @@ export namespace dcc::sema
             return out;
         }
 
+        [[nodiscard]] static bool funcptr_matches(types::FuncPtrType const* expected, types::FuncPtrType const* candidate) noexcept
+        {
+            if (expected->params.size() != candidate->params.size())
+                return false;
+            if (expected->return_type != candidate->return_type)
+                return false;
+            for (std::size_t i = 0; i < expected->params.size(); ++i)
+                if (expected->params[i] != candidate->params[i])
+                    return false;
+            return true;
+        }
+
         detail::ExprResult analyze_name(ModuleInfo& mod, Scope& scope, std::string_view name, sm::SourceRange range, ConstEnv const* const_env,
                                         types::TypePtr expected_type = nullptr)
         {
             detail::ExprResult out{};
-            auto const* sym = lookup_name(mod, scope, name);
-            if (!sym)
+            auto syms = lookup_candidates(mod, scope, name);
+            if (syms.empty())
             {
                 out.type = m_types.m_errort();
                 error(range, "unknown name `{}`", name);
                 return out;
             }
 
+            auto const* expected_fp = expected_type ? types::type_cast<types::FuncPtrType>(expected_type) : nullptr;
+            if (expected_fp && syms.size() > 1)
+            {
+                Symbol const* match = nullptr;
+                std::size_t match_count = 0;
+                for (auto const& cand : syms)
+                {
+                    if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                        continue;
+
+                    auto cand_type = decl_type(*cand.decl);
+                    auto* cand_fp = types::type_cast<types::FuncPtrType>(cand_type);
+                    if (cand_fp && funcptr_matches(expected_fp, cand_fp))
+                    {
+                        match = &cand;
+                        ++match_count;
+                    }
+                }
+
+                if (match_count == 1 && match)
+                {
+                    syms = std::span<Symbol const>(match, 1);
+                }
+                else if (match_count == 0)
+                {
+                    std::string cand_list;
+                    bool first = true;
+                    for (auto const& cand : syms)
+                    {
+                        if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                            continue;
+                        if (!first)
+                            cand_list += ", ";
+                        first = false;
+                        auto cand_type = decl_type(*cand.decl);
+                        if (auto const* cfp = types::type_cast<types::FuncPtrType>(cand_type))
+                            cand_list += format_type_str(types::TypePtr{cfp});
+                        else
+                            cand_list += std::string(cand.name);
+                    }
+                    out.type = m_types.m_errort();
+                    error(range, "no overload of `{}` matches expected function pointer type `{}`", name, format_type_str(expected_type));
+                    if (!cand_list.empty())
+                        m_diag.note(range, "candidates: {}", cand_list);
+                    return out;
+                }
+                else
+                {
+                    std::string cand_list;
+                    bool first = true;
+                    for (auto const& cand : syms)
+                    {
+                        if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                            continue;
+                        auto cand_type = decl_type(*cand.decl);
+                        auto* cfp = types::type_cast<types::FuncPtrType>(cand_type);
+                        if (cfp && funcptr_matches(expected_fp, cfp))
+                        {
+                            if (!first)
+                                cand_list += ", ";
+                            first = false;
+                            cand_list += format_type_str(types::TypePtr{cfp});
+                        }
+                    }
+                    out.type = m_types.m_errort();
+                    error(range, "ambiguous reference to overloaded function `{}` matching expected function pointer type `{}`", name,
+                          format_type_str(expected_type));
+                    m_diag.note(range, "matching candidates: {}", cand_list);
+                    return out;
+                }
+            }
+            else if (!expected_fp && syms.size() > 1 && !m_analyzing_call_callee)
+            {
+                bool all_funcs = true;
+                for (auto const& cand : syms)
+                {
+                    if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                    {
+                        all_funcs = false;
+                        break;
+                    }
+                }
+                if (all_funcs)
+                {
+                    out.type = m_types.m_errort();
+                    error(range, "ambiguous reference to overloaded function `{}`", name);
+                    return out;
+                }
+            }
+
+            auto const* sym = &syms.front();
             out.resolved_decl = sym->decl;
             out.type = decl_type(*sym->decl);
             track_decl_read(sym->decl);
@@ -6989,6 +7093,89 @@ export namespace dcc::sema
                 out.type = m_types.m_errort();
                 error(p.range, "unknown path `{}`", path_str(p.path));
                 return out;
+            }
+
+            auto const* expected_fp = expected_type ? types::type_cast<types::FuncPtrType>(expected_type) : nullptr;
+            if (expected_fp && sym->decl && sym->decl->kind == ast::DeclKind::Func)
+            {
+                auto get_overloads = [&](Scope& s) -> std::span<Symbol const> {
+                    return resolve_value_overloads(s, p.path);
+                };
+
+                auto syms = get_overloads(*mod.own_scope);
+                if (syms.empty() && m_specialization_defining_module && m_specialization_defining_module->own_scope)
+                    syms = get_overloads(*m_specialization_defining_module->own_scope);
+
+                if (syms.size() > 1)
+                {
+                    Symbol const* match = nullptr;
+                    std::size_t match_count = 0;
+                    for (auto const& cand : syms)
+                    {
+                        if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                            continue;
+
+                        auto cand_type = decl_type(*cand.decl);
+                        auto* cand_fp = types::type_cast<types::FuncPtrType>(cand_type);
+                        if (cand_fp && funcptr_matches(expected_fp, cand_fp))
+                        {
+                            match = &cand;
+                            ++match_count;
+                        }
+                    }
+
+                    if (match_count == 1 && match)
+                    {
+                        sym = match;
+                    }
+                    else if (match_count == 0)
+                    {
+                        std::string cand_list;
+                        bool first = true;
+                        for (auto const& cand : syms)
+                        {
+                            if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                                continue;
+                            if (!first)
+                                cand_list += ", ";
+                            first = false;
+                            auto cand_type = decl_type(*cand.decl);
+                            if (auto const* cfp = types::type_cast<types::FuncPtrType>(cand_type))
+                                cand_list += format_type_str(types::TypePtr{cfp});
+                            else
+                                cand_list += std::string(cand.name);
+                        }
+                        out.type = m_types.m_errort();
+                        error(p.range, "no overload of `{}` matches expected function pointer type `{}`", path_str(p.path), format_type_str(expected_type));
+                        if (!cand_list.empty())
+                            m_diag.note(p.range, "candidates: {}", cand_list);
+                        return out;
+                    }
+                    else
+                    {
+                        std::string cand_list;
+                        bool first = true;
+                        for (auto const& cand : syms)
+                        {
+                            if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                                continue;
+                            auto cand_type = decl_type(*cand.decl);
+                            auto* cfp = types::type_cast<types::FuncPtrType>(cand_type);
+                            if (cfp && funcptr_matches(expected_fp, cfp))
+                            {
+                                if (!first)
+                                    cand_list += ", ";
+                                first = false;
+                                cand_list += format_type_str(types::TypePtr{cfp});
+                            }
+                        }
+                        out.type = m_types.m_errort();
+                        error(p.range, "ambiguous reference to overloaded function `{}` matching expected function pointer type `{}`",
+                              path_str(p.path), format_type_str(expected_type));
+                        m_diag.note(p.range, "matching candidates: {}", cand_list);
+                        return out;
+                    }
+                }
             }
 
             out.resolved_decl = sym->decl;
@@ -8950,7 +9137,9 @@ export namespace dcc::sema
                     if (!chosen.explicit_fp)
                         return std::nullopt;
 
+                    m_analyzing_call_callee = true;
                     std::ignore = analyze_expr(mod, fn, scope, *t->callee, loop_depth, next_off, expected_type, const_env);
+                    m_analyzing_call_callee = false;
                     set_resolved_type(t->sema, chosen.explicit_fp);
                     t->sema.resolved_decl = chosen.sym->decl;
                     t->sema.is_type_instantiation = true;
@@ -9707,7 +9896,8 @@ export namespace dcc::sema
                                                              static_cast<std::uint32_t>(f.template_params.size() - 1));
                     if (pack_ty)
                     {
-                        bool has_any_value = std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
+                        bool has_any_value =
+                            std::ranges::any_of(pack_arg_values, [](comptime::Value const& v) { return v.kind() != comptime::Value::Kind::Null; });
                         if (has_any_value)
                             std::ignore = b.bind_pack(static_cast<types::TemplateParamType const*>(pack_ty), pack_arg_types, pack_arg_values);
                         else

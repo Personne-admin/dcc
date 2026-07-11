@@ -1,0 +1,62 @@
+=== FILE: test.dc ===
+module m;
+
+using I32BinOp = i32(*)(i32, i32);
+using F32BinOp = f32(*)(f32, f32);
+
+i32 process_i32(I32BinOp f, i32 a, i32 b) { return f(a, b); }
+f32 process_f32(F32BinOp f, f32 a, f32 b) { return f(a, b); }
+
+i32 op(i32 a, i32 b) { return a + b; }
+f32 op(f32 a, f32 b) { return a + b; }
+
+void test() {
+    i32 r1 = process_i32(op, 1, 2);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func process_i32 diverging=true
+    Param f type=i32(*)(i32, i32) storage=param offset=0 index=0
+    Param a type=i32 storage=param offset=8 index=1
+    Param b type=i32 storage=param offset=12 index=2
+    Body
+      Return
+        Call [type=i32 const=<none>]
+          Ident f [type=i32(*)(i32, i32) const=<none> lvalue decl=f]
+          Ident a [type=i32 const=<none> lvalue decl=a]
+          Ident b [type=i32 const=<none> lvalue decl=b]
+  Func process_f32 diverging=true
+    Param f type=f32(*)(f32, f32) storage=param offset=0 index=0
+    Param a type=f32 storage=param offset=8 index=1
+    Param b type=f32 storage=param offset=12 index=2
+    Body
+      Return
+        Call [type=f32 const=<none>]
+          Ident f [type=f32(*)(f32, f32) const=<none> lvalue decl=f]
+          Ident a [type=f32 const=<none> lvalue decl=a]
+          Ident b [type=f32 const=<none> lvalue decl=b]
+  Func op diverging=true
+    Param a type=i32 storage=param offset=0 index=0
+    Param b type=i32 storage=param offset=4 index=1
+    Body
+      Return
+        Binary + [type=i32 const=<none>]
+          Ident a [type=i32 const=<none> lvalue decl=a]
+          Ident b [type=i32 const=<none> lvalue decl=b]
+  Func op diverging=true
+    Param a type=f32 storage=param offset=0 index=0
+    Param b type=f32 storage=param offset=4 index=1
+    Body
+      Return
+        Binary + [type=f32 const=<none>]
+          Ident a [type=f32 const=<none> lvalue decl=a]
+          Ident b [type=f32 const=<none> lvalue decl=b]
+  Func test diverging=false
+    Body
+      Var r1 type=i32 storage=local offset=0
+        Call [type=i32 const=<none> decl=process_i32]
+          Ident process_i32 [type=<unresolved> const=<none>]
+          Ident op [type=i32(*)(i32, i32) const=<none> decl=op]
+          IntLiteral 1 [type=i32 const=1 constant]
+          IntLiteral 2 [type=i32 const=2 constant]

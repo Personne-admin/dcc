@@ -13,7 +13,7 @@ module "test"
 void@_DC0F1.4.test8.call_ptr0v() {
 %entry:
   %0 = alloca ptr<fn(i32) -> i32>
-  store fn(i32) -> i32 @_DC0S1.4.test8.identity1i32si32sX1ti32s, ptr<ptr<fn(i32) -> i32>> %0
+  store ptr<fn(i32) -> i32> @_DC0S1.4.test8.identity1i32si32sX1ti32s, ptr<ptr<fn(i32) -> i32>> %0
   %1 = alloca i32
   %2 = load ptr<fn(i32) -> i32>, ptr<ptr<fn(i32) -> i32>> %0
   %3 = call fn(%2)(i32 #42) -> i32

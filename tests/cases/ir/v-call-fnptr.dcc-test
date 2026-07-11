@@ -25,6 +25,6 @@ i32@_DC0F1.4.test5.apply3pi32s2i32si32si32si32si32s(ptr<fn(i32, i32) -> i32>, i3
 
 i32@_DC0F1.4.test10.test_fnptr0i32s() {
 %entry:
-  %0 = call fn(@_DC0F1.4.test5.apply3pi32s2i32si32si32si32si32s)(fn(i32, i32) -> i32 @_DC0F1.4.test3.add2i32si32si32s, i32 #1, i32 #2) -> i32
+  %0 = call fn(@_DC0F1.4.test5.apply3pi32s2i32si32si32si32si32s)(ptr<fn(i32, i32) -> i32> @_DC0F1.4.test3.add2i32si32si32s, i32 #1, i32 #2) -> i32
   ret i32 %0
 }
