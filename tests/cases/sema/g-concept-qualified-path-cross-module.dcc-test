@@ -1,0 +1,24 @@
+=== FILE: my/concepts.dc ===
+module my::concepts;
+
+public using CallableWith(T, P...) = compiles (T f, P args) {
+    f(args...);
+};
+
+=== FILE: lib.dc ===
+module lib;
+import my::concepts;
+
+public void do_callable(F, P...)(F f, P args) if my::concepts::CallableWith(F, P...) {}
+
+=== FILE: main.dc ===
+module main;
+import lib;
+
+void fn(i32 x) {}
+
+void entry() {
+    lib::do_callable(&fn, 42);
+}
+
+=== ENTRY: main.dc ===

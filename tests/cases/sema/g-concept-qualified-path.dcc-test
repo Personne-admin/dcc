@@ -1,0 +1,84 @@
+=== FILE: std/concepts.dc ===
+module std::concepts;
+
+public using CallableWith(F, P...) = compiles (F f, P args) {
+    f(args...);
+};
+
+public using CallableReturning(F, R, P...) = compiles (F f, P args) {
+    R r = f(args...);
+};
+
+public using Predicate(F, T) = CallableReturning(F, bool, T);
+
+public using Mapper(F, In, Out) = CallableReturning(F, Out, In);
+
+=== FILE: main.dc ===
+module main;
+
+import std::concepts;
+
+bool is_positive(i32 x) { return x > 0; }
+
+void require_pred(F, T)(F f, T val) if std::concepts::Predicate(F, T) {}
+
+void test_predicate_pos() {
+    require_pred(&is_positive, 1);
+}
+
+i32 identity(i32 x) { return x; }
+
+void require_mapper_explicit_out(F, In, Out)(F f, In val) if std::concepts::Mapper(F, In, Out) {}
+
+void test_mapper_pos() {
+    require_mapper_explicit_out!(i32(*)(i32), i32, i32)(&identity, 42);
+}
+
+void require_cw(F, P...)(F f, P args) if std::concepts::CallableWith(F, P...) {}
+
+void test_callable_with_pos() {
+    require_cw(&is_positive, 1);
+}
+
+void require_cr(F, R, P...)(F f, R expected, P args) if std::concepts::CallableReturning(F, R, P...) {}
+
+void test_callable_returning_pos() {
+    require_cr(&identity, 42, 0);
+}
+
+i32 square(i32 x) { return x * x; }
+
+void test_predicate_neg_return() {
+    require_pred!(i32(*)(i32), i32)(&square, 1);
+}
+
+bool int_pred(i32 x) { return x > 0; }
+
+void test_predicate_neg_arg() {
+    require_pred!(bool(*)(i32), []const char)(&int_pred, "hello");
+}
+
+struct MapperObj {
+    i32 bias;
+}
+
+i32 map(MapperObj f, i32 x) {
+    return f.bias + x;
+}
+
+using MapsTo(F, In, Out) = compiles (F f, In x) {
+    Out y = f.map(x);
+};
+
+void require_maps_to(F, In, Out)(F f, In x) if MapsTo(F, In, Out) {}
+
+void test_ufcs_concept_independent() {
+    MapperObj obj = { bias = 10 };
+    require_maps_to!(MapperObj, i32, i32)(obj, 5);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:36: template constraint not satisfied for `require_pred`
+main.dc:42: template constraint not satisfied for `require_pred`
