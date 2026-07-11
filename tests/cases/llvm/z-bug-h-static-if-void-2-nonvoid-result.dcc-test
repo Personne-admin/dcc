@@ -1,8 +1,6 @@
 === FILE: test.dc ===
 module test;
 
-// Test 2: Non-void branch — generic function with static if T == void,
-// instantiated with i32, should take the else branch.
 public i32 f(T)() {
     static if T == void {
         return 1;

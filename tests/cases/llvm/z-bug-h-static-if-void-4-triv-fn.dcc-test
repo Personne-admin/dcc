@@ -1,7 +1,6 @@
 === FILE: test.dc ===
 module test;
 
-// Test 4: Trivial static if T == void with f!(void)() and f!(i32)()
 public i32 f(T)() {
     static if T == void {
         return 10;
@@ -11,7 +10,7 @@ public i32 f(T)() {
 }
 
 public i32 entry() {
-    return f!(void)() + f!(i32)();  // 10 + 20 = 30
+    return f!(void)() + f!(i32)();
 }
 
 === EXPECT-LLVM FLAGS: -verify ===

@@ -1,9 +1,6 @@
 === FILE: test.dc ===
 module test;
 
-// Test 1: Minimal void Result repro — static if T == void
-// Verifies that a generic function with static-if T==void compiles
-// and LLVM IR is valid.
 public enum Result(T, E) { Ok(T), Err(E), }
 
 public void handle_void_result(Result(void, i32) r) {

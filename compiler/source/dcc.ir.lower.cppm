@@ -458,7 +458,7 @@ export namespace dcc::ir::lower
 
                 auto cc_enum = calling_conv_from_string(cc);
                 ir_func->attrs.push_back({IrFuncAttr::CallingConv, cc});
-                std::ignore = cc_enum;
+                ir_func->conv = cc_enum;
             }
 
             if (sema.is_inline)
@@ -2269,6 +2269,8 @@ export namespace dcc::ir::lower
             auto* ir_ret_type = lower_type(sema_ret_type);
 
             auto* call_inst = m_ctx.call(ir_ret_type, callee_value);
+            if (direct_target)
+                call_inst->cc = calling_conv_from_string(direct_target->sema.calling_conv);
 
             bool is_ufcs = (call->sema.ufcs_callee != nullptr);
             if (is_ufcs)
@@ -2282,8 +2284,8 @@ export namespace dcc::ir::lower
                     {
                         auto* obj_sema_type = get_sema_resolved_type(field_access->object);
                         auto* first_param_type = get_canonical_type(direct_target->params[0].type);
-                        if (first_param_type && first_param_type->kind == types::TypeKind::Slice
-                            && obj_sema_type && obj_sema_type->kind == types::TypeKind::Array)
+                        if (first_param_type && first_param_type->kind == types::TypeKind::Slice && obj_sema_type &&
+                            obj_sema_type->kind == types::TypeKind::Array)
                             obj_val = coerce_array_to_slice(obj_val, obj_sema_type, first_param_type);
                     }
 

@@ -130,6 +130,9 @@ export namespace dcc::ir
         }
     };
 
+    constexpr std::uint32_t slice_data_index = 0;
+    constexpr std::uint32_t slice_len_index = 1;
+
     struct IrSliceType : IrType
     {
         static constexpr auto Kind = IrTypeKind::Slice;
@@ -181,6 +184,16 @@ export namespace dcc::ir
         And,
         Or,
         Xor,
+    };
+
+    enum class CallingConv : std::uint8_t
+    {
+        Cdecl,
+        Stdcall,
+        Fastcall,
+        Vectorcall,
+        SystemV,
+        Win64,
     };
 
     enum class IrNodeKind : std::uint8_t
@@ -694,6 +707,7 @@ export namespace dcc::ir
         static constexpr auto Kind = IrNodeKind::Load;
 
         IrValue* pointer;
+        std::uint32_t alignment{};
 
         IrLoadInst(IrType const* result_t, IrValue* ptr) : IrValue(Kind), pointer(ptr) { type = result_t; }
     };
@@ -703,6 +717,7 @@ export namespace dcc::ir
         static constexpr auto Kind = IrNodeKind::LoadVolatile;
 
         IrValue* pointer;
+        std::uint32_t alignment{};
 
         IrLoadVolatileInst(IrType const* result_t, IrValue* ptr) : IrValue(Kind), pointer(ptr) { type = result_t; }
     };
@@ -713,6 +728,7 @@ export namespace dcc::ir
 
         IrValue* value;
         IrValue* pointer;
+        std::uint32_t alignment{};
 
         IrStoreInst(IrValue* v, IrValue* p) : IrValue(Kind), value(v), pointer(p) {}
     };
@@ -723,6 +739,7 @@ export namespace dcc::ir
 
         IrValue* value;
         IrValue* pointer;
+        std::uint32_t alignment{};
 
         IrStoreVolatileInst(IrValue* v, IrValue* p) : IrValue(Kind), value(v), pointer(p) {}
     };
@@ -733,6 +750,7 @@ export namespace dcc::ir
 
         IrValue* pointer;
         IrMemoryOrdering ordering;
+        std::uint32_t alignment{};
 
         IrAtomicLoadInst(IrType const* result_t, IrValue* ptr, IrMemoryOrdering ord) : IrValue(Kind), pointer(ptr), ordering(ord) { type = result_t; }
     };
@@ -744,6 +762,7 @@ export namespace dcc::ir
         IrValue* value;
         IrValue* pointer;
         IrMemoryOrdering ordering;
+        std::uint32_t alignment{};
 
         IrAtomicStoreInst(IrValue* v, IrValue* p, IrMemoryOrdering ord) : IrValue(Kind), value(v), pointer(p), ordering(ord) {}
     };
@@ -756,6 +775,7 @@ export namespace dcc::ir
         IrValue* pointer;
         IrValue* value;
         IrMemoryOrdering ordering;
+        std::uint32_t alignment{};
 
         IrAtomicRmwInst(IrType const* result_t, IrAtomicRmwOp o, IrValue* ptr, IrValue* v, IrMemoryOrdering ord)
             : IrValue(Kind), op(o), pointer(ptr), value(v), ordering(ord)
@@ -1003,6 +1023,7 @@ export namespace dcc::ir
 
         IrValue* callee;
         std::pmr::vector<IrValue*> args;
+        CallingConv cc{CallingConv::Cdecl};
 
         IrCallInst(IrType const* result_t, IrValue* callee, std::pmr::polymorphic_allocator<> a) : IrValue(Kind), callee(callee), args(a) { type = result_t; }
     };
@@ -1013,6 +1034,7 @@ export namespace dcc::ir
 
         IrValue* callee;
         std::pmr::vector<IrValue*> args;
+        CallingConv cc{CallingConv::Cdecl};
 
         IrCallTailInst(IrType const* result_t, IrValue* callee, std::pmr::polymorphic_allocator<> a) : IrValue(Kind), callee(callee), args(a)
         {
@@ -1035,16 +1057,6 @@ export namespace dcc::ir
         NoMangle,
         Section,
         CallingConv,
-    };
-
-    enum class CallingConv : std::uint8_t
-    {
-        Cdecl,
-        Stdcall,
-        Fastcall,
-        Vectorcall,
-        SystemV,
-        Win64,
     };
 
     struct IrFuncAttribute
@@ -1092,6 +1104,7 @@ export namespace dcc::ir
         bool is_dll_export{};
         Linkage linkage{Linkage::Internal};
         std::uint32_t alignment{};
+        CallingConv conv{CallingConv::Cdecl};
 
         IrFunction(std::string_view n, IrFuncType const* ft, std::pmr::polymorphic_allocator<> a)
             : IrValue(Kind), func_type(ft), attrs(a), blocks(a), debug_locations(a)
@@ -1350,10 +1363,7 @@ export namespace dcc::ir
         {
             return make<IrAtomicLoadInst>(result_t, ptr, ord);
         }
-        [[nodiscard]] IrAtomicStoreInst* atomic_store(IrValue* val, IrValue* ptr, IrMemoryOrdering ord)
-        {
-            return make<IrAtomicStoreInst>(val, ptr, ord);
-        }
+        [[nodiscard]] IrAtomicStoreInst* atomic_store(IrValue* val, IrValue* ptr, IrMemoryOrdering ord) { return make<IrAtomicStoreInst>(val, ptr, ord); }
         [[nodiscard]] IrAtomicRmwInst* atomic_rmw(IrType const* result_t, IrAtomicRmwOp op, IrValue* ptr, IrValue* val, IrMemoryOrdering ord)
         {
             return make<IrAtomicRmwInst>(result_t, op, ptr, val, ord);

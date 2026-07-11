@@ -1,9 +1,6 @@
 === FILE: test.dc ===
 module test;
 
-// Direct primitive RHS: static if T == i32 with i32 literal and explicit spec.
-// g(10) must deduce T=i32 and select the then branch; g!(f64)(3.14) selects else branch.
-
 public i32 g(T)(T x) {
     static if T == i32 {
         return x;
@@ -13,8 +10,9 @@ public i32 g(T)(T x) {
 }
 
 public i32 entry() {
-    i32 a = g(10);          // implicit: T=i32, then branch, return 10
-    i32 b = g!(f64)(3.14);  // explicit: T=f64, else branch, return 0
+    i32 a = g(10);
+    i32 b = g!(f64)(3.14);
+
     return a + b;
 }
 

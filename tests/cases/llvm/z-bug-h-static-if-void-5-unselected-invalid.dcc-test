@@ -1,20 +1,13 @@
 === FILE: test.dc ===
 module test;
 
-// Test 5: Unselected branch invalid for selected type.
-// The else branch has `Result::Ok(x)` which would be invalid for T=void
-// (since Ok(T) expects a T when T is non-void, but void Ok has no payload).
-// When T=void, the else branch must NOT be analyzed.
-
 public enum Res(T, E) { Ok(T), Err(E), }
 
 public i32 f(T, E)() {
     static if T == void {
-        // void path — Ok has no payload
         Res(void, E) r = Res::Ok;
         return 1;
     } else {
-        // non-void path — would be invalid for T=void
         Res(T, E) r = Res::Ok(42);
         return 2;
     }
