@@ -15,6 +15,7 @@ export namespace dcc::backend
         AsmText,
         ObjectBytes,
         ExecutableBytes,
+        SharedLibraryBytes,
         ArchiveBytes,
     };
 
@@ -39,6 +40,7 @@ export namespace dcc::backend
         std::optional<std::string> asm_text;
         std::optional<std::vector<std::byte>> object_bytes;
         std::optional<std::vector<std::byte>> executable_bytes;
+        std::optional<std::vector<std::byte>> shared_library_bytes;
         std::optional<std::vector<std::byte>> archive_bytes;
         std::vector<BackendDiagnostic> diagnostics;
     };
