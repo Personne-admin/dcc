@@ -276,7 +276,7 @@ namespace
                 continue;
             }
 
-            if (arg == "-fPIC" || arg == "-fPIE")
+            if (arg == "-fPIC" || arg == "-fpic" || arg == "-fPIE")
             {
                 opts.position_independent_code = true;
                 ++i;

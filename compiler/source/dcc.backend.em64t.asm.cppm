@@ -1173,9 +1173,12 @@ namespace
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Symbol)
                 {
                     auto idx = ops[0].reg.phys_reg();
+                    auto idx64 = reg64(idx);
                     out += "lea r11, [rel " + std::string{ops[1].symbol} + "]\n";
-                    out += "    mov r11, [r11 + " + std::string{reg64(idx)} + "*8]\n";
-                    out += "    jmp r11\n";
+                    out += "    lea r10, [r11 + " + std::string{idx64} + "*4 + 4]\n";
+                    out += "    movsxd rax, dword [r11 + " + std::string{idx64} + "*4]\n";
+                    out += "    add rax, r10\n";
+                    out += "    jmp rax\n";
                 }
                 else
                     out += "; JUMP_TABLE unrecognized\n";
@@ -1973,7 +1976,7 @@ export namespace dcc::backend::em64t
                             else
                                 blk_lbl = std::format(".bb{}", tgt);
 
-                            out += "    dq " + blk_lbl + "\n";
+                            out += "    dd " + blk_lbl + " - ($ + 4)\n";
                         }
                         out += '\n';
                     }

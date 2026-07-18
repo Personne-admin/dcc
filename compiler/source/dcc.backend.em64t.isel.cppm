@@ -1,3 +1,5 @@
+module;
+
 #include <algorithm>
 
 export module dcc.backend.em64t.isel;
@@ -2298,7 +2300,8 @@ namespace dcc::backend::em64t
                         jti.num_defs = 0;
                         jti.ops[0] = MOp::from_reg(index_vreg);
                         jti.ops[1] = MOp::from_symbol(jt_ref.symbol);
-                        jti.implicit_defs = (1ULL << static_cast<std::uint8_t>(PhysReg::R11));
+                        jti.implicit_defs = (1ULL << static_cast<std::uint8_t>(PhysReg::R11)) | (1ULL << static_cast<std::uint8_t>(PhysReg::R10)) |
+                                            (1ULL << static_cast<std::uint8_t>(PhysReg::RAX));
                         ctx.append_instr(jti);
 
                         std::unordered_set<std::uint32_t> seen_succs;
