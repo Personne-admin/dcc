@@ -133,6 +133,13 @@ namespace
         int opt_level{0};
     };
 
+    struct ExpectEm64tAsm
+    {
+        std::size_t base_line{};
+        std::vector<std::string> contains;
+        int opt_level{0};
+    };
+
     struct Fixture
     {
         std::vector<VirtualFile> files;
@@ -148,6 +155,7 @@ namespace
         std::vector<ExpectError> errors;
         std::vector<ExpectExecutable> executable_blocks;
         std::vector<ExpectEm64tObject> em64t_object_blocks;
+        std::vector<ExpectEm64tAsm> em64t_asm_blocks;
         std::vector<std::string> injected_decls;
         bool errors_block_present{};
         bool interactive_mode{};
@@ -412,6 +420,36 @@ namespace
                     }
                 }
                 fx.llvm_blocks.push_back(std::move(e));
+            }
+            else if (starts_with(h, "EXPECT-EM64T-ASM"))
+            {
+                ExpectEm64tAsm e;
+                e.base_line = sec.body_start_line;
+                e.opt_level = 0;
+                auto flags_start = h.find("FLAGS:");
+                if (flags_start != std::string::npos)
+                {
+                    auto flags_str = trim(std::string_view{h}.substr(flags_start + 6));
+                    if (flags_str.find("-O1") != std::string::npos)
+                        e.opt_level = 1;
+                }
+
+                if (!sec.body.empty())
+                {
+                    std::istringstream body_ss{sec.body};
+                    std::string body_line;
+                    while (std::getline(body_ss, body_line))
+                    {
+                        auto tl = trim(body_line);
+                        if (starts_with(tl, "CONTAINS:"))
+                        {
+                            auto val = trim(std::string_view{tl}.substr(9));
+                            if (!val.empty())
+                                e.contains.push_back(std::string{val});
+                        }
+                    }
+                }
+                fx.em64t_asm_blocks.push_back(std::move(e));
             }
             else if (starts_with(h, "EXPECT-EM64T-OBJECT"))
             {
@@ -1963,6 +2001,103 @@ namespace
                 }
 
                 fs::remove_all(run_dir, ec);
+            }
+        }
+
+        for (auto const& exp : fx.em64t_asm_blocks)
+        {
+            auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
+            if (!mod)
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: no module found  ({}:{})", path.string(), exp.base_line);
+                continue;
+            }
+
+            dcc::target::TargetConfig target = dcc::target::TargetConfig::host_default();
+            dcc::ir::IrContext ir_ctx{256 * 1024, &target};
+            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+            auto* ir_mod = lowerer->lower_module(*mod);
+
+            dcc::backend::BackendOptions backend_opts;
+            backend_opts.target = target;
+            backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::AsmText};
+            backend_opts.opt_level = static_cast<dcc::ir::pass::OptLevel>(exp.opt_level);
+
+            auto backend = dcc::backend::make_em64t_backend();
+            auto artifact = backend->emit(*ir_mod, backend_opts);
+
+            if (!artifact.asm_text)
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: no asm text produced  ({}:{})", path.string(), exp.base_line);
+                if (!artifact.diagnostics.empty())
+                {
+                    for (auto const& d : artifact.diagnostics)
+                        std::println(std::cerr, "          backend diagnostic: {}", d.message);
+                }
+                continue;
+            }
+
+            auto const& asm_text = *artifact.asm_text;
+
+            for (auto const& pat : exp.contains)
+                if (asm_text.find(pat) == std::string::npos)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: missing pattern '{}' in asm output  ({}:{})", pat, path.string(), exp.base_line);
+                }
+
+            std::error_code ec;
+            auto asm_dir = fs::temp_directory_path(ec) / std::format("dcc-asm-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+            if (!ec && fs::create_directories(asm_dir, ec))
+            {
+                auto asm_path = asm_dir / "test.s";
+                {
+                    std::ofstream of{asm_path, std::ios::binary};
+                    if (of)
+                        of.write(asm_text.data(), static_cast<std::streamsize>(asm_text.size()));
+                }
+
+                int have_nasm = std::system("command -v nasm >/dev/null 2>&1");
+                if (have_nasm != 0)
+                    std::println("    WARN  nasm not available, skipping assembly check  ({}:{})", path.string(), exp.base_line);
+                else
+                {
+                    auto nasm_cmd = std::format("nasm -f elf64 -o /dev/null {} 2>&1", asm_path.string());
+                    auto* pipe = popen(nasm_cmd.c_str(), "r");
+                    if (pipe)
+                    {
+                        std::string nasm_err;
+                        std::array<char, 4096> buf;
+                        while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
+                            nasm_err += buf.data();
+                        auto rc = pclose(pipe);
+
+                        if (rc == 0)
+                            ;
+                        else
+                        {
+                            ok = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: nasm assembly failed (exit code {})  ({}:{})", rc, path.string(),
+                                         exp.base_line);
+                            if (!nasm_err.empty())
+                            {
+                                std::istringstream iss{nasm_err};
+                                std::string line;
+                                while (std::getline(iss, line))
+                                    std::println(std::cerr, "          nasm: {}", line);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: cannot run nasm  ({}:{})", path.string(), exp.base_line);
+                    }
+                }
+
+                fs::remove_all(asm_dir, ec);
             }
         }
 

@@ -54,7 +54,7 @@ def build_graph(scan_results: list[tuple[str, dict]]) -> tuple[
                     sys.exit(1)
 
                 providers[mod] = source
-                requires[mod] = required
+                requires[mod] = [r for r in required if r != mod]
 
     return providers, requires
 
