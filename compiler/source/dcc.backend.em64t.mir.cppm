@@ -130,6 +130,7 @@ export namespace dcc::backend::em64t
         std::uint8_t scale = 1;
         std::int32_t disp = 0;
         std::string_view symbol{};
+        bool is_got_indirect{false};
 
         [[nodiscard]] static MMem make_base_disp(VReg base_reg, std::int32_t d = 0) noexcept { return MMem{base_reg, VReg{}, 1, d}; }
 
@@ -139,6 +140,8 @@ export namespace dcc::backend::em64t
         }
 
         [[nodiscard]] static MMem make_sym_reloc(std::string_view sym, std::int32_t d = 0) noexcept { return MMem{VReg{}, VReg{}, 1, d, sym}; }
+
+        [[nodiscard]] static MMem make_got_reloc(std::string_view sym, std::int32_t d = 0) noexcept { return MMem{VReg{}, VReg{}, 1, d, sym, true}; }
     };
 
     enum class MOpKind : std::uint8_t
@@ -1402,6 +1405,8 @@ export namespace dcc::backend::em64t
         {
             std::string r = "[rip + ";
             r += mem.symbol;
+            if (mem.is_got_indirect)
+                r += " @GOTPCREL";
             if (mem.disp > 0)
                 r += std::format(" + {}", mem.disp);
             else if (mem.disp < 0)

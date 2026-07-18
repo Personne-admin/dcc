@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 g_val = 100;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    g_val = g_val + 5;
+    return g_val;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+PIC: true
+REQUIRE-RELA: .text R_X86_64_REX_GOTPCRELX
+SHARED-LINK: ok
+RUN-EXIT: 105

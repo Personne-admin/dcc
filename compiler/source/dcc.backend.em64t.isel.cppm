@@ -127,13 +127,26 @@ namespace dcc::backend::em64t
                 {
                     if (!gr->name.empty())
                     {
-                        MInstr lea;
-                        lea.opc = MOpc::LEA64rm;
-                        lea.num_ops = 2;
-                        lea.num_defs = 1;
-                        lea.ops[0] = MOp::from_reg(v);
-                        lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
-                        append_instr(lea);
+                        if (target.position_independent_code)
+                        {
+                            MInstr mov;
+                            mov.opc = MOpc::MOV64rm;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(v);
+                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                            append_instr(mov);
+                        }
+                        else
+                        {
+                            MInstr lea;
+                            lea.opc = MOpc::LEA64rm;
+                            lea.num_ops = 2;
+                            lea.num_defs = 1;
+                            lea.ops[0] = MOp::from_reg(v);
+                            lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                            append_instr(lea);
+                        }
                     }
                     else
                     {
@@ -709,13 +722,26 @@ namespace dcc::backend::em64t
                     if (gr && !gr->name.empty())
                     {
                         VReg v = ctx.mfunc.new_vreg();
-                        MInstr lea;
-                        lea.opc = MOpc::LEA64rm;
-                        lea.num_ops = 2;
-                        lea.num_defs = 1;
-                        lea.ops[0] = MOp::from_reg(v);
-                        lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
-                        ctx.append_instr(lea);
+                        if (ctx.target.position_independent_code)
+                        {
+                            MInstr mov;
+                            mov.opc = MOpc::MOV64rm;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(v);
+                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                            ctx.append_instr(mov);
+                        }
+                        else
+                        {
+                            MInstr lea;
+                            lea.opc = MOpc::LEA64rm;
+                            lea.num_ops = 2;
+                            lea.num_defs = 1;
+                            lea.ops[0] = MOp::from_reg(v);
+                            lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                            ctx.append_instr(lea);
+                        }
                         ctx.set_vreg(inst, v);
                     }
                     else
@@ -783,35 +809,52 @@ namespace dcc::backend::em64t
 
                     if (auto* gr = ir_cast<IrGlobalRef>(ptr_val))
                     {
-                        VReg dst = ctx.mfunc.new_vreg();
-                        MInstr mi;
-                        mi.num_ops = 2;
-                        mi.num_defs = 1;
-                        mi.ops[0] = MOp::from_reg(dst);
-                        mi.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
-
-                        if (ctx.is_float_type(load_type))
+                        if (ctx.target.position_independent_code)
                         {
-                            auto bits = load_type ? static_cast<IrFloatType const*>(load_type)->bits : 64;
-                            mi.opc = (bits == 32) ? MOpc::MOVSSrm : MOpc::MOVSDrm;
+                            VReg addr = ctx.mfunc.new_vreg();
+                            MInstr mov;
+                            mov.opc = MOpc::MOV64rm;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(addr);
+                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                            ctx.append_instr(mov);
+
+                            VReg result = emit_load(ctx, load_type, addr);
+                            ctx.set_vreg(inst, result);
                         }
-                        else if (ctx.is_bool_type(load_type))
-                            mi.opc = MOpc::MOVZX64rm8;
                         else
                         {
-                            auto bits = ctx.type_bits(load_type);
-                            if (bits <= 8)
-                                mi.opc = MOpc::MOVZX64rm8;
-                            else if (bits <= 16)
-                                mi.opc = MOpc::MOVZX64rm16;
-                            else if (bits <= 32)
-                                mi.opc = MOpc::MOV32rm;
-                            else
-                                mi.opc = MOpc::MOV64rm;
-                        }
+                            VReg dst = ctx.mfunc.new_vreg();
+                            MInstr mi;
+                            mi.num_ops = 2;
+                            mi.num_defs = 1;
+                            mi.ops[0] = MOp::from_reg(dst);
+                            mi.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
 
-                        ctx.append_instr(mi);
-                        ctx.set_vreg(inst, dst);
+                            if (ctx.is_float_type(load_type))
+                            {
+                                auto bits = load_type ? static_cast<IrFloatType const*>(load_type)->bits : 64;
+                                mi.opc = (bits == 32) ? MOpc::MOVSSrm : MOpc::MOVSDrm;
+                            }
+                            else if (ctx.is_bool_type(load_type))
+                                mi.opc = MOpc::MOVZX64rm8;
+                            else
+                            {
+                                auto bits = ctx.type_bits(load_type);
+                                if (bits <= 8)
+                                    mi.opc = MOpc::MOVZX64rm8;
+                                else if (bits <= 16)
+                                    mi.opc = MOpc::MOVZX64rm16;
+                                else if (bits <= 32)
+                                    mi.opc = MOpc::MOV32rm;
+                                else
+                                    mi.opc = MOpc::MOV64rm;
+                            }
+
+                            ctx.append_instr(mi);
+                            ctx.set_vreg(inst, dst);
+                        }
                     }
                     else
                     {
@@ -882,30 +925,47 @@ namespace dcc::backend::em64t
                         VReg val = ctx.try_materialize(val_val);
                         if (val.is_valid())
                         {
-                            MInstr mi;
-                            mi.num_ops = 2;
-                            mi.num_defs = 0;
-                            mi.ops[0] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
-                            mi.ops[1] = MOp::from_reg(val);
-
-                            auto store_type = val_val ? val_val->type : nullptr;
-                            if (ctx.is_float_type(store_type))
+                            if (ctx.target.position_independent_code)
                             {
-                                auto bits = store_type ? static_cast<IrFloatType const*>(store_type)->bits : 64;
-                                mi.opc = (bits == 32) ? MOpc::MOVSSmr : MOpc::MOVSDmr;
+                                VReg addr = ctx.mfunc.new_vreg();
+                                MInstr mov;
+                                mov.opc = MOpc::MOV64rm;
+                                mov.num_ops = 2;
+                                mov.num_defs = 1;
+                                mov.ops[0] = MOp::from_reg(addr);
+                                mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                                ctx.append_instr(mov);
+
+                                auto store_type = val_val ? val_val->type : nullptr;
+                                emit_store(ctx, store_type, addr, val);
                             }
-                            else if (ctx.is_bool_type(store_type))
-                                mi.opc = MOpc::MOV8mr;
                             else
                             {
-                                auto bits = ctx.type_bits(store_type);
-                                if (bits <= 32)
-                                    mi.opc = MOpc::MOV32mr;
-                                else
-                                    mi.opc = MOpc::MOV64mr;
-                            }
+                                MInstr mi;
+                                mi.num_ops = 2;
+                                mi.num_defs = 0;
+                                mi.ops[0] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                                mi.ops[1] = MOp::from_reg(val);
 
-                            ctx.append_instr(mi);
+                                auto store_type = val_val ? val_val->type : nullptr;
+                                if (ctx.is_float_type(store_type))
+                                {
+                                    auto bits = store_type ? static_cast<IrFloatType const*>(store_type)->bits : 64;
+                                    mi.opc = (bits == 32) ? MOpc::MOVSSmr : MOpc::MOVSDmr;
+                                }
+                                else if (ctx.is_bool_type(store_type))
+                                    mi.opc = MOpc::MOV8mr;
+                                else
+                                {
+                                    auto bits = ctx.type_bits(store_type);
+                                    if (bits <= 32)
+                                        mi.opc = MOpc::MOV32mr;
+                                    else
+                                        mi.opc = MOpc::MOV64mr;
+                                }
+
+                                ctx.append_instr(mi);
+                            }
                         }
                     }
                     else
