@@ -148,7 +148,59 @@ namespace dcc::backend::em64t
                 return v;
             }
 
-            void set_vreg(dcc::ir::IrValue const* ir_val, VReg vreg) { value_map[ir_val] = vreg; }
+            void set_vreg(dcc::ir::IrValue const* ir_val, VReg vreg)
+            {
+                auto existing = value_map.find(ir_val);
+                if (existing != value_map.end() && existing->second != vreg)
+                {
+                    VReg const placeholder = existing->second;
+                    bool is_forward_placeholder = false;
+
+                    for (auto const& blk : mfunc.blocks)
+                    {
+                        for (auto const& instr : blk.instrs)
+                        {
+                            if (instr.opc == MOpc::IMPLICIT_DEF && instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg &&
+                                instr.ops[0].reg == placeholder)
+                            {
+                                is_forward_placeholder = true;
+                                break;
+                            }
+                        }
+                        if (is_forward_placeholder)
+                            break;
+                    }
+
+                    if (is_forward_placeholder)
+                    {
+                        for (auto& blk : mfunc.blocks)
+                        {
+                            std::erase_if(blk.instrs, [&](MInstr& instr) {
+                                if (instr.opc == MOpc::IMPLICIT_DEF && instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg &&
+                                    instr.ops[0].reg == placeholder)
+                                    return true;
+
+                                for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+                                {
+                                    auto& op = instr.ops[i];
+                                    if (op.kind == MOpKind::Reg && op.reg == placeholder)
+                                        op.reg = vreg;
+                                    else if (op.kind == MOpKind::Mem)
+                                    {
+                                        if (op.mem.base == placeholder)
+                                            op.mem.base = vreg;
+                                        if (op.mem.index == placeholder)
+                                            op.mem.index = vreg;
+                                    }
+                                }
+                                return false;
+                            });
+                        }
+                    }
+                }
+
+                value_map[ir_val] = vreg;
+            }
 
             void add_implicit_defs(MInstr& mi, std::span<PhysReg const> regs)
             {
