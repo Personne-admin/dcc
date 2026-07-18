@@ -125,12 +125,20 @@ namespace
         bool omit_frame_pointer{true};
     };
 
+    struct RequiredRela
+    {
+        std::string section;
+        std::uint32_t rel_type;
+    };
+
     struct ExpectEm64tObject
     {
         std::size_t base_line{};
         bool verify_sections{true};
         std::optional<int> run_exit_code;
         int opt_level{0};
+        bool pic{false};
+        std::vector<RequiredRela> required_relas;
     };
 
     struct ExpectEm64tAsm
@@ -483,6 +491,30 @@ namespace
                             }
                             catch (...)
                             {
+                            }
+                        }
+                        else if (starts_with(tl, "PIC:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(4));
+                            e.pic = (val_str == "true" || val_str == "1");
+                        }
+                        else if (starts_with(tl, "REQUIRE-RELA:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(13));
+
+                            auto sp = val_str.find(' ');
+                            if (sp != std::string::npos)
+                            {
+                                RequiredRela rr;
+                                rr.section = trim(val_str.substr(0, sp));
+                                try
+                                {
+                                    rr.rel_type = static_cast<std::uint32_t>(std::stoul(trim(val_str.substr(sp + 1))));
+                                }
+                                catch (...)
+                                {
+                                }
+                                e.required_relas.push_back(rr);
                             }
                         }
                     }
@@ -1758,6 +1790,9 @@ namespace
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
             auto* ir_mod = lowerer->lower_module(*mod);
 
+            if (exp.pic)
+                target.position_independent_code = true;
+
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;
             backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
@@ -1890,6 +1925,141 @@ namespace
                                 elf_valid = false;
                                 std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing .bss section  ({}:{})", path.string(), exp.base_line);
                             }
+                        }
+                    }
+                }
+            }
+
+            if (elf_valid && exp.pic && exp.verify_sections && obj.size() >= 64)
+            {
+                auto rd_elf64 = [&](std::size_t off, unsigned bytes) -> std::uint64_t {
+                    std::uint64_t v = 0;
+                    for (unsigned i = 0; i < bytes && off + i < obj.size(); ++i)
+                        v |= static_cast<std::uint64_t>(static_cast<unsigned char>(obj[static_cast<std::size_t>(off + i)])) << (i * 8);
+                    return v;
+                };
+                std::uint64_t e_shoff_pic = rd_elf64(40, 8);
+                std::uint64_t e_shentsize_pic = rd_elf64(58, 2);
+                std::uint64_t e_shnum_pic = rd_elf64(60, 2);
+                std::uint64_t e_shstrndx_pic = rd_elf64(62, 2);
+
+                if (e_shentsize_pic >= 64 && e_shnum_pic >= 2 && e_shstrndx_pic < e_shnum_pic)
+                {
+                    std::uint64_t shstr_off_pic = e_shoff_pic + e_shstrndx_pic * e_shentsize_pic;
+                    std::uint64_t shstr_sh_offset_pic = rd_elf64(static_cast<std::size_t>(shstr_off_pic + 24), 8);
+                    std::uint64_t shstr_sh_size_pic = rd_elf64(static_cast<std::size_t>(shstr_off_pic + 32), 8);
+
+                    auto get_sec_name_pic = [&](std::uint64_t sec_idx) -> std::string {
+                        if (sec_idx >= e_shnum_pic)
+                            return {};
+
+                        std::uint64_t sdoff = e_shoff_pic + sec_idx * e_shentsize_pic;
+                        std::uint64_t name_off = rd_elf64(static_cast<std::size_t>(sdoff), 4);
+                        if (name_off >= shstr_sh_offset_pic + shstr_sh_size_pic)
+                            return {};
+
+                        std::string name;
+                        for (std::uint64_t p = shstr_sh_offset_pic + name_off;
+                             p < shstr_sh_offset_pic + shstr_sh_size_pic && static_cast<unsigned char>(obj[static_cast<std::size_t>(p)]) != 0; ++p)
+                            name += static_cast<char>(obj[static_cast<std::size_t>(p)]);
+
+                        return name;
+                    };
+
+                    constexpr std::uint32_t R_X86_64_64 = 1;
+                    constexpr std::uint32_t R_X86_64_PC32 = 2;
+                    constexpr std::uint32_t R_X86_64_PLT32 = 4;
+                    constexpr std::uint32_t R_X86_64_GOTPCREL = 9;
+
+                    auto is_allowed_text_reloc = [](std::uint32_t t) -> bool { return t == R_X86_64_PLT32 || t == R_X86_64_PC32 || t == R_X86_64_GOTPCREL; };
+
+                    struct RelaCount
+                    {
+                        std::uint32_t type;
+                        std::uint64_t count;
+                    };
+                    std::unordered_map<std::string, std::vector<RelaCount>> sec_rela_counts;
+
+                    std::uint64_t sec_text_rela = 0, sec_rodata_rela = 0;
+                    for (std::uint64_t si = 0; si < e_shnum_pic; ++si)
+                    {
+                        std::uint64_t sdoff = e_shoff_pic + si * e_shentsize_pic;
+                        std::uint64_t sh_type = rd_elf64(static_cast<std::size_t>(sdoff + 4), 4);
+                        std::uint64_t sh_info = rd_elf64(static_cast<std::size_t>(sdoff + 44), 4);
+
+                        if (sh_type == 4 && sh_info > 0 && sh_info < e_shnum_pic)
+                        {
+                            auto tname = get_sec_name_pic(sh_info);
+                            if (tname == ".text")
+                                sec_text_rela = si;
+                            else if (tname == ".rodata")
+                                sec_rodata_rela = si;
+                        }
+                    }
+
+                    auto check_section_relas = [&](std::uint64_t sec_rela_idx, std::string const& sec_name, bool forbid_abs64, bool restrict_types) -> bool {
+                        if (sec_rela_idx == 0)
+                            return true;
+
+                        std::uint64_t rela_off = rd_elf64(static_cast<std::size_t>(e_shoff_pic + sec_rela_idx * e_shentsize_pic + 24), 8);
+                        std::uint64_t rela_size = rd_elf64(static_cast<std::size_t>(e_shoff_pic + sec_rela_idx * e_shentsize_pic + 32), 8);
+                        std::uint64_t num_relas = rela_size / 24;
+                        bool ok = true;
+
+                        for (std::uint64_t ri = 0; ri < num_relas; ++ri)
+                        {
+                            std::uint64_t roff = rela_off + ri * 24;
+                            if (roff + 24 > obj.size())
+                                break;
+
+                            std::uint64_t r_info = rd_elf64(static_cast<std::size_t>(roff + 8), 8);
+                            std::uint32_t r_type = static_cast<std::uint32_t>(r_info & 0xFFFFFFFF);
+
+                            auto& counts = sec_rela_counts[sec_name];
+                            auto it = std::ranges::find_if(counts, [&](auto const& c) { return c.type == r_type; });
+                            if (it != counts.end())
+                                it->count++;
+                            else
+                                counts.push_back({r_type, 1});
+
+                            if (forbid_abs64 && r_type == R_X86_64_64)
+                            {
+                                ok = false;
+                                elf_valid = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT PIC: R_X86_64_64 found in {}  ({}:{})", sec_name, path.string(),
+                                             exp.base_line);
+                            }
+
+                            if (restrict_types && !is_allowed_text_reloc(r_type))
+                            {
+                                ok = false;
+                                elf_valid = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT PIC: disallowed relocation type {} found in .text  ({}:{})", r_type,
+                                             path.string(), exp.base_line);
+                            }
+                        }
+                        return ok;
+                    };
+
+                    check_section_relas(sec_text_rela, ".text", true, true);
+                    check_section_relas(sec_rodata_rela, ".rodata", true, false);
+
+                    for (auto const& rr : exp.required_relas)
+                    {
+                        auto it = sec_rela_counts.find(rr.section);
+                        if (it == sec_rela_counts.end())
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT PIC: no relocations found in {} to satisfy REQUIRE-RELA: {} {}  ({}:{})",
+                                         rr.section, rr.section, rr.rel_type, path.string(), exp.base_line);
+                            continue;
+                        }
+                        auto cit = std::ranges::find_if(it->second, [&](auto const& c) { return c.type == rr.rel_type; });
+                        if (cit == it->second.end() || cit->count == 0)
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT PIC: REQUIRE-RELA: {} {} not found  ({}:{})", rr.section, rr.rel_type,
+                                         path.string(), exp.base_line);
                         }
                     }
                 }

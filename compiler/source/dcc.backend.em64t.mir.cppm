@@ -138,10 +138,7 @@ export namespace dcc::backend::em64t
             return MMem{.base = base_reg, .index = idx_reg, .scale = s, .disp = d};
         }
 
-        [[nodiscard]] static MMem make_sym_reloc(std::string_view sym, std::int32_t d = 0) noexcept
-        {
-            return MMem{VReg{}, VReg{}, 1, d, sym};
-        }
+        [[nodiscard]] static MMem make_sym_reloc(std::string_view sym, std::int32_t d = 0) noexcept { return MMem{VReg{}, VReg{}, 1, d, sym}; }
     };
 
     enum class MOpKind : std::uint8_t

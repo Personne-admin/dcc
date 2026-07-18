@@ -1754,8 +1754,17 @@ namespace
                     auto idx_reg = resolve_phys_reg(ops[0], wrn, "JUMP_TABLE_index");
                     std::string_view sym = ops[1].symbol;
 
+                    bool r11_extended = reg_is_extended(PhysReg::R11);
+                    bool r10_extended = reg_is_extended(PhysReg::R10);
+                    bool idx_ext = reg_is_extended(idx_reg);
+                    bool rax_ext = reg_is_extended(PhysReg::RAX);
+                    std::uint8_t r11_low3 = reg_low3(PhysReg::R11);
+                    std::uint8_t r10_low3 = reg_low3(PhysReg::R10);
+                    std::uint8_t idx_low3 = reg_low3(idx_reg);
+                    std::uint8_t rax_low3 = reg_low3(PhysReg::RAX);
+
                     {
-                        bool de = reg_is_extended(PhysReg::R11);
+                        bool de = r11_extended;
                         emit_rex(buf, true, de, false, false);
                         emit_u8(buf, 0x8D);
                         emit_modrm(buf, 0, reg_low3(PhysReg::R11), 5);
@@ -1769,23 +1778,35 @@ namespace
                     }
 
                     {
-                        std::uint8_t idx_low3 = reg_low3(idx_reg);
-                        std::uint8_t r11_low3 = reg_low3(PhysReg::R11);
-                        bool idx_ext = reg_is_extended(idx_reg);
-                        bool r11_ext = reg_is_extended(PhysReg::R11);
-
-                        emit_rex(buf, true, r11_ext, idx_ext, r11_ext);
-                        emit_u8(buf, 0x8B);
-                        emit_modrm(buf, 0, r11_low3, 4);
-                        emit_sib(buf, 8, idx_low3, r11_low3);
+                        emit_rex(buf, true, r10_extended, idx_ext, r11_extended);
+                        emit_u8(buf, 0x8D);
+                        emit_modrm(buf, 1, r10_low3, 4);
+                        emit_sib(buf, 4, idx_low3, r11_low3);
+                        emit_u8(buf, 4);
                     }
 
                     {
-                        if (reg_is_extended(PhysReg::R11))
-                            emit_rex(buf, false, false, false, true);
+                        emit_rex(buf, true, rax_ext, idx_ext, r11_extended);
+                        emit_u8(buf, 0x63);
+                        emit_modrm(buf, 0, rax_low3, 4);
+                        emit_sib(buf, 4, idx_low3, r11_low3);
+                    }
 
+                    {
+                        bool need_rex = r10_extended || rax_ext;
+                        if (need_rex)
+                            emit_rex(buf, true, r10_extended, false, rax_ext);
+                        else
+                            emit_rex(buf, true, false, false, false);
+
+                        emit_u8(buf, 0x01);
+                        emit_modrm(buf, 3, r10_low3, rax_low3);
+                    }
+
+                    {
+                        emit_rex_if_extended(buf, false, PhysReg::RAX, PhysReg::RAX);
                         emit_u8(buf, 0xFF);
-                        emit_modrm(buf, 3, 4, reg_low3(PhysReg::R11));
+                        emit_modrm(buf, 3, 4, reg_low3(PhysReg::RAX));
                     }
                 }
                 else

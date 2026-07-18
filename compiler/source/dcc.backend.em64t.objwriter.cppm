@@ -197,6 +197,7 @@ namespace dcc::backend::em64t
         {
             None,
             Rodata,
+            RodataRelRO,
             Data,
             Bss
         };
@@ -216,12 +217,36 @@ namespace dcc::backend::em64t
             return (val + alignment - 1) / alignment * alignment;
         }
 
+        [[nodiscard]] bool has_global_ref(ir::IrValue const* val)
+        {
+            if (!val)
+                return false;
+
+            if (val->kind == ir::IrNodeKind::GlobalRef)
+                return true;
+
+            if (val->kind == ir::IrNodeKind::Aggregate)
+            {
+                auto* agg = static_cast<ir::IrAggregateInst const*>(val);
+                for (auto* fv : agg->values)
+                    if (has_global_ref(fv))
+                        return true;
+            }
+
+            return false;
+        }
+
         [[nodiscard]] DataSection classify_global(ir::IrGlobal const* g)
         {
             if (g->linkage == ir::Linkage::External && !g->init)
                 return DataSection::None;
             if (g->is_constant && g->init)
+            {
+                if (has_global_ref(g->init))
+                    return DataSection::RodataRelRO;
+
                 return DataSection::Rodata;
+            }
             if (g->init)
                 return DataSection::Data;
 
@@ -432,13 +457,15 @@ export namespace dcc::backend::em64t
         };
 
         std::string strtab;
-        (void)add_str(strtab, "");
+        add_str(strtab, "");
 
-        (void)add_str(shstrtab, "");
+        add_str(shstrtab, "");
         std::uint32_t sh_name_text = add_str(shstrtab, ".text");
         std::uint32_t sh_name_rela_text = add_str(shstrtab, ".rela.text");
         std::uint32_t sh_name_rodata = add_str(shstrtab, ".rodata");
         std::uint32_t sh_name_rela_rodata = add_str(shstrtab, ".rela.rodata");
+        std::uint32_t sh_name_data_rel_ro = add_str(shstrtab, ".data.rel.ro");
+        std::uint32_t sh_name_rela_data_rel_ro = add_str(shstrtab, ".rela.data.rel.ro");
         std::uint32_t sh_name_data = add_str(shstrtab, ".data");
         std::uint32_t sh_name_rela_data = add_str(shstrtab, ".rela.data");
         std::uint32_t sh_name_bss = add_str(shstrtab, ".bss");
@@ -482,11 +509,13 @@ export namespace dcc::backend::em64t
             globals.push_back(std::move(gl));
         }
 
-        std::vector<GlobalLayout*> rodata_globals, data_globals, bss_globals;
+        std::vector<GlobalLayout*> rodata_globals, rodata_relro_globals, data_globals, bss_globals;
         for (auto& gl : globals)
         {
             if (gl.sec == DataSection::Rodata)
                 rodata_globals.push_back(&gl);
+            else if (gl.sec == DataSection::RodataRelRO)
+                rodata_relro_globals.push_back(&gl);
             else if (gl.sec == DataSection::Data)
                 data_globals.push_back(&gl);
             else if (gl.sec == DataSection::Bss)
@@ -511,15 +540,28 @@ export namespace dcc::backend::em64t
         {
             for (auto const& jt : mf.jump_tables)
             {
-                while (rodata_data.size() % 8 != 0)
+                while (rodata_data.size() % 4 != 0)
                     rodata_data.push_back(0);
 
                 for (std::size_t ei = 0; ei < jt.targets.size(); ++ei)
                 {
-                    for (int k = 0; k < 8; ++k)
+                    for (int k = 0; k < 4; ++k)
                         rodata_data.push_back(0);
                 }
             }
+        }
+
+        std::vector<std::uint8_t> data_rel_ro_data;
+        std::vector<Elf64_Rela> data_rel_ro_relas;
+        for (auto* glp : rodata_relro_globals)
+        {
+            auto pad = align_up(data_rel_ro_data.size(), glp->alignment);
+            while (data_rel_ro_data.size() < pad)
+                data_rel_ro_data.push_back(0);
+
+            glp->offset = data_rel_ro_data.size();
+            if (glp->g->init)
+                serialize_init_value(data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, empty_sym_map, data_rel_ro_data.size());
         }
 
         std::vector<std::uint8_t> data_data;
@@ -622,6 +664,9 @@ export namespace dcc::backend::em64t
         for (auto* glp : rodata_globals)
             if (glp->g->init)
                 collect_ref_names(glp->g->init, data_ref_names);
+        for (auto* glp : rodata_relro_globals)
+            if (glp->g->init)
+                collect_ref_names(glp->g->init, data_ref_names);
         for (auto* glp : data_globals)
             if (glp->g->init)
                 collect_ref_names(glp->g->init, data_ref_names);
@@ -661,9 +706,11 @@ export namespace dcc::backend::em64t
             }
 
         bool has_rodata = !rodata_globals.empty() || has_jump_tables;
+        bool has_rodata_relro = !rodata_relro_globals.empty();
         bool has_data = !data_globals.empty();
         bool has_bss = !bss_globals.empty();
         bool has_rodata_rela = has_rodata && (!rodata_relas.empty() || has_jump_tables);
+        bool has_rodata_relro_rela = has_rodata_relro && !data_rel_ro_relas.empty();
         bool has_data_rela = has_data && !data_relas.empty();
         bool has_text_rela = !text_relas.empty();
 
@@ -671,9 +718,11 @@ export namespace dcc::backend::em64t
         std::uint32_t sec_rela_text = 2;
         std::uint32_t sec_rodata = 3;
         std::uint32_t sec_rela_rodata = 4;
-        std::uint32_t sec_data = 5;
-        std::uint32_t sec_rela_data = 6;
-        std::uint32_t sec_bss = 7;
+        std::uint32_t sec_data_rel_ro = 5;
+        std::uint32_t sec_rela_data_rel_ro = 6;
+        std::uint32_t sec_data = 7;
+        std::uint32_t sec_rela_data = 8;
+        std::uint32_t sec_bss = 9;
 
         std::uint32_t next_sec = 2;
         if (has_text_rela)
@@ -683,6 +732,12 @@ export namespace dcc::backend::em64t
             next_sec++;
         sec_rela_rodata = next_sec;
         if (has_rodata_rela)
+            next_sec++;
+        sec_data_rel_ro = next_sec;
+        if (has_rodata_relro)
+            next_sec++;
+        sec_rela_data_rel_ro = next_sec;
+        if (has_rodata_relro_rela)
             next_sec++;
         sec_data = next_sec;
         if (has_data)
@@ -703,6 +758,8 @@ export namespace dcc::backend::em64t
         {
             if (gl.sec == DataSection::Rodata)
                 gl.section_index = sec_rodata;
+            else if (gl.sec == DataSection::RodataRelRO)
+                gl.section_index = sec_data_rel_ro;
             else if (gl.sec == DataSection::Data)
                 gl.section_index = sec_data;
             else if (gl.sec == DataSection::Bss)
@@ -710,6 +767,20 @@ export namespace dcc::backend::em64t
         }
 
         for (auto* glp : rodata_globals)
+        {
+            if (glp->g->linkage == ir::Linkage::Internal)
+            {
+                Elf64_Sym s{};
+                s.st_name = add_str(strtab, glp->name_str);
+                s.st_info = elf_st_info(STB_LOCAL, STT_OBJECT);
+                s.st_shndx = static_cast<std::uint16_t>(glp->section_index);
+                s.st_value = glp->offset;
+                s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
+                name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
+                syms.push_back(s);
+            }
+        }
+        for (auto* glp : rodata_relro_globals)
         {
             if (glp->g->linkage == ir::Linkage::Internal)
             {
@@ -763,7 +834,7 @@ export namespace dcc::backend::em64t
                     s.st_info = elf_st_info(STB_LOCAL, STT_OBJECT);
                     s.st_shndx = static_cast<std::uint16_t>(sec_rodata);
                     s.st_value = 0;
-                    s.st_size = static_cast<std::uint64_t>(jt.targets.size()) * 8;
+                    s.st_size = static_cast<std::uint64_t>(jt.targets.size()) * 4;
                     name_to_sym_idx[jt.symbol] = static_cast<std::uint32_t>(syms.size());
                     syms.push_back(s);
                 }
@@ -812,6 +883,22 @@ export namespace dcc::backend::em64t
         }
 
         for (auto* glp : rodata_globals)
+        {
+            if (glp->g->linkage == ir::Linkage::External)
+            {
+                if (name_to_sym_idx.contains(std::string{glp->g->name}))
+                    continue;
+                Elf64_Sym s{};
+                s.st_name = add_str(strtab, glp->name_str);
+                s.st_info = elf_st_info(STB_GLOBAL, STT_OBJECT);
+                s.st_shndx = static_cast<std::uint16_t>(glp->section_index);
+                s.st_value = glp->offset;
+                s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
+                name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
+                syms.push_back(s);
+            }
+        }
+        for (auto* glp : rodata_relro_globals)
         {
             if (glp->g->linkage == ir::Linkage::External)
             {
@@ -878,7 +965,7 @@ export namespace dcc::backend::em64t
             auto const& mf = mod.functions[fi];
             for (auto const& jt : mf.jump_tables)
             {
-                while (rodata_data.size() % 8 != 0)
+                while (rodata_data.size() % 4 != 0)
                     rodata_data.push_back(0);
 
                 auto jt_sym_it = name_to_sym_idx.find(jt.symbol);
@@ -892,15 +979,15 @@ export namespace dcc::backend::em64t
 
                     auto blk_sym_it = name_to_sym_idx.find(blk_sym);
                     std::uint64_t entry_offset = rodata_data.size();
-                    for (int k = 0; k < 8; ++k)
+                    for (int k = 0; k < 4; ++k)
                         rodata_data.push_back(0);
 
                     if (blk_sym_it != name_to_sym_idx.end())
                     {
                         Elf64_Rela rela{};
                         rela.r_offset = entry_offset;
-                        rela.r_addend = 0;
-                        rela.r_info = elf_r_info(blk_sym_it->second, R_X86_64_64);
+                        rela.r_addend = -4;
+                        rela.r_info = elf_r_info(blk_sym_it->second, R_X86_64_PC32);
                         rodata_relas.push_back(rela);
                     }
                 }
@@ -908,6 +995,19 @@ export namespace dcc::backend::em64t
                 if (jt_sym_it != name_to_sym_idx.end())
                     syms[jt_sym_it->second].st_value = jt_offset;
             }
+        }
+
+        data_rel_ro_data.clear();
+        data_rel_ro_relas.clear();
+        for (auto* glp : rodata_relro_globals)
+        {
+            auto pad = align_up(data_rel_ro_data.size(), glp->alignment);
+            while (data_rel_ro_data.size() < pad)
+                data_rel_ro_data.push_back(0);
+
+            glp->offset = data_rel_ro_data.size();
+            if (glp->g->init)
+                serialize_init_value(data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, name_to_sym_idx, data_rel_ro_data.size());
         }
 
         data_data.clear();
@@ -972,6 +1072,14 @@ export namespace dcc::backend::em64t
         auto rela_rodata_off = cur_offset;
         auto rela_rodata_size = rodata_relas.size() * sizeof(Elf64_Rela);
         cur_offset = rela_rodata_off + rela_rodata_size;
+
+        auto data_rel_ro_off = cur_offset;
+        auto data_rel_ro_size = data_rel_ro_data.size();
+        cur_offset = data_rel_ro_off + data_rel_ro_size;
+
+        auto rela_data_rel_ro_off = cur_offset;
+        auto rela_data_rel_ro_size = data_rel_ro_relas.size() * sizeof(Elf64_Rela);
+        cur_offset = rela_data_rel_ro_off + rela_data_rel_ro_size;
 
         auto data_off = cur_offset;
         auto data_size = data_data.size();
@@ -1039,6 +1147,30 @@ export namespace dcc::backend::em64t
             shdrs[sec_rela_rodata].sh_info = sec_rodata;
             shdrs[sec_rela_rodata].sh_addralign = 8;
             shdrs[sec_rela_rodata].sh_entsize = sizeof(Elf64_Rela);
+        }
+
+        if (has_rodata_relro)
+        {
+            shdrs[sec_data_rel_ro] = {};
+            shdrs[sec_data_rel_ro].sh_name = sh_name_data_rel_ro;
+            shdrs[sec_data_rel_ro].sh_type = SHT_PROGBITS;
+            shdrs[sec_data_rel_ro].sh_flags = SHF_ALLOC | SHF_WRITE;
+            shdrs[sec_data_rel_ro].sh_offset = data_rel_ro_off;
+            shdrs[sec_data_rel_ro].sh_size = data_rel_ro_size;
+            shdrs[sec_data_rel_ro].sh_addralign = 8;
+        }
+
+        if (has_rodata_relro_rela)
+        {
+            shdrs[sec_rela_data_rel_ro] = {};
+            shdrs[sec_rela_data_rel_ro].sh_name = sh_name_rela_data_rel_ro;
+            shdrs[sec_rela_data_rel_ro].sh_type = SHT_RELA;
+            shdrs[sec_rela_data_rel_ro].sh_offset = rela_data_rel_ro_off;
+            shdrs[sec_rela_data_rel_ro].sh_size = rela_data_rel_ro_size;
+            shdrs[sec_rela_data_rel_ro].sh_link = sec_symtab;
+            shdrs[sec_rela_data_rel_ro].sh_info = sec_data_rel_ro;
+            shdrs[sec_rela_data_rel_ro].sh_addralign = 8;
+            shdrs[sec_rela_data_rel_ro].sh_entsize = sizeof(Elf64_Rela);
         }
 
         if (has_data)
@@ -1137,6 +1269,15 @@ export namespace dcc::backend::em64t
         out.insert(out.end(), rodata_data.begin(), rodata_data.end());
 
         for (auto const& rel : rodata_relas)
+        {
+            w64(out, rel.r_offset);
+            w64(out, rel.r_info);
+            w64(out, static_cast<std::uint64_t>(rel.r_addend));
+        }
+
+        out.insert(out.end(), data_rel_ro_data.begin(), data_rel_ro_data.end());
+
+        for (auto const& rel : data_rel_ro_relas)
         {
             w64(out, rel.r_offset);
             w64(out, rel.r_info);
@@ -1274,7 +1415,14 @@ export namespace dcc::backend::em64t
         coff_syms.push_back({.name = ".text", .str_off = text_sec_str, .is_func = false, .is_object = false, .sec_idx = 1, .value = 0, .size = 0});
 
         std::uint32_t sec_rdata = 0, sec_data = 0, sec_bss = 0;
-        bool has_rdata = !rodata_globals.empty();
+        bool has_coff_jt = false;
+        for (auto const& mf : mod.functions)
+            if (!mf.jump_tables.empty())
+            {
+                has_coff_jt = true;
+                break;
+            }
+        bool has_rdata = !rodata_globals.empty() || has_coff_jt;
         bool has_data_sec = !data_globals.empty();
         bool has_bss_sec = !bss_globals.empty();
 
@@ -1339,6 +1487,32 @@ export namespace dcc::backend::em64t
             text_data.insert(text_data.end(), code.begin(), code.end());
             while (text_data.size() % 16 != 0)
                 text_data.push_back(0x90);
+        }
+
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
+        {
+            auto const& mf = mod.functions[fi];
+            auto const& er = encoded[fi];
+            for (auto const& jt : mf.jump_tables)
+            {
+                for (auto tgt : jt.targets)
+                {
+                    auto it = er.block_offsets.find(tgt);
+                    if (it == er.block_offsets.end())
+                        continue;
+
+                    std::string sym_name = mf.owned_name.empty() ? std::string{"anon"} : mf.owned_name;
+                    sym_name += ".bb" + std::to_string(tgt);
+
+                    if (sym_name_to_idx.contains(sym_name))
+                        continue;
+
+                    std::uint64_t block_offset = func_starts[fi] + it->second;
+                    auto so = add_str(sym_name);
+                    coff_syms.push_back({sym_name, so, false, false, 1, block_offset, 0});
+                    sym_name_to_idx[sym_name] = static_cast<std::uint32_t>(coff_syms.size() - 1);
+                }
+            }
         }
 
         struct CoffReloc
@@ -1484,6 +1658,36 @@ export namespace dcc::backend::em64t
         };
 
         auto [rdata_data, rdata_rels] = build_coff_init_data(rodata_globals, sec_rdata);
+
+        for (auto const& mf : mod.functions)
+        {
+            for (auto const& jt : mf.jump_tables)
+            {
+                while (rdata_data.size() % 4 != 0)
+                    rdata_data.push_back(0);
+
+                for (std::size_t ei = 0; ei < jt.targets.size(); ++ei)
+                {
+                    std::uint32_t tgt_block = jt.targets[ei];
+                    std::string blk_sym = mf.owned_name.empty() ? "anon" : mf.owned_name;
+                    blk_sym += ".bb" + std::to_string(tgt_block);
+
+                    auto blk_sym_it = sym_name_to_idx.find(blk_sym);
+                    std::uint64_t entry_va_offset = rdata_data.size();
+                    w32(rdata_data, 0);
+
+                    if (blk_sym_it != sym_name_to_idx.end())
+                    {
+                        CoffReloc rel{};
+                        rel.virt_addr = static_cast<std::uint32_t>(entry_va_offset);
+                        rel.sym_idx = blk_sym_it->second;
+                        rel.type = IMAGE_REL_AMD64_REL32;
+                        rdata_rels.push_back(rel);
+                    }
+                }
+            }
+        }
+
         auto [data_sec_data, data_rels] = build_coff_init_data(data_globals, sec_data);
 
         std::uint64_t bss_sec_size = 0;
