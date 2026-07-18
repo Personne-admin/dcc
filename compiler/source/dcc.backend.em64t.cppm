@@ -1,3 +1,7 @@
+module;
+
+#include <cstdio>
+
 export module dcc.backend.em64t;
 
 import std;
@@ -30,14 +34,21 @@ namespace dcc::backend
 
             [[nodiscard]] std::string_view name() const override { return "em64t"; }
 
-            [[nodiscard]] std::set<ArtifactKind> supported_artifacts() const override { return {ArtifactKind::AsmText, ArtifactKind::ObjectBytes}; }
+            [[nodiscard]] std::set<ArtifactKind> supported_artifacts() const override
+            {
+                return {ArtifactKind::MirText, ArtifactKind::AsmText, ArtifactKind::ObjectBytes, ArtifactKind::ExecutableBytes, ArtifactKind::ArchiveBytes};
+            }
 
             [[nodiscard]] BackendArtifact emit(ir::IrModule const& module, BackendOptions const& opts) override
             {
                 BackendArtifact artifact;
 
+                bool want_mir = opts.requested_artifacts.contains(ArtifactKind::MirText);
                 bool want_asm = opts.requested_artifacts.contains(ArtifactKind::AsmText);
                 bool want_obj = opts.requested_artifacts.contains(ArtifactKind::ObjectBytes);
+                bool want_exe = opts.requested_artifacts.contains(ArtifactKind::ExecutableBytes);
+                bool want_archive = opts.requested_artifacts.contains(ArtifactKind::ArchiveBytes);
+                bool need_encode = want_obj || want_exe || want_archive;
 
                 ir::IrModule const* input_module = &module;
                 ir::IrContext opt_ctx{256 * 1024, &opts.target};
@@ -58,10 +69,21 @@ namespace dcc::backend
                     mfuncs.push_back(std::move(mfunc));
                 }
 
+                if (want_mir)
+                {
+                    std::string mir_out;
+                    for (auto const& mf : mfuncs)
+                    {
+                        mir_out += print_function(mf);
+                        mir_out += '\n';
+                    }
+                    artifact.mir_text = std::move(mir_out);
+                }
+
                 if (want_asm)
                     artifact.asm_text = emit_intel_asm(*input_module, mfuncs, opts.target);
 
-                if (want_obj)
+                if (need_encode)
                 {
                     em64t::MModule mmod;
                     std::vector<em64t::EncodeResult> encoded;
@@ -93,7 +115,51 @@ namespace dcc::backend
                     for (auto b : object_data)
                         obj_bytes.push_back(static_cast<std::byte>(b));
 
-                    artifact.object_bytes = std::move(obj_bytes);
+                    if (want_obj)
+                        artifact.object_bytes = obj_bytes;
+
+                    if (want_exe)
+                    {
+                        if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
+                        {
+                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: executable output not supported for COFF target"});
+                        }
+                        else if (opts.target.arch != dcc::target::Arch::X86_64)
+                        {
+                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: executable output is only supported for x86_64 ELF targets"});
+                        }
+                        else
+                        {
+                            auto exe = link_executable(obj_bytes, opts, artifact);
+                            if (exe)
+                                artifact.executable_bytes = std::move(exe);
+                        }
+                    }
+
+                    if (want_archive)
+                    {
+                        if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
+                        {
+                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: archive output not supported for COFF target"});
+                        }
+                        else
+                        {
+                            std::string member_name{input_module->name};
+                            if (member_name.empty())
+                                member_name = "module";
+                            member_name += ".o";
+
+                            std::vector<std::pair<std::string, std::vector<std::uint8_t>>> archive_members;
+                            archive_members.emplace_back(std::move(member_name), std::move(object_data));
+                            auto archive_data = em64t::write_archive_elf(archive_members);
+
+                            std::vector<std::byte> archive_bytes;
+                            archive_bytes.reserve(archive_data.size());
+                            for (auto b : archive_data)
+                                archive_bytes.push_back(static_cast<std::byte>(b));
+                            artifact.archive_bytes = std::move(archive_bytes);
+                        }
+                    }
                 }
 
                 return artifact;
@@ -147,6 +213,135 @@ namespace dcc::backend
                 }
 
                 return out;
+            }
+
+            [[nodiscard]] static std::optional<std::vector<std::byte>> link_executable(std::vector<std::byte> const& object_bytes, BackendOptions const& opts,
+                                                                                       BackendArtifact& artifact)
+            {
+                namespace fs = std::filesystem;
+
+                std::error_code ec;
+                auto tmp_dir = fs::temp_directory_path(ec);
+                if (ec)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot get temp directory"});
+                    return std::nullopt;
+                }
+
+                auto tag = std::format("dcc-em64t-link-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                auto work_dir = tmp_dir / tag;
+                if (!fs::create_directories(work_dir, ec))
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot create temp directory"});
+                    return std::nullopt;
+                }
+
+                auto cleanup = [&]() {
+                    std::error_code ec2;
+                    fs::remove_all(work_dir, ec2);
+                };
+
+                auto obj_path = work_dir / "module.o";
+                {
+                    std::ofstream of{obj_path, std::ios::binary};
+                    if (!of)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write object file"});
+                        cleanup();
+                        return std::nullopt;
+                    }
+                    of.write(reinterpret_cast<char const*>(object_bytes.data()), static_cast<std::streamsize>(object_bytes.size()));
+                }
+
+                auto asm_path = work_dir / "start.s";
+                {
+                    std::ofstream of{asm_path};
+                    if (!of)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write start.s"});
+                        cleanup();
+                        return std::nullopt;
+                    }
+                    of << ".text\n"
+                       << ".globl _start\n"
+                       << "_start:\n"
+                       << "    call dcc_main\n"
+                       << "    mov %eax, %edi\n"
+                       << "    mov $60, %eax\n"
+                       << "    syscall\n";
+                }
+
+                auto start_obj_path = work_dir / "start.o";
+                auto exe_path = work_dir / "out";
+
+                auto asm_cmd = std::format("clang -x assembler -c {} -o {} 2>/dev/null", asm_path.string(), start_obj_path.string());
+                int asm_rc = std::system(asm_cmd.c_str());
+                if (asm_rc != 0)
+                {
+                    asm_cmd = std::format("as {} -o {} 2>/dev/null", asm_path.string(), start_obj_path.string());
+                    asm_rc = std::system(asm_cmd.c_str());
+                }
+                if (asm_rc != 0)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot assemble start.s (no assembler available)"});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::string link_cmd = std::format("ld.lld --static --no-dynamic-linker --fatal-warnings -e _start -o {} {} {}", exe_path.string(),
+                                                   obj_path.string(), start_obj_path.string());
+
+                for (auto const& obj : opts.additional_objects)
+                    link_cmd += " " + obj;
+
+                for (auto const& lp : opts.library_paths)
+                    link_cmd += " -L" + lp;
+
+                for (auto const& lib : opts.libraries)
+                    link_cmd += " -l" + lib;
+
+                for (auto const& la : opts.linker_args)
+                    link_cmd += " " + la;
+
+                link_cmd += " 2>&1";
+                auto* pipe = popen(link_cmd.c_str(), "r");
+                if (!pipe)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot run linker"});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::string link_output;
+                std::array<char, 4096> buf;
+                while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
+                    link_output += buf.data();
+
+                int link_rc = pclose(pipe);
+                if (link_rc != 0)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: linking failed:\n" + link_output});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::ifstream exe_in{exe_path, std::ios::binary};
+                if (!exe_in)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot read linked executable"});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::vector<std::byte> exe_bytes;
+                exe_in.seekg(0, std::ios::end);
+                auto exe_size = static_cast<std::size_t>(exe_in.tellg());
+                exe_in.seekg(0, std::ios::beg);
+                exe_bytes.resize(exe_size);
+                exe_in.read(reinterpret_cast<char*>(exe_bytes.data()), static_cast<std::streamsize>(exe_size));
+
+                cleanup();
+                return exe_bytes;
             }
         };
 
