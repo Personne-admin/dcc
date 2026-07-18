@@ -429,6 +429,14 @@ export namespace dcc::backend::em64t
             for (auto const& jt : mf.jump_tables)
                 defined_names.insert(jt.symbol);
 
+        for (auto* g : ir_mod.globals)
+        {
+            if (!g)
+                continue;
+            if (classify_global(g) != DataSection::None)
+                defined_names.insert(std::string{g->name});
+        }
+
         std::unordered_set<std::string> ext_sym_set;
         for (auto const& er : encoded)
             for (auto const& r : er.relocs)

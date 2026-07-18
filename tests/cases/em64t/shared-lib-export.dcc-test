@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+public i32 exported_value = 99;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 get_value() {
+    return exported_value;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+PIC: true
+REQUIRE-RELA: .text R_X86_64_REX_GOTPCRELX
+SHARED-LINK: ok

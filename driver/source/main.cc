@@ -116,6 +116,7 @@ namespace
         bool dump_mir{false};
         bool compile_only{false};
         bool emit_asm_only{false};
+        bool shared_library{false};
         bool bounds_check{false};
         bool emit_debug_info{false};
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
@@ -209,6 +210,13 @@ namespace
             if (arg == "-S")
             {
                 opts.emit_asm_only = true;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-shared")
+            {
+                opts.shared_library = true;
                 ++i;
                 continue;
             }
@@ -480,6 +488,7 @@ namespace
                        {"-o <file>", "output file"},
                        {"-c", "compile to object file only"},
                        {"-S", "emit assembly only"},
+                       {"-shared", "build an ELF shared library (.so)"},
                        {"-fdump-ast", "dump AST and exit"},
                        {"-fdump-ir", "dump IR and exit"},
                        {"-fdump-llvm", "dump LLVM IR"},
@@ -557,7 +566,7 @@ namespace
         if (!opts.output_file.empty())
         {
             auto ext = opts.output_file.extension().string();
-            if (ext == ".ll" || ext == ".mir" || ext == ".s" || ext == ".o" || ext == ".a")
+            if (ext == ".ll" || ext == ".mir" || ext == ".s" || ext == ".o" || ext == ".a" || ext == ".so" || ext == ".dll")
             {
                 auto base = opts.output_file;
                 base.replace_extension("");
@@ -582,6 +591,8 @@ namespace
             return dcc::backend::ArtifactKind::ObjectBytes;
         if (ext == ".a")
             return dcc::backend::ArtifactKind::ArchiveBytes;
+        if (ext == ".so" || ext == ".dll")
+            return dcc::backend::ArtifactKind::SharedLibraryBytes;
         return std::nullopt;
     }
 
@@ -731,6 +742,10 @@ namespace
                             ok = false;
                         archive_written_via_extension = true;
                         break;
+                    case dcc::backend::ArtifactKind::SharedLibraryBytes:
+                        if (artifact.shared_library_bytes && !do_write(opts.output_file, *artifact.shared_library_bytes))
+                            ok = false;
+                        break;
                     default:
                         break;
                 }
@@ -761,6 +776,13 @@ namespace
                                              std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
                                              std::filesystem::perm_options::add, ec);
             }
+        }
+        else if (artifact.shared_library_bytes)
+        {
+            auto path = base;
+            path += ".so";
+            if (!do_write(path, *artifact.shared_library_bytes))
+                ok = false;
         }
 
         if (artifact.llvm_ir_text && !llvm_written_via_extension)
@@ -847,6 +869,12 @@ namespace
         if (!kinds.empty())
             return kinds;
 
+        if (opts.shared_library)
+        {
+            kinds.insert(dcc::backend::ArtifactKind::SharedLibraryBytes);
+            return kinds;
+        }
+
         if (!opts.output_file.empty())
         {
             auto ext = opts.output_file.extension().string();
@@ -895,6 +923,21 @@ auto main(int argc, char** argv) -> int
     {
         std::println(std::cerr, "dcc: error: cannot specify both -c and -S");
         return 1;
+    }
+
+    if (opts.shared_library)
+    {
+        if (opts.compile_only || opts.emit_asm_only)
+        {
+            std::println(std::cerr, "dcc: error: -shared is mutually exclusive with -c and -S");
+            return 1;
+        }
+
+        if (!opts.position_independent_code)
+        {
+            std::println(std::cerr, "dcc: warning: -shared implies -fPIC");
+            opts.position_independent_code = true;
+        }
     }
 
     std::error_code ec;
@@ -997,6 +1040,20 @@ auto main(int argc, char** argv) -> int
             if (opts.code_model)
                 target.code_model = *opts.code_model;
 
+            if (opts.shared_library)
+            {
+                if (target.object_format == dcc::target::ObjectFormat::Coff)
+                {
+                    std::println(std::cerr, "dcc: error: shared library output for COFF/PE targets is not yet supported");
+                    return 1;
+                }
+                if (target.object_format != dcc::target::ObjectFormat::Elf)
+                {
+                    std::println(std::cerr, "dcc: error: shared library output is only supported for ELF targets");
+                    return 1;
+                }
+            }
+
             auto kinds = desired_artifacts(opts);
             if (kinds.empty())
             {
@@ -1013,7 +1070,7 @@ auto main(int argc, char** argv) -> int
             backend_opts.opt_level = opts.opt_level;
             backend_opts.source_manager = &session.source_manager();
 
-            if (opts.libdcext && kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes))
+            if (opts.libdcext && (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
             {
                 backend_opts.library_paths.push_back((prefix / "lib").string());
                 backend_opts.libraries.push_back("dcext");
@@ -1024,6 +1081,12 @@ auto main(int argc, char** argv) -> int
                 if (kinds.contains(dcc::backend::ArtifactKind::MirText))
                 {
                     std::println(std::cerr, "dcc: error: LLVM backend does not support MIR output");
+                    return 1;
+                }
+
+                if (kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes))
+                {
+                    std::println(std::cerr, "dcc: error: LLVM backend does not support shared library output; use -fbackend em64t");
                     return 1;
                 }
 
