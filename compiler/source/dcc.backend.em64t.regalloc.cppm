@@ -65,7 +65,7 @@ namespace dcc::backend::em64t
                 case MOpc::UCOMISDrr:
                 case MOpc::CVTSI2SD_r:
                 case MOpc::CVTSI2SDrr:
-            case MOpc::CVTSD2SS_r:
+                case MOpc::CVTSD2SS_r:
                 case MOpc::CVTSS2SD_r:
                 case MOpc::MOVSS_rr:
                 case MOpc::MOVSS_rm:
@@ -115,11 +115,29 @@ namespace dcc::backend::em64t
             }
         }
 
+        [[nodiscard]] bool is_setcc(MOpc opc) noexcept
+        {
+            switch (opc)
+            {
+                case MOpc::SETEr:
+                case MOpc::SETNEr:
+                case MOpc::SETLr:
+                case MOpc::SETGEr:
+                case MOpc::SETLEr:
+                case MOpc::SETGr:
+                case MOpc::SETBr:
+                case MOpc::SETAEr:
+                case MOpc::SETBEr:
+                case MOpc::SETAr:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         [[nodiscard]] bool is_gpr_dest_xmm_opc(MOpc opc) noexcept
         {
-            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r ||
-                   opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr ||
-                   opc == MOpc::CVTSS2SIrr;
+            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr || opc == MOpc::CVTSS2SIrr;
         }
 
         [[nodiscard]] RegClass infer_reg_class(MFunction const& func, VReg vreg, target::TargetConfig const& target)
@@ -221,9 +239,8 @@ namespace dcc::backend::em64t
                 std::unordered_map<VReg, MInstr> merge_block_movris;
                 for (auto const& mi : blk.instrs)
                 {
-                    if ((mi.opc == MOpc::MOV32ri || mi.opc == MOpc::MOV64ri) &&
-                        mi.num_ops >= 2 && mi.ops[0].kind == MOpKind::Reg && mi.ops[0].reg.is_virtual() &&
-                        mi.ops[1].kind == MOpKind::Imm64)
+                    if ((mi.opc == MOpc::MOV32ri || mi.opc == MOpc::MOV64ri) && mi.num_ops >= 2 && mi.ops[0].kind == MOpKind::Reg &&
+                        mi.ops[0].reg.is_virtual() && mi.ops[1].kind == MOpKind::Imm64)
                     {
                         merge_block_movris[mi.ops[0].reg] = mi;
                     }
@@ -245,69 +262,99 @@ namespace dcc::backend::em64t
                         else
                             break;
 
-                    std::unordered_set<VReg> dst_set;
-                    std::unordered_set<VReg> src_set;
+                    struct Move
+                    {
+                        VReg dst;
+                        VReg src;
+                    };
+                    std::vector<Move> remaining;
+                    remaining.reserve(copies.size());
                     for (auto const& [dst, src] : copies)
-                    {
-                        dst_set.insert(dst);
-                        src_set.insert(src);
-                    }
+                        if (dst != src)
+                            remaining.push_back({.dst = dst, .src = src});
 
-                    bool has_conflict = false;
-                    for (auto const& [dst, _] : copies)
-                    {
-                        if (src_set.contains(dst))
-                        {
-                            has_conflict = true;
-                            break;
-                        }
-                    }
+                    if (remaining.empty())
+                        continue;
 
-                    auto emit_phi_copy = [&](VReg dst, VReg src) {
+                    std::vector<MInstr> emitted;
+                    emitted.reserve(copies.size() * 2);
+
+                    auto emit_move = [&](VReg dst, VReg src) {
                         auto it = merge_block_movris.find(src);
                         if (it != merge_block_movris.end())
                         {
                             MInstr new_mov = it->second;
                             new_mov.ops[0] = MOp::from_reg(dst);
-                            pred->instrs.insert(pred->instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), new_mov);
+                            emitted.push_back(new_mov);
                         }
                         else
-                        {
-                            auto copy_instr = make_copy(dst, src);
-                            pred->instrs.insert(pred->instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), copy_instr);
-                        }
+                            emitted.push_back(make_copy(dst, src));
                     };
 
-                    if (has_conflict)
+                    while (!remaining.empty())
                     {
-                        std::vector<std::pair<VReg, VReg>> delayed;
-
-                        for (auto const& [dst, src] : copies)
+                        bool found_ready = false;
+                        for (auto it = remaining.begin(); it != remaining.end(); ++it)
                         {
-                            if (src_set.contains(dst))
+                            bool dst_is_used = false;
+                            for (auto const& rm : remaining)
                             {
-                                VReg tmp = func.new_vreg();
-                                emit_phi_copy(tmp, src);
-                                delayed.emplace_back(dst, tmp);
+                                if (&*it != &rm && rm.src.is_virtual() && rm.src == it->dst)
+                                {
+                                    dst_is_used = true;
+                                    break;
+                                }
                             }
-                            else
+
+                            if (!dst_is_used)
                             {
-                                emit_phi_copy(dst, src);
+                                emit_move(it->dst, it->src);
+                                remaining.erase(it);
+                                found_ready = true;
+                                break;
                             }
+                        }
+                        if (found_ready)
+                            continue;
+
+                        Move start = remaining.front();
+                        VReg const start_dst = start.dst;
+                        VReg const start_src = start.src;
+
+                        VReg tmp = func.new_vreg();
+                        emit_move(tmp, start_src);
+
+                        remaining.erase(remaining.begin());
+
+                        VReg cur = start_src;
+                        while (cur != start_dst)
+                        {
+                            auto next_it = remaining.end();
+                            for (auto rit = remaining.begin(); rit != remaining.end(); ++rit)
+                            {
+                                if (rit->dst == cur)
+                                {
+                                    next_it = rit;
+                                    break;
+                                }
+                            }
+
+                            if (next_it == remaining.end())
+                            {
+                                emit_move(start_dst, tmp);
+                                break;
+                            }
+
+                            emit_move(next_it->dst, next_it->src);
+                            cur = next_it->src;
+                            remaining.erase(next_it);
                         }
 
-                        for (auto const& [dst, tmp] : delayed)
-                        {
-                            emit_phi_copy(dst, tmp);
-                        }
+                        if (cur == start_dst)
+                            emit_move(start_dst, tmp);
                     }
-                    else
-                    {
-                        for (auto const& [dst, src] : copies)
-                        {
-                            emit_phi_copy(dst, src);
-                        }
-                    }
+
+                    pred->instrs.insert(pred->instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), emitted.begin(), emitted.end());
                 }
 
                 std::unordered_set<VReg> phi_source_vregs;
@@ -322,16 +369,11 @@ namespace dcc::backend::em64t
                 for (std::size_t i = 0; i < blk.instrs.size();)
                 {
                     auto const& mi = blk.instrs[i];
-                    if ((mi.opc == MOpc::MOV32ri || mi.opc == MOpc::MOV64ri) &&
-                        mi.num_ops >= 1 && mi.ops[0].kind == MOpKind::Reg &&
+                    if ((mi.opc == MOpc::MOV32ri || mi.opc == MOpc::MOV64ri) && mi.num_ops >= 1 && mi.ops[0].kind == MOpKind::Reg &&
                         phi_source_vregs.contains(mi.ops[0].reg))
-                    {
                         blk.instrs.erase(blk.instrs.begin() + static_cast<std::ptrdiff_t>(i));
-                    }
                     else
-                    {
                         ++i;
-                    }
                 }
             }
         }
@@ -396,9 +438,12 @@ namespace dcc::backend::em64t
                                 {
                                     if (!bldef.contains(op.reg))
                                         bluse.insert(op.reg);
+                                    std::uint32_t use_pp = pp;
+                                    if (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr)
+                                        ++use_pp;
                                     auto it = last_use.find(op.reg);
-                                    if (it == last_use.end() || pp > it->second)
-                                        last_use[op.reg] = pp;
+                                    if (it == last_use.end() || use_pp > it->second)
+                                        last_use[op.reg] = use_pp;
                                 }
                             }
                         }
@@ -634,6 +679,12 @@ namespace dcc::backend::em64t
             auto gprs = regs.gprs;
             auto xmms = regs.xmms;
 
+            std::unordered_set<VReg> setcc_defs;
+            for (auto const& blk : func.blocks)
+                for (auto const& instr : blk.instrs)
+                    if (is_setcc(instr.opc) && instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_virtual())
+                        setcc_defs.insert(instr.ops[0].reg);
+
             std::vector<LiveRange*> active;
 
             for (auto& range : ranges)
@@ -645,6 +696,9 @@ namespace dcc::backend::em64t
                 std::ranges::sort(active, [](LiveRange const* a, LiveRange const* b) { return a->end < b->end; });
 
                 auto const& avail = (range.reg_class == RegClass::XMM) ? xmms : gprs;
+                auto reg_is_allowed = [&](PhysReg reg) {
+                    return !setcc_defs.contains(range.vreg) || (reg != PhysReg::RSI && reg != PhysReg::RDI);
+                };
 
                 std::unordered_set<PhysReg> occupied;
                 for (auto* a : active)
@@ -660,7 +714,7 @@ namespace dcc::backend::em64t
                 else if (range.crosses_call)
                 {
                     for (auto pr : avail)
-                        if (!occupied.contains(pr) && std::ranges::find(callee_gpr_span, pr) != callee_gpr_span.end())
+                        if (reg_is_allowed(pr) && !occupied.contains(pr) && std::ranges::find(callee_gpr_span, pr) != callee_gpr_span.end())
                         {
                             free_reg = pr;
                             break;
@@ -669,7 +723,7 @@ namespace dcc::backend::em64t
                 else
                 {
                     for (auto pr : avail)
-                        if (!occupied.contains(pr))
+                        if (reg_is_allowed(pr) && !occupied.contains(pr))
                         {
                             free_reg = pr;
                             break;
@@ -689,6 +743,8 @@ namespace dcc::backend::em64t
                     for (auto* a : active)
                     {
                         if (a->reg_class != range.reg_class)
+                            continue;
+                        if (!reg_is_allowed(a->assigned))
                             continue;
 
                         if (range.crosses_call)
@@ -971,6 +1027,9 @@ namespace dcc::backend::em64t
 
                     if (new_instr.opc == MOpc::PHI)
                         continue;
+
+                    if (is_setcc(new_instr.opc) && new_instr.num_defs > 0 && new_instr.num_ops > 0 && new_instr.ops[0].kind == MOpKind::Reg)
+                        new_instrs.push_back(make_mov_ri(new_instr.ops[0].reg, 0, 32));
 
                     new_instrs.push_back(new_instr);
 
