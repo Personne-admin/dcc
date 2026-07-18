@@ -1169,6 +1169,18 @@ namespace
                 else
                     out += "; jmp_r64 unrecognized\n";
                 break;
+            case MOpc::JUMP_TABLE: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Symbol)
+                {
+                    auto idx = ops[0].reg.phys_reg();
+                    out += "lea r11, [rel " + std::string{ops[1].symbol} + "]\n";
+                    out += "    mov r11, [r11 + " + std::string{reg64(idx)} + "*8]\n";
+                    out += "    jmp r11\n";
+                }
+                else
+                    out += "; JUMP_TABLE unrecognized\n";
+                break;
+            }
 
             case MOpc::JMPm:
             case MOpc::CALLm:
@@ -1932,6 +1944,40 @@ export namespace dcc::backend::em64t
                         emit_instr(ctx, mi);
                 }
                 out += '\n';
+            }
+        }
+
+        {
+            bool has_jt_data = false;
+            for (auto const& mfunc : functions)
+                if (!mfunc.jump_tables.empty())
+                {
+                    has_jt_data = true;
+                    break;
+                }
+
+            if (has_jt_data)
+            {
+                out += "section .rodata\n";
+                for (auto const& mfunc : functions)
+                {
+                    for (auto const& jt : mfunc.jump_tables)
+                    {
+                        out += jt.symbol + ":\n";
+                        for (auto tgt : jt.targets)
+                        {
+                            std::string blk_lbl;
+                            auto* blk = mfunc.block_by_id(tgt);
+                            if (blk && !blk->owned_name.empty())
+                                blk_lbl = "." + blk->owned_name;
+                            else
+                                blk_lbl = std::format(".bb{}", tgt);
+
+                            out += "    dq " + blk_lbl + "\n";
+                        }
+                        out += '\n';
+                    }
+                }
             }
         }
 

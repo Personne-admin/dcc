@@ -1748,6 +1748,50 @@ namespace
                     goto ud2_lbl;
                 break;
             }
+            case MOpc::JUMP_TABLE: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Symbol)
+                {
+                    auto idx_reg = resolve_phys_reg(ops[0], wrn, "JUMP_TABLE_index");
+                    std::string_view sym = ops[1].symbol;
+
+                    {
+                        bool de = reg_is_extended(PhysReg::R11);
+                        emit_rex(buf, true, de, false, false);
+                        emit_u8(buf, 0x8D);
+                        emit_modrm(buf, 0, reg_low3(PhysReg::R11), 5);
+                        Reloc rel;
+                        rel.offset = static_cast<std::uint32_t>(buf.size());
+                        rel.symbol = sym;
+                        rel.kind = Reloc::Kind::Rel32;
+                        rel.addend = -4;
+                        relocs.push_back(rel);
+                        emit_u32_le(buf, 0);
+                    }
+
+                    {
+                        std::uint8_t idx_low3 = reg_low3(idx_reg);
+                        std::uint8_t r11_low3 = reg_low3(PhysReg::R11);
+                        bool idx_ext = reg_is_extended(idx_reg);
+                        bool r11_ext = reg_is_extended(PhysReg::R11);
+
+                        emit_rex(buf, true, r11_ext, idx_ext, r11_ext);
+                        emit_u8(buf, 0x8B);
+                        emit_modrm(buf, 0, r11_low3, 4);
+                        emit_sib(buf, 8, idx_low3, r11_low3);
+                    }
+
+                    {
+                        if (reg_is_extended(PhysReg::R11))
+                            emit_rex(buf, false, false, false, true);
+
+                        emit_u8(buf, 0xFF);
+                        emit_modrm(buf, 3, 4, reg_low3(PhysReg::R11));
+                    }
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
             case MOpc::JMPm: {
                 if (np >= 1 && ops[0].kind == MOpKind::Mem)
                 {

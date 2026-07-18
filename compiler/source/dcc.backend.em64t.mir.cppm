@@ -390,6 +390,7 @@ export namespace dcc::backend::em64t
 
         JMP_rel32,
         JMP_r64,
+        JUMP_TABLE,
         JE,
         JNE,
         JL,
@@ -509,7 +510,7 @@ export namespace dcc::backend::em64t
     struct MInstr
     {
         MOpc opc = MOpc::NOP;
-        std::array<MOp, 16> ops{};
+        std::array<MOp, 32> ops{};
         std::uint8_t num_ops = 0;
         std::uint8_t num_defs = 0;
         std::uint64_t implicit_defs = 0;
@@ -550,6 +551,7 @@ export namespace dcc::backend::em64t
                 case MOpc::JMP:
                 case MOpc::JMP_rel32:
                 case MOpc::JMP_r64:
+                case MOpc::JUMP_TABLE:
                 case MOpc::JMPm:
                 case MOpc::JE:
                 case MOpc::JNE:
@@ -662,6 +664,16 @@ export namespace dcc::backend::em64t
         bool is_spill{false};
     };
 
+    struct MJumpTable
+    {
+        std::uint32_t id{};
+        std::int64_t min_value{};
+        std::int64_t max_value{};
+        std::vector<std::uint32_t> targets;
+        std::uint32_t default_target{};
+        std::string symbol;
+    };
+
     struct MFunction
     {
         ir::CallingConv conv{ir::CallingConv::Cdecl};
@@ -670,6 +682,8 @@ export namespace dcc::backend::em64t
         std::vector<MFrameSlot> frame_slots;
         std::uint32_t next_vreg_id{1};
         std::uint32_t next_block_id{0};
+        std::vector<MJumpTable> jump_tables;
+        std::uint32_t next_jump_table_id{0};
 
         std::string owned_name;
 
@@ -1059,6 +1073,8 @@ export namespace dcc::backend::em64t
                 return "JMP_rel32"sv;
             case MOpc::JMP_r64:
                 return "JMP_r64"sv;
+            case MOpc::JUMP_TABLE:
+                return "JUMP_TABLE"sv;
             case MOpc::JE:
                 return "JE"sv;
             case MOpc::JNE:

@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 sparse(i32 v) {
+    return match v {
+        0 => 1,
+        100 => 2,
+        200 => 3,
+        _ => 0,
+    };
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 r = sparse(100);
+    return r;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 2

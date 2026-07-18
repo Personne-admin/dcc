@@ -400,6 +400,10 @@ export namespace dcc::backend::em64t
         for (auto const& fn : func_names)
             defined_names.insert(fn);
 
+        for (auto const& mf : mod.functions)
+            for (auto const& jt : mf.jump_tables)
+                defined_names.insert(jt.symbol);
+
         std::unordered_set<std::string> ext_sym_set;
         for (auto const& er : encoded)
             for (auto const& r : er.relocs)
@@ -500,8 +504,21 @@ export namespace dcc::backend::em64t
 
             glp->offset = rodata_data.size();
             if (glp->g->init)
-            {
                 serialize_init_value(rodata_data, glp->g->init, glp->g->type, rodata_relas, empty_sym_map, rodata_data.size());
+        }
+
+        for (auto const& mf : mod.functions)
+        {
+            for (auto const& jt : mf.jump_tables)
+            {
+                while (rodata_data.size() % 8 != 0)
+                    rodata_data.push_back(0);
+
+                for (std::size_t ei = 0; ei < jt.targets.size(); ++ei)
+                {
+                    for (int k = 0; k < 8; ++k)
+                        rodata_data.push_back(0);
+                }
             }
         }
 
@@ -526,6 +543,41 @@ export namespace dcc::backend::em64t
             glp->offset = pad;
         }
 
+        struct BlockSymInfo
+        {
+            std::uint32_t func_index;
+            std::uint32_t block_id;
+            std::string sym_name;
+            std::uint32_t func_offset;
+            std::uint32_t block_offset_within_func;
+        };
+        std::vector<BlockSymInfo> block_syms;
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
+        {
+            auto const& mf = mod.functions[fi];
+            auto const& er = encoded[fi];
+            for (auto const& jt : mf.jump_tables)
+            {
+                for (auto tgt : jt.targets)
+                {
+                    auto it = er.block_offsets.find(tgt);
+                    if (it == er.block_offsets.end())
+                        continue;
+
+                    std::string sym_name = mf.owned_name.empty() ? std::string{"anon"} : mf.owned_name;
+                    sym_name += ".bb" + std::to_string(tgt);
+
+                    block_syms.push_back(BlockSymInfo{
+                        .func_index = static_cast<std::uint32_t>(fi),
+                        .block_id = tgt,
+                        .sym_name = sym_name,
+                        .func_offset = 0,
+                        .block_offset_within_func = it->second,
+                    });
+                }
+            }
+        }
+
         std::vector<std::uint64_t> func_offsets;
         func_offsets.reserve(func_codes.size());
         {
@@ -537,6 +589,9 @@ export namespace dcc::backend::em64t
                 cur = align_up(cur, 16);
             }
         }
+
+        for (auto& bs : block_syms)
+            bs.func_offset = static_cast<std::uint32_t>(func_offsets[bs.func_index]);
 
         std::vector<std::uint8_t> text_data;
         for (std::size_t i = 0; i < func_codes.size(); ++i)
@@ -597,12 +652,18 @@ export namespace dcc::backend::em64t
 
         syms.push_back({});
 
-        std::uint32_t local_count = 0;
+        bool has_jump_tables = false;
+        for (auto const& mf : mod.functions)
+            if (!mf.jump_tables.empty())
+            {
+                has_jump_tables = true;
+                break;
+            }
 
-        bool has_rodata = !rodata_globals.empty();
+        bool has_rodata = !rodata_globals.empty() || has_jump_tables;
         bool has_data = !data_globals.empty();
         bool has_bss = !bss_globals.empty();
-        bool has_rodata_rela = has_rodata && !rodata_relas.empty();
+        bool has_rodata_rela = has_rodata && (!rodata_relas.empty() || has_jump_tables);
         bool has_data_rela = has_data && !data_relas.empty();
         bool has_text_rela = !text_relas.empty();
 
@@ -660,7 +721,6 @@ export namespace dcc::backend::em64t
                 s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
                 name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
                 syms.push_back(s);
-                local_count++;
             }
         }
         for (auto* glp : data_globals)
@@ -675,7 +735,6 @@ export namespace dcc::backend::em64t
                 s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
                 name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
                 syms.push_back(s);
-                local_count++;
             }
         }
         for (auto* glp : bss_globals)
@@ -690,8 +749,39 @@ export namespace dcc::backend::em64t
                 s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
                 name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
                 syms.push_back(s);
-                local_count++;
             }
+        }
+
+        for (auto const& mf : mod.functions)
+        {
+            for (auto const& jt : mf.jump_tables)
+            {
+                if (!jt.symbol.empty() && !name_to_sym_idx.contains(jt.symbol))
+                {
+                    Elf64_Sym s{};
+                    s.st_name = add_str(strtab, jt.symbol);
+                    s.st_info = elf_st_info(STB_LOCAL, STT_OBJECT);
+                    s.st_shndx = static_cast<std::uint16_t>(sec_rodata);
+                    s.st_value = 0;
+                    s.st_size = static_cast<std::uint64_t>(jt.targets.size()) * 8;
+                    name_to_sym_idx[jt.symbol] = static_cast<std::uint32_t>(syms.size());
+                    syms.push_back(s);
+                }
+            }
+        }
+
+        for (auto const& bs : block_syms)
+        {
+            if (name_to_sym_idx.contains(bs.sym_name))
+                continue;
+            Elf64_Sym s{};
+            s.st_name = add_str(strtab, bs.sym_name);
+            s.st_info = elf_st_info(STB_LOCAL, STT_NOTYPE);
+            s.st_shndx = static_cast<std::uint16_t>(sec_text);
+            s.st_value = static_cast<std::uint64_t>(bs.func_offset) + bs.block_offset_within_func;
+            s.st_size = 0;
+            name_to_sym_idx[bs.sym_name] = static_cast<std::uint32_t>(syms.size());
+            syms.push_back(s);
         }
 
         for (auto const& ext : ext_syms)
@@ -781,6 +871,43 @@ export namespace dcc::backend::em64t
             glp->offset = rodata_data.size();
             if (glp->g->init)
                 serialize_init_value(rodata_data, glp->g->init, glp->g->type, rodata_relas, name_to_sym_idx, rodata_data.size());
+        }
+
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
+        {
+            auto const& mf = mod.functions[fi];
+            for (auto const& jt : mf.jump_tables)
+            {
+                while (rodata_data.size() % 8 != 0)
+                    rodata_data.push_back(0);
+
+                auto jt_sym_it = name_to_sym_idx.find(jt.symbol);
+                std::uint64_t jt_offset = rodata_data.size();
+
+                for (std::size_t ei = 0; ei < jt.targets.size(); ++ei)
+                {
+                    std::uint32_t tgt_block = jt.targets[ei];
+                    std::string blk_sym = mf.owned_name.empty() ? "anon" : mf.owned_name;
+                    blk_sym += ".bb" + std::to_string(tgt_block);
+
+                    auto blk_sym_it = name_to_sym_idx.find(blk_sym);
+                    std::uint64_t entry_offset = rodata_data.size();
+                    for (int k = 0; k < 8; ++k)
+                        rodata_data.push_back(0);
+
+                    if (blk_sym_it != name_to_sym_idx.end())
+                    {
+                        Elf64_Rela rela{};
+                        rela.r_offset = entry_offset;
+                        rela.r_addend = 0;
+                        rela.r_info = elf_r_info(blk_sym_it->second, R_X86_64_64);
+                        rodata_relas.push_back(rela);
+                    }
+                }
+
+                if (jt_sym_it != name_to_sym_idx.end())
+                    syms[jt_sym_it->second].st_value = jt_offset;
+            }
         }
 
         data_data.clear();
@@ -955,7 +1082,14 @@ export namespace dcc::backend::em64t
         shdrs[sec_symtab].sh_offset = symtab_off;
         shdrs[sec_symtab].sh_size = symtab_size;
         shdrs[sec_symtab].sh_link = sec_strtab;
-        shdrs[sec_symtab].sh_info = 1 + local_count;
+        {
+            std::uint32_t last_local = 0;
+            for (std::size_t si = 0; si < syms.size(); ++si)
+                if ((syms[si].st_info & 0xF0) == 0)
+                    last_local = static_cast<std::uint32_t>(si);
+
+            shdrs[sec_symtab].sh_info = last_local + 1;
+        }
         shdrs[sec_symtab].sh_addralign = 8;
         shdrs[sec_symtab].sh_entsize = sizeof(Elf64_Sym);
 

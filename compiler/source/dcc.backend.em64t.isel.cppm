@@ -1,3 +1,5 @@
+#include <algorithm>
+
 export module dcc.backend.em64t.isel;
 
 import std;
@@ -2171,6 +2173,7 @@ namespace dcc::backend::em64t
                 case IrNodeKind::Switch: {
                     auto* sw = static_cast<IrSwitchInst const*>(term);
                     VReg val = ctx.try_materialize(sw->value);
+
                     if (!val.is_valid())
                         break;
 
@@ -2178,37 +2181,176 @@ namespace dcc::backend::em64t
                     if (def_it == ctx.ir_bb_to_mblock.end())
                         break;
 
-                    for (auto const& c : sw->cases)
+                    bool const is_int_switch = sw->value && sw->value->type && sw->value->type->kind == ir::IrTypeKind::Int;
+                    bool const is_bool_switch = sw->value && sw->value->type && sw->value->type->kind == ir::IrTypeKind::Bool;
+
+                    std::int64_t cmp_min = std::numeric_limits<std::int64_t>::max();
+                    std::int64_t cmp_max = std::numeric_limits<std::int64_t>::min();
+                    std::uint64_t expanded_count = 0;
+                    bool compute_ok = is_int_switch && !is_bool_switch;
+                    if (compute_ok)
                     {
-                        auto case_it = ctx.ir_bb_to_mblock.find(c.target);
-                        if (case_it == ctx.ir_bb_to_mblock.end())
-                            continue;
-
-                        if (c.start == c.end)
+                        for (auto const& c : sw->cases)
                         {
-                            VReg cmp_val = ctx.mfunc.new_vreg();
-                            emit_mov_ri(ctx, cmp_val, c.start, 64);
-                            emit_cmp(ctx, val, cmp_val);
-                            emit_jcc(ctx, MOpc::JE, case_it->second);
-                        }
-                        else
-                        {
-                            std::int64_t low = c.start;
-                            VReg sub_result = ctx.mfunc.new_vreg();
-                            MInstr sub;
-                            sub.opc = MOpc::SUB64ri;
-                            sub.num_ops = 2;
-                            sub.num_defs = 1;
-                            sub.ops[0] = MOp::from_reg(sub_result);
-                            sub.ops[1] = MOp::from_imm(low);
-                            ctx.append_instr((sub));
-
-                            emit_cmp(ctx, sub_result, VReg{});
-                            emit_jcc(ctx, MOpc::JBE, case_it->second);
+                            if (c.start > c.end)
+                            {
+                                compute_ok = false;
+                                break;
+                            }
+                            std::uint64_t c_count = static_cast<std::uint64_t>(c.end) - static_cast<std::uint64_t>(c.start) + 1;
+                            if (c_count > std::numeric_limits<std::uint64_t>::max() - expanded_count)
+                            {
+                                compute_ok = false;
+                                break;
+                            }
+                            expanded_count += c_count;
+                            cmp_min = std::min(c.start, cmp_min);
+                            cmp_max = std::max(c.end, cmp_max);
                         }
                     }
 
-                    emit_jmp(ctx, def_it->second);
+                    bool use_jump_table = false;
+                    std::int64_t jt_span = 0;
+                    if (compute_ok && expanded_count >= 6)
+                    {
+                        std::uint64_t const u_span = static_cast<std::uint64_t>(cmp_max) - static_cast<std::uint64_t>(cmp_min) + 1;
+                        jt_span = static_cast<std::int64_t>(u_span);
+
+                        std::uint64_t const max_allowed_span =
+                            (expanded_count <= std::numeric_limits<std::uint64_t>::max() / 4) ? expanded_count * 4 : std::numeric_limits<std::uint64_t>::max();
+
+                        if (jt_span > 0 && u_span <= max_allowed_span)
+                            use_jump_table = true;
+                    }
+
+                    if (use_jump_table)
+                    {
+                        std::uint32_t jt_id = ctx.mfunc.next_jump_table_id++;
+                        std::string func_name = ctx.mfunc.owned_name.empty() ? "anon" : ctx.mfunc.owned_name;
+
+                        std::string sanitized;
+                        for (char ch : func_name)
+                            if (std::isalnum(static_cast<unsigned char>(ch)) || ch == '_')
+                                sanitized += ch;
+                            else
+                                sanitized += '_';
+
+                        std::string sym_name = std::format(".Ljt_{}_{}", sanitized, jt_id);
+
+                        VReg index_vreg = ctx.mfunc.new_vreg();
+                        emit_mov(ctx, index_vreg, val);
+
+                        if (cmp_min != 0)
+                        {
+                            MInstr sub;
+                            sub.opc = MOpc::SUB64ri32;
+                            sub.num_ops = 2;
+                            sub.num_defs = 1;
+                            sub.ops[0] = MOp::from_reg(index_vreg);
+                            sub.ops[1] = MOp::from_imm(cmp_min);
+
+                            ctx.append_instr(sub);
+                        }
+
+                        std::int64_t span_minus_one = jt_span - 1;
+                        if (span_minus_one > 0)
+                        {
+                            VReg cmp_reg = ctx.mfunc.new_vreg();
+                            emit_mov_ri(ctx, cmp_reg, span_minus_one, 64);
+                            emit_cmp(ctx, index_vreg, cmp_reg);
+                            emit_jcc(ctx, MOpc::JA, def_it->second);
+                        }
+                        else if (span_minus_one == 0)
+                        {
+                            emit_test(ctx, index_vreg, index_vreg);
+                            emit_jcc(ctx, MOpc::JNE, def_it->second);
+                        }
+
+                        std::vector<std::uint32_t> targets(static_cast<std::size_t>(jt_span), def_it->second);
+                        for (auto const& c : sw->cases)
+                        {
+                            auto case_it = ctx.ir_bb_to_mblock.find(c.target);
+                            if (case_it == ctx.ir_bb_to_mblock.end())
+                                continue;
+
+                            for (std::int64_t v = c.start; v <= c.end; ++v)
+                            {
+                                std::size_t idx = static_cast<std::size_t>(v - cmp_min);
+                                if (idx < targets.size())
+                                    targets[idx] = case_it->second;
+                            }
+                        }
+
+                        MJumpTable jt;
+                        jt.id = jt_id;
+                        jt.min_value = cmp_min;
+                        jt.max_value = cmp_max;
+                        jt.targets = targets;
+                        jt.default_target = def_it->second;
+                        jt.symbol = sym_name;
+                        ctx.mfunc.jump_tables.push_back(std::move(jt));
+
+                        auto& jt_ref = ctx.mfunc.jump_tables.back();
+
+                        MInstr jti;
+                        jti.opc = MOpc::JUMP_TABLE;
+                        jti.num_ops = 2;
+                        jti.num_defs = 0;
+                        jti.ops[0] = MOp::from_reg(index_vreg);
+                        jti.ops[1] = MOp::from_symbol(jt_ref.symbol);
+                        jti.implicit_defs = (1ULL << static_cast<std::uint8_t>(PhysReg::R11));
+                        ctx.append_instr(jti);
+
+                        std::unordered_set<std::uint32_t> seen_succs;
+                        for (auto t : targets)
+                            seen_succs.insert(t);
+                        seen_succs.insert(def_it->second);
+
+                        auto* cur_blk = ctx.mfunc.block_by_id(ctx.current_block_id);
+                        if (cur_blk)
+                            for (auto s : seen_succs)
+                                cur_blk->succs.push_back(s);
+                    }
+                    else
+                    {
+                        for (auto const& c : sw->cases)
+                        {
+                            auto case_it = ctx.ir_bb_to_mblock.find(c.target);
+                            if (case_it == ctx.ir_bb_to_mblock.end())
+                                continue;
+
+                            if (c.start == c.end)
+                            {
+                                VReg cmp_val = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, cmp_val, c.start, 64);
+                                emit_cmp(ctx, val, cmp_val);
+                                emit_jcc(ctx, MOpc::JE, case_it->second);
+                            }
+                            else
+                            {
+                                std::int64_t low = c.start;
+                                std::uint64_t u_range = static_cast<std::uint64_t>(c.end) - static_cast<std::uint64_t>(c.start);
+                                std::int64_t range = static_cast<std::int64_t>(u_range);
+
+                                VReg sub_result = ctx.mfunc.new_vreg();
+                                MInstr sub;
+                                sub.opc = MOpc::SUB64rr;
+                                sub.num_ops = 3;
+                                sub.num_defs = 1;
+                                sub.ops[0] = MOp::from_reg(sub_result);
+                                sub.ops[1] = MOp::from_reg(val);
+                                sub.ops[2] = MOp::from_imm(low);
+                                ctx.append_instr(sub);
+
+                                VReg range_reg = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, range_reg, range, 64);
+                                emit_cmp(ctx, sub_result, range_reg);
+                                emit_jcc(ctx, MOpc::JBE, case_it->second);
+                            }
+                        }
+
+                        emit_jmp(ctx, def_it->second);
+                    }
                     break;
                 }
 
