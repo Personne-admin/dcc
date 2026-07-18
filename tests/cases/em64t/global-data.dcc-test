@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 const_val = 42;
+
+@nomangle
+i32 data_val = 100;
+
+@nomangle
+i32 bss_val;
+
+@nomangle
+public i32 helper_fn(i32 x) {
+    return x + 1;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return 42;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42

@@ -1,0 +1,34 @@
+=== FILE: test.dc ===
+module test;
+
+public struct TwoFloats {
+    f64 x;
+    f64 y;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public TwoFloats make_tf(f64 a, f64 b) {
+    return { x = a, y = b };
+}
+
+@nomangle
+public i32 dcc_main() {
+    TwoFloats tf = make_tf(3.0, 4.0);
+    if tf.x + tf.y > 6.0 {
+        return 1;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 1

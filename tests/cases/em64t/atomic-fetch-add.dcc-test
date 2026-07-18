@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+core::atomic::Atomic(i32) counter = { value = 10 };
+
+@nomangle
+public i32 dcc_main() {
+    i32 old = core::atomic::atomic_fetch_add(&counter, 5, core::atomic::MemoryOrder::SeqCst);
+    i32 cur = core::atomic::atomic_load(&counter, core::atomic::MemoryOrder::SeqCst);
+    return old + cur;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 25

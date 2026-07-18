@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Pair {
+    i32 a;
+    i32 b;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public Pair make_pair(i32 a, i32 b) {
+    return { a = a, b = b };
+}
+
+@nomangle
+public i32 dcc_main() {
+    Pair p = make_pair(10, 32);
+    return p.a + p.b;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42

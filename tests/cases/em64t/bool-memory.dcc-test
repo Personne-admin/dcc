@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 all_false() {
+    bool a = false;
+    bool b = true;
+    bool c = a;
+    if c {
+        return 0;
+    }
+
+    return 3;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return all_false();
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 3

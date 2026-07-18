@@ -1,0 +1,33 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Big {
+    i32 a;
+    i32 b;
+    i32 c;
+    i32 d;
+    i32 e;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public Big make_big(i32 x) {
+    return { a = x, b = x + 1, c = x + 2, d = x + 3, e = x + 4 };
+}
+
+@nomangle
+public i32 dcc_main() {
+    Big s = make_big(10);
+    return s.a + s.e;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 24

@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 classify(i32 v) {
+    return match v {
+        1 => 10,
+        2 => 20,
+        3 => 30,
+        _ => 99,
+    };
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 s = classify(1) + classify(2) + classify(3) + classify(4);
+    return s % 127;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 32

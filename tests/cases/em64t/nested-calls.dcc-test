@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 square(i32 x) {
+    return x * x;
+}
+
+@nomangle
+public i32 sum_of_squares(i32 a, i32 b) {
+    return square(a) + square(b);
+}
+
+@nomangle
+public i32 dcc_main() {
+    return sum_of_squares(3, 4);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 25

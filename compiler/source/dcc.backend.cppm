@@ -2,6 +2,7 @@ export module dcc.backend;
 
 import std;
 import dcc.ir;
+import dcc.ir.pass;
 import dcc.target;
 import dcc.sm;
 
@@ -50,6 +51,7 @@ export namespace dcc::backend
         DebugFormat debug_format{DebugFormat::Auto};
         bool omit_frame_pointer{true};
         sm::SourceManager const* source_manager{};
+        dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
     };
 
     class Backend
