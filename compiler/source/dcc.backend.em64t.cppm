@@ -253,43 +253,9 @@ namespace dcc::backend
                     of.write(reinterpret_cast<char const*>(object_bytes.data()), static_cast<std::streamsize>(object_bytes.size()));
                 }
 
-                auto asm_path = work_dir / "start.s";
-                {
-                    std::ofstream of{asm_path};
-                    if (!of)
-                    {
-                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write start.s"});
-                        cleanup();
-                        return std::nullopt;
-                    }
-                    of << ".text\n"
-                       << ".globl _start\n"
-                       << "_start:\n"
-                       << "    call dcc_main\n"
-                       << "    mov %eax, %edi\n"
-                       << "    mov $60, %eax\n"
-                       << "    syscall\n";
-                }
-
-                auto start_obj_path = work_dir / "start.o";
                 auto exe_path = work_dir / "out";
 
-                auto asm_cmd = std::format("clang -x assembler -c {} -o {} 2>/dev/null", asm_path.string(), start_obj_path.string());
-                int asm_rc = std::system(asm_cmd.c_str());
-                if (asm_rc != 0)
-                {
-                    asm_cmd = std::format("as {} -o {} 2>/dev/null", asm_path.string(), start_obj_path.string());
-                    asm_rc = std::system(asm_cmd.c_str());
-                }
-                if (asm_rc != 0)
-                {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot assemble start.s (no assembler available)"});
-                    cleanup();
-                    return std::nullopt;
-                }
-
-                std::string link_cmd = std::format("ld.lld --static --no-dynamic-linker --fatal-warnings -e _start -o {} {} {}", exe_path.string(),
-                                                   obj_path.string(), start_obj_path.string());
+                std::string link_cmd = std::format("ld.lld --static --no-dynamic-linker --fatal-warnings -o {} {}", exe_path.string(), obj_path.string());
 
                 for (auto const& obj : opts.additional_objects)
                     link_cmd += " " + obj;
