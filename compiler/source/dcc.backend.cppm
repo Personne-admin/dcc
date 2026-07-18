@@ -11,9 +11,11 @@ export namespace dcc::backend
     enum class ArtifactKind : std::uint8_t
     {
         LlvmIrText,
+        MirText,
         AsmText,
         ObjectBytes,
         ExecutableBytes,
+        ArchiveBytes,
     };
 
     enum class DebugFormat : std::uint8_t
@@ -33,9 +35,11 @@ export namespace dcc::backend
     struct BackendArtifact
     {
         std::optional<std::string> llvm_ir_text;
+        std::optional<std::string> mir_text;
         std::optional<std::string> asm_text;
         std::optional<std::vector<std::byte>> object_bytes;
         std::optional<std::vector<std::byte>> executable_bytes;
+        std::optional<std::vector<std::byte>> archive_bytes;
         std::vector<BackendDiagnostic> diagnostics;
     };
 

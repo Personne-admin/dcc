@@ -19,6 +19,12 @@ import dcc.session;
 import dcc.backend.llvm;
 #endif
 import dcc.backend.em64t;
+import dcc.backend.em64t.objwriter;
+
+#ifndef _WIN32
+#include <sys/ioctl.h>
+#include <unistd.h>
+#endif
 
 namespace
 {
@@ -107,7 +113,7 @@ namespace
         bool dump_ast{false};
         bool dump_ir{false};
         bool dump_llvm{false};
-        bool dump_asm{false};
+        bool dump_mir{false};
         bool compile_only{false};
         bool emit_asm_only{false};
         bool bounds_check{false};
@@ -186,9 +192,9 @@ namespace
                 continue;
             }
 
-            if (arg == "-fdump-asm")
+            if (arg == "-fdump-mir")
             {
-                opts.dump_asm = true;
+                opts.dump_mir = true;
                 ++i;
                 continue;
             }
@@ -453,17 +459,97 @@ namespace
         return opts;
     }
 
+    [[nodiscard]] int get_terminal_width()
+    {
+#ifndef _WIN32
+        struct winsize w;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1)
+            return w.ws_col;
+#endif
+        return 80;
+    }
+
     void print_usage()
     {
-        std::println(
-            "usage: dcc [-I<dir>] [-J<decl>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] [-S] "
-            "[-O0|-O1|-O2|-Os] "
-            "[-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
-            "[-fno-red-zone] [-fno-simd] [-fno-x87] [-fno-stack-protector] [-fno-stack-probe] [-fomit-frame-pointer|-fno-omit-frame-pointer] [-fPIC|-fPIE] "
-            "[-fbackend llvm|em64t] "
-            "[-mcmodel <model>] "
-            "[-target <triple>] [-h] [-o "
-            "<file>] <input-file>");
+        const struct OptionHelp
+        {
+            std::string_view flag;
+            std::string_view desc;
+        } options[] = {{"-I<dir>", "add import search path"},
+                       {"-J<decl>", "inject a declaration"},
+                       {"-o <file>", "output file"},
+                       {"-c", "compile to object file only"},
+                       {"-S", "emit assembly only"},
+                       {"-fdump-ast", "dump AST and exit"},
+                       {"-fdump-ir", "dump IR and exit"},
+                       {"-fdump-llvm", "dump LLVM IR"},
+                       {"-fdump-mir", "dump em64t MIR"},
+                       {"-flibdcext", "link with libdcext"},
+                       {"-fbounds-check", "enable bounds checking"},
+                       {"-fbackend <name>", "select backend (llvm, em64t)"},
+                       {"-O0|-O1|-O2|-Os", "optimization level"},
+                       {"-g, -g0, -g3", "debug info level"},
+                       {"-gdwarf", "DWARF debug info"},
+                       {"-gpdb", "PDB debug info"},
+                       {"-gnone", "no debug info"},
+                       {"-fno-red-zone", "disable red zone"},
+                       {"-fno-simd", "disable SIMD"},
+                       {"-fno-x87", "disable x87 FPU"},
+                       {"-fno-stack-protector", "disable stack protector"},
+                       {"-fno-stack-probe", "disable stack probing"},
+                       {"-fPIC | -fPIE", "position-independent code"},
+                       {"-mcmodel <model>", "code model (default, small, kernel, medium, large)"},
+                       {"-target <triple>", "target triple"},
+                       {"-h, --help", "show this help"},
+                       {"-fomit-frame-pointer | -fno-omit-frame-pointer", "toggle frame pointer omission"}};
+
+        int const term_width = get_terminal_width();
+        int const flag_col_width = 24;
+        int const desc_col_width = std::max(20, term_width - flag_col_width - 4);
+
+        std::println("usage: dcc [options] <input-file>\n");
+        std::println("options:");
+
+        for (auto const& opt : options)
+        {
+            if (opt.flag.length() >= flag_col_width)
+            {
+                std::println("  {}", opt.flag);
+                std::print("{:<{}}", "", flag_col_width + 2);
+            }
+            else
+                std::print("  {:<{}}", opt.flag, flag_col_width);
+
+            std::string_view desc = opt.desc;
+            bool first_line = true;
+
+            while (!desc.empty())
+            {
+                if (!first_line)
+                    std::print("{:<{}}", "", flag_col_width + 2);
+
+                if (desc.length() <= static_cast<std::size_t>(desc_col_width))
+                {
+                    std::println("{}", desc);
+                    break;
+                }
+
+                auto wrap_pos = desc.find_last_of(" \t", static_cast<std::size_t>(desc_col_width));
+                if (wrap_pos == std::string_view::npos)
+                    wrap_pos = static_cast<std::size_t>(desc_col_width);
+
+                std::println("{}", desc.substr(0, wrap_pos));
+
+                desc = desc.substr(wrap_pos);
+                auto first_non_space = desc.find_first_not_of(" \t");
+                if (first_non_space != std::string_view::npos)
+                    desc = desc.substr(first_non_space);
+                else
+                    desc = "";
+
+                first_line = false;
+            }
+        }
     }
 
     [[nodiscard]] std::filesystem::path output_base(Options const& opts, std::filesystem::path const& input_path)
@@ -471,7 +557,7 @@ namespace
         if (!opts.output_file.empty())
         {
             auto ext = opts.output_file.extension().string();
-            if (ext == ".ll" || ext == ".s" || ext == ".o")
+            if (ext == ".ll" || ext == ".mir" || ext == ".s" || ext == ".o" || ext == ".a")
             {
                 auto base = opts.output_file;
                 base.replace_extension("");
@@ -488,10 +574,14 @@ namespace
     {
         if (ext == ".ll")
             return dcc::backend::ArtifactKind::LlvmIrText;
+        if (ext == ".mir")
+            return dcc::backend::ArtifactKind::MirText;
         if (ext == ".s")
             return dcc::backend::ArtifactKind::AsmText;
         if (ext == ".o")
             return dcc::backend::ArtifactKind::ObjectBytes;
+        if (ext == ".a")
+            return dcc::backend::ArtifactKind::ArchiveBytes;
         return std::nullopt;
     }
 
@@ -518,11 +608,95 @@ namespace
     bool write_artifacts(dcc::backend::BackendArtifact const& artifact, Options const& opts, std::filesystem::path const& input_path)
     {
         auto base = output_base(opts, input_path);
-        bool ok = true;
 
+        auto do_write = [&](std::filesystem::path const& path, auto const& content) -> bool {
+            if (!write_file(path, content))
+            {
+                std::println(std::cerr, "dcc: error: cannot write to '{}'", path.string());
+                return false;
+            }
+            return true;
+        };
+
+        if (opts.emit_asm_only)
+        {
+            if (artifact.asm_text)
+            {
+                auto path = opts.output_file.empty() ? base : opts.output_file;
+                if (opts.output_file.empty())
+                    path += ".s";
+                return do_write(path, *artifact.asm_text);
+            }
+            return true;
+        }
+
+        if (opts.compile_only)
+        {
+            if (artifact.object_bytes)
+            {
+                auto path = opts.output_file.empty() ? base : opts.output_file;
+                if (opts.output_file.empty())
+                    path += ".o";
+                return do_write(path, *artifact.object_bytes);
+            }
+            return true;
+        }
+
+        if (opts.dump_llvm || opts.dump_mir)
+        {
+            bool const has_llvm = artifact.llvm_ir_text.has_value();
+            bool const has_mir = artifact.mir_text.has_value();
+
+            if (opts.output_file.empty())
+            {
+                if (has_llvm)
+                    std::print("{}", *artifact.llvm_ir_text);
+                if (has_mir)
+                    std::print("{}", *artifact.mir_text);
+            }
+            else if (has_llvm && has_mir)
+            {
+                auto dump_ext = opts.output_file.extension().string();
+                if (dump_ext == ".mir")
+                {
+                    if (!do_write(opts.output_file, *artifact.mir_text))
+                        return false;
+
+                    auto llvm_path = base;
+                    llvm_path += ".ll";
+                    if (!do_write(llvm_path, *artifact.llvm_ir_text))
+                        return false;
+                }
+                else
+                {
+                    if (!do_write(opts.output_file, *artifact.llvm_ir_text))
+                        return false;
+
+                    auto mir_path = base;
+                    mir_path += ".mir";
+                    if (!do_write(mir_path, *artifact.mir_text))
+                        return false;
+                }
+            }
+            else if (has_llvm)
+            {
+                if (!do_write(opts.output_file, *artifact.llvm_ir_text))
+                    return false;
+            }
+            else if (has_mir)
+            {
+                if (!do_write(opts.output_file, *artifact.mir_text))
+                    return false;
+            }
+            return true;
+        }
+
+        bool ok = true;
+        bool mir_written_via_extension = false;
         bool asm_written_via_extension = false;
         bool obj_written_via_extension = false;
         bool llvm_written_via_extension = false;
+        bool archive_written_via_extension = false;
 
         if (!opts.output_file.empty())
         {
@@ -533,28 +707,29 @@ namespace
                 switch (*kind)
                 {
                     case dcc::backend::ArtifactKind::LlvmIrText:
-                        if (artifact.llvm_ir_text && !write_file(opts.output_file, *artifact.llvm_ir_text))
-                        {
-                            std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
+                        if (artifact.llvm_ir_text && !do_write(opts.output_file, *artifact.llvm_ir_text))
                             ok = false;
-                        }
                         llvm_written_via_extension = true;
                         break;
-                    case dcc::backend::ArtifactKind::AsmText:
-                        if (artifact.asm_text && !write_file(opts.output_file, *artifact.asm_text))
-                        {
-                            std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
+                    case dcc::backend::ArtifactKind::MirText:
+                        if (artifact.mir_text && !do_write(opts.output_file, *artifact.mir_text))
                             ok = false;
-                        }
+                        mir_written_via_extension = true;
+                        break;
+                    case dcc::backend::ArtifactKind::AsmText:
+                        if (artifact.asm_text && !do_write(opts.output_file, *artifact.asm_text))
+                            ok = false;
                         asm_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::ObjectBytes:
-                        if (artifact.object_bytes && !write_file(opts.output_file, *artifact.object_bytes))
-                        {
-                            std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
+                        if (artifact.object_bytes && !do_write(opts.output_file, *artifact.object_bytes))
                             ok = false;
-                        }
                         obj_written_via_extension = true;
+                        break;
+                    case dcc::backend::ArtifactKind::ArchiveBytes:
+                        if (artifact.archive_bytes && !do_write(opts.output_file, *artifact.archive_bytes))
+                            ok = false;
+                        archive_written_via_extension = true;
                         break;
                     default:
                         break;
@@ -562,39 +737,29 @@ namespace
             }
             else if (artifact.executable_bytes)
             {
-                auto path = opts.output_file;
-                if (!write_file(path, *artifact.executable_bytes))
-                {
-                    std::println(std::cerr, "dcc: error: cannot write to '{}'", path.string());
+                if (!do_write(opts.output_file, *artifact.executable_bytes))
                     ok = false;
-                }
                 else
                 {
                     std::error_code ec;
-                    std::filesystem::permissions(path,
+                    std::filesystem::permissions(opts.output_file,
                                                  std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
                                                  std::filesystem::perm_options::add, ec);
                 }
             }
         }
-        else
+        else if (artifact.executable_bytes)
         {
-            if (artifact.executable_bytes)
+            auto path = base;
+            path.replace_extension("");
+            if (!do_write(path, *artifact.executable_bytes))
+                ok = false;
+            else
             {
-                auto path = base;
-                path.replace_extension("");
-                if (!write_file(path, *artifact.executable_bytes))
-                {
-                    std::println(std::cerr, "dcc: error: cannot write to '{}'", path.string());
-                    ok = false;
-                }
-                else
-                {
-                    std::error_code ec;
-                    std::filesystem::permissions(path,
-                                                 std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
-                                                 std::filesystem::perm_options::add, ec);
-                }
+                std::error_code ec;
+                std::filesystem::permissions(path,
+                                             std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+                                             std::filesystem::perm_options::add, ec);
             }
         }
 
@@ -606,35 +771,34 @@ namespace
             {
                 auto path = base;
                 path += ".ll";
-                if (!write_file(path, *artifact.llvm_ir_text))
-                {
-                    std::println(std::cerr, "dcc: error: cannot write to '{}'", path.string());
+                if (!do_write(path, *artifact.llvm_ir_text))
                     ok = false;
-                }
+            }
+        }
+
+        if (artifact.mir_text && !mir_written_via_extension)
+        {
+            if (opts.output_file.empty())
+                std::print("{}", *artifact.mir_text);
+            else
+            {
+                auto path = base;
+                path += ".mir";
+                if (!do_write(path, *artifact.mir_text))
+                    ok = false;
             }
         }
 
         if (artifact.asm_text && !asm_written_via_extension)
         {
-            if (opts.emit_asm_only && !opts.output_file.empty())
-            {
-                if (!write_file(opts.output_file, *artifact.asm_text))
-                {
-                    std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
-                    ok = false;
-                }
-            }
-            else if (opts.output_file.empty())
+            if (opts.output_file.empty())
                 std::print("{}", *artifact.asm_text);
             else
             {
                 auto path = base;
                 path += ".s";
-                if (!write_file(path, *artifact.asm_text))
-                {
-                    std::println(std::cerr, "dcc: error: cannot write to '{}'", path.string());
+                if (!do_write(path, *artifact.asm_text))
                     ok = false;
-                }
             }
         }
 
@@ -643,12 +807,17 @@ namespace
             auto path = base;
             if (path.extension().empty())
                 path += ".o";
-
-            if (!write_file(path, *artifact.object_bytes))
-            {
-                std::println(std::cerr, "dcc: error: cannot write to '{}'", path.string());
+            if (!do_write(path, *artifact.object_bytes))
                 ok = false;
-            }
+        }
+
+        if (artifact.archive_bytes && !archive_written_via_extension)
+        {
+            auto path = base;
+            if (path.extension().empty())
+                path += ".a";
+            if (!do_write(path, *artifact.archive_bytes))
+                ok = false;
         }
 
         return ok;
@@ -658,14 +827,25 @@ namespace
     {
         std::set<dcc::backend::ArtifactKind> kinds;
 
+        if (opts.emit_asm_only)
+        {
+            kinds.insert(dcc::backend::ArtifactKind::AsmText);
+            return kinds;
+        }
+
+        if (opts.compile_only)
+        {
+            kinds.insert(dcc::backend::ArtifactKind::ObjectBytes);
+            return kinds;
+        }
+
         if (opts.dump_llvm)
             kinds.insert(dcc::backend::ArtifactKind::LlvmIrText);
-        if (opts.dump_asm)
-            kinds.insert(dcc::backend::ArtifactKind::AsmText);
-        if (opts.compile_only)
-            kinds.insert(dcc::backend::ArtifactKind::ObjectBytes);
-        if (opts.emit_asm_only)
-            kinds.insert(dcc::backend::ArtifactKind::AsmText);
+        if (opts.dump_mir)
+            kinds.insert(dcc::backend::ArtifactKind::MirText);
+
+        if (!kinds.empty())
+            return kinds;
 
         if (!opts.output_file.empty())
         {
@@ -673,30 +853,26 @@ namespace
             auto kind = artifact_kind_for_extension(ext);
             if (kind)
                 kinds.insert(*kind);
+            else
+                kinds.insert(dcc::backend::ArtifactKind::ExecutableBytes);
+            return kinds;
         }
 
-        if (kinds.empty() && !opts.dump_llvm && !opts.dump_asm && !opts.compile_only && !opts.emit_asm_only)
-            kinds.insert(dcc::backend::ArtifactKind::ExecutableBytes);
-
+        kinds.insert(dcc::backend::ArtifactKind::ExecutableBytes);
         return kinds;
     }
 
     [[nodiscard]] bool backend_needed(Options const& opts)
     {
-        if (opts.dump_llvm || opts.dump_asm || opts.compile_only || opts.emit_asm_only)
+        if (opts.dump_llvm || opts.dump_mir || opts.compile_only || opts.emit_asm_only)
             return true;
 
         if (!opts.output_file.empty())
         {
             auto ext = opts.output_file.extension().string();
-            if (ext == ".ll" || ext == ".s" || ext == ".o")
+            if (ext == ".ll" || ext == ".mir" || ext == ".s" || ext == ".o" || ext == ".a")
                 return true;
 
-            if (ext == ".a")
-            {
-                std::println(std::cerr, "dcc: error: static archive output is not supported"); // TODO use ar
-                std::exit(1);
-            }
             return true;
         }
 
@@ -713,6 +889,12 @@ auto main(int argc, char** argv) -> int
     {
         print_usage();
         return opts.help ? 0 : 1;
+    }
+
+    if (opts.compile_only && opts.emit_asm_only)
+    {
+        std::println(std::cerr, "dcc: error: cannot specify both -c and -S");
+        return 1;
     }
 
     std::error_code ec;
@@ -818,7 +1000,7 @@ auto main(int argc, char** argv) -> int
             auto kinds = desired_artifacts(opts);
             if (kinds.empty())
             {
-                std::println(std::cerr, "dcc: error: no output artifact requested; use -fdump-llvm, -fdump-asm, -c, or -o");
+                std::println(std::cerr, "dcc: error: no output artifact requested; use -fdump-llvm, -fdump-mir, -S, -c, or -o");
                 return 1;
             }
 
@@ -839,7 +1021,25 @@ auto main(int argc, char** argv) -> int
 
             if (opts.backend_name == "llvm")
             {
+                if (kinds.contains(dcc::backend::ArtifactKind::MirText))
+                {
+                    std::println(std::cerr, "dcc: error: LLVM backend does not support MIR output");
+                    return 1;
+                }
+
 #if DCC_ENABLE_LLVM
+                bool need_archive_wrap = kinds.contains(dcc::backend::ArtifactKind::ArchiveBytes);
+                if (need_archive_wrap)
+                {
+                    if (target.object_format == dcc::target::ObjectFormat::Coff)
+                    {
+                        std::println(std::cerr, "dcc: error: static archive output is not supported for COFF target"); // TODO
+                        return 1;
+                    }
+                    backend_opts.requested_artifacts.erase(dcc::backend::ArtifactKind::ArchiveBytes);
+                    backend_opts.requested_artifacts.insert(dcc::backend::ArtifactKind::ObjectBytes);
+                }
+
                 auto backend = dcc::backend::make_llvm_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
 
@@ -851,6 +1051,34 @@ auto main(int argc, char** argv) -> int
                     return 1;
                 }
 
+                if (need_archive_wrap)
+                {
+                    if (artifact.object_bytes)
+                    {
+                        std::string member_name{ir_mod->name};
+                        if (member_name.empty())
+                            member_name = "module";
+                        member_name += ".o";
+
+                        std::vector<std::uint8_t> obj_data;
+                        obj_data.reserve(artifact.object_bytes->size());
+                        for (auto b : *artifact.object_bytes)
+                            obj_data.push_back(static_cast<std::uint8_t>(b));
+
+                        std::vector<std::pair<std::string, std::vector<std::uint8_t>>> archive_members;
+                        archive_members.emplace_back(std::move(member_name), std::move(obj_data));
+                        auto archive_data = dcc::backend::em64t::write_archive_elf(archive_members);
+
+                        std::vector<std::byte> archive_bytes;
+                        archive_bytes.reserve(archive_data.size());
+                        for (auto b : archive_data)
+                            archive_bytes.push_back(static_cast<std::byte>(b));
+                        artifact.archive_bytes = std::move(archive_bytes);
+                    }
+
+                    artifact.object_bytes.reset();
+                }
+
                 if (!write_artifacts(artifact, opts, input_path))
                     return 1;
 #else
@@ -860,13 +1088,10 @@ auto main(int argc, char** argv) -> int
             }
             else if (opts.backend_name == "em64t")
             {
-                for (auto k : kinds)
+                if (kinds.contains(dcc::backend::ArtifactKind::LlvmIrText))
                 {
-                    if (k == dcc::backend::ArtifactKind::LlvmIrText || k == dcc::backend::ArtifactKind::ExecutableBytes)
-                    {
-                        std::println(std::cerr, "dcc: error: currently selected backend does not support artifact kind {}.", static_cast<int>(k));
-                        return 1;
-                    }
+                    std::println(std::cerr, "dcc: error: em64t backend does not support LLVM IR output");
+                    return 1;
                 }
 
                 auto backend = dcc::backend::make_em64t_backend();
