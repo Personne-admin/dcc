@@ -16,6 +16,7 @@ namespace dcc::backend::em64t
                 case MOpc::JMP:
                 case MOpc::JMP_rel32:
                 case MOpc::JMP_r64:
+                case MOpc::JUMP_TABLE:
                 case MOpc::JMPm:
                 case MOpc::JE:
                 case MOpc::JNE:
@@ -873,6 +874,9 @@ namespace dcc::backend::em64t
                         RegClass rc;
                     };
 
+                    bool is_jump_table = (instr.opc == MOpc::JUMP_TABLE);
+                    PhysReg use_scratch = is_jump_table ? PhysReg::R10 : PhysReg::R11;
+
                     std::vector<ReloadInfo> reloads_needed;
                     std::vector<unsigned> spilled_def_indices;
 
@@ -883,7 +887,7 @@ namespace dcc::backend::em64t
                         {
                             auto it = range_map.find(op.reg);
                             if (it != range_map.end() && it->second->spilled)
-                                reloads_needed.push_back({op.reg, PhysReg::R11, RegClass::GPR64});
+                                reloads_needed.push_back({op.reg, use_scratch, RegClass::GPR64});
                         }
                         else if (op.kind == MOpKind::Mem)
                         {
@@ -891,13 +895,13 @@ namespace dcc::backend::em64t
                             {
                                 auto it = range_map.find(op.mem.base);
                                 if (it != range_map.end() && it->second->spilled)
-                                    reloads_needed.push_back({op.mem.base, PhysReg::R11, RegClass::GPR64});
+                                    reloads_needed.push_back({op.mem.base, use_scratch, RegClass::GPR64});
                             }
                             if (op.mem.index.is_virtual())
                             {
                                 auto it = range_map.find(op.mem.index);
                                 if (it != range_map.end() && it->second->spilled)
-                                    reloads_needed.push_back({op.mem.index, PhysReg::R11, RegClass::GPR64});
+                                    reloads_needed.push_back({op.mem.index, use_scratch, RegClass::GPR64});
                             }
                         }
                     }
@@ -958,45 +962,48 @@ namespace dcc::backend::em64t
                         new_instr.ops[idx].reg = scratch;
                     }
 
-                    for (std::uint8_t oi = instr.num_defs; oi < new_instr.num_ops; ++oi)
                     {
-                        auto& op = new_instr.ops[oi];
-                        if (op.kind == MOpKind::Reg && op.reg.is_virtual())
+                        VReg jt_scratch_gpr = is_jump_table ? VReg::phys(PhysReg::R10) : scratch_gpr;
+                        for (std::uint8_t oi = instr.num_defs; oi < new_instr.num_ops; ++oi)
                         {
-                            auto it = range_map.find(op.reg);
-                            if (it != range_map.end())
+                            auto& op = new_instr.ops[oi];
+                            if (op.kind == MOpKind::Reg && op.reg.is_virtual())
                             {
-                                if (it->second->spilled)
-                                {
-                                    VReg scratch = (it->second->reg_class == RegClass::XMM) ? scratch_xmm : scratch_gpr;
-                                    op.reg = scratch;
-                                }
-                                else if (it->second->assigned != PhysReg::None)
-                                    op.reg = VReg::phys(it->second->assigned);
-                            }
-                        }
-                        else if (op.kind == MOpKind::Mem)
-                        {
-                            if (op.mem.base.is_virtual())
-                            {
-                                auto it = range_map.find(op.mem.base);
+                                auto it = range_map.find(op.reg);
                                 if (it != range_map.end())
                                 {
                                     if (it->second->spilled)
-                                        op.mem.base = scratch_gpr;
+                                    {
+                                        VReg scratch = (it->second->reg_class == RegClass::XMM) ? scratch_xmm : jt_scratch_gpr;
+                                        op.reg = scratch;
+                                    }
                                     else if (it->second->assigned != PhysReg::None)
-                                        op.mem.base = VReg::phys(it->second->assigned);
+                                        op.reg = VReg::phys(it->second->assigned);
                                 }
                             }
-                            if (op.mem.index.is_virtual())
+                            else if (op.kind == MOpKind::Mem)
                             {
-                                auto it = range_map.find(op.mem.index);
-                                if (it != range_map.end())
+                                if (op.mem.base.is_virtual())
                                 {
-                                    if (it->second->spilled)
-                                        op.mem.index = scratch_gpr;
-                                    else if (it->second->assigned != PhysReg::None)
-                                        op.mem.index = VReg::phys(it->second->assigned);
+                                    auto it = range_map.find(op.mem.base);
+                                    if (it != range_map.end())
+                                    {
+                                        if (it->second->spilled)
+                                            op.mem.base = jt_scratch_gpr;
+                                        else if (it->second->assigned != PhysReg::None)
+                                            op.mem.base = VReg::phys(it->second->assigned);
+                                    }
+                                }
+                                if (op.mem.index.is_virtual())
+                                {
+                                    auto it = range_map.find(op.mem.index);
+                                    if (it != range_map.end())
+                                    {
+                                        if (it->second->spilled)
+                                            op.mem.index = jt_scratch_gpr;
+                                        else if (it->second->assigned != PhysReg::None)
+                                            op.mem.index = VReg::phys(it->second->assigned);
+                                    }
                                 }
                             }
                         }
