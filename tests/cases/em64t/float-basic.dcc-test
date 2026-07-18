@@ -1,0 +1,38 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public f64 add_f64(f64 a, f64 b) {
+    return a + b;
+}
+
+@nomangle
+public i32 float_check() {
+    f64 sum = add_f64(1.5, 2.5);
+    f64 limit = 3.0;
+    bool gt = sum > limit;
+    if gt {
+        f64 val = 7.9;
+        i32 conv = val as i32;
+        return 1 + conv;
+    }
+
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return float_check();
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 8

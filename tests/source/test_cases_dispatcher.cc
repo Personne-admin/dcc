@@ -1,4 +1,6 @@
 #include <cstdio>
+#include <cstdlib>
+#include <sys/wait.h>
 
 import std;
 
@@ -19,11 +21,13 @@ import dcc.sema.infer;
 import dcc.types;
 import dcc.ir;
 import dcc.ir.lower;
+import dcc.ir.pass;
 import dcc.target;
 import dcc.backend;
 #if DCC_ENABLE_LLVM
 import dcc.backend.llvm;
 #endif
+import dcc.backend.em64t;
 
 namespace
 {
@@ -121,6 +125,14 @@ namespace
         bool omit_frame_pointer{true};
     };
 
+    struct ExpectEm64tObject
+    {
+        std::size_t base_line{};
+        bool verify_sections{true};
+        std::optional<int> run_exit_code;
+        int opt_level{0};
+    };
+
     struct Fixture
     {
         std::vector<VirtualFile> files;
@@ -135,6 +147,7 @@ namespace
         std::vector<ExpectRegistry> registry_blocks;
         std::vector<ExpectError> errors;
         std::vector<ExpectExecutable> executable_blocks;
+        std::vector<ExpectEm64tObject> em64t_object_blocks;
         std::vector<std::string> injected_decls;
         bool errors_block_present{};
         bool interactive_mode{};
@@ -399,6 +412,44 @@ namespace
                     }
                 }
                 fx.llvm_blocks.push_back(std::move(e));
+            }
+            else if (starts_with(h, "EXPECT-EM64T-OBJECT"))
+            {
+                ExpectEm64tObject e;
+                e.base_line = sec.body_start_line;
+                e.verify_sections = true;
+                e.opt_level = 0;
+                auto flags_start = h.find("FLAGS:");
+                if (flags_start != std::string::npos)
+                {
+                    auto flags_str = trim(std::string_view{h}.substr(flags_start + 6));
+                    if (flags_str.find("-no-section-check") != std::string::npos)
+                        e.verify_sections = false;
+                    if (flags_str.find("-O1") != std::string::npos || flags_str.find("OPT-LEVEL: 1") != std::string::npos)
+                        e.opt_level = 1;
+                }
+
+                if (!sec.body.empty())
+                {
+                    std::istringstream body_ss{sec.body};
+                    std::string body_line;
+                    while (std::getline(body_ss, body_line))
+                    {
+                        auto tl = trim(body_line);
+                        if (starts_with(tl, "RUN-EXIT:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(9));
+                            try
+                            {
+                                e.run_exit_code = std::stoi(std::string{val_str});
+                            }
+                            catch (...)
+                            {
+                            }
+                        }
+                    }
+                }
+                fx.em64t_object_blocks.push_back(std::move(e));
             }
             else if (starts_with(h, "EXPECT-EXECUTABLE"))
             {
@@ -1652,6 +1703,267 @@ namespace
             ++stats.skipped;
             break;
 #endif
+        }
+
+        for (auto const& exp : fx.em64t_object_blocks)
+        {
+            auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
+            if (!mod)
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: no module found  ({}:{})", path.string(), exp.base_line);
+                continue;
+            }
+
+            dcc::target::TargetConfig target = dcc::target::TargetConfig::host_default();
+            dcc::ir::IrContext ir_ctx{256 * 1024, &target};
+            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+            auto* ir_mod = lowerer->lower_module(*mod);
+
+            dcc::backend::BackendOptions backend_opts;
+            backend_opts.target = target;
+            backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
+            backend_opts.opt_level = static_cast<dcc::ir::pass::OptLevel>(exp.opt_level);
+
+            auto backend = dcc::backend::make_em64t_backend();
+            auto artifact = backend->emit(*ir_mod, backend_opts);
+
+            if (!artifact.object_bytes)
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: no object bytes produced  ({}:{})", path.string(), exp.base_line);
+                if (!artifact.diagnostics.empty())
+                {
+                    for (auto const& d : artifact.diagnostics)
+                        std::println(std::cerr, "          backend diagnostic: {}", d.message);
+                }
+                continue;
+            }
+
+            auto const& obj = *artifact.object_bytes;
+
+            if (obj.size() < 64)
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: object too small ({} bytes)  ({}:{})", obj.size(), path.string(), exp.base_line);
+                continue;
+            }
+
+            bool elf_valid = true;
+            if (static_cast<int>(obj[0]) != 0x7f || static_cast<int>(obj[1]) != 'E' || static_cast<int>(obj[2]) != 'L' || static_cast<int>(obj[3]) != 'F')
+            {
+                elf_valid = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: bad ELF magic  ({}:{})", path.string(), exp.base_line);
+            }
+
+            if (static_cast<int>(obj[4]) != 2)
+            {
+                elf_valid = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: EI_CLASS != 2 (64-bit)  ({}:{})", path.string(), exp.base_line);
+            }
+
+            if (exp.verify_sections && elf_valid && obj.size() >= 64)
+            {
+                auto rd_elf64 = [&](std::size_t off, unsigned bytes) -> std::uint64_t {
+                    std::uint64_t v = 0;
+                    for (unsigned i = 0; i < bytes && off + i < obj.size(); ++i)
+                        v |= static_cast<std::uint64_t>(static_cast<unsigned char>(obj[off + i])) << (i * 8);
+                    return v;
+                };
+
+                std::uint64_t e_shoff = rd_elf64(40, 8);
+                std::uint64_t e_shentsize = rd_elf64(58, 2);
+                std::uint64_t e_shnum = rd_elf64(60, 2);
+                std::uint64_t e_shstrndx = rd_elf64(62, 2);
+
+                if (e_shentsize < 64 || e_shnum < 3 || e_shstrndx >= e_shnum)
+                {
+                    elf_valid = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: malformed section headers (shnum={}, shentsize={}, shstrndx={})  ({}:{})", e_shnum,
+                                 e_shentsize, e_shstrndx, path.string(), exp.base_line);
+                }
+                else
+                {
+                    std::uint64_t shdr_size = e_shentsize;
+                    std::uint64_t shdr_table_end = e_shoff + e_shnum * shdr_size;
+                    if (shdr_table_end > obj.size())
+                    {
+                        elf_valid = false;
+                        std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: section headers extend past end of file  ({}:{})", path.string(),
+                                     exp.base_line);
+                    }
+                    else
+                    {
+                        std::uint64_t shstr_off = e_shoff + e_shstrndx * shdr_size;
+                        std::uint64_t shstr_sh_offset = rd_elf64(static_cast<std::size_t>(shstr_off + 24), 8);
+                        std::uint64_t shstr_sh_size = rd_elf64(static_cast<std::size_t>(shstr_off + 32), 8);
+                        if (shstr_sh_offset + shstr_sh_size > obj.size())
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: shstrtab extends past end of file  ({}:{})", path.string(), exp.base_line);
+                        }
+                        else
+                        {
+                            auto get_sec_name = [&](std::uint64_t sec_idx) -> std::string {
+                                if (sec_idx >= e_shnum)
+                                    return {};
+                                std::uint64_t sdoff = e_shoff + sec_idx * shdr_size;
+                                std::uint64_t name_off = rd_elf64(static_cast<std::size_t>(sdoff), 4);
+                                if (name_off >= shstr_sh_offset + shstr_sh_size)
+                                    return {};
+                                std::string name;
+                                for (std::uint64_t p = shstr_sh_offset + name_off;
+                                     p < shstr_sh_offset + shstr_sh_size && static_cast<unsigned char>(obj[static_cast<std::size_t>(p)]) != 0; ++p)
+                                    name += static_cast<char>(obj[static_cast<std::size_t>(p)]);
+                                return name;
+                            };
+
+                            bool has_text = false, has_rodata = false, has_data = false, has_bss = false;
+                            for (std::uint64_t si = 0; si < e_shnum; ++si)
+                            {
+                                auto sname = get_sec_name(si);
+                                if (sname == ".text")
+                                    has_text = true;
+                                else if (sname == ".rodata")
+                                    has_rodata = true;
+                                else if (sname == ".data")
+                                    has_data = true;
+                                else if (sname == ".bss")
+                                    has_bss = true;
+                            }
+
+                            if (!has_text)
+                            {
+                                elf_valid = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing .text section  ({}:{})", path.string(), exp.base_line);
+                            }
+                            if (!has_rodata)
+                            {
+                                elf_valid = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing .rodata section  ({}:{})", path.string(), exp.base_line);
+                            }
+                            if (!has_data)
+                            {
+                                elf_valid = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing .data section  ({}:{})", path.string(), exp.base_line);
+                            }
+                            if (!has_bss)
+                            {
+                                elf_valid = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing .bss section  ({}:{})", path.string(), exp.base_line);
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!elf_valid)
+                ok = false;
+
+            if (elf_valid && exp.run_exit_code.has_value())
+            {
+                std::error_code ec;
+                auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                if (ec)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot create temp dir  ({}:{})", path.string(), exp.base_line);
+                    continue;
+                }
+
+                if (!fs::create_directories(run_dir, ec))
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot create temp dir  ({}:{})", path.string(), exp.base_line);
+                    continue;
+                }
+
+                auto obj_path = run_dir / "test.o";
+                {
+                    std::ofstream of{obj_path, std::ios::binary};
+                    if (!of)
+                    {
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot write object file  ({}:{})", path.string(), exp.base_line);
+                        fs::remove_all(run_dir, ec);
+                        continue;
+                    }
+                    auto const* obj_data = reinterpret_cast<char const*>(obj.data());
+                    of.write(obj_data, static_cast<std::streamsize>(obj.size()));
+                }
+
+                auto asm_path = run_dir / "start.s";
+                {
+                    std::ofstream of{asm_path};
+                    if (!of)
+                    {
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot write harness assembly  ({}:{})", path.string(), exp.base_line);
+                        fs::remove_all(run_dir, ec);
+                        continue;
+                    }
+                    of << ".text\n"
+                       << ".globl _start\n"
+                       << "_start:\n"
+                       << "    call dcc_main\n"
+                       << "    mov %eax, %edi\n"
+                       << "    mov $60, %eax\n"
+                       << "    syscall\n";
+                }
+
+                auto harness_obj_path = run_dir / "start.o";
+                auto exe_path = run_dir / "test_prog";
+
+                auto asm_cmd = std::format("clang -x assembler -c {} -o {} 2>/dev/null", asm_path.string(), harness_obj_path.string());
+                int asm_rc = std::system(asm_cmd.c_str());
+                if (asm_rc != 0)
+                {
+                    asm_cmd = std::format("as {} -o {} 2>/dev/null", asm_path.string(), harness_obj_path.string());
+                    asm_rc = std::system(asm_cmd.c_str());
+                }
+                if (asm_rc != 0)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot assemble test harness (no assembler)  ({}:{})", path.string(),
+                                 exp.base_line);
+                    fs::remove_all(run_dir, ec);
+                    continue;
+                }
+
+                auto link_cmd = std::format("ld.lld --static --no-dynamic-linker --fatal-warnings "
+                                            "-e _start -o {} {} {} 2>/dev/null",
+                                            exe_path.string(), obj_path.string(), harness_obj_path.string());
+                int link_rc = std::system(link_cmd.c_str());
+                if (link_rc != 0)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: linking failed  ({}:{})", path.string(), exp.base_line);
+                    fs::remove_all(run_dir, ec);
+                    continue;
+                }
+
+                auto run_cmd = std::format("{} 2>/dev/null", exe_path.string());
+                int run_rc = std::system(run_cmd.c_str());
+
+                int actual_exit;
+#ifdef _WIN32
+                actual_exit = run_rc;
+#else
+                if (WIFEXITED(run_rc))
+                    actual_exit = WEXITSTATUS(run_rc);
+                else
+                    actual_exit = -1;
+#endif
+
+                if (actual_exit != *exp.run_exit_code)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: expected exit code {}, got {}  ({}:{})", *exp.run_exit_code, actual_exit,
+                                 path.string(), exp.base_line);
+                }
+
+                fs::remove_all(run_dir, ec);
+            }
         }
 
         for (auto const& exp : fx.registry_blocks)

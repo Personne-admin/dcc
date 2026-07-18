@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    i32 x = 5;
+    i32 y = x * 2;
+    i32 z = y + 3;
+    return z;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 ===
+RUN-EXIT: 13

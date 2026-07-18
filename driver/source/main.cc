@@ -9,6 +9,7 @@ import dcc.parser;
 import dcc.diag;
 import dcc.sema;
 import dcc.ir;
+import dcc.ir.pass;
 import dcc.ir.lower;
 
 import dcc.target;
@@ -17,6 +18,7 @@ import dcc.session;
 #if DCC_ENABLE_LLVM
 import dcc.backend.llvm;
 #endif
+import dcc.backend.em64t;
 
 namespace
 {
@@ -122,6 +124,8 @@ namespace
         std::optional<dcc::target::CodeModel> code_model;
         bool omit_frame_pointer{true};
         std::vector<std::string> injected_decls;
+        std::string backend_name = "llvm";
+        dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
     };
 
     [[nodiscard]] auto parse_args(int argc, char** argv) -> Options
@@ -386,6 +390,48 @@ namespace
                 std::exit(1);
             }
 
+            if (arg == "-fbackend" && i + 1 < argc)
+            {
+                opts.backend_name = argv[++i];
+                ++i;
+                continue;
+            }
+
+            if (arg.starts_with("-fbackend="))
+            {
+                opts.backend_name = arg.substr(10);
+                ++i;
+                continue;
+            }
+
+            if (arg == "-O0")
+            {
+                opts.opt_level = dcc::ir::pass::OptLevel::O0;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-O1")
+            {
+                opts.opt_level = dcc::ir::pass::OptLevel::O1;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-O2")
+            {
+                opts.opt_level = dcc::ir::pass::OptLevel::O2;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-Os")
+            {
+                opts.opt_level = dcc::ir::pass::OptLevel::Os;
+                ++i;
+                continue;
+            }
+
             if (arg.starts_with("-"))
             {
                 std::println(std::cerr, "dcc: unknown option: {}", arg);
@@ -401,16 +447,17 @@ namespace
 
     void print_usage()
     {
-        std::println(
-            "usage: dcc [-I<dir>] [-J<decl>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] "
-            "[-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
-            "[-fno-red-zone] [-fno-simd] [-fno-x87] [-fno-stack-protector] [-fno-stack-probe] [-fomit-frame-pointer|-fno-omit-frame-pointer] [-fPIC|-fPIE] "
-            "[-mcmodel <model>] "
-            "[-target <triple>] [-h] [-o "
-            "<file>] <input-file>");
+    std::println(
+        "usage: dcc [-I<dir>] [-J<decl>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] "
+        "[-O0|-O1|-O2|-Os] "
+        "[-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
+        "[-fno-red-zone] [-fno-simd] [-fno-x87] [-fno-stack-protector] [-fno-stack-probe] [-fomit-frame-pointer|-fno-omit-frame-pointer] [-fPIC|-fPIE] "
+        "[-fbackend llvm|em64t] "
+        "[-mcmodel <model>] "
+        "[-target <triple>] [-h] [-o "
+        "<file>] <input-file>");
     }
 
-#if DCC_ENABLE_LLVM
     [[nodiscard]] std::filesystem::path output_base(Options const& opts, std::filesystem::path const& input_path)
     {
         if (!opts.output_file.empty())
@@ -608,7 +655,6 @@ namespace
 
         return kinds;
     }
-#endif
 
     [[nodiscard]] bool backend_needed(Options const& opts)
     {
@@ -721,7 +767,6 @@ auto main(int argc, char** argv) -> int
 
         if (need_backend)
         {
-#if DCC_ENABLE_LLVM
             dcc::target::TargetConfig target;
             if (!opts.target_triple.empty())
             {
@@ -758,6 +803,7 @@ auto main(int argc, char** argv) -> int
             backend_opts.emit_debug_info = opts.emit_debug_info;
             backend_opts.debug_format = opts.debug_format;
             backend_opts.omit_frame_pointer = opts.omit_frame_pointer;
+            backend_opts.opt_level = opts.opt_level;
             backend_opts.source_manager = &session.source_manager();
 
             if (opts.libdcext && kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes))
@@ -766,23 +812,57 @@ auto main(int argc, char** argv) -> int
                 backend_opts.libraries.push_back("dcext");
             }
 
-            auto backend = dcc::backend::make_llvm_backend();
-            auto artifact = backend->emit(*ir_mod, backend_opts);
-
-            if (!artifact.diagnostics.empty())
+            if (opts.backend_name == "llvm")
             {
-                for (auto const& d : artifact.diagnostics)
-                    std::println(std::cerr, "dcc: error: backend: {}", d.message);
+#if DCC_ENABLE_LLVM
+                auto backend = dcc::backend::make_llvm_backend();
+                auto artifact = backend->emit(*ir_mod, backend_opts);
 
+                if (!artifact.diagnostics.empty())
+                {
+                    for (auto const& d : artifact.diagnostics)
+                        std::println(std::cerr, "dcc: error: backend: {}", d.message);
+
+                    return 1;
+                }
+
+                if (!write_artifacts(artifact, opts, input_path))
+                    return 1;
+#else
+                std::println(std::cerr, "dcc: error: LLVM support not compiled into this build of dcc");
+                return 1;
+#endif
+            }
+            else if (opts.backend_name == "em64t")
+            {
+                for (auto k : kinds)
+                {
+                    if (k == dcc::backend::ArtifactKind::LlvmIrText || k == dcc::backend::ArtifactKind::ExecutableBytes)
+                    {
+                        std::println(std::cerr, "dcc: error: currently selected backend does not support artifact kind {}.", static_cast<int>(k));
+                        return 1;
+                    }
+                }
+
+                auto backend = dcc::backend::make_em64t_backend();
+                auto artifact = backend->emit(*ir_mod, backend_opts);
+
+                if (!artifact.diagnostics.empty())
+                {
+                    for (auto const& d : artifact.diagnostics)
+                        std::println(std::cerr, "dcc: error: backend: {}", d.message);
+
+                    return 1;
+                }
+
+                if (!write_artifacts(artifact, opts, input_path))
+                    return 1;
+            }
+            else
+            {
+                std::println(std::cerr, "dcc: error: unknown backend '{}'", opts.backend_name);
                 return 1;
             }
-
-            if (!write_artifacts(artifact, opts, input_path))
-                return 1;
-#else
-            std::println(std::cerr, "dcc: error: LLVM support not compiled into this build of dcc");
-            return 1;
-#endif
         }
     }
 

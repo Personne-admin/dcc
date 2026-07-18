@@ -1,0 +1,19 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 THE_CONST = 37;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    return THE_CONST;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 37

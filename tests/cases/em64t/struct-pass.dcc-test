@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Point {
+    i32 x;
+    i32 y;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 sum_point(Point p) {
+    return p.x + p.y;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Point p = { x = 10, y = 32 };
+    return sum_point(p);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42

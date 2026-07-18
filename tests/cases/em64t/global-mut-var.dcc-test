@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 counter = 10;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    counter = counter + 5;
+    return counter;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 15
