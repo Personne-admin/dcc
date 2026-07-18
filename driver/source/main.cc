@@ -109,6 +109,7 @@ namespace
         bool dump_llvm{false};
         bool dump_asm{false};
         bool compile_only{false};
+        bool emit_asm_only{false};
         bool bounds_check{false};
         bool emit_debug_info{false};
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
@@ -195,6 +196,13 @@ namespace
             if (arg == "-c")
             {
                 opts.compile_only = true;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-S")
+            {
+                opts.emit_asm_only = true;
                 ++i;
                 continue;
             }
@@ -447,15 +455,15 @@ namespace
 
     void print_usage()
     {
-    std::println(
-        "usage: dcc [-I<dir>] [-J<decl>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] "
-        "[-O0|-O1|-O2|-Os] "
-        "[-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
-        "[-fno-red-zone] [-fno-simd] [-fno-x87] [-fno-stack-protector] [-fno-stack-probe] [-fomit-frame-pointer|-fno-omit-frame-pointer] [-fPIC|-fPIE] "
-        "[-fbackend llvm|em64t] "
-        "[-mcmodel <model>] "
-        "[-target <triple>] [-h] [-o "
-        "<file>] <input-file>");
+        std::println(
+            "usage: dcc [-I<dir>] [-J<decl>] [-flibdcext] [-fbounds-check] [-fdump-ast] [-fdump-ir] [-fdump-llvm] [-fdump-asm] [-c] [-S] "
+            "[-O0|-O1|-O2|-Os] "
+            "[-g|-g0|-g3|-gdwarf|-gpdb|-gnone] "
+            "[-fno-red-zone] [-fno-simd] [-fno-x87] [-fno-stack-protector] [-fno-stack-probe] [-fomit-frame-pointer|-fno-omit-frame-pointer] [-fPIC|-fPIE] "
+            "[-fbackend llvm|em64t] "
+            "[-mcmodel <model>] "
+            "[-target <triple>] [-h] [-o "
+            "<file>] <input-file>");
     }
 
     [[nodiscard]] std::filesystem::path output_base(Options const& opts, std::filesystem::path const& input_path)
@@ -512,6 +520,10 @@ namespace
         auto base = output_base(opts, input_path);
         bool ok = true;
 
+        bool asm_written_via_extension = false;
+        bool obj_written_via_extension = false;
+        bool llvm_written_via_extension = false;
+
         if (!opts.output_file.empty())
         {
             auto ext = opts.output_file.extension().string();
@@ -526,6 +538,7 @@ namespace
                             std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
                             ok = false;
                         }
+                        llvm_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::AsmText:
                         if (artifact.asm_text && !write_file(opts.output_file, *artifact.asm_text))
@@ -533,6 +546,7 @@ namespace
                             std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
                             ok = false;
                         }
+                        asm_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::ObjectBytes:
                         if (artifact.object_bytes && !write_file(opts.output_file, *artifact.object_bytes))
@@ -540,6 +554,7 @@ namespace
                             std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
                             ok = false;
                         }
+                        obj_written_via_extension = true;
                         break;
                     default:
                         break;
@@ -583,7 +598,7 @@ namespace
             }
         }
 
-        if (artifact.llvm_ir_text)
+        if (artifact.llvm_ir_text && !llvm_written_via_extension)
         {
             if (opts.output_file.empty())
                 std::print("{}", *artifact.llvm_ir_text);
@@ -599,9 +614,17 @@ namespace
             }
         }
 
-        if (artifact.asm_text)
+        if (artifact.asm_text && !asm_written_via_extension)
         {
-            if (opts.output_file.empty())
+            if (opts.emit_asm_only && !opts.output_file.empty())
+            {
+                if (!write_file(opts.output_file, *artifact.asm_text))
+                {
+                    std::println(std::cerr, "dcc: error: cannot write to '{}'", opts.output_file.string());
+                    ok = false;
+                }
+            }
+            else if (opts.output_file.empty())
                 std::print("{}", *artifact.asm_text);
             else
             {
@@ -615,7 +638,7 @@ namespace
             }
         }
 
-        if (artifact.object_bytes)
+        if (artifact.object_bytes && !obj_written_via_extension)
         {
             auto path = base;
             if (path.extension().empty())
@@ -641,6 +664,8 @@ namespace
             kinds.insert(dcc::backend::ArtifactKind::AsmText);
         if (opts.compile_only)
             kinds.insert(dcc::backend::ArtifactKind::ObjectBytes);
+        if (opts.emit_asm_only)
+            kinds.insert(dcc::backend::ArtifactKind::AsmText);
 
         if (!opts.output_file.empty())
         {
@@ -650,7 +675,7 @@ namespace
                 kinds.insert(*kind);
         }
 
-        if (kinds.empty() && !opts.dump_llvm && !opts.dump_asm && !opts.compile_only)
+        if (kinds.empty() && !opts.dump_llvm && !opts.dump_asm && !opts.compile_only && !opts.emit_asm_only)
             kinds.insert(dcc::backend::ArtifactKind::ExecutableBytes);
 
         return kinds;
@@ -658,7 +683,7 @@ namespace
 
     [[nodiscard]] bool backend_needed(Options const& opts)
     {
-        if (opts.dump_llvm || opts.dump_asm || opts.compile_only)
+        if (opts.dump_llvm || opts.dump_asm || opts.compile_only || opts.emit_asm_only)
             return true;
 
         if (!opts.output_file.empty())

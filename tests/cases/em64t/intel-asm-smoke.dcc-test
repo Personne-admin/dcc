@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    i32 a = 42;
+    i32 b = 10;
+    i32 c = a + b;
+    return c;
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: section .text
+CONTAINS: global dcc_main
+CONTAINS: dcc_main:
+CONTAINS: ret

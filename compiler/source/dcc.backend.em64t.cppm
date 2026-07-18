@@ -12,6 +12,7 @@ import dcc.backend.em64t.regalloc;
 import dcc.backend.em64t.framelay;
 import dcc.backend.em64t.encode;
 import dcc.backend.em64t.objwriter;
+import dcc.backend.em64t.assembler;
 
 export namespace dcc::backend
 {
@@ -29,10 +30,7 @@ namespace dcc::backend
 
             [[nodiscard]] std::string_view name() const override { return "em64t"; }
 
-            [[nodiscard]] std::set<ArtifactKind> supported_artifacts() const override
-            {
-                return {ArtifactKind::AsmText, ArtifactKind::ObjectBytes};
-            }
+            [[nodiscard]] std::set<ArtifactKind> supported_artifacts() const override { return {ArtifactKind::AsmText, ArtifactKind::ObjectBytes}; }
 
             [[nodiscard]] BackendArtifact emit(ir::IrModule const& module, BackendOptions const& opts) override
             {
@@ -61,21 +59,7 @@ namespace dcc::backend
                 }
 
                 if (want_asm)
-                {
-                    std::string asm_text;
-                    asm_text += "; dcc em64t MIR backend output\n";
-                    asm_text += "; module: ";
-                    asm_text += input_module->name.empty() ? "<unnamed>" : std::string{input_module->name};
-                    asm_text += "\n\n";
-
-                    for (auto const& mfunc : mfuncs)
-                    {
-                        asm_text += print_function(mfunc);
-                        asm_text += "\n";
-                    }
-
-                    artifact.asm_text = std::move(asm_text);
-                }
+                    artifact.asm_text = emit_intel_asm(*input_module, mfuncs, opts.target);
 
                 if (want_obj)
                 {
