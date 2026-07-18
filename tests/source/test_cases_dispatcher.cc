@@ -131,6 +131,13 @@ namespace
         std::uint32_t rel_type;
     };
 
+    struct RequiredCoffReloc
+    {
+        std::string section;
+        std::uint16_t rel_type{};
+        std::string symbol;
+    };
+
     struct ExpectEm64tObject
     {
         std::size_t base_line{};
@@ -139,7 +146,12 @@ namespace
         int opt_level{0};
         bool pic{false};
         bool shared_link{false};
+        std::string target_triple;
         std::vector<RequiredRela> required_relas;
+        std::vector<RequiredCoffReloc> required_coff_relocs;
+        std::vector<std::string> required_coff_undefined;
+        std::vector<std::string> forbidden_coff_defined;
+        std::vector<std::string> contains;
     };
 
     struct ExpectEm64tAsm
@@ -147,6 +159,7 @@ namespace
         std::size_t base_line{};
         std::vector<std::string> contains;
         int opt_level{0};
+        std::string target_triple;
     };
 
     struct Fixture
@@ -450,7 +463,11 @@ namespace
                     while (std::getline(body_ss, body_line))
                     {
                         auto tl = trim(body_line);
-                        if (starts_with(tl, "CONTAINS:"))
+                        if (starts_with(tl, "TARGET:"))
+                        {
+                            e.target_triple = trim(std::string_view{tl}.substr(7));
+                        }
+                        else if (starts_with(tl, "CONTAINS:"))
                         {
                             auto val = trim(std::string_view{tl}.substr(9));
                             if (!val.empty())
@@ -504,6 +521,16 @@ namespace
                             auto val_str = trim(std::string_view{tl}.substr(12));
                             e.shared_link = (val_str == "ok" || val_str == "true");
                         }
+                        else if (starts_with(tl, "TARGET:"))
+                        {
+                            e.target_triple = trim(std::string_view{tl}.substr(7));
+                        }
+                        else if (starts_with(tl, "CONTAINS:"))
+                        {
+                            auto val = trim(std::string_view{tl}.substr(9));
+                            if (!val.empty())
+                                e.contains.push_back(std::string{val});
+                        }
                         else if (starts_with(tl, "REQUIRE-RELA:"))
                         {
                             auto val_str = trim(std::string_view{tl}.substr(13));
@@ -545,6 +572,43 @@ namespace
                                 }
                                 e.required_relas.push_back(rr);
                             }
+                        }
+                        else if (starts_with(tl, "REQUIRE-COFF-RELOC:"))
+                        {
+                            auto value = trim(std::string_view{tl}.substr(19));
+                            std::istringstream fields{value};
+                            RequiredCoffReloc required;
+                            std::string type;
+                            if (fields >> required.section >> type >> required.symbol)
+                            {
+                                if (type == "IMAGE_REL_AMD64_REL32")
+                                    required.rel_type = 0x0004;
+                                else if (type == "IMAGE_REL_AMD64_ADDR64")
+                                    required.rel_type = 0x0001;
+                                else
+                                {
+                                    try
+                                    {
+                                        required.rel_type = static_cast<std::uint16_t>(std::stoul(type, nullptr, 0));
+                                    }
+                                    catch (...)
+                                    {
+                                    }
+                                }
+                                e.required_coff_relocs.push_back(std::move(required));
+                            }
+                        }
+                        else if (starts_with(tl, "REQUIRE-COFF-UNDEFINED:"))
+                        {
+                            auto value = trim(std::string_view{tl}.substr(23));
+                            if (!value.empty())
+                                e.required_coff_undefined.push_back(std::move(value));
+                        }
+                        else if (starts_with(tl, "FORBID-COFF-DEFINED:"))
+                        {
+                            auto value = trim(std::string_view{tl}.substr(20));
+                            if (!value.empty())
+                                e.forbidden_coff_defined.push_back(std::move(value));
                         }
                     }
                 }
@@ -1814,7 +1878,22 @@ namespace
                 continue;
             }
 
-            dcc::target::TargetConfig target = dcc::target::TargetConfig::host_default();
+            dcc::target::TargetConfig target;
+            if (!exp.target_triple.empty())
+            {
+                auto parsed = dcc::target::TargetConfig::parse_triple(exp.target_triple);
+                if (!parsed)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: unsupported target triple '{}'  ({}:{})", exp.target_triple, path.string(),
+                                 exp.base_line);
+                    continue;
+                }
+                target = *parsed;
+            }
+            else
+                target = dcc::target::TargetConfig::host_default();
+
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
             auto* ir_mod = lowerer->lower_module(*mod);
@@ -1851,20 +1930,184 @@ namespace
                 continue;
             }
 
+            for (auto const& pat : exp.contains)
+            {
+                auto search_fn = [&]() -> bool {
+                    if (pat.empty())
+                        return true;
+                    for (std::size_t i = 0; i + pat.size() <= obj.size(); ++i)
+                    {
+                        bool match = true;
+                        for (std::size_t j = 0; j < pat.size(); ++j)
+                        {
+                            if (static_cast<unsigned char>(obj[i + j]) != static_cast<unsigned char>(pat[j]))
+                            {
+                                match = false;
+                                break;
+                            }
+                        }
+                        if (match)
+                            return true;
+                    }
+                    return false;
+                };
+                if (!search_fn())
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing pattern '{}' in object bytes  ({}:{})", pat, path.string(), exp.base_line);
+                }
+            }
+
+            bool is_coff_target = (target.object_format == dcc::target::ObjectFormat::Coff);
             bool elf_valid = true;
-            if (static_cast<int>(obj[0]) != 0x7f || static_cast<int>(obj[1]) != 'E' || static_cast<int>(obj[2]) != 'L' || static_cast<int>(obj[3]) != 'F')
+            if (is_coff_target)
             {
-                elf_valid = false;
-                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: bad ELF magic  ({}:{})", path.string(), exp.base_line);
+                auto machine = static_cast<std::uint16_t>(static_cast<unsigned char>(obj[0]) | (static_cast<unsigned char>(obj[1]) << 8));
+                if (machine != 0x8664)
+                {
+                    elf_valid = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: bad COFF machine type {:#x}, expected 0x8664  ({}:{})", machine, path.string(),
+                                 exp.base_line);
+                }
+
+                auto rd_coff = [&](std::size_t off, unsigned bytes) -> std::uint64_t {
+                    std::uint64_t value = 0;
+                    for (unsigned i = 0; i < bytes && off + i < obj.size(); ++i)
+                        value |= static_cast<std::uint64_t>(static_cast<unsigned char>(obj[off + i])) << (i * 8);
+                    return value;
+                };
+                auto section_count = static_cast<std::uint16_t>(rd_coff(2, 2));
+                auto symbol_table = static_cast<std::uint32_t>(rd_coff(8, 4));
+                auto symbol_count = static_cast<std::uint32_t>(rd_coff(12, 4));
+                auto string_table = static_cast<std::uint64_t>(symbol_table) + static_cast<std::uint64_t>(symbol_count) * 18;
+
+                struct ParsedCoffSymbol
+                {
+                    std::string name;
+                    std::int16_t section{};
+                    std::uint8_t storage_class{};
+                };
+                std::unordered_map<std::uint32_t, ParsedCoffSymbol> symbols;
+                auto read_c_string = [&](std::size_t off, std::size_t end) {
+                    std::string result;
+                    while (off < end && off < obj.size() && static_cast<unsigned char>(obj[off]) != 0)
+                        result.push_back(static_cast<char>(obj[off++]));
+                    return result;
+                };
+
+                if (20ULL + static_cast<std::uint64_t>(section_count) * 40 > obj.size() || string_table + 4 > obj.size())
+                {
+                    elf_valid = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: malformed COFF tables  ({}:{})", path.string(), exp.base_line);
+                }
+                else
+                {
+                    auto string_size = static_cast<std::uint32_t>(rd_coff(static_cast<std::size_t>(string_table), 4));
+                    auto string_end = std::min<std::uint64_t>(obj.size(), string_table + string_size);
+                    for (std::uint32_t index = 0; index < symbol_count;)
+                    {
+                        auto off = static_cast<std::size_t>(symbol_table) + static_cast<std::size_t>(index) * 18;
+                        if (off + 18 > obj.size())
+                            break;
+                        std::string name;
+                        if (rd_coff(off, 4) == 0)
+                        {
+                            auto string_offset = static_cast<std::uint32_t>(rd_coff(off + 4, 4));
+                            if (string_offset >= 4 && string_table + string_offset < string_end)
+                                name = read_c_string(static_cast<std::size_t>(string_table + string_offset), static_cast<std::size_t>(string_end));
+                        }
+                        else
+                            name = read_c_string(off, off + 8);
+
+                        auto raw_section = static_cast<std::uint16_t>(rd_coff(off + 12, 2));
+                        symbols[index] = {.name = std::move(name),
+                                          .section = static_cast<std::int16_t>(raw_section),
+                                          .storage_class = static_cast<std::uint8_t>(rd_coff(off + 16, 1))};
+                        auto aux_count = static_cast<std::uint8_t>(rd_coff(off + 17, 1));
+                        index += 1U + aux_count;
+                    }
+
+                    for (auto const& required_name : exp.required_coff_undefined)
+                    {
+                        auto found = std::ranges::find_if(symbols, [&](auto const& entry) {
+                            return entry.second.name == required_name && entry.second.section == 0 && entry.second.storage_class == 2;
+                        });
+                        if (found == symbols.end())
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is not an undefined external COFF symbol  ({}:{})", required_name,
+                                         path.string(), exp.base_line);
+                        }
+                    }
+
+                    for (auto const& forbidden_name : exp.forbidden_coff_defined)
+                    {
+                        auto found =
+                            std::ranges::find_if(symbols, [&](auto const& entry) { return entry.second.name == forbidden_name && entry.second.section > 0; });
+                        if (found != symbols.end())
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is unexpectedly defined in COFF output  ({}:{})", forbidden_name,
+                                         path.string(), exp.base_line);
+                        }
+                    }
+
+                    for (auto const& required : exp.required_coff_relocs)
+                    {
+                        bool found = false;
+                        for (std::uint16_t si = 0; si < section_count && !found; ++si)
+                        {
+                            auto section_off = 20U + static_cast<std::size_t>(si) * 40;
+                            auto section_name = read_c_string(section_off, section_off + 8);
+                            if (section_name != required.section)
+                                continue;
+                            if (rd_coff(section_off + 12, 4) != 0)
+                            {
+                                elf_valid = false;
+                                std::println(std::cerr,
+                                             "    FAIL  EXPECT-EM64T-OBJECT: relocation-bearing COFF section '{}' has a non-zero virtual address  ({}:{})",
+                                             section_name, path.string(), exp.base_line);
+                            }
+                            auto reloc_ptr = static_cast<std::uint32_t>(rd_coff(section_off + 24, 4));
+                            auto reloc_count = static_cast<std::uint16_t>(rd_coff(section_off + 32, 2));
+                            for (std::uint16_t ri = 0; ri < reloc_count; ++ri)
+                            {
+                                auto reloc_off = static_cast<std::size_t>(reloc_ptr) + static_cast<std::size_t>(ri) * 10;
+                                if (reloc_off + 10 > obj.size())
+                                    break;
+                                auto symbol_index = static_cast<std::uint32_t>(rd_coff(reloc_off + 4, 4));
+                                auto type = static_cast<std::uint16_t>(rd_coff(reloc_off + 8, 2));
+                                auto symbol = symbols.find(symbol_index);
+                                found = type == required.rel_type && symbol != symbols.end() && symbol->second.name == required.symbol;
+                                if (found)
+                                    break;
+                            }
+                        }
+                        if (!found)
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: COFF relocation {} type {:#x} -> '{}' not found  ({}:{})", required.section,
+                                         required.rel_type, required.symbol, path.string(), exp.base_line);
+                        }
+                    }
+                }
+            }
+            else
+            {
+                if (static_cast<int>(obj[0]) != 0x7f || static_cast<int>(obj[1]) != 'E' || static_cast<int>(obj[2]) != 'L' || static_cast<int>(obj[3]) != 'F')
+                {
+                    elf_valid = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: bad ELF magic  ({}:{})", path.string(), exp.base_line);
+                }
+
+                if (static_cast<int>(obj[4]) != 2)
+                {
+                    elf_valid = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: EI_CLASS != 2 (64-bit)  ({}:{})", path.string(), exp.base_line);
+                }
             }
 
-            if (static_cast<int>(obj[4]) != 2)
-            {
-                elf_valid = false;
-                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: EI_CLASS != 2 (64-bit)  ({}:{})", path.string(), exp.base_line);
-            }
-
-            if (exp.verify_sections && elf_valid && obj.size() >= 64)
+            if (!is_coff_target && exp.verify_sections && elf_valid && obj.size() >= 64)
             {
                 auto rd_elf64 = [&](std::size_t off, unsigned bytes) -> std::uint64_t {
                     std::uint64_t v = 0;
@@ -1959,7 +2202,7 @@ namespace
                 }
             }
 
-            if (elf_valid && exp.pic && exp.verify_sections && obj.size() >= 64)
+            if (!is_coff_target && elf_valid && exp.pic && exp.verify_sections && obj.size() >= 64)
             {
                 auto rd_elf64 = [&](std::size_t off, unsigned bytes) -> std::uint64_t {
                     std::uint64_t v = 0;
@@ -2101,7 +2344,7 @@ namespace
             if (!elf_valid)
                 ok = false;
 
-            if (elf_valid && exp.shared_link)
+            if (!is_coff_target && elf_valid && exp.shared_link)
             {
                 std::error_code ec;
                 auto shared_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-shared-{}", std::chrono::steady_clock::now().time_since_epoch().count());
@@ -2147,7 +2390,7 @@ namespace
                 }
             }
 
-            if (elf_valid && exp.run_exit_code.has_value())
+            if (!is_coff_target && elf_valid && exp.run_exit_code.has_value())
             {
                 std::error_code ec;
                 auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
@@ -2263,7 +2506,22 @@ namespace
                 continue;
             }
 
-            dcc::target::TargetConfig target = dcc::target::TargetConfig::host_default();
+            dcc::target::TargetConfig target;
+            if (!exp.target_triple.empty())
+            {
+                auto parsed = dcc::target::TargetConfig::parse_triple(exp.target_triple);
+                if (!parsed)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: unsupported target triple '{}'  ({}:{})", exp.target_triple, path.string(),
+                                 exp.base_line);
+                    continue;
+                }
+                target = *parsed;
+            }
+            else
+                target = dcc::target::TargetConfig::host_default();
+
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
             auto* ir_mod = lowerer->lower_module(*mod);
