@@ -8,12 +8,16 @@ module;
 #include <llvm-c/DebugInfo.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
+#include <llvm-c/Transforms/PassBuilder.h>
+#include <llvm-c/Error.h>
 
 export module dcc.backend.llvm;
 
 import std;
 import dcc.backend;
 import dcc.ir;
+import dcc.ir.pass;
+import dcc.ir.transforms;
 import dcc.target;
 import dcc.sm;
 
@@ -630,14 +634,19 @@ namespace dcc::backend
                 BackendArtifact artifact;
                 auto& diags = artifact.diagnostics;
 
-                bool has_unsupported = precheck_module(module, diags);
+                dcc::ir::IrModule const* input_module = &module;
+                dcc::ir::IrContext opt_ctx{256 * 1024, &opts.target};
+                if (opts.opt_level > dcc::ir::pass::OptLevel::O0)
+                    input_module = dcc::ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
+
+                bool has_unsupported = precheck_module(*input_module, diags);
                 if (has_unsupported && !opts.requested_artifacts.empty())
                     return artifact;
 
                 auto* ctx = LLVMContextCreate();
                 LlvmCtxGuard ctx_guard{ctx};
 
-                std::string mod_name = module.name.empty() ? "dcc_module" : std::string{module.name};
+                std::string mod_name = input_module->name.empty() ? "dcc_module" : std::string{input_module->name};
                 auto* llvm_mod = LLVMModuleCreateWithNameInContext(mod_name.c_str(), ctx);
 
                 auto resolved_debug_format = resolve_debug_format(opts);
@@ -669,9 +678,9 @@ namespace dcc::backend
 
                     std::string cu_filename;
                     std::string cu_directory = debug.comp_dir;
-                    if (module.source_file_id != static_cast<std::uint32_t>(sm::FileId::Invalid) && opts.source_manager)
+                    if (input_module->source_file_id != static_cast<std::uint32_t>(sm::FileId::Invalid) && opts.source_manager)
                     {
-                        auto* sf = opts.source_manager->get(static_cast<sm::FileId>(static_cast<std::uint32_t>(module.source_file_id)));
+                        auto* sf = opts.source_manager->get(static_cast<sm::FileId>(static_cast<std::uint32_t>(input_module->source_file_id)));
                         if (sf)
                         {
                             auto path = sf->path();
@@ -697,15 +706,15 @@ namespace dcc::backend
                     }
                     if (cu_filename.empty())
                     {
-                        cu_filename = module.name.empty() ? "<unknown>" : std::string{module.name};
+                        cu_filename = input_module->name.empty() ? "<unknown>" : std::string{input_module->name};
                         cu_directory = ".";
                     }
 
                     debug.difile = LLVMDIBuilderCreateFile(debug.dibuilder, cu_filename.c_str(), cu_filename.size(),
                                                            cu_directory.empty() ? "." : cu_directory.c_str(), cu_directory.empty() ? 1 : cu_directory.size());
 
-                    if (module.source_file_id != static_cast<std::uint32_t>(sm::FileId::Invalid))
-                        debug.file_map[module.source_file_id] = debug.difile;
+                    if (input_module->source_file_id != static_cast<std::uint32_t>(sm::FileId::Invalid))
+                        debug.file_map[input_module->source_file_id] = debug.difile;
 
                     debug.dicu = LLVMDIBuilderCreateCompileUnit(debug.dibuilder, LLVMDWARFSourceLanguageC, debug.difile, "dcc", 3, false, "", 0, 0, "", 0,
                                                                 LLVMDWARFEmissionFull, 0, false, false, "", 0, "", 0);
@@ -730,7 +739,7 @@ namespace dcc::backend
                 std::unordered_map<IrValue const*, LLVMValueRef> val_map;
                 TypeCache type_cache{ctx, opts.target.pointer_bits};
 
-                for (auto* g : module.globals)
+                for (auto* g : input_module->globals)
                 {
                     if (!g || !g->type)
                         continue;
@@ -742,7 +751,7 @@ namespace dcc::backend
 
                 auto* debug_ptr = wants_debug ? &debug : nullptr;
 
-                for (auto* func : module.functions)
+                for (auto* func : input_module->functions)
                 {
                     if (!func)
                         continue;
@@ -751,7 +760,7 @@ namespace dcc::backend
                         has_unsupported = true;
                 }
 
-                for (auto* func : module.functions)
+                for (auto* func : input_module->functions)
                 {
                     if (!func)
                         continue;
@@ -794,6 +803,8 @@ namespace dcc::backend
                 bool want_asm = opts.requested_artifacts.contains(ArtifactKind::AsmText);
                 bool want_obj = opts.requested_artifacts.contains(ArtifactKind::ObjectBytes);
                 bool want_exe = opts.requested_artifacts.contains(ArtifactKind::ExecutableBytes);
+                bool need_codegen = want_asm || want_obj || want_exe;
+                bool need_llvm_passes = opts.opt_level > dcc::ir::pass::OptLevel::O0;
 
                 if (want_exe)
                 {
@@ -822,17 +833,10 @@ namespace dcc::backend
                     }
                 }
 
-                if (want_ir)
-                {
-                    char* ir_str = LLVMPrintModuleToString(llvm_mod);
-                    artifact.llvm_ir_text = std::string{ir_str};
-                    LLVMDisposeMessage(ir_str);
-                }
+                LLVMTargetMachineRef tm = nullptr;
+                bool tm_created = false;
 
-                bool need_codegen = want_asm || want_obj || want_exe;
-                std::vector<std::byte> obj_bytes_for_link;
-
-                if (need_codegen)
+                if (need_llvm_passes || need_codegen)
                 {
                     LLVMTargetRef target_ref = nullptr;
                     char* err_msg = nullptr;
@@ -849,14 +853,15 @@ namespace dcc::backend
 
                     const auto* const cpu = (opts.target.arch == Arch::X86_64) ? "generic" : "i686";
                     auto features = llvm_target_features(opts.target);
-                    auto* tm = LLVMCreateTargetMachine(target_ref, cg_triple.c_str(), cpu, features.c_str(), LLVMCodeGenLevelDefault,
-                                                       llvm_reloc_mode(opts.target), llvm_code_model(opts.target));
+                    tm = LLVMCreateTargetMachine(target_ref, cg_triple.c_str(), cpu, features.c_str(), LLVMCodeGenLevelDefault,
+                                                 llvm_reloc_mode(opts.target), llvm_code_model(opts.target));
                     if (!tm)
                     {
                         add_diag(diags, {}, std::format("LLVM backend: could not create TargetMachine for '{}'", cg_triple));
                         LLVMDisposeModule(llvm_mod);
                         return artifact;
                     }
+                    tm_created = true;
 
                     {
                         auto* td = LLVMCreateTargetDataLayout(tm);
@@ -865,7 +870,50 @@ namespace dcc::backend
                         LLVMDisposeMessage(dl_str);
                         LLVMDisposeTargetData(td);
                     }
+                }
 
+                if (need_llvm_passes && tm_created)
+                {
+                    char const* pipeline = nullptr;
+                    if (opts.opt_level == dcc::ir::pass::OptLevel::O1)
+                        pipeline = "default<O1>";
+                    else if (opts.opt_level == dcc::ir::pass::OptLevel::O2)
+                        pipeline = "default<O2>";
+                    else if (opts.opt_level == dcc::ir::pass::OptLevel::Os)
+                        pipeline = "default<Os>";
+
+                    if (pipeline)
+                    {
+                        auto* pass_opts = LLVMCreatePassBuilderOptions();
+                        auto err = LLVMRunPasses(llvm_mod, pipeline, tm, pass_opts);
+                        LLVMDisposePassBuilderOptions(pass_opts);
+
+                        if (err)
+                        {
+                            char* err_msg = LLVMGetErrorMessage(err);
+                            add_diag(diags, {}, std::format("LLVM pass pipeline failed: {}", err_msg ? err_msg : "unknown error"));
+                            if (err_msg)
+                                LLVMDisposeErrorMessage(err_msg);
+
+                            if (tm_created)
+                                LLVMDisposeTargetMachine(tm);
+                            LLVMDisposeModule(llvm_mod);
+                            return artifact;
+                        }
+                    }
+                }
+
+                if (want_ir)
+                {
+                    char* ir_str = LLVMPrintModuleToString(llvm_mod);
+                    artifact.llvm_ir_text = std::string{ir_str};
+                    LLVMDisposeMessage(ir_str);
+                }
+
+                std::vector<std::byte> obj_bytes_for_link;
+
+                if (need_codegen && tm_created)
+                {
                     if (want_asm)
                     {
                         LLVMMemoryBufferRef membuf = nullptr;
@@ -915,9 +963,10 @@ namespace dcc::backend
                         if (emit_err)
                             LLVMDisposeMessage(emit_err);
                     }
-
-                    LLVMDisposeTargetMachine(tm);
                 }
+
+                if (tm_created)
+                    LLVMDisposeTargetMachine(tm);
 
                 if (want_exe && !obj_bytes_for_link.empty())
                 {
