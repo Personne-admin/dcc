@@ -686,6 +686,7 @@ export namespace dcc::backend::em64t
         std::uint32_t next_jump_table_id{0};
 
         std::string owned_name;
+        std::vector<std::unique_ptr<std::string>> owned_strings;
 
         [[nodiscard]] std::string_view name() const noexcept { return owned_name; }
         std::uint32_t entry_block_id{0};

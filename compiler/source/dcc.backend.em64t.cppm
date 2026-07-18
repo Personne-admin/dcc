@@ -66,7 +66,7 @@ namespace dcc::backend
 
                 for (auto* func : input_module->functions)
                 {
-                    if (!func)
+                    if (!func || func->blocks.empty())
                         continue;
 
                     auto mfunc = em64t::isel_function(*func, opts.target);

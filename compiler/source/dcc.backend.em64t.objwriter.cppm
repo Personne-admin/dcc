@@ -238,7 +238,7 @@ namespace dcc::backend::em64t
 
         [[nodiscard]] DataSection classify_global(ir::IrGlobal const* g)
         {
-            if (g->linkage == ir::Linkage::External && !g->init)
+            if (!g->init && (g->linkage == ir::Linkage::External || g->is_dll_import))
                 return DataSection::None;
             if (g->is_constant && g->init)
             {
@@ -1787,11 +1787,11 @@ export namespace dcc::backend::em64t
             std::vector<CoffReloc> rels;
         };
         std::vector<CoffSecReloc> sec_relocs;
-        sec_relocs.push_back({text_raw_start, std::move(text_rels)});
+        sec_relocs.push_back({text_raw_start, text_rels});
         if (has_rdata)
-            sec_relocs.push_back({rdata_raw_start, std::move(rdata_rels)});
+            sec_relocs.push_back({rdata_raw_start, rdata_rels});
         if (has_data_sec)
-            sec_relocs.push_back({data_raw_start, std::move(data_rels)});
+            sec_relocs.push_back({data_raw_start, data_rels});
         if (has_bss_sec)
             sec_relocs.push_back({0, {}});
 
@@ -1832,8 +1832,8 @@ export namespace dcc::backend::em64t
             for (auto c : name_buf)
                 w8(out, c);
 
-            w32(out, raw_size);
-            w32(out, raw_size);
+            w32(out, 0);
+            w32(out, 0);
             w32(out, raw_size);
             w32(out, raw_ptr);
             w32(out, reloc_ptr);
@@ -1871,39 +1871,31 @@ export namespace dcc::backend::em64t
                           IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
         }
 
-        out.insert(out.end(), text_data.begin(), text_data.end());
-        while (out.size() < sec_relocs[0].raw_start)
+        while (out.size() < text_raw_start)
             w8(out, 0);
-
-        for (auto const& r : sec_relocs[0].rels)
-        {
-            w32(out, r.virt_addr);
-            w32(out, r.sym_idx);
-            w16(out, r.type);
-        }
+        out.insert(out.end(), text_data.begin(), text_data.end());
 
         if (has_rdata)
         {
-            out.insert(out.end(), rdata_data.begin(), rdata_data.end());
-            while (out.size() < sec_relocs[1].raw_start)
+            while (out.size() < rdata_raw_start)
                 w8(out, 0);
-
-            for (auto const& r : sec_relocs[1].rels)
-            {
-                w32(out, r.virt_addr);
-                w32(out, r.sym_idx);
-                w16(out, r.type);
-            }
+            out.insert(out.end(), rdata_data.begin(), rdata_data.end());
         }
 
         if (has_data_sec)
         {
-            std::size_t di = has_rdata ? std::size_t{2} : std::size_t{1};
-            out.insert(out.end(), data_sec_data.begin(), data_sec_data.end());
-            while (out.size() < sec_relocs[di].raw_start)
+            while (out.size() < data_raw_start)
                 w8(out, 0);
+            out.insert(out.end(), data_sec_data.begin(), data_sec_data.end());
+        }
 
-            for (auto const& r : sec_relocs[di].rels)
+        for (auto const& sr : sec_relocs)
+        {
+            if (sr.rels.empty())
+                continue;
+            while (out.size() < sr.raw_start)
+                w8(out, 0);
+            for (auto const& r : sr.rels)
             {
                 w32(out, r.virt_addr);
                 w32(out, r.sym_idx);

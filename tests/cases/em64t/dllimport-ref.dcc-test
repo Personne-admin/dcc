@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+@import @nomangle extern
+const i32 imported_data;
+
+@import @nomangle extern
+i32 imported_func(i32 x);
+
+@nomangle
+public i32 dcc_main() {
+    return imported_func(imported_data);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+CONTAINS: __imp_imported_data
+CONTAINS: __imp_imported_func
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 __imp_imported_data
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 __imp_imported_func
+REQUIRE-COFF-UNDEFINED: __imp_imported_data
+REQUIRE-COFF-UNDEFINED: __imp_imported_func
+FORBID-COFF-DEFINED: imported_data
+FORBID-COFF-DEFINED: imported_func

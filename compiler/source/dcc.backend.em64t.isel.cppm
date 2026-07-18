@@ -40,6 +40,19 @@ namespace dcc::backend::em64t
             PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9,
         };
 
+        [[nodiscard]] std::string_view make_imp_name(MFunction& mfunc, std::string_view name)
+        {
+            mfunc.owned_strings.push_back(std::make_unique<std::string>(std::string{"__imp_"} + std::string{name}));
+            return *mfunc.owned_strings.back();
+        }
+
+        [[nodiscard]] bool is_dllimport_coff(dcc::target::TargetConfig const& target, dcc::ir::IrGlobalRef const* gr)
+        {
+            if (target.object_format != dcc::target::ObjectFormat::Coff)
+                return false;
+            return (gr->global && gr->global->is_dll_import) || (gr->function && gr->function->is_dll_import);
+        }
+
         struct IselCtx
         {
             MFunction& mfunc;
@@ -127,7 +140,17 @@ namespace dcc::backend::em64t
                 {
                     if (!gr->name.empty())
                     {
-                        if (target.position_independent_code)
+                        if (is_dllimport_coff(target, gr))
+                        {
+                            MInstr mov;
+                            mov.opc = MOpc::MOV64rm;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(v);
+                            mov.ops[1] = MOp::from_mem(MMem::make_sym_reloc(make_imp_name(mfunc, gr->name)));
+                            append_instr(mov);
+                        }
+                        else if (target.position_independent_code)
                         {
                             MInstr mov;
                             mov.opc = MOpc::MOV64rm;
@@ -614,10 +637,31 @@ namespace dcc::backend::em64t
 
             if (auto* gr = dcc::ir::ir_cast<dcc::ir::IrGlobalRef>(callee))
             {
-                call_instr.opc = MOpc::CALL_rel32;
-                call_instr.num_ops = 1;
-                call_instr.num_defs = 0;
-                call_instr.ops[0] = MOp::from_symbol(gr->name);
+                if (is_dllimport_coff(ctx.target, gr))
+                {
+                    auto imp_name = make_imp_name(ctx.mfunc, gr->name);
+                    VReg scratch = VReg::phys(PhysReg::R11);
+                    MInstr mov;
+                    mov.opc = MOpc::MOV64rm;
+                    mov.num_ops = 2;
+                    mov.num_defs = 1;
+                    mov.ops[0] = MOp::from_reg(scratch);
+                    mov.ops[1] = MOp::from_mem(MMem::make_sym_reloc(imp_name));
+                    ctx.add_implicit_defs(mov, std::array{PhysReg::R11});
+                    ctx.append_instr(mov);
+
+                    call_instr.opc = MOpc::CALL_r64;
+                    call_instr.num_ops = 1;
+                    call_instr.num_defs = 0;
+                    call_instr.ops[0] = MOp::from_reg(scratch);
+                }
+                else
+                {
+                    call_instr.opc = MOpc::CALL_rel32;
+                    call_instr.num_ops = 1;
+                    call_instr.num_defs = 0;
+                    call_instr.ops[0] = MOp::from_symbol(gr->name);
+                }
             }
             else
             {
@@ -722,7 +766,17 @@ namespace dcc::backend::em64t
                     if (gr && !gr->name.empty())
                     {
                         VReg v = ctx.mfunc.new_vreg();
-                        if (ctx.target.position_independent_code)
+                        if (is_dllimport_coff(ctx.target, gr))
+                        {
+                            MInstr mov;
+                            mov.opc = MOpc::MOV64rm;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(v);
+                            mov.ops[1] = MOp::from_mem(MMem::make_sym_reloc(make_imp_name(ctx.mfunc, gr->name)));
+                            ctx.append_instr(mov);
+                        }
+                        else if (ctx.target.position_independent_code)
                         {
                             MInstr mov;
                             mov.opc = MOpc::MOV64rm;
@@ -809,7 +863,21 @@ namespace dcc::backend::em64t
 
                     if (auto* gr = ir_cast<IrGlobalRef>(ptr_val))
                     {
-                        if (ctx.target.position_independent_code)
+                        if (is_dllimport_coff(ctx.target, gr))
+                        {
+                            VReg addr = ctx.mfunc.new_vreg();
+                            MInstr mov;
+                            mov.opc = MOpc::MOV64rm;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(addr);
+                            mov.ops[1] = MOp::from_mem(MMem::make_sym_reloc(make_imp_name(ctx.mfunc, gr->name)));
+                            ctx.append_instr(mov);
+
+                            VReg result = emit_load(ctx, load_type, addr);
+                            ctx.set_vreg(inst, result);
+                        }
+                        else if (ctx.target.position_independent_code)
                         {
                             VReg addr = ctx.mfunc.new_vreg();
                             MInstr mov;
@@ -925,7 +993,21 @@ namespace dcc::backend::em64t
                         VReg val = ctx.try_materialize(val_val);
                         if (val.is_valid())
                         {
-                            if (ctx.target.position_independent_code)
+                            if (is_dllimport_coff(ctx.target, gr))
+                            {
+                                VReg addr = ctx.mfunc.new_vreg();
+                                MInstr mov;
+                                mov.opc = MOpc::MOV64rm;
+                                mov.num_ops = 2;
+                                mov.num_defs = 1;
+                                mov.ops[0] = MOp::from_reg(addr);
+                                mov.ops[1] = MOp::from_mem(MMem::make_sym_reloc(make_imp_name(ctx.mfunc, gr->name)));
+                                ctx.append_instr(mov);
+
+                                auto store_type = val_val ? val_val->type : nullptr;
+                                emit_store(ctx, store_type, addr, val);
+                            }
+                            else if (ctx.target.position_independent_code)
                             {
                                 VReg addr = ctx.mfunc.new_vreg();
                                 MInstr mov;

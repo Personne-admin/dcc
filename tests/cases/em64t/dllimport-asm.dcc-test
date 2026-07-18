@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+@import @nomangle extern
+const i32 imported_data;
+
+@import @nomangle extern
+i32 imported_func(i32 x);
+
+@nomangle
+public i32 dcc_main() {
+    return imported_func(imported_data);
+}
+
+=== EXPECT-EM64T-ASM ===
+TARGET: x86_64-coff
+CONTAINS: extern __imp_imported_data
+CONTAINS: extern __imp_imported_func
+CONTAINS: mov rax, qword [rel __imp_imported_data]
+CONTAINS: mov r11, qword [rel __imp_imported_func]
+CONTAINS: call r11
