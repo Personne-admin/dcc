@@ -138,6 +138,7 @@ namespace
         std::optional<int> run_exit_code;
         int opt_level{0};
         bool pic{false};
+        bool shared_link{false};
         std::vector<RequiredRela> required_relas;
     };
 
@@ -498,6 +499,11 @@ namespace
                             auto val_str = trim(std::string_view{tl}.substr(4));
                             e.pic = (val_str == "true" || val_str == "1");
                         }
+                        else if (starts_with(tl, "SHARED-LINK:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(12));
+                            e.shared_link = (val_str == "ok" || val_str == "true");
+                        }
                         else if (starts_with(tl, "REQUIRE-RELA:"))
                         {
                             auto val_str = trim(std::string_view{tl}.substr(13));
@@ -507,12 +513,35 @@ namespace
                             {
                                 RequiredRela rr;
                                 rr.section = trim(val_str.substr(0, sp));
-                                try
+                                auto type_str = trim(val_str.substr(sp + 1));
+
+                                static constexpr struct
                                 {
-                                    rr.rel_type = static_cast<std::uint32_t>(std::stoul(trim(val_str.substr(sp + 1))));
+                                    std::string_view name;
+                                    std::uint32_t value;
+                                } kRelaNames[] = {
+                                    {"R_X86_64_64", 1},       {"R_X86_64_PC32", 2},       {"R_X86_64_PLT32", 4},
+                                    {"R_X86_64_GOTPCREL", 9}, {"R_X86_64_GOTPCRELX", 41}, {"R_X86_64_REX_GOTPCRELX", 42},
+                                };
+                                bool found_name = false;
+                                for (auto const& rn : kRelaNames)
+                                {
+                                    if (type_str == rn.name)
+                                    {
+                                        rr.rel_type = rn.value;
+                                        found_name = true;
+                                        break;
+                                    }
                                 }
-                                catch (...)
+                                if (!found_name)
                                 {
+                                    try
+                                    {
+                                        rr.rel_type = static_cast<std::uint32_t>(std::stoul(type_str));
+                                    }
+                                    catch (...)
+                                    {
+                                    }
                                 }
                                 e.required_relas.push_back(rr);
                             }
@@ -1970,8 +1999,12 @@ namespace
                     constexpr std::uint32_t R_X86_64_PC32 = 2;
                     constexpr std::uint32_t R_X86_64_PLT32 = 4;
                     constexpr std::uint32_t R_X86_64_GOTPCREL = 9;
+                    constexpr std::uint32_t R_X86_64_GOTPCRELX = 41;
+                    constexpr std::uint32_t R_X86_64_REX_GOTPCRELX = 42;
 
-                    auto is_allowed_text_reloc = [](std::uint32_t t) -> bool { return t == R_X86_64_PLT32 || t == R_X86_64_PC32 || t == R_X86_64_GOTPCREL; };
+                    auto is_allowed_text_reloc = [](std::uint32_t t) -> bool {
+                        return t == R_X86_64_PLT32 || t == R_X86_64_PC32 || t == R_X86_64_GOTPCREL || t == R_X86_64_GOTPCRELX || t == R_X86_64_REX_GOTPCRELX;
+                    };
 
                     struct RelaCount
                     {
@@ -2067,6 +2100,52 @@ namespace
 
             if (!elf_valid)
                 ok = false;
+
+            if (elf_valid && exp.shared_link)
+            {
+                std::error_code ec;
+                auto shared_dir = fs::temp_directory_path(ec) / std::format("dcc-em64t-shared-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                if (ec)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot create temp dir for shared-link  ({}:{})", path.string(), exp.base_line);
+                }
+                else if (!fs::create_directories(shared_dir, ec))
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot create temp dir for shared-link  ({}:{})", path.string(), exp.base_line);
+                }
+                else
+                {
+                    auto sobj_path = shared_dir / "test.o";
+                    {
+                        std::ofstream of{sobj_path, std::ios::binary};
+                        if (!of)
+                        {
+                            ok = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: cannot write object for shared-link  ({}:{})", path.string(),
+                                         exp.base_line);
+                        }
+                        else
+                        {
+                            auto const* obj_data = reinterpret_cast<char const*>(obj.data());
+                            of.write(obj_data, static_cast<std::streamsize>(obj.size()));
+                            of.close();
+
+                            auto so_path = shared_dir / "test.so";
+                            auto link_cmd = std::format("ld.lld --shared -o {} {} 2>/dev/null", so_path.string(), sobj_path.string());
+                            int link_rc = std::system(link_cmd.c_str());
+                            if (link_rc != 0)
+                            {
+                                ok = false;
+                                std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: shared-link failed (exit {})  ({}:{})", link_rc, path.string(),
+                                             exp.base_line);
+                            }
+                        }
+                    }
+                    fs::remove_all(shared_dir, ec);
+                }
+            }
 
             if (elf_valid && exp.run_exit_code.has_value())
             {

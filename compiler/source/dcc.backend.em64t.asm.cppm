@@ -413,6 +413,8 @@ namespace
                 {
                     r += "rel ";
                     r += m.symbol;
+                    if (m.is_got_indirect)
+                        r += " wrt ..got";
                 }
                 else
                 {

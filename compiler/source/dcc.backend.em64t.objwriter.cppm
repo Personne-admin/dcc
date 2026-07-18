@@ -35,7 +35,7 @@ namespace dcc::backend::em64t
         constexpr std::uint32_t R_X86_64_64 = 1;
         constexpr std::uint32_t R_X86_64_PC32 = 2;
         constexpr std::uint32_t R_X86_64_PLT32 = 4;
-        constexpr std::uint32_t R_X86_64_GOTPCREL = 9;
+        constexpr std::uint32_t R_X86_64_REX_GOTPCRELX = 42;
 
         void w8(std::vector<std::uint8_t>& b, std::uint8_t v)
         {
@@ -169,7 +169,7 @@ namespace dcc::backend::em64t
                 case Reloc::Kind::Rel32:
                     return R_X86_64_PC32;
                 case Reloc::Kind::Rel32_Got:
-                    return R_X86_64_GOTPCREL;
+                    return R_X86_64_REX_GOTPCRELX;
                 case Reloc::Kind::Rel32_Call:
                     return R_X86_64_PLT32;
                 case Reloc::Kind::Abs64:

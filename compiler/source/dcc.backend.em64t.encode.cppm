@@ -603,7 +603,7 @@ namespace
                         Reloc rel;
                         rel.offset = static_cast<std::uint32_t>(buf.size());
                         rel.symbol = m.symbol;
-                        rel.kind = Reloc::Kind::Rel32;
+                        rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
                         rel.addend = m.disp - 4;
                         relocs.push_back(rel);
                         emit_u32_le(buf, 0);
@@ -646,7 +646,7 @@ namespace
                         Reloc rel;
                         rel.offset = static_cast<std::uint32_t>(buf.size());
                         rel.symbol = m.symbol;
-                        rel.kind = Reloc::Kind::Rel32;
+                        rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
                         rel.addend = m.disp - 4;
                         relocs.push_back(rel);
                         emit_u32_le(buf, 0);
@@ -1929,7 +1929,7 @@ namespace
                         Reloc rel;
                         rel.offset = static_cast<std::uint32_t>(buf.size());
                         rel.symbol = m.symbol;
-                        rel.kind = Reloc::Kind::Rel32;
+                        rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
                         rel.addend = m.disp - 4;
                         relocs.push_back(rel);
                         emit_u32_le(buf, 0);
