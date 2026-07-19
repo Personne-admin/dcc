@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+public i32 exported_value = 99;
+
+@nomangle
+i32 internal_var;
+
+@nomangle
+public i32 get_value() {
+    return exported_value;
+}
+
+@nomangle
+public i32 add(i32 a, i32 b) {
+    return a + b;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+CONTAINS: exported_value
+CONTAINS: get_value
+CONTAINS: add
+FORBID-COFF-DEFINED: __imp_get_value
+FORBID-COFF-DEFINED: __imp_add
+FORBID-COFF-DEFINED: __imp_exported_value

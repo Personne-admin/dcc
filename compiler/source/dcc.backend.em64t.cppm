@@ -146,7 +146,9 @@ namespace dcc::backend
                     {
                         if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
                         {
-                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: shared library output not supported for COFF target"});
+                            auto dll = link_shared_library_coff(obj_bytes, opts, artifact);
+                            if (dll)
+                                artifact.shared_library_bytes = std::move(dll);
                         }
                         else if (opts.target.arch != dcc::target::Arch::X86_64)
                         {
@@ -434,6 +436,187 @@ namespace dcc::backend
 
                 cleanup();
                 return so_bytes;
+            }
+
+            [[nodiscard]] static std::vector<std::string> parse_coff_exports(std::span<std::byte const> obj)
+            {
+                std::vector<std::string> exports;
+                if (obj.size() < 20)
+                    return exports;
+
+                auto rd16 = [&](std::size_t off) -> std::uint16_t {
+                    if (off + 2 > obj.size())
+                        return 0;
+                    auto lo = static_cast<unsigned>(static_cast<unsigned char>(obj[off]));
+                    auto hi = static_cast<unsigned>(static_cast<unsigned char>(obj[off + 1]));
+                    return static_cast<std::uint16_t>(lo | (hi << 8));
+                };
+                auto rd32 = [&](std::size_t off) -> std::uint32_t {
+                    if (off + 4 > obj.size())
+                        return 0;
+                    auto b0 = static_cast<unsigned>(static_cast<unsigned char>(obj[off]));
+                    auto b1 = static_cast<unsigned>(static_cast<unsigned char>(obj[off + 1]));
+                    auto b2 = static_cast<unsigned>(static_cast<unsigned char>(obj[off + 2]));
+                    auto b3 = static_cast<unsigned>(static_cast<unsigned char>(obj[off + 3]));
+                    return static_cast<std::uint32_t>(b0 | (b1 << 8) | (b2 << 16) | (b3 << 24));
+                };
+
+                auto num_sec = rd16(2);
+                auto sym_tab = rd32(8);
+                auto num_syms = rd32(12);
+                if (sym_tab == 0 || num_syms == 0)
+                    return exports;
+
+                auto str_tab_off = static_cast<std::size_t>(sym_tab) + static_cast<std::size_t>(num_syms) * 18;
+                if (str_tab_off + 4 > obj.size())
+                    return exports;
+
+                (void)num_sec;
+
+                auto read_name = [&](std::size_t entry_off) -> std::string {
+                    if (entry_off + 8 > obj.size())
+                        return {};
+                    std::uint32_t name_1 = rd32(entry_off);
+                    if (name_1 == 0)
+                    {
+                        auto str_off = rd32(entry_off + 4);
+                        auto actual_off = str_tab_off + static_cast<std::size_t>(str_off);
+                        if (actual_off >= obj.size())
+                            return {};
+                        std::string name;
+                        while (actual_off < obj.size() && obj[actual_off] != std::byte{0})
+                            name += static_cast<char>(obj[actual_off++]);
+                        return name;
+                    }
+                    else
+                    {
+                        std::string name;
+                        for (unsigned i = 0; i < 8 && entry_off + i < obj.size(); ++i)
+                        {
+                            auto c = static_cast<char>(obj[entry_off + i]);
+                            if (c == '\0')
+                                break;
+                            name += c;
+                        }
+                        return name;
+                    }
+                };
+
+                for (std::uint32_t idx = 0; idx < num_syms;)
+                {
+                    auto entry_off = static_cast<std::size_t>(sym_tab) + static_cast<std::size_t>(idx) * 18;
+                    if (entry_off + 18 > obj.size())
+                        break;
+
+                    auto name = read_name(entry_off);
+                    auto sec_num = static_cast<std::int16_t>(rd16(entry_off + 12));
+                    auto storage_class = static_cast<std::uint8_t>(obj[entry_off + 16]);
+                    auto aux_count = static_cast<std::uint8_t>(obj[entry_off + 17]);
+
+                    if (storage_class == 2 && sec_num > 0)
+                    {
+                        if (name != ".text" && name != ".data" && name != ".bss" && name != ".rdata" &&
+                            !name.starts_with("__imp_"))
+                        {
+                            exports.push_back(name);
+                        }
+                    }
+
+                    idx += 1U + aux_count;
+                }
+
+                return exports;
+            }
+
+            [[nodiscard]] static std::optional<std::vector<std::byte>> link_shared_library_coff(std::vector<std::byte> const& object_bytes,
+                                                                                                BackendOptions const& opts, BackendArtifact& artifact)
+            {
+                namespace fs = std::filesystem;
+
+                std::error_code ec;
+                auto tmp_dir = fs::temp_directory_path(ec);
+                if (ec)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot get temp directory"});
+                    return std::nullopt;
+                }
+
+                auto tag = std::format("dcc-em64t-link-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                auto work_dir = tmp_dir / tag;
+                if (!fs::create_directories(work_dir, ec))
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot create temp directory"});
+                    return std::nullopt;
+                }
+
+                auto cleanup = [&]() {
+                    std::error_code ec2;
+                    fs::remove_all(work_dir, ec2);
+                };
+
+                auto obj_path = work_dir / "module.obj";
+                {
+                    std::ofstream of{obj_path, std::ios::binary};
+                    if (!of)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write object file"});
+                        cleanup();
+                        return std::nullopt;
+                    }
+                    of.write(reinterpret_cast<char const*>(object_bytes.data()), static_cast<std::streamsize>(object_bytes.size()));
+                }
+
+                auto exports = parse_coff_exports(object_bytes);
+
+                auto dll_path = work_dir / "out.dll";
+
+                std::string link_cmd = std::format("lld-link /dll /noentry /machine:x64 /out:{} {}", dll_path.string(), obj_path.string());
+
+                for (auto const& sym : exports)
+                    link_cmd += std::format(" /export:{}", sym);
+
+                for (auto const& la : opts.linker_args)
+                    link_cmd += " " + la;
+
+                link_cmd += " 2>&1";
+                auto* pipe = popen(link_cmd.c_str(), "r");
+                if (!pipe)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot run lld-link"});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::string link_output;
+                std::array<char, 4096> buf;
+                while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
+                    link_output += buf.data();
+
+                int link_rc = pclose(pipe);
+                if (link_rc != 0)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: linking failed:\n" + link_output});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::ifstream dll_in{dll_path, std::ios::binary};
+                if (!dll_in)
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot read linked DLL"});
+                    cleanup();
+                    return std::nullopt;
+                }
+
+                std::vector<std::byte> dll_bytes;
+                dll_in.seekg(0, std::ios::end);
+                auto dll_size = static_cast<std::size_t>(dll_in.tellg());
+                dll_in.seekg(0, std::ios::beg);
+                dll_bytes.resize(dll_size);
+                dll_in.read(reinterpret_cast<char*>(dll_bytes.data()), static_cast<std::streamsize>(dll_size));
+
+                cleanup();
+                return dll_bytes;
             }
         };
 

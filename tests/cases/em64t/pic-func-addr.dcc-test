@@ -1,0 +1,28 @@
+=== FILE: test.dc ===
+module test;
+
+using FnPtr = i32(*)(i32);
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 triple(i32 x) {
+    return x * 3;
+}
+
+@nomangle
+i32 g_val = 7;
+
+@nomangle
+public i32 dcc_main() {
+    FnPtr fp = triple;
+    return triple(g_val);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+PIC: true
+REQUIRE-RELA: .text R_X86_64_REX_GOTPCRELX
