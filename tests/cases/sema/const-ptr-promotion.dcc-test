@@ -1,0 +1,41 @@
+=== FILE: main.dc ===
+module m;
+
+void take_const_ptr(const i32* p) {}
+
+void take_const_ptr_ufcs(i32 tag, const i32* p) {}
+
+void take_const_generic(T)(const T* p) {}
+
+void take_const_generic_ufcs(T)(i32 tag, const T* p) {}
+
+void accept_ptr_in_arg() {
+    i32 x = 42;
+    i32* p = &x;
+
+    take_const_ptr(p);
+    0.take_const_ptr_ufcs(p);
+    take_const_generic(p);
+    0.take_const_generic_ufcs(p);
+}
+
+void assign_to_const_ptr() {
+    i32 x = 42;
+    i32* p = &x;
+    const i32* cp = p;
+    cp = p;
+}
+
+T* contextual_ptr(T)() {
+    return null;
+}
+
+void contextual_return_deduction() {
+    const i32* p = contextual_ptr();
+}
+
+const i32* return_ptr_as_const() {
+    i32 x = 42;
+    i32* p = &x;
+    return p;
+}

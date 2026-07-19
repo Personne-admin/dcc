@@ -1,0 +1,45 @@
+=== FILE: main.dc ===
+module m;
+
+void take_ptr(i32* p) {}
+
+void take_const_nested(const i32** p) {}
+
+void reject_const_ptr_in_arg() {
+    i32 x = 42;
+    i32* p = &x;
+    const i32* cp = &x;
+
+    take_ptr(cp);
+    p = cp;
+}
+
+void reject_nested_promotion() {
+    i32 x = 42;
+    i32* p = &x;
+    i32** pp = &p;
+    take_const_nested(pp);
+}
+
+i32* reject_return_as_nonconst() {
+    i32 x = 42;
+    const i32* cp = &x;
+    return cp;
+}
+
+void reject_assign_to_nonconst() {
+    i32 x = 42;
+    const i32* cp = &x;
+    i32* p = cp;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:12: no matching call for `take_ptr`
+main.dc:3: = note: candidate `take_ptr(i32*)`
+main.dc:3: = note: reason: cannot convert argument 1: expected `i32*`, found `const i32*`
+main.dc:13: assignment type mismatch
+main.dc:20: no matching call for `take_const_nested`
+main.dc:5: = note: candidate `take_const_nested(const i32**)`
+main.dc:5: = note: reason: cannot convert argument 1: expected `const i32**`, found `i32**`
+main.dc:26: return type mismatch
+main.dc:32: initializer type mismatch
