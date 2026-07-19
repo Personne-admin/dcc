@@ -390,6 +390,67 @@ export namespace dccd
             return loc;
         }
 
+        [[nodiscard]] static protocol::LspLocation make_location_at_start(std::string uri)
+        {
+            protocol::LspLocation loc;
+            loc.uri = std::move(uri);
+
+            return loc;
+        }
+
+        [[nodiscard]] std::optional<std::string> resolve_import_uri(std::string_view module_path)
+        {
+            if (auto const* entry = dcc::vfs::lookup_by_module_path(module_path))
+                return std::string{entry->uri};
+
+            auto* sema_ctx = m_session->sema_context();
+            if (!sema_ctx)
+                return std::nullopt;
+
+            auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+            auto const& sm = m_session->source_manager();
+
+            for (auto const& mod : graph.all())
+            {
+                if (mod->canonical_path.str() == module_path)
+                {
+                    auto const* sf = sm.get(mod->file_id);
+                    if (sf)
+                        return sf->uri();
+
+                    return std::nullopt;
+                }
+            }
+
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<std::string> resolve_import_decl_uri(dcc::ast::ImportDecl const& import_decl)
+        {
+            auto* sema_ctx = m_session->sema_context();
+            if (sema_ctx)
+            {
+                auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+                auto const& sm = m_session->source_manager();
+
+                for (auto const& mod : graph.all())
+                {
+                    for (auto const& binding : mod->imports)
+                    {
+                        if (binding.decl == &import_decl && binding.target)
+                        {
+                            auto const* sf = sm.get(binding.target->file_id);
+                            if (sf)
+                                return sf->uri();
+                        }
+                    }
+                }
+            }
+
+            auto module_path_str = dcc::sema::ModulePath::from_ast(import_decl.module_path).str();
+            return resolve_import_uri(module_path_str);
+        }
+
         [[nodiscard]] std::optional<protocol::JsonValue> handle_definition(protocol::RpcInfo const& rpc)
         {
             auto params = protocol::DefinitionParams::from_json(rpc.params.value());
@@ -412,6 +473,19 @@ export namespace dccd
                 auto loc = source_range_to_lsp_location(node->resolved_definition_range);
                 if (loc)
                     return protocol::build_response(rpc.id.value(), loc->to_json());
+
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+            }
+
+            if (node->hovered_decl && node->hovered_decl->kind == dcc::ast::DeclKind::Import)
+            {
+                auto const* import_decl = static_cast<dcc::ast::ImportDecl const*>(node->hovered_decl);
+                auto uri = resolve_import_decl_uri(*import_decl);
+                if (uri)
+                {
+                    auto loc = make_location_at_start(std::move(*uri));
+                    return protocol::build_response(rpc.id.value(), loc.to_json());
+                }
 
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
             }
