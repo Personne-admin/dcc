@@ -5,6 +5,7 @@ import {
     ServerOptions,
     Executable,
 } from 'vscode-languageclient/node';
+import { DccCoreFileSystemProvider } from './dccCoreFileSystemProvider';
 
 let client: LanguageClient | undefined;
 
@@ -47,6 +48,14 @@ export function activate(context: vscode.ExtensionContext): void {
     client.start();
 
     context.subscriptions.push(client);
+
+    const dccCoreProvider = new DccCoreFileSystemProvider(client);
+    const dccCoreFs = vscode.workspace.registerFileSystemProvider(
+        'dcc-core',
+        dccCoreProvider,
+        { isReadonly: true, isCaseSensitive: true },
+    );
+    context.subscriptions.push(dccCoreFs);
 }
 
 export function deactivate(): Thenable<void> | undefined {
