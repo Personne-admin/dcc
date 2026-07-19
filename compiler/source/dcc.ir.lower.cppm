@@ -2791,19 +2791,103 @@ export namespace dcc::ir::lower
         IrValue* lower_postfix_expr(ast::PostfixExpr const* p)
         {
             auto* ty = get_sema_resolved_type(p);
-            auto* ir_ty = lower_type(ty);
 
             switch (p->op)
             {
-                case dcc::lex::TokenKind::Increment:
+                case dcc::lex::TokenKind::Increment: {
+                    auto* ir_ty = lower_type(ty);
                     return lower_post_incdec(p->operand, ir_ty, true);
+                }
 
-                case dcc::lex::TokenKind::Decrement:
+                case dcc::lex::TokenKind::Decrement: {
+                    auto* ir_ty = lower_type(ty);
                     return lower_post_incdec(p->operand, ir_ty, false);
+                }
+
+                case dcc::lex::TokenKind::Question:
+                    return lower_unwrap_propagate(p, ty);
 
                 default:
                     lower_unimplemented(p, std::format("unsupported postfix op: {}", static_cast<int>(p->op)));
             }
+        }
+
+        IrValue* lower_unwrap_propagate(ast::PostfixExpr const* p, dcc::types::TypePtr success_sema_type)
+        {
+            auto* is_ok_callee = p->unwrap_is_ok_callee;
+            auto* unwrap_callee = p->unwrap_unwrap_callee;
+            auto* unwrap_err_callee = p->unwrap_unwrap_err_callee;
+
+            if (!is_ok_callee || !unwrap_callee || !unwrap_err_callee)
+                lower_panic(p, "unwrap-propagate missing callee annotations from sema");
+
+            auto* is_ok_ir_func = get_or_create_func_ref(is_ok_callee);
+            auto* unwrap_ir_func = get_or_create_func_ref(unwrap_callee);
+            auto* unwrap_err_ir_func = get_or_create_func_ref(unwrap_err_callee);
+
+            if (!is_ok_ir_func || !unwrap_ir_func || !unwrap_err_ir_func)
+                lower_panic(p, "unwrap-propagate callee function not in function map");
+
+            auto* ir_ret_type = lower_type(success_sema_type);
+
+            auto* operand_val = lower_expr(p->operand);
+
+            auto* is_ok_bb = create_block("unwrap.is_ok");
+            auto* fail_bb = create_block("unwrap.fail");
+            auto* merge_bb = create_block("unwrap.merge");
+
+            auto* is_ok_call = m_ctx.call(m_ctx.bool_t(), m_ctx.func_ref(is_ok_ir_func));
+            is_ok_call->args.push_back(operand_val);
+            {
+                auto name = ident_name();
+                is_ok_call->name = m_name_pool.back();
+            }
+            append_inst(is_ok_call);
+
+            emit_br_cond(is_ok_call, is_ok_bb, fail_bb);
+
+            set_current_block(is_ok_bb);
+
+            auto* unwrap_call = m_ctx.call(ir_ret_type, m_ctx.func_ref(unwrap_ir_func));
+            unwrap_call->args.push_back(operand_val);
+            {
+                auto name = ident_name();
+                unwrap_call->name = m_name_pool.back();
+            }
+            append_inst(unwrap_call);
+
+            IrBasicBlock* success_exit = m_current_block;
+            emit_br(merge_bb);
+
+            set_current_block(fail_bb);
+
+            auto* unwrap_err_call = m_ctx.call(lower_type(get_canonical_type(unwrap_err_callee->return_type)), m_ctx.func_ref(unwrap_err_ir_func));
+            unwrap_err_call->args.push_back(operand_val);
+            {
+                auto name = ident_name();
+                unwrap_err_call->name = m_name_pool.back();
+            }
+            append_inst(unwrap_err_call);
+
+            IrValue* return_val = unwrap_err_call;
+            if (p->unwrap_err_needs_implicit_enum && p->unwrap_err_constructed_variant)
+            {
+                auto* ret_sema_type = m_current_func_decl ? get_canonical_type(m_current_func_decl->return_type) : nullptr;
+                if (ret_sema_type)
+                {
+                    IrValue* payloads[] = {return_val};
+                    return_val = lower_tagged_enum_construction(p->unwrap_err_constructed_variant, ret_sema_type, payloads);
+                }
+            }
+
+            flush_all_defers();
+            emit_ret(return_val);
+
+            set_current_block(merge_bb);
+
+            auto* phi = emit_phi(ir_ret_type);
+            add_phi_incoming(phi, unwrap_call, success_exit);
+            return phi;
         }
 
         IrValue* lower_post_incdec(ast::Expr const* operand, IrType const* ir_ty, bool is_inc)
@@ -4116,7 +4200,7 @@ export namespace dcc::ir::lower
                     if (arm.body)
                         arm_blocks[i].result = lower_expr(arm.body);
 
-                    arm_blocks[i].terminated = current_block_terminated();
+                    arm_blocks[i].terminated = current_block_terminated() || (arm.body && arm.body->sema.is_diverging);
 
                     if (!arm_blocks[i].terminated)
                     {
@@ -4164,7 +4248,7 @@ export namespace dcc::ir::lower
                     {
                         arm_blocks[i].result = lower_expr(arm.body);
                     }
-                    arm_blocks[i].terminated = current_block_terminated();
+                    arm_blocks[i].terminated = current_block_terminated() || (arm.body && arm.body->sema.is_diverging);
 
                     if (!arm_blocks[i].terminated)
                     {

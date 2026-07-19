@@ -99,10 +99,10 @@ Module m
   Func test_implicit_construction_assign diverging=true
     Body
       Var y type=Result(i32) storage=local offset=0
-        IntLiteral 23 [type=i32 const=23 constant]
+        IntLiteral 23 [type=Result(i32) const=23 constant]
       Return
         IntLiteral 0 [type=i32 const=0 constant]
   Func test_implicit_construction_return diverging=true
     Body
       Return
-        IntLiteral 23 [type=i32 const=23 constant]
+        IntLiteral 23 [type=Result(i32) const=23 constant]

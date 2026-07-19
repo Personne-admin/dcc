@@ -196,6 +196,11 @@ namespace dcc::sema
                     auto* ex = static_cast<ast::PostfixExpr const*>(e);
                     auto* n = m_ctx.make<ast::PostfixExpr>(ex->range, clone_expr(ex->operand), ex->op);
                     n->sema = ex->sema;
+                    n->unwrap_is_ok_callee = nullptr;
+                    n->unwrap_unwrap_callee = nullptr;
+                    n->unwrap_unwrap_err_callee = nullptr;
+                    n->unwrap_err_needs_implicit_enum = false;
+                    n->unwrap_err_constructed_variant = nullptr;
                     return n;
                 }
                 case ast::ExprKind::Binary: {

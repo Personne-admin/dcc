@@ -1,0 +1,102 @@
+=== FILE: main.dc ===
+module m;
+
+enum MyEnum {
+    @implicit_construction Just(i32),
+    Nothing,
+}
+
+MyEnum make_it() {
+    return 42;
+}
+
+i32 test_assign() {
+    MyEnum e;
+    e = 99;
+    return 1;
+}
+
+i32 test_init() {
+    MyEnum e = 7;
+    return 1;
+}
+
+void take_enum(MyEnum v) {}
+
+i32 test_call_arg() {
+    take_enum(42);
+    return 0;
+}
+
+enum NoMatch {
+    A,
+    B,
+}
+
+i32 test_no_match() {
+    NoMatch x = 42;
+    return 0;
+}
+
+enum AmbiguousReturn {
+    @implicit_construction First(i32),
+    @implicit_construction Second(i32),
+}
+
+AmbiguousReturn pick_one() {
+    return 0;
+}
+
+enum AmbiguousAssign {
+    @implicit_construction Alpha(i32),
+    @implicit_construction Beta(i32),
+}
+
+i32 test_ambiguous_assign() {
+    AmbiguousAssign a;
+    a = 0;
+    return 0;
+}
+
+enum AmbiguousInit {
+    @implicit_construction X(i32),
+    @implicit_construction Y(i32),
+}
+
+i32 test_ambiguous_init() {
+    AmbiguousInit v = 0;
+    return 0;
+}
+
+enum AmbiguousCall {
+    @implicit_construction X(i32),
+    @implicit_construction Y(i32),
+}
+
+void take_ambiguous_call(AmbiguousCall v) {}
+
+i32 test_ambiguous_call_arg() {
+    take_ambiguous_call(0);
+    return 0;
+}
+
+using AmbiguousCallable(T) = compiles(T x) {
+    take_ambiguous_call(x);
+};
+
+T test_concept_probe(T)(T v) if AmbiguousCallable(T) {
+    return v;
+}
+
+i32 test_concept_probe_ambiguous() {
+    test_concept_probe!i32(0);
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:36: initializer type mismatch
+main.dc:46: ambiguous implicit enum construction
+main.dc:56: ambiguous implicit enum construction
+main.dc:66: ambiguous implicit enum construction
+main.dc:78: no matching call for
+main.dc:91: template constraint not satisfied for `test_concept_probe`

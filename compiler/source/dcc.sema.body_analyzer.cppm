@@ -2312,6 +2312,35 @@ export namespace dcc::sema
 
                 std::ignore = analyze_stmt(mod, const_cast<ast::FuncDecl*>(fn), *probe_scope, *stmt, 0, probe_off, nullptr);
 
+                if (stmt->kind == ast::StmtKind::DeclStmt)
+                {
+                    auto* ds = static_cast<ast::DeclStmt const*>(stmt);
+                    if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
+                    {
+                        if (vd->type && vd->type->sema.canonical && vd->init)
+                        {
+                            auto* expected = get_canonical(vd->type->sema);
+                            auto* init_type = get_resolved_type(vd->init->sema);
+                            if (expected && init_type && !has_error(init_type) && init_type != expected)
+                            {
+                                bool compatible = can_assign_return(expected, init_type);
+                                if (!compatible)
+                                {
+                                    ast::EnumVariant const* implicit_enum_var = nullptr;
+                                    auto* conv = try_implicit_enum_conversion(expected, init_type, mod, *probe_scope, &implicit_enum_var);
+                                    if (conv && !has_error(conv))
+                                        compatible = true;
+                                }
+                                if (!compatible)
+                                {
+                                    m_diag.error(vd->range, "concept requires expression to return `{}` but got `{}`", format_type_str(expected),
+                                                 format_type_str(init_type));
+                                }
+                            }
+                        }
+                    }
+                }
+
                 auto new_diags = m_diag.diagnostics_since(start_idx);
                 if (!new_diags.empty())
                 {
@@ -4114,6 +4143,17 @@ export namespace dcc::sema
             for (auto const& a : args)
                 actuals.push_back(a.type);
 
+            for (std::size_t i = 0; i < actuals.size() && i < non_pack_func_params; ++i)
+            {
+                auto subbed_param = b.substitute(params[i]);
+                if (actuals[i] != subbed_param && !has_error(actuals[i]) && !has_error(subbed_param) &&
+                    !types::type_cast<types::TemplateParamType>(subbed_param))
+                {
+                    if (auto* conv = try_implicit_enum_conversion(subbed_param, actuals[i], mod, scope, nullptr); conv && !has_error(conv))
+                        actuals[i] = subbed_param;
+                }
+            }
+
             std::vector<types::TypePtr> deduce_params;
             deduce_params.reserve(non_pack_func_params + (has_func_pack ? 1 : 0));
             for (std::size_t i = 0; i < non_pack_func_params; ++i)
@@ -4232,7 +4272,8 @@ export namespace dcc::sema
                                                                           std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off, int loop_depth,
                                                                           ConstEnv const* const_env, bool* had_suppressed_errors = nullptr,
                                                                           bool* had_constraint_failure = nullptr, bool* had_non_constraint_failure = nullptr,
-                                                                          types::TypePtr expected_type = nullptr, std::string* rejection_reason = nullptr)
+                                                                          types::TypePtr expected_type = nullptr, std::string* rejection_reason = nullptr,
+                                                                          detail::ExprResult const* preanalyzed_receiver = nullptr)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -4301,7 +4342,8 @@ export namespace dcc::sema
             infer::TemplateBindings b{m_types};
 
             auto param0 = b.substitute(params[0]);
-            auto receiver = analyze_expr(mod, nullptr, *probe_scope, object, loop_depth, probe_off, param0, const_env);
+            auto receiver = preanalyzed_receiver ? *preanalyzed_receiver
+                                                 : analyze_expr(mod, nullptr, *probe_scope, object, loop_depth, probe_off, param0, const_env);
             if (has_error(receiver.type))
             {
                 if (had_suppressed_errors)
@@ -4613,7 +4655,9 @@ export namespace dcc::sema
         [[nodiscard]] std::optional<detail::ExprResult> invoke_ufcs_candidate(ModuleInfo& mod, Scope& scope, Symbol const& sym, ast::Expr& object,
                                                                               std::span<ast::Expr* const> arg_exprs, sm::SourceRange range, int loop_depth,
                                                                               std::uint32_t& next_off, ConstEnv const* const_env,
-                                                                              UfcsReceiverMatch expected_match, types::TypePtr expected_type = nullptr)
+                                                                              UfcsReceiverMatch expected_match, types::TypePtr expected_type = nullptr,
+                                                                              detail::ExprResult const* preanalyzed_receiver = nullptr,
+                                                                              bool protocol_lookup = false)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -4660,7 +4704,8 @@ export namespace dcc::sema
             infer::TemplateBindings b{m_types};
 
             auto param0 = b.substitute(params[0]);
-            auto receiver = analyze_expr(mod, nullptr, scope, object, loop_depth, next_off, param0, const_env);
+            auto receiver = preanalyzed_receiver ? *preanalyzed_receiver
+                                                 : analyze_expr(mod, nullptr, scope, object, loop_depth, next_off, param0, const_env);
             if (has_error(receiver.type))
             {
                 error(range, "receiver type mismatch for UFCS call to `{}`: expected `{}`", f.name, format_type_str(param0));
@@ -4809,23 +4854,26 @@ export namespace dcc::sema
                     std::ignore = b.deduce(return_ty, expected_type);
             }
 
-            object.sema.implicit_addr_of = false;
-            object.sema.implicit_deref = false;
-            switch (match->first)
+            if (!protocol_lookup)
             {
-                case UfcsReceiverMatch::Exact:
-                case UfcsReceiverMatch::ArrayToSlice:
-                    break;
-                case UfcsReceiverMatch::AutoRef:
-                case UfcsReceiverMatch::AutoRefConst:
-                case UfcsReceiverMatch::AutoRefQualMismatch:
-                    object.sema.implicit_addr_of = true;
-                    break;
-                case UfcsReceiverMatch::AutoDeref:
-                    object.sema.implicit_deref = true;
-                    break;
-                case UfcsReceiverMatch::None:
-                    return std::nullopt;
+                object.sema.implicit_addr_of = false;
+                object.sema.implicit_deref = false;
+                switch (match->first)
+                {
+                    case UfcsReceiverMatch::Exact:
+                    case UfcsReceiverMatch::ArrayToSlice:
+                        break;
+                    case UfcsReceiverMatch::AutoRef:
+                    case UfcsReceiverMatch::AutoRefConst:
+                    case UfcsReceiverMatch::AutoRefQualMismatch:
+                        object.sema.implicit_addr_of = true;
+                        break;
+                    case UfcsReceiverMatch::AutoDeref:
+                        object.sema.implicit_deref = true;
+                        break;
+                    case UfcsReceiverMatch::None:
+                        return std::nullopt;
+                }
             }
 
             if (has_func_pack && !pack_arg_types.empty())
@@ -5295,7 +5343,7 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] infer::DeductionResult deduce_call_arguments(infer::TemplateBindings& bindings, std::span<types::TypePtr const> params,
-                                                                    std::span<types::TypePtr const> actuals)
+                                                                   std::span<types::TypePtr const> actuals)
         {
             std::vector<types::TypePtr> deduction_actuals(actuals.begin(), actuals.end());
 
@@ -5318,8 +5366,7 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < actuals.size(); ++i)
             {
                 auto param = bindings.substitute(call_param_at(params, i));
-                if (types::type_cast<types::PointerType>(param) && types::type_cast<types::PointerType>(actuals[i]) &&
-                    !can_assign_return(param, actuals[i]))
+                if (types::type_cast<types::PointerType>(param) && types::type_cast<types::PointerType>(actuals[i]) && !can_assign_return(param, actuals[i]))
                     return {infer::DeductionError::Conflict, "pointer argument qualifier mismatch"};
             }
 
@@ -7561,6 +7608,100 @@ export namespace dcc::sema
                     out.is_constant = false;
                     return out;
                 }
+                case lex::TokenKind::Question: {
+                    if (!fn)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "cannot use `?` outside a function");
+                        return out;
+                    }
+
+                    types::TypePtr ret_type = fn->return_type ? get_canonical(fn->return_type->sema) : m_types.m_voidt();
+
+                    struct MethodInfo
+                    {
+                        ast::FuncDecl const* callee{};
+                        types::TypePtr result_type{};
+                    };
+
+                    auto resolve_method = [&](std::string_view name) -> std::optional<MethodInfo> {
+                        ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                        auto* fa = m_ast_ctx.make<ast::FieldAccessExpr>(p.range, p.operand, name, p.range);
+                        auto call_result = resolve_ufcs(mod, fn, scope, *fa, {}, loop_depth, next_off, const_env, nullptr, &op, true);
+                        if (has_error(call_result.type))
+                            return std::nullopt;
+
+                        auto* callee = call_result.spec_commit ? call_result.spec_commit.decl
+                                                              : ast::node_cast<ast::FuncDecl>(call_result.ufcs_callee);
+                        if (!callee)
+                            return std::nullopt;
+
+                        return MethodInfo{callee, call_result.type};
+                    };
+
+                    auto is_ok_info = resolve_method("is_ok");
+                    if (!is_ok_info)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "type `{}` is not Unwrappable: no visible `.is_ok()` method", format_type_str(op.type));
+                        return out;
+                    }
+
+                    if (!can_assign_return(m_types.m_boolt(), is_ok_info->result_type))
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "`.is_ok()` must return bool-compatible type, got `{}`", format_type_str(is_ok_info->result_type));
+                        return out;
+                    }
+
+                    auto unwrap_info = resolve_method("unwrap");
+                    if (!unwrap_info)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "type `{}` is not Unwrappable: no visible `.unwrap()` method", format_type_str(op.type));
+                        return out;
+                    }
+                    auto* success_type = unwrap_info->result_type;
+
+                    auto unwrap_err_info = resolve_method("unwrap_err");
+                    if (!unwrap_err_info)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "type `{}` is not Unwrappable: no visible `.unwrap_err()` method", format_type_str(op.type));
+                        return out;
+                    }
+                    auto* error_type = unwrap_err_info->result_type;
+
+                    ast::EnumVariant const* implicit_enum_var = nullptr;
+                    bool err_compatible = can_assign_return(ret_type, error_type);
+
+                    if (!err_compatible)
+                    {
+                        auto* conv = try_implicit_enum_conversion(ret_type, error_type, mod, scope, &implicit_enum_var);
+                        if (conv && !has_error(conv))
+                            err_compatible = true;
+                    }
+
+                    if (!err_compatible)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "? operator: error type `{}` cannot be propagated into return type `{}`", format_type_str(error_type),
+                              format_type_str(ret_type));
+                        return out;
+                    }
+
+                    p.unwrap_is_ok_callee = is_ok_info->callee;
+                    p.unwrap_unwrap_callee = unwrap_info->callee;
+                    p.unwrap_unwrap_err_callee = unwrap_err_info->callee;
+                    if (implicit_enum_var)
+                    {
+                        p.unwrap_err_needs_implicit_enum = true;
+                        p.unwrap_err_constructed_variant = implicit_enum_var;
+                    }
+
+                    out.type = success_type;
+                    return out;
+                }
                 default:
                     out.type = m_types.m_errort();
                     return out;
@@ -7626,14 +7767,30 @@ export namespace dcc::sema
                         return out;
                     }
 
+                    ast::EnumVariant const* implicit_enum_var = nullptr;
                     bool ok = b.op == lex::TokenKind::Eq ? can_assign_return(lhs_type, rhs.type) : (lhs_type == rhs.type);
                     if (!ok && b.op == lex::TokenKind::Eq)
-                        ok = try_implicit_enum_conversion(lhs_type, rhs.type, mod, scope) != nullptr;
+                    {
+                        auto* conv = try_implicit_enum_conversion(lhs_type, rhs.type, mod, scope, &implicit_enum_var);
+                        if (conv && has_error(conv))
+                        {
+                            out.type = m_types.m_errort();
+                            error(b.range, "ambiguous implicit enum construction");
+                            return out;
+                        }
+                        ok = conv != nullptr;
+                    }
                     if (!ok)
                     {
                         out.type = m_types.m_errort();
                         error(b.range, "assignment type mismatch");
                         return out;
+                    }
+                    if (implicit_enum_var)
+                    {
+                        b.rhs->sema.construction_kind = ConstructionKind::Enum;
+                        b.rhs->sema.constructed_variant = implicit_enum_var;
+                        set_resolved_type(b.rhs->sema, lhs_type);
                     }
 
                     switch (b.op)
@@ -9716,7 +9873,8 @@ export namespace dcc::sema
         }
 
         detail::ExprResult resolve_ufcs(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FieldAccessExpr& f, std::span<ast::Expr* const> args,
-                                        int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, types::TypePtr expected_type = nullptr)
+                                        int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, types::TypePtr expected_type = nullptr,
+                                        detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false)
         {
             std::ignore = fn;
             bool saw_probe_error = false;
@@ -9728,6 +9886,17 @@ export namespace dcc::sema
                     return;
 
                 auto vs = s->lookup_values(f.field);
+                if (vs.empty())
+                {
+                    for (auto const& [binding_name, binding] : s->bindings())
+                    {
+                        if (binding_name == f.field)
+                        {
+                            vs = std::span<Symbol const>{binding.value_syms};
+                            break;
+                        }
+                    }
+                }
                 for (auto const& sym : vs)
                 {
                     if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
@@ -9788,7 +9957,8 @@ export namespace dcc::sema
                     std::string rejection_reason;
 
                     if (auto probe = probe_ufcs_candidate(mod, scope, *sym, *f.object, args, next_off, loop_depth, const_env, &probe_error,
-                                                          &probe_constraint_failure, &probe_non_constraint_failure, expected_type, &rejection_reason);
+                                                          &probe_constraint_failure, &probe_non_constraint_failure, expected_type, &rejection_reason,
+                                                          preanalyzed_receiver);
                         probe)
                         ranked.push_back(std::move(*probe));
                     else if (!rejection_reason.empty())
@@ -9814,7 +9984,7 @@ export namespace dcc::sema
                     }
 
                     auto out_opt = invoke_ufcs_candidate(mod, scope, *ranked[*winner].sym, *f.object, args, f.range, loop_depth, next_off, const_env,
-                                                         ranked[*winner].receiver_match, expected_type);
+                                                         ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup);
                     if (!out_opt)
                         return detail::ExprResult{m_types.m_errort()};
 
@@ -9963,7 +10133,20 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < non_pack_func_params; ++i)
             {
                 auto param_ty = b.substitute(params[i]);
-                args.push_back(analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env));
+                auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env);
+                if (!has_error(r.type) && r.type != param_ty)
+                {
+                    ast::EnumVariant const* implicit_enum_var = nullptr;
+                    auto* conv = try_implicit_enum_conversion(param_ty, r.type, mod, scope, &implicit_enum_var);
+                    if (conv && !has_error(conv) && implicit_enum_var)
+                    {
+                        arg_exprs[func_arg_start + i]->sema.construction_kind = ConstructionKind::Enum;
+                        arg_exprs[func_arg_start + i]->sema.constructed_variant = implicit_enum_var;
+                        set_resolved_type(arg_exprs[func_arg_start + i]->sema, param_ty);
+                        r.type = param_ty;
+                    }
+                }
+                args.push_back(r);
             }
 
             if (has_func_pack)
@@ -10161,7 +10344,22 @@ export namespace dcc::sema
             std::vector<detail::ExprResult> args;
             args.reserve(effective_args.size());
             for (std::size_t i = 0; i < effective_args.size(); ++i)
-                args.push_back(analyze_expr(mod, nullptr, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env));
+            {
+                auto r = analyze_expr(mod, nullptr, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env);
+                if (!has_error(r.type) && r.type != fp->params[i])
+                {
+                    ast::EnumVariant const* implicit_enum_var = nullptr;
+                    auto* conv = try_implicit_enum_conversion(fp->params[i], r.type, mod, scope, &implicit_enum_var);
+                    if (conv && !has_error(conv) && implicit_enum_var)
+                    {
+                        effective_args[i]->sema.construction_kind = ConstructionKind::Enum;
+                        effective_args[i]->sema.constructed_variant = implicit_enum_var;
+                        set_resolved_type(effective_args[i]->sema, fp->params[i]);
+                        r.type = fp->params[i];
+                    }
+                }
+                args.push_back(r);
+            }
 
             if (std::ranges::any_of(args, [](detail::ExprResult const& r) { return has_error(r.type); }))
                 return {m_types.m_errort()};
@@ -10459,8 +10657,24 @@ export namespace dcc::sema
                                 ;
                             else if (expected == m_types.m_voidt())
                                 error(s.range, "void function cannot return a value");
-                            else if (!can_assign_return(expected, got.type) && !try_implicit_enum_conversion(expected, got.type, mod, scope))
-                                error(s.range, "return type mismatch");
+                            else
+                            {
+                                ast::EnumVariant const* implicit_enum_var = nullptr;
+                                if (!can_assign_return(expected, got.type))
+                                {
+                                    auto* conv = try_implicit_enum_conversion(expected, got.type, mod, scope, &implicit_enum_var);
+                                    if (!conv)
+                                        error(s.range, "return type mismatch");
+                                    else if (has_error(conv))
+                                        error(s.range, "ambiguous implicit enum construction");
+                                }
+                                if (implicit_enum_var && r.value)
+                                {
+                                    r.value->sema.construction_kind = ConstructionKind::Enum;
+                                    r.value->sema.constructed_variant = implicit_enum_var;
+                                    set_resolved_type(r.value->sema, expected);
+                                }
+                            }
                         }
                         else if (expected != m_types.m_voidt())
                             error(s.range, "missing return value");
@@ -10812,8 +11026,21 @@ export namespace dcc::sema
                                 implicit_decay_ok = (got_arr->element == exp_ptr->pointee);
                         }
 
-                        if (!implicit_decay_ok && !can_assign_return(expected, init.type) && !try_implicit_enum_conversion(expected, init.type, mod, scope))
-                            error(v->range, "initializer type mismatch");
+                        ast::EnumVariant const* implicit_enum_var = nullptr;
+                        if (!implicit_decay_ok && !can_assign_return(expected, init.type))
+                        {
+                            auto* conv = try_implicit_enum_conversion(expected, init.type, mod, scope, &implicit_enum_var);
+                            if (!conv)
+                                error(v->range, "initializer type mismatch");
+                            else if (has_error(conv))
+                                error(v->range, "ambiguous implicit enum construction");
+                        }
+                        if (implicit_enum_var && v->init)
+                        {
+                            v->init->sema.construction_kind = ConstructionKind::Enum;
+                            v->init->sema.constructed_variant = implicit_enum_var;
+                            set_resolved_type(v->init->sema, expected);
+                        }
                     }
 
                     if (init.constant && const_env && fn)
@@ -10965,7 +11192,8 @@ export namespace dcc::sema
             return out;
         }
 
-        [[nodiscard]] types::TypePtr try_implicit_enum_conversion(types::TypePtr target_type, types::TypePtr source_type, ModuleInfo& mod, Scope& scope)
+        [[nodiscard]] types::TypePtr try_implicit_enum_conversion(types::TypePtr target_type, types::TypePtr source_type, ModuleInfo& mod, Scope& scope,
+                                                                  ast::EnumVariant const** out_variant = nullptr)
         {
             if (!target_type || !source_type || target_type->kind != types::TypeKind::Enum)
                 return nullptr;
@@ -10978,6 +11206,8 @@ export namespace dcc::sema
             if (!enum_decl)
                 return nullptr;
 
+            ast::EnumVariant const* match = nullptr;
+            int match_count = 0;
             for (auto const& variant : enum_decl->variants)
             {
                 if (!variant_has_attr(variant, "implicit_construction"))
@@ -10989,8 +11219,21 @@ export namespace dcc::sema
                 auto payload_ty = resolve_payload_type(*enum_decl, variant.payload[0], target_type, mod, scope);
 
                 if (can_assign_return(payload_ty, source_type))
-                    return target_type;
+                {
+                    match = &variant;
+                    ++match_count;
+                }
             }
+
+            if (match_count == 1)
+            {
+                if (out_variant)
+                    *out_variant = match;
+                return target_type;
+            }
+
+            if (match_count > 1)
+                return m_types.m_errort();
 
             return nullptr;
         }

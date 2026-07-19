@@ -1,0 +1,122 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Result32 {
+    bool ok;
+    i32 payload;
+}
+
+public bool is_ok(Result32 self) {
+    return self.ok;
+}
+
+public i32 unwrap(Result32 self) {
+    return self.payload;
+}
+
+public i32 unwrap_err(Result32 self) {
+    return self.payload;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+i32 g_defers = 0;
+
+@nomangle
+void bump_defers() { g_defers = g_defers + 1; }
+
+@nomangle
+i32 g_operand_count = 0;
+
+@nomangle
+Result32 make_operand(i32 v) {
+    g_operand_count = g_operand_count + 1;
+    return { ok = false, payload = v };
+}
+
+@nomangle
+public i32 test_success() {
+    Result32 val = { ok = true, payload = 42 };
+    return val?;
+}
+
+@nomangle
+public i32 test_failure() {
+    Result32 val = { ok = false, payload = 7 };
+    return val?;
+}
+
+@nomangle
+public i32 test_code_after_not_run() {
+    Result32 val = { ok = false, payload = 99 };
+    i32 x = val?;
+
+    return 0;
+}
+
+@nomangle
+public i32 test_defer_on_fail() {
+    g_defers = 0;
+    Result32 val = { ok = false, payload = 5 };
+    defer bump_defers();
+    i32 x = val?;
+    return 0;
+}
+
+@nomangle
+public i32 test_operand_once() {
+    g_operand_count = 0;
+    return make_operand(10)?;
+}
+
+@nomangle
+public i32 check_defer_count() {
+    return g_defers;
+}
+
+@nomangle
+public i32 check_operand_count() {
+    return g_operand_count;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if test_success() != 42 {
+        return 1;
+    }
+
+    if test_failure() != 7 {
+        return 2;
+    }
+
+    if test_code_after_not_run() != 99 {
+        return 3;
+    }
+
+    if test_defer_on_fail() != 5 {
+        return 4;
+    }
+    if check_defer_count() != 1 {
+        return 41;
+    }
+
+    if test_operand_once() != 10 {
+        return 5;
+    }
+    if check_operand_count() != 1 {
+        return 51;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

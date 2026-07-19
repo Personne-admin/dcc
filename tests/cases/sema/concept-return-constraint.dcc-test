@@ -1,0 +1,48 @@
+=== FILE: main.dc ===
+module m;
+
+struct GoodRet {}
+struct BadRet {}
+struct NoRet {}
+
+using AliasInt = i32;
+
+i32 fetch_val(GoodRet g) { return 42; }
+f32 fetch_val(BadRet b) { return 3.14; }
+
+using HasFetchReturnsI32(T) = compiles(T t) {
+    i32 _ = t.fetch_val();
+};
+
+using HasAliasFetchReturnsI32(T) = compiles(T t) {
+    AliasInt _ = t.fetch_val();
+};
+
+void require_fetch(T)(T t) if HasFetchReturnsI32(T) {}
+void require_alias_fetch(T)(T t) if HasAliasFetchReturnsI32(T) {}
+
+void good_call() {
+    GoodRet g;
+    require_fetch(g);
+    require_alias_fetch(g);
+}
+
+void bad_call() {
+    BadRet b;
+    require_fetch(b);
+    require_alias_fetch(b);
+}
+
+void no_fetch() {
+    NoRet n;
+    require_fetch(n);
+    require_alias_fetch(n);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:31: template constraint not satisfied for `require_fetch`
+main.dc:13: concept requires expression to return `i32` but got `f32`
+main.dc:32: template constraint not satisfied for `require_alias_fetch`
+main.dc:17: concept requires expression to return `i32` but got `f32`
+main.dc:37: template constraint not satisfied for `require_fetch`
+main.dc:38: template constraint not satisfied for `require_alias_fetch`
