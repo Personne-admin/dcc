@@ -1496,7 +1496,7 @@ export namespace dcc::sema
         };
 
         [[nodiscard]] types::TypePtr resolve_template_param_actual(std::span<ast::TemplateParam const> params, infer::TemplateBindings const& bindings,
-                                                                    std::string_view name)
+                                                                   std::string_view name)
         {
             for (std::size_t i = 0; i < params.size(); ++i)
             {
@@ -2472,7 +2472,7 @@ export namespace dcc::sema
                 if (!ok)
                     continue;
 
-                if (!b.deduce_function(params, actuals))
+                if (!deduce_call_arguments(b, params, actuals))
                     continue;
 
                 std::ignore = check_template_constraint(mod, scope, f, b, true);
@@ -2677,7 +2677,7 @@ export namespace dcc::sema
                         return std::nullopt;
 
                     auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(concept_decl->template_params[i])),
-                                                               concept_decl->template_params[i].name, static_cast<std::uint32_t>(i));
+                                                              concept_decl->template_params[i].name, static_cast<std::uint32_t>(i));
                     if (!param_ty || !concept_bindings.deduce(param_ty, actual))
                         return std::nullopt;
                 }
@@ -2685,8 +2685,8 @@ export namespace dcc::sema
                 if (has_pack)
                 {
                     auto const& pack_tp = concept_decl->template_params.back();
-                    auto* pack_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(pack_tp)),
-                                                                    pack_tp.name, static_cast<std::uint32_t>(non_pack_count));
+                    auto* pack_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(pack_tp)), pack_tp.name,
+                                                                   static_cast<std::uint32_t>(non_pack_count));
                     if (!pack_param_ty)
                         return std::nullopt;
 
@@ -2710,8 +2710,8 @@ export namespace dcc::sema
                                 {
                                     if (ep.name == pack_name && ep.is_pack)
                                     {
-                                        auto* env_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(ep)),
-                                                                                        ep.name, static_cast<std::uint32_t>(&ep - env_params.data()));
+                                        auto* env_param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(ep)), ep.name,
+                                                                                      static_cast<std::uint32_t>(&ep - env_params.data()));
                                         if (auto const* eptp = types::type_cast<types::TemplateParamType>(env_param_ty))
                                         {
                                             if (auto const* pack = bindings.lookup_pack(eptp))
@@ -4121,7 +4121,7 @@ export namespace dcc::sema
                 deduce_params.push_back(m_types.type_pack_t(pack_elem));
             }
 
-            auto deduce_result = b.deduce_function(deduce_params, actuals);
+            auto deduce_result = deduce_call_arguments(b, deduce_params, actuals);
             if (!deduce_result)
             {
                 if (had_suppressed_errors)
@@ -4460,7 +4460,7 @@ export namespace dcc::sema
                 deduce_params.push_back(m_types.type_pack_t(pack_elem));
             }
 
-            if (!b.deduce_function(deduce_params, actuals))
+            if (!deduce_call_arguments(b, deduce_params, actuals))
             {
                 if (had_suppressed_errors)
                     *had_suppressed_errors = suppress.had_suppressed_errors();
@@ -4760,7 +4760,7 @@ export namespace dcc::sema
                 deduce_params.push_back(m_types.type_pack_t(pack_elem));
             }
 
-            auto deduce_result = b.deduce_function(deduce_params, actuals);
+            auto deduce_result = deduce_call_arguments(b, deduce_params, actuals);
             if (!deduce_result)
             {
                 bool reported = false;
@@ -5195,6 +5195,20 @@ export namespace dcc::sema
             return nullptr;
         }
 
+        [[nodiscard]] static bool pointer_quals_assignable(types::Qual got_quals, types::Qual expected_quals, types::TypePtr pointee) noexcept
+        {
+            if (pointee && pointee->kind == types::TypeKind::Pointer)
+                return false;
+
+            auto gq = std::to_underlying(got_quals);
+            auto eq = std::to_underlying(expected_quals);
+            if ((gq & eq) != gq)
+                return false;
+
+            auto added = eq & ~gq;
+            return (added & ~std::to_underlying(types::Qual::Const)) == 0;
+        }
+
         [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got) noexcept
         {
             if (!expected || !got)
@@ -5225,7 +5239,8 @@ export namespace dcc::sema
             {
                 auto const* ep = static_cast<types::PointerType const*>(expected);
                 auto const* gp = static_cast<types::PointerType const*>(got);
-                return ep->pointee == gp->pointee && ep->pointee_quals == gp->pointee_quals;
+                return ep->pointee == gp->pointee &&
+                       (ep->pointee_quals == gp->pointee_quals || pointer_quals_assignable(gp->pointee_quals, ep->pointee_quals, ep->pointee));
             }
 
             if (expected->kind == types::TypeKind::Slice && got->kind == types::TypeKind::Slice)
@@ -5260,6 +5275,49 @@ export namespace dcc::sema
             }
 
             return false;
+        }
+
+        [[nodiscard]] types::TypePtr call_param_at(std::span<types::TypePtr const> params, std::size_t index) const
+        {
+            if (params.empty())
+                return nullptr;
+
+            if (auto const* pack = types::type_cast<types::TypePackType>(params.back()); pack && index >= params.size() - 1)
+                return pack->element;
+
+            return index < params.size() ? params[index] : nullptr;
+        }
+
+        [[nodiscard]] infer::DeductionResult deduce_call_arguments(infer::TemplateBindings& bindings, std::span<types::TypePtr const> params,
+                                                                    std::span<types::TypePtr const> actuals)
+        {
+            std::vector<types::TypePtr> deduction_actuals(actuals.begin(), actuals.end());
+
+            for (std::size_t i = 0; i < actuals.size(); ++i)
+            {
+                auto param = bindings.substitute(call_param_at(params, i));
+                auto const* expected_ptr = types::type_cast<types::PointerType>(param);
+                auto const* actual_ptr = types::type_cast<types::PointerType>(actuals[i]);
+                if (!expected_ptr || !actual_ptr || expected_ptr->pointee_quals == actual_ptr->pointee_quals)
+                    continue;
+
+                if (pointer_quals_assignable(actual_ptr->pointee_quals, expected_ptr->pointee_quals, actual_ptr->pointee))
+                    deduction_actuals[i] = m_types.pointer_to(actual_ptr->pointee, expected_ptr->pointee_quals);
+            }
+
+            auto result = bindings.deduce_function(params, deduction_actuals);
+            if (!result)
+                return result;
+
+            for (std::size_t i = 0; i < actuals.size(); ++i)
+            {
+                auto param = bindings.substitute(call_param_at(params, i));
+                if (types::type_cast<types::PointerType>(param) && types::type_cast<types::PointerType>(actuals[i]) &&
+                    !can_assign_return(param, actuals[i]))
+                    return {infer::DeductionError::Conflict, "pointer argument qualifier mismatch"};
+            }
+
+            return {};
         }
 
         void analyze_module(ModuleInfo& mod)
@@ -6816,7 +6874,8 @@ export namespace dcc::sema
                         out.is_constant = true;
                         break;
                     case ast::ExprKind::Ident:
-                        out = analyze_name(mod, scope, static_cast<ast::IdentExpr&>(expr).name, static_cast<ast::IdentExpr&>(expr).range, const_env, expected_type);
+                        out = analyze_name(mod, scope, static_cast<ast::IdentExpr&>(expr).name, static_cast<ast::IdentExpr&>(expr).range, const_env,
+                                           expected_type);
                         break;
                     case ast::ExprKind::PathExpr:
                         out = analyze_path_expr(mod, scope, static_cast<ast::PathExpr&>(expr), expected_type, const_env);
@@ -7203,9 +7262,7 @@ export namespace dcc::sema
             auto const* expected_fp = expected_type ? types::type_cast<types::FuncPtrType>(expected_type) : nullptr;
             if (expected_fp && sym->decl && sym->decl->kind == ast::DeclKind::Func)
             {
-                auto get_overloads = [&](Scope& s) -> std::span<Symbol const> {
-                    return resolve_value_overloads(s, p.path);
-                };
+                auto get_overloads = [&](Scope& s) -> std::span<Symbol const> { return resolve_value_overloads(s, p.path); };
 
                 auto syms = get_overloads(*mod.own_scope);
                 if (syms.empty() && m_specialization_defining_module && m_specialization_defining_module->own_scope)
@@ -7275,8 +7332,8 @@ export namespace dcc::sema
                             }
                         }
                         out.type = m_types.m_errort();
-                        error(p.range, "ambiguous reference to overloaded function `{}` matching expected function pointer type `{}`",
-                              path_str(p.path), format_type_str(expected_type));
+                        error(p.range, "ambiguous reference to overloaded function `{}` matching expected function pointer type `{}`", path_str(p.path),
+                              format_type_str(expected_type));
                         m_diag.note(p.range, "matching candidates: {}", cand_list);
                         return out;
                     }
@@ -9949,7 +10006,7 @@ export namespace dcc::sema
                 deduce_params.push_back(m_types.type_pack_t(pack_elem));
             }
 
-            auto deduce_result = b.deduce_function(deduce_params, actuals);
+            auto deduce_result = deduce_call_arguments(b, deduce_params, actuals);
             if (!deduce_result)
             {
                 if (!quiet)
@@ -10106,7 +10163,7 @@ export namespace dcc::sema
                 actuals.push_back(a.type);
 
             infer::TemplateBindings b{m_types};
-            if (!b.deduce_function(fp->params, actuals))
+            if (!deduce_call_arguments(b, fp->params, actuals))
             {
                 if (!quiet)
                 {
