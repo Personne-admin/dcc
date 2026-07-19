@@ -488,7 +488,7 @@ namespace
                        {"-o <file>", "output file"},
                        {"-c", "compile to object file only"},
                        {"-S", "emit assembly only"},
-                       {"-shared", "build an ELF shared library (.so)"},
+                       {"-shared", "build a shared library (.so / .dll)"},
                        {"-fdump-ast", "dump AST and exit"},
                        {"-fdump-ir", "dump IR and exit"},
                        {"-fdump-llvm", "dump LLVM IR"},
@@ -616,7 +616,8 @@ namespace
         return true;
     }
 
-    bool write_artifacts(dcc::backend::BackendArtifact const& artifact, Options const& opts, std::filesystem::path const& input_path)
+    bool write_artifacts(dcc::backend::BackendArtifact const& artifact, Options const& opts, std::filesystem::path const& input_path,
+                         dcc::target::TargetConfig const& target)
     {
         auto base = output_base(opts, input_path);
 
@@ -780,7 +781,10 @@ namespace
         else if (artifact.shared_library_bytes)
         {
             auto path = base;
-            path += ".so";
+            if (target.object_format == dcc::target::ObjectFormat::Coff)
+                path += ".dll";
+            else
+                path += ".so";
             if (!do_write(path, *artifact.shared_library_bytes))
                 ok = false;
         }
@@ -1042,12 +1046,7 @@ auto main(int argc, char** argv) -> int
 
             if (opts.shared_library)
             {
-                if (target.object_format == dcc::target::ObjectFormat::Coff)
-                {
-                    std::println(std::cerr, "dcc: error: shared library output for COFF/PE targets is not yet supported");
-                    return 1;
-                }
-                if (target.object_format != dcc::target::ObjectFormat::Elf)
+                if (target.object_format != dcc::target::ObjectFormat::Elf && target.object_format != dcc::target::ObjectFormat::Coff)
                 {
                     std::println(std::cerr, "dcc: error: shared library output is only supported for ELF targets");
                     return 1;
@@ -1142,7 +1141,7 @@ auto main(int argc, char** argv) -> int
                     artifact.object_bytes.reset();
                 }
 
-                if (!write_artifacts(artifact, opts, input_path))
+                if (!write_artifacts(artifact, opts, input_path, target))
                     return 1;
 #else
                 std::println(std::cerr, "dcc: error: LLVM support not compiled into this build of dcc");
@@ -1168,7 +1167,7 @@ auto main(int argc, char** argv) -> int
                     return 1;
                 }
 
-                if (!write_artifacts(artifact, opts, input_path))
+                if (!write_artifacts(artifact, opts, input_path, target))
                     return 1;
             }
             else

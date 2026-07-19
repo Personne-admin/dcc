@@ -1330,6 +1330,14 @@ export namespace dcc::backend::em64t
         for (auto const& fn : func_names)
             defined_names.insert(fn);
 
+        for (auto* g : ir_mod.globals)
+        {
+            if (!g)
+                continue;
+            if (classify_global(g) != DataSection::None)
+                defined_names.insert(std::string{g->name});
+        }
+
         std::unordered_set<std::string> ext_sym_set;
         for (auto const& er : encoded)
             for (auto const& r : er.relocs)
@@ -1417,8 +1425,6 @@ export namespace dcc::backend::em64t
         std::vector<CoffSym> coff_syms;
         std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
 
-        coff_syms.push_back({.name = "", .str_off = 0, .is_func = false, .is_object = false, .sec_idx = 0, .value = 0, .size = 0});
-
         auto text_sec_str = add_str(".text");
         coff_syms.push_back({.name = ".text", .str_off = text_sec_str, .is_func = false, .is_object = false, .sec_idx = 1, .value = 0, .size = 0});
 
@@ -1468,33 +1474,33 @@ export namespace dcc::backend::em64t
         for (auto const& ext : ext_syms)
         {
             auto so = add_str(ext);
-            coff_syms.push_back({ext, so, false, false, 0, 0, 0});
+            coff_syms.push_back({.name = ext, .str_off = so, .is_func = false, .is_object = false, .sec_idx = 0, .value = 0, .size = 0});
             sym_name_to_idx[ext] = static_cast<std::uint32_t>(coff_syms.size() - 1);
+        }
+
+        std::vector<std::uint8_t> text_data;
+        std::vector<std::size_t> func_starts;
+        func_starts.reserve(func_codes.size());
+        for (auto const& code : func_codes)
+        {
+            func_starts.push_back(text_data.size());
+            text_data.insert(text_data.end(), code.begin(), code.end());
+            while (text_data.size() % 16 != 0)
+                text_data.push_back(0x90);
         }
 
         for (std::size_t i = 0; i < func_names.size(); ++i)
         {
             auto so = add_str(func_names[i]);
-            coff_syms.push_back({func_names[i], so, true, false, 1, 0, func_codes[i].size()});
+            coff_syms.push_back({.name=func_names[i], .str_off=so, .is_func=true, .is_object=false, .sec_idx=1, .value=func_starts[i], .size=func_codes[i].size()});
             sym_name_to_idx[func_names[i]] = static_cast<std::uint32_t>(coff_syms.size() - 1);
         }
 
         for (auto& gl : globals)
         {
             auto so = add_str(gl.name_str);
-            coff_syms.push_back({gl.name_str, so, false, true, gl.section_index, gl.offset, gl.g->type ? gl.g->type->byte_size : 0});
+            coff_syms.push_back({.name=gl.name_str, .str_off=so, .is_func=false, .is_object=true, .sec_idx=gl.section_index, .value=gl.offset, .size=gl.g->type ? gl.g->type->byte_size : 0});
             sym_name_to_idx[std::string{gl.g->name}] = static_cast<std::uint32_t>(coff_syms.size() - 1);
-        }
-
-        std::vector<std::uint8_t> text_data;
-        std::vector<std::size_t> func_starts;
-        for (std::size_t i = 0; i < func_codes.size(); ++i)
-        {
-            func_starts.push_back(text_data.size());
-            auto const& code = func_codes[i];
-            text_data.insert(text_data.end(), code.begin(), code.end());
-            while (text_data.size() % 16 != 0)
-                text_data.push_back(0x90);
         }
 
         for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
@@ -1517,9 +1523,25 @@ export namespace dcc::backend::em64t
 
                     std::uint64_t block_offset = func_starts[fi] + it->second;
                     auto so = add_str(sym_name);
-                    coff_syms.push_back({sym_name, so, false, false, 1, block_offset, 0});
+                    coff_syms.push_back({.name=sym_name, .str_off=so, .is_func=false, .is_object=false, .sec_idx=1, .value=block_offset, .size=0});
                     sym_name_to_idx[sym_name] = static_cast<std::uint32_t>(coff_syms.size() - 1);
                 }
+            }
+        }
+
+        {
+            std::uint32_t aux_so_far = 0;
+            for (std::size_t ci = 0; ci < coff_syms.size(); ++ci)
+            {
+                auto& cs = coff_syms[ci];
+                if (!cs.name.empty())
+                {
+                    auto it = sym_name_to_idx.find(cs.name);
+                    if (it != sym_name_to_idx.end() && it->second == static_cast<std::uint32_t>(ci))
+                        it->second = static_cast<std::uint32_t>(ci) + aux_so_far;
+                }
+                if (cs.is_func)
+                    ++aux_so_far;
             }
         }
 
@@ -1944,7 +1966,8 @@ export namespace dcc::backend::em64t
             else
             {
                 w16(out, 0);
-                w8(out, cs.name.empty() ? 0 : 2);
+                bool is_sec_sym = (cs.name == ".text" || cs.name == ".data" || cs.name == ".bss" || cs.name == ".rdata");
+                w8(out, cs.name.empty() ? 0 : (is_sec_sym ? 3 : 2));
                 w8(out, 0);
             }
         }
