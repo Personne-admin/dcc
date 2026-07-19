@@ -26,8 +26,14 @@ void@_DC0F1.4.test7.consume1D1.4.test6.Result1.i32sv({@0 u8, @4 [4 x u8]}) {
 i32@_DC0F1.4.test4.test0i32s() {
 %entry:
   %0 = alloca {@0 u8, @4 [4 x u8]}
-  store i32 #42, ptr<{@0 u8, @4 [4 x u8]}> %0
-  %1 = load {@0 u8, @4 [4 x u8]}, ptr<{@0 u8, @4 [4 x u8]}> %0
-  call fn(@_DC0F1.4.test7.consume1D1.4.test6.Result1.i32sv)({@0 u8, @4 [4 x u8]} %1)
+  %1 = alloca [4 x u8]
+  store [4 x u8] aggregate [4 x u8], #0, #0, #0, #0, ptr<[4 x u8]> %1
+  %2 = bitcast ptr<[4 x u8]> %1 to ptr<i32>
+  store i32 #42, ptr<i32> %2
+  %3 = load [4 x u8], ptr<[4 x u8]> %1
+  %4 = aggregate {@0 u8, @4 [4 x u8]}, #0, %3
+  store {@0 u8, @4 [4 x u8]} %4, ptr<{@0 u8, @4 [4 x u8]}> %0
+  %5 = load {@0 u8, @4 [4 x u8]}, ptr<{@0 u8, @4 [4 x u8]}> %0
+  call fn(@_DC0F1.4.test7.consume1D1.4.test6.Result1.i32sv)({@0 u8, @4 [4 x u8]} %5)
   ret i32 #0
 }

@@ -590,6 +590,13 @@ export namespace dcc::ast
         static constexpr auto Kind = ExprKind::Postfix;
         ExprPtr operand;
         lex::TokenKind op;
+
+        FuncDecl const* unwrap_is_ok_callee{};
+        FuncDecl const* unwrap_unwrap_callee{};
+        FuncDecl const* unwrap_unwrap_err_callee{};
+        bool unwrap_err_needs_implicit_enum : 1 {};
+        EnumVariant const* unwrap_err_constructed_variant{};
+
         PostfixExpr(sm::SourceRange r, ExprPtr operand, lex::TokenKind o) : Expr(Kind, r), operand(operand), op(o) {}
     };
 

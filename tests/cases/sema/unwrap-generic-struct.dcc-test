@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+
+struct Box(T) {
+    bool ok;
+    T value;
+}
+
+bool is_ok(T)(Box(T) self) { return self.ok; }
+T unwrap(T)(Box(T) self) { return self.value; }
+T unwrap_err(T)(Box(T) self) { return self.value; }
+
+i32 test_box(Box(i32) val) {
+    return val?;
+}
+
+i32 test_chain(Box(i32) a, Box(i32) b) {
+    i32 x = a?;
+    i32 y = b?;
+    return x + y;
+}
+
+f64 test_box_f64(Box(f64) val) {
+    return val?;
+}

@@ -1,0 +1,73 @@
+=== FILE: test.dc ===
+module test;
+
+struct Box(T) {
+    bool ok;
+    T value;
+}
+
+bool is_ok(T)(Box(T) self) { return self.ok; }
+T unwrap(T)(Box(T) self) { return self.value; }
+T unwrap_err(T)(Box(T) self) { return self.value; }
+
+T generic_use(T)(Box(T) val) {
+    return val?;
+}
+
+i32 main() {
+    return generic_use({ ok = true, value = 42 });
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test4.main0i32s() {
+%entry:
+  %0 = aggregate {@0 bool, @4 i32}, #true, #42
+  %1 = call fn(@_DC0S1.4.test11.generic_use1D1.4.test3.Box1.i32si32sX1ti32s)({@0 bool, @4 i32} %0) -> i32
+  ret i32 %1
+}
+
+linkonce_odr i32@_DC0S1.4.test11.generic_use1D1.4.test3.Box1.i32si32sX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %val):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %val, ptr<{@0 bool, @4 i32}> %0
+  %1 = load {@0 bool, @4 i32}, ptr<{@0 bool, @4 i32}> %0
+  %2 = call fn(@_DC0S1.4.test5.is_ok1D1.4.test3.Box1.i32sbX1ti32s)({@0 bool, @4 i32} %1) -> bool
+  br.cond %2, label %unwrap.is_ok1, label %unwrap.fail2
+%unwrap.is_ok1:
+  %3 = call fn(@_DC0S1.4.test6.unwrap1D1.4.test3.Box1.i32si32sX1ti32s)({@0 bool, @4 i32} %1) -> i32
+  br label %unwrap.merge3
+%unwrap.fail2:
+  %4 = call fn(@_DC0S1.4.test10.unwrap_err1D1.4.test3.Box1.i32si32sX1ti32s)({@0 bool, @4 i32} %1) -> i32
+  ret i32 %4
+%unwrap.merge3:
+  %5 = phi i32 [ i32 %3, label %unwrap.is_ok1 ]
+  ret i32 %5
+}
+
+linkonce_odr bool@_DC0S1.4.test5.is_ok1D1.4.test3.Box1.i32sbX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %self):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %self, ptr<{@0 bool, @4 i32}> %0
+  %1 = gep ptr<{@0 bool, @4 i32}> %0, field #0
+  %2 = load bool, ptr<bool> %1
+  ret bool %2
+}
+
+linkonce_odr i32@_DC0S1.4.test6.unwrap1D1.4.test3.Box1.i32si32sX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %self):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %self, ptr<{@0 bool, @4 i32}> %0
+  %1 = gep ptr<{@0 bool, @4 i32}> %0, field #1
+  %2 = load i32, ptr<i32> %1
+  ret i32 %2
+}
+
+linkonce_odr i32@_DC0S1.4.test10.unwrap_err1D1.4.test3.Box1.i32si32sX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %self):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %self, ptr<{@0 bool, @4 i32}> %0
+  %1 = gep ptr<{@0 bool, @4 i32}> %0, field #1
+  %2 = load i32, ptr<i32> %1
+  ret i32 %2
+}

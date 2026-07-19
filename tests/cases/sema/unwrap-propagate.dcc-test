@@ -1,0 +1,59 @@
+=== FILE: main.dc ===
+module main;
+
+struct Result {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(Result self) { return self.ok; }
+i32 unwrap(Result self) { return self.value; }
+i32 unwrap_err(Result self) { return self.value; }
+
+struct Opt {
+    bool has;
+    i32 data;
+}
+
+bool is_ok(Opt self) { return self.has; }
+i32 unwrap(Opt self) { return self.data; }
+i32 unwrap_err(Opt self) { return 0; }
+
+i32 test_result(Result value) {
+    return value?;
+}
+
+i32 test_opt(Opt value) {
+    return value?;
+}
+
+i32 chaining(Result a, Result b) {
+    i32 x = a?;
+    i32 y = b?;
+    return x + y;
+}
+
+Result gv = { ok = true, value = 1 };
+i32 bad_global = gv?;
+
+i32 non_unwrappable(i32 value) {
+    return value?;
+}
+
+bool incompatible_error(Result value) {
+    i32 x = value?;
+    return x != 0;
+}
+
+i32 later_valid(i32 x) {
+    return x + 1;
+}
+
+bool later_valid_bool(bool b) {
+    return !b;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:36: cannot use `?` outside a function
+main.dc:39: type `i32` is not Unwrappable: no visible `.is_ok()` method
+main.dc:43: ? operator: error type `i32` cannot be propagated into return type `bool`

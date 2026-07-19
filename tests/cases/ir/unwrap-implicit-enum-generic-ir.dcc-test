@@ -1,0 +1,105 @@
+=== FILE: test.dc ===
+module test;
+
+enum Res(T) {
+    @implicit_construction Val(T),
+}
+
+struct Box(T) {
+    bool ok;
+    T value;
+}
+
+bool is_ok(T)(Box(T) self) { return self.ok; }
+T unwrap(T)(Box(T) self) { return self.value; }
+T unwrap_err(T)(Box(T) self) { return self.value; }
+
+// Generic function that uses ? where unwrap_err returns T and the function
+// returns Res(T).  On the failure path the error value T must be implicitly
+// wrapped into Res(T).Val(T) via implicit enum construction.
+// This exercises unwrap_err_needs_implicit_enum / unwrap_err_constructed_variant
+// in an instantiated generic body.
+Res(T) propagate(T)(Box(T) b) {
+    T x = b?;
+    return Res::Val(x);
+}
+
+i32 main() {
+    Box(i32) b = { ok = true, value = 99 };
+    Res(i32) r = propagate(b);
+    return 0;
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test4.main0i32s() {
+%entry:
+  %0 = alloca {@0 bool, @4 i32}
+  %1 = aggregate {@0 bool, @4 i32}, #true, #99
+  store {@0 bool, @4 i32} %1, ptr<{@0 bool, @4 i32}> %0
+  %2 = alloca {@0 u8, @4 [4 x u8]}
+  %3 = load {@0 bool, @4 i32}, ptr<{@0 bool, @4 i32}> %0
+  %4 = call fn(@_DC0S1.4.test9.propagate1D1.4.test3.Box1.i32sD1.4.test3.Res1.i32sX1ti32s)({@0 bool, @4 i32} %3) -> {@0 u8, @4 [4 x u8]}
+  store {@0 u8, @4 [4 x u8]} %4, ptr<{@0 u8, @4 [4 x u8]}> %2
+  ret i32 #0
+}
+
+linkonce_odr bool@_DC0S1.4.test5.is_ok1D1.4.test3.Box1.i32sbX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %self):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %self, ptr<{@0 bool, @4 i32}> %0
+  %1 = gep ptr<{@0 bool, @4 i32}> %0, field #0
+  %2 = load bool, ptr<bool> %1
+  ret bool %2
+}
+
+linkonce_odr {@0 u8, @4 [4 x u8]}@_DC0S1.4.test9.propagate1D1.4.test3.Box1.i32sD1.4.test3.Res1.i32sX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %b):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %b, ptr<{@0 bool, @4 i32}> %0
+  %1 = alloca i32
+  %2 = load {@0 bool, @4 i32}, ptr<{@0 bool, @4 i32}> %0
+  %3 = call fn(@_DC0S1.4.test5.is_ok1D1.4.test3.Box1.i32sbX1ti32s)({@0 bool, @4 i32} %2) -> bool
+  br.cond %3, label %unwrap.is_ok1, label %unwrap.fail2
+%unwrap.is_ok1:
+  %4 = call fn(@_DC0S1.4.test6.unwrap1D1.4.test3.Box1.i32si32sX1ti32s)({@0 bool, @4 i32} %2) -> i32
+  br label %unwrap.merge3
+%unwrap.fail2:
+  %5 = call fn(@_DC0S1.4.test10.unwrap_err1D1.4.test3.Box1.i32si32sX1ti32s)({@0 bool, @4 i32} %2) -> i32
+  %6 = alloca [4 x u8]
+  store [4 x u8] aggregate [4 x u8], #0, #0, #0, #0, ptr<[4 x u8]> %6
+  %7 = bitcast ptr<[4 x u8]> %6 to ptr<i32>
+  store i32 %5, ptr<i32> %7
+  %8 = load [4 x u8], ptr<[4 x u8]> %6
+  %9 = aggregate {@0 u8, @4 [4 x u8]}, #0, %8
+  ret {@0 u8, @4 [4 x u8]} %9
+%unwrap.merge3:
+  %10 = phi i32 [ i32 %4, label %unwrap.is_ok1 ]
+  store i32 %10, ptr<i32> %1
+  %11 = load i32, ptr<i32> %1
+  %12 = alloca [4 x u8]
+  store [4 x u8] aggregate [4 x u8], #0, #0, #0, #0, ptr<[4 x u8]> %12
+  %13 = bitcast ptr<[4 x u8]> %12 to ptr<i32>
+  store i32 %11, ptr<i32> %13
+  %14 = load [4 x u8], ptr<[4 x u8]> %12
+  %15 = aggregate {@0 u8, @4 [4 x u8]}, #0, %14
+  ret {@0 u8, @4 [4 x u8]} %15
+}
+
+linkonce_odr i32@_DC0S1.4.test6.unwrap1D1.4.test3.Box1.i32si32sX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %self):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %self, ptr<{@0 bool, @4 i32}> %0
+  %1 = gep ptr<{@0 bool, @4 i32}> %0, field #1
+  %2 = load i32, ptr<i32> %1
+  ret i32 %2
+}
+
+linkonce_odr i32@_DC0S1.4.test10.unwrap_err1D1.4.test3.Box1.i32si32sX1ti32s({@0 bool, @4 i32}) {
+%entry({@0 bool, @4 i32} %self):
+  %0 = alloca {@0 bool, @4 i32}
+  store {@0 bool, @4 i32} %self, ptr<{@0 bool, @4 i32}> %0
+  %1 = gep ptr<{@0 bool, @4 i32}> %0, field #1
+  %2 = load i32, ptr<i32> %1
+  ret i32 %2
+}

@@ -1956,26 +1956,7 @@ export namespace dcc::parser
 
             while (!check(TK::RBrace) && !eof())
             {
-                bool is_stmt_keyword = false;
-                switch (peek().kind)
-                {
-                    case TK::KwReturn:
-                    case TK::KwBreak:
-                    case TK::KwContinue:
-                    case TK::KwWhile:
-                    case TK::KwDo:
-                    case TK::KwFor:
-                    case TK::KwDefer:
-                    case TK::KwStatic:
-                    case TK::At:
-                    case TK::Semicolon:
-                        is_stmt_keyword = true;
-                        break;
-                    default:
-                        break;
-                }
-
-                if (is_stmt_keyword)
+                if (is_stmt_keyword_token(peek().kind))
                 {
                     auto* s = parse_stmt();
                     if (s)
@@ -2333,6 +2314,11 @@ export namespace dcc::parser
                         expr = m_ctx.make<ast::PostfixExpr>(range_from(start), expr, op);
                         continue;
                     }
+                    case TK::Question: {
+                        auto op = advance().kind;
+                        expr = m_ctx.make<ast::PostfixExpr>(range_from(start), expr, op);
+                        continue;
+                    }
                     default:
                         return expr;
                 }
@@ -2594,6 +2580,56 @@ export namespace dcc::parser
                 return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));
             }
 
+            if (is_stmt_keyword_token(peek().kind))
+            {
+                ast::Block block(m_ctx.allocator());
+                block.range.begin = start;
+                while (!check(TK::RBrace) && !eof())
+                {
+                    if (is_stmt_keyword_token(peek().kind))
+                    {
+                        auto* s = parse_stmt();
+                        if (s)
+                            block.stmts.push_back(s);
+                        else
+                            synchronize_to_stmt();
+                        continue;
+                    }
+
+                    if (auto* s = try_parse_decl_or_expr_stmt())
+                    {
+                        block.stmts.push_back(s);
+                        continue;
+                    }
+
+                    auto stmt_start = loc();
+                    auto* e = parse_expr();
+                    if (!e)
+                    {
+                        synchronize_to_stmt();
+                        continue;
+                    }
+                    if (match(TK::Semicolon))
+                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), e));
+                    else if (check(TK::RBrace))
+                    {
+                        block.tail = e;
+                        break;
+                    }
+                    else if (is_block_like_expr(e))
+                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), e));
+                    else
+                    {
+                        error_at(single_range(), "expected ';' or '}' after expression");
+                        synchronize_to_stmt();
+                    }
+                }
+
+                expect(TK::RBrace, "to close block");
+                block.range = range_from(start);
+                return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));
+            }
+
             auto first_start = loc();
             auto* first = parse_expr();
             if (!first)
@@ -2747,6 +2783,26 @@ export namespace dcc::parser
             expect(TK::RBrace, "to close struct literal");
             sl->range = range_from(start);
             return sl;
+        }
+
+        static bool is_stmt_keyword_token(lex::TokenKind k)
+        {
+            switch (k)
+            {
+                case TK::KwReturn:
+                case TK::KwBreak:
+                case TK::KwContinue:
+                case TK::KwWhile:
+                case TK::KwDo:
+                case TK::KwFor:
+                case TK::KwDefer:
+                case TK::KwStatic:
+                case TK::At:
+                case TK::Semicolon:
+                    return true;
+                default:
+                    return false;
+            }
         }
 
         bool looks_like_decl()
