@@ -3,7 +3,7 @@
     "displayName": "DC Language Support",
     "description": "Syntax highlighting and language server support for the DC programming language",
     "publisher": "dcc",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "license": "GPL-3.0-only",
     "repository": {
         "type": "git",
@@ -21,7 +21,8 @@
         "Programming Languages"
     ],
     "activationEvents": [
-        "onLanguage:dc"
+        "onLanguage:dc",
+        "onFileSystem:dcc-core"
     ],
     "main": "./out/extension.js",
     "scripts": {
