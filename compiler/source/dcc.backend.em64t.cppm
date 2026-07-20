@@ -58,6 +58,7 @@ namespace dcc::backend
 
                 ir::IrModule const* input_module = &module;
                 ir::IrContext opt_ctx{256 * 1024, &opts.target};
+                // TODO: honor opts.target.cpu baseline for instruction selection
                 if (opts.opt_level > dcc::ir::pass::OptLevel::O0)
                     input_module = dcc::ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
 

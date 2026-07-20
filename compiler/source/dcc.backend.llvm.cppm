@@ -6,10 +6,10 @@ module;
 #include <llvm-c/Comdat.h>
 #include <llvm-c/Core.h>
 #include <llvm-c/DebugInfo.h>
+#include <llvm-c/Error.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
-#include <llvm-c/Error.h>
 
 export module dcc.backend.llvm;
 
@@ -183,6 +183,19 @@ namespace dcc::backend
                 if (!features.empty())
                     features += ',';
                 features += "-mmx,-sse,-sse2,-sse3,-ssse3,-sse4.1,-sse4.2,-avx,-avx2,-avx512f";
+            }
+
+            if (target.arch == Arch::X86 || target.arch == Arch::X86_64)
+            {
+                auto const cpu =
+                    target.cpu.empty() ? (target.arch == Arch::X86_64 ? std::string_view{"generic"} : std::string_view{"i686"}) : std::string_view{target.cpu};
+
+                if (TargetConfig::cpu_is_pre_i686(cpu))
+                {
+                    if (!features.empty())
+                        features += ',';
+                    features += "-cmov";
+                }
             }
 
             return features;
@@ -851,10 +864,17 @@ namespace dcc::backend
                         return artifact;
                     }
 
-                    const auto* const cpu = (opts.target.arch == Arch::X86_64) ? "generic" : "i686";
+                    const auto* const cpu = [&]() -> const char* {
+                        if (!opts.target.cpu.empty())
+                            return opts.target.cpu.c_str();
+                        if (opts.target.arch == Arch::X86_64)
+                            return "generic";
+                        return "i686";
+                    }();
+
                     auto features = llvm_target_features(opts.target);
-                    tm = LLVMCreateTargetMachine(target_ref, cg_triple.c_str(), cpu, features.c_str(), LLVMCodeGenLevelDefault,
-                                                 llvm_reloc_mode(opts.target), llvm_code_model(opts.target));
+                    tm = LLVMCreateTargetMachine(target_ref, cg_triple.c_str(), cpu, features.c_str(), LLVMCodeGenLevelDefault, llvm_reloc_mode(opts.target),
+                                                 llvm_code_model(opts.target));
                     if (!tm)
                     {
                         add_diag(diags, {}, std::format("LLVM backend: could not create TargetMachine for '{}'", cg_triple));
@@ -1681,8 +1701,7 @@ namespace dcc::backend
                             auto bb_it = bb_map.find(pred.block);
                             if (!val || bb_it == bb_map.end())
                             {
-                                add_diag(diags, inst->range,
-                                         "LLVM backend: PHI incoming value or block could not be resolved");
+                                add_diag(diags, inst->range, "LLVM backend: PHI incoming value or block could not be resolved");
                                 return false;
                             }
 
@@ -1742,8 +1761,8 @@ namespace dcc::backend
 
             [[nodiscard]] static bool emit_instruction(IrValue const* inst, LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc,
                                                        std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
-                                                       [[maybe_unused]] std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map, TargetConfig const& target,
-                                                       std::vector<BackendDiagnostic>& diags)
+                                                       [[maybe_unused]] std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map,
+                                                       TargetConfig const& target, std::vector<BackendDiagnostic>& diags)
             {
                 if (!inst)
                     return true;
