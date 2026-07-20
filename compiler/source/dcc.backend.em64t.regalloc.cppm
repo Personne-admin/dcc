@@ -138,7 +138,8 @@ namespace dcc::backend::em64t
 
         [[nodiscard]] bool is_gpr_dest_xmm_opc(MOpc opc) noexcept
         {
-            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr || opc == MOpc::CVTSS2SIrr;
+            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr || opc == MOpc::CVTSS2SIrr ||
+                   opc == MOpc::MOVQ64rr_rev;
         }
 
         [[nodiscard]] RegClass infer_reg_class(MFunction const& func, VReg vreg, target::TargetConfig const& target)
@@ -173,6 +174,14 @@ namespace dcc::backend::em64t
                                         if (reg_class(pr) == RegClass::XMM)
                                             return RegClass::XMM;
                                     }
+
+                    if (instr.opc == MOpc::MOVQ64rr)
+                        if (instr.num_ops >= 2 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg == vreg)
+                            return RegClass::XMM;
+
+                    if (instr.opc == MOpc::MOVQ64rr_rev)
+                        if (instr.num_ops >= 2 && instr.ops[1].kind == MOpKind::Reg && instr.ops[1].reg == vreg)
+                            return RegClass::XMM;
 
                     for (int pi = 0; pi < static_cast<int>(PhysReg::Count); ++pi)
                     {
@@ -697,9 +706,7 @@ namespace dcc::backend::em64t
                 std::ranges::sort(active, [](LiveRange const* a, LiveRange const* b) { return a->end < b->end; });
 
                 auto const& avail = (range.reg_class == RegClass::XMM) ? xmms : gprs;
-                auto reg_is_allowed = [&](PhysReg reg) {
-                    return !setcc_defs.contains(range.vreg) || (reg != PhysReg::RSI && reg != PhysReg::RDI);
-                };
+                auto reg_is_allowed = [&](PhysReg reg) { return !setcc_defs.contains(range.vreg) || (reg != PhysReg::RSI && reg != PhysReg::RDI); };
 
                 std::unordered_set<PhysReg> occupied;
                 for (auto* a : active)
@@ -1135,6 +1142,240 @@ namespace dcc::backend::em64t
             }
         }
 
+        [[nodiscard]] bool is_reg_move_opc(MOpc opc) noexcept
+        {
+            return opc == MOpc::COPY || opc == MOpc::MOVSDrr || opc == MOpc::MOVSSrr || opc == MOpc::MOVAPSrr;
+        }
+
+        [[nodiscard]] MInstr make_reg_move(VReg dst, VReg src)
+        {
+            if (dst.is_physical() && reg_class(dst.phys_reg()) == RegClass::XMM)
+            {
+                MInstr mi;
+                mi.opc = MOpc::MOVSDrr;
+                mi.num_ops = 2;
+                mi.num_defs = 1;
+                mi.ops[0] = MOp::from_reg(dst);
+                mi.ops[1] = MOp::from_reg(src);
+                return mi;
+            }
+
+            return make_copy(dst, src);
+        }
+
+        [[nodiscard]] bool is_phys_reg_copy(MInstr const& c) noexcept
+        {
+            return is_reg_move_opc(c.opc) && c.num_ops >= 2 && c.ops[0].kind == MOpKind::Reg && c.ops[1].kind == MOpKind::Reg && !c.ops[0].reg.is_virtual() &&
+                   !c.ops[1].reg.is_virtual();
+        }
+
+        [[nodiscard]] bool is_frame_reload(MInstr const& c) noexcept
+        {
+            switch (c.opc)
+            {
+                case MOpc::MOV64rm:
+                case MOpc::MOV32rm:
+                case MOpc::MOVSD_rm:
+                case MOpc::MOVSS_rm:
+                case MOpc::MOVSDrm:
+                case MOpc::MOVSSrm:
+                    break;
+                default:
+                    return false;
+            }
+
+            if (c.num_ops < 2 || c.num_defs != 1)
+                return false;
+            if (c.ops[0].kind != MOpKind::Reg || c.ops[0].reg.is_virtual())
+                return false;
+            if (c.ops[1].kind == MOpKind::FrameSlot)
+                return true;
+
+            if (c.ops[1].kind != MOpKind::Mem)
+                return false;
+
+            auto const& m = c.ops[1].mem;
+            if (m.index.is_valid() || !m.base.is_valid() || m.base.is_virtual())
+                return false;
+
+            auto base = m.base.phys_reg();
+            return base == PhysReg::RBP || base == PhysReg::RSP;
+        }
+
+        void sequence_call_arg_setup(MFunction& func)
+        {
+            VReg const scratch = VReg::phys(PhysReg::R11);
+            VReg const scratch_xmm_reg = VReg::phys(PhysReg::XMM15);
+
+            for (auto& blk : func.blocks)
+            {
+                for (std::size_t ii = 0; ii < blk.instrs.size(); ++ii)
+                {
+                    switch (blk.instrs[ii].opc)
+                    {
+                        case MOpc::CALL:
+                        case MOpc::CALL_rel32:
+                        case MOpc::CALL_r64:
+                        case MOpc::CALLm:
+                            break;
+                        default:
+                            continue;
+                    }
+
+                    std::size_t span_start = ii;
+                    while (span_start > 0 && (is_phys_reg_copy(blk.instrs[span_start - 1]) || is_frame_reload(blk.instrs[span_start - 1])))
+                        --span_start;
+
+                    bool has_reload = false;
+                    for (std::size_t j = span_start; j < ii; ++j)
+                        if (is_frame_reload(blk.instrs[j]))
+                            has_reload = true;
+
+                    if (!has_reload)
+                        continue;
+
+                    struct Item
+                    {
+                        VReg dst;
+                        VReg src;
+                        bool has_src{};
+                        std::size_t reload_at{};
+                        bool has_reload{};
+                    };
+
+                    std::vector<Item> items;
+                    std::unordered_map<VReg, std::size_t> pending_reload;
+                    bool usable = true;
+
+                    for (std::size_t j = span_start; j < ii && usable; ++j)
+                    {
+                        auto const& c = blk.instrs[j];
+                        if (is_frame_reload(c))
+                        {
+                            auto def = c.ops[0].reg;
+                            if (pending_reload.contains(def))
+                                usable = false;
+                            else
+                                pending_reload.emplace(def, j);
+                            continue;
+                        }
+
+                        Item it{};
+                        it.dst = c.ops[0].reg;
+                        it.src = c.ops[1].reg;
+                        if (auto found = pending_reload.find(it.src); found != pending_reload.end())
+                        {
+                            it.has_reload = true;
+                            it.reload_at = found->second;
+                            pending_reload.erase(found);
+                        }
+                        else
+                            it.has_src = true;
+
+                        items.push_back(it);
+                    }
+
+                    if (!usable || !pending_reload.empty() || items.size() < 2)
+                        continue;
+
+                    std::vector<Item> plain;
+                    std::vector<Item> reloaded;
+                    for (auto const& it : items)
+                    {
+                        if (it.has_reload)
+                            reloaded.push_back(it);
+                        else if (it.dst != it.src)
+                            plain.push_back(it);
+                    }
+
+                    auto is_xmm_reg = [](VReg r) { return r.is_physical() && reg_class(r.phys_reg()) == RegClass::XMM; };
+
+                    std::vector<Item> plain_gpr;
+                    std::vector<Item> plain_xmm;
+                    for (auto const& it : plain)
+                        (is_xmm_reg(it.dst) ? plain_xmm : plain_gpr).push_back(it);
+
+                    bool scratch_conflict = false;
+                    for (auto const& it : plain_gpr)
+                        if (it.dst == scratch || it.src == scratch)
+                            scratch_conflict = true;
+                    for (auto const& it : plain_xmm)
+                        if (it.dst == scratch_xmm_reg || it.src == scratch_xmm_reg)
+                            scratch_conflict = true;
+                    for (auto const& it : reloaded)
+                        if (it.dst == scratch || it.dst == scratch_xmm_reg)
+                            scratch_conflict = true;
+
+                    if (scratch_conflict)
+                        continue;
+
+                    auto order_group = [](std::vector<Item> remaining, VReg group_scratch, bool& ok) {
+                        std::vector<Item> ordered;
+                        ordered.reserve(remaining.size());
+                        int guard = static_cast<int>(remaining.size()) * 4 + 4;
+                        while (!remaining.empty() && guard-- > 0)
+                        {
+                            bool picked = false;
+                            for (auto it = remaining.begin(); it != remaining.end(); ++it)
+                            {
+                                bool blocks_other = false;
+                                for (auto const& other : remaining)
+                                    if (&other != &*it && other.has_src && other.src == it->dst)
+                                        blocks_other = true;
+
+                                if (!blocks_other)
+                                {
+                                    ordered.push_back(*it);
+                                    remaining.erase(it);
+                                    picked = true;
+                                    break;
+                                }
+                            }
+
+                            if (picked)
+                                continue;
+
+                            auto cycle = remaining.front();
+                            Item breaker{};
+                            breaker.dst = group_scratch;
+                            breaker.src = cycle.src;
+                            breaker.has_src = true;
+                            ordered.push_back(breaker);
+                            for (auto& rm : remaining)
+                                if (rm.has_src && rm.src == cycle.src)
+                                    rm.src = group_scratch;
+                        }
+
+                        ok = remaining.empty();
+                        return ordered;
+                    };
+
+                    bool gpr_ok = false;
+                    bool xmm_ok = false;
+                    auto ordered = order_group(plain_gpr, scratch, gpr_ok);
+                    auto ordered_xmm = order_group(plain_xmm, scratch_xmm_reg, xmm_ok);
+                    if (!gpr_ok || !xmm_ok)
+                        continue;
+
+                    ordered.insert(ordered.end(), ordered_xmm.begin(), ordered_xmm.end());
+
+                    std::vector<MInstr> out;
+                    out.reserve(ii - span_start);
+                    for (auto const& it : ordered)
+                        out.push_back(make_reg_move(it.dst, it.src));
+                    for (auto const& it : reloaded)
+                    {
+                        out.push_back(blk.instrs[it.reload_at]);
+                        out.push_back(make_reg_move(it.dst, blk.instrs[it.reload_at].ops[0].reg));
+                    }
+
+                    blk.instrs.erase(blk.instrs.begin() + static_cast<std::ptrdiff_t>(span_start), blk.instrs.begin() + static_cast<std::ptrdiff_t>(ii));
+                    blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(span_start), out.begin(), out.end());
+                    ii = span_start + out.size();
+                }
+            }
+        }
+
         void resolve_parallel_copies(MFunction& func)
         {
             VReg scratch_gpr = VReg::phys(PhysReg::R11);
@@ -1159,28 +1400,31 @@ namespace dcc::backend::em64t
                             break;
                     }
 
-                    if (!is_call)
+                    auto is_phys_copy = [&](MInstr const& c) { return is_phys_reg_copy(c); };
+
+                    bool is_prologue = (blk.id == func.entry_block_id) && ii == 0 && is_phys_copy(instr);
+
+                    if (!is_call && !is_prologue)
                     {
                         ++ii;
                         continue;
                     }
 
                     std::size_t run_start = ii;
-                    while (run_start > 0)
+                    std::size_t run_end = ii;
+
+                    if (is_call)
                     {
-                        auto const& prev = blk.instrs[run_start - 1];
-                        if (prev.opc != MOpc::COPY)
-                            break;
-                        if (prev.num_ops < 2)
-                            break;
-                        if (prev.ops[0].kind != MOpKind::Reg || prev.ops[1].kind != MOpKind::Reg)
-                            break;
-                        if (prev.ops[0].reg.is_virtual() || prev.ops[1].reg.is_virtual())
-                            break;
-                        --run_start;
+                        while (run_start > 0 && is_phys_copy(blk.instrs[run_start - 1]))
+                            --run_start;
+                    }
+                    else
+                    {
+                        while (run_end < blk.instrs.size() && is_phys_copy(blk.instrs[run_end]))
+                            ++run_end;
                     }
 
-                    std::size_t run_len = ii - run_start;
+                    std::size_t run_len = run_end - run_start;
                     if (run_len < 2)
                     {
                         ++ii;
@@ -1192,131 +1436,290 @@ namespace dcc::backend::em64t
                         VReg dst;
                         VReg src;
                     };
-                    std::vector<Move> moves;
-                    moves.reserve(run_len);
-                    for (std::size_t j = run_start; j < ii; ++j)
+                    auto reg_is_xmm = [](VReg r) { return r.is_physical() && reg_class(r.phys_reg()) == RegClass::XMM; };
+
+                    std::vector<Move> moves_gpr;
+                    std::vector<Move> moves_xmm;
+                    for (std::size_t j = run_start; j < run_end; ++j)
                     {
                         auto const& c = blk.instrs[j];
                         if (c.ops[0].reg == c.ops[1].reg)
                             continue;
-                        moves.push_back({c.ops[0].reg, c.ops[1].reg});
+                        (reg_is_xmm(c.ops[0].reg) ? moves_xmm : moves_gpr).push_back({c.ops[0].reg, c.ops[1].reg});
                     }
 
-                    if (moves.size() < 2)
+                    if (moves_gpr.size() + moves_xmm.size() < 2)
                     {
                         ++ii;
                         continue;
                     }
 
-                    bool has_conflict = false;
-                    {
+                    auto resolve_group = [&func](std::vector<Move> group, VReg group_scratch, bool& ok, bool& changed, std::uint32_t& out_temp_slot) {
+                        ok = true;
+                        changed = false;
+                        if (group.size() < 2)
+                            return group;
+
                         std::unordered_set<VReg> dsts;
-                        for (auto const& m : moves)
+                        for (auto const& m : group)
                             dsts.insert(m.dst);
-                        for (auto const& m : moves)
-                        {
+
+                        bool conflict = false;
+                        for (auto const& m : group)
                             if (dsts.contains(m.src) && m.src != m.dst)
+                                conflict = true;
+
+                        if (!conflict)
+                            return group;
+
+                        bool scratch_is_dst = false;
+                        bool scratch_is_src = false;
+                        for (auto const& m : group)
+                        {
+                            if (m.dst == group_scratch) scratch_is_dst = true;
+                            if (m.src == group_scratch) scratch_is_src = true;
+                        }
+
+                        if (!scratch_is_dst && !scratch_is_src)
+                        {
+                            std::vector<Move> ordered;
+                            std::vector<Move> remaining = group;
+                            int guard = static_cast<int>(remaining.size()) * 4 + 4;
+                            while (!remaining.empty() && guard-- > 0)
                             {
-                                has_conflict = true;
-                                break;
+                                bool picked = false;
+                                for (auto it = remaining.begin(); it != remaining.end(); ++it)
+                                {
+                                    bool blocks_other = false;
+                                    for (auto const& other : remaining)
+                                        if (&other != &*it && other.src == it->dst)
+                                            blocks_other = true;
+
+                                    if (!blocks_other)
+                                    {
+                                        ordered.push_back(*it);
+                                        remaining.erase(it);
+                                        picked = true;
+                                        break;
+                                    }
+                                }
+
+                                if (picked)
+                                    continue;
+
+                                auto cycle = remaining.front();
+                                ordered.push_back({group_scratch, cycle.src});
+                                for (auto& rm : remaining)
+                                    if (rm.src == cycle.src)
+                                        rm.src = group_scratch;
+                            }
+
+                            if (!remaining.empty())
+                            {
+                                ok = false;
+                                return group;
+                            }
+
+                            changed = true;
+                            return ordered;
+                        }
+
+                        std::vector<Move> scratch_dst;
+                        std::vector<Move> rest;
+                        std::unordered_set<VReg> rest_dsts;
+                        for (auto const& m : group)
+                        {
+                            if (m.dst == group_scratch)
+                                scratch_dst.push_back(m);
+                            else
+                            {
+                                rest.push_back(m);
+                                rest_dsts.insert(m.dst);
                             }
                         }
-                    }
 
-                    if (!has_conflict)
-                    {
-                        ++ii;
-                        continue;
-                    }
-
-                    bool has_xmm = false;
-                    for (auto const& m : moves)
-                    {
-                        if (m.dst.is_physical() && reg_class(m.dst.phys_reg()) == RegClass::XMM)
-                        {
-                            has_xmm = true;
-                            break;
-                        }
-                        if (m.src.is_physical() && reg_class(m.src.phys_reg()) == RegClass::XMM)
-                        {
-                            has_xmm = true;
-                            break;
-                        }
-                    }
-                    VReg scratch = has_xmm ? scratch_xmm : scratch_gpr;
-
-                    bool scratch_is_dst = false;
-                    for (auto const& m : moves)
-                    {
-                        if (m.dst == scratch)
-                        {
-                            scratch_is_dst = true;
-                            break;
-                        }
-                    }
-                    if (scratch_is_dst)
-                    {
-                        ++ii;
-                        continue;
-                    }
-
-                    struct MoveNode
-                    {
-                        VReg dst;
-                        VReg src;
-                    };
-                    std::vector<MoveNode> result;
-                    std::vector<MoveNode> remaining;
-                    remaining.reserve(moves.size());
-                    for (auto const& m : moves)
-                        remaining.push_back({m.dst, m.src});
-
-                    constexpr int kMaxIterFactor = 4;
-                    int max_iter = static_cast<int>(remaining.size()) * kMaxIterFactor;
-                    for (int iter = 0; iter < max_iter && !remaining.empty(); ++iter)
-                    {
-                        bool found = false;
-                        for (auto it = remaining.begin(); it != remaining.end(); ++it)
-                        {
-                            bool dst_is_src_of_other = false;
-                            for (auto const& rm : remaining)
+                        bool need_temp = false;
+                        for (auto const& sm : scratch_dst)
+                            if (rest_dsts.contains(sm.src))
                             {
-                                if (&*it != &rm && rm.src == it->dst)
+                                need_temp = true;
+                                break;
+                            }
+
+                        if (need_temp)
+                        {
+                            out_temp_slot = func.new_frame_slot(8, 8, false);
+
+                            std::vector<Move> result;
+                            for (auto const& sm : scratch_dst)
+                                result.push_back({VReg{}, sm.src});
+
+                            if (rest.size() >= 2)
+                            {
+                                std::unordered_set<VReg> rd;
+                                for (auto const& m : rest) rd.insert(m.dst);
+                                bool rest_conflict = false;
+                                for (auto const& m : rest)
+                                    if (rd.contains(m.src) && m.src != m.dst)
+                                        rest_conflict = true;
+
+                                if (rest_conflict)
                                 {
-                                    dst_is_src_of_other = true;
-                                    break;
+                                    std::vector<Move> remaining = rest;
+                                    int guard = static_cast<int>(remaining.size()) * 4 + 4;
+                                    while (!remaining.empty() && guard-- > 0)
+                                    {
+                                        bool picked = false;
+                                        for (auto it = remaining.begin(); it != remaining.end(); ++it)
+                                        {
+                                            bool blocks_other = false;
+                                            for (auto const& other : remaining)
+                                                if (&other != &*it && other.src == it->dst)
+                                                    blocks_other = true;
+                                            if (!blocks_other)
+                                            {
+                                                result.push_back(*it);
+                                                remaining.erase(it);
+                                                picked = true;
+                                                break;
+                                            }
+                                        }
+                                        if (picked) continue;
+                                        auto cycle = remaining.front();
+                                        result.push_back({group_scratch, cycle.src});
+                                        for (auto& rm : remaining)
+                                            if (rm.src == cycle.src)
+                                                rm.src = group_scratch;
+                                    }
+                                    if (!remaining.empty()) { ok = false; return group; }
+                                }
+                                else
+                                {
+                                    for (auto const& m : rest) result.push_back(m);
                                 }
                             }
+                            else if (rest.size() == 1)
+                                result.push_back(rest[0]);
 
-                            if (!dst_is_src_of_other)
-                            {
-                                result.push_back(*it);
-                                remaining.erase(it);
-                                found = true;
-                                break;
-                            }
+                            for (std::size_t si = 0; si < scratch_dst.size(); ++si)
+                                result.push_back({group_scratch, VReg{}});
+
+                            changed = true;
+                            return result;
                         }
-
-                        if (!found)
+                        else
                         {
-                            auto const& cycle_move = remaining.front();
-
-                            result.push_back({.dst = scratch, .src = cycle_move.src});
-
-                            for (auto& rm : remaining)
+                            std::vector<Move> result;
+                            if (rest.size() >= 2)
                             {
-                                if (rm.src == cycle_move.src)
-                                    rm.src = scratch;
+                                std::unordered_set<VReg> rd;
+                                for (auto const& m : rest) rd.insert(m.dst);
+                                bool rest_conflict = false;
+                                for (auto const& m : rest)
+                                    if (rd.contains(m.src) && m.src != m.dst)
+                                        rest_conflict = true;
+
+                                if (rest_conflict)
+                                {
+                                    std::vector<Move> remaining = rest;
+                                    int guard = static_cast<int>(remaining.size()) * 4 + 4;
+                                    while (!remaining.empty() && guard-- > 0)
+                                    {
+                                        bool picked = false;
+                                        for (auto it = remaining.begin(); it != remaining.end(); ++it)
+                                        {
+                                            bool blocks_other = false;
+                                            for (auto const& other : remaining)
+                                                if (&other != &*it && other.src == it->dst)
+                                                    blocks_other = true;
+                                            if (!blocks_other)
+                                            {
+                                                result.push_back(*it);
+                                                remaining.erase(it);
+                                                picked = true;
+                                                break;
+                                            }
+                                        }
+                                        if (picked) continue;
+                                        auto cycle = remaining.front();
+                                        result.push_back({group_scratch, cycle.src});
+                                        for (auto& rm : remaining)
+                                            if (rm.src == cycle.src)
+                                                rm.src = group_scratch;
+                                    }
+                                    if (!remaining.empty()) { ok = false; return group; }
+                                }
+                                else
+                                {
+                                    for (auto const& m : rest) result.push_back(m);
+                                }
                             }
+                            else if (rest.size() == 1)
+                            {
+                                result.push_back(rest[0]);
+                            }
+
+                            for (auto const& sm : scratch_dst)
+                                result.push_back(sm);
+
+                            changed = true;
+                            return result;
                         }
+                    };
+
+                    bool gpr_ok = true;
+                    bool xmm_ok = true;
+                    bool gpr_changed = false;
+                    bool xmm_changed = false;
+                    std::uint32_t gpr_temp_slot = std::uint32_t(-1);
+                    std::uint32_t xmm_temp_slot = std::uint32_t(-1);
+                    auto res_gpr = resolve_group(moves_gpr, scratch_gpr, gpr_ok, gpr_changed, gpr_temp_slot);
+                    auto res_xmm = resolve_group(moves_xmm, scratch_xmm, xmm_ok, xmm_changed, xmm_temp_slot);
+
+                    if (!gpr_ok || !xmm_ok || (!gpr_changed && !xmm_changed))
+                    {
+                        ++ii;
+                        continue;
                     }
 
-                    blk.instrs.erase(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start), blk.instrs.begin() + static_cast<std::ptrdiff_t>(ii));
+                    std::size_t gpr_result_size = res_gpr.size();
+                    std::vector<Move> result = res_gpr;
+                    result.insert(result.end(), res_xmm.begin(), res_xmm.end());
+
+                    blk.instrs.erase(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start), blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_end));
 
                     for (std::size_t ri = 0; ri < result.size(); ++ri)
-                        blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), make_copy(result[ri].dst, result[ri].src));
+                    {
+                        auto const& mv = result[ri];
+                        if (!mv.dst.is_valid())
+                        {
+                            bool is_gpr = ri < gpr_result_size;
+                            std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
+                            MInstr store;
+                            store.opc = is_gpr ? MOpc::MOV64mr : MOpc::MOVSDmr;
+                            store.num_ops = 2;
+                            store.num_defs = 0;
+                            store.ops[0] = MOp::from_frame_slot(slot);
+                            store.ops[1] = MOp::from_reg(mv.src);
+                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), store);
+                        }
+                        else if (!mv.src.is_valid())
+                        {
+                            bool is_gpr = ri < gpr_result_size;
+                            std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
+                            MInstr load;
+                            load.opc = is_gpr ? MOpc::MOV64rm : MOpc::MOVSD_rm;
+                            load.num_ops = 2;
+                            load.num_defs = 1;
+                            load.ops[0] = MOp::from_reg(mv.dst);
+                            load.ops[1] = MOp::from_frame_slot(slot);
+                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), load);
+                        }
+                        else
+                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), make_reg_move(mv.dst, mv.src));
+                    }
 
-                    ii = run_start + result.size() + 1;
+                    ii = run_start + result.size() + (is_call ? 1 : 0);
                 }
             }
         }
@@ -1402,6 +1805,7 @@ export namespace dcc::backend::em64t
 
         rewrite_function(func, ranges);
 
+        sequence_call_arg_setup(func);
         resolve_parallel_copies(func);
 
         insert_callee_saves(func, target, ranges);
