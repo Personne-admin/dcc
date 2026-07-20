@@ -130,6 +130,7 @@ namespace
         bool no_stack_probe{false};
         bool position_independent_code{false};
         std::optional<dcc::target::CodeModel> code_model;
+        std::string target_cpu;
         bool omit_frame_pointer{true};
         std::vector<std::string> injected_decls;
         std::string backend_name = "llvm";
@@ -314,6 +315,20 @@ namespace
                     std::exit(1);
                 }
                 opts.code_model = *parsed;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-farch" && i + 1 < argc)
+            {
+                opts.target_cpu = argv[i + 1];
+                i += 2;
+                continue;
+            }
+
+            if (arg.starts_with("-farch="))
+            {
+                opts.target_cpu = arg.substr(7);
                 ++i;
                 continue;
             }
@@ -508,6 +523,7 @@ namespace
                        {"-fno-stack-probe", "disable stack probing"},
                        {"-fPIC | -fPIE", "position-independent code"},
                        {"-mcmodel <model>", "code model (default, small, kernel, medium, large)"},
+                       {"-farch <cpu>", "target CPU baseline (pentium, i686, generic, native, ...)"},
                        {"-target <triple>", "target triple"},
                        {"-h, --help", "show this help"},
                        {"-fomit-frame-pointer | -fno-omit-frame-pointer", "toggle frame pointer omission"}};
@@ -1044,6 +1060,19 @@ auto main(int argc, char** argv) -> int
             if (opts.code_model)
                 target.code_model = *opts.code_model;
 
+            if (!opts.target_cpu.empty())
+            {
+                if (target.arch == dcc::target::Arch::X86_64 || target.arch == dcc::target::Arch::X86)
+                {
+                    if (!dcc::target::TargetConfig::is_x86_cpu_allowed(opts.target_cpu))
+                    {
+                        std::println(std::cerr, "dcc: error: unknown CPU '{}' for target arch", opts.target_cpu);
+                        return 1;
+                    }
+                }
+                target.cpu = opts.target_cpu;
+            }
+
             if (opts.shared_library)
             {
                 if (target.object_format != dcc::target::ObjectFormat::Elf && target.object_format != dcc::target::ObjectFormat::Coff)
@@ -1069,7 +1098,8 @@ auto main(int argc, char** argv) -> int
             backend_opts.opt_level = opts.opt_level;
             backend_opts.source_manager = &session.source_manager();
 
-            if (opts.libdcext && (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
+            if (opts.libdcext &&
+                (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
             {
                 backend_opts.library_paths.push_back((prefix / "lib").string());
                 backend_opts.libraries.push_back("dcext");

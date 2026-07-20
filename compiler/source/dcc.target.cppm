@@ -55,6 +55,7 @@ export namespace dcc::target
         bool no_stack_probe{false};
         bool position_independent_code{false};
         CodeModel code_model{CodeModel::Default};
+        std::string cpu;
 
         [[nodiscard]] static std::optional<CodeModel> parse_code_model(std::string_view s)
         {
@@ -69,6 +70,27 @@ export namespace dcc::target
             if (s == "large")
                 return CodeModel::Large;
             return std::nullopt;
+        }
+
+        [[nodiscard]] static bool is_x86_cpu_allowed(std::string_view cpu)
+        {
+            using namespace std::string_view_literals;
+            static constexpr std::string_view allowed[] = {
+                "generic"sv,    "i386"sv,     "i486"sv,     "i586"sv,     "pentium"sv, "pentium-mmx"sv, "i686"sv,
+                "pentiumpro"sv, "pentium2"sv, "pentium3"sv, "pentium4"sv, "x86-64"sv,  "native"sv,
+            };
+
+            for (auto a : allowed)
+                if (a == cpu)
+                    return true;
+
+            return false;
+        }
+
+        [[nodiscard]] static bool cpu_is_pre_i686(std::string_view cpu)
+        {
+            using namespace std::string_view_literals;
+            return cpu == "i386"sv || cpu == "i486"sv || cpu == "i586"sv || cpu == "pentium"sv || cpu == "pentium-mmx"sv;
         }
 
         [[nodiscard]] Layout int_layout(std::uint8_t bits) const { return Layout{static_cast<std::uint64_t>(bits / 8), static_cast<std::uint64_t>(bits / 8)}; }
