@@ -1,0 +1,22 @@
+=== FILE: main.dc ===
+module main;
+
+enum ZeroPayload {
+    @implicit_construction NoArg,
+}
+
+struct MyRes {
+    bool ok;
+}
+
+bool is_ok(MyRes self) { return self.ok; }
+i32 unwrap(MyRes self) { return 0; }
+i32 unwrap_err(MyRes self) { return 0; }
+
+ZeroPayload test(MyRes r) {
+    i32 x = r?;
+    return ZeroPayload::NoArg;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:16: ? operator: error type `i32` cannot be propagated into return type `ZeroPayload`

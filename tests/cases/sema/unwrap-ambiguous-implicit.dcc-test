@@ -1,0 +1,23 @@
+=== FILE: main.dc ===
+module main;
+
+enum Ambiguous {
+    @implicit_construction A(i32),
+    @implicit_construction B(i32),
+}
+
+struct MyRes {
+    bool ok;
+}
+
+bool is_ok(MyRes self) { return self.ok; }
+i32 unwrap(MyRes self) { return 0; }
+i32 unwrap_err(MyRes self) { return 0; }
+
+Ambiguous test(MyRes r) {
+    i32 x = r?;
+    return Ambiguous::A(0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:17: ? operator: error type `i32` cannot be propagated into return type `Ambiguous`

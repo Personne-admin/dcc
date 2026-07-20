@@ -1,0 +1,32 @@
+=== FILE: main.dc ===
+module main;
+
+struct Res {
+    bool ok;
+    i32 val;
+}
+
+bool is_ok(Res self) { return self.ok; }
+i32 unwrap(Res self) { return self.val; }
+i32 unwrap_err(Res self) { return self.val; }
+
+i32 test_in_loop(i32 n) {
+    i32 i = 0;
+    while i < n {
+        Res r = { ok = true, val = i };
+        i32 v = r?;
+        i = v + 1;
+    }
+
+    return i;
+}
+
+i32 test_in_if(Res r) {
+    if r.ok {
+        return r?;
+    }
+
+    return 0;
+}
+
+=== EXPECT-ERRORS ===

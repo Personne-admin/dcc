@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module main;
+
+struct T {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(T self) { return self.ok; }
+i32 unwrap(T self) { return self.value; }
+i32 unwrap_err(T self) { return self.value; }
+
+void test(T value) {
+    i32 x = value?;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: ? operator: error type `i32` cannot be propagated into return type `void`

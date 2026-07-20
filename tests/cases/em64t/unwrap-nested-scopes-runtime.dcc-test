@@ -1,0 +1,46 @@
+=== FILE: test.dc ===
+module test;
+
+struct Res {
+    bool ok;
+    i32 val;
+}
+
+bool is_ok(Res self) { return self.ok; }
+i32 unwrap(Res self) { return self.val; }
+i32 unwrap_err(Res self) { return self.val; }
+
+@nomangle
+i32 g_count = 0;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+void inc() { g_count = g_count + 1; }
+
+@nomangle
+i32 test_nested_scope() {
+    g_count = 0;
+    Res r = { ok = false, val = 5 };
+
+    defer inc();
+    {
+        defer inc();
+        i32 x = r?;
+        return x;
+    }
+}
+
+@nomangle
+i32 dcc_main() {
+    if test_nested_scope() != 5 { return 1; }
+    if g_count != 2 { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

@@ -1,0 +1,25 @@
+=== FILE: main.dc ===
+module main;
+
+struct T {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(T self) { return self.ok; }
+i32 unwrap(T self) { return self.value; }
+i32 unwrap_err(T self) { return self.value; }
+
+T make_result() {
+    return { ok = true, value = 42 };
+}
+
+const i32 x = make_result()?;
+
+static if make_result()? == 42 {
+    const i32 y = 1;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:18: `static if` condition is not a compile-time constant expression
+main.dc:16: cannot use `?` outside a function

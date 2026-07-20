@@ -1,0 +1,23 @@
+=== FILE: main.dc ===
+module main;
+
+enum Res(T) {
+    @implicit_construction Val(T),
+    Other,
+}
+
+struct Box(T) {
+    bool ok;
+    T value;
+}
+
+bool is_ok(T)(Box(T) self) { return self.ok; }
+T unwrap(T)(Box(T) self) { return self.value; }
+T unwrap_err(T)(Box(T) self) { return self.value; }
+
+Res(i32) propagate(Box(i32) b) {
+    i32 x = b?;
+    return Res::Val(x);
+}
+
+=== EXPECT-ERRORS ===

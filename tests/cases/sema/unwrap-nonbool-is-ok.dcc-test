@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module main;
+
+struct T {
+    i32 value;
+}
+
+i32 is_ok(T self) { return self.value; }
+i32 unwrap(T self) { return self.value; }
+i32 unwrap_err(T self) { return self.value; }
+
+i32 test(T value) {
+    return value?;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:12: `.is_ok()` must return bool-compatible type, got `i32`

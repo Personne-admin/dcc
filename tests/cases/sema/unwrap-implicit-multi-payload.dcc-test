@@ -1,0 +1,23 @@
+=== FILE: main.dc ===
+module main;
+
+enum MultiPayload {
+    @implicit_construction Pair(i32, i32),
+}
+
+struct MyRes {
+    bool ok;
+}
+
+bool is_ok(MyRes self) { return self.ok; }
+i32 unwrap(MyRes self) { return 0; }
+i32 unwrap_err(MyRes self) { return 0; }
+
+MultiPayload test(MyRes r) {
+    i32 x = r?;
+    return MultiPayload::Pair(0, 0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: variant `Pair` has multiple payload types; wrap them in a struct
+main.dc:16: ? operator: error type `i32` cannot be propagated into return type `MultiPayload`

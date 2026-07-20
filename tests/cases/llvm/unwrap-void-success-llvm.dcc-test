@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+struct VoidSuccess {
+    bool ok;
+}
+
+bool is_ok(VoidSuccess self) { return self.ok; }
+void unwrap(VoidSuccess self) {}
+i32 unwrap_err(VoidSuccess self) { return 0; }
+
+i32 test_ok() {
+    VoidSuccess v = { ok = true };
+    v?;
+    return 42;
+}
+
+i32 test_err() {
+    VoidSuccess v = { ok = false };
+    v?;
+    return 99;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

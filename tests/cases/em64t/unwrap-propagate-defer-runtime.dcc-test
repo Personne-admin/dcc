@@ -1,0 +1,46 @@
+=== FILE: test.dc ===
+module test;
+
+struct Res {
+    bool ok;
+    i32 val;
+}
+
+bool is_ok(Res self) { return self.ok; }
+i32 unwrap(Res self) { return self.val; }
+i32 unwrap_err(Res self) { return self.val; }
+
+@nomangle
+i32 g_defer_log = 0;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+void log_defer(i32 id) {
+    g_defer_log = g_defer_log * 10 + id;
+}
+
+@nomangle
+i32 test_defer_order() {
+    g_defer_log = 0;
+    Res r = { ok = false, val = 7 };
+    defer log_defer(1);
+    defer log_defer(2);
+    defer log_defer(3);
+
+    return r?;
+}
+
+@nomangle
+i32 dcc_main() {
+    if test_defer_order() != 7 { return 1; }
+    if g_defer_log != 321 { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
