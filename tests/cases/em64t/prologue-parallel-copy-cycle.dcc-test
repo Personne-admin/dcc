@@ -1,0 +1,49 @@
+=== FILE: test.dc ===
+module test;
+
+struct F8 { f64 a; }
+struct F16 { f64 a; f64 b; }
+struct F24 { f64 a; f64 b; f64 c; }
+struct M8 { i32 a; f32 b; }
+struct M16 { i64 a; f64 b; }
+struct M16b { f64 a; i64 b; }
+struct M24 { f64 a; i64 b; f64 c; }
+struct S16 { i64 a; i64 b; }
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+i32 f(M16b s0, F8 s1, S16 s2, M24 s3, M24 s4, M16b s5, i32 p0, S16 s6, S16 s7, M24 s8, M24 s9, S16 s10, F8 s11) {
+    return (s0.a as i32 + s0.b as i32) + (s1.a as i32) + (s2.a as i32 + s2.b as i32) +
+           (s3.a as i32 + s3.b as i32 + s3.c as i32) + (s4.a as i32 + s4.b as i32 + s4.c as i32) +
+           (s5.a as i32 + s5.b as i32) + p0 +
+           (s6.a as i32 + s6.b as i32) + (s7.a as i32 + s7.b as i32) +
+           (s8.a as i32 + s8.b as i32 + s8.c as i32) + (s9.a as i32 + s9.b as i32 + s9.c as i32) +
+           (s10.a as i32 + s10.b as i32) + (s11.a as i32);
+}
+
+@nomangle
+public i32 dcc_main() {
+    M16b v0 = { a = 1.0, b = 1 };
+    F8 v1 = { a = 2.0 };
+    S16 v2 = { a = 3, b = 3 };
+    M24 v3 = { a = 4.0, b = 4, c = 4.0 };
+    M24 v4 = { a = 5.0, b = 5, c = 5.0 };
+    M16b v5 = { a = 6.0, b = 6 };
+    S16 v6 = { a = 7, b = 7 };
+    S16 v7 = { a = 8, b = 8 };
+    M24 v8 = { a = 9.0, b = 9, c = 9.0 };
+    M24 v9 = { a = 10.0, b = 10, c = 10.0 };
+    S16 v10 = { a = 11, b = 11 };
+    F8 v11 = { a = 12.0 };
+    return f(v0, v1, v2, v3, v4, v5, 1, v6, v7, v8, v9, v10, v11) & 255;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 ===
+RUN-EXIT: 171
