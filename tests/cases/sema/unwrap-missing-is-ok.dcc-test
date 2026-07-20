@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module main;
+
+struct T {}
+
+i32 test(T value) {
+    return value?;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: type `T` is not Unwrappable: no visible `.is_ok()` method

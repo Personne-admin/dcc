@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module main;
+
+struct T {
+    bool ok;
+    i32 value;
+}
+
+bool is_ok(T self) { return self.ok; }
+i32 unwrap_err(T self) { return self.value; }
+
+i32 test(T value) {
+    return value?;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:12: type `T` is not Unwrappable: no visible `.unwrap()` method

@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module main;
+
+struct Res {
+    bool ok;
+    i32 val;
+}
+
+bool is_ok(Res* self) { return self.ok; }
+i32 unwrap(Res* self) { return self.val; }
+i32 unwrap_err(Res* self) { return self.val; }
+
+i32 test(Res r) {
+    return r?;
+}
+
+=== EXPECT-ERRORS ===

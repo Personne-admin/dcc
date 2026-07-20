@@ -1,0 +1,34 @@
+=== FILE: main.dc ===
+module main;
+
+enum Outcome(T, E) {
+    Value(T),
+    Failure(E),
+}
+
+bool is_ok(T, E)(Outcome(T, E) self) {
+    return match self {
+        Outcome::Failure(_) => false,
+        _ => true,
+    };
+}
+
+T unwrap(T, E)(Outcome(T, E) self) {
+    return match self {
+        Outcome::Value(v) => v,
+        Outcome::Failure(_) => self.unwrap(),
+    };
+}
+
+E unwrap_err(T, E)(Outcome(T, E) self) {
+    return match self {
+        Outcome::Failure(e) => e,
+        Outcome::Value(_) => self.unwrap_err(),
+    };
+}
+
+i32 test_ok(Outcome(i32, i32) o) {
+    return o?;
+}
+
+=== EXPECT-ERRORS ===

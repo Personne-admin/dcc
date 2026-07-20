@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+
+struct VoidSuccess {
+    bool ok;
+}
+
+bool is_ok(VoidSuccess self) { return self.ok; }
+void unwrap(VoidSuccess self) {}
+i32 unwrap_err(VoidSuccess self) { return 0; }
+
+i32 test_propagate(VoidSuccess v) {
+    v?;
+    return 1;
+}
+
+=== EXPECT-IR ===
+module "test"
+bool@_DC0F1.4.test5.is_ok1D1.4.test11.VoidSuccess0.b({@0 bool}) {
+%entry({@0 bool} %self):
+  %0 = alloca {@0 bool}
+  store {@0 bool} %self, ptr<{@0 bool}> %0
+  %1 = gep ptr<{@0 bool}> %0, field #0
+  %2 = load bool, ptr<bool> %1
+  ret bool %2
+}
+
+void@_DC0F1.4.test6.unwrap1D1.4.test11.VoidSuccess0.v({@0 bool}) {
+%entry({@0 bool} %self):
+  %0 = alloca {@0 bool}
+  store {@0 bool} %self, ptr<{@0 bool}> %0
+  ret void
+}
+
+i32@_DC0F1.4.test10.unwrap_err1D1.4.test11.VoidSuccess0.i32s({@0 bool}) {
+%entry({@0 bool} %self):
+  %0 = alloca {@0 bool}
+  store {@0 bool} %self, ptr<{@0 bool}> %0
+  ret i32 #0
+}
+
+i32@_DC0F1.4.test14.test_propagate1D1.4.test11.VoidSuccess0.i32s({@0 bool}) {
+%entry({@0 bool} %v):
+  %0 = alloca {@0 bool}
+  store {@0 bool} %v, ptr<{@0 bool}> %0
+  %1 = load {@0 bool}, ptr<{@0 bool}> %0
+  %2 = call fn(@_DC0F1.4.test5.is_ok1D1.4.test11.VoidSuccess0.b)({@0 bool} %1) -> bool
+  br.cond %2, label %unwrap.is_ok1, label %unwrap.fail2
+%unwrap.is_ok1:
+  call fn(@_DC0F1.4.test6.unwrap1D1.4.test11.VoidSuccess0.v)({@0 bool} %1)
+  br label %unwrap.merge3
+%unwrap.fail2:
+  %3 = call fn(@_DC0F1.4.test10.unwrap_err1D1.4.test11.VoidSuccess0.i32s)({@0 bool} %1) -> i32
+  ret i32 %3
+%unwrap.merge3:
+  ret i32 #1
+}
