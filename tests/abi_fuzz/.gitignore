@@ -1,0 +1,10 @@
+corpus/
+fcorpus/
+*.dc
+*.o
+*.s
+*.log
+prog*
+*prog
+*p
+*pl
