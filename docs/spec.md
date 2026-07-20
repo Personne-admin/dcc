@@ -527,6 +527,73 @@ isn't a pack is an error.
 
 ---
 
+### 9.5 The Unwrap/Propagate Operator (`?`)
+
+The postfix `?` operator unwraps a success value from a container type and
+propagates the error value by returning early from the enclosing function.
+
+**Syntax.** `expr?` is a postfix operator at the same precedence as
+postfix `++` / `--`. It binds tighter than binary operators and the `as`
+cast, but looser than the atomic primary expression:
+
+```dc
+call()?;               // ok: ? on a call result
+object.field?;          // ok: ? on a field access
+items[index]?;          // ok: ? on an index expression
+val as T?;              // possible error: `as` binds the type first, then `?` on the cast
+```
+
+The operand is evaluated **once**. The result of `?` is always a prvalue.
+
+**Where valid.** `?` is only permitted inside a function body
+(including generic functions and UFCS methods). Using `?` outside a
+function is a compile-time error for now.
+
+**Protocol via UFCS.** The compiler resolves three methods on the
+operand type via ordinary UFCS lookup (§11):
+
+1. `.is_ok()` — must return a `bool`-compatible type.
+2. `.unwrap()` — returns the **success payload**. The return type is the
+   type of the whole `?` expression.
+3. `.unwrap_err()` — returns the **error payload**. Its return type must
+   be compatible with the enclosing function's return type.
+
+All three methods must be visible in the scope where `?` appears. Template
+instantiation re-resolves the methods for each instantiated type; generic
+`is_ok` / `unwrap` / `unwrap_err` functions work.
+
+**Conceptual expansion.** For a function returning `Ret`, the expression
+`value?` behaves as if the compiler inlined:
+
+```dc
+if !value.is_ok() {
+    return value.unwrap_err(); // defers run, operand not re-evaluated
+}
+value.unwrap()
+```
+
+**Return-type compatibility.** The `.unwrap_err()` return type (`E`) is
+checked against the enclosing function's return type (`Ret`) in two steps:
+
+1. Direct assignment of `E` to `Ret` (exact type match or the standard
+   assignment-compatibility rules: int widening, float widening, pointer
+   qualifier compatibility, etc.).
+2. Implicit enum construction: if `Ret` is a tagged enum (`enum` with at
+   least one payload variant) and exactly **one** variant is annotated
+   `@implicit_construction` with a single payload assignable from `E`, the
+   error value is automatically wrapped into that variant.
+
+If neither step succeeds, the compiler emits a diagnostic and rejects the
+expression.
+
+**Control flow and `defer`.** On the failure path, all active `defer`
+statements (§12) execute in reverse order **before** the early `return`.
+On the success path, `.unwrap()` runs and execution continues normally;
+the result is merged via a PHI so that the surrounding expression sees the
+unwrapped value. The operand expression is lowered exactly once.
+
+---
+
 ## 10. Match Expressions
 
 ```dc
