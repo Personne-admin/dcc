@@ -2850,6 +2850,7 @@ export namespace dcc::ir::lower
 
             auto* unwrap_call = m_ctx.call(ir_ret_type, m_ctx.func_ref(unwrap_ir_func));
             unwrap_call->args.push_back(operand_val);
+            if (ir_ret_type->kind != IrTypeKind::Void)
             {
                 auto name = ident_name();
                 unwrap_call->name = m_name_pool.back();
@@ -2884,6 +2885,9 @@ export namespace dcc::ir::lower
             emit_ret(return_val);
 
             set_current_block(merge_bb);
+
+            if (ir_ret_type->kind == IrTypeKind::Void)
+                return nullptr;
 
             auto* phi = emit_phi(ir_ret_type);
             add_phi_incoming(phi, unwrap_call, success_exit);
