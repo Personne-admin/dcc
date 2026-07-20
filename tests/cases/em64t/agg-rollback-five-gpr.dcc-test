@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+
+struct TwoInt {
+    i64 a;
+    i64 b;
+}
+
+i32 rollback(i32 a, i32 b, i32 c, i32 d, i32 e, TwoInt ti, i32 extra) {
+    return a + b + c + d + e + ti.a as i32 + ti.b as i32 + extra;
+}
+
+@nomangle
+public i32 dcc_main() {
+    TwoInt ti = { a = 10, b = 20 };
+    return rollback(1, 2, 3, 4, 5, ti, 6);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 51

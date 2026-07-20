@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+struct Wide {
+    i64 a;
+    i64 b;
+    i64 c;
+}
+
+i32 total(Wide w) {
+    return (w.a + w.b + w.c) as i32;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Wide w = { a = 10, b = 20, c = 12 };
+    return total(w);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42

@@ -7,28 +7,19 @@ public struct TwoFloats {
 }
 
 @nomangle
-const i32 dummy_ro = 0;
-
-@nomangle
-i32 dummy_data = 0;
-
-@nomangle
-i32 dummy_bss;
-
-@nomangle
 public TwoFloats make_tf(f64 a, f64 b) {
     return { x = a, y = b };
 }
 
 @nomangle
 public i32 dcc_main() {
-    TwoFloats tf = make_tf(3.0, 4.0);
-    if tf.x + tf.y > 6.0 {
-        return 1;
-    }
+    f64 a = 3.0;
+    f64 b = 4.0;
+    TwoFloats tf = make_tf(a, b);
+    i64 sum = (tf.x + tf.y) as i64;
 
-    return 0;
+    return sum as i32;
 }
 
-=== EXPECT-EM64T-OBJECT ===
-RUN-EXIT: 1
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 7

@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+
+struct M8 {
+    i32 a;
+    f32 b;
+}
+
+struct M16 {
+    i64 a;
+    f64 b;
+}
+
+struct M24 {
+    f64 a;
+    i64 b;
+    f64 c;
+}
+
+i32 sum(M8 p, M16 q, M24 r) {
+    return p.a + p.b as i32
+         + q.a as i32 + q.b as i32
+         + r.a as i32 + r.b as i32 + r.c as i32;
+}
+
+@nomangle
+public i32 dcc_main() {
+    M8 p = { a = 1, b = 1.0 };
+    M16 q = { a = 2, b = 2.0 };
+    M24 r = { a = 3.0, b = 3, c = 3.0 };
+    return sum(p, q, r);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 15

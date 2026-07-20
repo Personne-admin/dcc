@@ -433,6 +433,7 @@ export namespace dcc::backend::em64t
         MOVSDrm,
         MOVSDmr,
         MOVQ64rr,
+        MOVQ64rr_rev,
         ADDSD,
         SUBSD,
         MULSD,
@@ -691,6 +692,7 @@ export namespace dcc::backend::em64t
         [[nodiscard]] std::string_view name() const noexcept { return owned_name; }
         std::uint32_t entry_block_id{0};
         std::int32_t frame_size{-1};
+        std::int32_t outgoing_args_size{0};
         std::int32_t src_line{0};
 
         [[nodiscard]] VReg new_vreg()
@@ -1155,6 +1157,8 @@ export namespace dcc::backend::em64t
                 return "MOVSDmr"sv;
             case MOpc::MOVQ64rr:
                 return "MOVQ64rr"sv;
+            case MOpc::MOVQ64rr_rev:
+                return "MOVQ64rr_rev"sv;
             case MOpc::ADDSD:
                 return "ADDSD"sv;
             case MOpc::SUBSD:

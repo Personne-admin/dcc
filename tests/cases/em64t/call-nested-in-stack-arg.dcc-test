@@ -1,0 +1,18 @@
+=== FILE: test.dc ===
+module test;
+
+i32 inner(i32 a, i32 b, i32 c, i32 d, i32 e, i32 f, i32 g) {
+    return a + b + c + d + e + f + g;
+}
+
+i32 outer(i32 a, i32 b, i32 c, i32 d, i32 e, i32 f, i32 g, i32 h) {
+    return a + b + c + d + e + f + g + h;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return outer(1, 2, 3, 4, 5, 6, inner(1, 1, 1, 1, 1, 1, 1), 2);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 30

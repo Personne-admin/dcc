@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    u8[4] arr;
+    arr[0] = 1;
+    arr[1] = 2;
+    arr[2] = 4;
+    arr[3] = 8;
+    return (arr[0] + arr[1] + arr[2] + arr[3]) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 15

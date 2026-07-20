@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+
+i32 seven(i32 a, i32 b, i32 c, i32 d, i32 e, i32 f, i32 g) {
+    return a + b + c + d + e + f + g;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return seven(1, 2, 3, 4, 5, 6, 7);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 28

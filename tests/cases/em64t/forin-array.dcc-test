@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    i32[4] arr = {10, 20, 30, 40};
+    i32 sum = 0;
+    for x in arr {
+        sum = sum + x;
+    }
+
+    return sum;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 100

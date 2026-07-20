@@ -43,7 +43,13 @@ export namespace dcc::backend::em64t
 
         std::ranges::sort(slot_indices, [&](std::uint32_t a, std::uint32_t b) { return func.frame_slots[a].align > func.frame_slots[b].align; });
 
-        std::int32_t current_offset = 0;
+        auto& entry_for_pushes = func.entry_block();
+        std::int32_t callee_saved_bytes = 0;
+        for (auto const& instr : entry_for_pushes.instrs)
+            if (instr.opc == MOpc::PUSH64r)
+                callee_saved_bytes += 8;
+
+        std::int32_t current_offset = callee_saved_bytes;
         for (auto idx : slot_indices)
         {
             auto& slot = func.frame_slots[idx];
@@ -56,10 +62,10 @@ export namespace dcc::backend::em64t
             current_offset = aligned_offset + static_cast<std::int32_t>(slot.size);
         }
 
-        std::int32_t frame_slot_area = current_offset;
+        std::int32_t frame_slot_area = current_offset - callee_saved_bytes;
 
         std::int32_t shadow_space = w64 ? 32 : 0;
-        std::int32_t raw_frame_size = frame_slot_area + shadow_space;
+        std::int32_t raw_frame_size = frame_slot_area + shadow_space + func.outgoing_args_size;
 
         auto& entry = func.entry_block();
         std::int32_t num_callee_pushes = 0;
@@ -69,7 +75,7 @@ export namespace dcc::backend::em64t
 
         std::int32_t total_pushed = 8 + (num_callee_pushes * 8);
 
-        std::int32_t total_with_padding = total_pushed + raw_frame_size;
+        std::int32_t total_with_padding = total_pushed + raw_frame_size - 8;
         std::int32_t padding = (16 - (total_with_padding % 16)) % 16;
         std::int32_t frame_size = raw_frame_size + padding;
 

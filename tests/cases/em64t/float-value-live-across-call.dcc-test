@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+f64 id64(f64 x) {
+    return x;
+}
+
+f32 id32(f32 x) {
+    return x;
+}
+
+@nomangle
+public i32 dcc_main() {
+    f64 a = id64(4.0) + id64(6.0);
+    f64 b = id64(10.0) - id64(4.0);
+    f64 c = id64(12.0) / id64(4.0);
+    f32 d = id32(4.0) + id32(6.0);
+    return (a + b + c + d as f64) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 29

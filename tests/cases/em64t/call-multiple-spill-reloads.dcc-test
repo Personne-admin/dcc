@@ -1,0 +1,32 @@
+=== FILE: test.dc ===
+module test;
+
+struct S4 {
+    i32 a;
+}
+
+struct S12 {
+    i32 a;
+    i32 b;
+    i32 c;
+}
+
+struct S16 {
+    i64 a;
+    i64 b;
+}
+
+i32 f(i32 p0, i32 p1, S16 s0, i32 p2, i32 p3, S4 s1, S12 s2, i32 p4, i32 p5, i32 p6, i32 p7, i32 p8, i32 p9, i32 p10) {
+    return p0 + p1 + (s0.a + s0.b) as i32 + p2 + p3 + s1.a + (s2.a + s2.b + s2.c) + p4 + p5 + p6 + p7 + p8 + p9 + p10;
+}
+
+@nomangle
+public i32 dcc_main() {
+    S16 v0 = { a = 1, b = 1 };
+    S4 v1 = { a = 2 };
+    S12 v2 = { a = 3, b = 3, c = 3 };
+    return f(1, 2, v0, 3, 4, v1, v2, 5, 6, 7, 8, 9, 10, 11);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 79

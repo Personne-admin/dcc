@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+
+struct Holder {
+    i32[3] a;
+    i32 n;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32[2][3] m;
+    i32 s = 0;
+    for i in 0..3 {
+        for j in 0..2 {
+            m[i][j] = (i * 2 + j) as i32;
+        }
+    }
+
+    for i in 0..3 {
+        for j in 0..2 {
+            s = s + m[i][j];
+        }
+    }
+
+    Holder h;
+    h.n = 2;
+    for i in 0..3 {
+        h.a[i] = (i * 10) as i32;
+    }
+
+    return s + h.a[0] + h.a[1] + h.a[2] + h.n;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 47
