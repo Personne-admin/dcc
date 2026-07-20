@@ -927,7 +927,7 @@ export namespace dcc::parser
                 auto path = parse_path();
                 auto* nt = m_ctx.make<ast::NamedType>(range_from(start), std::move(path));
 
-                if (check(TK::LParen))
+                if (check(TK::LParen) && !(check_at(1, TK::Star) && check_at(2, TK::RParen)))
                 {
                     advance();
                     if (!check(TK::RParen))
