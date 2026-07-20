@@ -1046,6 +1046,12 @@ export namespace dcc::sema
 
         void define_constant(ConstEnv& env, std::string_view name, comptime::Value const* value) { env.values.insert_or_assign(name, value); }
 
+        void invalidate_constant(ConstEnv const* env, std::string_view name)
+        {
+            for (auto const* e = env; e; e = e->parent)
+                const_cast<ConstEnv*>(e)->values.insert_or_assign(name, nullptr);
+        }
+
         std::pmr::vector<sm::SourceRange> snapshot_exit_defers() const
         {
             std::pmr::vector<sm::SourceRange> out{m_alloc};
@@ -7663,6 +7669,9 @@ export namespace dcc::sema
                     }
 
                     track_decl_write(lhs.resolved_decl);
+                    if (const_env)
+                        if (auto const* lv = ast::node_cast<ast::VarDecl>(lhs.resolved_decl))
+                            invalidate_constant(const_env, lv->name);
                     out.type = lhs_type;
                     return out;
                 }
@@ -11346,6 +11355,14 @@ export namespace dcc::sema
                 }
                 case ast::TypeKind::Named: {
                     auto const* nt = static_cast<ast::NamedType const*>(t);
+
+                    if (t->sema.canonical)
+                    {
+                        auto const* pre = get_canonical(t->sema);
+                        if (pre && pre->kind != types::TypeKind::Error)
+                            return {.type = pre};
+                    }
+
                     auto instantiate = [&](ast::Decl const* decl) -> types::TypePtr {
                         if (auto const* u = ast::node_cast<ast::UsingDecl>(decl))
                         {
