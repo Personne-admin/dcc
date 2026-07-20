@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+
+f64 nine(f64 a, f64 b, f64 c, f64 d, f64 e, f64 f, f64 g, f64 h, f64 i) {
+    return a + b + c + d + e + f + g + h + i;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return nine(1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 45

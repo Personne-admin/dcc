@@ -6555,10 +6555,48 @@ export namespace dcc::ir::lower
 
             auto* resolved_type = get_sema_resolved_type(idx_expr);
             auto* ir_resolved_type = lower_type(resolved_type);
+            auto* obj_sema_type = get_sema_resolved_type(idx_expr->object);
+
+            if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array &&
+                (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess))
+            {
+                auto* base_ptr = lower_addr_of(idx_expr->object);
+                auto* nested_index = lower_expr(idx_expr->index);
+
+                if (m_bounds_check)
+                {
+                    auto const* at = types::type_cast<types::ArrayType>(obj_sema_type);
+                    if (at)
+                    {
+                        bool skip_check = false;
+                        if (auto* iconst = ir_cast<IrIntConstant>(nested_index))
+                            if (iconst->value >= 0 && static_cast<std::uint64_t>(iconst->value) < at->count)
+                                skip_check = true;
+
+                        if (!skip_check)
+                        {
+                            auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(at->count));
+                            emit_bounds_check(nullptr, len_val, nested_index, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Array);
+                        }
+                    }
+                }
+
+                auto* nested_ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                auto* nested_gep = m_ctx.gep(nested_ptr_type, base_ptr);
+                nested_gep->indices.push_back({IrGepInst::IndexKind::Array, nested_index, 0});
+                auto nested_gep_name = ident_name();
+                nested_gep->name = m_name_pool.back();
+                append_inst(nested_gep);
+
+                auto* nested_loaded = m_ctx.load(ir_resolved_type, nested_gep);
+                auto nested_load_name = ident_name();
+                nested_loaded->name = m_name_pool.back();
+                append_inst(nested_loaded);
+                return nested_loaded;
+            }
+
             auto* obj_val = lower_expr(idx_expr->object);
             auto* index_val = lower_expr(idx_expr->index);
-
-            auto* obj_sema_type = get_sema_resolved_type(idx_expr->object);
 
             if (obj_val->type && obj_val->type->kind == IrTypeKind::Slice)
             {
@@ -7324,6 +7362,38 @@ export namespace dcc::ir::lower
                         return gep;
                     }
                 }
+            }
+
+            if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array &&
+                (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess))
+            {
+                auto* base_ptr = lower_addr_of(idx_expr->object);
+
+                if (m_bounds_check)
+                {
+                    auto const* at = types::type_cast<types::ArrayType>(obj_sema_type);
+                    if (at)
+                    {
+                        bool skip_check = false;
+                        if (auto* iconst = ir_cast<IrIntConstant>(index_val))
+                            if (iconst->value >= 0 && static_cast<std::uint64_t>(iconst->value) < at->count)
+                                skip_check = true;
+
+                        if (!skip_check)
+                        {
+                            auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(at->count));
+                            emit_bounds_check(nullptr, len_val, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Array);
+                        }
+                    }
+                }
+
+                auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
+                auto gep_name = ident_name();
+                gep->name = m_name_pool.back();
+                append_inst(gep);
+                return gep;
             }
 
             {

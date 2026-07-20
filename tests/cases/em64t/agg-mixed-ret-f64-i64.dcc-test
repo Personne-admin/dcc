@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Mif2 {
+    f64 a;
+    i64 b;
+}
+
+@nomangle
+public Mif2 make_mif2(f64 a, i64 b) {
+    return { a = a, b = b };
+}
+
+@nomangle
+public i32 dcc_main() {
+    f64 a = 30.0;
+    i64 b = 40;
+    Mif2 p = make_mif2(a, b);
+
+    return p.a as i32 + p.b as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 70

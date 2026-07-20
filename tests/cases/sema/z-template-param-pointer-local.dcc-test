@@ -1,0 +1,25 @@
+=== FILE: main.dc ===
+module main;
+
+usize count(T)(T* first, usize n) {
+    T* p = first;
+    usize seen = 0;
+    while seen < n {
+        seen = seen + 1;
+    }
+
+    return seen + (*p) as usize;
+}
+
+usize slice_len(T)([]T s) {
+    T* p = s.ptr;
+    return s.len + (*p) as usize;
+}
+
+public usize use_it(i32* p, []i32 s) {
+    return count(p, 2) + slice_len(s);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===

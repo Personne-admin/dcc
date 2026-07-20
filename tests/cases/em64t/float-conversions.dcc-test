@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+
+f64 widen(f32 x) {
+    return x as f64;
+}
+
+f32 narrow(f64 x) {
+    return x as f32;
+}
+
+f32 from_int(i32 x) {
+    return x as f32;
+}
+
+@nomangle
+public i32 dcc_main() {
+    f32 a = 2.5;
+    f64 b = widen(a) + 1.5;
+    f32 c = narrow(b) + from_int(6);
+    return (b as i32) * 10 + c as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 50

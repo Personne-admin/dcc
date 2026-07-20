@@ -1,0 +1,39 @@
+=== FILE: test.dc ===
+module test;
+
+public i32 grid() {
+    i32[2][3] m;
+    i32 s = 0;
+    for i in 0..3 {
+        for j in 0..2 {
+            m[i][j] = (i * 2 + j) as i32;
+        }
+    }
+
+    for i in 0..3 {
+        for j in 0..2 {
+            s = s + m[i][j];
+        }
+    }
+
+    return s;
+}
+
+public i32 field_array() {
+    Holder h;
+    h.n = 2;
+    for i in 0..3 {
+        h.a[i] = (i * 10) as i32;
+    }
+
+    return h.a[0] + h.a[1] + h.a[2] + h.n;
+}
+
+struct Holder {
+    i32[3] a;
+    i32 n;
+}
+
+=== ENTRY: test.dc ===
+
+=== EXPECT-ERRORS ===

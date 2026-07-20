@@ -1,0 +1,56 @@
+=== FILE: test.dc ===
+module test;
+
+public struct F1 {
+    f32 val;
+}
+
+public struct F2 {
+    f32 a;
+    f32 b;
+}
+
+public struct F32Triple {
+    f32 a;
+    f32 b;
+    f32 c;
+}
+
+@nomangle
+public F1 make_f1(f32 v) {
+    return { val = v };
+}
+
+@nomangle
+public F2 make_f2(f32 a, f32 b) {
+    return { a = a, b = b };
+}
+
+@nomangle
+public F32Triple make_triple(f32 a, f32 b, f32 c) {
+    return { a = a, b = b, c = c };
+}
+
+@nomangle
+public i32 dcc_main() {
+    f32 v = 10.0;
+    F1 f1 = make_f1(v);
+    i64 r1 = f1.val as i64;
+
+    f32 a2 = 20.0;
+    f32 b2 = 30.0;
+    F2 f2 = make_f2(a2, b2);
+    i64 r2 = (f2.a as i64) + (f2.b as i64);
+
+    f32 a3 = 40.0;
+    f32 b3 = 50.0;
+    f32 c3 = 60.0;
+    F32Triple t = make_triple(a3, b3, c3);
+    i64 r3 = (t.a as i64) + (t.b as i64) + (t.c as i64);
+
+    i64 total = r1 + r2 + r3;
+    return total as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 210

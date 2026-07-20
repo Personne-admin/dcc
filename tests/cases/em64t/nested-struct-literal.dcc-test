@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+struct Inner {
+    i32 x;
+    i32 y;
+}
+
+struct Outer {
+    Inner i;
+    i32 z;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Outer o = { i = { x = 10, y = 30 }, z = 2 };
+    return o.i.x + o.i.y + o.z;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42

@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+
+struct Mif1 {
+    i64 a;
+    f64 b;
+}
+
+i32 sum_mif1(Mif1 p) {
+    return p.a as i32 + p.b as i32;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Mif1 p = { a = 10, b = 20.0 };
+    return sum_mif1(p);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 30

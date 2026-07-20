@@ -62,6 +62,8 @@ namespace dcc::backend::em64t
             std::unordered_map<dcc::ir::IrValue const*, VReg> value_map;
             std::unordered_map<dcc::ir::IrValue const*, std::uint32_t> alloca_to_slot;
             std::unordered_map<dcc::ir::IrValue const*, std::uint32_t> aggregate_to_slot;
+            std::unordered_set<dcc::ir::IrValue const*> memory_addr_values;
+
             std::uint32_t current_block_id = 0;
             bool has_error = false;
             bool uses_sret = false;
@@ -431,6 +433,235 @@ namespace dcc::backend::em64t
             return dst;
         }
 
+        [[nodiscard]] bool is_memory_type(dcc::ir::IrType const* t) noexcept
+        {
+            return t && (t->kind == dcc::ir::IrTypeKind::Aggregate || t->kind == dcc::ir::IrTypeKind::Array || t->kind == dcc::ir::IrTypeKind::Slice);
+        }
+
+        [[nodiscard]] MOpc store_opc_for_bits(unsigned bits) noexcept
+        {
+            if (bits <= 8)
+                return MOpc::MOV8mr;
+            if (bits <= 16)
+                return MOpc::MOV16mr;
+            if (bits <= 32)
+                return MOpc::MOV32mr;
+            return MOpc::MOV64mr;
+        }
+
+        [[nodiscard]] std::int32_t member_offset_of(IselCtx const& ctx, dcc::ir::IrType const* type, std::uint32_t index) noexcept
+        {
+            if (!type)
+                return 0;
+
+            if (type->kind == dcc::ir::IrTypeKind::Aggregate)
+            {
+                auto* at = static_cast<dcc::ir::IrAggregateType const*>(type);
+                if (index < at->member_offsets.size())
+                    return static_cast<std::int32_t>(at->member_offsets[index]);
+                return 0;
+            }
+
+            if (type->kind == dcc::ir::IrTypeKind::Slice)
+                return static_cast<std::int32_t>(index * (ctx.target.pointer_bits / 8));
+
+            if (type->kind == dcc::ir::IrTypeKind::Array)
+            {
+                auto* at = static_cast<dcc::ir::IrArrayType const*>(type);
+                return static_cast<std::int32_t>(index * (at->element ? at->element->byte_size : 8));
+            }
+
+            return 0;
+        }
+
+        [[nodiscard]] VReg emit_slot_addr(IselCtx& ctx, std::uint32_t slot)
+        {
+            VReg addr = ctx.mfunc.new_vreg();
+            MInstr lea;
+            lea.opc = MOpc::LEA64rm;
+            lea.num_ops = 2;
+            lea.num_defs = 1;
+            lea.ops[0] = MOp::from_reg(addr);
+            lea.ops[1] = MOp::from_frame_slot(slot);
+            ctx.append_instr(lea);
+            return addr;
+        }
+
+        void emit_mem_copy(IselCtx& ctx, VReg dst_addr, VReg src_addr, std::uint64_t size)
+        {
+            for (std::uint64_t off = 0; off < size;)
+            {
+                std::uint64_t chunk = 8;
+                while (chunk > 1 && off + chunk > size)
+                    chunk /= 2;
+
+                MOpc load_opc = MOpc::MOV64rm;
+                MOpc store_opc = MOpc::MOV64mr;
+                if (chunk == 4)
+                {
+                    load_opc = MOpc::MOV32rm;
+                    store_opc = MOpc::MOV32mr;
+                }
+                else if (chunk == 2)
+                {
+                    load_opc = MOpc::MOVZX64rm16;
+                    store_opc = MOpc::MOV16mr;
+                }
+                else if (chunk == 1)
+                {
+                    load_opc = MOpc::MOVZX64rm8;
+                    store_opc = MOpc::MOV8mr;
+                }
+
+                VReg tmp = ctx.mfunc.new_vreg();
+                MInstr ld;
+                ld.opc = load_opc;
+                ld.num_ops = 2;
+                ld.num_defs = 1;
+                ld.ops[0] = MOp::from_reg(tmp);
+                ld.ops[1] = MOp::from_mem(MMem::make_base_disp(src_addr, static_cast<std::int32_t>(off)));
+                ctx.append_instr(ld);
+
+                MInstr st;
+                st.opc = store_opc;
+                st.num_ops = 2;
+                st.num_defs = 0;
+                st.ops[0] = MOp::from_mem(MMem::make_base_disp(dst_addr, static_cast<std::int32_t>(off)));
+                st.ops[1] = MOp::from_reg(tmp);
+                ctx.append_instr(st);
+
+                off += chunk;
+            }
+        }
+
+        VReg emit_aggregate(IselCtx& ctx, dcc::ir::IrAggregateInst const* agg);
+
+        [[nodiscard]] VReg memory_value_addr(IselCtx& ctx, dcc::ir::IrValue const* val)
+        {
+            auto it = ctx.aggregate_to_slot.find(val);
+            if (it != ctx.aggregate_to_slot.end())
+                return emit_slot_addr(ctx, it->second);
+
+            if (auto const* agg = dcc::ir::ir_cast<dcc::ir::IrAggregateInst>(val))
+                return emit_aggregate(ctx, agg);
+
+            if (ctx.memory_addr_values.contains(val))
+                return ctx.try_materialize(val);
+
+            return VReg{};
+        }
+
+        VReg emit_aggregate(IselCtx& ctx, dcc::ir::IrAggregateInst const* agg)
+        {
+            if (auto it = ctx.aggregate_to_slot.find(agg); it != ctx.aggregate_to_slot.end())
+                return emit_slot_addr(ctx, it->second);
+
+            std::uint64_t agg_size = agg->type ? agg->type->byte_size : 0;
+            std::uint32_t agg_align = static_cast<std::uint32_t>(agg->type ? agg->type->byte_align : 1);
+            std::uint32_t slot_idx = ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(agg_size), agg_align);
+            ctx.aggregate_to_slot[agg] = slot_idx;
+
+            VReg addr = ctx.mfunc.new_vreg();
+            {
+                MInstr lea;
+                lea.opc = MOpc::LEA64rm;
+                lea.num_ops = 2;
+                lea.num_defs = 1;
+                lea.ops[0] = MOp::from_reg(addr);
+                lea.ops[1] = MOp::from_frame_slot(slot_idx);
+                ctx.append_instr(lea);
+            }
+
+            dcc::ir::IrType const* agg_type = agg->type;
+            for (std::size_t i = 0; i < agg->values.size(); ++i)
+            {
+                auto const* member = agg->values[i];
+                VReg val = is_memory_type(member ? member->type : nullptr) ? memory_value_addr(ctx, member) : ctx.try_materialize(member);
+                if (!val.is_valid())
+                    continue;
+
+                auto index = static_cast<std::uint32_t>(i);
+                std::int32_t member_offset = is_memory_type(agg_type) ? member_offset_of(ctx, agg_type, index) : static_cast<std::int32_t>(i * 8);
+                dcc::ir::IrType const* field_type = nullptr;
+                if (agg_type && agg_type->kind == dcc::ir::IrTypeKind::Aggregate)
+                {
+                    auto* at = static_cast<dcc::ir::IrAggregateType const*>(agg_type);
+                    if (i < at->members.size())
+                        field_type = at->members[i];
+                }
+                else if (agg_type && agg_type->kind == dcc::ir::IrTypeKind::Array)
+                    field_type = static_cast<dcc::ir::IrArrayType const*>(agg_type)->element;
+
+                if (!field_type)
+                    field_type = agg->values[i] ? agg->values[i]->type : nullptr;
+
+                if (is_memory_type(field_type))
+                {
+                    VReg member_dst = ctx.mfunc.new_vreg();
+                    MInstr lea;
+                    lea.opc = MOpc::LEA64rm;
+                    lea.num_ops = 2;
+                    lea.num_defs = 1;
+                    lea.ops[0] = MOp::from_reg(member_dst);
+                    lea.ops[1] = MOp::from_mem(MMem::make_base_disp(addr, member_offset));
+                    ctx.append_instr(lea);
+                    emit_mem_copy(ctx, member_dst, val, field_type->byte_size);
+                    continue;
+                }
+
+                MMem store_mem = MMem::make_base_disp(addr, member_offset);
+                MInstr store;
+                if (field_type && ctx.is_float_type(field_type))
+                {
+                    auto bits = static_cast<dcc::ir::IrFloatType const*>(field_type)->bits;
+                    store.opc = (bits == 32) ? MOpc::MOVSSmr : MOpc::MOVSDmr;
+                }
+                else if (ctx.is_bool_type(field_type))
+                    store.opc = MOpc::MOV8mr;
+                else
+                    store.opc = store_opc_for_bits(field_type ? ctx.type_bits(field_type) : 64);
+
+                store.num_ops = 2;
+                store.num_defs = 0;
+                store.ops[0] = MOp::from_mem(store_mem);
+                store.ops[1] = MOp::from_reg(val);
+                ctx.append_instr((store));
+            }
+
+            return addr;
+        }
+
+        [[nodiscard]] VReg padded_copy_addr(IselCtx& ctx, dcc::ir::IrType const* ty, VReg src)
+        {
+            auto size = ty ? ty->byte_size : 0;
+            if (size % 8 == 0)
+                return src;
+
+            auto padded = static_cast<std::uint32_t>(((size + 7) / 8) * 8);
+            auto align = static_cast<std::uint32_t>(std::max<std::uint64_t>(ty ? ty->byte_align : 8, 8));
+            auto slot = ctx.mfunc.new_frame_slot(padded, align);
+            VReg tmp = emit_slot_addr(ctx, slot);
+            emit_mem_copy(ctx, tmp, src, size);
+            return tmp;
+        }
+
+        void emit_reg_held_memory_store(IselCtx& ctx, dcc::ir::IrType const* ty, VReg dst_addr, VReg val)
+        {
+            auto size = ty ? ty->byte_size : 8;
+            auto slot = ctx.mfunc.new_frame_slot(8, 8);
+            VReg tmp = emit_slot_addr(ctx, slot);
+
+            MInstr st;
+            st.opc = MOpc::MOV64mr;
+            st.num_ops = 2;
+            st.num_defs = 0;
+            st.ops[0] = MOp::from_mem(MMem::make_base_disp(tmp, 0));
+            st.ops[1] = MOp::from_reg(val);
+            ctx.append_instr(st);
+
+            emit_mem_copy(ctx, dst_addr, tmp, size);
+        }
+
         void emit_store(IselCtx& ctx, dcc::ir::IrType const* store_type, VReg addr, VReg val)
         {
             MInstr mi;
@@ -447,13 +678,7 @@ namespace dcc::backend::em64t
             else if (ctx.is_bool_type(store_type))
                 mi.opc = MOpc::MOV8mr;
             else
-            {
-                auto bits = ctx.type_bits(store_type);
-                if (bits <= 32)
-                    mi.opc = MOpc::MOV32mr;
-                else
-                    mi.opc = MOpc::MOV64mr;
-            }
+                mi.opc = store_opc_for_bits(ctx.type_bits(store_type));
 
             ctx.append_instr(mi);
         }
@@ -521,21 +746,441 @@ namespace dcc::backend::em64t
             return dst;
         }
 
-        [[nodiscard]] bool aggregate_returns_in_xmm(dcc::ir::IrAggregateType const* agg, CallConvKind cc) noexcept
+        [[nodiscard]] bool memory_arg_by_reference(dcc::ir::IrType const* t, CallConvKind cc) noexcept
         {
-            if (cc != CallConvKind::SysV)
-                return false;
-            if (!agg || agg->byte_size > 16 || agg->byte_size == 0 || agg->byte_size % 8 != 0)
-                return false;
-            for (auto* m : agg->members)
+            return is_memory_type(t) && cc != CallConvKind::SysV && t->byte_size > 8;
+        }
+
+        [[nodiscard]] std::int32_t align_up_i32(std::int32_t v, std::int32_t a) noexcept
+        {
+            auto rem = v % a;
+            if (rem == 0)
+                return v;
+
+            return v + (a - rem);
+        }
+
+        enum class ArgClass : std::uint8_t
+        {
+            NoClass,
+            Integer,
+            Sse,
+            Memory,
+        };
+
+        struct ArgPiece
+        {
+            ArgClass cls{ArgClass::NoClass};
+            unsigned reg_idx{0};
+            std::int32_t stack_off{0};
+        };
+
+        struct ArgLoc
+        {
+            ArgPiece pieces[2];
+            std::uint8_t num_pieces{0};
+            std::uint32_t stack_size{8};
+            bool by_reference{false};
+            bool on_stack{false};
+        };
+
+        static void classify_type(IselCtx const& ctx, dcc::ir::IrType const* ty, std::uint64_t total_size, std::uint64_t byte_offset, ArgClass out[2],
+                                  bool& unaligned)
+        {
+            if (!ty)
             {
-                if (!m || m->kind != dcc::ir::IrTypeKind::Float)
-                    return false;
-                auto* ft = static_cast<dcc::ir::IrFloatType const*>(m);
-                if (ft->bits != 64)
-                    return false;
+                std::uint64_t eb = byte_offset / 8;
+                if (eb < 2)
+                    if (out[eb] == ArgClass::NoClass)
+                        out[eb] = ArgClass::Integer;
+
+                return;
             }
-            return true;
+
+            if (total_size > 16)
+            {
+                for (int i = 0; i < 2; ++i)
+                    out[i] = ArgClass::Memory;
+                return;
+            }
+
+            std::uint64_t end_off = byte_offset + ty->byte_size;
+            if (ty->byte_size > 16)
+            {
+                for (int i = 0; i < 2; ++i)
+                    out[i] = ArgClass::Memory;
+                return;
+            }
+
+            switch (ty->kind)
+            {
+                case dcc::ir::IrTypeKind::Void:
+                case dcc::ir::IrTypeKind::Bool:
+                case dcc::ir::IrTypeKind::Int:
+                case dcc::ir::IrTypeKind::Pointer: {
+                    for (std::uint64_t off = byte_offset; off < end_off; off += 8)
+                    {
+                        std::uint64_t eb = off / 8;
+                        if (eb >= 2)
+                        {
+                            for (int i = 0; i < 2; ++i)
+                                out[i] = ArgClass::Memory;
+                            return;
+                        }
+                        if (out[eb] == ArgClass::NoClass)
+                            out[eb] = ArgClass::Integer;
+
+                        else if (out[eb] == ArgClass::Sse)
+                            out[eb] = ArgClass::Integer;
+                    }
+                    break;
+                }
+
+                case dcc::ir::IrTypeKind::Float: {
+                    auto* ft = static_cast<dcc::ir::IrFloatType const*>(ty);
+                    std::uint64_t fsize = ft->bits / 8;
+                    for (std::uint64_t off = byte_offset; off < byte_offset + fsize; off += 8)
+                    {
+                        std::uint64_t eb = off / 8;
+                        if (eb >= 2)
+                        {
+                            for (int i = 0; i < 2; ++i)
+                                out[i] = ArgClass::Memory;
+                            return;
+                        }
+
+                        if (out[eb] != ArgClass::Integer && out[eb] != ArgClass::Memory)
+                            out[eb] = ArgClass::Sse;
+                    }
+                    break;
+                }
+
+                case dcc::ir::IrTypeKind::Aggregate: {
+                    auto* agg = static_cast<dcc::ir::IrAggregateType const*>(ty);
+                    for (std::size_t mi = 0; mi < agg->members.size(); ++mi)
+                    {
+                        auto* mt = agg->members[mi];
+                        if (!mt)
+                            continue;
+
+                        std::uint64_t moff = byte_offset + (mi < agg->member_offsets.size() ? agg->member_offsets[mi] : 0);
+                        if (mt->byte_align > 1 && (moff % mt->byte_align) != 0)
+                        {
+                            unaligned = true;
+                            for (int i = 0; i < 2; ++i)
+                                out[i] = ArgClass::Memory;
+                            return;
+                        }
+                    }
+
+                    for (std::size_t mi = 0; mi < agg->members.size(); ++mi)
+                    {
+                        auto* mt = agg->members[mi];
+                        if (!mt)
+                            continue;
+
+                        std::uint64_t moff = byte_offset + (mi < agg->member_offsets.size() ? agg->member_offsets[mi] : 0);
+                        classify_type(ctx, mt, total_size, moff, out, unaligned);
+                        if (out[0] == ArgClass::Memory || out[1] == ArgClass::Memory)
+                            return;
+                    }
+                    break;
+                }
+
+                case dcc::ir::IrTypeKind::Array: {
+                    auto* at = static_cast<dcc::ir::IrArrayType const*>(ty);
+                    if (!at->element || at->count == 0)
+                        break;
+
+                    std::uint64_t elem_align = at->element->byte_align;
+                    std::uint64_t elem_size = at->element->byte_size;
+
+                    for (std::uint64_t ei = 0; ei < at->count; ++ei)
+                    {
+                        std::uint64_t eoff = byte_offset + ei * elem_size;
+                        if (elem_align > 1 && (eoff % elem_align) != 0)
+                        {
+                            unaligned = true;
+                            for (int i = 0; i < 2; ++i)
+                                out[i] = ArgClass::Memory;
+                            return;
+                        }
+                        classify_type(ctx, at->element, total_size, eoff, out, unaligned);
+                        if (out[0] == ArgClass::Memory || out[1] == ArgClass::Memory)
+                            return;
+                    }
+                    break;
+                }
+
+                case dcc::ir::IrTypeKind::Slice: {
+                    std::uint64_t ptr_size = ctx.target.pointer_bits / 8;
+                    for (std::uint64_t off = byte_offset; off < byte_offset + ptr_size; off += 8)
+                    {
+                        std::uint64_t eb = off / 8;
+                        if (eb < 2 && out[eb] == ArgClass::NoClass)
+                            out[eb] = ArgClass::Integer;
+                    }
+
+                    for (std::uint64_t off = byte_offset + ptr_size; off < byte_offset + 2 * ptr_size; off += 8)
+                    {
+                        std::uint64_t eb = off / 8;
+                        if (eb < 2 && out[eb] == ArgClass::NoClass)
+                            out[eb] = ArgClass::Integer;
+                    }
+                    break;
+                }
+
+                case dcc::ir::IrTypeKind::Func:
+                    break;
+            }
+        }
+
+        struct ReturnPlan
+        {
+            ArgClass classes[2] = {ArgClass::NoClass, ArgClass::NoClass};
+            bool is_memory = false;
+            std::uint8_t num_pieces = 0;
+            bool has_int0 = false;
+            bool has_int1 = false;
+            bool has_sse0 = false;
+            bool has_sse1 = false;
+
+            [[nodiscard]] bool uses_sret() const noexcept { return is_memory; }
+        };
+
+        [[nodiscard]] ReturnPlan make_return_plan(IselCtx const& ctx, dcc::ir::IrType const* ret, CallConvKind cc) noexcept
+        {
+            ReturnPlan rp;
+            if (!is_memory_type(ret))
+                return rp;
+
+            if (cc != CallConvKind::SysV)
+            {
+                rp.is_memory = true;
+                return rp;
+            }
+
+            if (ret->byte_size > 16)
+            {
+                rp.is_memory = true;
+                return rp;
+            }
+
+            if (ret->byte_size <= 8)
+            {
+                ArgClass cls_arr[2] = {ArgClass::NoClass, ArgClass::NoClass};
+                bool unaligned = false;
+                classify_type(ctx, ret, ret->byte_size, 0, cls_arr, unaligned);
+                if (unaligned || cls_arr[0] == ArgClass::Memory)
+                {
+                    rp.is_memory = true;
+                    return rp;
+                }
+
+                rp.classes[0] = cls_arr[0];
+                if (cls_arr[0] != ArgClass::NoClass)
+                {
+                    rp.num_pieces = 1;
+                    if (cls_arr[0] == ArgClass::Integer)
+                        rp.has_int0 = true;
+                    if (cls_arr[0] == ArgClass::Sse)
+                        rp.has_sse0 = true;
+                }
+                return rp;
+            }
+
+            ArgClass ret_classes[2] = {ArgClass::NoClass, ArgClass::NoClass};
+            bool ret_unaligned = false;
+            classify_type(ctx, ret, ret->byte_size, 0, ret_classes, ret_unaligned);
+
+            if (ret_unaligned || ret_classes[0] == ArgClass::Memory || ret_classes[1] == ArgClass::Memory ||
+                (ret_classes[0] == ArgClass::NoClass && ret_classes[1] == ArgClass::NoClass))
+            {
+                rp.is_memory = true;
+                return rp;
+            }
+
+            for (int pi = 0; pi < 2; ++pi)
+            {
+                rp.classes[pi] = ret_classes[pi];
+                if (ret_classes[pi] != ArgClass::NoClass)
+                {
+                    ++rp.num_pieces;
+                    if (ret_classes[pi] == ArgClass::Integer)
+                    {
+                        if (rp.has_int0)
+                            rp.has_int1 = true;
+                        else
+                            rp.has_int0 = true;
+                    }
+                    else
+                    {
+                        if (rp.has_sse0)
+                            rp.has_sse1 = true;
+                        else
+                            rp.has_sse0 = true;
+                    }
+                }
+            }
+            return rp;
+        }
+
+        [[nodiscard]] bool returns_via_sret(IselCtx const& ctx, dcc::ir::IrType const* ret, CallConvKind cc) noexcept
+        {
+            return make_return_plan(ctx, ret, cc).uses_sret();
+        }
+
+        [[nodiscard]] std::vector<ArgLoc> classify_args(IselCtx const& ctx, std::span<dcc::ir::IrValue* const> args, bool has_sret,
+                                                        std::int32_t& out_stack_bytes)
+        {
+            std::vector<ArgLoc> locs(args.size());
+            out_stack_bytes = 0;
+
+            bool sysv = (ctx.cc == CallConvKind::SysV);
+            unsigned max_int = sysv ? 6u : 4u;
+            unsigned max_float = sysv ? 8u : 4u;
+
+            unsigned gpr_idx = has_sret ? 1u : 0u;
+            unsigned xmm_idx = 0;
+            unsigned win_slot = has_sret ? 1u : 0u;
+
+            for (std::size_t i = 0; i < args.size(); ++i)
+            {
+                auto* ty = args[i] ? args[i]->type : nullptr;
+                auto& loc = locs[i];
+                bool is_float = ctx.is_float_type(ty);
+
+                if (!sysv)
+                {
+                    loc.by_reference = memory_arg_by_reference(ty, ctx.cc);
+                    loc.stack_size = 8;
+                    if (win_slot < max_int)
+                    {
+                        loc.pieces[0].cls = (is_float && !loc.by_reference) ? ArgClass::Sse : ArgClass::Integer;
+                        loc.pieces[0].reg_idx = win_slot;
+                        loc.num_pieces = 1;
+                    }
+                    else
+                    {
+                        loc.on_stack = true;
+                        loc.stack_size = 8;
+                        loc.pieces[0].cls = ArgClass::Memory;
+                        loc.pieces[0].stack_off = 32 + static_cast<std::int32_t>(win_slot - max_int) * 8;
+                        out_stack_bytes = std::max(out_stack_bytes, loc.pieces[0].stack_off + 8 - 32);
+                    }
+                    ++win_slot;
+                    continue;
+                }
+
+                if (!is_memory_type(ty) && !is_float)
+                {
+                    if (gpr_idx < max_int)
+                    {
+                        loc.pieces[0].cls = ArgClass::Integer;
+                        loc.pieces[0].reg_idx = gpr_idx++;
+                        loc.num_pieces = 1;
+                    }
+                    else
+                    {
+                        loc.on_stack = true;
+                        loc.stack_size = 8;
+                        loc.pieces[0].cls = ArgClass::Memory;
+                        loc.pieces[0].stack_off = out_stack_bytes;
+                        out_stack_bytes += 8;
+                    }
+                    continue;
+                }
+
+                if (is_float && !is_memory_type(ty))
+                {
+                    if (xmm_idx < max_float)
+                    {
+                        loc.pieces[0].cls = ArgClass::Sse;
+                        loc.pieces[0].reg_idx = xmm_idx++;
+                        loc.num_pieces = 1;
+                    }
+                    else
+                    {
+                        loc.on_stack = true;
+                        loc.stack_size = 8;
+                        loc.pieces[0].cls = ArgClass::Memory;
+                        loc.pieces[0].stack_off = out_stack_bytes;
+                        out_stack_bytes += 8;
+                    }
+                    continue;
+                }
+
+                ArgClass classes[2] = {ArgClass::NoClass, ArgClass::NoClass};
+                bool unaligned = false;
+
+                classify_type(ctx, ty, ty ? ty->byte_size : 0, 0, classes, unaligned);
+
+                if (classes[0] == ArgClass::Memory || classes[1] == ArgClass::Memory || unaligned)
+                {
+                    loc.on_stack = true;
+                    std::uint32_t arg_align = ty ? static_cast<std::uint32_t>(std::min<std::uint64_t>(std::max<std::uint64_t>(ty->byte_align, 8), 16)) : 8u;
+                    loc.stack_size = ty ? static_cast<std::uint32_t>(align_up_i32(static_cast<std::int32_t>(ty->byte_size), 8)) : 8u;
+                    out_stack_bytes = align_up_i32(out_stack_bytes, static_cast<std::int32_t>(arg_align));
+                    loc.pieces[0].cls = ArgClass::Memory;
+                    loc.pieces[0].stack_off = out_stack_bytes;
+                    loc.num_pieces = 1;
+                    out_stack_bytes += static_cast<std::int32_t>(loc.stack_size);
+                    continue;
+                }
+
+                unsigned needed_gpr = 0;
+                unsigned needed_xmm = 0;
+                for (int pi = 0; pi < 2; ++pi)
+                {
+                    if (classes[pi] == ArgClass::Integer)
+                        ++needed_gpr;
+                    else if (classes[pi] == ArgClass::Sse)
+                        ++needed_xmm;
+                }
+
+                bool can_allocate = (needed_gpr == 0 || (gpr_idx + needed_gpr <= max_int)) && (needed_xmm == 0 || (xmm_idx + needed_xmm <= max_float));
+                if (!can_allocate)
+                {
+                    loc.on_stack = true;
+                    std::uint32_t arg_align = ty ? static_cast<std::uint32_t>(std::min<std::uint64_t>(std::max<std::uint64_t>(ty->byte_align, 8), 16)) : 8u;
+                    loc.stack_size = ty ? static_cast<std::uint32_t>(align_up_i32(static_cast<std::int32_t>(ty->byte_size), 8)) : 8u;
+                    out_stack_bytes = align_up_i32(out_stack_bytes, static_cast<std::int32_t>(arg_align));
+                    loc.pieces[0].cls = ArgClass::Memory;
+                    loc.pieces[0].stack_off = out_stack_bytes;
+                    loc.num_pieces = 1;
+                    out_stack_bytes += static_cast<std::int32_t>(loc.stack_size);
+                    continue;
+                }
+
+                for (int pi = 0; pi < 2; ++pi)
+                {
+                    if (classes[pi] == ArgClass::NoClass)
+                        continue;
+
+                    auto& piece = loc.pieces[loc.num_pieces];
+                    piece.cls = classes[pi];
+
+                    if (classes[pi] == ArgClass::Integer)
+                    {
+                        piece.reg_idx = gpr_idx++;
+                        loc.num_pieces++;
+                    }
+                    else if (classes[pi] == ArgClass::Sse)
+                    {
+                        piece.reg_idx = xmm_idx++;
+                        loc.num_pieces++;
+                    }
+                }
+
+                if (loc.num_pieces == 0 && classes[0] != ArgClass::NoClass)
+                {
+                    loc.pieces[0].cls = classes[0];
+                    loc.num_pieces = 1;
+                }
+            }
+
+            out_stack_bytes = align_up_i32(out_stack_bytes, 16);
+            return locs;
         }
 
         struct CallLowering
@@ -543,7 +1188,6 @@ namespace dcc::backend::em64t
             std::vector<VReg> arg_vregs;
             VReg return_vreg;
             bool has_sret = false;
-            bool use_xmm_ret = false;
             std::uint32_t sret_slot_index = std::numeric_limits<std::uint32_t>::max();
         };
 
@@ -553,20 +1197,16 @@ namespace dcc::backend::em64t
             CallLowering cl;
 
             VReg sret_addr;
-            if (result_type && result_type->kind == dcc::ir::IrTypeKind::Aggregate)
+            ReturnPlan ret_plan;
+            if (is_memory_type(result_type))
             {
-                auto* ret_agg = static_cast<dcc::ir::IrAggregateType const*>(result_type);
-                if (aggregate_returns_in_xmm(ret_agg, ctx.cc))
-                {
-                    cl.use_xmm_ret = true;
-                    cl.sret_slot_index =
-                        ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(ret_agg->byte_size), static_cast<std::uint32_t>(ret_agg->byte_align));
-                }
-                else if (ret_agg->byte_size > 8)
+                ret_plan = make_return_plan(ctx, result_type, ctx.cc);
+
+                if (ret_plan.uses_sret())
                 {
                     cl.has_sret = true;
                     cl.sret_slot_index =
-                        ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(ret_agg->byte_size), static_cast<std::uint32_t>(ret_agg->byte_align));
+                        ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(result_type->byte_size), static_cast<std::uint32_t>(result_type->byte_align));
 
                     sret_addr = ctx.mfunc.new_vreg();
                     MInstr lea_sret;
@@ -577,59 +1217,148 @@ namespace dcc::backend::em64t
                     lea_sret.ops[1] = MOp::from_frame_slot(cl.sret_slot_index);
                     ctx.append_instr((lea_sret));
                 }
+                else
+                    cl.sret_slot_index = ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(result_type->byte_size),
+                                                                  static_cast<std::uint32_t>(std::min<std::uint64_t>(result_type->byte_align, 16)));
             }
 
-            for (auto* arg : args)
+            std::int32_t stack_bytes = 0;
+            auto arg_locs = classify_args(ctx, args, cl.has_sret, stack_bytes);
+            ctx.mfunc.outgoing_args_size = std::max(ctx.mfunc.outgoing_args_size, stack_bytes);
+
+            std::vector<std::array<VReg, 2>> arg_piece_vregs(args.size());
+            std::vector<VReg> arg_mem_addr(args.size());
+
+            for (std::size_t i = 0; i < args.size(); ++i)
             {
-                VReg av = ctx.try_materialize(arg);
-                cl.arg_vregs.push_back(av);
+                auto* arg = args[i];
+                auto* arg_ty = arg ? arg->type : nullptr;
+                auto const& loc = arg_locs[i];
+
+                if (is_memory_type(arg_ty))
+                {
+                    VReg src = memory_value_addr(ctx, arg);
+                    if (!src.is_valid())
+                    {
+                        VReg av = ctx.try_materialize(arg);
+                        if (av.is_valid())
+                            arg_piece_vregs[i][0] = av;
+                    }
+                    else if (loc.by_reference)
+                    {
+                        auto slot = ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(arg_ty->byte_size), static_cast<std::uint32_t>(arg_ty->byte_align));
+                        VReg copy = emit_slot_addr(ctx, slot);
+                        emit_mem_copy(ctx, copy, src, arg_ty->byte_size);
+                        arg_piece_vregs[i][0] = copy;
+                    }
+                    else if (loc.on_stack)
+                        arg_mem_addr[i] = src;
+                    else
+                    {
+                        VReg read_from = padded_copy_addr(ctx, arg_ty, src);
+                        for (std::uint8_t pi = 0; pi < loc.num_pieces; ++pi)
+                        {
+                            std::int32_t piece_off = static_cast<std::int32_t>(pi) * 8;
+                            VReg pv = ctx.mfunc.new_vreg();
+                            auto const& piece = loc.pieces[pi];
+                            MInstr ld;
+
+                            if (piece.cls == ArgClass::Sse)
+                                ld.opc = MOpc::MOVSDrm;
+                            else
+                                ld.opc = MOpc::MOV64rm;
+
+                            ld.num_ops = 2;
+                            ld.num_defs = 1;
+                            ld.ops[0] = MOp::from_reg(pv);
+                            ld.ops[1] = MOp::from_mem(MMem::make_base_disp(read_from, piece_off));
+                            ctx.append_instr(ld);
+                            arg_piece_vregs[i][pi] = pv;
+                        }
+                    }
+                }
+                else
+                {
+                    VReg av = ctx.try_materialize(arg);
+                    if (av.is_valid())
+                        arg_piece_vregs[i][0] = av;
+                }
             }
-
-            unsigned int_reg_idx = cl.has_sret ? 1 : 0;
-            unsigned float_reg_idx = 0;
-
-            if (cl.has_sret)
-                emit_mov(ctx, VReg::phys(PhysReg::RDI), sret_addr);
 
             using PhysRegSpan = std::span<PhysReg const>;
             auto const& int_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVIntArgRegs} : PhysRegSpan{kWin64IntArgRegs};
             auto const& float_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVFloatArgRegs} : PhysRegSpan{kWin64FloatArgRegs};
-            unsigned max_int_regs = static_cast<unsigned>(int_regs.size());
-            unsigned max_float_regs = static_cast<unsigned>(float_regs.size());
+
+            VReg rsp = VReg::phys(PhysReg::RSP);
 
             for (std::size_t i = 0; i < args.size(); ++i)
             {
-                auto* arg_type = args[i] ? args[i]->type : nullptr;
-                bool is_float = ctx.is_float_type(arg_type);
-                VReg av = cl.arg_vregs[i];
+                auto const& loc = arg_locs[i];
+                if (!loc.on_stack)
+                    continue;
 
-                if (is_float && float_reg_idx < max_float_regs)
+                if (arg_mem_addr[i].is_valid())
                 {
-                    VReg phys = VReg::phys(float_regs[float_reg_idx]);
-                    MInstr mov;
-                    mov.opc = MOpc::MOVSDrr;
-                    mov.num_ops = 2;
-                    mov.num_defs = 1;
-                    mov.ops[0] = MOp::from_reg(phys);
-                    mov.ops[1] = MOp::from_reg(av);
-                    ctx.append_instr(mov);
-                    float_reg_idx++;
+                    VReg dst = ctx.mfunc.new_vreg();
+                    MInstr lea;
+                    lea.opc = MOpc::LEA64rm;
+                    lea.num_ops = 2;
+                    lea.num_defs = 1;
+                    lea.ops[0] = MOp::from_reg(dst);
+                    lea.ops[1] = MOp::from_mem(MMem::make_base_disp(rsp, loc.pieces[0].stack_off));
+                    ctx.append_instr(lea);
+                    emit_mem_copy(ctx, dst, arg_mem_addr[i], args[i]->type->byte_size);
+                    continue;
                 }
-                else if (!is_float && int_reg_idx < max_int_regs)
+
+                VReg av = arg_piece_vregs[i][0];
+                if (!av.is_valid())
+                    continue;
+
+                MInstr st;
+                st.num_ops = 2;
+                st.num_defs = 0;
+                st.ops[0] = MOp::from_mem(MMem::make_base_disp(rsp, loc.pieces[0].stack_off));
+                st.ops[1] = MOp::from_reg(av);
+                st.opc = (!loc.by_reference && ctx.is_float_type(args[i] ? args[i]->type : nullptr)) ? MOpc::MOVSDmr : MOpc::MOV64mr;
+                ctx.append_instr(st);
+            }
+
+            if (cl.has_sret)
+                emit_mov(ctx, VReg::phys(int_regs[0]), sret_addr);
+
+            for (std::size_t i = 0; i < args.size(); ++i)
+            {
+                auto const& loc = arg_locs[i];
+                if (loc.on_stack)
+                    continue;
+
+                for (std::uint8_t pi = 0; pi < loc.num_pieces; ++pi)
                 {
-                    VReg phys = VReg::phys(int_regs[int_reg_idx]);
-                    emit_mov(ctx, phys, av);
-                    int_reg_idx++;
-                }
-                else
-                {
-                    MInstr push;
-                    push.opc = MOpc::PUSH64r;
-                    push.num_ops = 1;
-                    push.num_defs = 0;
-                    push.ops[0] = MOp::from_reg(av);
-                    ctx.add_implicit_defs(push, std::array{PhysReg::RSP});
-                    ctx.append_instr(push);
+                    VReg av = arg_piece_vregs[i][pi];
+                    if (!av.is_valid())
+                        continue;
+
+                    auto const& piece = loc.pieces[pi];
+                    switch (piece.cls)
+                    {
+                        case ArgClass::Integer:
+                            emit_mov(ctx, VReg::phys(int_regs[piece.reg_idx]), av);
+                            break;
+                        case ArgClass::Sse: {
+                            MInstr mov;
+                            mov.opc = MOpc::MOVSDrr;
+                            mov.num_ops = 2;
+                            mov.num_defs = 1;
+                            mov.ops[0] = MOp::from_reg(VReg::phys(float_regs[piece.reg_idx]));
+                            mov.ops[1] = MOp::from_reg(av);
+                            ctx.append_instr(mov);
+                            break;
+                        }
+                        case ArgClass::NoClass:
+                        case ArgClass::Memory:
+                            break;
+                    }
                 }
             }
 
@@ -691,32 +1420,74 @@ namespace dcc::backend::em64t
                 {
                     cl.return_vreg = sret_addr;
                 }
-                else if (cl.use_xmm_ret)
+                else if (is_memory_type(result_type))
                 {
+                    ReturnPlan const& rp = ret_plan;
+
+                    VReg rax_v;
+                    if (rp.has_int0)
+                    {
+                        rax_v = ctx.mfunc.new_vreg();
+                        emit_mov(ctx, rax_v, VReg::phys(PhysReg::RAX));
+                    }
+                    VReg rdx_v;
+                    if (rp.has_int1)
+                    {
+                        rdx_v = ctx.mfunc.new_vreg();
+                        emit_mov(ctx, rdx_v, VReg::phys(PhysReg::RDX));
+                    }
+
                     VReg slot_addr = ctx.mfunc.new_vreg();
-                    MInstr lea;
-                    lea.opc = MOpc::LEA64rm;
-                    lea.num_ops = 2;
-                    lea.num_defs = 1;
-                    lea.ops[0] = MOp::from_reg(slot_addr);
-                    lea.ops[1] = MOp::from_frame_slot(cl.sret_slot_index);
-                    ctx.append_instr(lea);
+                    {
+                        MInstr lea;
+                        lea.opc = MOpc::LEA64rm;
+                        lea.num_ops = 2;
+                        lea.num_defs = 1;
+                        lea.ops[0] = MOp::from_reg(slot_addr);
+                        lea.ops[1] = MOp::from_frame_slot(cl.sret_slot_index);
+                        ctx.append_instr(lea);
+                    }
 
-                    MInstr st0;
-                    st0.opc = MOpc::MOVSDmr;
-                    st0.num_ops = 2;
-                    st0.num_defs = 0;
-                    st0.ops[0] = MOp::from_mem(MMem::make_base_disp(slot_addr));
-                    st0.ops[1] = MOp::from_reg(VReg::phys(PhysReg::XMM0));
-                    ctx.append_instr(st0);
+                    unsigned caller_int_idx = 0;
+                    unsigned caller_sse_idx = 0;
+                    for (int pi = 0; pi < 2; ++pi)
+                    {
+                        if (rp.classes[pi] == ArgClass::NoClass)
+                            continue;
 
-                    MInstr st1;
-                    st1.opc = MOpc::MOVSDmr;
-                    st1.num_ops = 2;
-                    st1.num_defs = 0;
-                    st1.ops[0] = MOp::from_mem(MMem::make_base_disp(slot_addr, 8));
-                    st1.ops[1] = MOp::from_reg(VReg::phys(PhysReg::XMM1));
-                    ctx.append_instr(st1);
+                        std::int32_t piece_off = static_cast<std::int32_t>(pi) * 8;
+                        std::uint64_t piece_size = std::min<std::uint64_t>(8, result_type->byte_size - static_cast<std::uint64_t>(pi) * 8);
+
+                        if (rp.classes[pi] == ArgClass::Integer)
+                        {
+                            VReg val = (caller_int_idx == 0) ? rax_v : rdx_v;
+                            ++caller_int_idx;
+                            MInstr st;
+                            st.opc = (piece_size <= 4) ? MOpc::MOV32mr : MOpc::MOV64mr;
+                            st.num_ops = 2;
+                            st.num_defs = 0;
+                            st.ops[0] = MOp::from_mem(MMem::make_base_disp(slot_addr, piece_off));
+                            st.ops[1] = MOp::from_reg(val);
+                            ctx.append_instr(st);
+                        }
+                        else
+                        {
+                            PhysReg xmm_reg = (caller_sse_idx == 0) ? PhysReg::XMM0 : PhysReg::XMM1;
+                            ++caller_sse_idx;
+
+                            MInstr st;
+                            if (piece_size >= 8)
+                                st.opc = MOpc::MOVSDmr;
+                            else
+                                st.opc = MOpc::MOVSSmr;
+
+                            st.num_ops = 2;
+                            st.num_defs = 0;
+                            st.ops[0] = MOp::from_mem(MMem::make_base_disp(slot_addr, piece_off));
+                            st.ops[1] = MOp::from_reg(VReg::phys(xmm_reg));
+                            ctx.append_instr(st);
+                        }
+                    }
 
                     cl.return_vreg = slot_addr;
                 }
@@ -842,11 +1613,7 @@ namespace dcc::backend::em64t
                         auto slot_idx = ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(slot_size), static_cast<std::uint32_t>(slot_align));
                         ctx.alloca_to_slot[inst] = slot_idx;
 
-                        VReg result = ctx.mfunc.new_vreg();
-                        auto mi = make_implicit_def();
-                        mi.ops[0] = MOp::from_reg(result);
-                        ctx.append_instr(mi);
-                        ctx.set_vreg(inst, result);
+                        ctx.set_vreg(inst, emit_slot_addr(ctx, slot_idx));
                     }
                     break;
                 }
@@ -927,6 +1694,24 @@ namespace dcc::backend::em64t
                     else
                     {
                         auto alloca_it = ctx.alloca_to_slot.find(ptr_val);
+
+                        if (is_memory_type(load_type))
+                        {
+                            ctx.memory_addr_values.insert(inst);
+                            if (alloca_it != ctx.alloca_to_slot.end())
+                            {
+                                ctx.aggregate_to_slot[inst] = alloca_it->second;
+                                ctx.set_vreg(inst, emit_slot_addr(ctx, alloca_it->second));
+                            }
+                            else
+                            {
+                                VReg addr = ctx.try_materialize(ptr_val);
+                                if (addr.is_valid())
+                                    ctx.set_vreg(inst, addr);
+                            }
+                            break;
+                        }
+
                         if (alloca_it != ctx.alloca_to_slot.end())
                         {
                             VReg dst = ctx.mfunc.new_vreg();
@@ -1038,13 +1823,7 @@ namespace dcc::backend::em64t
                                 else if (ctx.is_bool_type(store_type))
                                     mi.opc = MOpc::MOV8mr;
                                 else
-                                {
-                                    auto bits = ctx.type_bits(store_type);
-                                    if (bits <= 32)
-                                        mi.opc = MOpc::MOV32mr;
-                                    else
-                                        mi.opc = MOpc::MOV64mr;
-                                }
+                                    mi.opc = store_opc_for_bits(ctx.type_bits(store_type));
 
                                 ctx.append_instr(mi);
                             }
@@ -1057,73 +1836,14 @@ namespace dcc::backend::em64t
                         {
                             auto* store_type = val_val ? val_val->type : nullptr;
 
-                            if (store_type && store_type->kind == dcc::ir::IrTypeKind::Aggregate)
+                            VReg mem_src = is_memory_type(store_type) ? memory_value_addr(ctx, val_val) : VReg{};
+                            if (mem_src.is_valid())
+                                emit_mem_copy(ctx, emit_slot_addr(ctx, alloca_it->second), mem_src, store_type->byte_size);
+                            else if (is_memory_type(store_type) && store_type->byte_size < 8)
                             {
-                                auto agg_it = ctx.aggregate_to_slot.find(val_val);
-                                if (agg_it != ctx.aggregate_to_slot.end())
-                                {
-                                    auto copy_size = store_type->byte_size;
-                                    for (std::uint64_t copy_off = 0; copy_off < copy_size; copy_off += 8)
-                                    {
-                                        auto chunk = std::min<std::uint64_t>(copy_size - copy_off, 8);
-                                        VReg tmp = ctx.mfunc.new_vreg();
-                                        MInstr load_mi;
-                                        load_mi.num_ops = 2;
-                                        load_mi.num_defs = 1;
-                                        load_mi.ops[0] = MOp::from_reg(tmp);
-                                        if (copy_off == 0)
-                                            load_mi.ops[1] = MOp::from_frame_slot(agg_it->second);
-                                        else
-                                        {
-                                            VReg addr = ctx.mfunc.new_vreg();
-                                            MInstr lea;
-                                            lea.opc = MOpc::LEA64rm;
-                                            lea.num_ops = 2;
-                                            lea.num_defs = 1;
-                                            lea.ops[0] = MOp::from_reg(addr);
-                                            lea.ops[1] = MOp::from_frame_slot(agg_it->second);
-                                            ctx.append_instr(lea);
-                                            load_mi.ops[1] = MOp::from_mem(MMem::make_base_disp(addr, static_cast<std::int32_t>(copy_off)));
-                                        }
-                                        load_mi.opc = (chunk <= 4) ? MOpc::MOV32rm : MOpc::MOV64rm;
-                                        ctx.append_instr(load_mi);
-
-                                        MInstr store_mi;
-                                        store_mi.num_ops = 2;
-                                        store_mi.num_defs = 0;
-                                        if (copy_off == 0)
-                                            store_mi.ops[0] = MOp::from_frame_slot(alloca_it->second);
-                                        else
-                                        {
-                                            VReg addr = ctx.mfunc.new_vreg();
-                                            MInstr lea;
-                                            lea.opc = MOpc::LEA64rm;
-                                            lea.num_ops = 2;
-                                            lea.num_defs = 1;
-                                            lea.ops[0] = MOp::from_reg(addr);
-                                            lea.ops[1] = MOp::from_frame_slot(alloca_it->second);
-                                            ctx.append_instr(lea);
-                                            store_mi.ops[0] = MOp::from_mem(MMem::make_base_disp(addr, static_cast<std::int32_t>(copy_off)));
-                                        }
-                                        store_mi.ops[1] = MOp::from_reg(tmp);
-                                        store_mi.opc = (chunk <= 4) ? MOpc::MOV32mr : MOpc::MOV64mr;
-                                        ctx.append_instr(store_mi);
-                                    }
-                                }
-                                else
-                                {
-                                    VReg val = ctx.try_materialize(val_val);
-                                    if (val.is_valid())
-                                    {
-                                        MInstr mi;
-                                        mi.num_ops = 2;
-                                        mi.num_defs = 0;
-                                        mi.ops[0] = MOp::from_frame_slot(alloca_it->second);
-                                        mi.ops[1] = MOp::from_reg(val);
-                                        mi.opc = MOpc::MOV64mr;
-                                        ctx.append_instr(mi);
-                                    }
-                                }
+                                VReg val = ctx.try_materialize(val_val);
+                                if (val.is_valid())
+                                    emit_reg_held_memory_store(ctx, store_type, emit_slot_addr(ctx, alloca_it->second), val);
                             }
                             else
                             {
@@ -1144,13 +1864,7 @@ namespace dcc::backend::em64t
                                     else if (ctx.is_bool_type(store_type))
                                         mi.opc = MOpc::MOV8mr;
                                     else
-                                    {
-                                        auto bits = ctx.type_bits(store_type);
-                                        if (bits <= 32)
-                                            mi.opc = MOpc::MOV32mr;
-                                        else
-                                            mi.opc = MOpc::MOV64mr;
-                                    }
+                                        mi.opc = store_opc_for_bits(ctx.type_bits(store_type));
 
                                     ctx.append_instr(mi);
                                 }
@@ -1158,12 +1872,26 @@ namespace dcc::backend::em64t
                         }
                         else
                         {
+                            auto store_type = val_val ? val_val->type : nullptr;
                             VReg addr = ctx.try_materialize(ptr_val);
-                            VReg val = ctx.try_materialize(val_val);
-                            if (addr.is_valid() && val.is_valid())
+
+                            VReg mem_src = is_memory_type(store_type) ? memory_value_addr(ctx, val_val) : VReg{};
+                            if (mem_src.is_valid())
                             {
-                                auto store_type = val_val ? val_val->type : nullptr;
-                                emit_store(ctx, store_type, addr, val);
+                                if (addr.is_valid())
+                                    emit_mem_copy(ctx, addr, mem_src, store_type->byte_size);
+                            }
+                            else if (is_memory_type(store_type) && store_type->byte_size < 8)
+                            {
+                                VReg val = ctx.try_materialize(val_val);
+                                if (addr.is_valid() && val.is_valid())
+                                    emit_reg_held_memory_store(ctx, store_type, addr, val);
+                            }
+                            else
+                            {
+                                VReg val = ctx.try_materialize(val_val);
+                                if (addr.is_valid() && val.is_valid())
+                                    emit_store(ctx, store_type, addr, val);
                             }
                         }
                     }
@@ -1226,10 +1954,13 @@ namespace dcc::backend::em64t
                         }
                         else
                         {
+                            bool indexes_array = cur_type && cur_type->kind == IrTypeKind::Array;
+                            IrType const* elem_type = indexes_array ? static_cast<IrArrayType const*>(cur_type)->element : cur_type;
+
                             if (idx.dynamic_index)
                             {
                                 VReg idx_vreg = ctx.try_materialize(idx.dynamic_index);
-                                std::int64_t elem_size = static_cast<std::int64_t>(cur_type ? cur_type->byte_size : 8);
+                                std::int64_t elem_size = static_cast<std::int64_t>(elem_type ? elem_type->byte_size : 8);
 
                                 if (static_offset != 0)
                                 {
@@ -1271,10 +2002,7 @@ namespace dcc::backend::em64t
                                 current_addr = new_addr2;
                             }
 
-                            if (cur_type && cur_type->kind == IrTypeKind::Array)
-                                cur_type = static_cast<IrArrayType const*>(cur_type)->element;
-                            else
-                                cur_type = nullptr;
+                            cur_type = indexes_array ? elem_type : nullptr;
                         }
                     }
 
@@ -1306,25 +2034,27 @@ namespace dcc::backend::em64t
                     bool is_float = false;
                     MOpc opc = MOpc::NOP;
 
+                    bool is_f32 = false;
                     auto set_binop = [&](auto const* bin_inst) {
                         lhs = bin_inst->lhs;
                         rhs = bin_inst->rhs;
                         is_float = ctx.is_float_type(bin_inst->type);
+                        is_f32 = is_float && static_cast<IrFloatType const*>(bin_inst->type)->bits == 32;
                     };
 
                     switch (inst->kind)
                     {
                         case IrNodeKind::Add:
                             set_binop(static_cast<IrAddInst const*>(inst));
-                            opc = is_float ? MOpc::ADDSDrr : MOpc::ADD64rr;
+                            opc = is_float ? (is_f32 ? MOpc::ADDSSrr : MOpc::ADDSDrr) : MOpc::ADD64rr;
                             break;
                         case IrNodeKind::Sub:
                             set_binop(static_cast<IrSubInst const*>(inst));
-                            opc = is_float ? MOpc::SUBSDrr : MOpc::SUB64rr;
+                            opc = is_float ? (is_f32 ? MOpc::SUBSSrr : MOpc::SUBSDrr) : MOpc::SUB64rr;
                             break;
                         case IrNodeKind::Mul:
                             set_binop(static_cast<IrMulInst const*>(inst));
-                            opc = is_float ? MOpc::MULSDrr : MOpc::IMUL64rr;
+                            opc = is_float ? (is_f32 ? MOpc::MULSSrr : MOpc::MULSDrr) : MOpc::IMUL64rr;
                             break;
                         case IrNodeKind::And:
                             set_binop(static_cast<IrAndInst const*>(inst));
@@ -1420,8 +2150,9 @@ namespace dcc::backend::em64t
                         if (lhs.is_valid() && rhs.is_valid())
                         {
                             VReg dst = ctx.mfunc.new_vreg();
+                            bool fdiv_f32 = fdiv->type && fdiv->type->kind == IrTypeKind::Float && static_cast<IrFloatType const*>(fdiv->type)->bits == 32;
                             MInstr mi;
-                            mi.opc = MOpc::DIVSDrr;
+                            mi.opc = fdiv_f32 ? MOpc::DIVSSrr : MOpc::DIVSDrr;
                             mi.num_ops = 3;
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(dst);
@@ -1571,8 +2302,9 @@ namespace dcc::backend::em64t
                     {
                         if (is_float)
                         {
+                            bool cmp_f32 = lhs && lhs->type && lhs->type->kind == IrTypeKind::Float && static_cast<IrFloatType const*>(lhs->type)->bits == 32;
                             MInstr ucom;
-                            ucom.opc = MOpc::UCOMISDrr;
+                            ucom.opc = cmp_f32 ? MOpc::UCOMISSrr : MOpc::UCOMISDrr;
                             ucom.num_ops = 2;
                             ucom.num_defs = 0;
                             ucom.ops[0] = MOp::from_reg(lhs_v);
@@ -1715,9 +2447,21 @@ namespace dcc::backend::em64t
                         case IrNodeKind::FpExt:
                         case IrNodeKind::FpTrunc:
                         case IrNodeKind::FpToI: {
+                            auto src_bits = (operand && operand->type && operand->type->kind == IrTypeKind::Float)
+                                                ? static_cast<IrFloatType const*>(operand->type)->bits
+                                                : 64u;
+
+                            MOpc conv = MOpc::CVTSD2SI64rr;
+                            if (inst->kind == IrNodeKind::FpExt)
+                                conv = MOpc::CVTSS2SD_r;
+                            else if (inst->kind == IrNodeKind::FpTrunc)
+                                conv = MOpc::CVTSD2SS_r;
+                            else if (src_bits == 32)
+                                conv = MOpc::CVTSS2SI64rr;
+
                             VReg dst = ctx.mfunc.new_vreg();
                             MInstr mi;
-                            mi.opc = MOpc::CVTSD2SI64rr;
+                            mi.opc = conv;
                             mi.num_ops = 2;
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(dst);
@@ -1727,9 +2471,10 @@ namespace dcc::backend::em64t
                             break;
                         }
                         case IrNodeKind::IToFp: {
+                            auto dst_bits = (inst->type && inst->type->kind == IrTypeKind::Float) ? static_cast<IrFloatType const*>(inst->type)->bits : 64u;
                             VReg dst = ctx.mfunc.new_vreg();
                             MInstr mi;
-                            mi.opc = MOpc::CVTSI2SDrr;
+                            mi.opc = (dst_bits == 32) ? MOpc::CVTSI2SSrr : MOpc::CVTSI2SDrr;
                             mi.num_ops = 2;
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(dst);
@@ -1757,68 +2502,7 @@ namespace dcc::backend::em64t
                     if (!agg)
                         break;
 
-                    std::uint64_t agg_size = agg->type ? agg->type->byte_size : 0;
-                    std::uint32_t agg_align = static_cast<std::uint32_t>(agg->type ? agg->type->byte_align : 1);
-                    std::uint32_t slot_idx = ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(agg_size), agg_align);
-                    ctx.aggregate_to_slot[inst] = slot_idx;
-
-                    VReg addr = ctx.mfunc.new_vreg();
-                    {
-                        MInstr lea;
-                        lea.opc = MOpc::LEA64rm;
-                        lea.num_ops = 2;
-                        lea.num_defs = 1;
-                        lea.ops[0] = MOp::from_reg(addr);
-                        lea.ops[1] = MOp::from_frame_slot(slot_idx);
-                        ctx.append_instr(lea);
-                    }
-
-                    IrType const* agg_type = agg->type;
-                    for (std::size_t i = 0; i < agg->values.size(); ++i)
-                    {
-                        VReg val = ctx.try_materialize(agg->values[i]);
-                        if (!val.is_valid())
-                            continue;
-
-                        std::int32_t member_offset = 0;
-                        IrType const* field_type = nullptr;
-                        if (agg_type && agg_type->kind == IrTypeKind::Aggregate)
-                        {
-                            auto* at = static_cast<IrAggregateType const*>(agg_type);
-                            if (i < at->member_offsets.size())
-                                member_offset = static_cast<std::int32_t>(at->member_offsets[i]);
-                            if (i < at->members.size())
-                                field_type = at->members[i];
-                        }
-                        else
-                            member_offset = static_cast<std::int32_t>(i * 8);
-
-                        if (!field_type)
-                            field_type = agg->values[i] ? agg->values[i]->type : nullptr;
-
-                        MMem store_mem = MMem::make_base_disp(addr, member_offset);
-                        MInstr store;
-                        if (field_type && ctx.is_float_type(field_type))
-                        {
-                            auto bits = static_cast<IrFloatType const*>(field_type)->bits;
-                            store.opc = (bits == 32) ? MOpc::MOVSSmr : MOpc::MOVSDmr;
-                        }
-                        else
-                        {
-                            auto bits = field_type ? ctx.type_bits(field_type) : 64;
-                            if (bits <= 32)
-                                store.opc = MOpc::MOV32mr;
-                            else
-                                store.opc = MOpc::MOV64mr;
-                        }
-                        store.num_ops = 2;
-                        store.num_defs = 0;
-                        store.ops[0] = MOp::from_mem(store_mem);
-                        store.ops[1] = MOp::from_reg(val);
-                        ctx.append_instr((store));
-                    }
-
-                    ctx.set_vreg(inst, addr);
+                    ctx.set_vreg(inst, emit_aggregate(ctx, agg));
                     break;
                 }
 
@@ -1827,37 +2511,33 @@ namespace dcc::backend::em64t
                     if (!e)
                         break;
 
-                    VReg agg_vreg = ctx.try_materialize(e->aggregate);
+                    auto* agg_type = e->aggregate ? e->aggregate->type : nullptr;
+                    VReg agg_vreg = is_memory_type(agg_type) ? memory_value_addr(ctx, e->aggregate) : ctx.try_materialize(e->aggregate);
                     if (!agg_vreg.is_valid())
                         break;
 
-                    auto* agg_type = e->aggregate ? e->aggregate->type : nullptr;
-                    std::int32_t field_offset = 0;
-                    if (agg_type && agg_type->kind == dcc::ir::IrTypeKind::Aggregate)
-                    {
-                        auto* at = static_cast<dcc::ir::IrAggregateType const*>(agg_type);
-                        if (e->field_index < at->member_offsets.size())
-                            field_offset = static_cast<std::int32_t>(at->member_offsets[e->field_index]);
-                    }
+                    std::int32_t field_offset = member_offset_of(ctx, agg_type, e->field_index);
 
+                    VReg field_addr = agg_vreg;
                     if (field_offset != 0)
                     {
-                        VReg addr = ctx.mfunc.new_vreg();
+                        field_addr = ctx.mfunc.new_vreg();
                         MInstr lea;
                         lea.opc = MOpc::LEA64rm;
                         lea.num_ops = 2;
                         lea.num_defs = 1;
-                        lea.ops[0] = MOp::from_reg(addr);
+                        lea.ops[0] = MOp::from_reg(field_addr);
                         lea.ops[1] = MOp::from_mem(MMem::make_base_disp(agg_vreg, field_offset));
                         ctx.append_instr(lea);
-                        VReg result = emit_load(ctx, e->type, addr);
-                        ctx.set_vreg(inst, result);
+                    }
+
+                    if (is_memory_type(e->type))
+                    {
+                        ctx.memory_addr_values.insert(inst);
+                        ctx.set_vreg(inst, field_addr);
                     }
                     else
-                    {
-                        VReg result = emit_load(ctx, e->type, agg_vreg);
-                        ctx.set_vreg(inst, result);
-                    }
+                        ctx.set_vreg(inst, emit_load(ctx, e->type, field_addr));
                     break;
                 }
 
@@ -1866,24 +2546,41 @@ namespace dcc::backend::em64t
                     if (!ins)
                         break;
 
-                    VReg agg_vreg = ctx.try_materialize(ins->aggregate);
-                    VReg val_vreg = ctx.try_materialize(ins->value);
+                    auto* ins_agg_ty = ins->aggregate ? ins->aggregate->type : nullptr;
+                    VReg agg_vreg = is_memory_type(ins_agg_ty) ? memory_value_addr(ctx, ins->aggregate) : ctx.try_materialize(ins->aggregate);
+                    VReg val_vreg =
+                        is_memory_type(ins->value ? ins->value->type : nullptr) ? memory_value_addr(ctx, ins->value) : ctx.try_materialize(ins->value);
                     if (!agg_vreg.is_valid() || !val_vreg.is_valid())
                         break;
 
-                    std::int32_t field_offset = 0;
+                    std::int32_t field_offset = member_offset_of(ctx, ins_agg_ty, ins->field_index);
                     IrType const* field_type = nullptr;
-                    if (ins->aggregate && ins->aggregate->type && ins->aggregate->type->kind == IrTypeKind::Aggregate)
+                    if (ins_agg_ty && ins_agg_ty->kind == IrTypeKind::Aggregate)
                     {
-                        auto* at = static_cast<IrAggregateType const*>(ins->aggregate->type);
-                        if (ins->field_index < at->member_offsets.size())
-                            field_offset = static_cast<std::int32_t>(at->member_offsets[ins->field_index]);
+                        auto* at = static_cast<IrAggregateType const*>(ins_agg_ty);
                         if (ins->field_index < at->members.size())
                             field_type = at->members[ins->field_index];
                     }
+                    else if (ins_agg_ty && ins_agg_ty->kind == IrTypeKind::Array)
+                        field_type = static_cast<IrArrayType const*>(ins_agg_ty)->element;
 
                     if (!field_type && ins->value)
                         field_type = ins->value->type;
+
+                    if (is_memory_type(field_type))
+                    {
+                        VReg member_dst = ctx.mfunc.new_vreg();
+                        MInstr lea;
+                        lea.opc = MOpc::LEA64rm;
+                        lea.num_ops = 2;
+                        lea.num_defs = 1;
+                        lea.ops[0] = MOp::from_reg(member_dst);
+                        lea.ops[1] = MOp::from_mem(MMem::make_base_disp(agg_vreg, field_offset));
+                        ctx.append_instr(lea);
+                        emit_mem_copy(ctx, member_dst, val_vreg, field_type->byte_size);
+                        ctx.set_vreg(inst, agg_vreg);
+                        break;
+                    }
 
                     MMem store_mem = MMem::make_base_disp(agg_vreg, field_offset);
                     MInstr store_instr;
@@ -1892,14 +2589,10 @@ namespace dcc::backend::em64t
                         auto bits = static_cast<IrFloatType const*>(field_type)->bits;
                         store_instr.opc = (bits == 32) ? MOpc::MOVSSmr : MOpc::MOVSDmr;
                     }
+                    else if (ctx.is_bool_type(field_type))
+                        store_instr.opc = MOpc::MOV8mr;
                     else
-                    {
-                        auto bits = field_type ? ctx.type_bits(field_type) : 64;
-                        if (bits <= 32)
-                            store_instr.opc = MOpc::MOV32mr;
-                        else
-                            store_instr.opc = MOpc::MOV64mr;
-                    }
+                        store_instr.opc = store_opc_for_bits(field_type ? ctx.type_bits(field_type) : 64);
                     store_instr.num_ops = 2;
                     store_instr.num_defs = 0;
                     store_instr.ops[0] = MOp::from_mem(store_mem);
@@ -1954,7 +2647,7 @@ namespace dcc::backend::em64t
                     if (cl.return_vreg.is_valid())
                         ctx.set_vreg(inst, cl.return_vreg);
 
-                    if ((cl.has_sret || cl.use_xmm_ret) && cl.sret_slot_index != std::numeric_limits<std::uint32_t>::max())
+                    if (cl.sret_slot_index != std::numeric_limits<std::uint32_t>::max())
                         ctx.aggregate_to_slot[inst] = cl.sret_slot_index;
 
                     break;
@@ -1969,7 +2662,7 @@ namespace dcc::backend::em64t
                     if (cl.return_vreg.is_valid())
                         ctx.set_vreg(inst, cl.return_vreg);
 
-                    if ((cl.has_sret || cl.use_xmm_ret) && cl.sret_slot_index != std::numeric_limits<std::uint32_t>::max())
+                    if (cl.sret_slot_index != std::numeric_limits<std::uint32_t>::max())
                         ctx.aggregate_to_slot[inst] = cl.sret_slot_index;
 
                     break;
@@ -2135,145 +2828,100 @@ namespace dcc::backend::em64t
                     if (r->value)
                     {
                         auto* ret_type = r->value->type;
-                        if (ret_type && ret_type->kind == IrTypeKind::Aggregate)
+
+                        if (is_memory_type(ret_type))
                         {
-                            auto* agg_type = static_cast<IrAggregateType const*>(ret_type);
-                            auto total_size = agg_type->byte_size;
+                            ReturnPlan rp = make_return_plan(ctx, ret_type, ctx.cc);
 
-                            if (aggregate_returns_in_xmm(agg_type, ctx.cc))
+                            if (rp.uses_sret())
                             {
-                                VReg agg_addr = ctx.try_materialize(r->value);
+                                VReg src = memory_value_addr(ctx, r->value);
+                                if (!src.is_valid())
+                                    src = padded_copy_addr(ctx, ret_type, ctx.try_materialize(r->value));
 
-                                {
-                                    std::int32_t off0 = static_cast<std::int32_t>(agg_type->member_offsets[0]);
-                                    VReg faddr = ctx.mfunc.new_vreg();
-                                    MInstr lea;
-                                    lea.opc = MOpc::LEA64rm;
-                                    lea.num_ops = 2;
-                                    lea.num_defs = 1;
-                                    lea.ops[0] = MOp::from_reg(faddr);
-                                    lea.ops[1] = MOp::from_mem(MMem::make_base_disp(agg_addr, off0));
-                                    ctx.append_instr(lea);
-                                    VReg fval = emit_load(ctx, agg_type->members[0], faddr);
-                                    MInstr mov;
-                                    mov.opc = MOpc::MOVSDrr;
-                                    mov.num_ops = 2;
-                                    mov.num_defs = 1;
-                                    mov.ops[0] = MOp::from_reg(VReg::phys(PhysReg::XMM0));
-                                    mov.ops[1] = MOp::from_reg(fval);
-                                    ctx.append_instr(mov);
-                                }
-
-                                if (agg_type->members.size() > 1)
-                                {
-                                    std::int32_t off1 = static_cast<std::int32_t>(agg_type->member_offsets[1]);
-                                    VReg faddr = ctx.mfunc.new_vreg();
-                                    MInstr lea;
-                                    lea.opc = MOpc::LEA64rm;
-                                    lea.num_ops = 2;
-                                    lea.num_defs = 1;
-                                    lea.ops[0] = MOp::from_reg(faddr);
-                                    lea.ops[1] = MOp::from_mem(MMem::make_base_disp(agg_addr, off1));
-                                    ctx.append_instr(lea);
-                                    VReg fval = emit_load(ctx, agg_type->members[1], faddr);
-                                    MInstr mov;
-                                    mov.opc = MOpc::MOVSDrr;
-                                    mov.num_ops = 2;
-                                    mov.num_defs = 1;
-                                    mov.ops[0] = MOp::from_reg(VReg::phys(PhysReg::XMM1));
-                                    mov.ops[1] = MOp::from_reg(fval);
-                                    ctx.append_instr(mov);
-                                }
-                            }
-                            else if (total_size <= 8)
-                            {
-                                VReg agg_addr = ctx.try_materialize(r->value);
-                                VReg packed = ctx.mfunc.new_vreg();
-                                bool first = true;
-
-                                for (std::size_t fi = 0; fi < agg_type->members.size(); ++fi)
-                                {
-                                    auto* field_type = agg_type->members[fi];
-                                    if (!field_type)
-                                        continue;
-
-                                    std::int32_t field_off = static_cast<std::int32_t>(agg_type->member_offsets[fi]);
-                                    VReg field_addr = ctx.mfunc.new_vreg();
-                                    MInstr lea_fa;
-                                    lea_fa.opc = MOpc::LEA64rm;
-                                    lea_fa.num_ops = 2;
-                                    lea_fa.num_defs = 1;
-                                    lea_fa.ops[0] = MOp::from_reg(field_addr);
-                                    lea_fa.ops[1] = MOp::from_mem(MMem::make_base_disp(agg_addr, field_off));
-                                    ctx.append_instr((lea_fa));
-
-                                    VReg field_val = emit_load(ctx, field_type, field_addr);
-
-                                    if (first)
-                                    {
-                                        emit_mov(ctx, packed, field_val);
-                                        first = false;
-                                    }
-                                    else
-                                    {
-                                        auto bit_shift = agg_type->member_offsets[fi] * 8;
-                                        VReg shifted = ctx.mfunc.new_vreg();
-                                        MInstr shl;
-                                        shl.opc = MOpc::SHL64ri;
-                                        shl.num_ops = 3;
-                                        shl.num_defs = 1;
-                                        shl.ops[0] = MOp::from_reg(shifted);
-                                        shl.ops[1] = MOp::from_reg(field_val);
-                                        shl.ops[2] = MOp::from_imm(static_cast<std::int64_t>(bit_shift));
-                                        ctx.append_instr((shl));
-
-                                        VReg or_val = emit_binary_op(ctx, MOpc::OR64rr, packed, shifted);
-                                        packed = or_val;
-                                    }
-                                }
-
-                                emit_mov(ctx, VReg::phys(PhysReg::RAX), packed);
-                            }
-                            else
-                            {
                                 VReg sret_ptr = ctx.uses_sret ? ctx.sret_ptr_vreg : ctx.mfunc.new_vreg();
                                 if (!ctx.uses_sret)
                                     emit_mov(ctx, sret_ptr, VReg::phys(PhysReg::RDI));
 
-                                VReg agg_addr = ctx.try_materialize(r->value);
-
-                                for (std::size_t fi = 0; fi < agg_type->members.size(); ++fi)
+                                emit_mem_copy(ctx, sret_ptr, src, ret_type->byte_size);
+                                emit_mov(ctx, VReg::phys(PhysReg::RAX), sret_ptr);
+                            }
+                            else
+                            {
+                                VReg src = memory_value_addr(ctx, r->value);
+                                if (!src.is_valid())
                                 {
-                                    auto* field_type = agg_type->members[fi];
-                                    if (!field_type)
+                                    VReg val = ctx.try_materialize(r->value);
+                                    if (val.is_valid())
+                                        src = padded_copy_addr(ctx, ret_type, val);
+                                }
+                                if (!src.is_valid())
+                                    break;
+
+                                src = padded_copy_addr(ctx, ret_type, src);
+
+                                emit_mov(ctx, VReg::phys(PhysReg::R11), src);
+
+                                VReg piece_temps[2];
+                                for (int pi = 0; pi < 2; ++pi)
+                                {
+                                    if (rp.classes[pi] == ArgClass::NoClass)
                                         continue;
 
-                                    std::int32_t field_off = static_cast<std::int32_t>(agg_type->member_offsets[fi]);
+                                    std::int32_t piece_off = static_cast<std::int32_t>(pi) * 8;
+                                    std::uint64_t piece_size = std::min<std::uint64_t>(8, ret_type->byte_size - static_cast<std::uint64_t>(pi) * 8);
 
-                                    VReg field_addr = ctx.mfunc.new_vreg();
-                                    MInstr lea_fa;
-                                    lea_fa.opc = MOpc::LEA64rm;
-                                    lea_fa.num_ops = 2;
-                                    lea_fa.num_defs = 1;
-                                    lea_fa.ops[0] = MOp::from_reg(field_addr);
-                                    lea_fa.ops[1] = MOp::from_mem(MMem::make_base_disp(agg_addr, field_off));
-                                    ctx.append_instr((lea_fa));
-
-                                    VReg field_val = emit_load(ctx, field_type, field_addr);
-
-                                    VReg dest_addr = ctx.mfunc.new_vreg();
-                                    MInstr lea_dest;
-                                    lea_dest.opc = MOpc::LEA64rm;
-                                    lea_dest.num_ops = 2;
-                                    lea_dest.num_defs = 1;
-                                    lea_dest.ops[0] = MOp::from_reg(dest_addr);
-                                    lea_dest.ops[1] = MOp::from_mem(MMem::make_base_disp(sret_ptr, field_off));
-                                    ctx.append_instr((lea_dest));
-
-                                    emit_store(ctx, field_type, dest_addr, field_val);
+                                    VReg tmp = ctx.mfunc.new_vreg();
+                                    MInstr ld;
+                                    if (rp.classes[pi] == ArgClass::Sse)
+                                    {
+                                        if (piece_size >= 8)
+                                            ld.opc = MOpc::MOVSDrm;
+                                        else
+                                            ld.opc = MOpc::MOVSSrm;
+                                    }
+                                    else
+                                    {
+                                        ld.opc = (piece_size <= 4) ? MOpc::MOV32rm : MOpc::MOV64rm;
+                                    }
+                                    ld.num_ops = 2;
+                                    ld.num_defs = 1;
+                                    ld.ops[0] = MOp::from_reg(tmp);
+                                    ld.ops[1] = MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::R11), piece_off));
+                                    ctx.append_instr(ld);
+                                    piece_temps[pi] = tmp;
                                 }
 
-                                emit_mov(ctx, VReg::phys(PhysReg::RAX), sret_ptr);
+                                unsigned int_out_idx = 0;
+                                unsigned sse_out_idx = 0;
+                                for (int pi = 0; pi < 2; ++pi)
+                                {
+                                    if (rp.classes[pi] == ArgClass::NoClass)
+                                        continue;
+
+                                    VReg tmp = piece_temps[pi];
+                                    if (!tmp.is_valid())
+                                        continue;
+
+                                    if (rp.classes[pi] == ArgClass::Integer)
+                                    {
+                                        PhysReg preg = (int_out_idx == 0) ? PhysReg::RAX : PhysReg::RDX;
+                                        ++int_out_idx;
+                                        emit_mov(ctx, VReg::phys(preg), tmp);
+                                    }
+                                    else
+                                    {
+                                        PhysReg preg = (sse_out_idx == 0) ? PhysReg::XMM0 : PhysReg::XMM1;
+                                        ++sse_out_idx;
+                                        MInstr mov;
+                                        mov.opc = MOpc::MOVSDrr;
+                                        mov.num_ops = 2;
+                                        mov.num_defs = 1;
+                                        mov.ops[0] = MOp::from_reg(VReg::phys(preg));
+                                        mov.ops[1] = MOp::from_reg(tmp);
+                                        ctx.append_instr(mov);
+                                    }
+                                }
                             }
                         }
                         else
@@ -2293,14 +2941,8 @@ namespace dcc::backend::em64t
                     ret.num_ops = 0;
                     ret.num_defs = 0;
                     std::uint64_t ret_uses = (1ULL << static_cast<std::uint8_t>(PhysReg::RAX)) | (1ULL << static_cast<std::uint8_t>(PhysReg::XMM0)) |
-                                             (1ULL << static_cast<std::uint8_t>(PhysReg::RSP));
-
-                    if (r->value && r->value->type && r->value->type->kind == IrTypeKind::Aggregate)
-                    {
-                        auto* ret_agg_type = static_cast<IrAggregateType const*>(r->value->type);
-                        if (aggregate_returns_in_xmm(ret_agg_type, ctx.cc))
-                            ret_uses |= (1ULL << static_cast<std::uint8_t>(PhysReg::XMM1));
-                    }
+                                             (1ULL << static_cast<std::uint8_t>(PhysReg::RSP)) | (1ULL << static_cast<std::uint8_t>(PhysReg::RDX)) |
+                                             (1ULL << static_cast<std::uint8_t>(PhysReg::XMM1));
 
                     ret.implicit_uses = ret_uses;
                     ctx.append_instr((ret));
@@ -2537,10 +3179,11 @@ namespace dcc::backend::em64t
         if (func.entry_block)
         {
             bool has_sret = false;
-            if (func.func_type && func.func_type->return_type && func.func_type->return_type->kind == IrTypeKind::Aggregate)
+            if (func.func_type)
             {
-                auto* ret_agg = static_cast<IrAggregateType const*>(func.func_type->return_type);
-                if (ret_agg->byte_size > 8 && !aggregate_returns_in_xmm(ret_agg, ctx.cc))
+                auto* ret_type = func.func_type->return_type;
+
+                if (returns_via_sret(ctx, ret_type, ctx.cc))
                 {
                     has_sret = true;
                     ctx.uses_sret = true;
@@ -2558,43 +3201,142 @@ namespace dcc::backend::em64t
                 }
             }
 
+            std::int32_t in_stack_bytes = 0;
+            auto param_locs = classify_args(ctx, func.entry_block->params, has_sret, in_stack_bytes);
+
+            using PhysRegSpan = std::span<PhysReg const>;
+            auto const& in_int_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVIntArgRegs} : PhysRegSpan{kWin64IntArgRegs};
+            auto const& in_float_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVFloatArgRegs} : PhysRegSpan{kWin64FloatArgRegs};
+
+            std::vector<std::array<VReg, 2>> param_piece_regs(func.entry_block->params.size());
+
             for (std::size_t param_idx = 0; param_idx < func.entry_block->params.size(); ++param_idx)
             {
                 auto* param = func.entry_block->params[param_idx];
                 if (!param)
                     continue;
 
-                VReg param_vreg = mfunc.new_vreg();
-                ctx.set_vreg(param, param_vreg);
+                auto const& loc = param_locs[param_idx];
 
-                VReg phys;
-                bool is_float = ctx.is_float_type(param->type);
-                std::size_t adj_idx = param_idx + (has_sret ? 1 : 0);
-                if (ctx.cc == CallConvKind::SysV)
+                for (std::uint8_t pi = 0; pi < loc.num_pieces; ++pi)
                 {
-                    if (is_float && adj_idx < 8)
-                        phys = VReg::phys(kSysVFloatArgRegs[adj_idx]);
-                    else if (!is_float && adj_idx < 6)
-                        phys = VReg::phys(kSysVIntArgRegs[adj_idx]);
+                    auto const& piece = loc.pieces[pi];
+                    switch (piece.cls)
+                    {
+                        case ArgClass::Sse: {
+                            VReg v = mfunc.new_vreg();
+                            MInstr mi;
+                            mi.opc = MOpc::MOVSDrr;
+                            mi.num_ops = 2;
+                            mi.num_defs = 1;
+                            mi.ops[0] = MOp::from_reg(v);
+                            mi.ops[1] = MOp::from_reg(VReg::phys(in_float_regs[piece.reg_idx]));
+                            ctx.append_instr(mi);
+                            param_piece_regs[param_idx][pi] = v;
+                            break;
+                        }
+                        case ArgClass::Integer: {
+                            VReg v = mfunc.new_vreg();
+                            emit_mov(ctx, v, VReg::phys(in_int_regs[piece.reg_idx]));
+                            param_piece_regs[param_idx][pi] = v;
+                            break;
+                        }
+                        case ArgClass::NoClass:
+                        case ArgClass::Memory:
+                            break;
+                    }
                 }
-                else
+            }
+
+            std::int32_t incoming_base = (ctx.cc == CallConvKind::SysV) ? 16 : 16;
+
+            for (std::size_t param_idx = 0; param_idx < func.entry_block->params.size(); ++param_idx)
+            {
+                auto* param = func.entry_block->params[param_idx];
+                if (!param)
+                    continue;
+
+                auto const& loc = param_locs[param_idx];
+                auto* param_ty = param->type;
+
+                if (loc.on_stack)
                 {
-                    if (is_float && adj_idx < 4)
-                        phys = VReg::phys(kWin64FloatArgRegs[adj_idx]);
-                    else if (!is_float && adj_idx < 4)
-                        phys = VReg::phys(kWin64IntArgRegs[adj_idx]);
+                    VReg rbp = VReg::phys(PhysReg::RBP);
+                    std::int32_t disp = incoming_base + loc.pieces[0].stack_off;
+
+                    if (is_memory_type(param_ty) && !loc.by_reference)
+                    {
+                        VReg addr = mfunc.new_vreg();
+                        MInstr lea;
+                        lea.opc = MOpc::LEA64rm;
+                        lea.num_ops = 2;
+                        lea.num_defs = 1;
+                        lea.ops[0] = MOp::from_reg(addr);
+                        lea.ops[1] = MOp::from_mem(MMem::make_base_disp(rbp, disp));
+                        ctx.append_instr(lea);
+                        ctx.memory_addr_values.insert(param);
+                        ctx.set_vreg(param, addr);
+                        continue;
+                    }
+
+                    VReg v = mfunc.new_vreg();
+                    MInstr ld;
+                    ld.num_ops = 2;
+                    ld.num_defs = 1;
+                    ld.ops[0] = MOp::from_reg(v);
+                    ld.ops[1] = MOp::from_mem(MMem::make_base_disp(rbp, disp));
+                    ld.opc = (!loc.by_reference && ctx.is_float_type(param_ty)) ? MOpc::MOVSDrm : MOpc::MOV64rm;
+                    ctx.append_instr(ld);
+
+                    if (loc.by_reference)
+                        ctx.memory_addr_values.insert(param);
+
+                    ctx.set_vreg(param, v);
+                    continue;
                 }
 
-                if (phys.is_valid())
+                if (loc.by_reference)
                 {
-                    MInstr mi;
-                    mi.opc = is_float ? MOpc::MOVSDrr : MOpc::MOV64rr;
-                    mi.num_ops = 2;
-                    mi.num_defs = 1;
-                    mi.ops[0] = MOp::from_reg(param_vreg);
-                    mi.ops[1] = MOp::from_reg(phys);
-                    ctx.append_instr(mi);
+                    ctx.memory_addr_values.insert(param);
+                    if (param_piece_regs[param_idx][0].is_valid())
+                        ctx.set_vreg(param, param_piece_regs[param_idx][0]);
+                    continue;
                 }
+
+                if (is_memory_type(param_ty) && loc.num_pieces > 0)
+                {
+                    std::uint32_t slot_align = param_ty ? static_cast<std::uint32_t>(std::min<std::uint64_t>(param_ty->byte_align, 16)) : 8u;
+                    std::uint32_t slot_size = param_ty ? static_cast<std::uint32_t>(align_up_i32(static_cast<std::int32_t>(param_ty->byte_size), 8)) : 8u;
+                    auto slot = mfunc.new_frame_slot(std::max(slot_size, 8u), std::max(slot_align, 8u));
+                    VReg base = emit_slot_addr(ctx, slot);
+
+                    for (std::uint8_t pi = 0; pi < loc.num_pieces; ++pi)
+                    {
+                        VReg pv = param_piece_regs[param_idx][pi];
+                        if (!pv.is_valid())
+                            continue;
+
+                        auto const& piece = loc.pieces[pi];
+                        MInstr st;
+                        if (piece.cls == ArgClass::Sse)
+                            st.opc = MOpc::MOVSDmr;
+                        else
+                            st.opc = MOpc::MOV64mr;
+                        st.num_ops = 2;
+                        st.num_defs = 0;
+                        st.ops[0] = MOp::from_mem(MMem::make_base_disp(base, static_cast<std::int32_t>(pi) * 8));
+                        st.ops[1] = MOp::from_reg(pv);
+                        ctx.append_instr(st);
+                    }
+
+                    ctx.aggregate_to_slot[param] = slot;
+                    ctx.memory_addr_values.insert(param);
+                    ctx.set_vreg(param, base);
+                    continue;
+                }
+
+                if (param_piece_regs[param_idx][0].is_valid())
+                    ctx.set_vreg(param, param_piece_regs[param_idx][0]);
             }
         }
 

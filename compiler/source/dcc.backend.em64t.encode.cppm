@@ -131,6 +131,55 @@ namespace
         return PhysReg::R11;
     }
 
+    static void emit_sse_binop_rr(std::vector<std::uint8_t>& buf, std::uint8_t pfx, std::uint8_t sse, PhysReg d, PhysReg l, PhysReg r)
+    {
+        auto mov_rr = [&](PhysReg dst, PhysReg src) {
+            if (dst == src)
+                return;
+
+            emit_u8(buf, pfx);
+            emit_rex_if_extended(buf, false, dst, src);
+            emit_u8(buf, 0x0F);
+            emit_u8(buf, 0x10);
+            emit_modrm(buf, 3, reg_low3(dst), reg_low3(src));
+        };
+        auto op_rr = [&](PhysReg dst, PhysReg src) {
+            emit_u8(buf, pfx);
+            emit_rex_if_extended(buf, false, dst, src);
+            emit_u8(buf, 0x0F);
+            emit_u8(buf, sse);
+            emit_modrm(buf, 3, reg_low3(dst), reg_low3(src));
+        };
+
+        if (d == r && d != l)
+        {
+            bool commutative = (sse == 0x58 || sse == 0x59);
+            if (commutative)
+            {
+                op_rr(d, l);
+                return;
+            }
+
+            PhysReg tmp = PhysReg::XMM15;
+            for (auto cand : {PhysReg::XMM15, PhysReg::XMM14, PhysReg::XMM13})
+            {
+                if (cand != d && cand != l)
+                {
+                    tmp = cand;
+                    break;
+                }
+            }
+
+            mov_rr(tmp, d);
+            mov_rr(d, l);
+            op_rr(d, tmp);
+            return;
+        }
+
+        mov_rr(d, l);
+        op_rr(d, r);
+    }
+
     static void emit_mem(std::vector<std::uint8_t>& buf, MMem const& mem, std::uint8_t reg_code, std::vector<std::string>& wrn, char const* ctx)
     {
         bool hb = mem.base.is_valid(), hi = mem.index.is_valid();
@@ -143,7 +192,7 @@ namespace
             if (mem.base.is_physical())
             {
                 bp = mem.base.phys_reg();
-                rbp = (bp == PhysReg::RBP);
+                rbp = (bp == PhysReg::RBP || bp == PhysReg::R13);
                 rsp12 = (bp == PhysReg::RSP || bp == PhysReg::R12);
             }
             else
@@ -2036,8 +2085,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOVSDrr");
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVSDrr");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF2);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x10);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2058,8 +2107,8 @@ namespace
                         bool de = reg_is_extended(d);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0xF2);
+                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, 0x10);
                         emit_mem(buf, m, reg_low3(d), wrn, "MOVSDrm");
@@ -2088,6 +2137,25 @@ namespace
                     goto ud2_lbl;
                 break;
             }
+            case MOpc::MOVQ64rr_rev: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg)
+                {
+                    auto d = resolve_phys_reg(ops[0], wrn, "MOVQ64rr_rev");
+                    auto s = resolve_phys_reg(ops[1], wrn, "MOVQ64rr_rev");
+                    bool de = reg_is_extended(d);
+                    bool se = reg_is_extended(s);
+                    emit_u8(buf, 0x66);
+
+                    emit_u8(buf, static_cast<std::uint8_t>(0x48 | (se ? 0x04 : 0) | (de ? 0x01 : 0)));
+                    emit_u8(buf, 0x0F);
+                    emit_u8(buf, 0x7E);
+
+                    emit_modrm(buf, 3, reg_low3(s), reg_low3(d));
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
 
             case MOpc::MOVSD_mr:
             case MOpc::MOVSDmr: {
@@ -2101,8 +2169,8 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_rex(buf, false, se, ie, be);
                         emit_u8(buf, 0xF2);
+                        emit_rex(buf, false, se, ie, be);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, 0x11);
                         emit_mem(buf, m, reg_low3(s), wrn, "MOVSDmr");
@@ -2135,45 +2203,7 @@ namespace
                     auto d = resolve_phys_reg(ops[0], wrn, "SSESD");
                     auto r = resolve_phys_reg(ops[2], wrn, "SSESD");
                     auto l = resolve_phys_reg(ops[1], wrn, "SSESD");
-
-                    if (d == r && d != l)
-                    {
-                        PhysReg tmp = PhysReg::XMM15;
-
-                        emit_rex_if_extended(buf, false, tmp, d);
-                        emit_u8(buf, 0xF2);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, 0x10);
-                        emit_modrm(buf, 3, reg_low3(tmp), reg_low3(d));
-
-                        emit_rex_if_extended(buf, false, d, l);
-                        emit_u8(buf, 0xF2);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, 0x10);
-                        emit_modrm(buf, 3, reg_low3(d), reg_low3(l));
-
-                        emit_rex_if_extended(buf, false, d, tmp);
-                        emit_u8(buf, 0xF2);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, sse);
-                        emit_modrm(buf, 3, reg_low3(d), reg_low3(tmp));
-                    }
-                    else
-                    {
-                        if (d != l)
-                        {
-                            emit_rex_if_extended(buf, false, d, l);
-                            emit_u8(buf, 0xF2);
-                            emit_u8(buf, 0x0F);
-                            emit_u8(buf, 0x10);
-                            emit_modrm(buf, 3, reg_low3(d), reg_low3(l));
-                        }
-                        emit_rex_if_extended(buf, false, d, r);
-                        emit_u8(buf, 0xF2);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, sse);
-                        emit_modrm(buf, 3, reg_low3(d), reg_low3(r));
-                    }
+                    emit_sse_binop_rr(buf, 0xF2, sse, d, l, r);
                 }
                 else
                     goto ud2_lbl;
@@ -2197,8 +2227,8 @@ namespace
                     auto const& m = ops[2].mem;
                     if (d != l)
                     {
-                        emit_rex_if_extended(buf, false, d, l);
                         emit_u8(buf, 0xF2);
+                        emit_rex_if_extended(buf, false, d, l);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, 0x10);
                         emit_modrm(buf, 3, reg_low3(d), reg_low3(l));
@@ -2208,8 +2238,8 @@ namespace
                         auto b = m.base.phys_reg();
                         bool de = reg_is_extended(d), ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg()),
                              be = reg_is_extended(b);
-                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0xF2);
+                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, sse);
                         emit_mem(buf, m, reg_low3(d), wrn, "SSESDrm");
@@ -2228,8 +2258,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "UCOMISD");
                     auto s = resolve_phys_reg(ops[1], wrn, "UCOMISD");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x66);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2E);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2245,8 +2275,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSI2SD");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSI2SD");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF2);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2A);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2261,8 +2291,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSD2SI");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSD2SI");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF2);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2D);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2276,10 +2306,10 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSD2SI64");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSD2SI64");
-                    emit_rex_if_extended(buf, true, d, s);
                     emit_u8(buf, 0xF2);
+                    emit_rex_if_extended(buf, true, d, s);
                     emit_u8(buf, 0x0F);
-                    emit_u8(buf, 0x2D);
+                    emit_u8(buf, 0x2C);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
                 }
                 else
@@ -2291,8 +2321,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSD2SS");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSD2SS");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF2);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x5A);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2306,8 +2336,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSS2SD");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSS2SD");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF3);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x5A);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2323,8 +2353,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOVSSrr");
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVSSrr");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF3);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x10);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2344,8 +2374,8 @@ namespace
                         auto b = m.base.phys_reg();
                         bool de = reg_is_extended(d), ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg()),
                              be = reg_is_extended(b);
-                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0xF3);
+                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, 0x10);
                         emit_mem(buf, m, reg_low3(d), wrn, "MOVSSrm");
@@ -2369,8 +2399,8 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_rex(buf, false, se, ie, be);
                         emit_u8(buf, 0xF3);
+                        emit_rex(buf, false, se, ie, be);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, 0x11);
                         emit_mem(buf, m, reg_low3(s), wrn, "MOVSSmr");
@@ -2403,19 +2433,7 @@ namespace
                     auto d = resolve_phys_reg(ops[0], wrn, "SSESS");
                     auto r = resolve_phys_reg(ops[2], wrn, "SSESS");
                     auto l = resolve_phys_reg(ops[1], wrn, "SSESS");
-                    if (d != l)
-                    {
-                        emit_rex_if_extended(buf, false, d, l);
-                        emit_u8(buf, 0xF3);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, 0x10);
-                        emit_modrm(buf, 3, reg_low3(d), reg_low3(l));
-                    }
-                    emit_rex_if_extended(buf, false, d, r);
-                    emit_u8(buf, 0xF3);
-                    emit_u8(buf, 0x0F);
-                    emit_u8(buf, sse);
-                    emit_modrm(buf, 3, reg_low3(d), reg_low3(r));
+                    emit_sse_binop_rr(buf, 0xF3, sse, d, l, r);
                 }
                 else
                     goto ud2_lbl;
@@ -2439,8 +2457,8 @@ namespace
                     auto const& m = ops[2].mem;
                     if (d != l)
                     {
-                        emit_rex_if_extended(buf, false, d, l);
                         emit_u8(buf, 0xF3);
+                        emit_rex_if_extended(buf, false, d, l);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, 0x10);
                         emit_modrm(buf, 3, reg_low3(d), reg_low3(l));
@@ -2451,8 +2469,8 @@ namespace
                         bool de = reg_is_extended(d);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0xF3);
+                        emit_rex(buf, false, de, ie, be);
                         emit_u8(buf, 0x0F);
                         emit_u8(buf, sse);
                         emit_mem(buf, m, reg_low3(d), wrn, "SSESSrm");
@@ -2471,8 +2489,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "UCOMISS");
                     auto s = resolve_phys_reg(ops[1], wrn, "UCOMISS");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x66);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2E);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2488,8 +2506,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSI2SS");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSI2SS");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF3);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2A);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2504,8 +2522,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTTSS2SI");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTTSS2SI");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0xF3);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2C);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2519,8 +2537,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "CVTSS2SI64");
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSS2SI64");
-                    emit_rex_if_extended(buf, true, d, s);
                     emit_u8(buf, 0xF3);
+                    emit_rex_if_extended(buf, true, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2C);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2549,8 +2567,8 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "XORPD");
                     auto s = resolve_phys_reg(ops[1], wrn, "XORPD");
-                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x66);
+                    emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x57);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));

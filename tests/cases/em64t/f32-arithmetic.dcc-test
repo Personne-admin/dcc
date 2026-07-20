@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+f32 id(f32 x) {
+    return x;
+}
+
+@nomangle
+public i32 dcc_main() {
+    f32 a = id(3.0);
+    f32 b = id(4.0);
+    f32 sum = a + b;
+    f32 prod = a * b;
+    f32 quot = id(12.0) / b;
+    f32 diff = b - a;
+    i32 cmp = if a < b { 1 } else { 0 };
+    return (sum + prod + quot + diff) as i32 + cmp;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 24
