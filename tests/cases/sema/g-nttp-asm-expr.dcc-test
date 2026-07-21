@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+u64 f(u32 N)() {
+    return asm @[output(u64 in rax), inputs(v in eax = N)] { "mov %[v], %%rax" };
+}
+
+void a() {
+    u64 r = f!42();
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-REGISTRY ===
+fn=f args=[42] state=2

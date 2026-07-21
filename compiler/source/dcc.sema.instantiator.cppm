@@ -1632,6 +1632,16 @@ namespace dcc::sema
 
             switch (s->kind)
             {
+                case ast::StmtKind::Expr:
+                    fold_in_expr(static_cast<ast::ExprStmt*>(s)->expr);
+                    break;
+                case ast::StmtKind::DeclStmt:
+                case ast::StmtKind::Return:
+                case ast::StmtKind::Break:
+                case ast::StmtKind::Continue:
+                case ast::StmtKind::Ambiguous:
+                case ast::StmtKind::Asm:
+                    break;
                 case ast::StmtKind::While:
                     fold_block(static_cast<ast::WhileStmt*>(s)->body);
                     break;
@@ -1647,11 +1657,24 @@ namespace dcc::sema
                 case ast::StmtKind::Defer:
                     fold_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
                     break;
-                case ast::StmtKind::Expr:
-                    fold_in_expr(static_cast<ast::ExprStmt*>(s)->expr);
+                case ast::StmtKind::StaticIf: {
+                    auto* si = static_cast<ast::StaticIfStmt*>(s);
+                    fold_block(si->then_block);
+                    if (si->else_branch)
+                        fold_in_stmt(si->else_branch);
                     break;
-                default:
+                }
+                case ast::StmtKind::StaticMatch: {
+                    auto* sm = static_cast<ast::StaticMatchStmt*>(s);
+                    for (auto& arm : sm->arms)
+                        fold_in_expr(arm.body);
                     break;
+                }
+                case ast::StmtKind::StaticFor: {
+                    auto* sf = static_cast<ast::StaticForStmt*>(s);
+                    fold_block(sf->body);
+                    break;
+                }
             }
         }
 
@@ -2107,6 +2130,17 @@ export namespace dcc::sema
 
                 switch (e->kind)
                 {
+                    case ast::ExprKind::IntLiteral:
+                    case ast::ExprKind::FloatLiteral:
+                    case ast::ExprKind::StringLiteral:
+                    case ast::ExprKind::U16StringLiteral:
+                    case ast::ExprKind::CharLiteral:
+                    case ast::ExprKind::U16CharLiteral:
+                    case ast::ExprKind::BoolLiteral:
+                    case ast::ExprKind::NullLiteral:
+                    case ast::ExprKind::Ident:
+                    case ast::ExprKind::PathExpr:
+                        break;
                     case ast::ExprKind::Unary:
                         replace_in_expr(static_cast<ast::UnaryExpr*>(e)->operand);
                         break;
@@ -2168,12 +2202,26 @@ export namespace dcc::sema
                             replace_in_expr(f.value);
                         break;
                     }
+                    case ast::ExprKind::Sizeof:
+                    case ast::ExprKind::Alignof:
+                    case ast::ExprKind::Offsetof:
+                        break;
+                    case ast::ExprKind::Compiles: {
+                        auto* ce = static_cast<ast::CompilesExpr*>(e);
+                        for (auto* stmt : ce->body.stmts)
+                            replace_in_stmt(stmt);
+                        if (ce->body.tail)
+                            replace_in_expr(ce->body.tail);
+                        break;
+                    }
                     case ast::ExprKind::Range: {
                         auto* r = static_cast<ast::RangeExpr*>(e);
                         replace_in_expr(r->start);
                         replace_in_expr(r->end);
                         break;
                     }
+                    case ast::ExprKind::TypeAST:
+                        break;
                     case ast::ExprKind::TemplateInst: {
                         auto* ti = static_cast<ast::TemplateInstExpr*>(e);
                         replace_in_expr(ti->callee);
@@ -2187,8 +2235,67 @@ export namespace dcc::sema
                     case ast::ExprKind::PackExpansion:
                         replace_in_expr(static_cast<ast::PackExpansionExpr*>(e)->operand);
                         break;
-                    default:
+                    case ast::ExprKind::Asm: {
+                        auto* ae = static_cast<ast::AsmExpr*>(e);
+                        for (auto& op : ae->operands)
+                            replace_in_expr(op.expr);
                         break;
+                    }
+                }
+            }
+
+            void replace_in_type(ast::TypeExpr* t)
+            {
+                if (!t)
+                    return;
+
+                switch (t->kind)
+                {
+                    case ast::TypeKind::Primitive:
+                        break;
+                    case ast::TypeKind::Named: {
+                        auto* nt = static_cast<ast::NamedType*>(t);
+                        for (auto& ta : nt->template_args)
+                        {
+                            replace_in_type(ta.type);
+                            if (ta.expr)
+                                replace_in_expr(ta.expr);
+                        }
+                        break;
+                    }
+                    case ast::TypeKind::Pointer:
+                        replace_in_type(static_cast<ast::PointerType*>(t)->pointee);
+                        break;
+                    case ast::TypeKind::Array: {
+                        auto* arr = static_cast<ast::ArrayType*>(t);
+                        replace_in_type(arr->element);
+                        if (arr->size)
+                            replace_in_expr(arr->size);
+                        break;
+                    }
+                    case ast::TypeKind::Slice:
+                        replace_in_type(static_cast<ast::SliceType*>(t)->element);
+                        break;
+                    case ast::TypeKind::Fam:
+                        replace_in_type(static_cast<ast::FamType*>(t)->element);
+                        break;
+                    case ast::TypeKind::FuncPtr: {
+                        auto* fp = static_cast<ast::FuncPtrType*>(t);
+                        replace_in_type(fp->return_type);
+                        for (auto* p : fp->params)
+                            replace_in_type(p);
+                        break;
+                    }
+                    case ast::TypeKind::Qualified:
+                        replace_in_type(static_cast<ast::QualifiedType*>(t)->inner);
+                        break;
+                    case ast::TypeKind::PackIndex: {
+                        auto* pi = static_cast<ast::PackIndexType*>(t);
+                        replace_in_type(pi->base);
+                        if (pi->index)
+                            replace_in_expr(pi->index);
+                        break;
+                    }
                 }
             }
 
@@ -2202,8 +2309,20 @@ export namespace dcc::sema
                     case ast::StmtKind::Expr:
                         replace_in_expr(static_cast<ast::ExprStmt*>(s)->expr);
                         break;
+                    case ast::StmtKind::DeclStmt: {
+                        auto* ds = static_cast<ast::DeclStmt*>(s);
+                        if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
+                        {
+                            replace_in_type(vd->type);
+                            replace_in_expr(vd->init);
+                        }
+                        break;
+                    }
                     case ast::StmtKind::Return:
                         replace_in_expr(static_cast<ast::ReturnStmt*>(s)->value);
+                        break;
+                    case ast::StmtKind::Break:
+                    case ast::StmtKind::Continue:
                         break;
                     case ast::StmtKind::While: {
                         auto* ws = static_cast<ast::WhileStmt*>(s);
@@ -2231,6 +2350,9 @@ export namespace dcc::sema
                         replace_in_block(fi->body);
                         break;
                     }
+                    case ast::StmtKind::Defer:
+                        replace_in_stmt(static_cast<ast::DeferStmt*>(s)->body);
+                        break;
                     case ast::StmtKind::StaticIf: {
                         auto* si = static_cast<ast::StaticIfStmt*>(s);
                         replace_in_expr(si->condition);
@@ -2251,8 +2373,17 @@ export namespace dcc::sema
                         replace_in_block(sf->body);
                         break;
                     }
-                    default:
+                    case ast::StmtKind::Ambiguous: {
+                        auto* as = static_cast<ast::AmbiguousStmt*>(s);
+                        replace_in_expr(as->as_expr);
                         break;
+                    }
+                    case ast::StmtKind::Asm: {
+                        auto* as = static_cast<ast::AsmStmt*>(s);
+                        for (auto& op : as->operands)
+                            replace_in_expr(op.expr);
+                        break;
+                    }
                 }
             }
         };
@@ -2551,10 +2682,6 @@ export namespace dcc::sema
                                 expand_in_expr(op.expr, false);
                             break;
                         }
-                        default:
-                            if (m_diag)
-                                m_diag->error(s->range, "internal error: unhandled statement kind {} in pack expansion", static_cast<int>(s->kind));
-                            break;
                     }
                 }
 
@@ -3023,6 +3150,10 @@ export namespace dcc::sema
                                             if (auto* rs = static_cast<ast::ReturnStmt*>(s))
                                                 replace_in_expr(rs->value);
                                             break;
+                                        case ast::StmtKind::Break:
+                                        case ast::StmtKind::Continue:
+                                        case ast::StmtKind::Ambiguous:
+                                            break;
                                         case ast::StmtKind::While: {
                                             auto* ws = static_cast<ast::WhileStmt*>(s);
                                             replace_in_expr(ws->condition);
@@ -3063,13 +3194,23 @@ export namespace dcc::sema
                                                 replace_in_expr(arm.body);
                                             break;
                                         }
+                                        case ast::StmtKind::StaticFor: {
+                                            auto* sf = static_cast<ast::StaticForStmt*>(s);
+                                            replace_in_expr(sf->pack_expr);
+                                            replace_in_block(sf->body);
+                                            break;
+                                        }
                                         case ast::StmtKind::Defer: {
                                             auto* ds = static_cast<ast::DeferStmt*>(s);
                                             replace_in_stmt(ds->body);
                                             break;
                                         }
-                                        default:
+                                        case ast::StmtKind::Asm: {
+                                            auto* as = static_cast<ast::AsmStmt*>(s);
+                                            for (auto& op : as->operands)
+                                                replace_in_expr(op.expr);
                                             break;
+                                        }
                                     }
                                 }
 
@@ -3290,6 +3431,10 @@ export namespace dcc::sema
                                         if (auto* rs = static_cast<ast::ReturnStmt*>(s))
                                             replace_in_expr(rs->value);
                                         break;
+                                    case ast::StmtKind::Break:
+                                    case ast::StmtKind::Continue:
+                                    case ast::StmtKind::Ambiguous:
+                                        break;
                                     case ast::StmtKind::While: {
                                         auto* ws = static_cast<ast::WhileStmt*>(s);
                                         replace_in_expr(ws->condition);
@@ -3330,13 +3475,23 @@ export namespace dcc::sema
                                             replace_in_expr(arm.body);
                                         break;
                                     }
+                                    case ast::StmtKind::StaticFor: {
+                                        auto* sf = static_cast<ast::StaticForStmt*>(s);
+                                        replace_in_expr(sf->pack_expr);
+                                        replace_in_block(sf->body);
+                                        break;
+                                    }
                                     case ast::StmtKind::Defer: {
                                         auto* ds = static_cast<ast::DeferStmt*>(s);
                                         replace_in_stmt(ds->body);
                                         break;
                                     }
-                                    default:
+                                    case ast::StmtKind::Asm: {
+                                        auto* as = static_cast<ast::AsmStmt*>(s);
+                                        for (auto& op : as->operands)
+                                            replace_in_expr(op.expr);
                                         break;
+                                    }
                                 }
                             }
 
@@ -3739,6 +3894,10 @@ export namespace dcc::sema
                         case ast::StmtKind::Return:
                             walk_expr(static_cast<ast::ReturnStmt const*>(s)->value);
                             break;
+                        case ast::StmtKind::Break:
+                        case ast::StmtKind::Continue:
+                        case ast::StmtKind::Ambiguous:
+                            break;
                         case ast::StmtKind::While:
                             walk_expr(static_cast<ast::WhileStmt const*>(s)->condition);
                             walk_block(static_cast<ast::WhileStmt const*>(s)->body);
@@ -3777,8 +3936,15 @@ export namespace dcc::sema
                             walk_expr(static_cast<ast::StaticForStmt const*>(s)->pack_expr);
                             walk_block(static_cast<ast::StaticForStmt const*>(s)->body);
                             break;
-                        default:
+                        case ast::StmtKind::Asm: {
+                            auto* as = static_cast<ast::AsmStmt const*>(s);
+                            for (auto const& op : as->operands)
+                            {
+                                check_type(op.type_override, "asm operand type");
+                                walk_expr(op.expr);
+                            }
                             break;
+                        }
                     }
                 }
 
