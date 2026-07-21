@@ -18,7 +18,7 @@ COMPDB_SUBDIRS := compiler driver dccd
 PREFIX ?= /usr/local
 DESTDIR ?=
 ENABLE_LLVM ?= 1
-ENABLE_ASAN ?= 1
+ENABLE_ASAN ?= 0
 BUILD_TYPE ?= debug
 
 BINDIR ?= $(PREFIX)/bin
