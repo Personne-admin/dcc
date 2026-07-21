@@ -278,6 +278,7 @@ export namespace dcc::ir
         AtomicStore,
         AtomicRmw,
         Fence,
+        InlineAsm,
 
         BasicBlock,
         Function,
@@ -1042,6 +1043,56 @@ export namespace dcc::ir
         }
     };
 
+    enum class IrAsmDialect : std::uint8_t
+    {
+        Att,
+        Intel,
+    };
+
+    struct IrAsmOperand
+    {
+        enum class Direction : std::uint8_t
+        {
+            Out,
+            In,
+            InOut
+        };
+        enum class PlacementKind : std::uint8_t
+        {
+            Reg,
+            RegPair,
+            Mem,
+            Imm
+        };
+
+        Direction direction{Direction::Out};
+        PlacementKind placement_kind{PlacementKind::Reg};
+        std::string_view reg_name{};
+        std::string_view reg_name2{};
+        IrValue* value{};
+        std::string_view placeholder{};
+    };
+
+    struct IrInlineAsmInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::InlineAsm;
+
+        std::pmr::string template_str;
+        std::pmr::vector<IrAsmOperand> operands;
+        std::pmr::vector<std::string_view> clobbers;
+        bool is_volatile{true};
+        bool align_stack{false};
+        IrAsmDialect dialect{IrAsmDialect::Att};
+
+        IrInlineAsmInst(std::pmr::string t, std::pmr::vector<IrAsmOperand> o, std::pmr::vector<std::string_view> c, bool vol, bool align, IrAsmDialect d,
+                        IrType const* result_type, sm::SourceRange range, std::pmr::polymorphic_allocator<> alloc)
+            : IrValue(Kind, range), template_str(std::move(t), alloc), operands(std::move(o), alloc), clobbers(std::move(c), alloc), is_volatile(vol),
+              align_stack(align), dialect(d)
+        {
+            type = result_type;
+        }
+    };
+
     enum class Linkage : std::uint8_t
     {
         Internal,
@@ -1402,6 +1453,14 @@ export namespace dcc::ir
         [[nodiscard]] IrCallInst* call(IrType const* result_t, IrValue* callee) { return make<IrCallInst>(result_t, callee, m_arena); }
 
         [[nodiscard]] IrCallTailInst* call_tail(IrType const* result_t, IrValue* callee) { return make<IrCallTailInst>(result_t, callee, m_arena); }
+
+        [[nodiscard]] IrInlineAsmInst* inline_asm(std::pmr::string template_str, std::pmr::vector<IrAsmOperand> operands,
+                                                  std::pmr::vector<std::string_view> clobbers, bool is_volatile, bool align_stack, IrAsmDialect dialect,
+                                                  IrType const* result_type, sm::SourceRange range)
+        {
+            return make<IrInlineAsmInst>(std::move(template_str), std::move(operands), std::move(clobbers), is_volatile, align_stack, dialect, result_type,
+                                         range, m_arena);
+        }
 
         [[nodiscard]] IrBasicBlock* basic_block(std::uint32_t id) { return make<IrBasicBlock>(id, m_arena); }
         [[nodiscard]] IrBasicBlock* basic_block(std::string_view name, std::uint32_t id) { return make<IrBasicBlock>(name, id, m_arena); }
@@ -2030,6 +2089,10 @@ export namespace dcc::ir
                     print_fence(static_cast<IrFenceInst const*>(inst));
                     break;
 
+                case IrNodeKind::InlineAsm:
+                    print_inline_asm(static_cast<IrInlineAsmInst const*>(inst), result_name);
+                    break;
+
                 default:
                     break;
             }
@@ -2234,6 +2297,36 @@ export namespace dcc::ir
             pad();
             write("fence ");
             std::format_to(std::back_inserter(m_out), "\"{}\"", memory_ordering_str(inst->ordering));
+            m_out += '\n';
+        }
+
+        void print_inline_asm(IrInlineAsmInst const* inst, std::string_view name)
+        {
+            pad();
+            if (!name.empty())
+                std::format_to(std::back_inserter(m_out), "%{} = ", name);
+
+            write("inline_asm \"");
+            write(inst->template_str);
+            write("\"");
+            if (inst->is_volatile)
+                write(" volatile");
+            if (inst->align_stack)
+                write(" align_stack");
+            if (inst->dialect == IrAsmDialect::Intel)
+                write(" intel");
+            if (!inst->clobbers.empty())
+            {
+                write(" clobbers=[");
+                for (std::size_t i = 0; i < inst->clobbers.size(); ++i)
+                {
+                    if (i > 0)
+                        write(", ");
+                    write(inst->clobbers[i]);
+                }
+                write("]");
+            }
+            // TODO(em64t): consume structured IrInlineAsmInst operands
             m_out += '\n';
         }
 

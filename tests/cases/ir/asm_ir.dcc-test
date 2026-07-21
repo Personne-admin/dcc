@@ -1,0 +1,11 @@
+=== FILE: test.dc ===
+module test;
+
+void nop() {
+    asm { "nop" };
+}
+
+u64 rdtsc() {
+    u64 tsc = asm @[output(u64 in edx:eax)] { "rdtsc" };
+    return tsc;
+}

@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+void nop() {
+    asm { "nop" };
+}
+
+void outb() {
+    u16 port = 0x60;
+    u8 val = 0x42;
+    asm @[inputs(val in al = val, port in dx = port)] { "outb %[val], %[port]" };
+}
+
+void non_volatile_nop() {
+    asm @[volatile(false)] { "nop" };
+}

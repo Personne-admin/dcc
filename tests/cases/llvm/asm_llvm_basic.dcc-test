@@ -1,0 +1,12 @@
+=== FILE: test.dc ===
+module test;
+
+void nop() {
+    asm { "nop" };
+}
+
+void mem_barrier() {
+    asm @[clobbers(memory)] { "" };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

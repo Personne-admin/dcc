@@ -561,6 +561,34 @@ namespace dcc::ir::pass
                     break;
                 }
 
+                case IrNodeKind::InlineAsm: {
+                    auto* ia = static_cast<IrInlineAsmInst const*>(v);
+                    std::pmr::vector<IrAsmOperand> cloned_operands(dst.allocator());
+                    cloned_operands.reserve(ia->operands.size());
+                    for (auto const& op : ia->operands)
+                    {
+                        IrAsmOperand cloned_op;
+                        cloned_op.direction = op.direction;
+                        cloned_op.placement_kind = op.placement_kind;
+                        cloned_op.reg_name = op.reg_name;
+                        cloned_op.reg_name2 = op.reg_name2;
+                        cloned_op.placeholder = op.placeholder;
+                        if (op.value)
+                        {
+                            auto it2 = cctx.value_map.find(op.value);
+                            cloned_op.value = it2 != cctx.value_map.end() ? it2->second : clone_value_impl(op.value, dst, cctx);
+                        }
+                        cloned_operands.push_back(cloned_op);
+                    }
+                    std::pmr::vector<std::string_view> cloned_clobbers(dst.allocator());
+                    cloned_clobbers.reserve(ia->clobbers.size());
+                    for (auto const& c : ia->clobbers)
+                        cloned_clobbers.push_back(c);
+                    result = dst.inline_asm(std::pmr::string(ia->template_str, dst.allocator()), std::move(cloned_operands), std::move(cloned_clobbers),
+                                            ia->is_volatile, ia->align_stack, ia->dialect, clone_type_impl(ia->type, dst, cctx), ia->range);
+                    break;
+                }
+
                 case IrNodeKind::BasicBlock: {
                     auto* bb = static_cast<IrBasicBlock const*>(v);
                     auto it2 = cctx.bb_map.find(bb);

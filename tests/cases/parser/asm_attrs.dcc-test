@@ -1,0 +1,10 @@
+=== FILE: test.dc ===
+module test;
+
+void attrs_test() {
+    asm @[volatile(false)] { "nop" };
+    asm @[intel] { "mov eax, 0" };
+    asm @[arch("x86_64")] { "cpuid" };
+    asm @[clobbers(rax, rcx, rdx)] { "cpuid" };
+    asm @[alignstack] { "nop" };
+}

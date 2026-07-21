@@ -132,6 +132,7 @@ export namespace dcc::ast
         TemplateInst,
         SizeofPack,
         PackExpansion,
+        Asm,
     };
 
     enum class StmtKind : std::uint8_t
@@ -149,7 +150,8 @@ export namespace dcc::ast
         StaticIf,
         StaticMatch,
         StaticFor,
-        Ambiguous
+        Ambiguous,
+        Asm,
     };
 
     enum class PatternKind : std::uint8_t
@@ -754,6 +756,90 @@ export namespace dcc::ast
         ExprPtr end;
         bool inclusive;
         RangeExpr(sm::SourceRange r, ExprPtr s, ExprPtr e, bool incl = false) : Expr(Kind, r), start(s), end(e), inclusive(incl) {}
+    };
+
+    enum class AsmOperandDirection : std::uint8_t
+    {
+        Out,
+        In,
+        InOut,
+    };
+
+    enum class AsmPlacementKind : std::uint8_t
+    {
+        Reg,
+        RegPair,
+        Mem,
+        Imm,
+    };
+
+    enum class AsmDialect : std::uint8_t
+    {
+        Att,
+        Intel,
+    };
+
+    struct AsmOperand
+    {
+        AsmOperandDirection direction{AsmOperandDirection::Out};
+        AsmPlacementKind placement_kind{AsmPlacementKind::Reg};
+        std::string_view reg_name;
+        std::string_view reg_name2;
+        std::string_view placeholder;
+        ExprPtr expr{};
+        TypePtr type_override{};
+        bool is_mem_writable{false};
+        bool type_is_deduced{false};
+        sm::SourceRange range;
+    };
+
+    struct AsmPlaceholderSpan
+    {
+        std::uint32_t byte_offset{};
+        std::uint32_t byte_length{};
+        enum class Kind : std::uint8_t
+        {
+            OperandRef,
+            RegLiteral,
+            Unresolved,
+        };
+        Kind kind{Kind::OperandRef};
+        std::string_view name;
+        std::uint32_t operand_index{0xFFFFFFFFU};
+    };
+
+    struct AsmExpr : Expr
+    {
+        static constexpr auto Kind = ExprKind::Asm;
+        std::pmr::string template_str;
+        std::pmr::vector<AsmOperand> operands;
+        std::pmr::vector<AsmPlaceholderSpan> placeholder_spans;
+        std::pmr::vector<Attribute> attrs;
+        std::pmr::vector<std::string_view> clobbers;
+        AsmDialect dialect{AsmDialect::Att};
+        bool is_volatile{true};
+        bool align_stack{false};
+        sm::SourceRange asm_keyword_range;
+        sm::SourceRange template_range;
+
+        AsmExpr(sm::SourceRange r, Allocator a) : Expr(Kind, r), template_str(a), operands(a), placeholder_spans(a), attrs(a), clobbers(a) {}
+    };
+
+    struct AsmStmt : Stmt
+    {
+        static constexpr auto Kind = StmtKind::Asm;
+        std::pmr::string template_str;
+        std::pmr::vector<AsmOperand> operands;
+        std::pmr::vector<AsmPlaceholderSpan> placeholder_spans;
+        std::pmr::vector<Attribute> attrs;
+        std::pmr::vector<std::string_view> clobbers;
+        AsmDialect dialect{AsmDialect::Att};
+        bool is_volatile{true};
+        bool align_stack{false};
+        sm::SourceRange asm_keyword_range;
+        sm::SourceRange template_range;
+
+        AsmStmt(sm::SourceRange r, Allocator a) : Stmt(Kind, r), template_str(a), operands(a), placeholder_spans(a), attrs(a), clobbers(a) {}
     };
 
     struct LiteralPattern : Pattern

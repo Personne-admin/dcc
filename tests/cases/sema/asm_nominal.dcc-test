@@ -1,0 +1,9 @@
+=== FILE: test.dc ===
+module test;
+
+@nominal using Port = u16;
+
+void port_out() {
+    Port port = 0x60 as Port;
+    asm @[inputs(port in dx = port)] { "outb %%al, %[port]" };
+}

@@ -1237,6 +1237,12 @@ export namespace dcc::sema
                 f.index = static_cast<std::uint32_t>(i);
                 f.byte_offset = 0;
 
+                if (!f.type)
+                {
+                    complete = false;
+                    break;
+                }
+
                 m_finalizing_stack.back().field_name = f.name;
                 ensure_type_finalized(f.type->sema);
                 m_finalizing_stack.back().field_name = {};
@@ -1254,11 +1260,8 @@ export namespace dcc::sema
                     break;
                 }
 
-                if (ts.byte_align > natural_align)
-                    natural_align = ts.byte_align;
-
-                if (ts.byte_size > size)
-                    size = ts.byte_size;
+                natural_align = std::max(ts.byte_align, natural_align);
+                size = std::max(ts.byte_size, size);
             }
 
             if (complete)

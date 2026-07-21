@@ -64,7 +64,7 @@ export namespace dcc::sema
             resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
             validate_public_signatures(m_graph.all(), m_diag);
-            analyze_bodies(m_graph.all(), m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry);
+            analyze_bodies(m_graph.all(), m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target);
 
             complete_all_templated_tagged_enums(m_types, m_alloc);
 

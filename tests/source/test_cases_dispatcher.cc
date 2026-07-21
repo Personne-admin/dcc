@@ -175,11 +175,13 @@ namespace
         std::vector<ExpectLlvm> llvm_blocks;
         std::vector<ExpectRegistry> registry_blocks;
         std::vector<ExpectError> errors;
+        std::vector<ExpectError> warnings;
         std::vector<ExpectExecutable> executable_blocks;
         std::vector<ExpectEm64tObject> em64t_object_blocks;
         std::vector<ExpectEm64tAsm> em64t_asm_blocks;
         std::vector<std::string> injected_decls;
         bool errors_block_present{};
+        bool warnings_block_present{};
         bool interactive_mode{};
     };
 
@@ -689,6 +691,41 @@ namespace
                 e.base_line = sec.body_start_line;
                 fx.registry_blocks.push_back(std::move(e));
             }
+            else if (starts_with(h, "EXPECT-WARNINGS"))
+            {
+                fx.warnings_block_present = true;
+                std::size_t i = 0;
+                std::string_view body = sec.body;
+                while (i < body.size())
+                {
+                    auto nl = body.find('\n', i);
+                    auto end = (nl == std::string_view::npos) ? body.size() : nl;
+                    std::string_view line = body.substr(i, end - i);
+                    auto trimmed = trim(line);
+                    if (!trimmed.empty())
+                    {
+                        auto first_colon = trimmed.find(':');
+                        auto second_colon = (first_colon == std::string::npos) ? std::string::npos : trimmed.find(':', first_colon + 1);
+                        if (second_colon == std::string::npos)
+                            return std::nullopt;
+
+                        ExpectError e;
+                        e.file = trimmed.substr(0, first_colon);
+                        try
+                        {
+                            e.line = std::stoi(trimmed.substr(first_colon + 1, second_colon - first_colon - 1));
+                        }
+                        catch (...)
+                        {
+                            return std::nullopt;
+                        }
+
+                        e.substring = trim(std::string_view{trimmed}.substr(second_colon + 1));
+                        fx.warnings.push_back(std::move(e));
+                    }
+                    i = (nl == std::string_view::npos) ? body.size() : nl + 1;
+                }
+            }
             else if (starts_with(h, "EXPECT-ERRORS"))
             {
                 fx.errors_block_present = true;
@@ -906,6 +943,12 @@ namespace
                 staged.back().message = trim(std::string_view{t}.substr(6));
                 current = &staged.back();
             }
+            else if (starts_with(t, "warning:"))
+            {
+                staged.push_back({});
+                staged.back().message = trim(std::string_view{t}.substr(8));
+                current = &staged.back();
+            }
             else if (starts_with(t, "note:"))
             {
                 staged.push_back({});
@@ -1047,7 +1090,34 @@ namespace
                 }
             }
         }
-        else if (diag.has_errors())
+
+        if (fx.warnings_block_present)
+        {
+            auto captured = parse_diag_output(diag_sink.str());
+            for (auto const& want : fx.warnings)
+            {
+                bool matched = false;
+                for (auto const& got : captured)
+                {
+                    auto leaf = fs::path{got.file}.lexically_relative(sb->root).string();
+                    if ((leaf == want.file || got.file == want.file) && got.line == want.line && got.message.find(want.substring) != std::string::npos)
+                    {
+                        matched = true;
+                        break;
+                    }
+                }
+                if (!matched)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  expected warning not seen: {}:{}: {}  ({}:1)", want.file, want.line, want.substring, path.string());
+                    for (auto const& got : captured)
+                        std::println(std::cerr, "          got warning: {}:{}: {}", fs::path{got.file}.lexically_relative(sb->root).string(), got.line,
+                                     got.message);
+                }
+            }
+        }
+
+        if (!fx.errors_block_present && !fx.warnings_block_present && diag.has_errors())
         {
             ok = false;
             std::println(std::cerr, "    FAIL  unexpected errors  ({}:1)", path.string());
@@ -1567,7 +1637,8 @@ namespace
                     auto result = dcc::sema::instantiate_with_bindings(*template_fn, bindings, ast_ctx, type_ctx, &diag);
                     if (result.decl)
                     {
-                        dcc::sema::analyze_instantiated_body(const_cast<dcc::sema::ModuleInfo&>(*mod), *result.decl, diag, ast_ctx, type_ctx, sema.allocator());
+                        dcc::sema::analyze_instantiated_body(const_cast<dcc::sema::ModuleInfo&>(*mod), *result.decl, diag, ast_ctx, type_ctx, sema.allocator(),
+                                                             nullptr);
                         actual += dcc::sema::BodyDumper::dump_decl(*result.decl);
                     }
                 }

@@ -15,6 +15,7 @@ import dcc.ast;
 import dcc.sema;
 import dcc.sema.type_helpers;
 import dcc.vfs;
+import dcc.target;
 
 export namespace dccd
 {
@@ -546,6 +547,23 @@ export namespace dccd
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
             }
 
+            {
+                auto fid_opt = file_id_from_uri(params.textDocument.uri);
+                if (fid_opt)
+                {
+                    auto loc_result = m_session->source_manager().lsp_position_to_location(*fid_opt, sm_pos);
+                    if (loc_result)
+                    {
+                        auto asm_hover = try_asm_hover(*fid_opt, *loc_result);
+                        if (asm_hover)
+                        {
+                            std::println(m_log, "[dccd] hover: returning inline-asm hover info");
+                            return protocol::build_response(rpc.id.value(), asm_hover->to_json());
+                        }
+                    }
+                }
+            }
+
             std::string markdown;
 
             if (node->resolved_field)
@@ -702,6 +720,243 @@ export namespace dccd
             hover.contents.kind = "markdown";
             hover.contents.value = std::move(markdown);
             return protocol::build_response(rpc.id.value(), hover.to_json());
+        }
+
+        [[nodiscard]] std::optional<protocol::Hover> try_asm_hover(dcc::sm::FileId fid, dcc::sm::Location cursor_loc)
+        {
+            dcc::ast::TranslationUnit const* tu = nullptr;
+            {
+                auto* sema_ctx = m_session->sema_context();
+                if (sema_ctx)
+                {
+                    auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+                    for (auto const& mod : graph.all())
+                    {
+                        if (mod->file_id == fid && mod->tu)
+                        {
+                            tu = mod->tu;
+                            break;
+                        }
+                    }
+                    if (!tu)
+                        tu = graph.find_tu_for_file(fid);
+                }
+            }
+            if (!tu)
+                tu = m_session->parse_file(fid);
+
+            if (!tu)
+                return std::nullopt;
+
+            auto& sm = m_session->source_manager();
+
+            auto check_asm_template = [&](dcc::sm::SourceRange const& template_range, auto const& placeholder_spans,
+                                          auto const& operands) -> std::optional<protocol::Hover> {
+                if (!template_range.valid())
+                    return std::nullopt;
+                if (cursor_loc.fileId != template_range.begin.fileId)
+                    return std::nullopt;
+                if (cursor_loc.offset < template_range.begin.offset || cursor_loc.offset > template_range.end.offset)
+                    return std::nullopt;
+
+                auto content_base = template_range.begin.offset + 1;
+
+                for (auto const& span : placeholder_spans)
+                {
+                    auto span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
+                    auto span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+
+                    if (cursor_loc.offset >= span_start && cursor_loc.offset <= span_end)
+                    {
+                        std::string hover_text;
+
+                        switch (span.kind)
+                        {
+                            case dcc::ast::AsmPlaceholderSpan::Kind::OperandRef: {
+                                if (span.operand_index < operands.size())
+                                {
+                                    auto const& op = operands[span.operand_index];
+                                    std::string dir_str;
+                                    switch (op.direction)
+                                    {
+                                        case dcc::ast::AsmOperandDirection::Out:
+                                            dir_str = "out";
+                                            break;
+                                        case dcc::ast::AsmOperandDirection::In:
+                                            dir_str = "in";
+                                            break;
+                                        case dcc::ast::AsmOperandDirection::InOut:
+                                            dir_str = "inout";
+                                            break;
+                                    }
+                                    std::string place_str;
+                                    switch (op.placement_kind)
+                                    {
+                                        case dcc::ast::AsmPlacementKind::Reg:
+                                            place_str = op.reg_name.empty() ? "reg" : std::format("reg[{}]", op.reg_name);
+                                            break;
+                                        case dcc::ast::AsmPlacementKind::RegPair:
+                                            place_str = std::format("pair[{},{}]", op.reg_name, op.reg_name2);
+                                            break;
+                                        case dcc::ast::AsmPlacementKind::Mem:
+                                            place_str = "mem";
+                                            break;
+                                        case dcc::ast::AsmPlacementKind::Imm:
+                                            place_str = "imm";
+                                            break;
+                                    }
+
+                                    std::string type_str = "<unknown>";
+                                    if (op.type_override && op.type_override->sema.canonical)
+                                        type_str = format_dcc_type(dcc::sema::get_canonical(op.type_override->sema));
+                                    else if (op.expr)
+                                    {
+                                        auto const* resolved = dcc::sema::get_resolved_type(op.expr->sema);
+                                        if (resolved)
+                                            type_str = format_dcc_type(resolved);
+                                    }
+
+                                    hover_text = std::format("operand `{}`: {} (direction: {}, placement: {})", span.name, type_str, dir_str, place_str);
+                                }
+                                else
+                                    hover_text = std::format("operand `{}` (unresolved)", span.name);
+
+                                break;
+                            }
+                            case dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral: {
+                                // TODO(asm): use actual arch from session's TargetConfig
+                                auto arch = dcc::target::TargetConfig::host_default().arch;
+                                auto const* reg = dcc::target::lookup_register(arch, span.name);
+                                if (reg)
+                                {
+                                    std::string cls_str;
+                                    switch (reg->cls)
+                                    {
+                                        case dcc::target::PhysRegClass::GPR:
+                                            cls_str = "GPR";
+                                            break;
+                                        case dcc::target::PhysRegClass::XMM:
+                                            cls_str = "XMM";
+                                            break;
+                                        case dcc::target::PhysRegClass::Seg:
+                                            cls_str = "Seg";
+                                            break;
+                                        case dcc::target::PhysRegClass::Flags:
+                                            cls_str = "Flags";
+                                            break;
+                                        case dcc::target::PhysRegClass::ST:
+                                            cls_str = "ST";
+                                            break;
+                                    }
+                                    hover_text = std::format("register `{}`: {}, {}-bit", reg->name, cls_str, reg->width);
+                                }
+                                else
+                                {
+                                    hover_text = std::format("register `{}` (unknown)", span.name);
+                                }
+                                break;
+                            }
+                            case dcc::ast::AsmPlaceholderSpan::Kind::Unresolved: {
+                                hover_text = std::format("`{}` (unresolved placeholder)", span.name);
+                                break;
+                            }
+                        }
+
+                        if (!hover_text.empty())
+                        {
+                            protocol::Hover hover;
+                            hover.contents.kind = "markdown";
+                            hover.contents.value = std::format("```dc\n{}\n```", hover_text);
+
+                            auto start_pos_opt = sm.location_to_lsp_position(dcc::sm::Location{fid, span_start});
+                            auto end_pos_opt = sm.location_to_lsp_position(dcc::sm::Location{fid, span_end});
+                            if (start_pos_opt && end_pos_opt)
+                            {
+                                auto const& sp = *start_pos_opt;
+                                auto const& ep = *end_pos_opt;
+                                hover.range = protocol::LspRange{};
+                                hover.range->start.line = sp.line;
+                                hover.range->start.character = sp.character;
+                                hover.range->end.line = ep.line;
+                                hover.range->end.character = ep.character;
+                            }
+
+                            return hover;
+                        }
+                    }
+                }
+                return std::nullopt;
+            };
+
+            std::function<void(dcc::ast::Decl const*)> walk_decls;
+            std::function<void(dcc::ast::Stmt const*)> walk_stmts;
+            std::function<void(dcc::ast::Expr const*)> walk_exprs;
+
+            walk_decls = [&](dcc::ast::Decl const* decl) -> void {
+                if (!decl)
+                    return;
+
+                if (decl->kind == dcc::ast::DeclKind::Func)
+                {
+                    auto const* fd = static_cast<dcc::ast::FuncDecl const*>(decl);
+                    if (fd->body.has_value())
+                    {
+                        for (auto* s : fd->body->stmts)
+                            walk_stmts(s);
+                        walk_exprs(fd->body->tail);
+                    }
+                }
+            };
+
+            walk_stmts = [&](dcc::ast::Stmt const* stmt) -> void {
+                if (!stmt)
+                    return;
+
+                if (stmt->kind == dcc::ast::StmtKind::Asm)
+                {
+                    auto const* s = static_cast<dcc::ast::AsmStmt const*>(stmt);
+                    auto result = check_asm_template(s->template_range, s->placeholder_spans, s->operands);
+                    if (result)
+                        throw result;
+                }
+                if (stmt->kind == dcc::ast::StmtKind::Expr)
+                {
+                    auto const* es = static_cast<dcc::ast::ExprStmt const*>(stmt);
+                    walk_exprs(es->expr);
+                }
+                else if (stmt->kind == dcc::ast::StmtKind::DeclStmt)
+                {
+                    auto const* ds = static_cast<dcc::ast::DeclStmt const*>(stmt);
+                    walk_decls(ds->decl);
+                }
+            };
+
+            walk_exprs = [&](dcc::ast::Expr const* expr) -> void {
+                if (!expr)
+                    return;
+
+                if (expr->kind == dcc::ast::ExprKind::Asm)
+                {
+                    auto const* e = static_cast<dcc::ast::AsmExpr const*>(expr);
+                    auto result = check_asm_template(e->template_range, e->placeholder_spans, e->operands);
+                    if (result)
+                        throw result;
+                }
+            };
+
+            try
+            {
+                for (auto* d : tu->imports)
+                    walk_decls(d);
+                for (auto* d : tu->decls)
+                    walk_decls(d);
+            }
+            catch (std::optional<protocol::Hover> result)
+            {
+                return result;
+            }
+
+            return std::nullopt;
         }
 
         [[nodiscard]] std::optional<protocol::JsonValue> handle_semantic_tokens_full(protocol::RpcInfo const& rpc)

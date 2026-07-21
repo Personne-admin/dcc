@@ -1,0 +1,12 @@
+=== FILE: test.dc ===
+module test;
+
+void volatile_asm() {
+    asm { "nop" };
+}
+
+void non_volatile_asm() {
+    asm @[volatile(false)] { "nop" };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

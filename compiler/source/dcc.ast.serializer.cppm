@@ -428,6 +428,120 @@ export namespace dcc::ast
             print_template_args(e->template_args);
         }
 
+        void visitAsmExpr(AsmExpr const* e) override
+        {
+            line_fmt("AsmExpr volatile={} dialect={} align_stack={}", e->is_volatile, e->dialect == AsmDialect::Intel ? "intel" : "att", e->align_stack);
+            IndentScope is(m_indent_level);
+            line_fmt("Template \"{}\"", e->template_str);
+            if (!e->operands.empty())
+            {
+                line("Operands");
+                IndentScope is2(m_indent_level);
+                for (auto const& op : e->operands)
+                {
+                    std::string dir;
+                    switch (op.direction)
+                    {
+                        case AsmOperandDirection::Out:
+                            dir = "out";
+                            break;
+                        case AsmOperandDirection::In:
+                            dir = "in";
+                            break;
+                        case AsmOperandDirection::InOut:
+                            dir = "inout";
+                            break;
+                    }
+                    std::string plac;
+                    switch (op.placement_kind)
+                    {
+                        case AsmPlacementKind::Reg:
+                            plac = op.reg_name.empty() ? "reg(any)" : std::format("reg({})", op.reg_name);
+                            break;
+                        case AsmPlacementKind::RegPair:
+                            plac = std::format("regpair({}:{})", op.reg_name, op.reg_name2);
+                            break;
+                        case AsmPlacementKind::Mem:
+                            plac = "mem";
+                            break;
+                        case AsmPlacementKind::Imm:
+                            plac = "imm";
+                            break;
+                    }
+                    line_fmt("AsmOperand dir={} place={} name={}", dir, plac, op.placeholder);
+                    if (op.expr)
+                    {
+                        IndentScope is3(m_indent_level);
+                        visitExpr(op.expr);
+                    }
+                }
+            }
+            if (!e->clobbers.empty())
+            {
+                line("Clobbers");
+                IndentScope is2(m_indent_level);
+                for (auto const& c : e->clobbers)
+                    line(std::string{c});
+            }
+        }
+
+        void visitAsmStmt(AsmStmt const* s) override
+        {
+            line_fmt("AsmStmt volatile={} dialect={}", s->is_volatile, s->dialect == AsmDialect::Intel ? "intel" : "att");
+            IndentScope is(m_indent_level);
+            line_fmt("Template \"{}\"", s->template_str);
+            if (!s->operands.empty())
+            {
+                line("Operands");
+                IndentScope is2(m_indent_level);
+                for (auto const& op : s->operands)
+                {
+                    std::string dir;
+                    switch (op.direction)
+                    {
+                        case AsmOperandDirection::Out:
+                            dir = "out";
+                            break;
+                        case AsmOperandDirection::In:
+                            dir = "in";
+                            break;
+                        case AsmOperandDirection::InOut:
+                            dir = "inout";
+                            break;
+                    }
+                    std::string plac;
+                    switch (op.placement_kind)
+                    {
+                        case AsmPlacementKind::Reg:
+                            plac = op.reg_name.empty() ? "reg(any)" : std::format("reg({})", op.reg_name);
+                            break;
+                        case AsmPlacementKind::RegPair:
+                            plac = std::format("regpair({}:{})", op.reg_name, op.reg_name2);
+                            break;
+                        case AsmPlacementKind::Mem:
+                            plac = "mem";
+                            break;
+                        case AsmPlacementKind::Imm:
+                            plac = "imm";
+                            break;
+                    }
+                    line_fmt("AsmOperand dir={} place={} name={}", dir, plac, op.placeholder);
+                    if (op.expr)
+                    {
+                        IndentScope is3(m_indent_level);
+                        visitExpr(op.expr);
+                    }
+                }
+            }
+            if (!s->clobbers.empty())
+            {
+                line("Clobbers");
+                IndentScope is2(m_indent_level);
+                for (auto const& c : s->clobbers)
+                    line(std::string{c});
+            }
+        }
+
         void visitLiteralPattern(LiteralPattern const* p) override
         {
             line("LiteralPattern");

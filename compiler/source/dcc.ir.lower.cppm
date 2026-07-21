@@ -1995,6 +1995,68 @@ export namespace dcc::ir::lower
                     lower_panic(stmt, "unresolved ambiguous statement reached IR lowering");
                 }
 
+                case ast::StmtKind::Asm: {
+                    auto* asm_stmt = static_cast<ast::AsmStmt const*>(stmt);
+
+                    std::pmr::vector<IrAsmOperand> ir_operands(m_ctx.allocator());
+                    ir_operands.reserve(asm_stmt->operands.size());
+                    for (auto const& ast_op : asm_stmt->operands)
+                    {
+                        IrAsmOperand ir_op;
+                        switch (ast_op.direction)
+                        {
+                            case ast::AsmOperandDirection::Out:
+                                ir_op.direction = IrAsmOperand::Direction::Out;
+                                break;
+                            case ast::AsmOperandDirection::In:
+                                ir_op.direction = IrAsmOperand::Direction::In;
+                                break;
+                            case ast::AsmOperandDirection::InOut:
+                                ir_op.direction = IrAsmOperand::Direction::InOut;
+                                break;
+                        }
+                        switch (ast_op.placement_kind)
+                        {
+                            case ast::AsmPlacementKind::Reg:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::Reg;
+                                break;
+                            case ast::AsmPlacementKind::RegPair:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::RegPair;
+                                break;
+                            case ast::AsmPlacementKind::Mem:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::Mem;
+                                break;
+                            case ast::AsmPlacementKind::Imm:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::Imm;
+                                break;
+                        }
+                        ir_op.reg_name = ast_op.reg_name;
+                        ir_op.reg_name2 = ast_op.reg_name2;
+                        ir_op.placeholder = ast_op.placeholder;
+                        if (ast_op.expr)
+                            ir_op.value = lower_expr(ast_op.expr);
+                        ir_operands.push_back(ir_op);
+                    }
+
+                    std::pmr::vector<std::string_view> ir_clobbers(m_ctx.allocator());
+                    ir_clobbers.reserve(asm_stmt->clobbers.size());
+                    for (auto const& c : asm_stmt->clobbers)
+                        ir_clobbers.push_back(c);
+
+                    IrAsmDialect ir_dialect = IrAsmDialect::Att;
+                    if (asm_stmt->dialect == ast::AsmDialect::Intel)
+                        ir_dialect = IrAsmDialect::Intel;
+
+                    auto* ir_void = m_ctx.void_t();
+
+                    auto* asm_inst =
+                        m_ctx.inline_asm(std::pmr::string(asm_stmt->template_str, m_ctx.allocator()), std::move(ir_operands), std::move(ir_clobbers),
+                                         asm_stmt->is_volatile, asm_stmt->align_stack, ir_dialect, ir_void, asm_stmt->range);
+
+                    append_inst(asm_inst);
+                    break;
+                }
+
                 default: {
                     std::string reason = std::format("unsupported statement kind: {}", static_cast<int>(stmt->kind));
                     lower_unimplemented(stmt, reason);
@@ -2168,6 +2230,76 @@ export namespace dcc::ir::lower
 
                 case ast::ExprKind::Range: {
                     lower_panic(expr, "RangeExpr must not reach IR expression lowering as runtime value");
+                }
+
+                case ast::ExprKind::Asm: {
+                    auto* asm_expr = static_cast<ast::AsmExpr const*>(expr);
+
+                    std::pmr::vector<IrAsmOperand> ir_operands(m_ctx.allocator());
+                    ir_operands.reserve(asm_expr->operands.size());
+                    for (auto const& ast_op : asm_expr->operands)
+                    {
+                        IrAsmOperand ir_op;
+                        switch (ast_op.direction)
+                        {
+                            case ast::AsmOperandDirection::Out:
+                                ir_op.direction = IrAsmOperand::Direction::Out;
+                                break;
+                            case ast::AsmOperandDirection::In:
+                                ir_op.direction = IrAsmOperand::Direction::In;
+                                break;
+                            case ast::AsmOperandDirection::InOut:
+                                ir_op.direction = IrAsmOperand::Direction::InOut;
+                                break;
+                        }
+                        switch (ast_op.placement_kind)
+                        {
+                            case ast::AsmPlacementKind::Reg:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::Reg;
+                                break;
+                            case ast::AsmPlacementKind::RegPair:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::RegPair;
+                                break;
+                            case ast::AsmPlacementKind::Mem:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::Mem;
+                                break;
+                            case ast::AsmPlacementKind::Imm:
+                                ir_op.placement_kind = IrAsmOperand::PlacementKind::Imm;
+                                break;
+                        }
+                        ir_op.reg_name = ast_op.reg_name;
+                        ir_op.reg_name2 = ast_op.reg_name2;
+                        ir_op.placeholder = ast_op.placeholder;
+                        if (ast_op.expr)
+                            ir_op.value = lower_expr(ast_op.expr);
+                        ir_operands.push_back(ir_op);
+                    }
+
+                    std::pmr::vector<std::string_view> ir_clobbers(m_ctx.allocator());
+                    ir_clobbers.reserve(asm_expr->clobbers.size());
+                    for (auto const& c : asm_expr->clobbers)
+                        ir_clobbers.push_back(c);
+
+                    IrAsmDialect ir_dialect = IrAsmDialect::Att;
+                    if (asm_expr->dialect == ast::AsmDialect::Intel)
+                        ir_dialect = IrAsmDialect::Intel;
+
+                    auto* sema_ret_type = get_sema_resolved_type(asm_expr);
+                    auto* ir_ret_type = lower_type(sema_ret_type);
+
+                    auto* asm_inst =
+                        m_ctx.inline_asm(std::pmr::string(asm_expr->template_str, m_ctx.allocator()), std::move(ir_operands), std::move(ir_clobbers),
+                                         asm_expr->is_volatile, asm_expr->align_stack, ir_dialect, ir_ret_type, asm_expr->range);
+
+                    bool is_void_result = (ir_ret_type->kind == IrTypeKind::Void);
+                    if (!is_void_result)
+                    {
+                        auto name = ident_name();
+                        asm_inst->name = m_name_pool.back();
+                    }
+
+                    append_inst(asm_inst);
+                    return is_void_result ? nullptr : asm_inst;
                 }
 
                 default: {

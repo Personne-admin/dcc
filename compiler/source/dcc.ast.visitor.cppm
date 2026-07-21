@@ -68,6 +68,7 @@ export namespace dcc::ast
         virtual void visitRangeExpr(RangeExpr const*) {}
         virtual void visitTypeASTExpr(TypeASTExpr const*) {}
         virtual void visitTemplateInstExpr(TemplateInstExpr const*) {}
+        virtual void visitAsmExpr(AsmExpr const*) {}
 
         virtual void visitExprStmt(ExprStmt const*) {}
         virtual void visitDeclStmt(DeclStmt const*) {}
@@ -83,6 +84,7 @@ export namespace dcc::ast
         virtual void visitStaticMatchStmt(StaticMatchStmt const*) {}
         virtual void visitStaticForStmt(StaticForStmt const*) {}
         virtual void visitAmbiguousStmt(AmbiguousStmt const*) {}
+        virtual void visitAsmStmt(AsmStmt const*) {}
 
         virtual void visitModuleDecl(ModuleDecl const*) {}
         virtual void visitImportDecl(ImportDecl const*) {}
@@ -158,6 +160,7 @@ export namespace dcc::ast
         void visitOffsetofExpr(OffsetofExpr const*) override;
         void visitCompilesExpr(CompilesExpr const*) override;
         void visitRangeExpr(RangeExpr const*) override;
+        void visitAsmExpr(AsmExpr const*) override;
         void visitTypeASTExpr(TypeASTExpr const*) override;
         void visitTemplateInstExpr(TemplateInstExpr const*) override;
 
@@ -175,6 +178,7 @@ export namespace dcc::ast
         void visitStaticMatchStmt(StaticMatchStmt const*) override;
         void visitStaticForStmt(StaticForStmt const*) override;
         void visitAmbiguousStmt(AmbiguousStmt const*) override;
+        void visitAsmStmt(AsmStmt const*) override;
 
         void visitModuleDecl(ModuleDecl const*) override;
         void visitImportDecl(ImportDecl const*) override;
@@ -536,6 +540,9 @@ namespace dcc::ast
             case ExprKind::TemplateInst:
                 visitTemplateInstExpr(node_cast<TemplateInstExpr>(expr));
                 break;
+            case ExprKind::Asm:
+                visitAsmExpr(node_cast<AsmExpr>(expr));
+                break;
         }
     }
 
@@ -689,6 +696,20 @@ namespace dcc::ast
         visitTemplateArgs(e->template_args);
     }
 
+    void RecursiveAstVisitor::visitAsmExpr(AsmExpr const* e)
+    {
+        for (auto const& op : e->operands)
+            if (op.expr)
+                visitExpr(op.expr);
+    }
+
+    void RecursiveAstVisitor::visitAsmStmt(AsmStmt const* s)
+    {
+        for (auto const& op : s->operands)
+            if (op.expr)
+                visitExpr(op.expr);
+    }
+
     void RecursiveAstVisitor::visitStmt(Stmt const* stmt)
     {
         if (!stmt)
@@ -737,6 +758,9 @@ namespace dcc::ast
                 break;
             case StmtKind::Ambiguous:
                 visitAmbiguousStmt(node_cast<AmbiguousStmt>(stmt));
+                break;
+            case StmtKind::Asm:
+                visitAsmStmt(node_cast<AsmStmt>(stmt));
                 break;
         }
     }

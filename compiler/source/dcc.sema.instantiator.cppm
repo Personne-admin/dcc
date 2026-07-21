@@ -349,6 +349,35 @@ namespace dcc::sema
                     n->sema = ex->sema;
                     return n;
                 }
+                case ast::ExprKind::Asm: {
+                    auto* ex = static_cast<ast::AsmExpr const*>(e);
+                    auto* n = m_ctx.make<ast::AsmExpr>(ex->range, m_ctx.allocator());
+                    n->template_str = ex->template_str;
+                    for (auto& op : ex->operands)
+                    {
+                        ast::AsmOperand cloned;
+                        cloned.direction = op.direction;
+                        cloned.placement_kind = op.placement_kind;
+                        cloned.reg_name = op.reg_name;
+                        cloned.reg_name2 = op.reg_name2;
+                        cloned.placeholder = op.placeholder;
+                        cloned.expr = clone_expr(op.expr);
+                        cloned.type_override = clone_type(op.type_override);
+                        cloned.is_mem_writable = op.is_mem_writable;
+                        cloned.type_is_deduced = op.type_is_deduced;
+                        cloned.range = op.range;
+                        n->operands.push_back(std::move(cloned));
+                    }
+                    n->placeholder_spans = ex->placeholder_spans;
+                    n->clobbers = ex->clobbers;
+                    n->dialect = ex->dialect;
+                    n->is_volatile = ex->is_volatile;
+                    n->align_stack = ex->align_stack;
+                    n->asm_keyword_range = ex->asm_keyword_range;
+                    n->template_range = ex->template_range;
+                    n->sema = ex->sema;
+                    return n;
+                }
             }
 
             return nullptr;
@@ -456,6 +485,34 @@ namespace dcc::sema
                 case ast::StmtKind::Ambiguous: {
                     auto* st = static_cast<ast::AmbiguousStmt const*>(s);
                     return m_ctx.make<ast::AmbiguousStmt>(st->range, clone_decl(st->as_decl), clone_expr(st->as_expr));
+                }
+                case ast::StmtKind::Asm: {
+                    auto* st = static_cast<ast::AsmStmt const*>(s);
+                    auto* n = m_ctx.make<ast::AsmStmt>(st->range, m_ctx.allocator());
+                    n->template_str = st->template_str;
+                    for (auto& op : st->operands)
+                    {
+                        ast::AsmOperand cloned;
+                        cloned.direction = op.direction;
+                        cloned.placement_kind = op.placement_kind;
+                        cloned.reg_name = op.reg_name;
+                        cloned.reg_name2 = op.reg_name2;
+                        cloned.placeholder = op.placeholder;
+                        cloned.expr = clone_expr(op.expr);
+                        cloned.type_override = clone_type(op.type_override);
+                        cloned.is_mem_writable = op.is_mem_writable;
+                        cloned.type_is_deduced = op.type_is_deduced;
+                        cloned.range = op.range;
+                        n->operands.push_back(std::move(cloned));
+                    }
+                    n->placeholder_spans = st->placeholder_spans;
+                    n->clobbers = st->clobbers;
+                    n->dialect = st->dialect;
+                    n->is_volatile = st->is_volatile;
+                    n->align_stack = st->align_stack;
+                    n->asm_keyword_range = st->asm_keyword_range;
+                    n->template_range = st->template_range;
+                    return n;
                 }
             }
 
@@ -1134,6 +1191,15 @@ namespace dcc::sema
                 case ast::ExprKind::PackExpansion:
                     substitute_in_expr(static_cast<ast::PackExpansionExpr*>(e)->operand);
                     break;
+                case ast::ExprKind::Asm: {
+                    auto* ex = static_cast<ast::AsmExpr*>(e);
+                    for (auto& op : ex->operands)
+                    {
+                        substitute_in_type(op.type_override);
+                        substitute_in_expr(op.expr);
+                    }
+                    break;
+                }
             }
         }
 
@@ -1215,6 +1281,15 @@ namespace dcc::sema
                     auto* st = static_cast<ast::StaticForStmt*>(s);
                     substitute_in_expr(st->pack_expr);
                     substitute_in_block(st->body);
+                    break;
+                }
+                case ast::StmtKind::Asm: {
+                    auto* st = static_cast<ast::AsmStmt*>(s);
+                    for (auto& op : st->operands)
+                    {
+                        substitute_in_type(op.type_override);
+                        substitute_in_expr(op.expr);
+                    }
                     break;
                 }
             }
@@ -2468,6 +2543,12 @@ export namespace dcc::sema
                             {
                                 expand_in_expr(amb->as_expr, false);
                             }
+                            break;
+                        }
+                        case ast::StmtKind::Asm: {
+                            auto* asm_stmt = static_cast<ast::AsmStmt*>(s);
+                            for (auto& op : asm_stmt->operands)
+                                expand_in_expr(op.expr, false);
                             break;
                         }
                         default:

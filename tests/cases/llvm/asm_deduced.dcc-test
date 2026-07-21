@@ -1,0 +1,19 @@
+=== FILE: test.dc ===
+module test;
+
+u64 rdtsc_deduced() {
+    u64 tsc = asm @[output(edx:eax)] { "rdtsc" };
+    return tsc;
+}
+
+u32 simple_deduced() {
+    u32 x = asm @[output(eax)] { "mov $42, %%eax" };
+    return x;
+}
+
+u64 rdtsc_explicit() {
+    u64 tsc = asm @[output(u64 in edx:eax)] { "rdtsc" };
+    return tsc;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

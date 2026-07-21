@@ -1,0 +1,8 @@
+=== FILE: test.dc ===
+module test;
+
+void redundant_clobber() {
+    asm @[output(u32 in eax), clobbers(eax)] { "nop" };
+}
+=== EXPECT-WARNINGS ===
+test.dc:4: redundant

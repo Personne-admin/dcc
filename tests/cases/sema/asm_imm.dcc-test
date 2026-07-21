@@ -1,0 +1,8 @@
+=== FILE: test.dc ===
+module test;
+
+void imm_needs_const(u32 runtime_val) {
+    asm @[inputs(x in imm = runtime_val)] { "nop" };
+}
+=== EXPECT-ERRORS ===
+test.dc:4: compile-time constant

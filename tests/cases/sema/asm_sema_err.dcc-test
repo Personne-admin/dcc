@@ -1,0 +1,41 @@
+=== FILE: test.dc ===
+module test;
+
+void width_mismatch_out() {
+    u32 z = asm @[output(u32 in rax)] { "mov $1, %%rax" };
+}
+
+void width_mismatch_in() {
+    u64 big = 0;
+    asm @[inputs(big in eax = big)] { "add %[big], %%eax" };
+}
+
+void width_mismatch_inout() {
+    u64 x = 0;
+    asm @[inout(x in eax)] { "incl %[x]" };
+}
+
+void unknown_register() {
+    asm @[output(u32 in foo)] { "nop" };
+}
+
+void reserved_clobber() {
+    asm @[clobbers(rsp)] { "nop" };
+}
+
+void undefined_placeholder() {
+    asm @[output(u32 in eax)] { "mov %[bogus], %%eax" };
+}
+
+void wrong_arch() {
+    asm @[arch("x86")] { "nop" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:4: does not match register `rax` width
+test.dc:9: does not match register `eax` width
+test.dc:14: does not match register `eax` width
+test.dc:18: unknown register `foo`
+test.dc:22: cannot be clobbered
+test.dc:26: undefined asm operand `bogus`
+test.dc:30: requires architecture `x86`
