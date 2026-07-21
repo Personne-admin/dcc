@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module m;
+
+void f(u32 N)() {
+    u32 a = N;
+    u32 b = N + 1;
+    u32[N] arr;
+    arr[0] = a;
+    arr[1] = b;
+}
+
+void a() {
+    f!5();
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-REGISTRY ===
+fn=f args=[5] state=2

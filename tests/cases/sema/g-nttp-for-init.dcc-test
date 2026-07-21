@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module m;
+
+void f(u32 N)() {
+    u32 sum = 0;
+    for (u32 i = N; i < N + 5; i += 1) {
+        sum += i;
+    }
+}
+
+void a() {
+    f!3();
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-REGISTRY ===
+fn=f args=[3] state=2

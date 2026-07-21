@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void f(u32 N)() {
+    u32 x = N;
+}
+
+void a() {
+    f!42();
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-REGISTRY ===
+fn=f args=[42] state=2

@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void serial_write(u8 COM_BASE)(u8 byte) {
+    u8 port = COM_BASE;
+}
+
+void a() {
+    serial_write!0x3F(0x41);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-REGISTRY ===
+fn=serial_write args=[63] state=2
