@@ -14,11 +14,6 @@ bool is_ok(T)(Box(T) self) { return self.ok; }
 T unwrap(T)(Box(T) self) { return self.value; }
 T unwrap_err(T)(Box(T) self) { return self.value; }
 
-// Generic function that uses ? where unwrap_err returns T and the function
-// returns Res(T).  On the failure path the error value T must be implicitly
-// wrapped into Res(T).Val(T) via implicit enum construction.
-// This exercises unwrap_err_needs_implicit_enum / unwrap_err_constructed_variant
-// in an instantiated generic body.
 Res(T) propagate(T)(Box(T) b) {
     T x = b?;
     return Res::Val(x);
