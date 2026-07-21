@@ -1,0 +1,87 @@
+=== FILE: main.dc ===
+module m;
+
+public struct S {
+    i32 value;
+}
+
+i32 take(T)(T* p) {
+    return 1;
+}
+
+i32 take_c(T)(const T* p) {
+    return 2;
+}
+
+i32 t1_mutable_pointer_identity(S* s) {
+    return s.take();
+}
+
+i32 t2_mutable_value_auto_ref(S s) {
+    return s.take();
+}
+
+i32 t3_overload_mutable_wins(S s) {
+    return s.take_c();
+}
+
+void t4_const_pointer_cannot_drop_const(const S* s) {
+    i32 r = s.take();
+}
+
+i32 t5_mutable_pointer_auto_ref_to_const_ptr(S* s) {
+    return s.take_c();
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func take diverging=false
+    Param p type=T* storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 1 [type=<unresolved> const=<none>]
+  Func take_c diverging=false
+    Param p type=const T* storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 2 [type=<unresolved> const=<none>]
+  Func t1_mutable_pointer_identity diverging=true
+    Param s type=S* storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=take spec=take ufcs=take]
+          FieldAccess take [type=<unresolved> const=<none> decl=take ufcs=take]
+            Ident s [type=S* const=<none> lvalue decl=s]
+  Func t2_mutable_value_auto_ref diverging=true
+    Param s type=S storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=take spec=take ufcs=take]
+          FieldAccess take [type=<unresolved> const=<none> decl=take ufcs=take]
+            Ident s [type=S const=<none> lvalue addr_of decl=s]
+  Func t3_overload_mutable_wins diverging=true
+    Param s type=S storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=take_c spec=take_c ufcs=take_c]
+          FieldAccess take_c [type=<unresolved> const=<none> decl=take_c ufcs=take_c]
+            Ident s [type=S const=<none> lvalue addr_of decl=s]
+  Func t4_const_pointer_cannot_drop_const diverging=false
+    Param s type=const S* storage=param offset=0 index=0
+    Body
+      Var r type=i32 storage=local offset=8
+        Call [type=<error> const=<none>]
+          FieldAccess take [type=<unresolved> const=<none>]
+            Ident s [type=const S* const=<none> lvalue decl=s]
+  Func t5_mutable_pointer_auto_ref_to_const_ptr diverging=true
+    Param s type=S* storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=take_c spec=take_c ufcs=take_c]
+          FieldAccess take_c [type=<unresolved> const=<none> decl=take_c ufcs=take_c]
+            Ident s [type=S* const=<none> lvalue addr_of decl=s]
+
+=== EXPECT-ERRORS ===
+main.dc:30: no matching UFCS function for `take` on receiver type `const S*`
+main.dc:8: = note: candidate `take(T*)`
+main.dc:8: = note: reason: receiver type mismatch: expected `S*`, found `const S*`

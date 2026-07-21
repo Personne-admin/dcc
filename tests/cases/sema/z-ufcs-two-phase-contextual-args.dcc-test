@@ -1,0 +1,78 @@
+=== FILE: main.dc ===
+module m;
+
+struct Item {
+    i32 id;
+    i32 qty;
+}
+
+enum Status(T) {
+    @implicit_construction Ready(i32),
+    @implicit_construction Pending(T)
+}
+
+Item lookup(T)(i32 count, T fallback, []T data) {
+    return fallback;
+}
+
+void print(T, U)(T out, []Status(U) values) {
+}
+
+i32 t1_contextual_before_revealing_arg(Item* data) {
+    []Item slice = {data[0]};
+    Item r = 3.lookup({5, 6}, slice);
+    return r.id;
+}
+
+i32 t2_tagged_enum_slice_after_receiver_deduction() {
+    i32 fd;
+    fd.print({42, {7}});
+    return 0;
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func lookup diverging=false
+    Param count type=i32 storage=param offset=0 index=0
+    Param fallback type=T storage=param offset=4 index=1
+    Param data type=[]T storage=param offset=8 index=2
+    Body
+      Return
+        Ident fallback [type=<unresolved> const=<none>]
+  Func print diverging=false
+    Param out type=T storage=param offset=0 index=0
+    Param values type=[]Status(U) storage=param offset=0 index=1
+    Body
+  Func t1_contextual_before_revealing_arg diverging=true
+    Param data type=Item* storage=param offset=0 index=0
+    Body
+      Var slice type=[]Item storage=local offset=8
+        StructLiteral [type=[]Item const=<none>]
+          Index [type=Item const=<none> lvalue decl=data]
+            Ident data [type=Item* const=<none> lvalue decl=data]
+            IntLiteral 0 [type=usize const=0 constant]
+      Var r type=Item storage=local offset=24
+        Call [type=Item const=<none> decl=lookup spec=lookup ufcs=lookup]
+          FieldAccess lookup [type=<unresolved> const=<none> decl=lookup ufcs=lookup]
+            IntLiteral 3 [type=i32 const=3 constant]
+          StructLiteral [type=Item const=agg(5, 6) constant]
+            IntLiteral 5 [type=i32 const=5 constant]
+            IntLiteral 6 [type=i32 const=6 constant]
+          Ident slice [type=[]Item const=<none> lvalue decl=slice]
+      Return
+        FieldAccess id [type=i32 const=<none> lvalue decl=Item]
+          Ident r [type=Item const=<none> lvalue decl=r]
+  Func t2_tagged_enum_slice_after_receiver_deduction diverging=true
+    Body
+      Var fd type=i32 storage=local offset=0
+      Call [type=void const=<none> decl=print spec=print ufcs=print]
+        FieldAccess print [type=<unresolved> const=<none> decl=print ufcs=print]
+          Ident fd [type=i32 const=<none> lvalue decl=fd]
+        StructLiteral [type=[]Status(U) const=slice(42, agg(0, 7)) constant]
+          IntLiteral 42 [type=Status(U) const=42 constant]
+          StructLiteral [type=Status(U) const=agg(0, 7) constant]
+            IntLiteral 7 [type=i32 const=7 constant]
+      Return
+        IntLiteral 0 [type=i32 const=0 constant]
+
+=== EXPECT-ERRORS ===
