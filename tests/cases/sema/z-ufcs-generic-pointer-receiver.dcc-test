@@ -1,0 +1,252 @@
+=== FILE: main.dc ===
+module m;
+
+struct Point {
+    i32 x;
+    i32 y;
+}
+
+struct Arena(T) {
+    T* data;
+}
+
+struct Vec(T) {
+    T* data;
+}
+
+T create(T)(Arena(T)* arena, T value) {
+    return value;
+}
+
+Point create_point(Arena(Point)* arena, i32 x) {
+    return {x, 0};
+}
+
+void push_back(T)(Vec(T)* vec, T value) {
+}
+
+i32 touch(T)(Arena(T)* arena) {
+    return 0;
+}
+
+Point peel(Point p) {
+    return p;
+}
+
+i32 depth(T)(T** box) {
+    return 0;
+}
+
+i32 pick(T)(Arena(T)* arena) {
+    return 1;
+}
+
+i32 pick(T)(T** box) {
+    return 2;
+}
+
+i32 t1_identity_explicit(Arena(Point)* arena, Point p) {
+    Point r = arena.create(p);
+    return r.x;
+}
+
+i32 t2_identity_contextual_struct(Arena(Point)* arena) {
+    Point r = arena.create({3, 4});
+    return r.x;
+}
+
+i32 t3_identity_explicit_struct_literal(Arena(Point)* arena) {
+    Point r = arena.create(Point{5, 6});
+    return r.x;
+}
+
+i32 t4_contextual_int_literal(Vec(i32)* vec) {
+    vec.push_back(42);
+    return 0;
+}
+
+i32 t5_value_receiver_addr_of(Arena(Point) arena, Point p) {
+    Point r = arena.create(p);
+    return r.x;
+}
+
+i32 t6_implicit_deref(Point* pt) {
+    return pt.peel().x;
+}
+
+Point t7_generic_vs_nongeneric(Arena(Point)* arena) {
+    return arena.create_point(7);
+}
+
+i32 t8_overload_identity_wins(Arena(Point)* arena) {
+    return arena.pick();
+}
+
+i32 t9_pointer_auto_ref_to_double_ptr(Arena(Point)* arena) {
+    return arena.depth();
+}
+
+i32 t10_direct_guard(Arena(Point)* arena, Point p) {
+    return create(arena, p).x;
+}
+
+void t11_invalid_value_to_double_ptr(Arena(Point) arena) {
+    i32 r = arena.depth();
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func create diverging=false
+    Param arena type=Arena(T)* storage=param offset=0 index=0
+    Param value type=T storage=param offset=8 index=1
+    Body
+      Return
+        Ident value [type=<unresolved> const=<none>]
+  Func create_point diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Param x type=i32 storage=param offset=8 index=1
+    Body
+      Return
+        StructLiteral [type=Point const=<none>]
+          Ident x [type=i32 const=<none> lvalue decl=x]
+          IntLiteral 0 [type=i32 const=0 constant]
+  Func push_back diverging=false
+    Param vec type=Vec(T)* storage=param offset=0 index=0
+    Param value type=T storage=param offset=8 index=1
+    Body
+  Func touch diverging=false
+    Param arena type=Arena(T)* storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 0 [type=<unresolved> const=<none>]
+  Func peel diverging=true
+    Param p type=Point storage=param offset=0 index=0
+    Body
+      Return
+        Ident p [type=Point const=<none> lvalue decl=p]
+  Func depth diverging=false
+    Param box type=T** storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 0 [type=<unresolved> const=<none>]
+  Func pick diverging=false
+    Param arena type=Arena(T)* storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 1 [type=<unresolved> const=<none>]
+  Func pick diverging=false
+    Param box type=T** storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 2 [type=<unresolved> const=<none>]
+  Func t1_identity_explicit diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Param p type=Point storage=param offset=8 index=1
+    Body
+      Var r type=Point storage=local offset=16
+        Call [type=Point const=<none> decl=create spec=create ufcs=create]
+          FieldAccess create [type=<unresolved> const=<none> decl=create ufcs=create]
+            Ident arena [type=Arena(Point)* const=<none> lvalue decl=arena]
+          Ident p [type=Point const=<none> lvalue decl=p]
+      Return
+        FieldAccess x [type=i32 const=<none> lvalue decl=Point]
+          Ident r [type=Point const=<none> lvalue decl=r]
+  Func t2_identity_contextual_struct diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Body
+      Var r type=Point storage=local offset=8
+        Call [type=Point const=<none> decl=create spec=create ufcs=create]
+          FieldAccess create [type=<unresolved> const=<none> decl=create ufcs=create]
+            Ident arena [type=Arena(Point)* const=<none> lvalue decl=arena]
+          StructLiteral [type=Point const=agg(3, 4) constant]
+            IntLiteral 3 [type=i32 const=3 constant]
+            IntLiteral 4 [type=i32 const=4 constant]
+      Return
+        FieldAccess x [type=i32 const=<none> lvalue decl=Point]
+          Ident r [type=Point const=<none> lvalue decl=r]
+  Func t3_identity_explicit_struct_literal diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Body
+      Var r type=Point storage=local offset=8
+        Call [type=Point const=<none> decl=create spec=create ufcs=create]
+          FieldAccess create [type=<unresolved> const=<none> decl=create ufcs=create]
+            Ident arena [type=Arena(Point)* const=<none> lvalue decl=arena]
+          StructLiteral [type=Point const=agg(5, 6) constant]
+            IntLiteral 5 [type=i32 const=5 constant]
+            IntLiteral 6 [type=i32 const=6 constant]
+      Return
+        FieldAccess x [type=i32 const=<none> lvalue decl=Point]
+          Ident r [type=Point const=<none> lvalue decl=r]
+  Func t4_contextual_int_literal diverging=true
+    Param vec type=Vec(i32)* storage=param offset=0 index=0
+    Body
+      Call [type=void const=<none> decl=push_back spec=push_back ufcs=push_back]
+        FieldAccess push_back [type=<unresolved> const=<none> decl=push_back ufcs=push_back]
+          Ident vec [type=Vec(i32)* const=<none> lvalue decl=vec]
+        IntLiteral 42 [type=i32 const=42 constant]
+      Return
+        IntLiteral 0 [type=i32 const=0 constant]
+  Func t5_value_receiver_addr_of diverging=true
+    Param arena type=Arena(Point) storage=param offset=0 index=0
+    Param p type=Point storage=param offset=8 index=1
+    Body
+      Var r type=Point storage=local offset=16
+        Call [type=Point const=<none> decl=create spec=create ufcs=create]
+          FieldAccess create [type=<unresolved> const=<none> decl=create ufcs=create]
+            Ident arena [type=Arena(Point) const=<none> lvalue addr_of decl=arena]
+          Ident p [type=Point const=<none> lvalue decl=p]
+      Return
+        FieldAccess x [type=i32 const=<none> lvalue decl=Point]
+          Ident r [type=Point const=<none> lvalue decl=r]
+  Func t6_implicit_deref diverging=true
+    Param pt type=Point* storage=param offset=0 index=0
+    Body
+      Return
+        FieldAccess x [type=i32 const=<none> lvalue decl=Point ufcs=peel]
+          Call [type=Point const=<none> decl=peel ufcs=peel]
+            FieldAccess peel [type=<unresolved> const=<none> decl=peel ufcs=peel]
+              Ident pt [type=Point* const=<none> lvalue deref decl=pt]
+  Func t7_generic_vs_nongeneric diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=Point const=<none> decl=create_point ufcs=create_point]
+          FieldAccess create_point [type=<unresolved> const=<none> decl=create_point ufcs=create_point]
+            Ident arena [type=Arena(Point)* const=<none> lvalue decl=arena]
+          IntLiteral 7 [type=i32 const=7 constant]
+  Func t8_overload_identity_wins diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=pick spec=pick ufcs=pick]
+          FieldAccess pick [type=<unresolved> const=<none> decl=pick ufcs=pick]
+            Ident arena [type=Arena(Point)* const=<none> lvalue decl=arena]
+  Func t9_pointer_auto_ref_to_double_ptr diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=depth spec=depth ufcs=depth]
+          FieldAccess depth [type=<unresolved> const=<none> decl=depth ufcs=depth]
+            Ident arena [type=Arena(Point)* const=<none> lvalue addr_of decl=arena]
+  Func t10_direct_guard diverging=true
+    Param arena type=Arena(Point)* storage=param offset=0 index=0
+    Param p type=Point storage=param offset=8 index=1
+    Body
+      Return
+        FieldAccess x [type=i32 const=<none> lvalue decl=Point spec=create]
+          Call [type=Point const=<none> decl=create spec=create]
+            Ident create [type=<unresolved> const=<none>]
+            Ident arena [type=Arena(Point)* const=<none> lvalue decl=arena]
+            Ident p [type=Point const=<none> lvalue decl=p]
+  Func t11_invalid_value_to_double_ptr diverging=false
+    Param arena type=Arena(Point) storage=param offset=0 index=0
+    Body
+      Var r type=i32 storage=local offset=8
+        Call [type=<error> const=<none>]
+          FieldAccess depth [type=<unresolved> const=<none>]
+            Ident arena [type=Arena(Point) const=<none> lvalue decl=arena]
+
+=== EXPECT-ERRORS ===
+main.dc:103: no matching UFCS function for `depth` on receiver type `Arena(Point)`
+main.dc:44: = note: candidate `depth(T**)`
+main.dc:44: = note: reason: receiver type mismatch: expected `T**`, found `Arena(Point)*`

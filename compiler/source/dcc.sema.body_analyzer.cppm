@@ -1206,6 +1206,14 @@ export namespace dcc::sema
             }
         }
 
+        [[nodiscard]] static bool is_contextual_construction(ast::Expr const& expr) noexcept
+        {
+            if (is_contextual_literal(expr))
+                return true;
+
+            return expr.kind == ast::ExprKind::Block;
+        }
+
         using ConstructionKind = ast::ExprSema::ConstructionKind;
 
         [[nodiscard]] static bool variant_has_attr(ast::EnumVariant const& v, std::string_view name) noexcept
@@ -3884,6 +3892,13 @@ export namespace dcc::sema
             auto const* param_ptr = types::type_cast<types::PointerType>(param);
             if (param_ptr)
             {
+                if (analyzed.type->kind == types::TypeKind::Pointer)
+                {
+                    infer::TemplateBindings probe_b{m_types};
+                    if (probe_b.deduce(param, analyzed.type))
+                        return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
+                }
+
                 if (analyzed.is_lvalue && (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee)))
                 {
                     bool receiver_has_const = analyzed.resolved_decl && decl_is_top_level_const(*analyzed.resolved_decl);
@@ -4406,6 +4421,8 @@ export namespace dcc::sema
                 return std::nullopt;
             }
 
+            std::ignore = b.deduce(param0, match->second);
+
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
             {
                 ast::TemplateParam const* vtparam = nullptr;
@@ -4467,6 +4484,31 @@ export namespace dcc::sema
             std::vector<comptime::Value> pack_arg_values;
 
             std::size_t non_pack_after_receiver = non_pack_func_params > 0 ? non_pack_func_params - 1 : 0;
+
+            for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
+            {
+                auto param_ty = b.substitute(params[i + 1]);
+                if (is_contextual_construction(*arg_exprs[func_arg_start + i]))
+                    continue;
+
+                auto r = analyze_expr(mod, nullptr, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, param_ty, const_env);
+                if (has_error(r.type))
+                {
+                    if (had_suppressed_errors)
+                        *had_suppressed_errors = suppress.had_suppressed_errors();
+
+                    if (had_non_constraint_failure)
+                        *had_non_constraint_failure = true;
+
+                    if (rejection_reason)
+                        *rejection_reason = std::format("cannot convert argument {}: expected `{}`", i + 1, format_type_str(param_ty));
+
+                    return std::nullopt;
+                }
+                if (params[i + 1] && r.type && !contains_template_param(r.type))
+                    std::ignore = b.deduce(params[i + 1], r.type);
+            }
+
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
@@ -4484,7 +4526,7 @@ export namespace dcc::sema
 
                     return std::nullopt;
                 }
-                args.push_back(r);
+                args.push_back(std::move(r));
             }
 
             if (has_func_pack)
@@ -4745,6 +4787,8 @@ export namespace dcc::sema
             if (!match || match->first != expected_match)
                 return std::nullopt;
 
+            std::ignore = b.deduce(param0, match->second);
+
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
             {
                 ast::TemplateParam const* vtparam = nullptr;
@@ -4787,6 +4831,23 @@ export namespace dcc::sema
             std::vector<comptime::Value> pack_arg_values;
 
             std::size_t non_pack_after_receiver = non_pack_func_params > 0 ? non_pack_func_params - 1 : 0;
+
+            auto* seed_scope = make_probe_scope(scope);
+            std::uint32_t seed_off = next_off;
+            for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
+            {
+                auto param_ty = b.substitute(params[i + 1]);
+                if (is_contextual_construction(*arg_exprs[func_arg_start + i]))
+                    continue;
+
+                auto r = analyze_expr(mod, nullptr, *seed_scope, *arg_exprs[func_arg_start + i], loop_depth, seed_off, param_ty, const_env);
+                if (has_error(r.type))
+                    return std::nullopt;
+
+                if (params[i + 1] && r.type && !contains_template_param(r.type))
+                    std::ignore = b.deduce(params[i + 1], r.type);
+            }
+
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
@@ -4794,7 +4855,7 @@ export namespace dcc::sema
                 if (has_error(r.type))
                     return std::nullopt;
 
-                args.push_back(r);
+                args.push_back(std::move(r));
             }
 
             if (has_func_pack)
