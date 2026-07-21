@@ -1,0 +1,18 @@
+=== FILE: test.dc ===
+module test;
+
+// memory-inout: =*m constraint verifies elementtype is attached
+void mem_inout_basic() {
+    u32 val = 42;
+    u32* ptr = &val;
+    asm @[inout(slot = *ptr)] { "lock incq %[slot]" };
+}
+
+// memory-inout with clobbers: =*m + clobber + elementtype
+void mem_inout_clobbers() {
+    u64 counter = 0;
+    u64* p = &counter;
+    asm @[inout(slot = *p), clobbers(rax, memory)] { "lock incq %[slot]" };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

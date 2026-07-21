@@ -1,0 +1,11 @@
+=== FILE: test.dc ===
+module test;
+
+void const_ptr_errors() {
+    u32 val = 42;
+    const u32* ptr = &val;
+    asm @[inout(slot = *ptr)] { "lock incq %[slot]" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:6: const pointer as writable memory

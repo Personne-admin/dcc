@@ -1,0 +1,8 @@
+=== FILE: test.dc ===
+module test;
+
+void mem_inout_named() {
+    u32 val = 42;
+    u32* ptr = &val;
+    asm @[inout(slot = *ptr)] { "lock incq %[slot]" };
+}

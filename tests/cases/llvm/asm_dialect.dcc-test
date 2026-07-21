@@ -1,0 +1,12 @@
+=== FILE: test.dc ===
+module test;
+
+void att_asm() {
+    asm { "nop" };
+}
+
+void intel_asm() {
+    asm @[intel] { "nop" };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

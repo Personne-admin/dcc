@@ -33,6 +33,8 @@ export namespace dccd::semantic_tokens
         String,
         Number,
         Operator,
+        AsmPlaceholder,
+        AsmRegister,
     };
 
     enum class TokenModifier : std::uint32_t
@@ -47,6 +49,7 @@ export namespace dccd::semantic_tokens
     constexpr std::array token_types = {
         "namespace",  "type",     "class",  "enum",  "interface", "struct",   "typeParameter", "parameter", "variable", "property",
         "enumMember", "function", "method", "macro", "keyword",   "modifier", "comment",       "string",    "number",   "operator",
+        "asmPlaceholder", "asmRegister",
     };
 
     constexpr std::array token_modifiers = {
@@ -284,6 +287,8 @@ namespace dccd::semantic_tokens
             void visitTemplateParams(std::pmr::vector<dcc::ast::TemplateParam> const& params) override;
             void visitAttrs(std::pmr::vector<dcc::ast::Attribute> const& attrs) override;
 
+            void emit_asm_tokens(dcc::sm::SourceRange template_range,
+                                 std::span<dcc::ast::AsmPlaceholderSpan const> placeholder_spans);
             void emit_using_item(dcc::ast::UsingItem const* item);
         };
 
@@ -602,6 +607,15 @@ namespace dccd::semantic_tokens
                     visitBlock(e->body);
                     break;
                 }
+                case dcc::ast::ExprKind::Asm: {
+                    auto* e = static_cast<dcc::ast::AsmExpr const*>(expr);
+                    emit_asm_tokens(e->template_range, e->placeholder_spans);
+
+                    for (auto const& op : e->operands)
+                        if (op.expr)
+                            visitExpr(op.expr);
+                    break;
+                }
                 default:
                     dcc::ast::RecursiveAstVisitor::visitExpr(expr);
                     break;
@@ -622,6 +636,14 @@ namespace dccd::semantic_tokens
                 if (s->iterable)
                     visitExpr(s->iterable);
                 visitBlock(s->body);
+            }
+            else if (stmt->kind == dcc::ast::StmtKind::Asm)
+            {
+                auto* s = static_cast<dcc::ast::AsmStmt const*>(stmt);
+                emit_asm_tokens(s->template_range, s->placeholder_spans);
+                for (auto const& op : s->operands)
+                    if (op.expr)
+                        visitExpr(op.expr);
             }
             else
             {
@@ -771,6 +793,43 @@ namespace dccd::semantic_tokens
                 emit(seg.range, TokenType::Namespace);
             for (auto const* child : item->children)
                 emit_using_item(child);
+        }
+
+        void Collector::emit_asm_tokens(dcc::sm::SourceRange template_range,
+                                        std::span<dcc::ast::AsmPlaceholderSpan const> placeholder_spans)
+        {
+            if (!template_range.valid())
+                return;
+
+            emit(template_range, TokenType::String);
+
+            auto content_base = template_range.begin.offset + 1;
+            auto file_id = template_range.begin.fileId;
+
+            for (auto const& span : placeholder_spans)
+            {
+                auto span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
+                auto span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+
+                if (span_end > template_range.end.offset)
+                    continue;
+
+                dcc::sm::SourceRange span_range{
+                    dcc::sm::Location{file_id, span_start},
+                    dcc::sm::Location{file_id, span_end}
+                };
+
+                switch (span.kind)
+                {
+                case dcc::ast::AsmPlaceholderSpan::Kind::OperandRef:
+                case dcc::ast::AsmPlaceholderSpan::Kind::Unresolved:
+                    emit(span_range, TokenType::AsmPlaceholder);
+                    break;
+                case dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral:
+                    emit(span_range, TokenType::AsmRegister);
+                    break;
+                }
+            }
         }
 
     } // anonymous namespace

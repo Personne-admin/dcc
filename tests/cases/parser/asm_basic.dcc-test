@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+
+void nop_asm() {
+    asm { "nop" };
+}
+
+u64 rdtsc_asm() {
+    u64 tsc = asm @[output(u64 in edx:eax)] { "rdtsc" };
+    return tsc;
+}
+
+void outb_asm(u16 port, u8 val) {
+    asm @[inputs(val in al = val, port in dx = port)] { "outb %[val], %[port]" };
+}
+
+void counter_inc() {
+    u32 counter = 0;
+    asm @[inout(counter in ecx)] { "incl %[counter]" };
+}
+
+u32 asm_expr_val() {
+    u32 x = asm @[output(u32 in eax)] { "mov $42, %%eax" };
+    return x;
+}

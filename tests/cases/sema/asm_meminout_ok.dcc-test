@@ -1,0 +1,13 @@
+=== FILE: test.dc ===
+module test;
+
+void mem_inout_mutable() {
+    u32 val = 42;
+    u32* ptr = &val;
+    asm @[inout(slot = *ptr)] { "lock incq %[slot]" };
+}
+
+void tied_reg_named() {
+    u32 counter = 0;
+    asm @[inout(counter in ecx)] { "incl %[counter]" };
+}

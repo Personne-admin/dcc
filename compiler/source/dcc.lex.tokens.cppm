@@ -75,6 +75,8 @@ export namespace dcc::lex
         KwStatic,
         KwExtern,
 
+        KwAsm,
+
         LParen,
         RParen,
         LBracket,
@@ -262,6 +264,9 @@ export namespace dcc::lex
             case TokenKind::KwExtern:
                 return "extern";
 
+            case TokenKind::KwAsm:
+                return "asm";
+
             case TokenKind::LParen:
                 return "(";
             case TokenKind::RParen:
@@ -378,7 +383,7 @@ export namespace dcc::lex
 
     [[nodiscard]] constexpr bool is_keyword(TokenKind k) noexcept
     {
-        return k >= TokenKind::Kwu8 && k <= TokenKind::KwExtern;
+        return k >= TokenKind::Kwu8 && k <= TokenKind::KwAsm;
     }
 
     [[nodiscard]] constexpr bool is_punctuation(TokenKind k) noexcept
@@ -436,29 +441,53 @@ export namespace dcc::lex
         };
 
         static constexpr auto keyword_table = std::to_array<KeywordEntry>({
-            {"alignof", TokenKind::KwAlignof}, {"as", TokenKind::KwAs},
-            {"bool", TokenKind::KwBool},       {"break", TokenKind::KwBreak},
-            {"char", TokenKind::KwChar},       {"compiles", TokenKind::KwCompiles},
-            {"const", TokenKind::KwConst},     {"continue", TokenKind::KwContinue},
-            {"defer", TokenKind::KwDefer},     {"do", TokenKind::KwDo},
-            {"else", TokenKind::KwElse},       {"enum", TokenKind::KwEnum},
-            {"extern", TokenKind::KwExtern},   {"f32", TokenKind::Kwf32},
-            {"f64", TokenKind::Kwf64},         {"false", TokenKind::KwFalse},
-            {"for", TokenKind::KwFor},         {"i16", TokenKind::Kwi16},
-            {"i32", TokenKind::Kwi32},         {"i64", TokenKind::Kwi64},
-            {"i8", TokenKind::Kwi8},           {"if", TokenKind::KwIf},
-            {"import", TokenKind::KwImport},   {"in", TokenKind::KwIn},
-            {"isize", TokenKind::KwIsize},     {"match", TokenKind::KwMatch},
-            {"module", TokenKind::KwModule},   {"null", TokenKind::KwNull},
-            {"null_t", TokenKind::KwNullT},    {"offsetof", TokenKind::KwOffsetof},
-            {"public", TokenKind::KwPublic},   {"restrict", TokenKind::KwRestrict},
-            {"return", TokenKind::KwReturn},   {"sizeof", TokenKind::KwSizeof},
-            {"static", TokenKind::KwStatic},   {"struct", TokenKind::KwStruct},
-            {"true", TokenKind::KwTrue},       {"u16", TokenKind::Kwu16},
-            {"u32", TokenKind::Kwu32},         {"u64", TokenKind::Kwu64},
-            {"u8", TokenKind::Kwu8},           {"union", TokenKind::KwUnion},
-            {"using", TokenKind::KwUsing},     {"usize", TokenKind::KwUsize},
-            {"void", TokenKind::KwVoid},       {"volatile", TokenKind::KwVolatile},
+            {"alignof", TokenKind::KwAlignof},
+            {"as", TokenKind::KwAs},
+            {"asm", TokenKind::KwAsm},
+            {"bool", TokenKind::KwBool},
+            {"break", TokenKind::KwBreak},
+            {"char", TokenKind::KwChar},
+            {"compiles", TokenKind::KwCompiles},
+            {"const", TokenKind::KwConst},
+            {"continue", TokenKind::KwContinue},
+            {"defer", TokenKind::KwDefer},
+            {"do", TokenKind::KwDo},
+            {"else", TokenKind::KwElse},
+            {"enum", TokenKind::KwEnum},
+            {"extern", TokenKind::KwExtern},
+            {"f32", TokenKind::Kwf32},
+            {"f64", TokenKind::Kwf64},
+            {"false", TokenKind::KwFalse},
+            {"for", TokenKind::KwFor},
+            {"i16", TokenKind::Kwi16},
+            {"i32", TokenKind::Kwi32},
+            {"i64", TokenKind::Kwi64},
+            {"i8", TokenKind::Kwi8},
+            {"if", TokenKind::KwIf},
+            {"import", TokenKind::KwImport},
+            {"in", TokenKind::KwIn},
+            {"isize", TokenKind::KwIsize},
+            {"match", TokenKind::KwMatch},
+            {"module", TokenKind::KwModule},
+            {"null", TokenKind::KwNull},
+            {"null_t", TokenKind::KwNullT},
+            {"offsetof", TokenKind::KwOffsetof},
+            {"public", TokenKind::KwPublic},
+            {"restrict", TokenKind::KwRestrict},
+            {"return", TokenKind::KwReturn},
+            {"sizeof", TokenKind::KwSizeof},
+            {"static", TokenKind::KwStatic},
+            {"struct", TokenKind::KwStruct},
+            {"true", TokenKind::KwTrue},
+            {"u16", TokenKind::Kwu16},
+            {"u32", TokenKind::Kwu32},
+            {"u64", TokenKind::Kwu64},
+            {"u8", TokenKind::Kwu8},
+            {"union", TokenKind::KwUnion},
+            {"using", TokenKind::KwUsing},
+            {"usize", TokenKind::KwUsize},
+            {"void", TokenKind::KwVoid},
+            {"volatile", TokenKind::KwVolatile},
             {"while", TokenKind::KwWhile},
         });
 

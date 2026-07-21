@@ -1,0 +1,12 @@
+=== FILE: test.dc ===
+module test;
+
+void cpuid() {
+    asm @[clobbers(rax, rbx, rcx, rdx)] { "cpuid" };
+}
+
+void mem_barrier() {
+    asm @[clobbers(memory)] { "" };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

@@ -625,6 +625,15 @@ namespace dcc::query
                 case ast::ExprKind::SizeofPack:
                 case ast::ExprKind::PackExpansion:
                     break;
+                case ast::ExprKind::Asm: {
+                    auto* e = static_cast<ast::AsmExpr const*>(expr);
+                    for (auto& op : e->operands)
+                    {
+                        if (op.expr && range_contains_or_touches_end(op.expr->range, target))
+                            walk_expr(op.expr, result, target, opts);
+                    }
+                    break;
+                }
             }
         }
 
@@ -734,6 +743,15 @@ namespace dcc::query
                         walk_decl(s->as_decl, result, target, opts);
                     if (s->as_expr && range_contains_or_touches_end(s->as_expr->range, target))
                         walk_expr(s->as_expr, result, target, opts);
+                    break;
+                }
+                case ast::StmtKind::Asm: {
+                    auto* s = static_cast<ast::AsmStmt const*>(stmt);
+                    for (auto& op : s->operands)
+                    {
+                        if (op.expr && range_contains_or_touches_end(op.expr->range, target))
+                            walk_expr(op.expr, result, target, opts);
+                    }
                     break;
                 }
             }

@@ -1116,6 +1116,46 @@ export namespace dcc::parser
             if (name_tok.kind != TK::Identifier)
                 return nullptr;
 
+            if (check(TK::KwAsm))
+            {
+                advance();
+                auto* var = m_ctx.make<ast::VarDecl>(sm::SourceRange{}, name_tok.interned, name_tok.range);
+                var->type = type;
+                var->is_public = is_public;
+                var->is_extern = is_extern;
+                var->attrs = std::move(attrs);
+
+                auto* asm_expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
+                asm_expr->asm_keyword_range = previous().range;
+                parse_asm_attributes(asm_expr);
+                parse_asm_template_body(asm_expr);
+                scan_asm_placeholders(asm_expr);
+                var->init = asm_expr;
+
+                bool has_output = false;
+                for (auto const& op : asm_expr->operands)
+                    if (op.direction == ast::AsmOperandDirection::Out || op.direction == ast::AsmOperandDirection::InOut)
+                    {
+                        has_output = true;
+                        break;
+                    }
+
+                if (!has_output)
+                {
+                    ast::AsmOperand synth_out;
+                    synth_out.direction = ast::AsmOperandDirection::Out;
+                    synth_out.placeholder = name_tok.interned;
+                    synth_out.expr = m_ctx.make<ast::IdentExpr>(name_tok.range, name_tok.interned);
+                    synth_out.range = asm_expr->template_range;
+                    asm_expr->operands.push_back(std::move(synth_out));
+                }
+
+                expect(TK::Semicolon, "after asm declaration");
+                asm_expr->range = range_from(start);
+                var->range = range_from(start);
+                return var;
+            }
+
             if (check(TK::Eq) || check(TK::Semicolon))
             {
                 auto* var = m_ctx.make<ast::VarDecl>(sm::SourceRange{}, name_tok.interned, name_tok.range);
@@ -1407,6 +1447,387 @@ export namespace dcc::parser
             return d;
         }
 
+        void parse_reg_placement(ast::AsmOperand& op)
+        {
+            auto reg_tok = expect(TK::Identifier, "in register placement");
+            if (reg_tok.kind == TK::Identifier)
+            {
+                op.reg_name = reg_tok.interned;
+                if (match(TK::Colon))
+                {
+                    auto reg2_tok = expect(TK::Identifier, "in register pair");
+                    if (reg2_tok.kind == TK::Identifier)
+                    {
+                        op.reg_name2 = reg2_tok.interned;
+                        op.placement_kind = ast::AsmPlacementKind::RegPair;
+                    }
+                }
+            }
+        }
+
+        void parse_placement(ast::AsmOperand& op)
+        {
+            if (check(TK::Identifier))
+            {
+                auto const& tok = peek();
+                if (tok.interned == "mem")
+                {
+                    advance();
+                    op.placement_kind = ast::AsmPlacementKind::Mem;
+                    return;
+                }
+                if (tok.interned == "imm")
+                {
+                    advance();
+                    op.placement_kind = ast::AsmPlacementKind::Imm;
+                    return;
+                }
+            }
+
+            parse_reg_placement(op);
+        }
+
+        template <typename AsmNode> void parse_asm_output_spec(AsmNode* node, sm::Location start)
+        {
+            ast::AsmOperand op;
+            op.direction = ast::AsmOperandDirection::Out;
+
+            if (match(TK::KwIn))
+            {
+                op.type_is_deduced = true;
+                parse_reg_placement(op);
+                op.range = range_from(start);
+                node->operands.push_back(std::move(op));
+                return;
+            }
+
+            if (ast::is_primitive_type(peek().kind) || ast::is_qualifier(peek().kind) || peek().kind == TK::LBracket)
+            {
+                auto* type = parse_type();
+                if (type)
+                {
+                    op.type_override = type;
+                    op.range = range_from(start);
+                    if (match(TK::KwIn))
+                        parse_reg_placement(op);
+
+                    node->operands.push_back(std::move(op));
+                    return;
+                }
+            }
+
+            if (check(TK::Identifier))
+            {
+                if (check_at(1, TK::Colon))
+                {
+                    op.type_is_deduced = true;
+                    parse_reg_placement(op);
+                    op.range = range_from(start);
+                    node->operands.push_back(std::move(op));
+                    return;
+                }
+
+                if (!check_at(1, TK::KwIn) && !check_at(1, TK::LParen))
+                {
+                    auto save_pos = m_pos;
+                    auto save_prev = m_prev_end;
+                    {
+                        Speculation spec(*this);
+                        parse_reg_placement(op);
+                        if (!spec.had_suppressed_errors() && (check(TK::RParen) || check(TK::Comma)))
+                        {
+                            spec.commit();
+                            op.type_is_deduced = true;
+                            op.direction = ast::AsmOperandDirection::Out;
+                            op.range = range_from(start);
+                            node->operands.push_back(std::move(op));
+                            return;
+                        }
+                    }
+                    m_pos = save_pos;
+                    m_prev_end = save_prev;
+                }
+
+                auto tok = advance();
+                op.placeholder = tok.interned;
+                op.expr = m_ctx.make<ast::IdentExpr>(tok.range, tok.interned);
+                op.range = range_from(start);
+                if (match(TK::KwIn))
+                    parse_reg_placement(op);
+
+                node->operands.push_back(std::move(op));
+                return;
+            }
+
+            error_at(single_range(), "expected identifier or type in output spec");
+        }
+
+        template <typename AsmNode> void parse_asm_input_spec(AsmNode* node, sm::Location start)
+        {
+            ast::AsmOperand op;
+            op.direction = ast::AsmOperandDirection::In;
+
+            auto name_tok = expect(TK::Identifier, "in input spec");
+            if (name_tok.kind == TK::Identifier)
+            {
+                op.placeholder = name_tok.interned;
+                op.range = range_from(start);
+
+                if (match(TK::KwIn))
+                    parse_placement(op);
+
+                expect(TK::Eq, "in input spec");
+                op.expr = parse_expr();
+                op.range = range_from(start);
+                node->operands.push_back(std::move(op));
+            }
+        }
+
+        template <typename AsmNode> void parse_asm_inout_spec(AsmNode* node, sm::Location start)
+        {
+            ast::AsmOperand op;
+            op.direction = ast::AsmOperandDirection::InOut;
+
+            if (check(TK::Identifier) && check_at(1, TK::Eq))
+            {
+                auto name_tok = advance();
+                op.placeholder = name_tok.interned;
+                expect(TK::Eq, "in inout spec");
+
+                if (match(TK::Star))
+                {
+                    op.expr = parse_expr();
+                    op.is_mem_writable = true;
+                    op.placement_kind = ast::AsmPlacementKind::Mem;
+                    if (match(TK::KwIn))
+                        parse_placement(op);
+                }
+                else
+                {
+                    op.expr = parse_expr();
+                    if (match(TK::KwIn))
+                        parse_placement(op);
+                }
+            }
+            else if (match(TK::Star))
+            {
+                op.expr = parse_expr();
+                op.is_mem_writable = true;
+                op.placement_kind = ast::AsmPlacementKind::Mem;
+
+                if (match(TK::KwIn))
+                    parse_placement(op);
+            }
+            else
+            {
+                auto name_tok = expect(TK::Identifier, "in inout spec");
+                if (name_tok.kind == TK::Identifier)
+                {
+                    op.placeholder = name_tok.interned;
+                    op.expr = m_ctx.make<ast::IdentExpr>(name_tok.range, name_tok.interned);
+                    if (match(TK::KwIn))
+                        parse_placement(op);
+                }
+            }
+
+            op.range = range_from(start);
+            node->operands.push_back(std::move(op));
+        }
+
+        template <typename AsmNode> void parse_asm_single_attr(AsmNode* node)
+        {
+            auto start = loc();
+
+            std::string_view name;
+            if (check(TK::Identifier))
+            {
+                auto tok = advance();
+                name = tok.interned;
+            }
+            else if (check(TK::KwVolatile))
+            {
+                auto tok = advance();
+                name = tok.interned;
+            }
+            else
+            {
+                error_at(single_range(), "expected asm attribute name");
+                return;
+            }
+
+            if (name == "output")
+            {
+                expect(TK::LParen, "after 'output'");
+                parse_asm_output_spec(node, start);
+                expect(TK::RParen, "to close 'output'");
+            }
+            else if (name == "inputs")
+            {
+                expect(TK::LParen, "after 'inputs'");
+                if (!check(TK::RParen))
+                {
+                    do
+                        parse_asm_input_spec(node, start);
+                    while (match(TK::Comma));
+                }
+                expect(TK::RParen, "to close 'inputs'");
+            }
+            else if (name == "inout")
+            {
+                expect(TK::LParen, "after 'inout'");
+                parse_asm_inout_spec(node, start);
+                expect(TK::RParen, "to close 'inout'");
+            }
+            else if (name == "clobbers")
+            {
+                expect(TK::LParen, "after 'clobbers'");
+                if (!check(TK::RParen))
+                {
+                    do
+                    {
+                        auto reg = expect(TK::Identifier, "in clobbers list");
+                        if (reg.kind == TK::Identifier)
+                            node->clobbers.push_back(reg.interned);
+                    } while (match(TK::Comma));
+                }
+                expect(TK::RParen, "to close 'clobbers'");
+            }
+            else if (name == "volatile")
+            {
+                expect(TK::LParen, "after 'volatile'");
+                if (match(TK::KwTrue))
+                    node->is_volatile = true;
+                else if (match(TK::KwFalse))
+                    node->is_volatile = false;
+                else
+                    error_at(single_range(), "expected 'true' or 'false' in volatile attribute");
+                expect(TK::RParen, "after 'volatile'");
+            }
+            else if (name == "intel")
+            {
+                node->dialect = ast::AsmDialect::Intel;
+            }
+            else if (name == "att")
+            {
+                node->dialect = ast::AsmDialect::Att;
+            }
+            else if (name == "alignstack")
+            {
+                node->align_stack = true;
+            }
+            else if (name == "arch")
+            {
+                expect(TK::LParen, "after 'arch'");
+                auto arch_str = expect(TK::StringLiteral, "in arch attribute");
+                expect(TK::RParen, "to close 'arch'");
+
+                ast::Attribute arch_attr(m_ctx.allocator());
+                arch_attr.name = "arch";
+                arch_attr.range = range_from(start);
+                if (arch_str.value)
+                    if (auto* sv = std::get_if<std::string>(&*arch_str.value))
+                    {
+                        auto* sl = m_ctx.make<ast::StringLiteralExpr>(arch_str.range, *sv, arch_str.interned);
+                        arch_attr.args.push_back(sl);
+                    }
+                node->attrs.push_back(std::move(arch_attr));
+            }
+            else
+            {
+                error_at(range_from(start), std::format("unknown asm attribute `{}`", name));
+            }
+        }
+
+        template <typename AsmNode> void parse_asm_attributes(AsmNode* node)
+        {
+            if (!check(TK::At))
+                return;
+
+            advance();
+
+            if (match(TK::LBracket))
+            {
+                if (!check(TK::RBracket))
+                {
+                    do
+                        parse_asm_single_attr(node);
+                    while (match(TK::Comma));
+                }
+                expect(TK::RBracket, "to close asm attribute list");
+            }
+            else
+            {
+                parse_asm_single_attr(node);
+            }
+        }
+
+        template <typename AsmNode> void parse_asm_template_body(AsmNode* node)
+        {
+            expect(TK::LBrace, "to begin asm template block");
+
+            auto str_tok = expect(TK::StringLiteral, "in asm template");
+            if (str_tok.value)
+                if (auto* sv = std::get_if<std::string>(&*str_tok.value))
+                    node->template_str = *sv;
+
+            node->template_range = str_tok.range;
+
+            expect(TK::RBrace, "to close asm template block");
+        }
+
+        template <typename AsmNode> void scan_asm_placeholders(AsmNode* node)
+        {
+            auto const& str = node->template_str;
+            std::size_t i = 0;
+            while (i < str.size())
+            {
+                if (str[i] == '%' && i + 1 < str.size())
+                {
+                    if (str[i + 1] == '%' && i + 2 < str.size())
+                    {
+                        std::size_t name_start = i + 2;
+                        std::size_t end = name_start;
+                        while (end < str.size() && (std::isalnum(static_cast<unsigned char>(str[end])) || str[end] == '_'))
+                            ++end;
+
+                        if (end > name_start)
+                        {
+                            ast::AsmPlaceholderSpan span;
+                            span.byte_offset = static_cast<std::uint32_t>(i);
+                            span.byte_length = static_cast<std::uint32_t>(end - i);
+                            span.kind = ast::AsmPlaceholderSpan::Kind::RegLiteral;
+                            span.name = std::string_view(str.data() + name_start, end - name_start);
+                            span.operand_index = 0xFFFFFFFFU;
+                            node->placeholder_spans.push_back(std::move(span));
+                            i = end;
+                            continue;
+                        }
+                    }
+                    else if (str[i + 1] == '[')
+                    {
+                        std::size_t name_start = i + 2;
+                        std::size_t end = name_start;
+                        while (end < str.size() && str[end] != ']')
+                            ++end;
+
+                        if (end < str.size() && end > name_start)
+                        {
+                            ast::AsmPlaceholderSpan span;
+                            span.byte_offset = static_cast<std::uint32_t>(i);
+                            span.byte_length = static_cast<std::uint32_t>(end - i + 1);
+                            span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
+                            span.name = std::string_view(str.data() + name_start, end - name_start);
+                            span.operand_index = 0xFFFFFFFFU;
+                            node->placeholder_spans.push_back(std::move(span));
+                            i = end + 1;
+                            continue;
+                        }
+                    }
+                }
+                ++i;
+            }
+        }
+
         ast::Stmt* parse_stmt()
         {
             auto start = loc();
@@ -1434,6 +1855,18 @@ export namespace dcc::parser
                     return parse_for_stmt();
                 case TK::KwDefer:
                     return parse_defer_stmt();
+                case TK::KwAsm: {
+                    auto kw_range = single_range();
+                    advance();
+                    auto* stmt = m_ctx.make<ast::AsmStmt>(sm::SourceRange{}, m_ctx.allocator());
+                    stmt->asm_keyword_range = kw_range;
+                    parse_asm_attributes(stmt);
+                    parse_asm_template_body(stmt);
+                    scan_asm_placeholders(stmt);
+                    expect(TK::Semicolon, "after asm statement");
+                    stmt->range = range_from(start);
+                    return stmt;
+                }
                 case TK::KwStatic:
                     if (check_at(1, TK::KwIf))
                         return parse_static_if_stmt();
@@ -1497,7 +1930,7 @@ export namespace dcc::parser
             if (!check(TK::Identifier))
                 return nullptr;
 
-            if (peek(1).kind != TK::Eq && peek(1).kind != TK::Semicolon)
+            if (peek(1).kind != TK::Eq && peek(1).kind != TK::Semicolon && peek(1).kind != TK::KwAsm)
                 return nullptr;
 
             auto name_tok = advance();
@@ -1509,6 +1942,33 @@ export namespace dcc::parser
                 var->init = parse_expr();
                 if (!var->init)
                     return nullptr;
+            }
+            else if (match(TK::KwAsm))
+            {
+                auto* asm_expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
+                asm_expr->asm_keyword_range = previous().range;
+                parse_asm_attributes(asm_expr);
+                parse_asm_template_body(asm_expr);
+                scan_asm_placeholders(asm_expr);
+                var->init = asm_expr;
+
+                bool has_output = false;
+                for (auto const& op : asm_expr->operands)
+                    if (op.direction == ast::AsmOperandDirection::Out || op.direction == ast::AsmOperandDirection::InOut)
+                    {
+                        has_output = true;
+                        break;
+                    }
+
+                if (!has_output)
+                {
+                    ast::AsmOperand synth_out;
+                    synth_out.direction = ast::AsmOperandDirection::Out;
+                    synth_out.placeholder = name_tok.interned;
+                    synth_out.expr = m_ctx.make<ast::IdentExpr>(name_tok.range, name_tok.interned);
+                    synth_out.range = asm_expr->template_range;
+                    asm_expr->operands.push_back(std::move(synth_out));
+                }
             }
 
             if (!match(TK::Semicolon))
@@ -2417,6 +2877,18 @@ export namespace dcc::parser
                 case TK::KwCompiles:
                     return parse_compiles_expr();
 
+                case TK::KwAsm: {
+                    auto kw_range = single_range();
+                    advance();
+                    auto* expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
+                    expr->asm_keyword_range = kw_range;
+                    parse_asm_attributes(expr);
+                    parse_asm_template_body(expr);
+                    scan_asm_placeholders(expr);
+                    expr->range = range_from(start);
+                    return expr;
+                }
+
                 case TK::Identifier: {
                     {
                         Speculation spec(*this);
@@ -2796,6 +3268,7 @@ export namespace dcc::parser
                 case TK::KwDo:
                 case TK::KwFor:
                 case TK::KwDefer:
+                case TK::KwAsm:
                 case TK::KwStatic:
                 case TK::At:
                 case TK::Semicolon:

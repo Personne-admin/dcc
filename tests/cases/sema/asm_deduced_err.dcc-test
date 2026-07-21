@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+
+void width_on_deduced() {
+    u64 x = asm @[output(eax)] { "mov $42, %%eax" };
+}
+
+void no_context_error() {
+    asm @[output(eax)] { "mov $42, %%eax" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:4: does not match register `eax` width
+test.dc:8: cannot deduce output type

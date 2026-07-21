@@ -204,6 +204,16 @@ export namespace dcc::sema
 
             register_attr("section", AttributeTarget::Function | AttributeTarget::Variable);
             register_attr("calling_conv", AttributeTarget::Function);
+
+            register_attr("output", AttributeTarget::None);
+            register_attr("inputs", AttributeTarget::None);
+            register_attr("inout", AttributeTarget::None);
+            register_attr("clobbers", AttributeTarget::None);
+            register_attr("volatile", AttributeTarget::None);
+            register_attr("intel", AttributeTarget::None);
+            register_attr("att", AttributeTarget::None);
+            register_attr("alignstack", AttributeTarget::None);
+            register_attr("arch", AttributeTarget::None);
         }
 
         void register_attr(std::string_view name, AttributeTarget targets) { m_registry[std::string{name}] = targets; }
@@ -307,9 +317,8 @@ export namespace dcc::sema
                         for (auto const& attr : d->attrs)
                             if (attr.name == "intrinsic")
                             {
-                                diag.emit(diag::Diagnostic{diag::Severity::Error,
-                                                           "attribute `@intrinsic` is only valid in the 'core' module"}
-                                              .primary(attr.range));
+                                diag.emit(
+                                    diag::Diagnostic{diag::Severity::Error, "attribute `@intrinsic` is only valid in the 'core' module"}.primary(attr.range));
                             }
                     }
                 }

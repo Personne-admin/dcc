@@ -663,6 +663,7 @@ export namespace dccd::protocol
     constexpr std::array token_types = {
         "namespace",  "type",     "class",  "enum",  "interface", "struct",   "typeParameter", "parameter", "variable", "property",
         "enumMember", "function", "method", "macro", "keyword",   "modifier", "comment",       "string",    "number",   "operator",
+        "asmPlaceholder", "asmRegister",
     };
 
     constexpr std::array token_modifiers = {

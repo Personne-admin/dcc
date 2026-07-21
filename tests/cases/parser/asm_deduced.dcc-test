@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module test;
+
+u64 rdtsc_deduced() {
+    u64 tsc = asm @[output(edx:eax)] { "rdtsc" };
+    return tsc;
+}
+
+u64 rdtsc_in() {
+    u64 tsc = asm @[output(in edx:eax)] { "rdtsc" };
+    return tsc;
+}
+
+u64 rdtsc_explicit() {
+    u64 tsc = asm @[output(u64 in edx:eax)] { "rdtsc" };
+    return tsc;
+}

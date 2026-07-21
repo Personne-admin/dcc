@@ -1,0 +1,12 @@
+=== FILE: test.dc ===
+module test;
+
+u32 single_reg_deduced() {
+    u32 x = asm @[output(eax)] { "mov $42, %%eax" };
+    return x;
+}
+
+u64 pair_deduced() {
+    u64 x = asm @[output(edx:eax)] { "rdtsc" };
+    return x;
+}

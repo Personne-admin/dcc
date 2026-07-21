@@ -9,6 +9,7 @@ import dcc.sema.scope;
 import dcc.sema.type_helpers;
 import dcc.session;
 import dcc.query;
+import dcc.target;
 import dccd.protocol;
 
 export namespace dccd::completion
@@ -617,6 +618,242 @@ namespace dccd::completion
             return ctx;
         }
 
+        static void find_asm_node_in_tu(dcc::session::CompilerSession const& session, dcc::sm::FileId fid, dcc::sm::Offset cursor_offset,
+                                        dcc::ast::AsmStmt const*& out_stmt, dcc::ast::AsmExpr const*& out_expr);
+
+        [[nodiscard]] bool try_asm_operand_completion(std::vector<protocol::CompletionItem>& items, dcc::session::CompilerSession const& session,
+                                                      dcc::sm::FileId fid, dcc::sm::Offset cursor_offset, dcc::sm::SourceFile const& file,
+                                                      std::optional<dcc::query::NodeAtLocation> const& node, std::string_view prefix)
+        {
+            dcc::ast::AsmStmt const* asm_stmt = nullptr;
+            dcc::ast::AsmExpr const* asm_expr = nullptr;
+
+            if (node && node->stmt && node->stmt->kind == dcc::ast::StmtKind::Asm)
+                asm_stmt = static_cast<dcc::ast::AsmStmt const*>(node->stmt);
+            if (node && node->expr && node->expr->kind == dcc::ast::ExprKind::Asm)
+                asm_expr = static_cast<dcc::ast::AsmExpr const*>(node->expr);
+
+            if (!asm_stmt && !asm_expr)
+                find_asm_node_in_tu(session, fid, cursor_offset, asm_stmt, asm_expr);
+
+            auto const* operands_owner = asm_stmt ? &asm_stmt->operands : (asm_expr ? &asm_expr->operands : nullptr);
+            auto const* spans_owner = asm_stmt ? &asm_stmt->placeholder_spans : (asm_expr ? &asm_expr->placeholder_spans : nullptr);
+            auto const* tpl_range = asm_stmt ? &asm_stmt->template_range : (asm_expr ? &asm_expr->template_range : nullptr);
+
+            if (!operands_owner || !spans_owner || !tpl_range || !tpl_range->valid())
+                return false;
+
+            if (cursor_offset < tpl_range->begin.offset || cursor_offset > tpl_range->end.offset)
+                return false;
+
+            auto content_base = tpl_range->begin.offset + 1;
+
+            bool inside_placeholder = false;
+            std::string partial_name;
+
+            for (auto const& span : *spans_owner)
+            {
+                if (span.kind == dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral)
+                    continue;
+
+                auto span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
+                auto span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+
+                if (cursor_offset >= span_start && cursor_offset <= span_end)
+                {
+                    inside_placeholder = true;
+                    auto after_bracket = span_start + 2;
+                    if (cursor_offset > after_bracket)
+                    {
+                        auto len = static_cast<std::size_t>(cursor_offset - after_bracket);
+                        if (after_bracket + static_cast<dcc::sm::Offset>(len) <= static_cast<dcc::sm::Offset>(file.text().size()))
+                            partial_name = std::string{file.text().substr(after_bracket, len)};
+                    }
+                    break;
+                }
+
+                if (cursor_offset >= span_start && cursor_offset < span_start + 2)
+                {
+                    inside_placeholder = true;
+                    partial_name.clear();
+                    break;
+                }
+            }
+
+            if (!inside_placeholder)
+            {
+                auto rel_offset = static_cast<std::int64_t>(cursor_offset) - static_cast<std::int64_t>(content_base);
+                if (rel_offset >= 2)
+                {
+                    auto text = file.text();
+                    auto search_start = static_cast<std::size_t>(content_base);
+                    auto search_end = static_cast<std::size_t>(cursor_offset);
+                    if (search_end <= text.size() && search_start < search_end)
+                    {
+                        auto search_area = text.substr(search_start, search_end - search_start);
+                        auto last_pct = search_area.rfind('%');
+                        if (last_pct != std::string_view::npos && last_pct + 1 < search_area.size() && search_area[last_pct + 1] == '[')
+                        {
+                            inside_placeholder = true;
+                            auto name_start = last_pct + 2;
+                            if (name_start < search_area.size())
+                                partial_name = std::string{search_area.substr(name_start)};
+                        }
+                    }
+                }
+            }
+
+            if (!inside_placeholder)
+                return false;
+
+            for (auto const& op : *operands_owner)
+            {
+                if (!prefix.empty() && !op.placeholder.starts_with(prefix))
+                    continue;
+
+                if (!partial_name.empty() && !op.placeholder.starts_with(partial_name))
+                    continue;
+
+                std::string detail;
+                switch (op.direction)
+                {
+                    case dcc::ast::AsmOperandDirection::Out:
+                        detail = "out";
+                        break;
+                    case dcc::ast::AsmOperandDirection::In:
+                        detail = "in";
+                        break;
+                    case dcc::ast::AsmOperandDirection::InOut:
+                        detail = "inout";
+                        break;
+                }
+                detail += ", ";
+                switch (op.placement_kind)
+                {
+                    case dcc::ast::AsmPlacementKind::Reg:
+                        detail += op.reg_name.empty() ? "reg" : std::format("reg[{}]", op.reg_name);
+                        break;
+                    case dcc::ast::AsmPlacementKind::RegPair:
+                        detail += std::format("pair[{},{}]", op.reg_name, op.reg_name2);
+                        break;
+                    case dcc::ast::AsmPlacementKind::Mem:
+                        detail += "mem";
+                        break;
+                    case dcc::ast::AsmPlacementKind::Imm:
+                        detail += "imm";
+                        break;
+                }
+
+                add_item(items, std::string{op.placeholder}, protocol::CompletionItemKind::Variable, std::move(detail));
+            }
+
+            // TODO(asm): instruction mnemonic completion
+            return !items.empty();
+        }
+
+        static void find_asm_node_in_tu(dcc::session::CompilerSession const& session, dcc::sm::FileId fid, dcc::sm::Offset cursor_offset,
+                                        dcc::ast::AsmStmt const*& out_stmt, dcc::ast::AsmExpr const*& out_expr)
+        {
+            dcc::ast::TranslationUnit const* tu = nullptr;
+            {
+                auto* sema_ctx = session.sema_context();
+                if (sema_ctx)
+                {
+                    auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+                    for (auto const& mod : graph.all())
+                    {
+                        if (mod->file_id == fid && mod->tu)
+                        {
+                            tu = mod->tu;
+                            break;
+                        }
+                    }
+                    if (!tu)
+                        tu = graph.find_tu_for_file(fid);
+                }
+            }
+            if (!tu)
+                tu = const_cast<dcc::session::CompilerSession&>(session).parse_file(fid);
+
+            if (!tu)
+                return;
+
+            auto in_template = [&](dcc::sm::SourceRange const& tpl_range) -> bool {
+                if (!tpl_range.valid())
+                    return false;
+
+                if (tpl_range.begin.fileId != fid)
+                    return false;
+
+                return cursor_offset >= tpl_range.begin.offset && cursor_offset <= tpl_range.end.offset;
+            };
+
+            std::function<void(dcc::ast::Decl const*)> walk_decls;
+            std::function<void(dcc::ast::Stmt const*)> walk_stmts;
+            std::function<void(dcc::ast::Expr const*)> walk_exprs;
+
+            walk_decls = [&](dcc::ast::Decl const* decl) -> void {
+                if (!decl)
+                    return;
+
+                if (decl->kind == dcc::ast::DeclKind::Func)
+                {
+                    auto const* fd = static_cast<dcc::ast::FuncDecl const*>(decl);
+                    if (fd->body.has_value())
+                    {
+                        for (auto* s : fd->body->stmts)
+                            walk_stmts(s);
+                        walk_exprs(fd->body->tail);
+                    }
+                }
+            };
+
+            walk_stmts = [&](dcc::ast::Stmt const* stmt) -> void {
+                if (!stmt || out_stmt)
+                    return;
+
+                if (stmt->kind == dcc::ast::StmtKind::Asm)
+                {
+                    auto const* s = static_cast<dcc::ast::AsmStmt const*>(stmt);
+                    if (in_template(s->template_range))
+                    {
+                        out_stmt = s;
+                        return;
+                    }
+                }
+                if (stmt->kind == dcc::ast::StmtKind::Expr)
+                {
+                    auto const* es = static_cast<dcc::ast::ExprStmt const*>(stmt);
+                    walk_exprs(es->expr);
+                }
+                else if (stmt->kind == dcc::ast::StmtKind::DeclStmt)
+                {
+                    auto const* ds = static_cast<dcc::ast::DeclStmt const*>(stmt);
+                    walk_decls(ds->decl);
+                }
+            };
+
+            walk_exprs = [&](dcc::ast::Expr const* expr) -> void {
+                if (!expr || out_expr)
+                    return;
+
+                if (expr->kind == dcc::ast::ExprKind::Asm)
+                {
+                    auto const* e = static_cast<dcc::ast::AsmExpr const*>(expr);
+                    if (in_template(e->template_range))
+                    {
+                        out_expr = e;
+                        return;
+                    }
+                }
+            };
+
+            for (auto* d : tu->imports)
+                walk_decls(d);
+            for (auto* d : tu->decls)
+                walk_decls(d);
+        }
+
     } // anonymous namespace
 
     protocol::CompletionList compute_completions(dcc::session::CompilerSession const& session, std::string_view uri, dcc::sm::Position cursor)
@@ -680,6 +917,9 @@ namespace dccd::completion
                 auto node = dcc::query::find_node_at(session, fid, cursor);
                 if (!node || !node->has_ast_node())
                     std::println(std::cerr, "[dccd] compute_completions: no AST node at cursor position");
+
+                if (try_asm_operand_completion(result.items, session, fid, cursor_offset, *file, node, ctx.prefix))
+                    break;
 
                 if (module->own_scope)
                 {
