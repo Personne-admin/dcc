@@ -21,6 +21,7 @@ export namespace dcc::sm
         MmapFailed,
         InvalidUtf8,
         OutOfRange,
+        NotOpen,
     };
 
     [[nodiscard]] constexpr std::string_view to_string(Error e) noexcept
@@ -39,6 +40,8 @@ export namespace dcc::sm
                 return "invalid UTF-8";
             case Error::OutOfRange:
                 return "offset out of range";
+            case Error::NotOpen:
+                return "document is not open";
         }
         return "unknown";
     }
@@ -67,6 +70,8 @@ export namespace dcc::sm
         [[nodiscard]] constexpr bool valid() const noexcept { return begin.valid() && end.fileId == begin.fileId && end.offset >= begin.offset; }
 
         [[nodiscard]] constexpr Offset byte_length() const noexcept { return end.offset - begin.offset; }
+
+        [[nodiscard]] constexpr bool operator==(SourceRange const&) const noexcept = default;
     };
 
     struct LineCol
@@ -84,6 +89,27 @@ export namespace dcc::sm
         [[nodiscard]] constexpr bool operator==(Position const&) const noexcept = default;
     };
 
+    enum class PositionEncoding : std::uint8_t
+    {
+        Utf8,
+        Utf16,
+        Utf32,
+    };
+
+    [[nodiscard]] constexpr std::string_view to_string(PositionEncoding enc) noexcept
+    {
+        switch (enc)
+        {
+            case PositionEncoding::Utf8:
+                return "utf-8";
+            case PositionEncoding::Utf16:
+                return "utf-16";
+            case PositionEncoding::Utf32:
+                return "utf-32";
+        }
+        return "utf-16";
+    }
+
     enum class FileKind : std::uint8_t
     {
         Disk,
@@ -91,9 +117,32 @@ export namespace dcc::sm
         InMemory,
     };
 
+    struct DiskSignature
+    {
+        std::int64_t mtime_sec{0};
+        std::int64_t mtime_nsec{0};
+        std::uint64_t size{0};
+
+        [[nodiscard]] friend bool operator==(DiskSignature const&, DiskSignature const&) = default;
+    };
+
     [[nodiscard]] constexpr std::uint32_t utf16_code_units(utf8::Codepoint cp) noexcept
     {
         return cp > 0xFFFFu ? 2u : 1u;
+    }
+
+    [[nodiscard]] constexpr std::uint32_t position_units(utf8::Codepoint cp, int bytes_consumed, PositionEncoding enc) noexcept
+    {
+        switch (enc)
+        {
+            case PositionEncoding::Utf8:
+                return static_cast<std::uint32_t>(bytes_consumed);
+            case PositionEncoding::Utf16:
+                return utf16_code_units(cp);
+            case PositionEncoding::Utf32:
+                return 1;
+        }
+        return 1;
     }
 
     class SourceFile
@@ -118,7 +167,7 @@ export namespace dcc::sm
         SourceFile(SourceFile&& o) noexcept
             : m_id{o.m_id}, m_path{std::move(o.m_path)}, m_owned_content{std::move(o.m_owned_content)}, m_kind{o.m_kind}, m_uri{std::move(o.m_uri)},
               m_version{o.m_version}, m_mapping{o.m_mapping}, m_size{o.m_size}, m_is_mmaped{o.m_is_mmaped}, m_line_start{std::move(o.m_line_start)},
-              m_line_index_built{o.m_line_index_built}, m_closed{o.m_closed}
+              m_line_index_built{o.m_line_index_built}, m_closed{o.m_closed}, m_content_revision{o.m_content_revision}, m_disk_signature{o.m_disk_signature}
         {
             o.m_mapping = nullptr;
             o.m_size = 0;
@@ -144,6 +193,8 @@ export namespace dcc::sm
                 m_line_start = std::move(o.m_line_start);
                 m_line_index_built = o.m_line_index_built;
                 m_closed = o.m_closed;
+                m_content_revision = o.m_content_revision;
+                m_disk_signature = o.m_disk_signature;
 
                 o.m_mapping = nullptr;
                 o.m_size = 0;
@@ -164,6 +215,10 @@ export namespace dcc::sm
         [[nodiscard]] FileKind kind() const noexcept { return m_kind; }
         [[nodiscard]] bool is_in_memory() const noexcept { return m_kind == FileKind::InMemory; }
         [[nodiscard]] bool is_closed() const noexcept { return m_closed; }
+
+        [[nodiscard]] std::uint64_t content_revision() const noexcept { return m_content_revision; }
+
+        [[nodiscard]] std::optional<DiskSignature> disk_signature() const noexcept { return m_disk_signature; }
 
         [[nodiscard]] std::span<std::byte const> bytes() const noexcept { return {static_cast<std::byte const*>(m_mapping), m_size}; }
         [[nodiscard]] std::string_view text() const noexcept { return {static_cast<char const*>(m_mapping), m_size}; }
@@ -222,7 +277,7 @@ export namespace dcc::sm
             };
         }
 
-        [[nodiscard]] std::expected<Position, Error> lsp_position(Offset offset) const
+        [[nodiscard]] std::expected<Position, Error> lsp_position(Offset offset, PositionEncoding enc = PositionEncoding::Utf16) const
         {
             if (offset > static_cast<Offset>(m_size))
                 return std::unexpected{Error::OutOfRange};
@@ -230,71 +285,73 @@ export namespace dcc::sm
             if (!m_mapping && m_size != 0)
                 return std::unexpected{Error::MmapFailed};
 
-            auto const* data = static_cast<char const*>(m_mapping);
-            std::uint32_t line = 0;
-            std::uint32_t character = 0;
-            std::size_t pos = 0;
+            ensure_line_index();
 
-            while (pos < offset)
+            auto it = std::ranges::upper_bound(m_line_start, offset);
+            --it;
+
+            auto const line_idx = static_cast<std::uint32_t>(it - m_line_start.begin());
+            auto const line_start = *it;
+
+            auto const scan_end = std::min<std::size_t>(offset, line_content_end(line_idx));
+
+            auto const* data = static_cast<char const*>(m_mapping);
+            std::uint32_t character = 0;
+            std::size_t pos = line_start;
+
+            while (pos < scan_end)
             {
-                auto result = utf8::decode_one(std::string_view{data + pos, m_size - pos});
+                auto result = utf8::decode_one(std::string_view{data + pos, scan_end - pos});
                 if (!result)
                     return std::unexpected{Error::InvalidUtf8};
 
                 auto consumed = static_cast<std::size_t>(result->bytes_consumed);
-                if (pos + consumed > offset)
+
+                if (pos + consumed > scan_end)
                     return std::unexpected{Error::InvalidUtf8};
 
-                if (data[pos] == '\n')
-                {
-                    ++line;
-                    character = 0;
-                }
-                else
-                    character += utf16_code_units(result->codepoint);
-
-                pos += static_cast<std::size_t>(result->bytes_consumed);
+                character += position_units(result->codepoint, result->bytes_consumed, enc);
+                pos += consumed;
             }
 
-            return Position{line, character};
+            return Position{line_idx, character};
         }
 
-        [[nodiscard]] std::expected<Offset, Error> offset_at_lsp_position(std::uint32_t line, std::uint32_t utf16_char) const
+        [[nodiscard]] std::expected<Offset, Error> offset_at_lsp_position(std::uint32_t line, std::uint32_t unit_col,
+                                                                          PositionEncoding enc = PositionEncoding::Utf16) const
         {
             if (!m_mapping && m_size != 0)
                 return std::unexpected{Error::MmapFailed};
 
-            auto const* data = static_cast<char const*>(m_mapping);
-            std::size_t pos = 0;
-            std::uint32_t current_line = 0;
+            ensure_line_index();
 
-            while (pos < m_size && current_line < line)
-            {
-                auto result = utf8::decode_one(std::string_view{data + pos, m_size - pos});
-                if (!result)
-                    return std::unexpected{Error::InvalidUtf8};
-
-                if (data[pos] == '\n')
-                    ++current_line;
-
-                pos += static_cast<std::size_t>(result->bytes_consumed);
-            }
-
-            if (current_line != line)
+            if (line >= m_line_start.size())
                 return std::unexpected{Error::OutOfRange};
 
-            std::uint32_t char_count = 0;
-            while (pos < m_size && data[pos] != '\n')
+            auto const line_start = m_line_start[line];
+            auto const content_end = line_content_end(line);
+
+            auto const* data = static_cast<char const*>(m_mapping);
+            std::size_t pos = line_start;
+            std::uint32_t units = 0;
+
+            while (pos < content_end)
             {
-                if (char_count >= utf16_char)
+                if (units >= unit_col)
                     break;
 
-                auto result = utf8::decode_one(std::string_view{data + pos, m_size - pos});
+                auto result = utf8::decode_one(std::string_view{data + pos, content_end - pos});
                 if (!result)
                     return std::unexpected{Error::InvalidUtf8};
 
-                char_count += utf16_code_units(result->codepoint);
-                pos += static_cast<std::size_t>(result->bytes_consumed);
+                auto consumed = static_cast<std::size_t>(result->bytes_consumed);
+                auto const next_units = units + position_units(result->codepoint, result->bytes_consumed, enc);
+
+                if (unit_col < next_units)
+                    break;
+
+                units = next_units;
+                pos += consumed;
             }
 
             return static_cast<Offset>(pos);
@@ -349,11 +406,15 @@ export namespace dcc::sm
 
         void mark_closed() noexcept { m_closed = true; }
 
+        void mark_open() noexcept { m_closed = false; }
+
         void set_uri(std::string u) { m_uri = std::move(u); }
 
         void set_version(std::optional<std::int64_t> v) { m_version = v; }
 
     private:
+        friend class SourceManager;
+
         void close_mapping() noexcept;
 
         void ensure_line_index() const
@@ -365,11 +426,49 @@ export namespace dcc::sm
             m_line_start.push_back(0);
 
             auto const* data = static_cast<char const*>(m_mapping);
-            for (std::size_t i = 0; i < m_size; ++i)
-                if (data[i] == '\n' && i + 1 <= m_size)
+            std::size_t i = 0;
+            while (i < m_size)
+            {
+                if (data[i] == '\n')
+                {
                     m_line_start.push_back(static_cast<Offset>(i + 1));
+                    ++i;
+                }
+                else if (data[i] == '\r')
+                {
+                    if (i + 1 < m_size && data[i + 1] == '\n')
+                        ++i;
+                    m_line_start.push_back(static_cast<Offset>(i + 1));
+                    ++i;
+                }
+                else
+                {
+                    ++i;
+                }
+            }
 
             m_line_index_built = true;
+        }
+
+        [[nodiscard]] Offset line_content_end(std::uint32_t line_idx) const
+        {
+            auto const line_start = m_line_start[line_idx];
+
+            Offset end;
+            if (line_idx + 1 < m_line_start.size())
+                end = m_line_start[line_idx + 1] - 1;
+            else
+                end = static_cast<Offset>(m_size);
+
+            auto const* data = static_cast<char const*>(m_mapping);
+            if (end > line_start && end <= static_cast<Offset>(m_size))
+            {
+                auto const last = data[end - 1];
+                if (last == '\r' || last == '\n')
+                    return std::max(end - 1, line_start);
+            }
+
+            return std::max(end, line_start);
         }
 
         FileId m_id;
@@ -385,6 +484,9 @@ export namespace dcc::sm
         mutable std::vector<Offset> m_line_start;
         mutable bool m_line_index_built{false};
         bool m_closed{false};
+
+        std::uint64_t m_content_revision{0};
+        std::optional<DiskSignature> m_disk_signature;
     };
 
     class SourceManager
@@ -456,6 +558,8 @@ export namespace dcc::sm
                 {
                     file->replace_buffer(std::make_unique<std::string>(std::move(content)));
                     file->set_version(version);
+                    file->mark_open();
+                    file->m_content_revision = next_content_revision();
                 }
                 return *existing;
             }
@@ -473,6 +577,7 @@ export namespace dcc::sm
             }
 
             auto file = std::make_unique<SourceFile>(id, std::move(path), FileKind::InMemory, std::move(uri), version, std::move(owned));
+            file->m_content_revision = next_content_revision();
             m_files.push_back(std::move(file));
             return id;
         }
@@ -483,7 +588,10 @@ export namespace dcc::sm
             {
                 auto* file = get_mut(*existing);
                 if (file && file->kind() == FileKind::InMemory)
+                {
                     file->replace_buffer(std::make_unique<std::string>(std::move(content)));
+                    file->m_content_revision = next_content_revision();
+                }
 
                 return *existing;
             }
@@ -491,6 +599,7 @@ export namespace dcc::sm
             auto const id = next_id();
             auto owned = std::make_unique<std::string>(std::move(content));
             auto file = std::make_unique<SourceFile>(id, std::move(synthetic_path), FileKind::InMemory, std::move(uri), std::nullopt, std::move(owned));
+            file->m_content_revision = next_content_revision();
             m_files.push_back(std::move(file));
             return id;
         }
@@ -509,8 +618,12 @@ export namespace dcc::sm
             if (file->kind() != FileKind::InMemory)
                 return std::unexpected{Error::PermissionDenied};
 
+            if (file->is_closed())
+                return std::unexpected{Error::NotOpen};
+
             file->replace_buffer(std::make_unique<std::string>(std::move(new_content)));
             file->set_version(new_version);
+            file->m_content_revision = next_content_revision();
             return {};
         }
 
@@ -537,20 +650,20 @@ export namespace dcc::sm
             if (!f)
                 return std::unexpected{Error::OutOfRange};
 
-            auto offset = f->offset_at_lsp_position(pos.line, pos.character);
+            auto offset = f->offset_at_lsp_position(pos.line, pos.character, m_position_encoding);
             if (!offset)
                 return std::unexpected{offset.error()};
 
             return Location{fid, *offset};
         }
 
-        [[nodiscard]] std::expected<Location, Error> lsp_position_to_location(FileId fid, std::uint32_t line, std::uint32_t utf16_col) const
+        [[nodiscard]] std::expected<Location, Error> lsp_position_to_location(FileId fid, std::uint32_t line, std::uint32_t unit_col) const
         {
             auto const* f = get(fid);
             if (!f)
                 return std::unexpected{Error::OutOfRange};
 
-            auto offset = f->offset_at_lsp_position(line, utf16_col);
+            auto offset = f->offset_at_lsp_position(line, unit_col, m_position_encoding);
             if (!offset)
                 return std::unexpected{offset.error()};
 
@@ -563,8 +676,12 @@ export namespace dcc::sm
             if (!f)
                 return std::unexpected{Error::OutOfRange};
 
-            return f->lsp_position(loc.offset);
+            return f->lsp_position(loc.offset, m_position_encoding);
         }
+
+        void set_position_encoding(PositionEncoding enc) noexcept { m_position_encoding = enc; }
+
+        [[nodiscard]] PositionEncoding position_encoding() const noexcept { return m_position_encoding; }
 
         [[nodiscard]] SourceFile const* get(Location loc) const noexcept { return get(loc.fileId); }
         [[nodiscard]] constexpr Location location(FileId id, Offset offset) const noexcept { return Location{id, offset}; }
@@ -589,6 +706,23 @@ export namespace dcc::sm
 
         [[nodiscard]] std::size_t file_count() const noexcept { return m_files.size(); }
 
+        [[nodiscard]] std::uint64_t content_revision(FileId id) const noexcept
+        {
+            auto const* f = get(id);
+            return f ? f->content_revision() : 0u;
+        }
+
+        [[nodiscard]] std::optional<DiskSignature> disk_signature(FileId id) const noexcept
+        {
+            auto const* f = get(id);
+            return f ? f->disk_signature() : std::nullopt;
+        }
+
+        [[nodiscard]] static std::optional<DiskSignature> stat_disk_signature(std::filesystem::path const& path) noexcept;
+
+        [[nodiscard]] bool refresh_disk_file(FileId id);
+        [[nodiscard]] bool refresh_disk_file(std::filesystem::path const& path);
+
         template <typename Fn> void for_each_file(Fn&& fn) const
         {
             for (auto const& f : m_files)
@@ -600,8 +734,12 @@ export namespace dcc::sm
 
     private:
         std::vector<std::unique_ptr<SourceFile>> m_files;
+        std::uint64_t m_next_content_revision{1};
+        PositionEncoding m_position_encoding{PositionEncoding::Utf16};
 
         [[nodiscard]] FileId next_id() const noexcept { return static_cast<FileId>(m_files.size()); }
+
+        [[nodiscard]] std::uint64_t next_content_revision() noexcept { return m_next_content_revision++; }
     };
 
 } // namespace dcc::sm
@@ -621,6 +759,19 @@ namespace dcc::sm
 
     namespace
     {
+        [[nodiscard]] std::optional<DiskSignature> stat_signature(std::filesystem::path const& path) noexcept
+        {
+            struct ::stat st{};
+            if (::stat(path.c_str(), &st) == -1)
+                return std::nullopt;
+
+            return DiskSignature{
+                .mtime_sec = static_cast<std::int64_t>(st.st_mtim.tv_sec),
+                .mtime_nsec = static_cast<std::int64_t>(st.st_mtim.tv_nsec),
+                .size = static_cast<std::uint64_t>(st.st_size),
+            };
+        }
+
         [[nodiscard]] std::expected<std::pair<void*, std::size_t>, Error> mmap_file(std::filesystem::path const& path) noexcept
         {
             auto const fd = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
@@ -785,6 +936,8 @@ namespace dcc::sm
         auto const id = next_id();
         auto sf = std::make_unique<SourceFile>(id, canonical, mapping, size);
         sf->set_uri(to_file_uri(canonical));
+        sf->m_content_revision = next_content_revision();
+        sf->m_disk_signature = stat_signature(canonical);
 
         if (size > 0)
             ::madvise(mapping, size, MADV_RANDOM);
@@ -798,8 +951,56 @@ namespace dcc::sm
         auto const id = next_id();
         auto owned = std::make_unique<std::string>(std::move(content));
         auto sf = std::make_unique<SourceFile>(id, std::filesystem::path{std::move(name)}, FileKind::Synthetic, std::string{}, std::nullopt, std::move(owned));
+        sf->m_content_revision = next_content_revision();
         m_files.push_back(std::move(sf));
         return id;
+    }
+
+    std::optional<DiskSignature> SourceManager::stat_disk_signature(std::filesystem::path const& path) noexcept
+    {
+        return stat_signature(path);
+    }
+
+    bool SourceManager::refresh_disk_file(std::filesystem::path const& path)
+    {
+        auto existing = find_by_path(path);
+        if (!existing)
+            return false;
+
+        return refresh_disk_file(*existing);
+    }
+
+    bool SourceManager::refresh_disk_file(FileId id)
+    {
+        auto* f = get_mut(id);
+        if (!f || f->kind() != FileKind::Disk)
+            return false;
+
+        auto sig = stat_signature(f->path());
+        if (!sig)
+            return false;
+
+        if (f->m_disk_signature && *f->m_disk_signature == *sig)
+            return false;
+
+        auto result = mmap_file(f->path());
+        if (!result)
+            return false;
+
+        f->close_mapping();
+        auto [mapping, size] = *result;
+        f->m_mapping = mapping;
+        f->m_size = size;
+        f->m_is_mmaped = true;
+        f->m_disk_signature = *sig;
+        f->m_content_revision = next_content_revision();
+        f->m_line_start.clear();
+        f->m_line_index_built = false;
+
+        if (size > 0)
+            ::madvise(mapping, size, MADV_RANDOM);
+
+        return true;
     }
 
     std::optional<std::filesystem::path> SourceManager::parse_file_uri(std::string_view uri) noexcept
