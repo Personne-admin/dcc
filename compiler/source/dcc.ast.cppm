@@ -481,11 +481,19 @@ export namespace dcc::ast
         FamType(sm::SourceRange r, TypePtr el) : TypeExpr(Kind, r), element(el) {}
     };
 
+    struct FuncPtrParam
+    {
+        TypePtr type{};
+        std::string_view name{};
+        sm::SourceRange range{};
+        sm::SourceRange name_range{};
+    };
+
     struct FuncPtrType : TypeExpr
     {
         static constexpr auto Kind = TypeKind::FuncPtr;
         TypePtr return_type;
-        std::pmr::vector<TypePtr> params;
+        std::pmr::vector<FuncPtrParam> params;
         FuncPtrType(sm::SourceRange r, TypePtr ret, Allocator a) : TypeExpr(Kind, r), return_type(ret), params(a) {}
     };
 

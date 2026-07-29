@@ -1,0 +1,78 @@
+=== FILE: test.dc ===
+module test;
+
+using Named = void(*)(i32 value, bool enabled);
+using Unnamed = void(*)(i32, bool);
+using NamedI32 = void(*)(i32 value);
+
+public void impl(i32 value, bool enabled) {}
+public void impl_i32(i32 value) {}
+
+public void dispatch(Named cb) { cb(1, true); }
+public void dispatch(NamedI32 cb) { cb(2); }
+
+public void call_named(Named cb) { dispatch(cb); }
+public void call_unnamed(Unnamed cb) { dispatch(cb); }
+public void call_named_i32(NamedI32 cb) { dispatch(cb); }
+
+public void test_both() {
+    Named n = impl;
+    Unnamed u = impl;
+    call_named(n);
+    call_unnamed(u);
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test4.impl2i32sbv(i32, bool) {
+%entry(i32 %value, bool %enabled):
+  ret void
+}
+
+void@_DC0F1.4.test8.impl_i321i32sv(i32) {
+%entry(i32 %value):
+  ret void
+}
+
+void@_DC0F1.4.test8.dispatch1pv2i32sbv(ptr<fn(i32, bool) -> void>) {
+%entry(ptr<fn(i32, bool) -> void> %cb):
+  call fn(%cb)(i32 #1, bool #true)
+  ret void
+}
+
+void@_DC0F1.4.test8.dispatch1pv1i32sv(ptr<fn(i32) -> void>) {
+%entry(ptr<fn(i32) -> void> %cb):
+  call fn(%cb)(i32 #2)
+  ret void
+}
+
+void@_DC0F1.4.test10.call_named1pv2i32sbv(ptr<fn(i32, bool) -> void>) {
+%entry(ptr<fn(i32, bool) -> void> %cb):
+  call fn(@_DC0F1.4.test8.dispatch1pv2i32sbv)(ptr<fn(i32, bool) -> void> %cb)
+  ret void
+}
+
+void@_DC0F1.4.test12.call_unnamed1pv2i32sbv(ptr<fn(i32, bool) -> void>) {
+%entry(ptr<fn(i32, bool) -> void> %cb):
+  call fn(@_DC0F1.4.test8.dispatch1pv2i32sbv)(ptr<fn(i32, bool) -> void> %cb)
+  ret void
+}
+
+void@_DC0F1.4.test14.call_named_i321pv1i32sv(ptr<fn(i32) -> void>) {
+%entry(ptr<fn(i32) -> void> %cb):
+  call fn(@_DC0F1.4.test8.dispatch1pv1i32sv)(ptr<fn(i32) -> void> %cb)
+  ret void
+}
+
+void@_DC0F1.4.test9.test_both0v() {
+%entry:
+  %0 = alloca ptr<fn(i32, bool) -> void>
+  store ptr<fn(i32, bool) -> void> @_DC0F1.4.test4.impl2i32sbv, ptr<ptr<fn(i32, bool) -> void>> %0
+  %1 = alloca ptr<fn(i32, bool) -> void>
+  store ptr<fn(i32, bool) -> void> @_DC0F1.4.test4.impl2i32sbv, ptr<ptr<fn(i32, bool) -> void>> %1
+  %2 = load ptr<fn(i32, bool) -> void>, ptr<ptr<fn(i32, bool) -> void>> %0
+  call fn(@_DC0F1.4.test10.call_named1pv2i32sbv)(ptr<fn(i32, bool) -> void> %2)
+  %3 = load ptr<fn(i32, bool) -> void>, ptr<ptr<fn(i32, bool) -> void>> %1
+  call fn(@_DC0F1.4.test12.call_unnamed1pv2i32sbv)(ptr<fn(i32, bool) -> void> %3)
+  ret void
+}

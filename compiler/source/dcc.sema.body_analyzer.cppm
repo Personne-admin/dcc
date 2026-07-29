@@ -2048,8 +2048,8 @@ export namespace dcc::sema
                         case ast::TypeKind::FuncPtr: {
                             auto* fp = static_cast<ast::FuncPtrType*>(t);
                             visit_type(fp->return_type);
-                            for (auto* p : fp->params)
-                                visit_type(p);
+                            for (auto& p : fp->params)
+                                visit_type(p.type);
                             break;
                         }
                         case ast::TypeKind::Qualified:
@@ -12353,8 +12353,8 @@ export namespace dcc::sema
                 case ast::TypeKind::FuncPtr: {
                     auto const* fp = static_cast<ast::FuncPtrType const*>(t);
                     std::vector<types::TypePtr> params;
-                    for (auto* p : fp->params)
-                        params.push_back(resolve_type_node(mod, scope, p, fn, next_off_ptr, const_env));
+                    for (auto const& p : fp->params)
+                        params.push_back(resolve_type_node(mod, scope, p.type, fn, next_off_ptr, const_env));
 
                     return {.type = m_types.funcptr_t(resolve_type_node(mod, scope, fp->return_type, fn, next_off_ptr, const_env), params)};
                 }

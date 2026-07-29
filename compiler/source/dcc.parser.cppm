@@ -992,8 +992,21 @@ export namespace dcc::parser
 
                     if (!check(TK::RParen))
                         do
-                            fp->params.push_back(parse_type());
-                        while (match(TK::Comma));
+                        {
+                            auto param_start = loc();
+                            auto* pt = parse_type();
+
+                            ast::FuncPtrParam param;
+                            param.type = pt;
+                            if (check(TK::Identifier))
+                            {
+                                auto name_tok = advance();
+                                param.name = name_tok.interned;
+                                param.name_range = name_tok.range;
+                            }
+                            param.range = range_from(param_start);
+                            fp->params.push_back(param);
+                        } while (match(TK::Comma));
 
                     expect(TK::RParen, "to close function pointer parameter list");
                     fp->range = range_from(start);

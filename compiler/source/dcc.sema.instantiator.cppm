@@ -92,8 +92,8 @@ namespace dcc::sema
                     auto* e = static_cast<ast::FuncPtrType const*>(t);
                     auto* n = m_ctx.make<ast::FuncPtrType>(e->range, clone_type(e->return_type));
                     n->params.reserve(e->params.size());
-                    for (auto* p : e->params)
-                        n->params.push_back(clone_type(p));
+                    for (auto const& p : e->params)
+                        n->params.push_back({clone_type(p.type), p.name, p.range, p.name_range});
 
                     n->sema = e->sema;
                     return n;
@@ -937,8 +937,8 @@ namespace dcc::sema
                 case ast::TypeKind::FuncPtr: {
                     auto* fp = static_cast<ast::FuncPtrType*>(t);
                     substitute_in_type(fp->return_type);
-                    for (auto* p : fp->params)
-                        substitute_in_type(p);
+                    for (auto& p : fp->params)
+                        substitute_in_type(p.type);
                     break;
                 }
                 case ast::TypeKind::Qualified:
@@ -1829,7 +1829,7 @@ export namespace dcc::sema
                 auto* ret = clone_type_from_canonical(ft->return_type, ast_ctx, type_ctx);
                 auto* r = ast_ctx.make<ast::FuncPtrType>(sm::SourceRange{}, ret, ast_ctx.allocator());
                 for (auto const* p : ft->params)
-                    r->params.push_back(clone_type_from_canonical(p, ast_ctx, type_ctx));
+                    r->params.push_back({clone_type_from_canonical(p, ast_ctx, type_ctx), {}, {}, {}});
                 set_canonical(r->sema, ty);
                 return r;
             }
@@ -2282,8 +2282,8 @@ export namespace dcc::sema
                     case ast::TypeKind::FuncPtr: {
                         auto* fp = static_cast<ast::FuncPtrType*>(t);
                         replace_in_type(fp->return_type);
-                        for (auto* p : fp->params)
-                            replace_in_type(p);
+                        for (auto& p : fp->params)
+                            replace_in_type(p.type);
                         break;
                     }
                     case ast::TypeKind::Qualified:

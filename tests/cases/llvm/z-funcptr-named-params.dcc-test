@@ -1,0 +1,82 @@
+=== FILE: test.dc ===
+module test;
+
+using Named = void(*)(i32 value, bool enabled);
+using Unnamed = void(*)(i32, bool);
+using NamedI32 = void(*)(i32 value);
+
+public void impl(i32 value, bool enabled) {}
+public void impl_i32(i32 value) {}
+
+public void dispatch(Named cb) { cb(1, true); }
+public void dispatch(NamedI32 cb) { cb(2); }
+
+public void call_named(Named cb) { dispatch(cb); }
+public void call_unnamed(Unnamed cb) { dispatch(cb); }
+public void call_named_i32(NamedI32 cb) { dispatch(cb); }
+
+public void test_both() {
+    Named n = impl;
+    Unnamed u = impl;
+    call_named(n);
+    call_unnamed(u);
+}
+=== ENTRY: test.dc ===
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-unknown-linux-gnu"
+
+define void @_DC0F1.4.test4.impl2i32sbv(i32 %value, i1 %enabled) {
+entry:
+  ret void
+}
+
+define void @_DC0F1.4.test8.impl_i321i32sv(i32 %value) {
+entry:
+  ret void
+}
+
+define void @_DC0F1.4.test8.dispatch1pv2i32sbv(ptr %cb) {
+entry:
+  call void %cb(i32 1, i1 true)
+  ret void
+}
+
+define void @_DC0F1.4.test8.dispatch1pv1i32sv(ptr %cb) {
+entry:
+  call void %cb(i32 2)
+  ret void
+}
+
+define void @_DC0F1.4.test10.call_named1pv2i32sbv(ptr %cb) {
+entry:
+  call void @_DC0F1.4.test8.dispatch1pv2i32sbv(ptr %cb)
+  ret void
+}
+
+define void @_DC0F1.4.test12.call_unnamed1pv2i32sbv(ptr %cb) {
+entry:
+  call void @_DC0F1.4.test8.dispatch1pv2i32sbv(ptr %cb)
+  ret void
+}
+
+define void @_DC0F1.4.test14.call_named_i321pv1i32sv(ptr %cb) {
+entry:
+  call void @_DC0F1.4.test8.dispatch1pv1i32sv(ptr %cb)
+  ret void
+}
+
+define void @_DC0F1.4.test9.test_both0v() {
+entry:
+  %"0" = alloca ptr, align 8
+  store ptr @_DC0F1.4.test4.impl2i32sbv, ptr %"0", align 8
+  %"1" = alloca ptr, align 8
+  store ptr @_DC0F1.4.test4.impl2i32sbv, ptr %"1", align 8
+  %"2" = load ptr, ptr %"0", align 8
+  call void @_DC0F1.4.test10.call_named1pv2i32sbv(ptr %"2")
+  %"3" = load ptr, ptr %"1", align 8
+  call void @_DC0F1.4.test12.call_unnamed1pv2i32sbv(ptr %"3")
+  ret void
+}

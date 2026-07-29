@@ -421,9 +421,9 @@ namespace dcc::ast
     {
         if (t->return_type)
             visitTypeExpr(t->return_type);
-        for (const auto* p : t->params)
-            if (p)
-                visitTypeExpr(p);
+        for (const auto& p : t->params)
+            if (p.type)
+                visitTypeExpr(p.type);
     }
 
     void RecursiveAstVisitor::visitQualifiedType(QualifiedType const* t)

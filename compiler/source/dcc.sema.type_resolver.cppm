@@ -492,9 +492,9 @@ export namespace dcc::sema
                     auto ret = resolve_type_expr(t->return_type, mod, env, quiet_unknown);
                     std::vector<types::TypePtr> params;
                     params.reserve(t->params.size());
-                    for (auto* p : t->params)
+                    for (auto const& p : t->params)
                     {
-                        auto rp = resolve_type_expr(p, mod, env, quiet_unknown);
+                        auto rp = resolve_type_expr(p.type, mod, env, quiet_unknown);
                         params.push_back(rp.type);
                     }
                     out.type = m_types.funcptr_t(ret.type, params);

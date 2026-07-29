@@ -1,0 +1,50 @@
+=== FILE: main.dc ===
+module m;
+
+using AllNamed = void(*)(i32 value);
+using TwoNamed = void(*)(i32 value, bool enabled);
+using MixedNamed = void(*)(i32, bool enabled);
+using Unnamed = void(*)(i32, bool);
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Using kind=alias
+    alias=AllNamed
+    TargetType
+      FuncPtr
+        Return
+          Primitive void
+        Params
+          Param name=value
+            Primitive i32
+  Using kind=alias
+    alias=TwoNamed
+    TargetType
+      FuncPtr
+        Return
+          Primitive void
+        Params
+          Param name=value
+            Primitive i32
+          Param name=enabled
+            Primitive bool
+  Using kind=alias
+    alias=MixedNamed
+    TargetType
+      FuncPtr
+        Return
+          Primitive void
+        Params
+          Primitive i32
+          Param name=enabled
+            Primitive bool
+  Using kind=alias
+    alias=Unnamed
+    TargetType
+      FuncPtr
+        Return
+          Primitive void
+        Params
+          Primitive i32
+          Primitive bool
