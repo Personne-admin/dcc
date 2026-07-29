@@ -347,9 +347,9 @@ namespace dcc::query
                     auto* t = static_cast<ast::FuncPtrType const*>(type_expr);
                     if (t->return_type && range_contains_or_touches_end(t->return_type->range, target))
                         walk_type_expr(t->return_type, result, target, opts);
-                    for (auto* p : t->params)
-                        if (p && range_contains_or_touches_end(p->range, target))
-                            walk_type_expr(p, result, target, opts);
+                    for (auto const& p : t->params)
+                        if (p.type && range_contains_or_touches_end(p.type->range, target))
+                            walk_type_expr(p.type, result, target, opts);
                     break;
                 }
                 case ast::TypeKind::Qualified: {

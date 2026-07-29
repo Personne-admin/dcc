@@ -282,8 +282,8 @@ export namespace dcc::sema
                 case ast::TypeKind::FuncPtr: {
                     auto const* f = static_cast<ast::FuncPtrType const*>(node);
                     validate_type(mod, f->return_type);
-                    for (auto const* p : f->params)
-                        validate_type(mod, p);
+                    for (auto const& p : f->params)
+                        validate_type(mod, p.type);
 
                     return;
                 }

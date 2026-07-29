@@ -153,8 +153,18 @@ export namespace dcc::ast
             {
                 line("Params");
                 IndentScope is2(m_indent_level);
-                for (auto* p : t->params)
-                    visitTypeExpr(p);
+                for (auto const& p : t->params)
+                {
+                    if (p.name.empty())
+                    {
+                        visitTypeExpr(p.type);
+                        continue;
+                    }
+
+                    line_fmt("Param name={}", p.name);
+                    IndentScope is3(m_indent_level);
+                    visitTypeExpr(p.type);
+                }
             }
         }
         void visitQualifiedType(QualifiedType const* t) override

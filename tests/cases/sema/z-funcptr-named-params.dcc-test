@@ -1,0 +1,117 @@
+=== FILE: test.dc ===
+module m;
+
+using Named = void(*)(i32 value, bool enabled);
+using Unnamed = void(*)(i32, bool);
+using Mixed = void(*)(i32, bool enabled);
+using NamedI32 = void(*)(i32 value);
+using UnnamedI32 = void(*)(i32);
+using NamedI32Bool = void(*)(i32 value, bool enabled);
+
+void impl(i32 value, bool enabled) {}
+void impl_i32(i32 value) {}
+void impl_i32_bool(i32 value, bool enabled) {}
+
+public i32 dispatch(NamedI32 cb) { cb(1); return 0; }
+public f64 dispatch(NamedI32Bool cb) { cb(1, true); return 1; }
+
+public void use_named(Named cb) { cb(1, true); }
+public void use_unnamed(Unnamed cb) { cb(2, false); }
+
+public void test_assign() {
+    Named a = impl;
+    Unnamed b = impl;
+    a = b;
+    b = a;
+    Mixed m = a;
+    a = m;
+}
+
+public void test_overload() {
+    NamedI32 n = impl_i32;
+    UnnamedI32 u = impl_i32;
+    NamedI32Bool nb = impl_i32_bool;
+    dispatch(n);
+    dispatch(u);
+    dispatch(nb);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func impl diverging=false
+    Param value type=i32 storage=param offset=0 index=0
+    Param enabled type=bool storage=param offset=4 index=1
+    Body
+  Func impl_i32 diverging=false
+    Param value type=i32 storage=param offset=0 index=0
+    Body
+  Func impl_i32_bool diverging=false
+    Param value type=i32 storage=param offset=0 index=0
+    Param enabled type=bool storage=param offset=4 index=1
+    Body
+  Func dispatch diverging=true
+    Param cb type=void(*)(i32) storage=param offset=0 index=0
+    Body
+      Call [type=void const=<none>]
+        Ident cb [type=void(*)(i32) const=<none> lvalue decl=cb]
+        IntLiteral 1 [type=i32 const=1 constant]
+      Return
+        IntLiteral 0 [type=i32 const=0 constant]
+  Func dispatch diverging=true
+    Param cb type=void(*)(i32, bool) storage=param offset=0 index=0
+    Body
+      Call [type=void const=<none>]
+        Ident cb [type=void(*)(i32, bool) const=<none> lvalue decl=cb]
+        IntLiteral 1 [type=i32 const=1 constant]
+        BoolLiteral true [type=bool const=true constant]
+      Return
+        IntLiteral 1 [type=i32 const=1 constant]
+  Func use_named diverging=false
+    Param cb type=void(*)(i32, bool) storage=param offset=0 index=0
+    Body
+      Call [type=void const=<none>]
+        Ident cb [type=void(*)(i32, bool) const=<none> lvalue decl=cb]
+        IntLiteral 1 [type=i32 const=1 constant]
+        BoolLiteral true [type=bool const=true constant]
+  Func use_unnamed diverging=false
+    Param cb type=void(*)(i32, bool) storage=param offset=0 index=0
+    Body
+      Call [type=void const=<none>]
+        Ident cb [type=void(*)(i32, bool) const=<none> lvalue decl=cb]
+        IntLiteral 2 [type=i32 const=2 constant]
+        BoolLiteral false [type=bool const=false constant]
+  Func test_assign diverging=false
+    Body
+      Var a type=void(*)(i32, bool) storage=local offset=0
+        Ident impl [type=void(*)(i32, bool) const=<none> decl=impl]
+      Var b type=void(*)(i32, bool) storage=local offset=8
+        Ident impl [type=void(*)(i32, bool) const=<none> decl=impl]
+      Binary = [type=void(*)(i32, bool) const=<none>]
+        Ident a [type=void(*)(i32, bool) const=<none> lvalue decl=a]
+        Ident b [type=void(*)(i32, bool) const=<none> lvalue decl=b]
+      Binary = [type=void(*)(i32, bool) const=<none>]
+        Ident b [type=void(*)(i32, bool) const=<none> lvalue decl=b]
+        Ident a [type=void(*)(i32, bool) const=<none> lvalue decl=a]
+      Var m type=void(*)(i32, bool) storage=local offset=16
+        Ident a [type=void(*)(i32, bool) const=<none> lvalue decl=a]
+      Binary = [type=void(*)(i32, bool) const=<none>]
+        Ident a [type=void(*)(i32, bool) const=<none> lvalue decl=a]
+        Ident m [type=void(*)(i32, bool) const=<none> lvalue decl=m]
+  Func test_overload diverging=false
+    Body
+      Var n type=void(*)(i32) storage=local offset=0
+        Ident impl_i32 [type=void(*)(i32) const=<none> decl=impl_i32]
+      Var u type=void(*)(i32) storage=local offset=8
+        Ident impl_i32 [type=void(*)(i32) const=<none> decl=impl_i32]
+      Var nb type=void(*)(i32, bool) storage=local offset=16
+        Ident impl_i32_bool [type=void(*)(i32, bool) const=<none> decl=impl_i32_bool]
+      Call [type=i32 const=<none> decl=dispatch]
+        Ident dispatch [type=<unresolved> const=<none>]
+        Ident n [type=void(*)(i32) const=<none> lvalue decl=n]
+      Call [type=i32 const=<none> decl=dispatch]
+        Ident dispatch [type=<unresolved> const=<none>]
+        Ident u [type=void(*)(i32) const=<none> lvalue decl=u]
+      Call [type=f64 const=<none> decl=dispatch]
+        Ident dispatch [type=<unresolved> const=<none>]
+        Ident nb [type=void(*)(i32, bool) const=<none> lvalue decl=nb]
+
