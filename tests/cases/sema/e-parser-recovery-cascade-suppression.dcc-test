@@ -1,0 +1,35 @@
+=== FILE: cascade.dc ===
+module cascade;
+
+i32 poisoned_call = missing_call(1;
+
+i32 malformed_expression() {
+    i32 value = missing_call(1;
+    independent_in_same_body;
+    return 0;
+}
+
+i32 nested_malformed_body() {
+    if true {
+        i32 inner = (nested_missing + 1;
+        nested_independent;
+        return 0;
+    }
+    return 0;
+}
+
+i32 recovered_later_declaration() {
+    return independent_missing;
+}
+
+=== ENTRY: cascade.dc ===
+
+=== EXPECT-ERROR-COUNT: 6 ===
+
+=== EXPECT-ERRORS EXACT ===
+cascade.dc:3:35: expected ')' to close call argument list, found ';'
+cascade.dc:6:9: expected ';' or '}' after expression
+cascade.dc:13:13: expected ';' or '}' after expression
+cascade.dc:7:5: unknown name `independent_in_same_body`
+cascade.dc:14:9: unknown name `nested_independent`
+cascade.dc:21:12: unknown name `independent_missing`

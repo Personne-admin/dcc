@@ -93,6 +93,21 @@ export namespace dcc::parser
 
         friend class Speculation;
 
+        class RecoveryRangeBoundary
+        {
+        public:
+            explicit RecoveryRangeBoundary(Parser& parser) : m_parser(parser), m_start(parser.loc()), m_first_error(parser.m_recovery_errors.size()) {}
+            ~RecoveryRangeBoundary() { m_parser.claim_recovery_errors(m_first_error, m_parser.range_from(m_start)); }
+
+            RecoveryRangeBoundary(RecoveryRangeBoundary const&) = delete;
+            RecoveryRangeBoundary& operator=(RecoveryRangeBoundary const&) = delete;
+
+        private:
+            Parser& m_parser;
+            sm::Location m_start;
+            std::size_t m_first_error;
+        };
+
         lex::Token const& peek(std::size_t ahead = 0)
         {
             while (m_pos + ahead >= m_tokens.size())
@@ -150,9 +165,42 @@ export namespace dcc::parser
         void emit(diag::Diagnostic d)
         {
             if (silent())
+            {
+                if (d.severity() == diag::Severity::Error)
+                    note_suppressed_error();
                 return;
+            }
+
+            d.set_origin(diag::DiagnosticOrigin::Parser);
+            if (d.severity() == diag::Severity::Error)
+                m_recovery_errors.push_back(false);
 
             m_diag.emit(std::move(d));
+        }
+
+        bool claim_recovery_errors(std::size_t first_error, sm::SourceRange range)
+        {
+            bool claimed = false;
+            for (std::size_t i = first_error; i < m_recovery_errors.size(); ++i)
+                if (!m_recovery_errors[i])
+                {
+                    m_recovery_errors[i] = true;
+                    claimed = true;
+                }
+
+            if (claimed && range.valid())
+                m_recovery_ranges.push_back(range);
+
+            return claimed;
+        }
+
+        template <typename Node> Node* mark_recovered(Node* node, std::size_t first_error, sm::SourceRange fallback)
+        {
+            auto range = node && node->range.valid() ? node->range : fallback;
+            if (claim_recovery_errors(first_error, range) && node)
+                node->recovered_from_parse = true;
+
+            return node;
         }
 
         void error_at(sm::SourceRange range, std::string msg)
@@ -276,6 +324,7 @@ export namespace dcc::parser
             }
 
             tu->range = range_from(start);
+            tu->parser_recovery_ranges.assign(m_recovery_ranges.begin(), m_recovery_ranges.end());
             return tu;
         }
 
@@ -296,6 +345,14 @@ export namespace dcc::parser
         }
 
         ast::Decl* parse_top_level_item()
+        {
+            auto start = loc();
+            auto first_error = m_recovery_errors.size();
+            auto* result = parse_top_level_item_impl();
+            return mark_recovered(result, first_error, range_from(start));
+        }
+
+        ast::Decl* parse_top_level_item_impl()
         {
             auto start = loc();
 
@@ -856,6 +913,14 @@ export namespace dcc::parser
         }
 
         ast::TypeExpr* parse_type()
+        {
+            auto start = loc();
+            auto first_error = m_recovery_errors.size();
+            auto* result = parse_type_impl();
+            return mark_recovered(result, first_error, range_from(start));
+        }
+
+        ast::TypeExpr* parse_type_impl()
         {
             auto start = loc();
             auto prefix_quals = parse_qualifiers();
@@ -1844,6 +1909,14 @@ export namespace dcc::parser
         ast::Stmt* parse_stmt()
         {
             auto start = loc();
+            auto first_error = m_recovery_errors.size();
+            auto* result = parse_stmt_impl();
+            return mark_recovered(result, first_error, range_from(start));
+        }
+
+        ast::Stmt* parse_stmt_impl()
+        {
+            auto start = loc();
 
             if (match(TK::Semicolon))
                 return m_ctx.make<ast::ExprStmt>(range_from(start), nullptr);
@@ -2429,6 +2502,7 @@ export namespace dcc::parser
 
             while (!check(TK::RBrace) && !eof())
             {
+                RecoveryRangeBoundary recovery_boundary{*this};
                 if (is_stmt_keyword_token(peek().kind))
                 {
                     auto* s = parse_stmt();
@@ -2553,6 +2627,14 @@ export namespace dcc::parser
         bool is_assignment_op(TK k) noexcept { return k == TK::Eq || (k >= TK::PlusEq && k <= TK::GtGtEq); }
 
         ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false)
+        {
+            auto start = loc();
+            auto first_error = m_recovery_errors.size();
+            auto* result = parse_expr_impl(min_prec, no_struct_lit);
+            return mark_recovered(result, first_error, range_from(start));
+        }
+
+        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false)
         {
             auto* left = parse_unary(no_struct_lit);
             if (!left)
@@ -3031,6 +3113,7 @@ export namespace dcc::parser
                 block.range.begin = start;
                 while (!check(TK::RBrace) && !eof())
                 {
+                    RecoveryRangeBoundary recovery_boundary{*this};
                     if (auto* s = try_parse_decl_or_expr_stmt())
                     {
                         block.stmts.push_back(s);
@@ -3071,6 +3154,7 @@ export namespace dcc::parser
                 block.range.begin = start;
                 while (!check(TK::RBrace) && !eof())
                 {
+                    RecoveryRangeBoundary recovery_boundary{*this};
                     if (is_stmt_keyword_token(peek().kind))
                     {
                         auto* s = parse_stmt();
@@ -3183,6 +3267,7 @@ export namespace dcc::parser
                 block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(first_start), first));
                 while (!check(TK::RBrace) && !eof())
                 {
+                    RecoveryRangeBoundary recovery_boundary{*this};
                     if (auto* s = try_parse_decl_or_expr_stmt())
                     {
                         block.stmts.push_back(s);
@@ -3626,6 +3711,8 @@ export namespace dcc::parser
         std::optional<sm::SourceRange> m_last_error_range;
         ParseMode m_mode{ParseMode::Batch};
         std::vector<ast::Decl*> m_extra_imports;
+        std::vector<bool> m_recovery_errors;
+        std::vector<sm::SourceRange> m_recovery_ranges;
     };
 
 } // namespace dcc::parser
