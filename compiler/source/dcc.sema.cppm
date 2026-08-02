@@ -59,12 +59,21 @@ export namespace dcc::sema
 
             load_transitively(m_importer, *root);
 
+            std::vector<sm::SourceRange> parser_recovery_ranges;
+            for (auto const& module : m_graph.all())
+                if (module->tu)
+                    parser_recovery_ranges.insert(parser_recovery_ranges.end(), module->tu->parser_recovery_ranges.begin(),
+                                                  module->tu->parser_recovery_ranges.end());
+            m_diag.set_parser_recovery_ranges(parser_recovery_ranges);
+
             collect_all(m_graph.all(), m_diag, m_types, m_alloc);
             resolve_usings(m_graph.all(), m_diag, m_alloc);
+            m_diag.set_parser_recovery_suppression(true);
             resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
             validate_public_signatures(m_graph.all(), m_diag);
             analyze_bodies(m_graph.all(), m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target);
+            m_diag.set_parser_recovery_suppression(false);
 
             complete_all_templated_tagged_enums(m_types, m_alloc);
 
@@ -91,6 +100,8 @@ export namespace dcc::sema
                     root.tu->imports.push_back(imp);
                 for (auto* d : tu->decls)
                     prepend.push_back(d);
+                root.tu->parser_recovery_ranges.insert(root.tu->parser_recovery_ranges.end(), tu->parser_recovery_ranges.begin(),
+                                                       tu->parser_recovery_ranges.end());
             }
 
             root.tu->decls.insert(root.tu->decls.begin(), prepend.begin(), prepend.end());

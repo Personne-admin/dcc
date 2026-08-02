@@ -36,6 +36,12 @@ export namespace dcc::diag
         Secondary,
     };
 
+    enum class DiagnosticOrigin : std::uint8_t
+    {
+        Semantic,
+        Parser,
+    };
+
     struct Label
     {
         sm::SourceRange range;
@@ -91,6 +97,8 @@ export namespace dcc::diag
         [[nodiscard]] std::span<std::string const> notes() const noexcept { return m_notes; }
         [[nodiscard]] std::span<std::string const> helps() const noexcept { return m_helps; }
         [[nodiscard]] std::span<FixIt const> fixes() const noexcept { return m_fixes; }
+        [[nodiscard]] DiagnosticOrigin origin() const noexcept { return m_origin; }
+        void set_origin(DiagnosticOrigin origin) noexcept { m_origin = origin; }
 
     private:
         Severity m_severity;
@@ -99,6 +107,7 @@ export namespace dcc::diag
         std::vector<std::string> m_notes;
         std::vector<std::string> m_helps;
         std::vector<FixIt> m_fixes;
+        DiagnosticOrigin m_origin{DiagnosticOrigin::Semantic};
     };
 
     class DiagnosticEngine
@@ -108,6 +117,12 @@ export namespace dcc::diag
 
         void emit(Diagnostic diag)
         {
+            if (m_parser_recovery_suppression_enabled && diag.origin() != DiagnosticOrigin::Parser && depends_on_parser_recovery(diag))
+            {
+                ++m_suppressed_parser_cascades;
+                return;
+            }
+
             switch (diag.severity())
             {
                 case Severity::Error:
@@ -174,7 +189,15 @@ export namespace dcc::diag
             m_emitted.clear();
             m_errors = 0;
             m_warnings = 0;
+            m_parser_recovery_ranges.clear();
+            m_suppressed_parser_cascades = 0;
+            m_parser_recovery_suppression_enabled = false;
         }
+
+        void set_parser_recovery_ranges(std::span<sm::SourceRange const> ranges) { m_parser_recovery_ranges.assign(ranges.begin(), ranges.end()); }
+
+        [[nodiscard]] std::uint32_t suppressed_parser_cascade_count() const noexcept { return m_suppressed_parser_cascades; }
+        void set_parser_recovery_suppression(bool enabled) noexcept { m_parser_recovery_suppression_enabled = enabled; }
 
         void set_silent(bool s) noexcept { m_silent = s; }
         [[nodiscard]] bool silent() const noexcept { return m_silent; }
@@ -203,13 +226,29 @@ export namespace dcc::diag
         std::uint32_t m_errors{};
         std::uint32_t m_warnings{};
         std::uint32_t m_max_errors{};
+        std::uint32_t m_suppressed_parser_cascades{};
 
         bool m_color{true};
         bool m_silent{false};
+        bool m_parser_recovery_suppression_enabled{};
         std::uint32_t m_context_lines{1};
         std::uint32_t m_tab_width{4};
 
         std::vector<Diagnostic> m_emitted;
+        std::vector<sm::SourceRange> m_parser_recovery_ranges;
+
+        [[nodiscard]] bool depends_on_parser_recovery(Diagnostic const& diag) const noexcept
+        {
+            auto primary = std::ranges::find_if(diag.labels(), [](Label const& label) { return label.style == LabelStyle::Primary; });
+            if (primary == diag.labels().end() || !primary->range.valid())
+                return false;
+
+            auto const location = primary->range.begin;
+            return std::ranges::any_of(m_parser_recovery_ranges, [location](sm::SourceRange const& recovery) {
+                return recovery.valid() && recovery.begin.fileId == location.fileId && location.offset >= recovery.begin.offset &&
+                       location.offset < recovery.end.offset;
+            });
+        }
 
         struct ansi
         {

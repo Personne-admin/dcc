@@ -109,6 +109,7 @@ namespace
     {
         std::string file;
         int line{};
+        std::optional<int> column;
         std::string substring;
     };
 
@@ -181,6 +182,8 @@ namespace
         std::vector<ExpectEm64tAsm> em64t_asm_blocks;
         std::vector<std::string> injected_decls;
         bool errors_block_present{};
+        bool exact_errors{};
+        std::optional<std::size_t> expected_error_count;
         bool warnings_block_present{};
         bool interactive_mode{};
     };
@@ -726,9 +729,21 @@ namespace
                     i = (nl == std::string_view::npos) ? body.size() : nl + 1;
                 }
             }
+            else if (starts_with(h, "EXPECT-ERROR-COUNT:"))
+            {
+                try
+                {
+                    fx.expected_error_count = static_cast<std::size_t>(std::stoul(trim(std::string_view{h}.substr(19))));
+                }
+                catch (...)
+                {
+                    return std::nullopt;
+                }
+            }
             else if (starts_with(h, "EXPECT-ERRORS"))
             {
                 fx.errors_block_present = true;
+                fx.exact_errors = h == "EXPECT-ERRORS EXACT";
                 std::size_t i = 0;
                 std::string_view body = sec.body;
                 while (i < body.size())
@@ -755,7 +770,26 @@ namespace
                             return std::nullopt;
                         }
 
-                        e.substring = trim(std::string_view{trimmed}.substr(second_colon + 1));
+                        auto message_start = second_colon + 1;
+                        auto third_colon = trimmed.find(':', message_start);
+                        if (third_colon != std::string::npos)
+                        {
+                            auto candidate = trim(std::string_view{trimmed}.substr(message_start, third_colon - message_start));
+                            try
+                            {
+                                std::size_t consumed = 0;
+                                auto column = std::stoi(candidate, &consumed);
+                                if (consumed == candidate.size())
+                                {
+                                    e.column = column;
+                                    message_start = third_colon + 1;
+                                }
+                            }
+                            catch (...)
+                            {
+                            }
+                        }
+                        e.substring = trim(std::string_view{trimmed}.substr(message_start));
                         fx.errors.push_back(std::move(e));
                     }
                     i = (nl == std::string_view::npos) ? body.size() : nl + 1;
@@ -904,6 +938,7 @@ namespace
     {
         std::string file;
         int line{};
+        int column{};
         std::string message;
     };
 
@@ -970,6 +1005,7 @@ namespace
                 try
                 {
                     current->line = std::stoi(std::string{rest.substr(second_last + 1, last_colon - second_last - 1)});
+                    current->column = std::stoi(std::string{rest.substr(last_colon + 1)});
                 }
                 catch (...)
                 {
@@ -1065,17 +1101,35 @@ namespace
 
         bool ok = true;
 
+        auto emitted_error_count = static_cast<std::size_t>(std::ranges::count_if(diag.diagnostics(), [](dcc::diag::Diagnostic const& d) {
+            return d.severity() == dcc::diag::Severity::Error;
+        }));
+        if (fx.expected_error_count && emitted_error_count != *fx.expected_error_count)
+        {
+            ok = false;
+            std::println(std::cerr, "    FAIL  expected {} errors, got {}  ({}:1)", *fx.expected_error_count, emitted_error_count, path.string());
+        }
+
         if (fx.errors_block_present)
         {
             auto captured = parse_diag_output(diag_sink.str());
+            std::vector<bool> exact_matches(captured.size());
             for (auto const& want : fx.errors)
             {
                 bool matched = false;
-                for (auto const& got : captured)
+                std::size_t got_index = 0;
+                for (auto got_it = captured.begin(); got_it != captured.end(); ++got_it, ++got_index)
                 {
+                    if (fx.exact_errors && exact_matches[got_index])
+                        continue;
+
+                    auto const& got = *got_it;
                     auto leaf = fs::path{got.file}.lexically_relative(sb->root).string();
-                    if ((leaf == want.file || got.file == want.file) && got.line == want.line && got.message.find(want.substring) != std::string::npos)
+                    auto message_matches = fx.exact_errors ? got.message == want.substring : got.message.find(want.substring) != std::string::npos;
+                    if ((leaf == want.file || got.file == want.file) && got.line == want.line && (!want.column || got.column == *want.column) && message_matches)
                     {
+                        if (fx.exact_errors)
+                            exact_matches[got_index] = true;
                         matched = true;
                         break;
                     }
@@ -1088,6 +1142,12 @@ namespace
                         std::println(std::cerr, "          got error: {}:{}: {}", fs::path{got.file}.lexically_relative(sb->root).string(), got.line,
                                      got.message);
                 }
+            }
+
+            if (fx.exact_errors && emitted_error_count != fx.errors.size())
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  exact error set has {} entries, got {} errors  ({}:1)", fx.errors.size(), emitted_error_count, path.string());
             }
         }
 

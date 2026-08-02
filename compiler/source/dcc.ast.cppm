@@ -283,6 +283,7 @@ export namespace dcc::ast
         TypeKind kind;
         sm::SourceRange range;
         TypeSema sema;
+        bool recovered_from_parse{};
 
     protected:
         TypeExpr(TypeKind k, sm::SourceRange r) : kind(k), range(r) {}
@@ -293,6 +294,7 @@ export namespace dcc::ast
         ExprKind kind;
         sm::SourceRange range;
         ExprSema sema;
+        bool recovered_from_parse{};
 
     protected:
         Expr(ExprKind k, sm::SourceRange r) : kind(k), range(r) {}
@@ -302,6 +304,7 @@ export namespace dcc::ast
     {
         StmtKind kind;
         sm::SourceRange range;
+        bool recovered_from_parse{};
 
     protected:
         Stmt(StmtKind k, sm::SourceRange r) : kind(k), range(r) {}
@@ -324,6 +327,7 @@ export namespace dcc::ast
         sm::SourceRange range;
         bool is_public{false};
         bool is_extern{false};
+        bool recovered_from_parse{};
         std::pmr::vector<Attribute> attrs;
         DeclSema sema;
 
@@ -1188,8 +1192,9 @@ export namespace dcc::ast
         DeclPtr module_decl{};
         std::pmr::vector<DeclPtr> imports;
         std::pmr::vector<DeclPtr> decls;
+        std::pmr::vector<sm::SourceRange> parser_recovery_ranges;
 
-        explicit TranslationUnit(Allocator a) : imports(a), decls(a) {}
+        explicit TranslationUnit(Allocator a) : imports(a), decls(a), parser_recovery_ranges(a) {}
     };
 
     class AstContext
