@@ -979,6 +979,30 @@ export namespace dcc::sema
                 ++m_suppressed_error_count;
         }
 
+        template <typename... A> void error_with_fix(sm::SourceRange range, sm::SourceRange fix_range, std::string replacement, std::string fix_message,
+                                                     std::format_string<A...> fmt, A&&... args)
+        {
+            if (m_suppress_errors)
+            {
+                ++m_suppressed_error_count;
+                return;
+            }
+
+            m_diag.emit(diag::Diagnostic{diag::Severity::Error, std::format(fmt, std::forward<A>(args)...)}.primary(range).fix(
+                {fix_range, std::move(replacement), std::move(fix_message)}));
+
+            if (m_captured_diagnostics)
+            {
+                auto idx = m_diag.diagnostic_count();
+                if (idx > 0)
+                {
+                    auto last_since = m_diag.diagnostics_since(idx - 1);
+                    if (!last_since.empty())
+                        m_captured_diagnostics->push_back(last_since[0]);
+                }
+            }
+        }
+
         template <typename... A> void warning(sm::SourceRange range, std::format_string<A...> fmt, A&&... args)
         {
             if (!m_suppress_errors)
@@ -7712,7 +7736,7 @@ export namespace dcc::sema
                     if (!fn)
                     {
                         out.type = m_types.m_errort();
-                        error(p.range, "cannot use `?` outside a function");
+                        error_with_fix(p.range, p.op_range, "", "remove the `?` operator", "cannot use `?` outside a function");
                         return out;
                     }
 
@@ -10755,7 +10779,8 @@ export namespace dcc::sema
                             if (has_error(got.type))
                                 ;
                             else if (expected == m_types.m_voidt())
-                                error(s.range, "void function cannot return a value");
+                                error_with_fix(s.range, r.value->range, "", "remove the value from the return statement",
+                                               "void function cannot return a value");
                             else
                             {
                                 ast::EnumVariant const* implicit_enum_var = nullptr;
@@ -11129,6 +11154,9 @@ export namespace dcc::sema
 
         sm::SourceRange placeholder_source_range(sm::SourceRange template_range, ast::AsmPlaceholderSpan const& span) const noexcept
         {
+            if (span.raw_range.valid())
+                return span.raw_range;
+
             auto start = sm::Location{template_range.begin.fileId, template_range.begin.offset + 1u + span.byte_offset};
             auto end = sm::Location{template_range.begin.fileId, start.offset + span.byte_length};
             return sm::SourceRange{start, end};

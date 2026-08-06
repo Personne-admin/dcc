@@ -194,7 +194,7 @@ namespace dcc::sema
                 }
                 case ast::ExprKind::Postfix: {
                     auto* ex = static_cast<ast::PostfixExpr const*>(e);
-                    auto* n = m_ctx.make<ast::PostfixExpr>(ex->range, clone_expr(ex->operand), ex->op);
+                    auto* n = m_ctx.make<ast::PostfixExpr>(ex->range, clone_expr(ex->operand), ex->op, ex->op_range);
                     n->sema = ex->sema;
                     n->unwrap_is_ok_callee = nullptr;
                     n->unwrap_unwrap_callee = nullptr;
