@@ -604,6 +604,7 @@ export namespace dcc::ast
         static constexpr auto Kind = ExprKind::Postfix;
         ExprPtr operand;
         lex::TokenKind op;
+        sm::SourceRange op_range;
 
         FuncDecl const* unwrap_is_ok_callee{};
         FuncDecl const* unwrap_unwrap_callee{};
@@ -611,7 +612,10 @@ export namespace dcc::ast
         bool unwrap_err_needs_implicit_enum : 1 {};
         EnumVariant const* unwrap_err_constructed_variant{};
 
-        PostfixExpr(sm::SourceRange r, ExprPtr operand, lex::TokenKind o) : Expr(Kind, r), operand(operand), op(o) {}
+        PostfixExpr(sm::SourceRange r, ExprPtr operand, lex::TokenKind o, sm::SourceRange op_range_ = {})
+            : Expr(Kind, r), operand(operand), op(o), op_range(op_range_)
+        {
+        }
     };
 
     struct BinaryExpr : Expr
@@ -809,6 +813,7 @@ export namespace dcc::ast
     {
         std::uint32_t byte_offset{};
         std::uint32_t byte_length{};
+        sm::SourceRange raw_range;
         enum class Kind : std::uint8_t
         {
             OperandRef,

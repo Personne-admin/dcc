@@ -227,6 +227,18 @@ export namespace dcc::parser
             emit(diag::Diagnostic(diag::Severity::Error, std::move(msg)).primary(range).help(std::move(help_text)));
         }
 
+        void error_at_with_fix(sm::SourceRange range, std::string msg, sm::SourceRange fix_range, std::string replacement, std::string fix_message)
+        {
+            if (same_error_range(range) || silent())
+            {
+                note_suppressed_error();
+                return;
+            }
+
+            m_last_error_range = range;
+            emit(diag::Diagnostic(diag::Severity::Error, std::move(msg)).primary(range).fix({fix_range, std::move(replacement), std::move(fix_message)}));
+        }
+
         void error_unexpected(std::string_view ctx) { error_at(single_range(), std::format("unexpected '{}' {}", lex::to_string(peek().kind), ctx)); }
 
         void synchronize_to_decl()
@@ -1206,8 +1218,8 @@ export namespace dcc::parser
                 auto* asm_expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
                 asm_expr->asm_keyword_range = previous().range;
                 parse_asm_attributes(asm_expr);
-                parse_asm_template_body(asm_expr);
-                scan_asm_placeholders(asm_expr);
+                auto asm_raw = parse_asm_template_body(asm_expr);
+                scan_asm_placeholders(asm_expr, asm_raw);
                 var->init = asm_expr;
 
                 bool has_output = false;
@@ -1839,7 +1851,7 @@ export namespace dcc::parser
             }
         }
 
-        template <typename AsmNode> void parse_asm_template_body(AsmNode* node)
+        template <typename AsmNode> std::string_view parse_asm_template_body(AsmNode* node)
         {
             expect(TK::LBrace, "to begin asm template block");
 
@@ -1851,11 +1863,122 @@ export namespace dcc::parser
             node->template_range = str_tok.range;
 
             expect(TK::RBrace, "to close asm template block");
+
+            return str_tok.interned;
         }
 
-        template <typename AsmNode> void scan_asm_placeholders(AsmNode* node)
+        static bool build_asm_decoded_raw_segments(std::string_view raw, std::string_view dec, std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>>& out)
+        {
+            out.clear();
+            if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"')
+                return false;
+
+            auto is_hex = [](char c) noexcept { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F'); };
+            auto hex_val = [](char c) noexcept -> int {
+                if (c >= '0' && c <= '9')
+                    return c - '0';
+                if (c >= 'a' && c <= 'f')
+                    return c - 'a' + 10;
+                if (c >= 'A' && c <= 'F')
+                    return c - 'A' + 10;
+                return -1;
+            };
+            auto utf8_len = [](std::uint32_t cp) noexcept -> std::size_t {
+                if (cp <= 0x7Fu)
+                    return 1;
+                if (cp <= 0x7FFu)
+                    return 2;
+                if (cp <= 0xFFFFu)
+                    return 3;
+                return 4;
+            };
+
+            std::size_t r = 1;
+            std::size_t const r_end = raw.size() - 1;
+            std::size_t d = 0;
+
+            while (d < dec.size())
+            {
+                if (r >= r_end)
+                    return false;
+
+                std::uint32_t const raw_start = static_cast<std::uint32_t>(r);
+                std::size_t decoded_bytes = 1;
+
+                if (raw[r] == '\\')
+                {
+                    ++r;
+                    if (r >= r_end)
+                        return false;
+
+                    char const esc = raw[r++];
+                    switch (esc)
+                    {
+                        case 'n':
+                        case 't':
+                        case 'r':
+                        case '0':
+                        case '\\':
+                        case '\'':
+                        case '"':
+                            decoded_bytes = 1;
+                            break;
+
+                        case 'x': {
+                            if (r + 2 > r_end || !is_hex(raw[r]) || !is_hex(raw[r + 1]))
+                                return false;
+                            r += 2;
+                            decoded_bytes = 1;
+                            break;
+                        }
+
+                        case 'u': {
+                            if (r >= r_end || raw[r] != '{')
+                                return false;
+                            ++r;
+
+                            std::uint32_t cp = 0;
+                            std::size_t digits = 0;
+                            while (r < r_end && raw[r] != '}')
+                            {
+                                if (!is_hex(raw[r]))
+                                    return false;
+                                cp = (cp << 4) | static_cast<std::uint32_t>(hex_val(raw[r]));
+                                ++r;
+                                ++digits;
+                            }
+                            if (r >= r_end || raw[r] != '}' || digits == 0)
+                                return false;
+                            ++r;
+                            decoded_bytes = utf8_len(cp);
+                            break;
+                        }
+
+                        default:
+                            return false;
+                    }
+                }
+                else
+                    ++r;
+
+                std::uint32_t const raw_end = static_cast<std::uint32_t>(r);
+                for (std::size_t k = 0; k < decoded_bytes && d < dec.size(); ++k, ++d)
+                    out.push_back({raw_start, raw_end});
+            }
+
+            return r == r_end;
+        }
+
+        template <typename AsmNode> void scan_asm_placeholders(AsmNode* node, std::string_view raw_spelling)
         {
             auto const& str = node->template_str;
+
+            std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>> raw_segments(m_ctx.allocator());
+            bool const mapped = build_asm_decoded_raw_segments(raw_spelling, str, raw_segments);
+
+            auto const fid = node->template_range.begin.fileId;
+            auto const raw_base = static_cast<dcc::sm::Offset>(node->template_range.begin.offset);
+
             std::size_t i = 0;
             while (i < str.size())
             {
@@ -1876,6 +1999,12 @@ export namespace dcc::parser
                             span.kind = ast::AsmPlaceholderSpan::Kind::RegLiteral;
                             span.name = std::string_view(str.data() + name_start, end - name_start);
                             span.operand_index = 0xFFFFFFFFU;
+                            if (mapped && span.byte_offset + span.byte_length <= raw_segments.size())
+                            {
+                                span.raw_range = sm::SourceRange{
+                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset].first)},
+                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset + span.byte_length - 1].second)}};
+                            }
                             node->placeholder_spans.push_back(std::move(span));
                             i = end;
                             continue;
@@ -1896,6 +2025,12 @@ export namespace dcc::parser
                             span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
                             span.name = std::string_view(str.data() + name_start, end - name_start);
                             span.operand_index = 0xFFFFFFFFU;
+                            if (mapped && span.byte_offset + span.byte_length <= raw_segments.size())
+                            {
+                                span.raw_range = sm::SourceRange{
+                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset].first)},
+                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset + span.byte_length - 1].second)}};
+                            }
                             node->placeholder_spans.push_back(std::move(span));
                             i = end + 1;
                             continue;
@@ -1947,8 +2082,8 @@ export namespace dcc::parser
                     auto* stmt = m_ctx.make<ast::AsmStmt>(sm::SourceRange{}, m_ctx.allocator());
                     stmt->asm_keyword_range = kw_range;
                     parse_asm_attributes(stmt);
-                    parse_asm_template_body(stmt);
-                    scan_asm_placeholders(stmt);
+                    auto asm_raw = parse_asm_template_body(stmt);
+                    scan_asm_placeholders(stmt, asm_raw);
                     expect(TK::Semicolon, "after asm statement");
                     stmt->range = range_from(start);
                     return stmt;
@@ -2003,7 +2138,8 @@ export namespace dcc::parser
                 return es;
             }
 
-            error_at(single_range(), "expected ';' after expression statement");
+            auto insert_at = sm::SourceRange{m_prev_end, m_prev_end};
+            error_at_with_fix(single_range(), "expected ';' after expression statement", insert_at, ";", "insert ';' after the expression statement");
             return m_ctx.make<ast::ExprStmt>(range_from(start), expr);
         }
 
@@ -2034,8 +2170,8 @@ export namespace dcc::parser
                 auto* asm_expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
                 asm_expr->asm_keyword_range = previous().range;
                 parse_asm_attributes(asm_expr);
-                parse_asm_template_body(asm_expr);
-                scan_asm_placeholders(asm_expr);
+                auto asm_raw = parse_asm_template_body(asm_expr);
+                scan_asm_placeholders(asm_expr, asm_raw);
                 var->init = asm_expr;
 
                 bool has_output = false;
@@ -2864,14 +3000,10 @@ export namespace dcc::parser
                         continue;
                     }
                     case TK::Increment:
-                    case TK::Decrement: {
-                        auto op = advance().kind;
-                        expr = m_ctx.make<ast::PostfixExpr>(range_from(start), expr, op);
-                        continue;
-                    }
+                    case TK::Decrement:
                     case TK::Question: {
-                        auto op = advance().kind;
-                        expr = m_ctx.make<ast::PostfixExpr>(range_from(start), expr, op);
+                        auto op_tok = advance();
+                        expr = m_ctx.make<ast::PostfixExpr>(range_from(start), expr, op_tok.kind, op_tok.range);
                         continue;
                     }
                     default:
@@ -2978,8 +3110,8 @@ export namespace dcc::parser
                     auto* expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
                     expr->asm_keyword_range = kw_range;
                     parse_asm_attributes(expr);
-                    parse_asm_template_body(expr);
-                    scan_asm_placeholders(expr);
+                    auto asm_raw = parse_asm_template_body(expr);
+                    scan_asm_placeholders(expr, asm_raw);
                     expr->range = range_from(start);
                     return expr;
                 }
