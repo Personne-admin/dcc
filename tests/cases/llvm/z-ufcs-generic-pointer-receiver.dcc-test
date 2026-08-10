@@ -1,0 +1,95 @@
+=== FILE: test.dc ===
+module test;
+
+struct Expr {
+    i32 kind;
+    i64 value;
+}
+
+struct Point {
+    i32 x;
+    i32 y;
+}
+
+struct Pair {
+    Point a;
+    Point b;
+}
+
+struct Arena(T) {
+    T* data;
+}
+
+T create(T)(Arena(T)* self, T value) {
+    return value;
+}
+
+i32 touch(T)(Arena(T)* self) {
+    return 0;
+}
+
+T* allocate(T)(Arena(T)* self) {
+    usize address = 0;
+    return address as T*;
+}
+
+T* create_padcc(T)(Arena(T)* self, T value) {
+    T* r = self.allocate();
+    *r = value;
+    return r;
+}
+
+Point peel(Point p) {
+    return p;
+}
+
+i32 first_x(Arena(Point)* self) {
+    return self.create({x = 1, y = 2}).x;
+}
+
+i32 value_receiver_expr(Arena(Expr) x, Expr e) {
+    return x.create(e).kind;
+}
+
+i32 explicit_call(Arena(Expr)* x, Expr e) {
+    Expr r = create!Expr(x, e);
+    return r.kind;
+}
+
+i32 two_specializations(Arena(i32) xi, i32 v, Arena(Expr) xe, Expr e) {
+    i32 a = xi.create(v);
+    i32 b = xe.create(e).kind;
+    return a + b;
+}
+
+i32 repeated_specialization(Arena(Expr) x, Expr e1, Expr e2) {
+    Expr a = x.create(e1);
+    Expr b = x.create(e2);
+    return a.kind + b.kind;
+}
+
+i32 nested_struct(Arena(Pair) x, Point p) {
+    Pair pr = x.create({a = p, b = p});
+    return pr.a.x;
+}
+
+i32 two_methods(Arena(Point)* x, Point p) {
+    Point r = x.create(p);
+    i32 t = x.touch();
+    return r.x + t;
+}
+
+i32 create_padcc_like(Arena(Expr) x, Expr e) {
+    Expr* r = x.create_padcc(e);
+    return r.kind;
+}
+
+i32 implicit_deref(Point* pt) {
+    return pt.peel().x;
+}
+
+i32 main() {
+    return 0;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

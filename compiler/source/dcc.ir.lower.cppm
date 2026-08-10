@@ -2410,11 +2410,35 @@ export namespace dcc::ir::lower
                 auto* field_access = ast::node_cast<ast::FieldAccessExpr>(callee_expr);
                 if (field_access)
                 {
-                    auto* obj_val = lower_expr(field_access->object);
+                    auto* object = field_access->object;
+                    auto* obj_sema_type = get_sema_resolved_type(object);
+
+                    IrValue* obj_val = nullptr;
+                    if (object->sema.implicit_addr_of)
+                        obj_val = lower_addr_of(object);
+                    else if (object->sema.implicit_deref)
+                    {
+                        auto* ptr_val = lower_expr(object);
+                        auto* pointee_ty = (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
+                                               ? static_cast<types::PointerType const*>(obj_sema_type)->pointee
+                                               : nullptr;
+                        if (ptr_val && pointee_ty)
+                        {
+                            obj_val = m_ctx.load(lower_type(pointee_ty), ptr_val);
+                            auto name = ident_name();
+                            obj_val->name = m_name_pool.back();
+                            append_inst(obj_val);
+                        }
+                        else
+                            obj_val = ptr_val;
+                    }
+                    else
+                    {
+                        obj_val = lower_expr(object);
+                    }
 
                     if (direct_target && !direct_target->params.empty())
                     {
-                        auto* obj_sema_type = get_sema_resolved_type(field_access->object);
                         auto* first_param_type = get_canonical_type(direct_target->params[0].type);
                         if (first_param_type && first_param_type->kind == types::TypeKind::Slice && obj_sema_type &&
                             obj_sema_type->kind == types::TypeKind::Array)
@@ -2857,6 +2881,15 @@ export namespace dcc::ir::lower
             if (operand->kind == ast::ExprKind::Index)
                 return lower_index_lvalue(static_cast<ast::IndexExpr const*>(operand));
 
+            if (operand->kind == ast::ExprKind::Unary)
+            {
+                auto* ue = static_cast<ast::UnaryExpr const*>(operand);
+                if (ue->op == dcc::lex::TokenKind::Star)
+                {
+                    return lower_expr(ue->operand);
+                }
+            }
+
             if (operand->kind == ast::ExprKind::PackAccess)
                 lower_panic(operand, "PackAccess must be resolved before IR lowering");
 
@@ -2944,6 +2977,65 @@ export namespace dcc::ir::lower
             }
         }
 
+        IrValue* lower_ufcs_receiver_arg(ast::Expr const* receiver, ast::FuncDecl const* callee, ast::UfcsReceiverAdjust adjust, IrValue* storage_addr,
+                                         IrValue* loaded_value, IrValue* deref_value)
+        {
+            auto* callee_param0 = (!callee->params.empty()) ? get_canonical_type(callee->params[0].type) : nullptr;
+
+            switch (adjust)
+            {
+                case ast::UfcsReceiverAdjust::Exact:
+                    return loaded_value;
+
+                case ast::UfcsReceiverAdjust::ArrayToSlice:
+                    return coerce_array_to_slice(loaded_value, get_sema_resolved_type(receiver), callee_param0);
+
+                case ast::UfcsReceiverAdjust::AutoDeref:
+                    return deref_value ? deref_value : loaded_value;
+
+                case ast::UfcsReceiverAdjust::AutoRef:
+                case ast::UfcsReceiverAdjust::AutoRefConst:
+                case ast::UfcsReceiverAdjust::AutoRefQualMismatch:
+                    return storage_addr;
+
+                case ast::UfcsReceiverAdjust::None:
+                    lower_panic(receiver, "UFCS receiver adjustment not recorded by sema");
+            }
+        }
+
+        [[nodiscard]] bool is_volatile_lvalue_storage(ast::Expr const* operand) const
+        {
+            if (operand->kind != ast::ExprKind::Ident)
+                return false;
+
+            auto* id = static_cast<ast::IdentExpr const*>(operand);
+            auto* resolved = id->sema.resolved_decl;
+            if (!resolved)
+                return false;
+
+            auto it = m_value_map.find(resolved);
+            if (it == m_value_map.end())
+                return false;
+
+            return it->second.is_volatile;
+        }
+
+        void assert_ufcs_receiver_type(ast::Expr const* receiver, ast::FuncDecl const* callee, IrFunction const* ir_func, IrValue* recv_val)
+        {
+            if (!recv_val)
+                lower_panic(receiver, "UFCS receiver argument failed to lower");
+
+            auto const* func_type = ir_func->func_type;
+            if (!func_type || func_type->params.empty())
+                return;
+
+            auto* first_ir_param = func_type->params[0];
+            if (recv_val->type && recv_val->type != first_ir_param)
+                lower_panic(receiver, std::format("UFCS receiver argument type mismatch for `{}`: recorded adjustment does not produce the callee's "
+                                                  "first parameter type",
+                                                  callee->name));
+        }
+
         IrValue* lower_unwrap_propagate(ast::PostfixExpr const* p, dcc::types::TypePtr success_sema_type)
         {
             auto* is_ok_callee = p->unwrap_is_ok_callee;
@@ -2962,14 +3054,78 @@ export namespace dcc::ir::lower
 
             auto* ir_ret_type = lower_type(success_sema_type);
 
-            auto* operand_val = lower_expr(p->operand);
+            auto is_ok_adjust = p->unwrap_is_ok_receiver_adjust;
+            auto unwrap_adjust = p->unwrap_unwrap_receiver_adjust;
+            auto unwrap_err_adjust = p->unwrap_unwrap_err_receiver_adjust;
+
+            auto needs_addr = [](ast::UfcsReceiverAdjust a) {
+                return a == ast::UfcsReceiverAdjust::AutoRef || a == ast::UfcsReceiverAdjust::AutoRefConst || a == ast::UfcsReceiverAdjust::AutoRefQualMismatch;
+            };
+            auto needs_value = [](ast::UfcsReceiverAdjust a) {
+                return a == ast::UfcsReceiverAdjust::Exact || a == ast::UfcsReceiverAdjust::ArrayToSlice || a == ast::UfcsReceiverAdjust::AutoDeref;
+            };
+
+            bool any_addr = needs_addr(is_ok_adjust) || needs_addr(unwrap_adjust) || needs_addr(unwrap_err_adjust);
+            bool any_value = needs_value(is_ok_adjust) || needs_value(unwrap_adjust) || needs_value(unwrap_err_adjust);
+            bool any_deref = is_ok_adjust == ast::UfcsReceiverAdjust::AutoDeref || unwrap_adjust == ast::UfcsReceiverAdjust::AutoDeref ||
+                             unwrap_err_adjust == ast::UfcsReceiverAdjust::AutoDeref;
+
+            IrValue* storage_addr = nullptr;
+            IrValue* loaded_value = nullptr;
+            IrValue* deref_value = nullptr;
+            if (any_addr)
+                storage_addr = lower_addr_of(p->operand);
+
+            if (any_value)
+            {
+                if (any_addr)
+                {
+                    auto* load_ty = lower_type(get_sema_resolved_type(p->operand));
+                    if (is_volatile_lvalue_storage(p->operand))
+                        loaded_value = m_ctx.load_volatile(load_ty, storage_addr);
+                    else
+                        loaded_value = m_ctx.load(load_ty, storage_addr);
+                    auto name = ident_name();
+                    loaded_value->name = m_name_pool.back();
+                    append_inst(loaded_value);
+                }
+                else
+                {
+                    loaded_value = lower_expr(p->operand);
+                }
+
+                if (any_deref)
+                {
+                    auto* obj_sema_type = get_sema_resolved_type(p->operand);
+                    auto* pointee_ty = (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
+                                           ? static_cast<types::PointerType const*>(obj_sema_type)->pointee
+                                           : nullptr;
+                    if (loaded_value && pointee_ty)
+                    {
+                        deref_value = m_ctx.load(lower_type(pointee_ty), loaded_value);
+                        auto name = ident_name();
+                        deref_value->name = m_name_pool.back();
+                        append_inst(deref_value);
+                    }
+                }
+            }
+
+            auto receiver_for = [&](ast::FuncDecl const* callee, ast::UfcsReceiverAdjust adjust, IrFunction const* ir_func) -> IrValue* {
+                auto* recv = lower_ufcs_receiver_arg(p->operand, callee, adjust, storage_addr, loaded_value, deref_value);
+                assert_ufcs_receiver_type(p, callee, ir_func, recv);
+                return recv;
+            };
+
+            auto* is_ok_receiver = receiver_for(is_ok_callee, is_ok_adjust, is_ok_ir_func);
+            auto* unwrap_receiver = receiver_for(unwrap_callee, unwrap_adjust, unwrap_ir_func);
+            auto* unwrap_err_receiver = receiver_for(unwrap_err_callee, unwrap_err_adjust, unwrap_err_ir_func);
 
             auto* is_ok_bb = create_block("unwrap.is_ok");
             auto* fail_bb = create_block("unwrap.fail");
             auto* merge_bb = create_block("unwrap.merge");
 
             auto* is_ok_call = m_ctx.call(m_ctx.bool_t(), m_ctx.func_ref(is_ok_ir_func));
-            is_ok_call->args.push_back(operand_val);
+            is_ok_call->args.push_back(is_ok_receiver);
             {
                 auto name = ident_name();
                 is_ok_call->name = m_name_pool.back();
@@ -2981,7 +3137,7 @@ export namespace dcc::ir::lower
             set_current_block(is_ok_bb);
 
             auto* unwrap_call = m_ctx.call(ir_ret_type, m_ctx.func_ref(unwrap_ir_func));
-            unwrap_call->args.push_back(operand_val);
+            unwrap_call->args.push_back(unwrap_receiver);
             if (ir_ret_type->kind != IrTypeKind::Void)
             {
                 auto name = ident_name();
@@ -2995,7 +3151,7 @@ export namespace dcc::ir::lower
             set_current_block(fail_bb);
 
             auto* unwrap_err_call = m_ctx.call(lower_type(get_canonical_type(unwrap_err_callee->return_type)), m_ctx.func_ref(unwrap_err_ir_func));
-            unwrap_err_call->args.push_back(operand_val);
+            unwrap_err_call->args.push_back(unwrap_err_receiver);
             {
                 auto name = ident_name();
                 unwrap_err_call->name = m_name_pool.back();
@@ -6876,7 +7032,8 @@ export namespace dcc::ir::lower
                     }
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, it->second.value);
+                    auto* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
+                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -6912,8 +7069,10 @@ export namespace dcc::ir::lower
                         }
                     }
 
+                    IrValue* base_ptr = load_lvalue_pointer_layers(const_cast<IrGlobalRef*>(gr), obj_sema_type);
+
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, const_cast<IrGlobalRef*>(gr));
+                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -7232,6 +7391,31 @@ export namespace dcc::ir::lower
             return agg;
         }
 
+        IrValue* load_lvalue_pointer_layers(IrValue* addr, dcc::types::TypePtr obj_type)
+        {
+            IrValue* cur = addr;
+            while (obj_type)
+            {
+                if (auto* nt = dcc::types::type_cast<dcc::types::NominalType>(obj_type))
+                {
+                    obj_type = nt->underlying;
+                    continue;
+                }
+
+                if (obj_type->kind != dcc::types::TypeKind::Pointer)
+                    break;
+
+                auto* pt = static_cast<dcc::types::PointerType const*>(obj_type);
+                auto* ptr_val_ty = lower_type(obj_type);
+                cur = m_ctx.load(ptr_val_ty, cur);
+                auto load_name = ident_name();
+                cur->name = m_name_pool.back();
+                append_inst(cur);
+                obj_type = pt->pointee;
+            }
+            return cur;
+        }
+
         IrValue* lower_field_lvalue(ast::FieldAccessExpr const* fa)
         {
             auto* resolved_type = get_sema_resolved_type(fa);
@@ -7302,15 +7486,7 @@ export namespace dcc::ir::lower
                 auto it = m_value_map.find(resolved);
                 if (it != m_value_map.end() && it->second.is_storage)
                 {
-                    IrValue* base_ptr = it->second.value;
-                    if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
-                    {
-                        auto* ptr_ir_type = lower_type(it->second.sema_type);
-                        base_ptr = m_ctx.load(ptr_ir_type, base_ptr);
-                        auto load_name = ident_name();
-                        base_ptr->name = m_name_pool.back();
-                        append_inst(base_ptr);
-                    }
+                    IrValue* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
 
                     auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
                     auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
@@ -7328,14 +7504,7 @@ export namespace dcc::ir::lower
                     {
                         auto* ptr_type = m_ctx.pointer_to(global->type);
                         auto* global_ref = m_ctx.global_ref(global, ptr_type);
-                        IrValue* base_ptr = global_ref;
-                        if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
-                        {
-                            base_ptr = m_ctx.load(global->type, global_ref);
-                            auto load_name = ident_name();
-                            base_ptr->name = m_name_pool.back();
-                            append_inst(base_ptr);
-                        }
+                        IrValue* base_ptr = load_lvalue_pointer_layers(global_ref, obj_sema_type);
 
                         auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
                         auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
@@ -7351,6 +7520,7 @@ export namespace dcc::ir::lower
             if (fa->object->kind == ast::ExprKind::Index)
             {
                 auto* base_ptr = lower_index_lvalue(static_cast<ast::IndexExpr const*>(fa->object));
+                base_ptr = load_lvalue_pointer_layers(base_ptr, obj_sema_type);
                 auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
                 auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
@@ -7363,6 +7533,7 @@ export namespace dcc::ir::lower
             if (fa->object->kind == ast::ExprKind::FieldAccess)
             {
                 auto* inner_ptr = lower_field_lvalue(static_cast<ast::FieldAccessExpr const*>(fa->object));
+                inner_ptr = load_lvalue_pointer_layers(inner_ptr, obj_sema_type);
                 auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
                 auto* gep = m_ctx.gep(elem_ptr_type, inner_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
@@ -7496,7 +7667,8 @@ export namespace dcc::ir::lower
                     }
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, it->second.value);
+                    auto* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
+                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -7530,7 +7702,8 @@ export namespace dcc::ir::lower
                         auto* ptr_type = m_ctx.pointer_to(global->type);
                         auto* global_ref = m_ctx.global_ref(global, ptr_type);
                         auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, global_ref);
+                        auto* base_ptr = load_lvalue_pointer_layers(global_ref, obj_sema_type);
+                        auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
                         gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();

@@ -57,6 +57,17 @@ export namespace dcc::ast
         return (set & flag) != Qual::None;
     }
 
+    enum class UfcsReceiverAdjust : std::uint8_t
+    {
+        None,
+        Exact,
+        AutoRef,
+        AutoRefConst,
+        AutoRefQualMismatch,
+        AutoDeref,
+        ArrayToSlice,
+    };
+
     struct PathSegment
     {
         std::string_view name;
@@ -235,6 +246,8 @@ export namespace dcc::ast
         bool implicit_deref : 1 {};
         bool implicit_addr_of : 1 {};
         bool is_from_instantiation : 1 {};
+
+        UfcsReceiverAdjust ufcs_receiver_adjust{UfcsReceiverAdjust::None};
     };
 
     struct TypeSema
@@ -609,6 +622,9 @@ export namespace dcc::ast
         FuncDecl const* unwrap_is_ok_callee{};
         FuncDecl const* unwrap_unwrap_callee{};
         FuncDecl const* unwrap_unwrap_err_callee{};
+        UfcsReceiverAdjust unwrap_is_ok_receiver_adjust{};
+        UfcsReceiverAdjust unwrap_unwrap_receiver_adjust{};
+        UfcsReceiverAdjust unwrap_unwrap_err_receiver_adjust{};
         bool unwrap_err_needs_implicit_enum : 1 {};
         EnumVariant const* unwrap_err_constructed_variant{};
 

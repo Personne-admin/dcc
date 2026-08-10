@@ -1,0 +1,196 @@
+=== FILE: test.dc ===
+module test;
+
+struct Inner {
+    i32 value;
+}
+
+struct Outer {
+    Inner inner;
+    Inner* pinner;
+}
+
+struct Link {
+    Inner* target;
+    Link2* next;
+}
+
+struct Link2 {
+    Inner* target;
+}
+
+struct Wrap {
+    Inner*[2] items;
+}
+
+i32 take_ptr(i32* p) {
+    return *p;
+}
+
+i32 nested_chain(Outer* po) {
+    po.inner.value = 5;
+    i32 a = po.inner.value;
+
+    po.pinner.value = 7;
+    i32 b = po.pinner.value;
+
+    i32 c = take_ptr(&po.inner.value);
+
+    i32* pv = &po.pinner.value;
+    i32 d = take_ptr(pv);
+
+    return a + b + c + d;
+}
+
+struct Leaf {
+    i32 value;
+}
+
+struct Mid {
+    Leaf leaf;
+}
+
+struct TripleHolder {
+    Mid mid;
+}
+
+i32 three_level(TripleHolder* th) {
+    th.mid.leaf.value = 11;
+    return th.mid.leaf.value;
+}
+
+i32 indexed_pointer_element(Wrap* w) {
+    w.items[0].value = 21;
+    i32 a = w.items[0].value;
+    w.items[1].value = 22;
+    i32 b = w.items[1].value;
+    return a + b;
+}
+
+i32 link_chain(Link* pl) {
+    pl.next.target.value = 31;
+    return pl.next.target.value;
+}
+
+i32 main() {
+    return 0;
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test8.take_ptr1Pqi32si32s(ptr<i32>) {
+%entry(ptr<i32> %p):
+  %0 = load i32, ptr<i32> %p
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test12.nested_chain1PqD1.4.test5.Outer0.i32s(ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}>) {
+%entry(ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po):
+  %0 = gep ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po, field #0
+  %1 = gep ptr<{@0 i32}> %0, field #0
+  store i32 #5, ptr<i32> %1
+  %2 = alloca i32
+  %3 = gep ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po, field #0
+  %4 = load {@0 i32}, ptr<{@0 i32}> %3
+  %5 = extract {@0 i32} %4, field #0
+  store i32 %5, ptr<i32> %2
+  %6 = gep ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po, field #1
+  %7 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %6
+  %8 = gep ptr<{@0 i32}> %7, field #0
+  store i32 #7, ptr<i32> %8
+  %9 = alloca i32
+  %10 = gep ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po, field #1
+  %11 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %10
+  %12 = gep ptr<{@0 i32}> %11, field #0
+  %13 = load i32, ptr<i32> %12
+  store i32 %13, ptr<i32> %9
+  %14 = alloca i32
+  %15 = gep ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po, field #0
+  %16 = gep ptr<{@0 i32}> %15, field #0
+  %17 = call fn(@_DC0F1.4.test8.take_ptr1Pqi32si32s)(ptr<i32> %16) -> i32
+  store i32 %17, ptr<i32> %14
+  %18 = alloca ptr<i32>
+  %19 = gep ptr<{@0 {@0 i32}, @8 ptr<{@0 i32}>}> %po, field #1
+  %20 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %19
+  %21 = gep ptr<{@0 i32}> %20, field #0
+  store ptr<i32> %21, ptr<ptr<i32>> %18
+  %22 = alloca i32
+  %23 = load ptr<i32>, ptr<ptr<i32>> %18
+  %24 = call fn(@_DC0F1.4.test8.take_ptr1Pqi32si32s)(ptr<i32> %23) -> i32
+  store i32 %24, ptr<i32> %22
+  %25 = load i32, ptr<i32> %2
+  %26 = load i32, ptr<i32> %9
+  %27 = add i32 %25, i32 %26
+  %28 = load i32, ptr<i32> %14
+  %29 = add i32 %27, i32 %28
+  %30 = load i32, ptr<i32> %22
+  %31 = add i32 %29, i32 %30
+  ret i32 %31
+}
+
+i32@_DC0F1.4.test11.three_level1PqD1.4.test12.TripleHolder0.i32s(ptr<{@0 {@0 {@0 i32}}}>) {
+%entry(ptr<{@0 {@0 {@0 i32}}}> %th):
+  %0 = gep ptr<{@0 {@0 {@0 i32}}}> %th, field #0
+  %1 = gep ptr<{@0 {@0 i32}}> %0, field #0
+  %2 = gep ptr<{@0 i32}> %1, field #0
+  store i32 #11, ptr<i32> %2
+  %3 = gep ptr<{@0 {@0 {@0 i32}}}> %th, field #0
+  %4 = load {@0 {@0 i32}}, ptr<{@0 {@0 i32}}> %3
+  %5 = extract {@0 {@0 i32}} %4, field #0
+  %6 = extract {@0 i32} %5, field #0
+  ret i32 %6
+}
+
+i32@_DC0F1.4.test23.indexed_pointer_element1PqD1.4.test4.Wrap0.i32s(ptr<{@0 [2 x ptr<{@0 i32}>]}>) {
+%entry(ptr<{@0 [2 x ptr<{@0 i32}>]}> %w):
+  %0 = gep ptr<{@0 [2 x ptr<{@0 i32}>]}> %w, field #0
+  %1 = gep ptr<[2 x ptr<{@0 i32}>]> %0, #0
+  %2 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %1
+  %3 = gep ptr<{@0 i32}> %2, field #0
+  store i32 #21, ptr<i32> %3
+  %4 = alloca i32
+  %5 = gep ptr<{@0 [2 x ptr<{@0 i32}>]}> %w, field #0
+  %6 = gep ptr<[2 x ptr<{@0 i32}>]> %5, #0
+  %7 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %6
+  %8 = gep ptr<{@0 i32}> %7, field #0
+  %9 = load i32, ptr<i32> %8
+  store i32 %9, ptr<i32> %4
+  %10 = gep ptr<{@0 [2 x ptr<{@0 i32}>]}> %w, field #0
+  %11 = gep ptr<[2 x ptr<{@0 i32}>]> %10, #1
+  %12 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %11
+  %13 = gep ptr<{@0 i32}> %12, field #0
+  store i32 #22, ptr<i32> %13
+  %14 = alloca i32
+  %15 = gep ptr<{@0 [2 x ptr<{@0 i32}>]}> %w, field #0
+  %16 = gep ptr<[2 x ptr<{@0 i32}>]> %15, #1
+  %17 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %16
+  %18 = gep ptr<{@0 i32}> %17, field #0
+  %19 = load i32, ptr<i32> %18
+  store i32 %19, ptr<i32> %14
+  %20 = load i32, ptr<i32> %4
+  %21 = load i32, ptr<i32> %14
+  %22 = add i32 %20, i32 %21
+  ret i32 %22
+}
+
+i32@_DC0F1.4.test10.link_chain1PqD1.4.test4.Link0.i32s(ptr<{@0 ptr<{@0 i32}>, @8 ptr<{@0 ptr<{@0 i32}>}>}>) {
+%entry(ptr<{@0 ptr<{@0 i32}>, @8 ptr<{@0 ptr<{@0 i32}>}>}> %pl):
+  %0 = gep ptr<{@0 ptr<{@0 i32}>, @8 ptr<{@0 ptr<{@0 i32}>}>}> %pl, field #1
+  %1 = load ptr<{@0 ptr<{@0 i32}>}>, ptr<ptr<{@0 ptr<{@0 i32}>}>> %0
+  %2 = gep ptr<{@0 ptr<{@0 i32}>}> %1, field #0
+  %3 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %2
+  %4 = gep ptr<{@0 i32}> %3, field #0
+  store i32 #31, ptr<i32> %4
+  %5 = gep ptr<{@0 ptr<{@0 i32}>, @8 ptr<{@0 ptr<{@0 i32}>}>}> %pl, field #1
+  %6 = load ptr<{@0 ptr<{@0 i32}>}>, ptr<ptr<{@0 ptr<{@0 i32}>}>> %5
+  %7 = gep ptr<{@0 ptr<{@0 i32}>}> %6, field #0
+  %8 = load ptr<{@0 i32}>, ptr<ptr<{@0 i32}>> %7
+  %9 = gep ptr<{@0 i32}> %8, field #0
+  %10 = load i32, ptr<i32> %9
+  ret i32 %10
+}
+
+i32@_DC0F1.4.test4.main0i32s() {
+%entry:
+  ret i32 #0
+}
