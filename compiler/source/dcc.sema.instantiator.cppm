@@ -199,6 +199,9 @@ namespace dcc::sema
                     n->unwrap_is_ok_callee = nullptr;
                     n->unwrap_unwrap_callee = nullptr;
                     n->unwrap_unwrap_err_callee = nullptr;
+                    n->unwrap_is_ok_receiver_adjust = ast::UfcsReceiverAdjust::None;
+                    n->unwrap_unwrap_receiver_adjust = ast::UfcsReceiverAdjust::None;
+                    n->unwrap_unwrap_err_receiver_adjust = ast::UfcsReceiverAdjust::None;
                     n->unwrap_err_needs_implicit_enum = false;
                     n->unwrap_err_constructed_variant = nullptr;
                     return n;

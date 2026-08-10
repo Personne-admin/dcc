@@ -1329,16 +1329,7 @@ export namespace dcc::sema
             TemplateExact = 25,
         };
 
-        enum class UfcsReceiverMatch : std::uint8_t
-        {
-            None,
-            Exact,
-            AutoRef,
-            AutoRefConst,
-            AutoRefQualMismatch,
-            AutoDeref,
-            ArrayToSlice,
-        };
+        using UfcsReceiverMatch = ast::UfcsReceiverAdjust;
 
         struct RankedCandidate
         {
@@ -7746,6 +7737,7 @@ export namespace dcc::sema
                     {
                         ast::FuncDecl const* callee{};
                         types::TypePtr result_type{};
+                        ast::UfcsReceiverAdjust receiver_adjust{ast::UfcsReceiverAdjust::None};
                     };
 
                     auto resolve_method = [&](std::string_view name) -> std::optional<MethodInfo> {
@@ -7759,7 +7751,7 @@ export namespace dcc::sema
                         if (!callee)
                             return std::nullopt;
 
-                        return MethodInfo{callee, call_result.type};
+                        return MethodInfo{callee, call_result.type, fa->sema.ufcs_receiver_adjust};
                     };
 
                     auto is_ok_info = resolve_method("is_ok");
@@ -7814,8 +7806,11 @@ export namespace dcc::sema
                     }
 
                     p.unwrap_is_ok_callee = is_ok_info->callee;
+                    p.unwrap_is_ok_receiver_adjust = is_ok_info->receiver_adjust;
                     p.unwrap_unwrap_callee = unwrap_info->callee;
+                    p.unwrap_unwrap_receiver_adjust = unwrap_info->receiver_adjust;
                     p.unwrap_unwrap_err_callee = unwrap_err_info->callee;
+                    p.unwrap_unwrap_err_receiver_adjust = unwrap_err_info->receiver_adjust;
                     if (implicit_enum_var)
                     {
                         p.unwrap_err_needs_implicit_enum = true;
@@ -10115,6 +10110,7 @@ export namespace dcc::sema
                     result.ufcs_callee = ranked[*winner].sym->decl;
                     f.sema.ufcs_callee = ranked[*winner].sym->decl;
                     f.sema.resolved_decl = ranked[*winner].sym->decl;
+                    f.sema.ufcs_receiver_adjust = ranked[*winner].receiver_match;
                     return result;
                 }
 

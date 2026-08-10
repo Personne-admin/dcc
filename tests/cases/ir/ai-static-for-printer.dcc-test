@@ -55,9 +55,7 @@ linkonce_odr void@_DC0S1.4.test5.print3D1.4.test13.ConsoleWriter0.i32si64svX3tD1
 %entry({} %out, i32 %args_0, i64 %args_1):
   %0 = alloca {}
   store {} %out, ptr<{}> %0
-  %1 = load {}, ptr<{}> %0
-  call fn(@_DC0F1.4.test5.write2PqD1.4.test13.ConsoleWriter0.i32sv)({} %1, i32 %args_0)
-  %2 = load {}, ptr<{}> %0
-  call fn(@_DC0F1.4.test5.write2PqD1.4.test13.ConsoleWriter0.i64sv)({} %2, i64 %args_1)
+  call fn(@_DC0F1.4.test5.write2PqD1.4.test13.ConsoleWriter0.i32sv)(ptr<{}> %0, i32 %args_0)
+  call fn(@_DC0F1.4.test5.write2PqD1.4.test13.ConsoleWriter0.i64sv)(ptr<{}> %0, i64 %args_1)
   ret void
 }

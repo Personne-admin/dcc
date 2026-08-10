@@ -1,0 +1,60 @@
+=== FILE: test.dc ===
+module test;
+
+public enum Result(T, E) {
+    Ok(T),
+    Err(E),
+}
+
+public bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(_) => false,
+        _ => true,
+    };
+}
+
+public T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(v) => v,
+        Result::Err(e) => e,
+    };
+}
+
+public E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(e) => e,
+        Result::Ok(v) => v,
+    };
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 propagate(Result(i32, i32) r) {
+    return r?;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Result(i32, i32) ok = Result::Ok(42);
+    if propagate(ok) != 42 {
+        return 1;
+    }
+
+    Result(i32, i32) err = Result::Err(7);
+    if propagate(err) != 7 {
+        return 2;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

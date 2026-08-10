@@ -1,0 +1,74 @@
+=== FILE: test.dc ===
+module test;
+
+struct Res {
+    bool ok;
+    i32 val;
+}
+
+bool is_ok(Res* self) {
+    return self.ok;
+}
+
+i32 unwrap(Res self) {
+    return self.val;
+}
+
+i32 unwrap_err(Res self) {
+    return self.val;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+Res[2] g_buf;
+
+@nomangle
+i32 g_idx = 0;
+
+@nomangle
+public i32 test_ok() {
+    g_idx = 0;
+    g_buf[0] = { ok = true, val = 41 };
+    g_buf[1] = { ok = false, val = 7 };
+    i32 v = g_buf[g_idx++]?;
+
+    if v != 41 {
+        return 1;
+    }
+
+    if g_idx != 1 {
+        return 2;
+    }
+
+    return 0;
+}
+
+@nomangle
+public i32 test_err_propagates() {
+    g_idx = 0;
+    g_buf[0] = { ok = false, val = 7 };
+    g_buf[1] = { ok = true, val = 41 };
+    return g_buf[g_idx++]?;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if test_ok() != 0 {
+        return 1;
+    }
+
+    if test_err_propagates() != 7 {
+        return 2;
+    }
+
+    if g_idx != 1 {
+        return 3;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+
+struct ArenaBlock {
+    ArenaBlock* next;
+    i32 used;
+}
+
+struct Arena {
+    ArenaBlock* first;
+    ArenaBlock* current;
+    usize block_size;
+}
+
+ArenaBlock* allocate_block(Arena* self, ArenaBlock* block) {
+    block.next = null;
+    block.used = 0;
+
+    if self.first == null {
+        self.first = block;
+    }
+
+    if self.current != null {
+        self.current.next = block;
+    }
+
+    self.current = block;
+
+    return block;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Arena arena;
+    ArenaBlock b0;
+    ArenaBlock b1;
+    ArenaBlock b2;
+
+    arena.first = null;
+    arena.current = null;
+
+    ArenaBlock* r0 = allocate_block(&arena, &b0);
+    ArenaBlock* r1 = allocate_block(&arena, &b1);
+    ArenaBlock* r2 = allocate_block(&arena, &b2);
+
+    i32 ok = 0;
+    if arena.first == &b0 { ok = ok + 1; }
+    if arena.current == &b2 { ok = ok + 1; }
+    if b0.next == &b1 { ok = ok + 1; }
+    if b1.next == &b2 { ok = ok + 1; }
+    if b2.next == null { ok = ok + 1; }
+
+    return 5 - ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
