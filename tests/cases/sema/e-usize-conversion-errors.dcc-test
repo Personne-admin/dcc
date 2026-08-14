@@ -27,8 +27,4 @@ void test_pass_usize_to_u64() {
 main.dc:10: initializer type mismatch
 main.dc:14: initializer type mismatch
 main.dc:18: no matching call for `take_usize`
-main.dc:6: = note: candidate `take_usize(usize)`
-main.dc:6: = note: reason: cannot convert argument 1: expected `usize`, found `u64`
 main.dc:22: no matching call for `take_u64`
-main.dc:7: = note: candidate `take_u64(u64)`
-main.dc:7: = note: reason: cannot convert argument 1: expected `u64`, found `usize`

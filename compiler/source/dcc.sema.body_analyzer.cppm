@@ -1339,6 +1339,35 @@ export namespace dcc::sema
             UfcsReceiverMatch receiver_match{UfcsReceiverMatch::None};
         };
 
+        enum class CallRejectionKind : std::uint8_t
+        {
+            None,
+            TooManyArgs,
+            TooFewArgs,
+            ArgTypeMismatch,
+            ReceiverMismatch,
+        };
+
+        struct CallRejectionInfo
+        {
+            CallRejectionKind kind{CallRejectionKind::None};
+            std::size_t failing_arg{std::numeric_limits<std::size_t>::max()};
+            std::size_t expected_arg_count{std::numeric_limits<std::size_t>::max()};
+        };
+
+        [[nodiscard]] static constexpr std::size_t no_arg() noexcept { return std::numeric_limits<std::size_t>::max(); }
+
+        static void record_rejection(CallRejectionInfo* info, CallRejectionKind kind, std::size_t failing_arg = no_arg(),
+                                     std::size_t expected_arg_count = no_arg())
+        {
+            if (!info)
+                return;
+
+            info->kind = kind;
+            info->failing_arg = failing_arg;
+            info->expected_arg_count = expected_arg_count;
+        }
+
         struct CandidateInfo
         {
             Symbol const* sym{};
@@ -1346,20 +1375,74 @@ export namespace dcc::sema
             std::string signature;
             sm::SourceRange def_range;
             std::string reason;
+            CallRejectionKind rejection_kind{CallRejectionKind::None};
+            std::size_t failing_arg{no_arg()};
+            std::size_t expected_arg_count{no_arg()};
         };
 
+        [[nodiscard]] static sm::SourceRange func_decl_range(ast::FuncDecl const& f) noexcept { return f.name_range.valid() ? f.name_range : f.range; }
+
+        [[nodiscard]] static sm::SourceRange narrow_extra_arg_range(sm::SourceRange call_range, std::span<ast::Expr* const> arg_exprs,
+                                                                    std::size_t expected_total, bool ufcs)
+        {
+            std::size_t first_extra = ufcs ? (expected_total > 0 ? expected_total - 1 : 0) : expected_total;
+            if (first_extra < arg_exprs.size() && arg_exprs[first_extra] && arg_exprs[first_extra]->range.valid())
+                return arg_exprs[first_extra]->range;
+
+            return call_range;
+        }
+
+        [[nodiscard]] sm::SourceRange narrow_call_error_range(sm::SourceRange call_range, std::span<ast::Expr* const> arg_exprs,
+                                                              std::optional<sm::SourceRange> receiver_range, bool ufcs,
+                                                              std::span<CandidateInfo const> candidates)
+        {
+            for (auto const& cand : candidates)
+            {
+                switch (cand.rejection_kind)
+                {
+                    case CallRejectionKind::ReceiverMismatch:
+                        if (receiver_range && receiver_range->valid())
+                            return *receiver_range;
+                        return call_range;
+
+                    case CallRejectionKind::ArgTypeMismatch:
+                        if (cand.failing_arg != no_arg() && cand.failing_arg < arg_exprs.size() && arg_exprs[cand.failing_arg] &&
+                            arg_exprs[cand.failing_arg]->range.valid())
+                            return arg_exprs[cand.failing_arg]->range;
+                        return call_range;
+
+                    case CallRejectionKind::TooManyArgs:
+                        if (cand.expected_arg_count != no_arg())
+                            return narrow_extra_arg_range(call_range, arg_exprs, cand.expected_arg_count, ufcs);
+                        return call_range;
+
+                    case CallRejectionKind::TooFewArgs:
+                    case CallRejectionKind::None:
+                        return call_range;
+                }
+            }
+
+            return call_range;
+        }
+
         static void collect_candidate_rejection(std::vector<CandidateInfo>& out, Symbol const& sym, std::string reason,
-                                                types::FuncPtrType const* explicit_fp = nullptr)
+                                                types::FuncPtrType const* explicit_fp = nullptr, CallRejectionInfo const* rejection_info = nullptr)
         {
             auto& info = out.emplace_back();
             info.sym = &sym;
             info.explicit_fp = explicit_fp;
             info.reason = std::move(reason);
+            if (rejection_info)
+            {
+                info.rejection_kind = rejection_info->kind;
+                info.failing_arg = rejection_info->failing_arg;
+                info.expected_arg_count = rejection_info->expected_arg_count;
+            }
 
             if (explicit_fp)
             {
                 auto const& f = *static_cast<ast::FuncDecl const*>(sym.decl);
-                info.def_range = f.range;
+                info.def_range = func_decl_range(f);
                 std::string sig = std::string{f.name};
                 sig += '(';
                 for (std::size_t i = 0; i < explicit_fp->params.size(); ++i)
@@ -1375,7 +1458,7 @@ export namespace dcc::sema
             else if (sym.decl && sym.decl->kind == ast::DeclKind::Func)
             {
                 auto const& f = *static_cast<ast::FuncDecl const*>(sym.decl);
-                info.def_range = f.range;
+                info.def_range = func_decl_range(f);
                 std::string sig = std::string{f.name};
                 sig += '(';
                 for (std::size_t i = 0; i < f.params.size(); ++i)
@@ -1395,7 +1478,14 @@ export namespace dcc::sema
                 info.signature = "<unknown>";
         }
 
-        void emit_overload_error(sm::SourceRange range, std::string primary_msg, std::vector<CandidateInfo> const& candidates)
+        struct OverloadErrorContext
+        {
+            std::span<ast::Expr* const> arg_exprs;
+            std::optional<sm::SourceRange> receiver_range;
+            bool ufcs;
+        };
+
+        void emit_overload_error(sm::SourceRange range, std::string primary_msg, std::vector<CandidateInfo> const& candidates, OverloadErrorContext const& ctx)
         {
             if (m_suppress_errors)
             {
@@ -1403,12 +1493,14 @@ export namespace dcc::sema
                 return;
             }
 
-            auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::move(primary_msg)}.primary(range);
+            auto primary_range = narrow_call_error_range(range, ctx.arg_exprs, ctx.receiver_range, ctx.ufcs, candidates);
+            auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::move(primary_msg)}.primary(primary_range);
             for (auto const& cand : candidates)
             {
-                auto loc = format_source_location(cand.def_range);
-                std::move(diag_obj).note(std::format("candidate `{}`\n  --> {}", cand.signature, loc));
-                std::move(diag_obj).note(std::format("reason: {}", cand.reason));
+                if (!cand.def_range.valid())
+                    continue;
+
+                std::move(diag_obj).secondary(cand.def_range, std::format("candidate `{}` (reason: {})", cand.signature, cand.reason));
             }
 
             m_diag.emit(std::move(diag_obj));
@@ -3222,15 +3314,21 @@ export namespace dcc::sema
 
         [[nodiscard]] ModuleInfo* find_template_defining_module(ast::FuncDecl const& f) noexcept { return find_defining_module(f); }
 
-        [[nodiscard]] Symbol const* resolve_value_path_with_fallback(Scope& primary, ast::Path const& path) const
+        [[nodiscard]] std::span<Symbol const> resolve_value_overloads_with_fallback(Scope const& primary, ast::Path const& path) const
         {
-            if (auto const* sym = resolve_value_path(primary, path))
-                return sym;
+            if (auto syms = resolve_value_overloads(primary, path); !syms.empty())
+                return syms;
 
             if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
-                return resolve_value_path(*m_specialization_defining_module->own_scope, path);
+                return resolve_value_overloads(*m_specialization_defining_module->own_scope, path);
 
-            return nullptr;
+            return {};
+        }
+
+        [[nodiscard]] Symbol const* resolve_value_path_with_fallback(Scope& primary, ast::Path const& path) const
+        {
+            auto syms = resolve_value_overloads_with_fallback(primary, path);
+            return syms.empty() ? nullptr : &syms.front();
         }
 
         [[nodiscard]] Symbol const* resolve_type_path_with_fallback(Scope& primary, ast::Path const& path) const
@@ -4001,7 +4099,7 @@ export namespace dcc::sema
                                     std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off, int loop_depth, ConstEnv const* const_env,
                                     bool* had_suppressed_errors = nullptr, bool* had_constraint_failure = nullptr, bool* had_non_constraint_failure = nullptr,
                                     types::TypePtr expected_type = nullptr, bool nttps_already_resolved = false, std::string* rejection_reason = nullptr,
-                                    infer::TemplateBindings const* pre_resolved_bindings = nullptr)
+                                    infer::TemplateBindings const* pre_resolved_bindings = nullptr, CallRejectionInfo* rejection_info = nullptr)
         {
             ast::FuncDecl const* func = nullptr;
             if (sym.decl && sym.decl->kind == ast::DeclKind::Func)
@@ -4030,6 +4128,10 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("argument count mismatch: expected {}, got {}", params.size() + num_value_tparams, arg_exprs.size());
 
+                    record_rejection(rejection_info,
+                                     arg_exprs.size() > params.size() + num_value_tparams ? CallRejectionKind::TooManyArgs : CallRejectionKind::TooFewArgs,
+                                     no_arg(), params.size() + num_value_tparams);
+
                     return std::nullopt;
                 }
             }
@@ -4044,6 +4146,8 @@ export namespace dcc::sema
                         *rejection_reason = std::format("argument count mismatch: expected at least {} (with pack), got {}", min_required + num_value_tparams,
                                                         arg_exprs.size());
 
+                    record_rejection(rejection_info, CallRejectionKind::TooFewArgs, no_arg(), min_required + num_value_tparams);
+
                     return std::nullopt;
                 }
             }
@@ -4055,6 +4159,8 @@ export namespace dcc::sema
 
                 if (rejection_reason)
                     *rejection_reason = "incomplete call argument";
+
+                record_rejection(rejection_info, CallRejectionKind::None);
 
                 return std::nullopt;
             }
@@ -4097,6 +4203,8 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = "value template argument type is not resolved";
 
+                    record_rejection(rejection_info, CallRejectionKind::None);
+
                     return std::nullopt;
                 }
 
@@ -4113,6 +4221,8 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("cannot convert value template argument {} to required type", vi);
 
+                    record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, vi);
+
                     return std::nullopt;
                 }
 
@@ -4123,6 +4233,8 @@ export namespace dcc::sema
 
                     if (rejection_reason)
                         *rejection_reason = std::format("value template argument {} is not a constant expression", vi);
+
+                    record_rejection(rejection_info, CallRejectionKind::None);
 
                     return std::nullopt;
                 }
@@ -4159,6 +4271,8 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("cannot convert argument {}: expected `{}`", func_arg_start + i + 1, format_type_str(param_ty));
 
+                    record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
+
                     return std::nullopt;
                 }
                 args.push_back(r);
@@ -4188,6 +4302,8 @@ export namespace dcc::sema
 
                         if (rejection_reason)
                             *rejection_reason = std::format("cannot convert argument {} (pack element)", func_arg_start + i + 1);
+
+                        record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
 
                         return std::nullopt;
                     }
@@ -4250,6 +4366,8 @@ export namespace dcc::sema
                             *rejection_reason = std::format("cannot convert argument {}: expected `{}`, found `{}`", func_arg_start + i + 1,
                                                             format_type_str(subbed_param), format_type_str(actuals[i]));
 
+                            record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
+
                             arg_mismatch_found = true;
                             break;
                         }
@@ -4261,8 +4379,12 @@ export namespace dcc::sema
                             *rejection_reason = std::format("template argument deduction failed: {}", trace);
                         else
                             *rejection_reason = std::format("template argument deduction failed: {}", deduce_result.detail);
+
+                        record_rejection(rejection_info, CallRejectionKind::None);
                     }
                 }
+                else if (rejection_info)
+                    record_rejection(rejection_info, CallRejectionKind::None);
 
                 return std::nullopt;
             }
@@ -4294,6 +4416,8 @@ export namespace dcc::sema
                 if (rejection_reason)
                     *rejection_reason = "template constraint not satisfied";
 
+                record_rejection(rejection_info, CallRejectionKind::None);
+
                 return std::nullopt;
             }
 
@@ -4315,6 +4439,8 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("cannot determine conversion rank for argument {}", func_arg_start + i);
 
+                    record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
+
                     return std::nullopt;
                 }
 
@@ -4330,12 +4456,11 @@ export namespace dcc::sema
             return out;
         }
 
-        [[nodiscard]] std::optional<RankedCandidate> probe_ufcs_candidate(ModuleInfo& mod, Scope& scope, Symbol const& sym, ast::Expr& object,
-                                                                          std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off, int loop_depth,
-                                                                          ConstEnv const* const_env, bool* had_suppressed_errors = nullptr,
-                                                                          bool* had_constraint_failure = nullptr, bool* had_non_constraint_failure = nullptr,
-                                                                          types::TypePtr expected_type = nullptr, std::string* rejection_reason = nullptr,
-                                                                          detail::ExprResult const* preanalyzed_receiver = nullptr)
+        [[nodiscard]] std::optional<RankedCandidate>
+        probe_ufcs_candidate(ModuleInfo& mod, Scope& scope, Symbol const& sym, ast::Expr& object, std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off,
+                             int loop_depth, ConstEnv const* const_env, bool* had_suppressed_errors = nullptr, bool* had_constraint_failure = nullptr,
+                             bool* had_non_constraint_failure = nullptr, types::TypePtr expected_type = nullptr, std::string* rejection_reason = nullptr,
+                             detail::ExprResult const* preanalyzed_receiver = nullptr, CallRejectionInfo* rejection_info = nullptr)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -4367,6 +4492,10 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("argument count mismatch: expected {}, got {}", params.size() + num_value_tparams, actual_count);
 
+                    record_rejection(rejection_info,
+                                     actual_count > params.size() + num_value_tparams ? CallRejectionKind::TooManyArgs : CallRejectionKind::TooFewArgs,
+                                     no_arg(), params.size() + num_value_tparams);
+
                     return std::nullopt;
                 }
             }
@@ -4381,6 +4510,8 @@ export namespace dcc::sema
                         *rejection_reason =
                             std::format("argument count mismatch: expected at least {}, got {}", min_required + num_value_tparams, actual_count);
 
+                    record_rejection(rejection_info, CallRejectionKind::TooFewArgs, no_arg(), min_required + num_value_tparams);
+
                     return std::nullopt;
                 }
             }
@@ -4392,6 +4523,8 @@ export namespace dcc::sema
 
                 if (rejection_reason)
                     *rejection_reason = "incomplete call argument";
+
+                record_rejection(rejection_info, CallRejectionKind::None);
 
                 return std::nullopt;
             }
@@ -4417,6 +4550,8 @@ export namespace dcc::sema
                 if (rejection_reason)
                     *rejection_reason = std::format("receiver type mismatch: expected `{}`", format_type_str(param0));
 
+                record_rejection(rejection_info, CallRejectionKind::ReceiverMismatch);
+
                 return std::nullopt;
             }
 
@@ -4432,6 +4567,8 @@ export namespace dcc::sema
                 if (rejection_reason)
                     *rejection_reason =
                         std::format("receiver type mismatch: expected `{}`, found `{}`", format_type_str(param0), format_type_str(receiver.type));
+
+                record_rejection(rejection_info, CallRejectionKind::ReceiverMismatch);
 
                 return std::nullopt;
             }
@@ -4479,6 +4616,8 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("value template argument {} could not be evaluated", vi);
 
+                    record_rejection(rejection_info, CallRejectionKind::None);
+
                     return std::nullopt;
                 }
 
@@ -4518,6 +4657,8 @@ export namespace dcc::sema
                     if (rejection_reason)
                         *rejection_reason = std::format("cannot convert argument {}: expected `{}`", i + 1, format_type_str(param_ty));
 
+                    record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
+
                     return std::nullopt;
                 }
                 if (params[i + 1] && r.type && !contains_template_param(r.type))
@@ -4538,6 +4679,8 @@ export namespace dcc::sema
 
                     if (rejection_reason)
                         *rejection_reason = std::format("cannot convert argument {}: expected `{}`", i + 1, format_type_str(param_ty));
+
+                    record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
 
                     return std::nullopt;
                 }
@@ -4566,6 +4709,8 @@ export namespace dcc::sema
 
                         if (rejection_reason)
                             *rejection_reason = std::format("cannot convert argument {} (pack element)", i + 1);
+
+                        record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
 
                         return std::nullopt;
                     }
@@ -4615,11 +4760,17 @@ export namespace dcc::sema
                             !types::type_cast<types::TemplateParamType>(subbed_param))
                         {
                             if (i == 0)
+                            {
                                 *rejection_reason = std::format("receiver type mismatch: expected `{}`, found `{}`", format_type_str(subbed_param),
                                                                 format_type_str(actuals[i]));
+                                record_rejection(rejection_info, CallRejectionKind::ReceiverMismatch);
+                            }
                             else
+                            {
                                 *rejection_reason = std::format("cannot convert argument {}: expected `{}`, found `{}`", i, format_type_str(subbed_param),
                                                                 format_type_str(actuals[i]));
+                                record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, i - 1);
+                            }
                             arg_mismatch_found = true;
                             break;
                         }
@@ -4631,8 +4782,12 @@ export namespace dcc::sema
                             *rejection_reason = std::format("template argument deduction failed: {}", trace);
                         else
                             *rejection_reason = "template argument deduction failed";
+
+                        record_rejection(rejection_info, CallRejectionKind::None);
                     }
                 }
+                else if (rejection_info)
+                    record_rejection(rejection_info, CallRejectionKind::None);
 
                 return std::nullopt;
             }
@@ -4670,6 +4825,8 @@ export namespace dcc::sema
 
                 if (rejection_reason)
                     *rejection_reason = "template constraint not satisfied";
+
+                record_rejection(rejection_info, CallRejectionKind::None);
 
                 return std::nullopt;
             }
@@ -4726,7 +4883,7 @@ export namespace dcc::sema
                                                                      std::uint32_t next_off, int loop_depth, ConstEnv const* const_env,
                                                                      bool* had_suppressed_errors = nullptr, bool* had_constraint_failure = nullptr,
                                                                      bool* had_non_constraint_failure = nullptr, types::TypePtr expected_type = nullptr,
-                                                                     std::string* rejection_reason = nullptr)
+                                                                     std::string* rejection_reason = nullptr, CallRejectionInfo* rejection_info = nullptr)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -4738,7 +4895,8 @@ export namespace dcc::sema
                 params.push_back(p.type ? get_canonical(p.type->sema) : m_types.m_errort());
 
             return probe_candidate_from_params(mod, scope, sym, params, arg_exprs, next_off, loop_depth, const_env, had_suppressed_errors,
-                                               had_constraint_failure, had_non_constraint_failure, expected_type, false, rejection_reason);
+                                               had_constraint_failure, had_non_constraint_failure, expected_type, false, rejection_reason, nullptr,
+                                               rejection_info);
         }
 
         [[nodiscard]] std::optional<detail::ExprResult>
@@ -4770,9 +4928,14 @@ export namespace dcc::sema
             {
                 if (params.size() + num_value_tparams != actual_count)
                 {
-                    auto loc = format_source_location(f.range);
-                    error(range, "argument count mismatch for UFCS call to `{}`: expected {}, got {}", f.name, params.size() + num_value_tparams, actual_count);
-                    m_diag.note(f.range, "declared at {}", loc);
+                    auto primary_range = actual_count > params.size() + num_value_tparams
+                                             ? narrow_extra_arg_range(range, arg_exprs, params.size() + num_value_tparams, true)
+                                             : range;
+                    auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("argument count mismatch for UFCS call to `{}`: expected {}, got {}",
+                                                                                        f.name, params.size() + num_value_tparams, actual_count)}
+                                        .primary(primary_range);
+                    std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                    m_diag.emit(std::move(diag_obj));
                     return std::nullopt;
                 }
             }
@@ -4780,10 +4943,12 @@ export namespace dcc::sema
             {
                 if (actual_count < min_required + num_value_tparams)
                 {
-                    auto loc = format_source_location(f.range);
-                    error(range, "argument count mismatch for UFCS call to `{}`: expected at least {}, got {}", f.name, min_required + num_value_tparams,
-                          actual_count);
-                    m_diag.note(f.range, "declared at {}", loc);
+                    auto diag_obj =
+                        diag::Diagnostic{diag::Severity::Error, std::format("argument count mismatch for UFCS call to `{}`: expected at least {}, got {}",
+                                                                            f.name, min_required + num_value_tparams, actual_count)}
+                            .primary(range);
+                    std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                    m_diag.emit(std::move(diag_obj));
                     return std::nullopt;
                 }
             }
@@ -4794,7 +4959,11 @@ export namespace dcc::sema
             auto receiver = preanalyzed_receiver ? *preanalyzed_receiver : analyze_expr(mod, nullptr, scope, object, loop_depth, next_off, param0, const_env);
             if (has_error(receiver.type))
             {
-                error(range, "receiver type mismatch for UFCS call to `{}`: expected `{}`", f.name, format_type_str(param0));
+                auto diag_obj = diag::Diagnostic{diag::Severity::Error,
+                                                 std::format("receiver type mismatch for UFCS call to `{}`: expected `{}`", f.name, format_type_str(param0))}
+                                    .primary(object.range.valid() ? object.range : range);
+                std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                m_diag.emit(std::move(diag_obj));
                 return std::nullopt;
             }
 
@@ -4926,11 +5095,26 @@ export namespace dcc::sema
                     if (actuals[i] != param_ty && !has_error(actuals[i]) && !has_error(param_ty))
                     {
                         if (i == 0)
-                            error(range, "receiver type mismatch for UFCS call to `{}`: expected `{}`, found `{}`", f.name, format_type_str(param_ty),
-                                  format_type_str(actuals[i]));
+                        {
+                            auto diag_obj =
+                                diag::Diagnostic{diag::Severity::Error, std::format("receiver type mismatch for UFCS call to `{}`: expected `{}`, found `{}`",
+                                                                                    f.name, format_type_str(param_ty), format_type_str(actuals[i]))}
+                                    .primary(object.range.valid() ? object.range : range);
+                            std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                            m_diag.emit(std::move(diag_obj));
+                        }
                         else
-                            error(range, "argument {} of UFCS call to `{}` has wrong type: expected `{}`, found `{}`", i, f.name, format_type_str(param_ty),
-                                  format_type_str(actuals[i]));
+                        {
+                            std::size_t arg_idx = func_arg_start + i - 1;
+                            auto arg_range =
+                                (arg_idx < arg_exprs.size() && arg_exprs[arg_idx] && arg_exprs[arg_idx]->range.valid()) ? arg_exprs[arg_idx]->range : range;
+                            auto diag_obj = diag::Diagnostic{diag::Severity::Error,
+                                                             std::format("argument {} of UFCS call to `{}` has wrong type: expected `{}`, found `{}`", i,
+                                                                         f.name, format_type_str(param_ty), format_type_str(actuals[i]))}
+                                                .primary(arg_range);
+                            std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                            m_diag.emit(std::move(diag_obj));
+                        }
 
                         reported = true;
                         break;
@@ -4938,15 +5122,12 @@ export namespace dcc::sema
                 }
                 if (!reported)
                 {
-                    auto loc = format_source_location(f.range);
-                    error(range, "call argument mismatch for UFCS call to `{}`: {}", f.name,
-                          deduce_result.detail.empty() ? "template argument deduction failed" : deduce_result.detail);
-                    m_diag.note(f.range, "declared at {}", loc);
-                }
-                else
-                {
-                    auto loc = format_source_location(f.range);
-                    m_diag.note(f.range, "declared at {}", loc);
+                    auto diag_obj = diag::Diagnostic{diag::Severity::Error,
+                                                     std::format("call argument mismatch for UFCS call to `{}`: {}", f.name,
+                                                                 deduce_result.detail.empty() ? "template argument deduction failed" : deduce_result.detail)}
+                                        .primary(range);
+                    std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                    m_diag.emit(std::move(diag_obj));
                 }
 
                 return std::nullopt;
@@ -5731,13 +5912,16 @@ export namespace dcc::sema
             s.name = decl->name;
             s.kind = SymbolKind::Variable;
             s.decl = decl;
-            s.definition_range = decl->range;
+            s.definition_range = decl->name_range.valid() ? decl->name_range : decl->range;
             Symbol const* existing = nullptr;
             if (scope.define_variable(s, &existing) == DefineResult::Conflict)
-                m_diag.emit(existing ? diag::Diagnostic{diag::Severity::Error, std::format("redefinition of `{}`", decl->name)}
-                                           .primary(decl->range)
-                                           .secondary(existing->definition_range, "previous declaration here")
-                                     : diag::Diagnostic{diag::Severity::Error, std::format("redefinition of `{}`", decl->name)}.primary(decl->range));
+            {
+                auto primary_range = decl->name_range.valid() ? decl->name_range : decl->range;
+                auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("redefinition of `{}`", decl->name)}.primary(primary_range);
+                if (existing && existing->definition_range.valid())
+                    std::move(diag_obj).secondary(existing->definition_range, "previous declaration here");
+                m_diag.emit(std::move(diag_obj));
+            }
         }
 
         struct PatternBinding
@@ -7382,13 +7566,6 @@ export namespace dcc::sema
                 return out;
             }
 
-            auto try_path = [&](Scope& s) -> Symbol const* {
-                auto const* sym = resolve_value_path(s, p.path);
-                if (sym)
-                    return sym;
-                return nullptr;
-            };
-
             types::TypePtr explicit_enum_type{};
             if (!p.explicit_enum_args.empty())
             {
@@ -7417,26 +7594,19 @@ export namespace dcc::sema
                 }
             }
 
-            auto const* sym = try_path(*mod.own_scope);
-            if (!sym && m_specialization_defining_module && m_specialization_defining_module->own_scope)
-                sym = try_path(*m_specialization_defining_module->own_scope);
-            if (!sym)
+            auto syms = resolve_value_overloads_with_fallback(*mod.own_scope, p.path);
+            if (syms.empty())
             {
                 out.type = m_types.m_errort();
                 error(p.range, "unknown path `{}`", path_str(p.path));
                 return out;
             }
+            auto const* sym = &syms.front();
 
             auto const* expected_fp = expected_type ? types::type_cast<types::FuncPtrType>(expected_type) : nullptr;
-            if (expected_fp && sym->decl && sym->decl->kind == ast::DeclKind::Func)
+            if (syms.size() > 1 && sym->decl && sym->decl->kind == ast::DeclKind::Func)
             {
-                auto get_overloads = [&](Scope& s) -> std::span<Symbol const> { return resolve_value_overloads(s, p.path); };
-
-                auto syms = get_overloads(*mod.own_scope);
-                if (syms.empty() && m_specialization_defining_module && m_specialization_defining_module->own_scope)
-                    syms = get_overloads(*m_specialization_defining_module->own_scope);
-
-                if (syms.size() > 1)
+                if (expected_fp)
                 {
                     Symbol const* match = nullptr;
                     std::size_t match_count = 0;
@@ -7503,6 +7673,24 @@ export namespace dcc::sema
                         error(p.range, "ambiguous reference to overloaded function `{}` matching expected function pointer type `{}`", path_str(p.path),
                               format_type_str(expected_type));
                         m_diag.note(p.range, "matching candidates: {}", cand_list);
+                        return out;
+                    }
+                }
+                else if (!m_analyzing_call_callee)
+                {
+                    bool all_funcs = true;
+                    for (auto const& cand : syms)
+                    {
+                        if (!cand.decl || cand.decl->kind != ast::DeclKind::Func)
+                        {
+                            all_funcs = false;
+                            break;
+                        }
+                    }
+                    if (all_funcs)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "ambiguous reference to overloaded function `{}`", path_str(p.path));
                         return out;
                     }
                 }
@@ -9349,38 +9537,10 @@ export namespace dcc::sema
 
                 if (mod.own_scope)
                 {
-                    auto const* sym = resolve_value_path_with_fallback(*mod.own_scope, path->path);
-                    if (sym && sym->decl && sym->decl->kind == ast::DeclKind::Func)
-                    {
-                        auto const& f = *static_cast<ast::FuncDecl const*>(sym->decl);
-                        ExplicitInstFailure failure{};
-                        ast::FuncDecl const* spec_decl{};
-                        if (auto fp = instantiate_explicit_function(mod, scope, f, t.template_args, &failure, &spec_decl))
-                        {
-                            detail::ExprResult out{};
-                            out.type = *fp;
-                            out.resolved_decl = sym->decl;
-                            out.spec_commit = detail::CommittedSpecialization{spec_decl, *fp};
-                            out.is_type_instantiation = true;
-                            return out;
-                        }
-
-                        if (failure == ExplicitInstFailure::NotTemplate)
-                            error(t.range, "`{}` does not take template arguments", path_str(path->path));
-                        else if (failure == ExplicitInstFailure::CountMismatch)
-                            error(t.range, "template argument count mismatch for `{}`", path_str(path->path));
-                        else if (failure == ExplicitInstFailure::ValueArg)
-                            error(t.range, "non-type template argument must be a constant expression");
-                        else if (failure == ExplicitInstFailure::Constraint)
-                        {
-                            diagnose_explicit_constraint_failure(mod, scope, f, t.template_args);
-                            emit_constraint_error(t.range, std::format("template constraint not satisfied for `{}`", path_str(path->path)));
-                        }
-                        else
-                            error(t.range, "no matching call for `{}`", path_str(path->path));
-
-                        return {m_types.m_errort()};
-                    }
+                    auto syms = resolve_value_overloads_with_fallback(*mod.own_scope, path->path);
+                    bool has_function = std::ranges::any_of(syms, [](Symbol const& s) { return s.decl && s.decl->kind == ast::DeclKind::Func; });
+                    if (has_function)
+                        return try_direct(syms, path_str(path->path));
                 }
             }
 
@@ -9530,16 +9690,17 @@ export namespace dcc::sema
                         bool probe_constraint_failure = false;
                         bool probe_non_constraint_failure = false;
                         std::string rejection_reason;
+                        CallRejectionInfo probe_rejection;
                         if (auto probe = probe_candidate_from_params(mod, scope, *cand.sym, cand.fp->params, c.args, next_off, loop_depth, const_env,
                                                                      &probe_error, &probe_constraint_failure, &probe_non_constraint_failure, expected_type,
-                                                                     true, &rejection_reason, cand.template_fn ? &cand.bindings : nullptr);
+                                                                     true, &rejection_reason, cand.template_fn ? &cand.bindings : nullptr, &probe_rejection);
                             probe)
                         {
                             probe->explicit_fp = cand.fp;
                             ranked.push_back(std::move(*probe));
                         }
                         else if (!rejection_reason.empty())
-                            collect_candidate_rejection(rejected, *cand.sym, std::move(rejection_reason), cand.fp);
+                            collect_candidate_rejection(rejected, *cand.sym, std::move(rejection_reason), cand.fp, &probe_rejection);
 
                         saw_probe_error |= probe_error;
                         saw_constraint_failure |= probe_constraint_failure;
@@ -9559,7 +9720,8 @@ export namespace dcc::sema
                         }
 
                         if (!rejected.empty())
-                            emit_overload_error(c.range, std::format("no matching call for `{}`", display_name), rejected);
+                            emit_overload_error(c.range, std::format("no matching call for `{}`", display_name), rejected,
+                                                OverloadErrorContext{c.args, std::nullopt, false});
                         else
                             error(c.range, "no matching call for `{}`", display_name);
 
@@ -9575,7 +9737,8 @@ export namespace dcc::sema
                                 collect_candidate_rejection(ambig_candidates, *cand.sym, "viable candidate with indistinguishable conversions",
                                                             cand.explicit_fp);
 
-                        emit_overload_error(c.range, std::format("ambiguous call to `{}`", display_name), ambig_candidates);
+                        emit_overload_error(c.range, std::format("ambiguous call to `{}`", display_name), ambig_candidates,
+                                            OverloadErrorContext{c.args, std::nullopt, false});
                         return detail::ExprResult{m_types.m_errort()};
                     }
 
@@ -9629,7 +9792,7 @@ export namespace dcc::sema
                     }
                     else if (mod.own_scope)
                     {
-                        auto syms = resolve_value_overloads(*mod.own_scope, path->path);
+                        auto syms = resolve_value_overloads_with_fallback(*mod.own_scope, path->path);
                         if (auto r = try_filtered(syms, path_str(path->path)); r)
                             return *r;
                     }
@@ -9654,12 +9817,13 @@ export namespace dcc::sema
                     bool probe_constraint_failure = false;
                     bool probe_non_constraint_failure = false;
                     std::string rejection_reason;
+                    CallRejectionInfo probe_rejection;
                     if (auto probe = probe_candidate(mod, scope, sym, c.args, next_off, loop_depth, const_env, &probe_error, &probe_constraint_failure,
-                                                     &probe_non_constraint_failure, expected_type, &rejection_reason);
+                                                     &probe_non_constraint_failure, expected_type, &rejection_reason, &probe_rejection);
                         probe)
                         ranked.push_back(std::move(*probe));
                     else if (!rejection_reason.empty())
-                        collect_candidate_rejection(rejected, sym, std::move(rejection_reason));
+                        collect_candidate_rejection(rejected, sym, std::move(rejection_reason), nullptr, &probe_rejection);
 
                     saw_probe_error |= probe_error;
                     saw_constraint_failure |= probe_constraint_failure;
@@ -9682,7 +9846,8 @@ export namespace dcc::sema
                     }
 
                     if (!rejected.empty())
-                        emit_overload_error(c.range, std::format("no matching call for `{}`", display_name), rejected);
+                        emit_overload_error(c.range, std::format("no matching call for `{}`", display_name), rejected,
+                                            OverloadErrorContext{c.args, std::nullopt, false});
                     else
                         error(c.range, "no matching call for `{}`", display_name);
 
@@ -9697,7 +9862,8 @@ export namespace dcc::sema
                         if (cand.sym)
                             collect_candidate_rejection(ambig_candidates, *cand.sym, "viable candidate with indistinguishable conversions", cand.explicit_fp);
 
-                    emit_overload_error(c.range, std::format("ambiguous call to `{}`", display_name), ambig_candidates);
+                    emit_overload_error(c.range, std::format("ambiguous call to `{}`", display_name), ambig_candidates,
+                                        OverloadErrorContext{c.args, std::nullopt, false});
                     return detail::ExprResult{m_types.m_errort()};
                 }
 
@@ -9743,7 +9909,7 @@ export namespace dcc::sema
 
             if (auto* path = ast::node_cast<ast::PathExpr>(c.callee); path && !path->path.is_simple() && mod.own_scope)
             {
-                auto syms = resolve_value_overloads(*mod.own_scope, path->path);
+                auto syms = resolve_value_overloads_with_fallback(*mod.own_scope, path->path);
                 bool has_function = std::ranges::any_of(syms, [](Symbol const& s) { return s.decl && s.decl->kind == ast::DeclKind::Func; });
                 if (auto r = resolve_and_rank(syms, path_str(path->path)); r)
                     return *r;
@@ -10073,14 +10239,15 @@ export namespace dcc::sema
                     bool probe_constraint_failure = false;
                     bool probe_non_constraint_failure = false;
                     std::string rejection_reason;
+                    CallRejectionInfo probe_rejection;
 
                     if (auto probe =
                             probe_ufcs_candidate(mod, scope, *sym, *f.object, args, next_off, loop_depth, const_env, &probe_error, &probe_constraint_failure,
-                                                 &probe_non_constraint_failure, expected_type, &rejection_reason, preanalyzed_receiver);
+                                                 &probe_non_constraint_failure, expected_type, &rejection_reason, preanalyzed_receiver, &probe_rejection);
                         probe)
                         ranked.push_back(std::move(*probe));
                     else if (!rejection_reason.empty())
-                        collect_candidate_rejection(rejected, *sym, std::move(rejection_reason));
+                        collect_candidate_rejection(rejected, *sym, std::move(rejection_reason), nullptr, &probe_rejection);
 
                     saw_probe_error |= probe_error;
                     saw_constraint_failure |= probe_constraint_failure;
@@ -10097,7 +10264,8 @@ export namespace dcc::sema
                             if (cand.sym)
                                 collect_candidate_rejection(ambig_candidates, *cand.sym, "viable candidate with indistinguishable conversions");
 
-                        emit_overload_error(f.range, std::format("ambiguous UFCS call for `{}`", f.field), ambig_candidates);
+                        emit_overload_error(f.range, std::format("ambiguous UFCS call for `{}`", f.field), ambig_candidates,
+                                            {args, f.object ? f.object->range : std::optional<sm::SourceRange>{}, true});
                         return detail::ExprResult{m_types.m_errort()};
                     }
 
@@ -10124,7 +10292,8 @@ export namespace dcc::sema
                         if (receiver_r.type && receiver_r.type->kind != types::TypeKind::Error)
                             receiver_ctx = std::format(" on receiver type `{}`", format_type_str(receiver_r.type));
 
-                        emit_overload_error(f.range, std::format("no matching UFCS function for `{}`{}", f.field, receiver_ctx), rejected);
+                        emit_overload_error(f.range, std::format("no matching UFCS function for `{}`{}", f.field, receiver_ctx), rejected,
+                                            {args, f.object ? f.object->range : std::optional<sm::SourceRange>{}, true});
                     }
                     else
                         error(f.range, "no matching UFCS function for `{}`", f.field);
@@ -10171,9 +10340,14 @@ export namespace dcc::sema
                 {
                     if (!quiet)
                     {
-                        auto loc = format_source_location(f.range);
-                        error(range, "argument count mismatch for `{}`: expected {}, got {}", f.name, params.size() + num_value_tparams, arg_exprs.size());
-                        m_diag.note(f.range, "declared at {}", loc);
+                        auto primary_range = arg_exprs.size() > params.size() + num_value_tparams
+                                                 ? narrow_extra_arg_range(range, arg_exprs, params.size() + num_value_tparams, false)
+                                                 : range;
+                        auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("argument count mismatch for `{}`: expected {}, got {}", f.name,
+                                                                                            params.size() + num_value_tparams, arg_exprs.size())}
+                                            .primary(primary_range);
+                        std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                        m_diag.emit(std::move(diag_obj));
                     }
                     return {m_types.m_errort()};
                 }
@@ -10184,10 +10358,12 @@ export namespace dcc::sema
                 {
                     if (!quiet)
                     {
-                        auto loc = format_source_location(f.range);
-                        error(range, "argument count mismatch for `{}`: expected at least {} (with pack), got {}", f.name, min_required + num_value_tparams,
-                              arg_exprs.size());
-                        m_diag.note(f.range, "declared at {}", loc);
+                        auto diag_obj =
+                            diag::Diagnostic{diag::Severity::Error, std::format("argument count mismatch for `{}`: expected at least {} (with pack), got {}",
+                                                                                f.name, min_required + num_value_tparams, arg_exprs.size())}
+                                .primary(range);
+                        std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                        m_diag.emit(std::move(diag_obj));
                     }
                     return {m_types.m_errort()};
                 }
@@ -10328,8 +10504,15 @@ export namespace dcc::sema
                         auto param_ty = b.substitute(deduce_params[i]);
                         if (actuals[i] != param_ty && !has_error(actuals[i]) && !has_error(param_ty))
                         {
-                            error(range, "argument {} of call to `{}` has wrong type: expected `{}`, found `{}`", i + 1, f.name, format_type_str(param_ty),
-                                  format_type_str(actuals[i]));
+                            auto arg_idx = func_arg_start + i;
+                            auto arg_range =
+                                (arg_idx < arg_exprs.size() && arg_exprs[arg_idx] && arg_exprs[arg_idx]->range.valid()) ? arg_exprs[arg_idx]->range : range;
+                            auto diag_obj =
+                                diag::Diagnostic{diag::Severity::Error, std::format("argument {} of call to `{}` has wrong type: expected `{}`, found `{}`",
+                                                                                    i + 1, f.name, format_type_str(param_ty), format_type_str(actuals[i]))}
+                                    .primary(arg_range);
+                            std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                            m_diag.emit(std::move(diag_obj));
 
                             reported = true;
                             break;
@@ -10337,15 +10520,12 @@ export namespace dcc::sema
                     }
                     if (!reported)
                     {
-                        auto loc = format_source_location(f.range);
-                        error(range, "call argument mismatch for `{}`: {}", f.name,
-                              deduce_result.detail.empty() ? "template argument deduction failed" : deduce_result.detail);
-                        m_diag.note(f.range, "declared at {}", loc);
-                    }
-                    else
-                    {
-                        auto loc = format_source_location(f.range);
-                        m_diag.note(f.range, "declared at {}", loc);
+                        auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("call argument mismatch for `{}`: {}", f.name,
+                                                                                            deduce_result.detail.empty() ? "template argument deduction failed"
+                                                                                                                         : deduce_result.detail)}
+                                            .primary(range);
+                        std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                        m_diag.emit(std::move(diag_obj));
                     }
                 }
 
@@ -11684,15 +11864,18 @@ export namespace dcc::sema
                 sym.name = fd->name;
                 sym.kind = SymbolKind::Function;
                 sym.decl = fd;
-                sym.definition_range = fd->range;
+                sym.definition_range = fd->name_range.valid() ? fd->name_range : fd->range;
                 Symbol const* existing = nullptr;
                 auto r = scope.add_function_overload(sym, &existing);
                 if (r == DefineResult::Conflict)
-                    m_diag.emit(existing ? diag::Diagnostic{diag::Severity::Error, std::format("name `{}` already declared as a variable", fd->name)}
-                                               .primary(fd->range)
-                                               .secondary(existing->definition_range, "previous declaration here")
-                                         : diag::Diagnostic{diag::Severity::Error, std::format("name `{}` already declared as a variable", fd->name)}.primary(
-                                               fd->range));
+                {
+                    auto primary_range = fd->name_range.valid() ? fd->name_range : fd->range;
+                    auto diag_obj =
+                        diag::Diagnostic{diag::Severity::Error, std::format("name `{}` already declared as a variable", fd->name)}.primary(primary_range);
+                    if (existing && existing->definition_range.valid())
+                        std::move(diag_obj).secondary(existing->definition_range, "previous declaration here");
+                    m_diag.emit(std::move(diag_obj));
+                }
 
                 if (mod.ufcs_scope)
                     std::ignore = mod.ufcs_scope->add_function_overload(sym);

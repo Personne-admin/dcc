@@ -19,11 +19,5 @@ void wrong_type() {
 
 === EXPECT-ERRORS ===
 main.dc:8: no matching call for `add`
-main.dc:3: = note: candidate `add(i32, i32)`
-main.dc:3: = note: reason: argument count mismatch: expected 2, got 1
 main.dc:12: no matching call for `add`
-main.dc:3: = note: candidate `add(i32, i32)`
-main.dc:3: = note: reason: argument count mismatch: expected 2, got 3
 main.dc:16: no matching call for `add`
-main.dc:3: = note: candidate `add(i32, i32)`
-main.dc:3: = note: reason: cannot convert argument 1: expected `i32`, found `bool`

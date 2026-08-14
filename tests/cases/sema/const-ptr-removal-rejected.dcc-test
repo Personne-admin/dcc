@@ -35,11 +35,7 @@ void reject_assign_to_nonconst() {
 
 === EXPECT-ERRORS ===
 main.dc:12: no matching call for `take_ptr`
-main.dc:3: = note: candidate `take_ptr(i32*)`
-main.dc:3: = note: reason: cannot convert argument 1: expected `i32*`, found `const i32*`
 main.dc:13: assignment type mismatch
 main.dc:20: no matching call for `take_const_nested`
-main.dc:5: = note: candidate `take_const_nested(const i32**)`
-main.dc:5: = note: reason: cannot convert argument 1: expected `const i32**`, found `i32**`
 main.dc:26: return type mismatch
 main.dc:32: initializer type mismatch

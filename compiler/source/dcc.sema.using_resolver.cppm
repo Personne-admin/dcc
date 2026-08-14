@@ -873,18 +873,19 @@ export namespace dcc::sema
 
         void diagnose_unresolved(ast::UsingDecl const& u, ModuleInfo const& mod) const
         {
+            auto target_range = u.target_path.range.valid() ? u.target_path.range : u.range;
             if (!u.target_path.is_empty())
             {
                 if (u.using_kind == ast::UsingKind::List)
                 {
                     auto const* target_scope = resolve_namespace_path(*mod.own_scope, u.target_path);
                     if (!target_scope)
-                        m_diag.error(u.range, "could not resolve `{}`", path_str(u.target_path));
+                        m_diag.error(target_range, "could not resolve `{}`", path_str(u.target_path));
                     else
-                        m_diag.error(u.range, "could not resolve all paths in using-list `{}`", path_str(u.target_path));
+                        m_diag.error(target_range, "could not resolve all paths in using-list `{}`", path_str(u.target_path));
                 }
                 else
-                    m_diag.error(u.range, "could not resolve `{}`", path_str(u.target_path));
+                    m_diag.error(target_range, "could not resolve `{}`", path_str(u.target_path));
             }
             else if (!u.target_list.empty())
                 m_diag.error(u.range, "could not resolve all paths in using-list");

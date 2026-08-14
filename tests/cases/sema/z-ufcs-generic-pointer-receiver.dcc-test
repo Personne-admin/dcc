@@ -247,6 +247,4 @@ Module m
             Ident arena [type=Arena(Point) const=<none> lvalue decl=arena]
 
 === EXPECT-ERRORS ===
-main.dc:103: no matching UFCS function for `depth` on receiver type `Arena(Point)`
-main.dc:44: = note: candidate `depth(T**)`
-main.dc:44: = note: reason: receiver type mismatch: expected `T**`, found `Arena(Point)*`
+main.dc:93: no matching UFCS function for `depth` on receiver type `Arena(Point)`
