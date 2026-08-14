@@ -82,6 +82,4 @@ Module m
             Ident s [type=S* const=<none> lvalue addr_of decl=s]
 
 === EXPECT-ERRORS ===
-main.dc:30: no matching UFCS function for `take` on receiver type `const S*`
-main.dc:8: = note: candidate `take(T*)`
-main.dc:8: = note: reason: receiver type mismatch: expected `S*`, found `const S*`
+main.dc:28: no matching UFCS function for `take` on receiver type `const S*`

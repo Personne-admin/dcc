@@ -1,0 +1,35 @@
+=== FILE: lib/core/ovl.dc ===
+module lib::core::ovl;
+
+public i32 first(T)(T x) { return 1; }
+public f64 first(T)(T x, T y) { return 2.0; }
+
+=== FILE: lib/gen.dc ===
+module lib::gen;
+
+import lib::core::ovl;
+
+public T identity(T)(T x) {
+    return core::ovl::first!i32(x);
+}
+
+=== FILE: main.dc ===
+module main;
+
+import lib::gen;
+
+i32 test() {
+    return lib::gen::identity!i32(1);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-BODY FOR: main ===
+Module main
+  Func test diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none> decl=identity spec=identity]
+          TemplateInst [type=i32(*)(i32) const=<none> decl=identity spec=identity]
+            Path lib::gen::identity [type=T(*)(T) const=<none> decl=identity]
+          IntLiteral 1 [type=i32 const=1 constant]

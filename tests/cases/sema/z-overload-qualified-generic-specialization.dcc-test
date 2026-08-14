@@ -1,0 +1,35 @@
+=== FILE: lib/core/ovl.dc ===
+module lib::core::ovl;
+
+public void check(bool condition) {}
+public bool check(bool condition, []const char message) { return true; }
+
+=== FILE: lib/gen.dc ===
+module lib::gen;
+
+import lib::core::ovl;
+
+public bool identity(T)(T x) {
+    return core::ovl::check(x != 0, "failed");
+}
+
+=== FILE: main.dc ===
+module main;
+
+import lib::gen;
+
+bool test() {
+    return lib::gen::identity!i32(1);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-BODY FOR: main ===
+Module main
+  Func test diverging=true
+    Body
+      Return
+        Call [type=bool const=<none> decl=identity spec=identity]
+          TemplateInst [type=bool(*)(i32) const=<none> decl=identity spec=identity]
+            Path lib::gen::identity [type=bool(*)(T) const=<none> decl=identity]
+          IntLiteral 1 [type=i32 const=1 constant]

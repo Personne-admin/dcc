@@ -337,9 +337,37 @@ export namespace dcc::sema
             s.decl = d;
             s.module = &m_mod;
             s.is_exported = d->is_public;
-            s.definition_range = d->range;
+            s.definition_range = decl_name_range(d);
 
             return s;
+        }
+
+        [[nodiscard]] static sm::SourceRange decl_name_range(ast::Decl const* d) noexcept
+        {
+            if (!d)
+                return {};
+
+            switch (d->kind)
+            {
+                case ast::DeclKind::Func:
+                    return static_cast<ast::FuncDecl const*>(d)->name_range;
+                case ast::DeclKind::Var:
+                    return static_cast<ast::VarDecl const*>(d)->name_range;
+                case ast::DeclKind::Struct:
+                    return static_cast<ast::StructDecl const*>(d)->name_range;
+                case ast::DeclKind::Union:
+                    return static_cast<ast::UnionDecl const*>(d)->name_range;
+                case ast::DeclKind::Enum:
+                    return static_cast<ast::EnumDecl const*>(d)->name_range;
+                case ast::DeclKind::Using:
+                    return static_cast<ast::UsingDecl const*>(d)->name_range;
+                case ast::DeclKind::Module:
+                    return static_cast<ast::ModuleDecl const*>(d)->name_range;
+                case ast::DeclKind::Import:
+                    return static_cast<ast::ImportDecl const*>(d)->name_range;
+                default:
+                    return d->range;
+            }
         }
 
         void register_type(ast::Decl* d, std::string_view name, SymbolKind kind)
@@ -420,9 +448,10 @@ export namespace dcc::sema
                 auto r = variant_scope->define_variable(vs, &existing);
                 if (r == DefineResult::Conflict)
                 {
-                    m_diag.error(v.range, "duplicate enum variant `{}`", v.name);
-                    if (existing)
-                        m_diag.note(existing->definition_range, "previous variant was here");
+                    auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("duplicate enum variant `{}`", v.name)}.primary(v.range);
+                    if (existing && existing->definition_range.valid())
+                        std::move(diag_obj).secondary(existing->definition_range, "previous variant was here");
+                    m_diag.emit(std::move(diag_obj));
                 }
             }
         }
@@ -433,9 +462,11 @@ export namespace dcc::sema
             auto r = scope.define_type(s, &existing);
             if (r == DefineResult::Conflict)
             {
-                m_diag.error(d->range, "redefinition of type `{}`", s.name);
-                if (existing)
-                    m_diag.note(existing->definition_range, "previous definition was here");
+                auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("redefinition of type `{}`", s.name)}.primary(
+                    decl_name_range(d).valid() ? decl_name_range(d) : d->range);
+                if (existing && existing->definition_range.valid())
+                    std::move(diag_obj).secondary(existing->definition_range, "previous definition was here");
+                m_diag.emit(std::move(diag_obj));
             }
         }
 
@@ -445,9 +476,11 @@ export namespace dcc::sema
             auto r = scope.add_function_overload(s, &existing);
             if (r == DefineResult::Conflict)
             {
-                m_diag.error(d->range, "name `{}` already declared as a variable", s.name);
-                if (existing)
-                    m_diag.note(existing->definition_range, "previous definition was here");
+                auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("name `{}` already declared as a variable", s.name)}.primary(
+                    decl_name_range(d).valid() ? decl_name_range(d) : d->range);
+                if (existing && existing->definition_range.valid())
+                    std::move(diag_obj).secondary(existing->definition_range, "previous definition was here");
+                m_diag.emit(std::move(diag_obj));
             }
         }
 
@@ -457,9 +490,11 @@ export namespace dcc::sema
             auto r = scope.define_variable(s, &existing);
             if (r == DefineResult::Conflict)
             {
-                m_diag.error(d->range, "redefinition of `{}`", s.name);
-                if (existing)
-                    m_diag.note(existing->definition_range, "previous definition was here");
+                auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("redefinition of `{}`", s.name)}.primary(
+                    decl_name_range(d).valid() ? decl_name_range(d) : d->range);
+                if (existing && existing->definition_range.valid())
+                    std::move(diag_obj).secondary(existing->definition_range, "previous definition was here");
+                m_diag.emit(std::move(diag_obj));
             }
         }
     };

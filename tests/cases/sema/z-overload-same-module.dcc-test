@@ -1,0 +1,58 @@
+=== FILE: main.dc ===
+module m;
+
+void check(bool condition) {}
+void check(bool condition, []const char message) {}
+void check(bool condition, i32 code) {}
+
+void pick(i64 x) {}
+void pick(T)(T x) {}
+
+void use() {
+    check(true);
+    check(true, "msg");
+    check(true, 7);
+    pick(1);
+    pick("s");
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-BODY FOR: m ===
+Module m
+  Func check diverging=false
+    Param condition type=bool storage=param offset=0 index=0
+    Body
+  Func check diverging=false
+    Param condition type=bool storage=param offset=0 index=0
+    Param message type=[]const char storage=param offset=8 index=1
+    Body
+  Func check diverging=false
+    Param condition type=bool storage=param offset=0 index=0
+    Param code type=i32 storage=param offset=4 index=1
+    Body
+  Func pick diverging=false
+    Param x type=i64 storage=param offset=0 index=0
+    Body
+  Func pick diverging=false
+    Param x type=T storage=param offset=0 index=0
+    Body
+  Func use diverging=false
+    Body
+      Call [type=void const=<none> decl=check]
+        Ident check [type=<unresolved> const=<none>]
+        BoolLiteral true [type=bool const=true constant]
+      Call [type=void const=<none> decl=check]
+        Ident check [type=<unresolved> const=<none>]
+        BoolLiteral true [type=bool const=true constant]
+        StringLiteral msg [type=[]const char const="msg" constant]
+      Call [type=void const=<none> decl=check]
+        Ident check [type=<unresolved> const=<none>]
+        BoolLiteral true [type=bool const=true constant]
+        IntLiteral 7 [type=i32 const=7 constant]
+      Call [type=void const=<none> decl=pick]
+        Ident pick [type=<unresolved> const=<none>]
+        IntLiteral 1 [type=i64 const=1 constant]
+      Call [type=void const=<none> decl=pick spec=pick]
+        Ident pick [type=<unresolved> const=<none>]
+        StringLiteral s [type=[]const char const="s" constant]

@@ -8,4 +8,3 @@ enum E {
 
 === EXPECT-ERRORS ===
 m.dc:5: duplicate enum variant
-m.dc:4: previous variant was here

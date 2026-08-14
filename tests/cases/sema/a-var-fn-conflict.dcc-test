@@ -6,4 +6,3 @@ void foo() {}
 
 === EXPECT-ERRORS ===
 m.dc:4: name `foo` already declared as a variable
-m.dc:3: previous definition was here

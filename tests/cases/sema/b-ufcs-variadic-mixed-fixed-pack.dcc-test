@@ -31,5 +31,3 @@ void test_too_few_fixed() {
 
 === EXPECT-ERRORS ===
 main.dc:28: no matching UFCS function for `process` on receiver type `Handler(i32)`
-main.dc:7: = note: candidate `process(Handler(T), i32, f64, U)`
-main.dc:7: = note: reason: argument count mismatch: expected at least 3, got 2

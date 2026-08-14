@@ -6,4 +6,3 @@ union A { u32 v; }
 
 === EXPECT-ERRORS ===
 m.dc:4: redefinition of type
-m.dc:3: previous definition was here

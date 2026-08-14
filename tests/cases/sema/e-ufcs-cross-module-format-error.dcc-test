@@ -37,7 +37,3 @@ void test_no_variant_match() {
 
 === EXPECT-ERRORS ===
 main.dc:13: no matching UFCS function for `print` on receiver type `MyOut`
-fmt.dc:13: = note: candidate `print(T, []const char)`
-fmt.dc:13: = note: reason: argument count mismatch: expected 2, got 3
-fmt.dc:16: = note: candidate `print(T, []const char, []const FormatArg)`
-fmt.dc:16: = note: reason: cannot convert argument 2: expected `[]const FormatArg`

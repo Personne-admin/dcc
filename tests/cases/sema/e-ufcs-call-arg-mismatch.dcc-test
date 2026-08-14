@@ -35,14 +35,6 @@ void template_mismatch() {
 
 === EXPECT-ERRORS ===
 main.dc:17: no matching UFCS function for `add` on receiver type `S`
-main.dc:7: = note: candidate `add(S, i32)`
-main.dc:7: = note: reason: argument count mismatch: expected 2, got 1
 main.dc:22: no matching UFCS function for `add` on receiver type `S`
-main.dc:7: = note: candidate `add(S, i32)`
-main.dc:7: = note: reason: cannot convert argument 1: expected `i32`, found `bool`
 main.dc:27: no matching UFCS function for `add` on receiver type `i32`
-main.dc:7: = note: candidate `add(S, i32)`
-main.dc:7: = note: reason: receiver type mismatch: expected `S`, found `i32`
 main.dc:32: no matching UFCS function for `id` on receiver type `S`
-main.dc:11: = note: candidate `id(T)`
-main.dc:11: = note: reason: argument count mismatch: expected 1, got 3

@@ -1,0 +1,30 @@
+=== FILE: lib/core/ovl.dc ===
+module lib::core::ovl;
+
+public void check(bool condition) {}
+public void check(bool condition, []const char message) {}
+public void check(bool condition, i32 code) {}
+
+=== FILE: lib/gen.dc ===
+module lib::gen;
+
+import lib::core::ovl;
+
+public T identity(T)(T x) {
+    core::ovl::check(x != 0, true);
+    return x;
+}
+
+=== FILE: main.dc ===
+module main;
+
+import lib::gen;
+
+i32 test() {
+    return lib::gen::identity!i32(1);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+lib/gen.dc:6: no matching call for `core::ovl::check`
