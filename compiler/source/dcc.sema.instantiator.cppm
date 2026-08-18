@@ -4151,6 +4151,18 @@ export namespace dcc::sema
             return it->second;
         }
 
+        [[nodiscard]] ast::FuncDecl const* source_decl_of(ast::FuncDecl const* specialization) const noexcept
+        {
+            if (!specialization)
+                return nullptr;
+
+            auto kit = m_decl_to_key.find(specialization);
+            if (kit == m_decl_to_key.end())
+                return nullptr;
+
+            return kit->second.decl;
+        }
+
         [[nodiscard]] std::size_t entry_count() const noexcept { return m_entries.size(); }
 
         [[nodiscard]] std::string dump() const
