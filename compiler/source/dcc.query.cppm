@@ -2,6 +2,8 @@ export module dcc.query;
 
 import std;
 import dcc.sm;
+import dcc.si;
+import dcc.lex;
 import dcc.ast;
 import dcc.types;
 import dcc.sema;
@@ -44,19 +46,85 @@ export namespace dcc::query
         ast::Decl const* resolved_field_parent{};
         ast::UsingDecl const* resolved_via_using{};
 
+        ast::EnumVariant const* resolved_variant{};
+        ast::EnumDecl const* resolved_variant_owner{};
+
+        ast::TemplateParam const* resolved_tparam{};
+        ast::Decl const* resolved_tparam_owner{};
+
         sm::SourceRange resolved_definition_range{};
         ast::FuncParam const* resolved_param{};
 
         ast::CallExpr const* enclosing_call{nullptr};
-        std::uint32_t active_argument_index{0};
 
         [[nodiscard]] bool has_ast_node() const noexcept { return hovered_decl || stmt || expr || type_expr; }
 
         [[nodiscard]] bool has_semantic_target() const noexcept
         {
-            return resolved_type || resolved_decl || resolved_specialization || ufcs_callee || resolved_field || resolved_param ||
-                   resolved_definition_range.valid();
+            return resolved_type || resolved_decl || resolved_specialization || ufcs_callee || resolved_field || resolved_param || resolved_variant ||
+                   resolved_tparam || resolved_definition_range.valid();
         }
+    };
+
+    enum class LocalSymbolKind : std::uint8_t
+    {
+        Variable,
+        Parameter,
+        TemplateParam,
+    };
+
+    struct LocalSymbolInfo
+    {
+        std::string_view name;
+        LocalSymbolKind kind{LocalSymbolKind::Variable};
+        std::uint32_t depth{0};
+        ast::VarDecl const* var_decl{};
+        ast::FuncDecl const* param_owner{};
+        std::uint32_t param_index{0};
+        types::Type const* type{};
+        sm::Offset name_offset{0};
+        bool is_pack : 1 {};
+    };
+
+    struct LocalContext
+    {
+        sm::Location location{};
+        sema::ModuleInfo const* module{};
+        sema::Scope const* scope{};
+        ast::Decl const* enclosing_decl{};
+        ast::FuncDecl const* enclosing_func{};
+        ast::Block const* enclosing_block{};
+        std::vector<LocalSymbolInfo> locals;
+
+        [[nodiscard]] types::Type const* local_type(std::string_view name) const
+        {
+            for (auto const& l : locals)
+                if (l.name == name)
+                    return l.type;
+
+            return nullptr;
+        }
+    };
+
+    struct ActiveCallInfo
+    {
+        ast::CallExpr const* call{nullptr};
+        ast::Expr const* callee_expr{nullptr};
+        std::string callee_name;
+        bool ufcs{false};
+        bool in_call_arguments{false};
+        std::uint32_t active_parameter{0};
+        std::uint32_t explicit_argument_count{0};
+        bool current_argument_has_tokens{false};
+        sm::Offset open_paren_offset{0};
+    };
+
+    struct SourceRegion
+    {
+        bool in_string : 1 {};
+        bool in_comment : 1 {};
+
+        [[nodiscard]] bool in_string_or_comment() const noexcept { return in_string || in_comment; }
     };
 
     [[nodiscard]] std::optional<NodeAtLocation> find_node_at(session::CompilerSession const& session, sm::FileId file, sm::Position position,
@@ -64,13 +132,133 @@ export namespace dcc::query
 
     [[nodiscard]] std::optional<NodeAtLocation> find_node_at(session::CompilerSession const& session, sm::Location location, QueryOptions opts = {});
 
+    [[nodiscard]] LocalContext collect_local_context(session::CompilerSession const& session, sm::FileId file, sm::Location location);
+
+    [[nodiscard]] std::optional<ActiveCallInfo> find_active_call(session::CompilerSession const& session, sm::FileId file, sm::Location location);
+
+    [[nodiscard]] SourceRegion source_region_at(session::CompilerSession const& session, sm::FileId file, sm::Offset offset);
+
     [[nodiscard]] sm::SourceRange decl_name_range(ast::Decl const* decl);
 
     [[nodiscard]] sm::SourceRange field_name_range(ast::FieldDecl const* fd);
 
-    [[nodiscard]] std::vector<sm::SourceRange> find_references(session::CompilerSession const& session, ast::Decl const* target_decl);
-
     [[nodiscard]] bool file_in_module_graph(session::CompilerSession const& session, sm::FileId file);
+
+    enum class SymbolKind : std::uint8_t
+    {
+        Declaration,
+        Field,
+        FuncParam,
+        TemplateParam,
+        EnumVariant,
+        ImportAlias,
+        UsingAlias,
+        Module,
+        Unknown,
+    };
+
+    struct SymbolId
+    {
+        sm::FileId file{sm::FileId::Invalid};
+        sm::Offset name_offset{0};
+        SymbolKind kind{SymbolKind::Unknown};
+        sm::FileId owner_file{sm::FileId::Invalid};
+        sm::Offset owner_offset{0};
+        std::uint32_t sub_index{0};
+
+        [[nodiscard]] bool valid() const noexcept { return file != sm::FileId::Invalid && kind != SymbolKind::Unknown; }
+
+        [[nodiscard]] friend bool operator==(SymbolId const&, SymbolId const&) = default;
+    };
+
+    struct ResolveOptions
+    {
+        bool include_decls{true};
+        bool include_stmts{true};
+        bool include_exprs{true};
+        bool include_type_exprs{true};
+    };
+
+    struct ResolvedSymbol
+    {
+        SymbolId id;
+        SymbolKind kind{SymbolKind::Unknown};
+        std::string_view name;
+        sm::SourceRange name_range;
+        sm::SourceRange definition_range;
+
+        ast::Decl const* decl{nullptr};
+        ast::FuncDecl const* specialization{nullptr};
+        ast::Decl const* owner_decl{nullptr};
+        ast::UsingDecl const* via_using{nullptr};
+        ast::ImportDecl const* via_import{nullptr};
+        std::uint32_t sub_index{0};
+
+        bool is_module : 1 {};
+        bool is_ambiguous : 1 {};
+        bool is_external_alias : 1 {};
+        bool from_specialization : 1 {};
+
+        [[nodiscard]] bool has_target() const noexcept { return id.valid(); }
+
+        [[nodiscard]] bool is_renameable() const noexcept { return id.valid() && !is_module && !is_ambiguous && !is_external_alias && name_range.valid(); }
+    };
+
+    [[nodiscard]] std::optional<ResolvedSymbol> resolve_symbol_at(session::CompilerSession const& session, sm::FileId file, sm::Position position,
+                                                                  ResolveOptions opts = {});
+
+    [[nodiscard]] std::optional<ResolvedSymbol> resolve_symbol_at(session::CompilerSession const& session, sm::Location location, ResolveOptions opts = {});
+
+    [[nodiscard]] std::vector<sm::SourceRange> find_symbol_references(session::CompilerSession const& session, ResolvedSymbol const& target,
+                                                                      bool include_declaration = false);
+
+    [[nodiscard]] sm::SourceRange symbol_name_range(ResolvedSymbol const& symbol) noexcept;
+
+    [[nodiscard]] std::string symbol_display_name(ResolvedSymbol const& symbol);
+
+    [[nodiscard]] bool can_rename_symbol(ResolvedSymbol const& symbol) noexcept;
+
+    struct IndexedSymbolRecord
+    {
+        SymbolId id;
+        SymbolKind kind{SymbolKind::Unknown};
+        std::string name;
+        sm::SourceRange name_range;
+        sm::SourceRange definition_range;
+        std::string container;
+        std::string module_path;
+        std::uint8_t decl_kind{0xFF};
+        bool is_module : 1 {};
+        bool is_renameable : 1 {};
+    };
+
+    struct ReferenceOccurrence
+    {
+        SymbolId target;
+        sm::SourceRange range;
+    };
+
+    struct ExtractedModule
+    {
+        std::string canonical_path;
+        std::string file_path;
+        sm::FileId file_id{sm::FileId::Invalid};
+        std::uint64_t content_revision{0};
+        bool skipped{false};
+        std::vector<std::string> imports;
+        std::vector<IndexedSymbolRecord> symbols;
+        std::vector<ReferenceOccurrence> references;
+    };
+
+    struct WorkspaceExtraction
+    {
+        std::vector<ExtractedModule> modules;
+    };
+
+    [[nodiscard]] WorkspaceExtraction extract_workspace(session::CompilerSession const& session,
+                                                        std::unordered_map<std::string, std::uint64_t> const& skip_revisions = {});
+
+    [[nodiscard]] std::vector<IndexedSymbolRecord> extract_file_symbols(session::CompilerSession& session, sm::FileId file);
 
 } // namespace dcc::query
 
@@ -110,12 +298,20 @@ namespace dcc::query
         void walk_template_params(std::pmr::vector<ast::TemplateParam> const& params, NodeAtLocation& result, sm::Location target, QueryOptions const& opts);
         void walk_attrs(std::pmr::vector<ast::Attribute> const& attrs, NodeAtLocation& result, sm::Location target, QueryOptions const& opts);
 
+        [[nodiscard]] sm::SourceRange func_param_name_range(ast::FuncParam const& param) noexcept;
+        [[nodiscard]] sm::SourceRange template_param_name_range(ast::TemplateParam const& tp) noexcept;
+        [[nodiscard]] sm::SourceRange enum_variant_name_range(ast::EnumVariant const& v) noexcept;
+        [[nodiscard]] std::optional<std::size_t> find_param_name_index(ast::FuncDecl const* fd, sm::Location target);
+        [[nodiscard]] std::optional<std::size_t> find_tparam_name_index(std::span<ast::TemplateParam const> params, sm::Location target);
+        void check_param_and_tparam_names(ast::Decl const* decl, NodeAtLocation& result, sm::Location target);
+
         void surface_expr_sema(ast::Expr const* expr, NodeAtLocation& result)
         {
             if (!expr)
                 return;
 
             result.ufcs_callee = nullptr;
+            result.resolved_variant = nullptr;
 
             if (const auto* t = sema::get_resolved_type(expr->sema))
                 result.resolved_type = t;
@@ -127,6 +323,8 @@ namespace dcc::query
                 result.resolved_specialization = nullptr;
             if (expr->sema.ufcs_callee)
                 result.ufcs_callee = expr->sema.ufcs_callee;
+            if (expr->sema.constructed_variant && !result.resolved_variant)
+                result.resolved_variant = expr->sema.constructed_variant;
         }
 
         void surface_type_sema(ast::TypeExpr const* type_expr, NodeAtLocation& result)
@@ -178,9 +376,6 @@ namespace dcc::query
 
             if (!any_stmt_matched && !tail_matched && range_contains(block.range, target))
             {
-                std::cerr << "[dcc.query] walk_block: no child matched by range, falling back to walk all " << block.stmts.size() << " stmts (block range "
-                          << block.range.begin.offset << ".." << block.range.end.offset << " target=" << target.offset << ")" << '\n';
-
                 for (auto* s : block.stmts)
                 {
                     if (!s)
@@ -438,23 +633,7 @@ namespace dcc::query
                     {
                         bool in_args = !e->callee || target.offset > e->callee->range.end.offset;
                         if (in_args)
-                        {
                             result.enclosing_call = e;
-                            std::uint32_t active_idx = 0;
-                            for (std::size_t i = 0; i < e->args.size(); ++i)
-                            {
-                                if (e->args[i] && range_contains(e->args[i]->range, target))
-                                {
-                                    active_idx = static_cast<std::uint32_t>(i);
-                                    break;
-                                }
-                                if (e->args[i] && target.offset > e->args[i]->range.end.offset)
-                                    active_idx = static_cast<std::uint32_t>(i + 1);
-                                else if (e->args[i] && target.offset <= e->args[i]->range.begin.offset)
-                                    break;
-                            }
-                            result.active_argument_index = active_idx;
-                        }
                     }
 
                     for (auto* a : e->args)
@@ -765,6 +944,8 @@ namespace dcc::query
             if (decl->kind == ast::DeclKind::Func && range_contains_or_touches_end(decl->range, target))
                 result.enclosing_decl = decl;
 
+            check_param_and_tparam_names(decl, result, target);
+
             if (opts.include_decls)
             {
                 if (is_target_on_decl_name(decl, target))
@@ -839,16 +1020,7 @@ namespace dcc::query
                         }
                         else if (range_contains(decl->range, target))
                         {
-                            std::cerr << "[dcc.query] walk_decl Func " << d->name << ": body range (" << d->body->range.begin.offset << ".."
-                                      << d->body->range.end.offset << ") does not contain target " << target.offset << " but decl range ("
-                                      << decl->range.begin.offset << ".." << decl->range.end.offset << ") does; falling back to walk body" << std::endl;
                             walk_block(*d->body, result, target, opts);
-                        }
-                        else
-                        {
-                            std::cerr << "[dcc.query] walk_decl Func " << d->name << ": skipping body — decl range (" << decl->range.begin.offset << ".."
-                                      << decl->range.end.offset << ") and body range (" << d->body->range.begin.offset << ".." << d->body->range.end.offset
-                                      << ") both exclude target " << target.offset << std::endl;
                         }
                     }
                     break;
@@ -896,6 +1068,152 @@ namespace dcc::query
 
             nr.end = param.range.end;
             return nr;
+        }
+
+        [[nodiscard]] sm::SourceRange template_param_name_range(ast::TemplateParam const& tp) noexcept
+        {
+            if (!tp.range.valid() || tp.name.empty())
+                return {};
+
+            sm::SourceRange nr;
+            nr.begin.fileId = tp.range.begin.fileId;
+            auto name_len = static_cast<sm::Offset>(tp.name.size());
+            if (tp.range.end.offset >= name_len && tp.range.byte_length() >= name_len)
+                nr.begin.offset = tp.range.end.offset - name_len;
+            else
+                nr.begin.offset = tp.range.begin.offset;
+
+            nr.end = tp.range.end;
+            return nr;
+        }
+
+        [[nodiscard]] sm::SourceRange enum_variant_name_range(ast::EnumVariant const& v) noexcept
+        {
+            if (v.name.empty() || !v.range.valid())
+                return {};
+
+            sm::SourceRange nr;
+            nr.begin.fileId = v.range.begin.fileId;
+            auto name_len = static_cast<sm::Offset>(v.name.size());
+            if (v.range.byte_length() >= name_len)
+                nr.begin.offset = v.range.begin.offset;
+            else
+                nr.begin.offset = v.range.end.offset - name_len;
+
+            nr.end.offset = nr.begin.offset + name_len;
+            nr.end.fileId = nr.begin.fileId;
+            return nr;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> find_param_name_index(ast::FuncDecl const* fd, sm::Location target)
+        {
+            if (!fd)
+                return std::nullopt;
+            for (std::size_t i = 0; i < fd->params.size(); ++i)
+            {
+                auto nr = func_param_name_range(fd->params[i]);
+                if (nr.valid() && range_contains(nr, target))
+                    return i;
+            }
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> find_tparam_name_index(std::span<ast::TemplateParam const> params, sm::Location target)
+        {
+            for (std::size_t i = 0; i < params.size(); ++i)
+            {
+                auto nr = template_param_name_range(params[i]);
+                if (nr.valid() && range_contains(nr, target))
+                    return i;
+            }
+            return std::nullopt;
+        }
+
+        void check_param_and_tparam_names(ast::Decl const* decl, NodeAtLocation& result, sm::Location target)
+        {
+            if (!decl)
+                return;
+
+            auto check_tparams = [&](std::span<ast::TemplateParam const> tparams) {
+                if (result.resolved_tparam)
+                    return;
+                if (auto idx = find_tparam_name_index(tparams, target))
+                {
+                    result.resolved_tparam = &tparams[*idx];
+                    result.resolved_tparam_owner = decl;
+                }
+            };
+
+            switch (decl->kind)
+            {
+                case ast::DeclKind::Func: {
+                    auto const* fd = static_cast<ast::FuncDecl const*>(decl);
+                    check_tparams(fd->template_params);
+                    if (result.resolved_param)
+                        return;
+                    if (auto idx = find_param_name_index(fd, target))
+                    {
+                        result.resolved_param = &fd->params[*idx];
+                        result.resolved_definition_range = func_param_name_range(fd->params[*idx]);
+                    }
+                    break;
+                }
+                case ast::DeclKind::Struct: {
+                    auto const* sd = static_cast<ast::StructDecl const*>(decl);
+                    check_tparams(sd->template_params);
+                    if (result.resolved_field)
+                        return;
+                    for (auto const& f : sd->fields)
+                    {
+                        auto nr = field_name_range(&f);
+                        if (nr.valid() && range_contains(nr, target))
+                        {
+                            result.resolved_field = &f;
+                            result.resolved_field_parent = decl;
+                            break;
+                        }
+                    }
+                    break;
+                }
+                case ast::DeclKind::Union: {
+                    auto const* ud = static_cast<ast::UnionDecl const*>(decl);
+                    if (result.resolved_field)
+                        return;
+                    for (auto const& f : ud->fields)
+                    {
+                        auto nr = field_name_range(&f);
+                        if (nr.valid() && range_contains(nr, target))
+                        {
+                            result.resolved_field = &f;
+                            result.resolved_field_parent = decl;
+                            break;
+                        }
+                    }
+                    break;
+                }
+                case ast::DeclKind::Enum: {
+                    auto const* ed = static_cast<ast::EnumDecl const*>(decl);
+                    check_tparams(ed->template_params);
+                    if (result.resolved_variant)
+                        return;
+                    for (auto const& v : ed->variants)
+                    {
+                        auto nr = enum_variant_name_range(v);
+                        if (nr.valid() && range_contains(nr, target))
+                        {
+                            result.resolved_variant = &v;
+                            result.resolved_variant_owner = ed;
+                            break;
+                        }
+                    }
+                    break;
+                }
+                case ast::DeclKind::Using:
+                    check_tparams(static_cast<ast::UsingDecl const*>(decl)->template_params);
+                    break;
+                default:
+                    break;
+            }
         }
 
         [[nodiscard]] ast::VarDecl const* find_local_var_in_block(ast::Block const& block, std::string_view name, sm::Location target)
@@ -994,36 +1312,26 @@ namespace dcc::query
 
             walk_block(*spec.body, spec_result, target, opts);
 
-            std::cerr << "[dcc.query] borrow_sema: spec walk found expr=" << (spec_result.expr ? 1 : 0) << " stmt=" << (spec_result.stmt ? 1 : 0)
-                      << " resolved_type=" << (spec_result.resolved_type ? 1 : 0) << " resolved_decl=" << (spec_result.resolved_decl ? 1 : 0)
-                      << " resolved_specialization=" << (spec_result.resolved_specialization ? 1 : 0) << " ufcs_callee=" << (spec_result.ufcs_callee ? 1 : 0)
-                      << " resolved_field=" << (spec_result.resolved_field ? 1 : 0) << " hovered_decl=" << (spec_result.hovered_decl ? 1 : 0) << std::endl;
-
             if (spec_result.resolved_type && !result.resolved_type)
             {
                 result.resolved_type = spec_result.resolved_type;
-                std::cerr << "[dcc.query] borrow_sema: borrowing resolved_type for " << generic_fn.name << std::endl;
             }
             if (spec_result.resolved_decl && !result.resolved_decl)
             {
                 result.resolved_decl = spec_result.resolved_decl;
-                std::cerr << "[dcc.query] borrow_sema: borrowing resolved_decl" << std::endl;
             }
             if (spec_result.resolved_specialization && !result.resolved_specialization)
             {
                 result.resolved_specialization = spec_result.resolved_specialization;
-                std::cerr << "[dcc.query] borrow_sema: borrowing resolved_specialization" << std::endl;
             }
             if (spec_result.ufcs_callee && !result.ufcs_callee)
             {
                 result.ufcs_callee = spec_result.ufcs_callee;
-                std::cerr << "[dcc.query] borrow_sema: borrowing ufcs_callee" << std::endl;
             }
             if (spec_result.resolved_field && !result.resolved_field)
             {
                 result.resolved_field = spec_result.resolved_field;
                 result.resolved_field_parent = spec_result.resolved_field_parent;
-                std::cerr << "[dcc.query] borrow_sema: borrowing resolved_field" << std::endl;
             }
 
             if (!result.resolved_type && result.resolved_param)
@@ -1035,8 +1343,6 @@ namespace dcc::query
                     if (sp.type && sp.type->sema.canonical)
                     {
                         result.resolved_type = sema::get_canonical(sp.type->sema);
-                        std::cerr << "[dcc.query] borrow_sema: borrowing resolved_type from spec param[" << param_idx << "] for " << generic_fn.name
-                                  << std::endl;
                     }
                 }
             }
@@ -1049,7 +1355,6 @@ namespace dcc::query
                     if (spec_vd->type && spec_vd->type->sema.canonical)
                     {
                         result.resolved_type = sema::get_canonical(spec_vd->type->sema);
-                        std::cerr << "[dcc.query] borrow_sema: borrowing resolved_type from spec cloned VarDecl for " << generic_fn.name << std::endl;
                     }
 
                     result.resolved_decl = spec_vd;
@@ -1066,7 +1371,6 @@ namespace dcc::query
                 {
                     result.resolved_type = sema::get_canonical(spec_vd->type->sema);
                 }
-                std::cerr << "[dcc.query] borrow_sema: borrowing hovered VarDecl from spec for " << generic_fn.name << '\n';
             }
         }
 
@@ -1085,6 +1389,8 @@ namespace dcc::query
 
                 if (decl->kind == ast::DeclKind::Func && range_contains_or_touches_end(decl->range, target))
                     result.enclosing_decl = decl;
+
+                check_param_and_tparam_names(decl, result, target);
 
                 if (opts.include_decls)
                 {
@@ -1132,23 +1438,7 @@ namespace dcc::query
                     {
                         bool in_args = !e->callee || target.offset > e->callee->range.end.offset;
                         if (in_args)
-                        {
                             result.enclosing_call = e;
-                            std::uint32_t active_idx = 0;
-                            for (std::size_t i = 0; i < e->args.size(); ++i)
-                            {
-                                if (e->args[i] && range_contains(e->args[i]->range, target))
-                                {
-                                    active_idx = static_cast<std::uint32_t>(i);
-                                    break;
-                                }
-                                if (e->args[i] && target.offset > e->args[i]->range.end.offset)
-                                    active_idx = static_cast<std::uint32_t>(i + 1);
-                                else if (e->args[i] && target.offset <= e->args[i]->range.begin.offset)
-                                    break;
-                            }
-                            result.active_argument_index = active_idx;
-                        }
                     }
 
                     for (auto* a : e->args)
@@ -1284,14 +1574,12 @@ namespace dcc::query
     {
         if (file == sm::FileId::Invalid)
         {
-            std::cerr << "[dcc.query] find_node_at: FileId is Invalid" << std::endl;
             return std::nullopt;
         }
 
         auto const* sf = session.source_manager().get(file);
         if (!sf)
         {
-            std::cerr << "[dcc.query] find_node_at: no SourceFile for file_id=" << static_cast<std::uint32_t>(file) << std::endl;
             return std::nullopt;
         }
 
@@ -1325,7 +1613,6 @@ namespace dcc::query
         auto* sema_ctx = session.sema_context();
         if (!sema_ctx)
         {
-            std::cerr << "[dcc.query] find_node_at: no sema_context" << std::endl;
             return std::nullopt;
         }
 
@@ -1343,23 +1630,11 @@ namespace dcc::query
 
         if (!module)
         {
-            std::cerr << "[dcc.query] find_node_at: no ModuleInfo for file_id=" << static_cast<std::uint32_t>(location.fileId) << " offset=" << location.offset
-                      << "; known module file_ids:";
-
-            for (auto const& mod : graph.all())
-            {
-                auto const* sf = session.source_manager().get(mod->file_id);
-                std::cerr << " " << static_cast<std::uint32_t>(mod->file_id);
-                if (sf)
-                    std::cerr << "(\"" << sf->path().string() << "\" uri=\"" << sf->uri() << "\")";
-            }
-            std::cerr << std::endl;
             return std::nullopt;
         }
 
         if (!module->tu)
         {
-            std::cerr << "[dcc.query] find_node_at: ModuleInfo::tu is null for file_id=" << static_cast<std::uint32_t>(location.fileId) << std::endl;
             return std::nullopt;
         }
 
@@ -1380,8 +1655,6 @@ namespace dcc::query
 
         if (!result.has_ast_node() && range_contains(module->tu->range, location))
         {
-            std::cerr << "[dcc.query] strict walk found no node at offset " << location.offset << "; trying conservative full walk" << std::endl;
-
             QueryAllVisitor all_visitor(result, location, opts);
 
             if (module->tu->module_decl)
@@ -1413,9 +1686,6 @@ namespace dcc::query
                         {
                             result.resolved_param = &p;
                             result.resolved_definition_range = func_param_name_range(p);
-                            std::cerr << "[dcc.query] struct fallback: resolved param '" << name << "' in template " << fd->name
-                                      << " range=" << result.resolved_definition_range.begin.offset << ".." << result.resolved_definition_range.end.offset
-                                      << std::endl;
                             break;
                         }
                     }
@@ -1427,8 +1697,6 @@ namespace dcc::query
                         {
                             result.resolved_decl = local;
                             result.resolved_definition_range = local->name_range;
-                            std::cerr << "[dcc.query] struct fallback: resolved local var '" << name << "' in template " << fd->name
-                                      << " name_range=" << local->name_range.begin.offset << ".." << local->name_range.end.offset << std::endl;
                         }
                     }
                 }
@@ -1450,162 +1718,960 @@ namespace dcc::query
                     auto const* spec = specs.front();
                     if (spec && spec->body.has_value())
                     {
-                        std::cerr << "[dcc.query] borrowing sema from specialization of " << fd->name << " (" << specs.size() << " specialization(s) available)"
-                                  << std::endl;
                         borrow_sema_from_spec(result, *spec, location, opts, *fd);
                     }
                 }
             }
         }
 
-        if (result.has_ast_node())
-        {
-            std::cerr << "[dcc.query] successfully found node at offset " << location.offset << ": hovered_decl=" << (result.hovered_decl ? 1 : 0)
-                      << " enclosing_decl_kind=" << (result.enclosing_decl ? static_cast<int>(result.enclosing_decl->kind) : -1)
-                      << " Stmt=" << (result.stmt ? static_cast<int>(result.stmt->kind) : -1)
-                      << " Expr=" << (result.expr ? static_cast<int>(result.expr->kind) : -1)
-                      << " TypeExpr=" << (result.type_expr ? static_cast<int>(result.type_expr->kind) : -1);
-            std::cerr << " resolved_decl=" << (result.resolved_decl ? 1 : 0);
-            std::cerr << " resolved_specialization=" << (result.resolved_specialization ? 1 : 0);
-            std::cerr << " ufcs_callee=" << (result.ufcs_callee ? 1 : 0);
-            std::cerr << " resolved_field=" << (result.resolved_field ? 1 : 0);
-            std::cerr << " resolved_param=" << (result.resolved_param ? 1 : 0);
-            std::cerr << " enclosing_call=" << (result.enclosing_call ? 1 : 0);
-            std::cerr << " active_arg=" << result.active_argument_index;
-            std::cerr << std::endl;
-        }
-        else
-            std::cerr << "[dcc.query] no AST node found at offset " << location.offset << std::endl;
-
         return result;
     }
 
     namespace
     {
-        [[nodiscard]] bool decl_or_spec_matches(ast::Decl const* candidate, ast::Decl const* target)
+        struct DeclAnchor
         {
-            return candidate == target;
+            sm::FileId file{sm::FileId::Invalid};
+            sm::Offset name_offset{0};
+
+            [[nodiscard]] bool valid() const noexcept { return file != sm::FileId::Invalid; }
+        };
+
+        [[nodiscard]] DeclAnchor decl_anchor(ast::Decl const* d)
+        {
+            if (!d)
+                return {};
+
+            auto nr = decl_name_range(d);
+            if (nr.valid())
+                return {nr.begin.fileId, nr.begin.offset};
+
+            if (d->range.valid())
+                return {d->range.begin.fileId, d->range.begin.offset};
+
+            return {};
         }
 
-        [[nodiscard]] bool callee_or_spec_matches(ast::Expr const* expr, ast::Decl const* target)
+        [[nodiscard]] SymbolId decl_symbol_id(ast::Decl const* d, SymbolKind kind)
+        {
+            SymbolId id;
+            id.kind = kind;
+            auto anchor = decl_anchor(d);
+            id.file = anchor.file;
+            id.name_offset = anchor.name_offset;
+            return id;
+        }
+
+        [[nodiscard]] ast::Decl const* query_nominal_decl(types::Type const* ty)
+        {
+            if (!ty)
+                return nullptr;
+
+            switch (ty->kind)
+            {
+                case types::TypeKind::Struct: {
+                    auto const* d = static_cast<types::StructType const*>(ty)->decl;
+                    return reinterpret_cast<ast::Decl const*>(d);
+                }
+                case types::TypeKind::Union: {
+                    auto const* d = static_cast<types::UnionType const*>(ty)->decl;
+                    return reinterpret_cast<ast::Decl const*>(d);
+                }
+                case types::TypeKind::Enum: {
+                    auto const* d = static_cast<types::EnumType const*>(ty)->decl;
+                    return reinterpret_cast<ast::Decl const*>(d);
+                }
+                case types::TypeKind::Pointer:
+                    return query_nominal_decl(static_cast<types::PointerType const*>(ty)->pointee);
+                case types::TypeKind::Nominal:
+                    return query_nominal_decl(static_cast<types::NominalType const*>(ty)->underlying);
+                default:
+                    return nullptr;
+            }
+        }
+
+        [[nodiscard]] ast::FieldDecl const* query_find_field(ast::Decl const* d, std::string_view name)
+        {
+            if (auto const* sd = ast::node_cast<ast::StructDecl>(d))
+            {
+                for (auto const& f : sd->fields)
+                    if (f.name == name)
+                        return &f;
+            }
+            else if (auto const* ud = ast::node_cast<ast::UnionDecl>(d))
+            {
+                for (auto const& f : ud->fields)
+                    if (f.name == name)
+                        return &f;
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] std::uint32_t field_index_in(ast::Decl const* owner, ast::FieldDecl const* fd)
+        {
+            if (!owner || !fd)
+                return 0;
+
+            if (auto const* sd = ast::node_cast<ast::StructDecl>(owner))
+            {
+                for (std::size_t i = 0; i < sd->fields.size(); ++i)
+                    if (&sd->fields[i] == fd)
+                        return static_cast<std::uint32_t>(i);
+            }
+            else if (auto const* ud = ast::node_cast<ast::UnionDecl>(owner))
+            {
+                for (std::size_t j = 0; j < ud->fields.size(); ++j)
+                    if (&ud->fields[j] == fd)
+                        return static_cast<std::uint32_t>(j);
+            }
+
+            return 0;
+        }
+
+        [[nodiscard]] std::uint32_t variant_index_in(ast::EnumDecl const* owner, ast::EnumVariant const* v)
+        {
+            if (!owner || !v)
+                return 0;
+
+            for (std::size_t i = 0; i < owner->variants.size(); ++i)
+                if (&owner->variants[i] == v)
+                    return static_cast<std::uint32_t>(i);
+
+            return 0;
+        }
+
+        [[nodiscard]] SymbolId field_symbol_id(ast::FieldDecl const* fd, ast::Decl const* owner)
+        {
+            SymbolId id;
+            id.kind = SymbolKind::Field;
+            if (fd && field_name_range(fd).valid())
+            {
+                id.file = field_name_range(fd).begin.fileId;
+                id.name_offset = field_name_range(fd).begin.offset;
+            }
+            else if (fd && fd->range.valid())
+            {
+                id.file = fd->range.begin.fileId;
+                id.name_offset = fd->range.begin.offset;
+            }
+
+            auto anchor = decl_anchor(owner);
+            id.owner_file = anchor.file;
+            id.owner_offset = anchor.name_offset;
+            id.sub_index = field_index_in(owner, fd);
+            return id;
+        }
+
+        [[nodiscard]] SymbolId variant_symbol_id(ast::EnumVariant const* v, ast::EnumDecl const* owner)
+        {
+            SymbolId id;
+            id.kind = SymbolKind::EnumVariant;
+            if (v && enum_variant_name_range(*v).valid())
+            {
+                id.file = enum_variant_name_range(*v).begin.fileId;
+                id.name_offset = enum_variant_name_range(*v).begin.offset;
+            }
+
+            auto anchor = decl_anchor(owner);
+            id.owner_file = anchor.file;
+            id.owner_offset = anchor.name_offset;
+            id.sub_index = variant_index_in(owner, v);
+            return id;
+        }
+
+        [[nodiscard]] SymbolId param_symbol_id(ast::FuncDecl const* owner, std::size_t param_index)
+        {
+            SymbolId id;
+            id.kind = SymbolKind::FuncParam;
+            if (owner && param_index < owner->params.size())
+            {
+                auto nr = func_param_name_range(owner->params[param_index]);
+                if (nr.valid())
+                {
+                    id.file = nr.begin.fileId;
+                    id.name_offset = nr.begin.offset;
+                }
+            }
+
+            auto anchor = decl_anchor(owner);
+            id.owner_file = anchor.file;
+            id.owner_offset = anchor.name_offset;
+            id.sub_index = static_cast<std::uint32_t>(param_index);
+            return id;
+        }
+
+        [[nodiscard]] SymbolId tparam_symbol_id(ast::Decl const* owner, ast::TemplateParam const* tp)
+        {
+            SymbolId id;
+            id.kind = SymbolKind::TemplateParam;
+            if (tp && template_param_name_range(*tp).valid())
+            {
+                id.file = template_param_name_range(*tp).begin.fileId;
+                id.name_offset = template_param_name_range(*tp).begin.offset;
+            }
+
+            auto anchor = decl_anchor(owner);
+            id.owner_file = anchor.file;
+            id.owner_offset = anchor.name_offset;
+
+            if (owner && tp)
+            {
+                auto index_of = [&](std::span<ast::TemplateParam const> params) {
+                    for (std::size_t i = 0; i < params.size(); ++i)
+                        if (&params[i] == tp)
+                        {
+                            id.sub_index = static_cast<std::uint32_t>(i);
+                            return;
+                        }
+                };
+
+                switch (owner->kind)
+                {
+                    case ast::DeclKind::Func:
+                        index_of(static_cast<ast::FuncDecl const*>(owner)->template_params);
+                        break;
+                    case ast::DeclKind::Struct:
+                        index_of(static_cast<ast::StructDecl const*>(owner)->template_params);
+                        break;
+                    case ast::DeclKind::Enum:
+                        index_of(static_cast<ast::EnumDecl const*>(owner)->template_params);
+                        break;
+                    case ast::DeclKind::Using:
+                        index_of(static_cast<ast::UsingDecl const*>(owner)->template_params);
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            return id;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> param_index_for_synthetic(ast::FuncDecl const* owner, ast::Decl const* decl)
+        {
+            if (!owner || !decl || decl->kind != ast::DeclKind::Var)
+                return std::nullopt;
+
+            auto const* vd = static_cast<ast::VarDecl const*>(decl);
+            for (std::size_t i = 0; i < owner->params.size(); ++i)
+                if (owner->params[i].synthetic_decl == vd)
+                    return i;
+
+            return std::nullopt;
+        }
+
+        [[nodiscard]] ast::FuncDecl const* source_decl_of_spec(session::CompilerSession const& session, ast::FuncDecl const* spec)
+        {
+            if (!spec)
+                return nullptr;
+
+            auto* sema_ctx = const_cast<sema::SemaContext*>(session.sema_context());
+            if (!sema_ctx)
+                return spec;
+
+            auto const* source = sema_ctx->spec_registry().source_decl_of(spec);
+            return source ? source : spec;
+        }
+
+        [[nodiscard]] ast::FieldDecl const* resolve_field_access(ast::FieldAccessExpr const* fa, ast::Decl const** out_owner)
+        {
+            if (out_owner)
+                *out_owner = nullptr;
+
+            if (!fa)
+                return nullptr;
+
+            ast::Decl const* owner = fa->sema.resolved_decl;
+            if (!owner && fa->object)
+                owner = query_nominal_decl(sema::get_resolved_type(fa->object->sema));
+
+            if (!owner)
+                return nullptr;
+
+            auto* field = query_find_field(owner, fa->field);
+            if (field && out_owner)
+                *out_owner = owner;
+
+            return field;
+        }
+
+        [[nodiscard]] std::string_view expr_name_at(ast::Expr const* expr, sm::Location target)
+        {
+            if (!expr)
+                return {};
+
+            if (expr->kind == ast::ExprKind::Ident)
+                return static_cast<ast::IdentExpr const*>(expr)->name;
+
+            if (expr->kind == ast::ExprKind::PathExpr)
+            {
+                auto const* pe = static_cast<ast::PathExpr const*>(expr);
+                for (auto const& seg : pe->path.segments)
+                    if (seg.range.valid() && seg.range.begin.fileId == target.fileId && seg.range.begin.offset <= target.offset &&
+                        target.offset < seg.range.end.offset)
+                        return seg.name;
+            }
+
+            return {};
+        }
+
+        [[nodiscard]] sm::SourceRange expr_name_range_at(ast::Expr const* expr, sm::Location target)
+        {
+            if (!expr)
+                return {};
+
+            if (expr->kind == ast::ExprKind::Ident)
+                return expr->range;
+
+            if (expr->kind == ast::ExprKind::PathExpr)
+            {
+                auto const* pe = static_cast<ast::PathExpr const*>(expr);
+                for (auto const& seg : pe->path.segments)
+                    if (seg.range.valid() && seg.range.begin.fileId == target.fileId && seg.range.begin.offset <= target.offset &&
+                        target.offset < seg.range.end.offset)
+                        return seg.range;
+            }
+
+            return expr->range;
+        }
+
+        [[nodiscard]] bool expr_decl_matches(session::CompilerSession const& session, ast::Expr const* expr, ResolvedSymbol const& target)
         {
             if (!expr)
                 return false;
-            if (expr->sema.resolved_decl && decl_or_spec_matches(expr->sema.resolved_decl, target))
+
+            if (target.kind != SymbolKind::Declaration)
+                return false;
+
+            if (expr->sema.resolved_decl && expr->sema.resolved_decl == target.decl)
                 return true;
-            if (expr->sema.resolved_specialization && decl_or_spec_matches(expr->sema.resolved_specialization, target))
+            if (expr->sema.ufcs_callee && static_cast<ast::Decl const*>(expr->sema.ufcs_callee) == target.decl)
                 return true;
-            if (expr->sema.ufcs_callee && decl_or_spec_matches(expr->sema.ufcs_callee, target))
-                return true;
+            if (expr->sema.resolved_specialization)
+            {
+                auto const* source = source_decl_of_spec(session, expr->sema.resolved_specialization);
+                if (source && static_cast<ast::Decl const*>(source) == target.decl)
+                    return true;
+            }
+
             return false;
         }
 
-        struct ReferenceCollector : ast::RecursiveAstVisitor
+        [[nodiscard]] ast::EnumDecl const* find_variant_owner(session::CompilerSession const& session, ast::EnumVariant const* variant)
+        {
+            if (!variant)
+                return nullptr;
+
+            auto* sema_ctx = const_cast<sema::SemaContext*>(session.sema_context());
+            if (!sema_ctx)
+                return nullptr;
+
+            auto& graph = const_cast<sema::SemaContext*>(sema_ctx)->graph();
+
+            auto scan_decl = [&](auto& self, ast::Decl const* decl) -> ast::EnumDecl const* {
+                if (!decl)
+                    return nullptr;
+
+                if (decl->kind == ast::DeclKind::Enum)
+                {
+                    auto const* ed = static_cast<ast::EnumDecl const*>(decl);
+                    for (auto const& v : ed->variants)
+                        if (&v == variant)
+                            return ed;
+                }
+
+                if (decl->kind == ast::DeclKind::StaticIfGroup)
+                {
+                    auto const* sg = static_cast<ast::StaticIfGroup const*>(decl);
+                    for (auto* d : sg->then_decls)
+                        if (auto* found = self(self, d))
+                            return found;
+                }
+
+                return nullptr;
+            };
+
+            for (auto const& mod : graph.all())
+            {
+                if (!mod || !mod->tu)
+                    continue;
+
+                for (auto* d : mod->tu->decls)
+                    if (auto* found = scan_decl(scan_decl, d))
+                        return found;
+            }
+
+            return nullptr;
+        }
+
+        [[nodiscard]] std::string_view decl_name_of(ast::Decl const* decl)
+        {
+            if (!decl)
+                return {};
+
+            switch (decl->kind)
+            {
+                case ast::DeclKind::Func:
+                    return static_cast<ast::FuncDecl const*>(decl)->name;
+                case ast::DeclKind::Var:
+                    return static_cast<ast::VarDecl const*>(decl)->name;
+                case ast::DeclKind::Struct:
+                    return static_cast<ast::StructDecl const*>(decl)->name;
+                case ast::DeclKind::Union:
+                    return static_cast<ast::UnionDecl const*>(decl)->name;
+                case ast::DeclKind::Enum:
+                    return static_cast<ast::EnumDecl const*>(decl)->name;
+                case ast::DeclKind::Using: {
+                    auto const* ud = static_cast<ast::UsingDecl const*>(decl);
+                    return ud->alias_path.is_empty() ? std::string_view{} : ud->alias_path.tail_name();
+                }
+                case ast::DeclKind::Module:
+                    return static_cast<ast::ModuleDecl const*>(decl)->module_path.is_empty()
+                               ? std::string_view{}
+                               : static_cast<ast::ModuleDecl const*>(decl)->module_path.tail_name();
+                case ast::DeclKind::Import:
+                    return static_cast<ast::ImportDecl const*>(decl)->module_path.is_empty()
+                               ? std::string_view{}
+                               : static_cast<ast::ImportDecl const*>(decl)->module_path.tail_name();
+                case ast::DeclKind::StaticIfGroup:
+                    return {};
+            }
+            return {};
+        }
+
+        [[nodiscard]] bool range_less(sm::SourceRange const& a, sm::SourceRange const& b)
+        {
+            auto fa = static_cast<std::uint32_t>(a.begin.fileId);
+            auto fb = static_cast<std::uint32_t>(b.begin.fileId);
+            if (fa != fb)
+                return fa < fb;
+            if (a.begin.offset != b.begin.offset)
+                return a.begin.offset < b.begin.offset;
+            return a.end.offset < b.end.offset;
+        }
+
+        [[nodiscard]] bool range_equal(sm::SourceRange const& a, sm::SourceRange const& b)
+        {
+            return a.begin.fileId == b.begin.fileId && a.begin.offset == b.begin.offset && a.end.fileId == b.end.fileId && a.end.offset == b.end.offset;
+        }
+
+        void sort_dedup_ranges(std::vector<sm::SourceRange>& ranges)
+        {
+            std::ranges::sort(ranges, range_less);
+            auto [first, last] = std::ranges::unique(ranges, range_equal);
+            ranges.erase(first, last);
+        }
+
+        [[nodiscard]] bool is_legal_identifier(std::string_view name) noexcept
+        {
+            if (name.empty())
+                return false;
+
+            auto is_ident_start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+            auto is_ident_cont = [&](char c) { return is_ident_start(c) || (c >= '0' && c <= '9'); };
+
+            if (!is_ident_start(name.front()))
+                return false;
+            for (char c : name)
+                if (!is_ident_cont(c))
+                    return false;
+
+            return dcc::lex::classify_identifier(name) == dcc::lex::TokenKind::Identifier;
+        }
+
+        [[nodiscard]] ast::FieldDecl const* symbol_field_of(ResolvedSymbol const& symbol)
+        {
+            if (symbol.kind != SymbolKind::Field || !symbol.owner_decl)
+                return nullptr;
+
+            if (auto const* sd = ast::node_cast<ast::StructDecl>(symbol.owner_decl))
+            {
+                if (symbol.sub_index < sd->fields.size())
+                    return &sd->fields[symbol.sub_index];
+            }
+            else if (auto const* ud = ast::node_cast<ast::UnionDecl>(symbol.owner_decl))
+            {
+                if (symbol.sub_index < ud->fields.size())
+                    return &ud->fields[symbol.sub_index];
+            }
+
+            return nullptr;
+        }
+
+    } // anonymous namespace
+
+    std::optional<ResolvedSymbol> resolve_symbol_at(session::CompilerSession const& session, sm::FileId file, sm::Position position, ResolveOptions opts)
+    {
+        if (file == sm::FileId::Invalid)
+            return std::nullopt;
+
+        auto loc_result = session.source_manager().lsp_position_to_location(file, position);
+        if (!loc_result)
+            return std::nullopt;
+
+        auto result = resolve_symbol_at(session, *loc_result, opts);
+        return result;
+    }
+
+    std::optional<ResolvedSymbol> resolve_symbol_at(session::CompilerSession const& session, sm::Location location, ResolveOptions opts)
+    {
+        auto region = source_region_at(session, location.fileId, location.offset);
+        if (region.in_string_or_comment())
+            return std::nullopt;
+
+        QueryOptions qopts;
+        qopts.include_decls = opts.include_decls;
+        qopts.include_stmts = opts.include_stmts;
+        qopts.include_exprs = opts.include_exprs;
+        qopts.include_type_exprs = opts.include_type_exprs;
+
+        auto node = find_node_at(session, location, qopts);
+        if (!node)
+            return std::nullopt;
+
+        ResolvedSymbol out;
+        out.name_range = {};
+        out.definition_range = {};
+
+        if (node->resolved_field)
+        {
+            ast::Decl const* owner = node->resolved_field_parent;
+            if (!owner && node->expr && node->expr->kind == ast::ExprKind::FieldAccess)
+                owner = resolve_field_access(static_cast<ast::FieldAccessExpr const*>(node->expr), &owner) ? owner : nullptr;
+
+            if (owner)
+            {
+                out.kind = SymbolKind::Field;
+                out.name = node->resolved_field->name;
+                out.definition_range = field_name_range(node->resolved_field);
+                out.decl = owner;
+                out.owner_decl = owner;
+                out.sub_index = field_index_in(owner, node->resolved_field);
+                out.id = field_symbol_id(node->resolved_field, owner);
+
+                if (node->expr && node->expr->kind == ast::ExprKind::FieldAccess)
+                    out.name_range = static_cast<ast::FieldAccessExpr const*>(node->expr)->field_range;
+                else
+                    out.name_range = field_name_range(node->resolved_field);
+
+                return out;
+            }
+        }
+
+        if (node->resolved_param)
+        {
+            auto const* fd =
+                node->enclosing_decl && node->enclosing_decl->kind == ast::DeclKind::Func ? static_cast<ast::FuncDecl const*>(node->enclosing_decl) : nullptr;
+
+            if (!fd)
+                return std::nullopt;
+
+            std::size_t param_index = 0;
+            for (std::size_t i = 0; i < fd->params.size(); ++i)
+                if (&fd->params[i] == node->resolved_param)
+                {
+                    param_index = i;
+                    break;
+                }
+
+            out.kind = SymbolKind::FuncParam;
+            out.name = node->resolved_param->name;
+            if (node->expr)
+                out.name_range = expr_name_range_at(node->expr, location);
+            else
+                out.name_range = func_param_name_range(*node->resolved_param);
+            out.definition_range = node->resolved_definition_range.valid() ? node->resolved_definition_range : out.name_range;
+
+            out.owner_decl = fd;
+            out.sub_index = static_cast<std::uint32_t>(param_index);
+            out.id = param_symbol_id(fd, param_index);
+            return out;
+        }
+
+        if (node->resolved_tparam)
+        {
+            out.kind = SymbolKind::TemplateParam;
+            out.name = node->resolved_tparam->name;
+            out.name_range = template_param_name_range(*node->resolved_tparam);
+            out.definition_range = out.name_range;
+            out.decl = node->resolved_tparam_owner;
+            out.owner_decl = node->resolved_tparam_owner;
+            out.id = tparam_symbol_id(node->resolved_tparam_owner, node->resolved_tparam);
+            return out;
+        }
+
+        if (node->resolved_variant)
+        {
+            ast::EnumDecl const* owner = node->resolved_variant_owner;
+            if (!owner && node->module && node->module->tu)
+                owner = find_variant_owner(session, node->resolved_variant);
+
+            if (owner)
+            {
+                out.kind = SymbolKind::EnumVariant;
+                out.name = node->resolved_variant->name;
+                out.definition_range = enum_variant_name_range(*node->resolved_variant);
+                out.decl = owner;
+                out.owner_decl = owner;
+                out.sub_index = variant_index_in(owner, node->resolved_variant);
+                out.id = variant_symbol_id(node->resolved_variant, owner);
+
+                if (node->expr)
+                    out.name_range = expr_name_range_at(node->expr, location);
+                else
+                    out.name_range = enum_variant_name_range(*node->resolved_variant);
+
+                return out;
+            }
+        }
+
+        if (node->hovered_decl)
+        {
+            switch (node->hovered_decl->kind)
+            {
+                case ast::DeclKind::Using: {
+                    auto const* ud = static_cast<ast::UsingDecl const*>(node->hovered_decl);
+                    out.kind = SymbolKind::UsingAlias;
+                    out.name = ud->alias_path.is_empty() ? std::string_view{} : ud->alias_path.tail_name();
+                    out.name_range = decl_name_range(ud);
+                    out.definition_range = out.name_range;
+                    out.decl = ud;
+                    out.id = decl_symbol_id(ud, SymbolKind::UsingAlias);
+                    out.is_external_alias = true;
+                    return out;
+                }
+                case ast::DeclKind::Import: {
+                    auto const* id = static_cast<ast::ImportDecl const*>(node->hovered_decl);
+                    out.kind = SymbolKind::ImportAlias;
+                    out.name = id->module_path.is_empty() ? std::string_view{} : id->module_path.tail_name();
+                    out.name_range = decl_name_range(id);
+                    out.definition_range = out.name_range;
+                    out.decl = id;
+                    out.via_import = id;
+                    out.is_module = true;
+                    out.id = decl_symbol_id(id, SymbolKind::ImportAlias);
+                    return out;
+                }
+                case ast::DeclKind::Module: {
+                    auto const* md = static_cast<ast::ModuleDecl const*>(node->hovered_decl);
+                    out.kind = SymbolKind::Module;
+                    out.name = md->module_path.is_empty() ? std::string_view{} : md->module_path.tail_name();
+                    out.name_range = decl_name_range(md);
+                    out.definition_range = out.name_range;
+                    out.decl = md;
+                    out.is_module = true;
+                    out.id = decl_symbol_id(md, SymbolKind::Module);
+                    return out;
+                }
+                case ast::DeclKind::Struct:
+                case ast::DeclKind::Union:
+                case ast::DeclKind::Enum:
+                case ast::DeclKind::Func:
+                case ast::DeclKind::Var: {
+                    out.kind = SymbolKind::Declaration;
+                    out.name = decl_name_of(node->hovered_decl);
+                    out.name_range = decl_name_range(node->hovered_decl);
+                    out.definition_range = out.name_range;
+                    out.decl = node->hovered_decl;
+                    out.id = decl_symbol_id(node->hovered_decl, SymbolKind::Declaration);
+                    return out;
+                }
+                default:
+                    break;
+            }
+        }
+
+        if (node->has_ast_node() && node->type_expr && node->type_expr->kind == ast::TypeKind::Named && node->resolved_decl)
+        {
+            auto const* nt = static_cast<ast::NamedType const*>(node->type_expr);
+            sm::SourceRange seg_range = nt->range;
+            for (auto const& seg : nt->path.segments)
+            {
+                if (seg.range.valid() && seg.range.begin.fileId == location.fileId && seg.range.begin.offset <= location.offset &&
+                    location.offset < seg.range.end.offset)
+                {
+                    seg_range = seg.range;
+                    break;
+                }
+            }
+
+            auto const* target_type = node->resolved_decl;
+
+            if (!out.is_external_alias && node->scope)
+            {
+                auto const* tsym = sema::resolve_type_path(*node->scope, nt->path);
+                if (tsym && tsym->via_using && tsym->decl && tsym->decl == target_type)
+                {
+                    out.via_using = tsym->via_using;
+                    out.is_external_alias = true;
+                }
+            }
+
+            out.kind = SymbolKind::Declaration;
+            out.name = decl_name_of(target_type);
+            out.name_range = seg_range;
+            out.decl = target_type;
+            out.definition_range = decl_name_range(target_type);
+            if (!out.definition_range.valid())
+                out.definition_range = target_type->range;
+            out.id = decl_symbol_id(target_type, SymbolKind::Declaration);
+            return out;
+        }
+
+        if (node->has_ast_node() && node->expr)
+        {
+            if (node->resolved_variant)
+            {
+                ast::EnumDecl const* owner = node->resolved_variant_owner;
+                if (!owner && node->module && node->module->tu)
+                    owner = find_variant_owner(session, node->resolved_variant);
+                if (owner)
+                {
+                    out.kind = SymbolKind::EnumVariant;
+                    out.name = node->resolved_variant->name;
+                    out.name_range = expr_name_range_at(node->expr, location);
+                    out.definition_range = enum_variant_name_range(*node->resolved_variant);
+                    out.decl = owner;
+                    out.owner_decl = owner;
+                    out.sub_index = variant_index_in(owner, node->resolved_variant);
+                    out.id = variant_symbol_id(node->resolved_variant, owner);
+                    return out;
+                }
+            }
+
+            ast::Decl const* target = nullptr;
+            ast::FuncDecl const* spec = nullptr;
+
+            if (node->resolved_specialization)
+            {
+                auto const* source = source_decl_of_spec(session, node->resolved_specialization);
+                if (source)
+                {
+                    target = source;
+                    spec = node->resolved_specialization;
+                    out.from_specialization = true;
+                }
+            }
+            else if (node->ufcs_callee)
+                target = node->ufcs_callee;
+            else if (node->resolved_decl)
+                target = node->resolved_decl;
+
+            if (target && target->kind == ast::DeclKind::Var && static_cast<ast::VarDecl const*>(target)->sema.storage == ast::StorageClass::Param &&
+                node->enclosing_decl && node->enclosing_decl->kind == ast::DeclKind::Func)
+            {
+                auto const* fd = static_cast<ast::FuncDecl const*>(node->enclosing_decl);
+                if (auto idx = param_index_for_synthetic(fd, target))
+                {
+                    out.kind = SymbolKind::FuncParam;
+                    out.name = fd->params[*idx].name;
+                    out.name_range = expr_name_range_at(node->expr, location);
+                    out.definition_range = func_param_name_range(fd->params[*idx]);
+                    out.decl = fd;
+                    out.owner_decl = fd;
+                    out.sub_index = static_cast<std::uint32_t>(*idx);
+                    out.id = param_symbol_id(fd, *idx);
+                    return out;
+                }
+            }
+
+            if (target)
+            {
+                out.kind = SymbolKind::Declaration;
+                out.name = decl_name_of(target);
+                out.name_range = expr_name_range_at(node->expr, location);
+                if (!out.name_range.valid())
+                    out.name_range = node->expr->range;
+
+                out.decl = target;
+                out.specialization = spec;
+                out.definition_range = decl_name_range(target);
+                if (!out.definition_range.valid())
+                    out.definition_range = target->range;
+                out.id = decl_symbol_id(target, SymbolKind::Declaration);
+
+                if (!out.is_external_alias && node->scope)
+                {
+                    auto name = expr_name_at(node->expr, location);
+                    if (!name.empty())
+                    {
+                        ast::Path path(node->scope->allocator());
+                        ast::PathSegment seg;
+                        seg.name = name;
+                        seg.range = out.name_range;
+                        path.segments.push_back(seg);
+                        path.range = out.name_range;
+
+                        auto vs = sema::resolve_value_overloads(*node->scope, path);
+                        for (auto const& sym : vs)
+                        {
+                            if (sym.via_using && sym.decl && sym.decl == target)
+                            {
+                                out.via_using = sym.via_using;
+                                out.is_external_alias = true;
+                                break;
+                            }
+                        }
+                        if (!out.is_external_alias && target->kind != ast::DeclKind::Func && target->kind != ast::DeclKind::Var)
+                        {
+                            auto const* tsym = sema::resolve_type_path(*node->scope, path);
+                            if (tsym && tsym->via_using && tsym->decl && tsym->decl == target)
+                            {
+                                out.via_using = tsym->via_using;
+                                out.is_external_alias = true;
+                            }
+                        }
+                    }
+                }
+
+                return out;
+            }
+
+            if (node->enclosing_decl && node->enclosing_decl->kind == ast::DeclKind::Func)
+            {
+                auto const* fd = static_cast<ast::FuncDecl const*>(node->enclosing_decl);
+
+                if (node->resolved_param)
+                {
+                    std::size_t param_index = 0;
+                    for (std::size_t i = 0; i < fd->params.size(); ++i)
+                        if (&fd->params[i] == node->resolved_param)
+                        {
+                            param_index = i;
+                            break;
+                        }
+                    out.kind = SymbolKind::FuncParam;
+                    out.name = node->resolved_param->name;
+                    out.name_range = expr_name_range_at(node->expr, location);
+                    out.definition_range = func_param_name_range(*node->resolved_param);
+                    out.owner_decl = fd;
+                    out.sub_index = static_cast<std::uint32_t>(param_index);
+                    out.id = param_symbol_id(fd, param_index);
+                    return out;
+                }
+
+                auto name = expr_name_at(node->expr, location);
+                if (!name.empty())
+                {
+                    for (std::size_t i = 0; i < fd->template_params.size(); ++i)
+                        if (fd->template_params[i].name == name)
+                        {
+                            out.kind = SymbolKind::TemplateParam;
+                            out.name = name;
+                            out.name_range = expr_name_range_at(node->expr, location);
+                            out.definition_range = template_param_name_range(fd->template_params[i]);
+                            out.owner_decl = fd;
+                            out.decl = fd;
+                            out.id = tparam_symbol_id(fd, &fd->template_params[i]);
+                            return out;
+                        }
+
+                    auto const* local = find_local_var_in_block(*fd->body, name, location);
+                    if (local)
+                    {
+                        out.kind = SymbolKind::Declaration;
+                        out.name = local->name;
+                        out.name_range = expr_name_range_at(node->expr, location);
+                        out.definition_range = local->name_range;
+                        out.decl = local;
+                        out.id = decl_symbol_id(local, SymbolKind::Declaration);
+                        return out;
+                    }
+                }
+            }
+        }
+
+        return std::nullopt;
+    }
+
+    namespace
+    {
+        struct SymbolReferenceCollector : ast::RecursiveAstVisitor
         {
             std::vector<sm::SourceRange>& out;
-            ast::Decl const* target;
-            sema::Scope const* scope;
+            ResolvedSymbol const& target;
+            session::CompilerSession const& session;
+            ast::Decl const* current_template_decl{nullptr};
 
-            ReferenceCollector(std::vector<sm::SourceRange>& o, ast::Decl const* t, sema::Scope const* s) : out{o}, target{t}, scope{s} {}
-
-            void visitExpr(ast::Expr const* expr) override
+            SymbolReferenceCollector(std::vector<sm::SourceRange>& o, ResolvedSymbol const& t, session::CompilerSession const& s)
+                : out{o}, target{t}, session{s}
             {
-                if (!expr)
+            }
+
+            void visitDecl(ast::Decl const* decl) override
+            {
+                if (!decl)
                     return;
 
-                switch (expr->kind)
+                auto* prev = current_template_decl;
+                bool has_tparams = false;
+                switch (decl->kind)
                 {
-                    case ast::ExprKind::Ident: {
-                        if (callee_or_spec_matches(expr, target))
-                            out.push_back(expr->range);
+                    case ast::DeclKind::Func:
+                        has_tparams = !static_cast<ast::FuncDecl const*>(decl)->template_params.empty();
                         break;
-                    }
-                    case ast::ExprKind::PathExpr: {
-                        auto* e = static_cast<ast::PathExpr const*>(expr);
-                        if (callee_or_spec_matches(expr, target))
-                        {
-                            if (!e->path.segments.empty())
-                                out.push_back(e->path.segments.back().range);
-                            else
-                                out.push_back(expr->range);
-                        }
-
-                        for (auto const& ta : e->explicit_enum_args)
-                        {
-                            if (ta.type)
-                                visitTypeExpr(ta.type);
-                            if (ta.expr)
-                                visitExpr(ta.expr);
-                        }
+                    case ast::DeclKind::Struct:
+                        has_tparams = !static_cast<ast::StructDecl const*>(decl)->template_params.empty();
                         break;
-                    }
-                    case ast::ExprKind::Call: {
-                        auto* e = static_cast<ast::CallExpr const*>(expr);
-                        if (callee_or_spec_matches(expr, target) && e->callee)
-                        {
-                            auto* ce = e->callee;
-                            while (ce && ce->kind == ast::ExprKind::TemplateInst)
-                                ce = static_cast<ast::TemplateInstExpr const*>(ce)->callee;
+                    case ast::DeclKind::Enum:
+                        has_tparams = !static_cast<ast::EnumDecl const*>(decl)->template_params.empty();
+                        break;
+                    case ast::DeclKind::Using:
+                        has_tparams = !static_cast<ast::UsingDecl const*>(decl)->template_params.empty();
+                        break;
+                    default:
+                        break;
+                }
+                if (has_tparams)
+                    current_template_decl = decl;
 
-                            if (ce)
+                ast::RecursiveAstVisitor::visitDecl(decl);
+
+                current_template_decl = prev;
+            }
+
+            void visitPattern(ast::Pattern const* pat) override
+            {
+                if (!pat)
+                    return;
+
+                switch (pat->kind)
+                {
+                    case ast::PatternKind::EnumDestructure: {
+                        auto const* p = static_cast<ast::EnumDestructurePattern const*>(pat);
+                        if (target.kind == SymbolKind::EnumVariant && p->resolved_variant && target.owner_decl)
+                        {
+                            auto const* owner = ast::node_cast<ast::EnumDecl>(target.owner_decl);
+                            if (owner)
                             {
-                                if (ce->kind == ast::ExprKind::Ident)
-                                    out.push_back(ce->range);
-                                else if (ce->kind == ast::ExprKind::PathExpr)
-                                {
-                                    auto* pe = static_cast<ast::PathExpr const*>(ce);
-                                    if (!pe->path.segments.empty())
-                                        out.push_back(pe->path.segments.back().range);
-                                }
+                                std::size_t idx = 0;
+                                for (std::size_t i = 0; i < owner->variants.size(); ++i)
+                                    if (&owner->variants[i] == p->resolved_variant)
+                                    {
+                                        idx = i;
+                                        break;
+                                    }
+                                if (target.sub_index == idx && target.id == variant_symbol_id(p->resolved_variant, owner) && !p->variant_path.segments.empty())
+                                    out.push_back(p->variant_path.segments.back().range);
                             }
-                            visitExpr(e->callee);
                         }
-                        else if (e->callee)
-                        {
-                            visitExpr(e->callee);
-                        }
-                        for (auto* a : e->args)
-                            visitExpr(a);
                         break;
                     }
-                    case ast::ExprKind::TemplateInst: {
-                        auto* e = static_cast<ast::TemplateInstExpr const*>(expr);
-                        if (callee_or_spec_matches(expr, target) && e->callee)
+                    case ast::PatternKind::StructDestructure: {
+                        auto const* p = static_cast<ast::StructDestructurePattern const*>(pat);
+                        if (target.kind == SymbolKind::Field && target.owner_decl)
                         {
-                            auto* ce = e->callee;
-                            while (ce && ce->kind == ast::ExprKind::TemplateInst)
-                                ce = static_cast<ast::TemplateInstExpr const*>(ce)->callee;
-
-                            if (ce)
-                            {
-                                if (ce->kind == ast::ExprKind::Ident)
-                                    out.push_back(ce->range);
-                                else if (ce->kind == ast::ExprKind::PathExpr)
-                                {
-                                    auto* pe = static_cast<ast::PathExpr const*>(ce);
-                                    if (!pe->path.segments.empty())
-                                        out.push_back(pe->path.segments.back().range);
-                                }
-                            }
-                            visitExpr(e->callee);
-                        }
-                        else if (e->callee)
-                        {
-                            visitExpr(e->callee);
-                        }
-                        for (auto const& ta : e->template_args)
-                        {
-                            if (ta.type)
-                                visitTypeExpr(ta.type);
-                            if (ta.expr)
-                                visitExpr(ta.expr);
+                            for (auto const& f : p->fields)
+                                if (f.range.valid() && f.resolved_field_index == target.sub_index)
+                                    out.push_back(f.range);
                         }
                         break;
                     }
                     default:
-                        ast::RecursiveAstVisitor::visitExpr(expr);
                         break;
                 }
+
+                ast::RecursiveAstVisitor::visitPattern(pat);
             }
 
             void visitTypeExpr(ast::TypeExpr const* type_expr) override
@@ -1616,15 +2682,20 @@ namespace dcc::query
                 if (type_expr->kind == ast::TypeKind::Named)
                 {
                     auto* t = static_cast<ast::NamedType const*>(type_expr);
-                    if (t->sema.resolved_decl && decl_or_spec_matches(t->sema.resolved_decl, target))
+
+                    if (target.kind == SymbolKind::TemplateParam)
                     {
-                        if (!t->path.segments.empty())
-                            out.push_back(t->path.segments.back().range);
+                        if (target.owner_decl && current_template_decl == target.owner_decl && !t->path.is_empty() && t->path.is_simple() &&
+                            t->path.simple_name() == target.name)
+                        {
+                            if (!t->path.segments.empty())
+                                out.push_back(t->path.segments.back().range);
+                        }
                     }
-                    else if (scope && !t->path.is_empty() && !t->path.segments.empty())
+
+                    if (target.kind == SymbolKind::Declaration)
                     {
-                        auto const* sym = sema::resolve_type_path(*scope, t->path);
-                        if (sym && sym->decl && decl_or_spec_matches(sym->decl, target))
+                        if (t->sema.resolved_decl && t->sema.resolved_decl == target.decl && !t->path.segments.empty())
                             out.push_back(t->path.segments.back().range);
                     }
 
@@ -1635,30 +2706,210 @@ namespace dcc::query
                         if (ta.expr)
                             visitExpr(ta.expr);
                     }
+                    return;
                 }
-                else
+
+                ast::RecursiveAstVisitor::visitTypeExpr(type_expr);
+            }
+
+            void visitExpr(ast::Expr const* expr) override
+            {
+                if (!expr)
+                    return;
+
+                switch (expr->kind)
                 {
-                    ast::RecursiveAstVisitor::visitTypeExpr(type_expr);
+                    case ast::ExprKind::Ident: {
+                        if (target.kind == SymbolKind::Declaration && expr_decl_matches(session, expr, target))
+                            out.push_back(expr->range);
+                        else if (target.kind == SymbolKind::FuncParam)
+                        {
+                            auto const* fd = target.owner_decl && target.owner_decl->kind == ast::DeclKind::Func
+                                                 ? static_cast<ast::FuncDecl const*>(target.owner_decl)
+                                                 : nullptr;
+                            if (fd)
+                            {
+                                auto idx = param_index_for_synthetic(fd, expr->sema.resolved_decl);
+                                if (idx && *idx == target.sub_index)
+                                    out.push_back(expr->range);
+                            }
+                        }
+                        else if (target.kind == SymbolKind::TemplateParam && current_template_decl == target.owner_decl &&
+                                 static_cast<ast::IdentExpr const*>(expr)->name == target.name)
+                        {
+                            out.push_back(expr->range);
+                        }
+                        break;
+                    }
+                    case ast::ExprKind::PathExpr: {
+                        auto* e = static_cast<ast::PathExpr const*>(expr);
+                        if (target.kind == SymbolKind::EnumVariant && e->sema.constructed_variant && target.owner_decl)
+                        {
+                            auto const* owner = ast::node_cast<ast::EnumDecl>(target.owner_decl);
+                            if (owner)
+                            {
+                                std::size_t idx = 0;
+                                for (std::size_t i = 0; i < owner->variants.size(); ++i)
+                                    if (&owner->variants[i] == e->sema.constructed_variant)
+                                    {
+                                        idx = i;
+                                        break;
+                                    }
+                                if (target.sub_index == idx && !e->path.segments.empty())
+                                    out.push_back(e->path.segments.back().range);
+                            }
+                        }
+                        else if (target.kind == SymbolKind::Declaration && expr_decl_matches(session, expr, target) && !e->path.segments.empty())
+                        {
+                            out.push_back(e->path.segments.back().range);
+                        }
+
+                        for (auto const& ta : e->explicit_enum_args)
+                        {
+                            if (ta.type)
+                                visitTypeExpr(ta.type);
+                            if (ta.expr)
+                                visitExpr(ta.expr);
+                        }
+                        return;
+                    }
+                    case ast::ExprKind::Call: {
+                        auto* e = static_cast<ast::CallExpr const*>(expr);
+                        if (e->callee)
+                        {
+                            if (expr_decl_matches(session, expr, target))
+                            {
+                                auto* ce = e->callee;
+                                while (ce && ce->kind == ast::ExprKind::TemplateInst)
+                                    ce = static_cast<ast::TemplateInstExpr const*>(ce)->callee;
+
+                                if (ce)
+                                    push_callee_range(ce);
+                            }
+                            visitExpr(e->callee);
+                        }
+                        for (auto* a : e->args)
+                            visitExpr(a);
+                        return;
+                    }
+                    case ast::ExprKind::TemplateInst: {
+                        auto* e = static_cast<ast::TemplateInstExpr const*>(expr);
+                        if (e->callee)
+                        {
+                            if (expr_decl_matches(session, expr, target))
+                            {
+                                auto* ce = e->callee;
+                                while (ce && ce->kind == ast::ExprKind::TemplateInst)
+                                    ce = static_cast<ast::TemplateInstExpr const*>(ce)->callee;
+
+                                if (ce)
+                                    push_callee_range(ce);
+                            }
+                            visitExpr(e->callee);
+                        }
+                        for (auto const& ta : e->template_args)
+                        {
+                            if (ta.type)
+                                visitTypeExpr(ta.type);
+                            if (ta.expr)
+                                visitExpr(ta.expr);
+                        }
+                        return;
+                    }
+                    case ast::ExprKind::FieldAccess: {
+                        auto* e = static_cast<ast::FieldAccessExpr const*>(expr);
+                        if (e->object)
+                            visitExpr(e->object);
+
+                        if (target.kind == SymbolKind::Field)
+                        {
+                            ast::Decl const* owner = nullptr;
+                            auto const* field = resolve_field_access(e, &owner);
+                            if (field && owner && target.owner_decl == owner)
+                            {
+                                auto id = field_symbol_id(field, owner);
+                                if (id == target.id)
+                                    out.push_back(e->field_range);
+                            }
+                        }
+                        else if (target.kind == SymbolKind::Declaration && expr_decl_matches(session, expr, target))
+                        {
+                            out.push_back(e->field_range);
+                        }
+                        return;
+                    }
+                    case ast::ExprKind::StructLiteral: {
+                        auto* e = static_cast<ast::StructLiteralExpr const*>(expr);
+                        if (e->type)
+                            visitTypeExpr(e->type);
+                        if (target.kind == SymbolKind::Field)
+                        {
+                            for (auto const& f : e->fields)
+                            {
+                                if (f.name_range.valid() && f.resolved_field_index == target.sub_index && f.name == target.name)
+                                {
+                                    ast::Decl const* owner = nullptr;
+                                    if (e->sema.resolved_decl)
+                                        owner = e->sema.resolved_decl;
+                                    else if (e->type)
+                                        owner = query_nominal_decl(sema::get_canonical(e->type->sema));
+
+                                    if (target.owner_decl == owner)
+                                        out.push_back(f.name_range);
+                                }
+                            }
+                        }
+                        for (auto const& f : e->fields)
+                            if (f.value)
+                                visitExpr(f.value);
+                        return;
+                    }
+                    case ast::ExprKind::Binary: {
+                        auto* e = static_cast<ast::BinaryExpr const*>(expr);
+                        if (e->lhs)
+                            visitExpr(e->lhs);
+                        if (e->rhs)
+                            visitExpr(e->rhs);
+                        return;
+                    }
+                    default:
+                        ast::RecursiveAstVisitor::visitExpr(expr);
+                        break;
+                }
+            }
+
+            void push_callee_range(ast::Expr const* ce)
+            {
+                if (ce->kind == ast::ExprKind::Ident)
+                    out.push_back(ce->range);
+                else if (ce->kind == ast::ExprKind::PathExpr)
+                {
+                    auto* pe = static_cast<ast::PathExpr const*>(ce);
+                    if (!pe->path.segments.empty())
+                        out.push_back(pe->path.segments.back().range);
+                }
+                else if (ce->kind == ast::ExprKind::FieldAccess)
+                {
+                    auto* fa = static_cast<ast::FieldAccessExpr const*>(ce);
+                    out.push_back(fa->field_range);
                 }
             }
         };
 
     } // anonymous namespace
 
-    std::vector<sm::SourceRange> find_references(session::CompilerSession const& session, ast::Decl const* target_decl)
+    std::vector<sm::SourceRange> find_symbol_references(session::CompilerSession const& session, ResolvedSymbol const& target, bool include_declaration)
     {
         std::vector<sm::SourceRange> ranges;
 
-        if (!target_decl)
+        if (!target.has_target())
         {
-            std::cerr << "[dcc.query] find_references: null target_decl" << std::endl;
             return ranges;
         }
 
         auto* sema_ctx = session.sema_context();
         if (!sema_ctx)
         {
-            std::cerr << "[dcc.query] find_references: no sema context" << std::endl;
             return ranges;
         }
 
@@ -1669,30 +2920,1433 @@ namespace dcc::query
             if (!mod || !mod->tu)
                 continue;
 
-            auto const* scope = mod->own_scope;
-            ReferenceCollector collector(ranges, target_decl, scope);
+            SymbolReferenceCollector collector(ranges, target, session);
             collector.visitTranslationUnit(mod->tu);
         }
 
-        std::ranges::sort(ranges, [](sm::SourceRange const& a, sm::SourceRange const& b) {
-            auto fid_a = static_cast<std::uint32_t>(a.begin.fileId);
-            auto fid_b = static_cast<std::uint32_t>(b.begin.fileId);
-            if (fid_a != fid_b)
-                return fid_a < fid_b;
-            if (a.begin.offset != b.begin.offset)
-                return a.begin.offset < b.begin.offset;
-            return a.end.offset < b.end.offset;
-        });
+        if (include_declaration)
+        {
+            if (target.definition_range.valid())
+                ranges.push_back(target.definition_range);
+        }
 
-        auto [first, last] = std::ranges::unique(ranges, [](sm::SourceRange const& a, sm::SourceRange const& b) {
-            return a.begin.fileId == b.begin.fileId && a.begin.offset == b.begin.offset && a.end.offset == b.end.offset;
-        });
-
-        ranges.erase(first, last);
-
-        std::cerr << "[dcc.query] find_references: found " << ranges.size() << " references" << '\n';
+        sort_dedup_ranges(ranges);
 
         return ranges;
+    }
+
+    namespace
+    {
+        struct ExtractionSink
+        {
+            std::vector<IndexedSymbolRecord>& symbols;
+            std::vector<ReferenceOccurrence>& references;
+
+            void add_reference(SymbolId target, sm::SourceRange range)
+            {
+                if (!target.valid() || !range.valid())
+                    return;
+                references.push_back(ReferenceOccurrence{target, range});
+            }
+        };
+
+        [[nodiscard]] ast::Decl const* bulk_resolved_decl(session::CompilerSession const& session, ast::Expr const* expr)
+        {
+            if (!expr)
+                return nullptr;
+
+            if (expr->sema.resolved_decl)
+                return expr->sema.resolved_decl;
+            if (expr->sema.ufcs_callee)
+                return static_cast<ast::Decl const*>(expr->sema.ufcs_callee);
+            if (expr->sema.resolved_specialization)
+                return static_cast<ast::Decl const*>(source_decl_of_spec(session, expr->sema.resolved_specialization));
+
+            return nullptr;
+        }
+
+        [[nodiscard]] bool bulk_is_synthetic_param(ast::FuncDecl const* current_func, ast::Expr const* expr)
+        {
+            return current_func && expr && expr->sema.resolved_decl && param_index_for_synthetic(current_func, expr->sema.resolved_decl).has_value();
+        }
+
+        void collect_variant_ids(ast::Decl const* decl, std::unordered_map<ast::EnumVariant const*, SymbolId>& out)
+        {
+            if (!decl)
+                return;
+
+            if (decl->kind == ast::DeclKind::Enum)
+            {
+                auto const* ed = static_cast<ast::EnumDecl const*>(decl);
+                for (auto const& v : ed->variants)
+                    out.emplace(&v, variant_symbol_id(&v, ed));
+            }
+            else if (decl->kind == ast::DeclKind::StaticIfGroup)
+            {
+                auto const* sg = static_cast<ast::StaticIfGroup const*>(decl);
+                for (auto* d : sg->then_decls)
+                    collect_variant_ids(d, out);
+            }
+        }
+
+        [[nodiscard]] SymbolId template_param_id_by_name(ast::Decl const* owner, std::string_view name)
+        {
+            if (!owner || name.empty())
+                return {};
+
+            auto index_of = [&](std::span<ast::TemplateParam const> params) -> SymbolId {
+                for (std::size_t i = 0; i < params.size(); ++i)
+                    if (params[i].name == name)
+                        return tparam_symbol_id(owner, &params[i]);
+                return {};
+            };
+
+            switch (owner->kind)
+            {
+                case ast::DeclKind::Func:
+                    return index_of(static_cast<ast::FuncDecl const*>(owner)->template_params);
+                case ast::DeclKind::Struct:
+                    return index_of(static_cast<ast::StructDecl const*>(owner)->template_params);
+                case ast::DeclKind::Enum:
+                    return index_of(static_cast<ast::EnumDecl const*>(owner)->template_params);
+                case ast::DeclKind::Using:
+                    return index_of(static_cast<ast::UsingDecl const*>(owner)->template_params);
+                default:
+                    return {};
+            }
+        }
+
+        struct BulkReferenceCollector : ast::RecursiveAstVisitor
+        {
+            ExtractionSink& sink;
+            session::CompilerSession const& session;
+            sema::Scope const* module_scope{nullptr};
+            ast::Decl const* current_template_decl{nullptr};
+            ast::FuncDecl const* current_func{nullptr};
+            std::unordered_map<ast::EnumVariant const*, SymbolId> const& variant_ids;
+
+            BulkReferenceCollector(ExtractionSink& s, session::CompilerSession const& sess, sema::Scope const* scope,
+                                   std::unordered_map<ast::EnumVariant const*, SymbolId> const& vids)
+                : sink{s}, session{sess}, module_scope{scope}, variant_ids{vids}
+            {
+            }
+
+            void visitDecl(ast::Decl const* decl) override
+            {
+                if (!decl)
+                    return;
+
+                auto* prev_tdecl = current_template_decl;
+                auto* prev_func = current_func;
+
+                bool has_tparams = false;
+                switch (decl->kind)
+                {
+                    case ast::DeclKind::Func:
+                        has_tparams = !static_cast<ast::FuncDecl const*>(decl)->template_params.empty();
+                        break;
+                    case ast::DeclKind::Struct:
+                        has_tparams = !static_cast<ast::StructDecl const*>(decl)->template_params.empty();
+                        break;
+                    case ast::DeclKind::Enum:
+                        has_tparams = !static_cast<ast::EnumDecl const*>(decl)->template_params.empty();
+                        break;
+                    case ast::DeclKind::Using:
+                        has_tparams = !static_cast<ast::UsingDecl const*>(decl)->template_params.empty();
+                        break;
+                    default:
+                        break;
+                }
+                if (has_tparams)
+                    current_template_decl = decl;
+                if (decl->kind == ast::DeclKind::Func)
+                    current_func = static_cast<ast::FuncDecl const*>(decl);
+
+                ast::RecursiveAstVisitor::visitDecl(decl);
+
+                current_template_decl = prev_tdecl;
+                current_func = prev_func;
+            }
+
+            void visitPattern(ast::Pattern const* pat) override
+            {
+                if (!pat)
+                    return;
+
+                switch (pat->kind)
+                {
+                    case ast::PatternKind::EnumDestructure: {
+                        auto const* p = static_cast<ast::EnumDestructurePattern const*>(pat);
+                        if (p->resolved_variant && !p->variant_path.segments.empty())
+                        {
+                            auto it = variant_ids.find(p->resolved_variant);
+                            if (it != variant_ids.end())
+                                sink.add_reference(it->second, p->variant_path.segments.back().range);
+                        }
+                        break;
+                    }
+                    case ast::PatternKind::StructDestructure: {
+                        auto const* p = static_cast<ast::StructDestructurePattern const*>(pat);
+                        if (module_scope && !p->type_path.is_empty())
+                        {
+                            auto const* sym = sema::resolve_type_path(*module_scope, p->type_path);
+                            ast::Decl const* owner = sym ? sym->decl : nullptr;
+                            if (owner && owner->kind != ast::DeclKind::Struct && owner->kind != ast::DeclKind::Union)
+                                owner = nullptr;
+
+                            if (owner)
+                            {
+                                auto add_fields = [&](auto const* fields) {
+                                    for (auto const& f : p->fields)
+                                    {
+                                        if (!f.range.valid() || f.resolved_field_index >= fields->size())
+                                            continue;
+                                        auto const& fd = (*fields)[f.resolved_field_index];
+                                        if (fd.name == f.field_name)
+                                            sink.add_reference(field_symbol_id(&fd, owner), f.range);
+                                    }
+                                };
+                                if (auto const* sd = ast::node_cast<ast::StructDecl>(owner))
+                                    add_fields(&sd->fields);
+                                else if (auto const* ud = ast::node_cast<ast::UnionDecl>(owner))
+                                    add_fields(&ud->fields);
+                            }
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+
+                ast::RecursiveAstVisitor::visitPattern(pat);
+            }
+
+            void visitTypeExpr(ast::TypeExpr const* type_expr) override
+            {
+                if (!type_expr)
+                    return;
+
+                if (type_expr->kind == ast::TypeKind::Named)
+                {
+                    auto* t = static_cast<ast::NamedType const*>(type_expr);
+
+                    if (current_template_decl && !t->path.is_empty() && t->path.is_simple())
+                    {
+                        auto tp_id = template_param_id_by_name(current_template_decl, t->path.simple_name());
+                        if (tp_id.valid() && !t->path.segments.empty())
+                            sink.add_reference(tp_id, t->path.segments.back().range);
+                    }
+
+                    if (t->sema.resolved_decl && !t->path.segments.empty())
+                        sink.add_reference(decl_symbol_id(t->sema.resolved_decl, SymbolKind::Declaration), t->path.segments.back().range);
+
+                    for (auto const& ta : t->template_args)
+                    {
+                        if (ta.type)
+                            visitTypeExpr(ta.type);
+                        if (ta.expr)
+                            visitExpr(ta.expr);
+                    }
+                    return;
+                }
+
+                ast::RecursiveAstVisitor::visitTypeExpr(type_expr);
+            }
+
+            void visitExpr(ast::Expr const* expr) override
+            {
+                if (!expr)
+                    return;
+
+                switch (expr->kind)
+                {
+                    case ast::ExprKind::Ident: {
+                        auto const* id = static_cast<ast::IdentExpr const*>(expr);
+
+                        if (!bulk_is_synthetic_param(current_func, expr))
+                        {
+                            if (auto const* d = bulk_resolved_decl(session, expr))
+                                sink.add_reference(decl_symbol_id(d, SymbolKind::Declaration), expr->range);
+                        }
+
+                        if (current_func && expr->sema.resolved_decl)
+                        {
+                            if (auto idx = param_index_for_synthetic(current_func, expr->sema.resolved_decl))
+                                sink.add_reference(param_symbol_id(current_func, *idx), expr->range);
+                        }
+
+                        if (current_template_decl)
+                        {
+                            auto tp_id = template_param_id_by_name(current_template_decl, id->name);
+                            if (tp_id.valid())
+                                sink.add_reference(tp_id, expr->range);
+                        }
+                        break;
+                    }
+                    case ast::ExprKind::PathExpr: {
+                        auto* e = static_cast<ast::PathExpr const*>(expr);
+
+                        if (e->sema.constructed_variant && !e->path.segments.empty())
+                        {
+                            auto it = variant_ids.find(e->sema.constructed_variant);
+                            if (it != variant_ids.end())
+                                sink.add_reference(it->second, e->path.segments.back().range);
+                        }
+
+                        if (!bulk_is_synthetic_param(current_func, expr))
+                        {
+                            if (auto const* d = bulk_resolved_decl(session, expr))
+                                if (!e->path.segments.empty())
+                                    sink.add_reference(decl_symbol_id(d, SymbolKind::Declaration), e->path.segments.back().range);
+                        }
+
+                        for (auto const& ta : e->explicit_enum_args)
+                        {
+                            if (ta.type)
+                                visitTypeExpr(ta.type);
+                            if (ta.expr)
+                                visitExpr(ta.expr);
+                        }
+                        return;
+                    }
+                    case ast::ExprKind::Call: {
+                        auto* e = static_cast<ast::CallExpr const*>(expr);
+                        if (e->callee)
+                        {
+                            if (!bulk_is_synthetic_param(current_func, expr))
+                            {
+                                if (auto const* d = bulk_resolved_decl(session, expr))
+                                {
+                                    auto* ce = e->callee;
+                                    while (ce && ce->kind == ast::ExprKind::TemplateInst)
+                                        ce = static_cast<ast::TemplateInstExpr const*>(ce)->callee;
+
+                                    if (ce)
+                                        push_callee_range(ce, d);
+                                }
+                            }
+                            visitExpr(e->callee);
+                        }
+                        for (auto* a : e->args)
+                            visitExpr(a);
+                        return;
+                    }
+                    case ast::ExprKind::TemplateInst: {
+                        auto* e = static_cast<ast::TemplateInstExpr const*>(expr);
+                        if (e->callee)
+                        {
+                            if (!bulk_is_synthetic_param(current_func, expr))
+                            {
+                                if (auto const* d = bulk_resolved_decl(session, expr))
+                                {
+                                    auto* ce = e->callee;
+                                    while (ce && ce->kind == ast::ExprKind::TemplateInst)
+                                        ce = static_cast<ast::TemplateInstExpr const*>(ce)->callee;
+
+                                    if (ce)
+                                        push_callee_range(ce, d);
+                                }
+                            }
+                            visitExpr(e->callee);
+                        }
+                        for (auto const& ta : e->template_args)
+                        {
+                            if (ta.type)
+                                visitTypeExpr(ta.type);
+                            if (ta.expr)
+                                visitExpr(ta.expr);
+                        }
+                        return;
+                    }
+                    case ast::ExprKind::FieldAccess: {
+                        auto* e = static_cast<ast::FieldAccessExpr const*>(expr);
+                        if (e->object)
+                            visitExpr(e->object);
+
+                        ast::Decl const* owner = nullptr;
+                        auto const* field = resolve_field_access(e, &owner);
+                        if (field && owner)
+                            sink.add_reference(field_symbol_id(field, owner), e->field_range);
+
+                        if (!bulk_is_synthetic_param(current_func, expr))
+                        {
+                            if (auto const* d = bulk_resolved_decl(session, expr))
+                                sink.add_reference(decl_symbol_id(d, SymbolKind::Declaration), e->field_range);
+                        }
+                        return;
+                    }
+                    case ast::ExprKind::StructLiteral: {
+                        auto* e = static_cast<ast::StructLiteralExpr const*>(expr);
+                        if (e->type)
+                            visitTypeExpr(e->type);
+
+                        ast::Decl const* owner = e->sema.resolved_decl;
+                        if (!owner && e->type)
+                            owner = query_nominal_decl(sema::get_canonical(e->type->sema));
+
+                        if (owner)
+                        {
+                            auto add_fields = [&](auto const* fields) {
+                                for (auto const& f : e->fields)
+                                {
+                                    if (!f.name_range.valid() || f.resolved_field_index >= fields->size())
+                                        continue;
+                                    auto const& fd = (*fields)[f.resolved_field_index];
+                                    if (fd.name == f.name)
+                                        sink.add_reference(field_symbol_id(&fd, owner), f.name_range);
+                                }
+                            };
+                            if (auto const* sd = ast::node_cast<ast::StructDecl>(owner))
+                                add_fields(&sd->fields);
+                            else if (auto const* ud = ast::node_cast<ast::UnionDecl>(owner))
+                                add_fields(&ud->fields);
+                        }
+
+                        for (auto const& f : e->fields)
+                            if (f.value)
+                                visitExpr(f.value);
+                        return;
+                    }
+                    case ast::ExprKind::Binary: {
+                        auto* e = static_cast<ast::BinaryExpr const*>(expr);
+                        if (e->lhs)
+                            visitExpr(e->lhs);
+                        if (e->rhs)
+                            visitExpr(e->rhs);
+                        return;
+                    }
+                    default:
+                        ast::RecursiveAstVisitor::visitExpr(expr);
+                        break;
+                }
+            }
+
+            void push_callee_range(ast::Expr const* ce, ast::Decl const* d)
+            {
+                auto id = decl_symbol_id(d, SymbolKind::Declaration);
+                if (ce->kind == ast::ExprKind::Ident)
+                    sink.add_reference(id, ce->range);
+                else if (ce->kind == ast::ExprKind::PathExpr)
+                {
+                    auto* pe = static_cast<ast::PathExpr const*>(ce);
+                    if (!pe->path.segments.empty())
+                        sink.add_reference(id, pe->path.segments.back().range);
+                }
+                else if (ce->kind == ast::ExprKind::FieldAccess)
+                {
+                    auto* fa = static_cast<ast::FieldAccessExpr const*>(ce);
+                    sink.add_reference(id, fa->field_range);
+                }
+            }
+        };
+
+        void add_decl_record(ast::Decl const* d, std::string_view container, std::string_view module_path, std::vector<IndexedSymbolRecord>& out)
+        {
+            auto name = decl_name_of(d);
+            if (name.empty())
+                return;
+
+            auto nr = decl_name_range(d);
+            if (!nr.valid())
+                nr = d->range;
+
+            IndexedSymbolRecord rec;
+            rec.kind = (d->kind == ast::DeclKind::Using) ? SymbolKind::UsingAlias : SymbolKind::Declaration;
+            rec.id = decl_symbol_id(d, rec.kind);
+            rec.name = std::string{name};
+            rec.name_range = nr;
+            rec.definition_range = nr;
+            rec.container = std::string{container};
+            rec.module_path = std::string{module_path};
+            rec.decl_kind = static_cast<std::uint8_t>(d->kind);
+            rec.is_renameable = is_legal_identifier(name) && rec.kind != SymbolKind::UsingAlias;
+            out.push_back(std::move(rec));
+        }
+
+        void add_field_record(ast::FieldDecl const& f, ast::Decl const* owner, std::string_view container, std::string_view module_path,
+                              std::vector<IndexedSymbolRecord>& out)
+        {
+            if (f.name.empty())
+                return;
+
+            auto nr = field_name_range(&f);
+            if (!nr.valid())
+                return;
+
+            IndexedSymbolRecord rec;
+            rec.kind = SymbolKind::Field;
+            rec.id = field_symbol_id(&f, owner);
+            rec.name = std::string{f.name};
+            rec.name_range = nr;
+            rec.definition_range = nr;
+            rec.container = std::string{container};
+            rec.module_path = std::string{module_path};
+            rec.is_renameable = is_legal_identifier(f.name);
+            out.push_back(std::move(rec));
+        }
+
+        void add_variant_record(ast::EnumVariant const& v, ast::EnumDecl const* owner, std::string_view container, std::string_view module_path,
+                                std::vector<IndexedSymbolRecord>& out)
+        {
+            if (v.name.empty())
+                return;
+
+            auto nr = enum_variant_name_range(v);
+            if (!nr.valid())
+                return;
+
+            IndexedSymbolRecord rec;
+            rec.kind = SymbolKind::EnumVariant;
+            rec.id = variant_symbol_id(&v, owner);
+            rec.name = std::string{v.name};
+            rec.name_range = nr;
+            rec.definition_range = nr;
+            rec.container = std::string{container};
+            rec.module_path = std::string{module_path};
+            rec.is_renameable = is_legal_identifier(v.name);
+            out.push_back(std::move(rec));
+        }
+
+        void collect_module_symbols(ast::TranslationUnit const* tu, std::string_view module_path, std::vector<IndexedSymbolRecord>& out)
+        {
+            for (auto* d : tu->decls)
+            {
+                if (!d)
+                    continue;
+
+                switch (d->kind)
+                {
+                    case ast::DeclKind::Struct:
+                    case ast::DeclKind::Union:
+                    case ast::DeclKind::Enum:
+                    case ast::DeclKind::Func:
+                    case ast::DeclKind::Var:
+                    case ast::DeclKind::Using: {
+                        auto decl_name = decl_name_of(d);
+                        add_decl_record(d, module_path, module_path, out);
+                        (void)decl_name;
+
+                        if (d->kind == ast::DeclKind::Struct || d->kind == ast::DeclKind::Union)
+                        {
+                            auto add_fields = [&](auto const* fields) {
+                                for (auto const& f : *fields)
+                                    add_field_record(f, d, decl_name, module_path, out);
+                            };
+                            if (auto const* sd = ast::node_cast<ast::StructDecl>(d))
+                                add_fields(&sd->fields);
+                            else if (auto const* ud = ast::node_cast<ast::UnionDecl>(d))
+                                add_fields(&ud->fields);
+                        }
+                        else if (d->kind == ast::DeclKind::Enum)
+                        {
+                            auto const* ed = static_cast<ast::EnumDecl const*>(d);
+                            for (auto const& v : ed->variants)
+                                add_variant_record(v, ed, decl_name, module_path, out);
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+        }
+
+        [[nodiscard]] std::string module_display_name(sema::ModuleInfo const& mod)
+        {
+            if (mod.tu && mod.tu->module_decl)
+            {
+                auto const* md = static_cast<ast::ModuleDecl const*>(mod.tu->module_decl);
+                std::string s;
+                for (std::size_t i = 0; i < md->module_path.segments.size(); ++i)
+                {
+                    if (i > 0)
+                        s += "::";
+                    s += md->module_path.segments[i].name;
+                }
+                if (!s.empty())
+                    return s;
+            }
+            return mod.canonical_path.str();
+        }
+
+    } // anonymous namespace
+
+    WorkspaceExtraction extract_workspace(session::CompilerSession const& session, std::unordered_map<std::string, std::uint64_t> const& skip_revisions)
+    {
+        WorkspaceExtraction out;
+
+        auto* sema_ctx = const_cast<sema::SemaContext*>(session.sema_context());
+        if (!sema_ctx)
+            return out;
+
+        auto& graph = const_cast<sema::SemaContext*>(sema_ctx)->graph();
+        auto& sm = const_cast<sm::SourceManager&>(session.source_manager());
+
+        std::unordered_map<ast::EnumVariant const*, SymbolId> variant_ids;
+        for (auto const& mod : graph.all())
+            if (mod && mod->tu)
+                for (auto* d : mod->tu->decls)
+                    collect_variant_ids(d, variant_ids);
+
+        for (auto const& mod : graph.all())
+        {
+            if (!mod)
+                continue;
+
+            ExtractedModule em;
+            em.canonical_path = mod->canonical_path.str();
+            em.file_path = mod->file_path.string();
+            em.file_id = mod->file_id;
+            em.content_revision = sm.content_revision(mod->file_id);
+
+            for (auto const& binding : mod->imports)
+                if (binding.target)
+                    em.imports.push_back(binding.target->canonical_path.str());
+
+            auto skip_it = skip_revisions.find(em.canonical_path);
+            if (skip_it != skip_revisions.end() && skip_it->second == em.content_revision)
+            {
+                em.skipped = true;
+                out.modules.push_back(std::move(em));
+                continue;
+            }
+
+            if (mod->tu)
+            {
+                auto container = module_display_name(*mod);
+                ExtractionSink sink{em.symbols, em.references};
+                BulkReferenceCollector collector{sink, session, mod->own_scope, variant_ids};
+                collector.visitTranslationUnit(mod->tu);
+
+                collect_module_symbols(mod->tu, container, em.symbols);
+
+                std::ranges::sort(em.references, [](ReferenceOccurrence const& a, ReferenceOccurrence const& b) {
+                    auto fa = static_cast<std::uint32_t>(a.target.file);
+                    auto fb = static_cast<std::uint32_t>(b.target.file);
+                    if (fa != fb)
+                        return fa < fb;
+                    if (a.target.name_offset != b.target.name_offset)
+                        return a.target.name_offset < b.target.name_offset;
+                    return range_less(a.range, b.range);
+                });
+                auto [first, last] = std::ranges::unique(em.references, [](ReferenceOccurrence const& a, ReferenceOccurrence const& b) {
+                    return a.target == b.target && range_equal(a.range, b.range);
+                });
+                em.references.erase(first, last);
+            }
+
+            out.modules.push_back(std::move(em));
+        }
+
+        return out;
+    }
+
+    std::vector<IndexedSymbolRecord> extract_file_symbols(session::CompilerSession& session, sm::FileId file)
+    {
+        std::vector<IndexedSymbolRecord> out;
+
+        auto const* sf = session.source_manager().get(file);
+        if (!sf)
+            return out;
+
+        auto* tu = session.parse_file(file);
+        if (!tu)
+            return out;
+
+        std::string container;
+        if (tu->module_decl)
+        {
+            auto const* md = static_cast<ast::ModuleDecl const*>(tu->module_decl);
+            for (std::size_t i = 0; i < md->module_path.segments.size(); ++i)
+            {
+                if (i > 0)
+                    container += "::";
+                container += md->module_path.segments[i].name;
+            }
+        }
+        if (container.empty())
+            container = sf->path().filename().string();
+
+        collect_module_symbols(tu, container, out);
+        return out;
+    }
+
+    sm::SourceRange symbol_name_range(ResolvedSymbol const& symbol) noexcept
+    {
+        return symbol.name_range;
+    }
+
+    bool can_rename_symbol(ResolvedSymbol const& symbol) noexcept
+    {
+        if (!symbol.is_renameable())
+            return false;
+
+        return is_legal_identifier(symbol.name);
+    }
+
+    std::string symbol_display_name(ResolvedSymbol const& symbol)
+    {
+        switch (symbol.kind)
+        {
+            case SymbolKind::Field: {
+                auto const* fd = symbol_field_of(symbol);
+                if (!fd)
+                    return std::string{symbol.name};
+                if (fd->type && fd->type->sema.canonical)
+                    return std::format("{} {}", sema::format_dcc_type(sema::get_canonical(fd->type->sema)), fd->name);
+                return std::string{fd->name};
+            }
+            case SymbolKind::FuncParam: {
+                auto const* fd =
+                    symbol.owner_decl && symbol.owner_decl->kind == ast::DeclKind::Func ? static_cast<ast::FuncDecl const*>(symbol.owner_decl) : nullptr;
+                if (!fd || symbol.sub_index >= fd->params.size())
+                    return std::string{symbol.name};
+                auto const& p = fd->params[symbol.sub_index];
+                if (p.type && p.type->sema.canonical)
+                    return std::format("{} {}", sema::format_dcc_type(sema::get_canonical(p.type->sema)), p.name);
+                if (p.name.empty())
+                    return "<unresolved>";
+                return std::string{p.name};
+            }
+            case SymbolKind::TemplateParam:
+                return std::format("template parameter {}", symbol.name.empty() ? std::string_view{"<unnamed>"} : symbol.name);
+            case SymbolKind::EnumVariant: {
+                std::string_view enum_name = "<enum>";
+                if (symbol.owner_decl && symbol.owner_decl->kind == ast::DeclKind::Enum)
+                    enum_name = static_cast<ast::EnumDecl const*>(symbol.owner_decl)->name;
+                return std::format("{}::{}", enum_name, symbol.name);
+            }
+            case SymbolKind::UsingAlias: {
+                auto const* ud = symbol.decl ? ast::node_cast<ast::UsingDecl>(symbol.decl) : nullptr;
+                if (!ud)
+                    return std::string{symbol.name};
+                std::string target;
+                if (ud->target_type && ud->target_type->sema.canonical)
+                    target = sema::format_dcc_type(sema::get_canonical(ud->target_type->sema));
+                else if (!ud->target_path.is_empty())
+                {
+                    for (std::size_t i = 0; i < ud->target_path.segments.size(); ++i)
+                    {
+                        if (i > 0)
+                            target += "::";
+                        target += ud->target_path.segments[i].name;
+                    }
+                }
+                else
+                    target = "<unknown>";
+                return std::format("using {} = {}", symbol.name, target);
+            }
+            case SymbolKind::Module:
+            case SymbolKind::ImportAlias:
+                return std::format("module {}", symbol.name);
+            case SymbolKind::Declaration:
+                break;
+            default:
+                return std::string{symbol.name};
+        }
+
+        auto const* target = symbol.decl;
+        if (!target)
+            return std::string{symbol.name};
+
+        switch (target->kind)
+        {
+            case ast::DeclKind::Func: {
+                auto const* fd = static_cast<ast::FuncDecl const*>(target);
+                std::string ret = "void";
+                if (fd->return_type && fd->return_type->sema.canonical)
+                    ret = sema::format_dcc_type(sema::get_canonical(fd->return_type->sema));
+                std::string sig = std::format("{} {}(", ret, fd->name);
+                for (std::size_t i = 0; i < fd->params.size(); ++i)
+                {
+                    if (i > 0)
+                        sig += ", ";
+                    if (fd->params[i].type && fd->params[i].type->sema.canonical)
+                        sig += std::format("{} {}", sema::format_dcc_type(sema::get_canonical(fd->params[i].type->sema)), fd->params[i].name);
+                    else if (!fd->params[i].name.empty())
+                        sig += fd->params[i].name;
+                }
+                sig += ")";
+                return sig;
+            }
+            case ast::DeclKind::Var: {
+                auto const* vd = static_cast<ast::VarDecl const*>(target);
+                if (vd->type && vd->type->sema.canonical)
+                    return std::format("{} {}", sema::format_dcc_type(sema::get_canonical(vd->type->sema)), vd->name);
+                return std::string{vd->name};
+            }
+            case ast::DeclKind::Struct:
+                return std::format("struct {}", static_cast<ast::StructDecl const*>(target)->name);
+            case ast::DeclKind::Union:
+                return std::format("union {}", static_cast<ast::UnionDecl const*>(target)->name);
+            case ast::DeclKind::Enum:
+                return std::format("enum {}", static_cast<ast::EnumDecl const*>(target)->name);
+            default:
+                return std::string{symbol.name};
+        }
+    }
+
+    namespace
+    {
+        struct LocalCollector
+        {
+            session::CompilerSession const& session;
+            sm::Location target;
+            LocalContext& out;
+            std::uint32_t enclosing_block_depth{0};
+
+            [[nodiscard]] bool contains(sm::SourceRange const& range) const noexcept
+            {
+                if (!range.valid())
+                    return false;
+
+                if (range.begin.fileId != target.fileId)
+                    return false;
+
+                return range.begin.offset <= target.offset && target.offset <= range.end.offset;
+            }
+
+            void run()
+            {
+                auto* sema_ctx = const_cast<sema::SemaContext*>(session.sema_context());
+                if (!sema_ctx)
+                    return;
+
+                auto& graph = const_cast<sema::SemaContext*>(sema_ctx)->graph();
+                for (auto const& mod : graph.all())
+                    if (mod->file_id == target.fileId)
+                    {
+                        out.module = mod.get();
+                        break;
+                    }
+
+                if (!out.module || !out.module->tu)
+                    return;
+
+                out.scope = out.module->own_scope;
+
+                ast::FuncDecl const* enclosing = nullptr;
+                std::size_t enclosing_len = 0;
+                for (auto* d : out.module->tu->decls)
+                    consider_decl(d, enclosing, enclosing_len);
+
+                if (enclosing)
+                {
+                    out.enclosing_decl = enclosing;
+                    out.enclosing_func = enclosing;
+                    add_params(enclosing);
+                    if (enclosing->body.has_value())
+                        visit_block(*enclosing->body, 0);
+                }
+
+                std::ranges::stable_sort(out.locals, [](LocalSymbolInfo const& a, LocalSymbolInfo const& b) {
+                    if (a.depth != b.depth)
+                        return a.depth > b.depth;
+                    return a.name_offset > b.name_offset;
+                });
+            }
+
+            void consider_decl(ast::Decl const* decl, ast::FuncDecl const*& enclosing, std::size_t& enclosing_len)
+            {
+                if (!decl)
+                    return;
+
+                if (decl->kind == ast::DeclKind::Func)
+                {
+                    auto const* fd = static_cast<ast::FuncDecl const*>(decl);
+                    if (fd->body.has_value() && contains(fd->body->range))
+                    {
+                        auto len = static_cast<std::size_t>(fd->body->range.end.offset - fd->body->range.begin.offset);
+                        if (!enclosing || len < enclosing_len)
+                        {
+                            enclosing = fd;
+                            enclosing_len = len;
+                        }
+                    }
+                }
+                else if (decl->kind == ast::DeclKind::StaticIfGroup)
+                {
+                    auto const* sg = static_cast<ast::StaticIfGroup const*>(decl);
+                    for (auto* d : sg->then_decls)
+                        consider_decl(d, enclosing, enclosing_len);
+                    if (sg->else_group)
+                        consider_decl(sg->else_group, enclosing, enclosing_len);
+                }
+            }
+
+            void add_local(std::string_view name, LocalSymbolKind kind, std::uint32_t depth, sm::Offset name_offset, types::Type const* ty,
+                           ast::VarDecl const* vd = nullptr, ast::FuncDecl const* param_owner = nullptr, std::uint32_t param_index = 0, bool is_pack = false)
+            {
+                if (name.empty())
+                    return;
+
+                LocalSymbolInfo li;
+                li.name = name;
+                li.kind = kind;
+                li.depth = depth;
+                li.var_decl = vd;
+                li.param_owner = param_owner;
+                li.param_index = param_index;
+                li.type = ty;
+                li.name_offset = name_offset;
+                li.is_pack = is_pack;
+                out.locals.push_back(std::move(li));
+            }
+
+            void add_var(ast::VarDecl const* vd, std::uint32_t depth)
+            {
+                types::Type const* ty = nullptr;
+                if (vd->type && vd->type->sema.canonical)
+                    ty = sema::get_canonical(vd->type->sema);
+                else if (vd->init && vd->init->sema.resolved_type)
+                    ty = sema::get_resolved_type(vd->init->sema);
+
+                auto name_offset = vd->name_range.valid() ? vd->name_range.begin.offset : vd->range.begin.offset;
+                add_local(vd->name, LocalSymbolKind::Variable, depth, name_offset, ty, vd);
+            }
+
+            void add_params(ast::FuncDecl const* fd)
+            {
+                for (std::size_t i = 0; i < fd->params.size(); ++i)
+                {
+                    auto const& p = fd->params[i];
+                    if (p.name.empty())
+                        continue;
+
+                    types::Type const* ty = nullptr;
+                    if (p.type && p.type->sema.canonical)
+                        ty = sema::get_canonical(p.type->sema);
+
+                    sm::Offset name_offset = 0;
+                    if (p.range.valid() && p.range.end.offset > static_cast<sm::Offset>(p.name.size()))
+                        name_offset = p.range.end.offset - static_cast<sm::Offset>(p.name.size());
+                    else if (p.range.valid())
+                        name_offset = p.range.begin.offset;
+
+                    add_local(p.name, LocalSymbolKind::Parameter, 0, name_offset, ty, nullptr, fd, static_cast<std::uint32_t>(i), p.is_pack);
+                }
+
+                for (auto const& tp : fd->template_params)
+                {
+                    if (tp.name.empty())
+                        continue;
+
+                    add_local(tp.name, LocalSymbolKind::TemplateParam, 0, tp.range.valid() ? tp.range.begin.offset : 0, nullptr, nullptr, fd, 0, tp.is_pack);
+                }
+            }
+
+            void visit_block(ast::Block const& block, std::uint32_t depth)
+            {
+                if (!contains(block.range))
+                    return;
+
+                if (!out.enclosing_block || depth > enclosing_block_depth)
+                {
+                    out.enclosing_block = &block;
+                    enclosing_block_depth = depth;
+                }
+
+                for (auto* s : block.stmts)
+                    visit_stmt(s, depth);
+                if (block.tail)
+                    visit_expr_locals(block.tail, depth);
+            }
+
+            void visit_stmt(ast::Stmt const* stmt, std::uint32_t depth)
+            {
+                if (!stmt)
+                    return;
+
+                using ast::StmtKind;
+                switch (stmt->kind)
+                {
+                    case StmtKind::DeclStmt: {
+                        auto const* ds = static_cast<ast::DeclStmt const*>(stmt);
+                        if (ds->decl && ds->decl->kind == ast::DeclKind::Var)
+                        {
+                            auto const* vd = static_cast<ast::VarDecl const*>(ds->decl);
+                            if (!vd->name.empty() && (!vd->name_range.valid() || vd->name_range.begin.offset < target.offset))
+                                add_var(vd, depth);
+                        }
+                        break;
+                    }
+                    case StmtKind::Expr: {
+                        auto const* s = static_cast<ast::ExprStmt const*>(stmt);
+                        if (s->expr)
+                            visit_expr_locals(s->expr, depth);
+                        break;
+                    }
+                    case StmtKind::While: {
+                        auto const* s = static_cast<ast::WhileStmt const*>(stmt);
+                        visit_block(s->body, depth + 1);
+                        break;
+                    }
+                    case StmtKind::DoWhile: {
+                        auto const* s = static_cast<ast::DoWhileStmt const*>(stmt);
+                        visit_block(s->body, depth + 1);
+                        break;
+                    }
+                    case StmtKind::For: {
+                        auto const* s = static_cast<ast::ForStmt const*>(stmt);
+                        if (s->init)
+                            visit_stmt(s->init, depth);
+                        visit_block(s->body, depth + 1);
+                        break;
+                    }
+                    case StmtKind::ForIn: {
+                        auto const* s = static_cast<ast::ForInStmt const*>(stmt);
+                        if (!s->item_name.empty())
+                        {
+                            auto name_offset = s->name_range.valid() ? s->name_range.begin.offset : s->range.begin.offset;
+                            add_local(s->item_name, LocalSymbolKind::Variable, depth + 1, name_offset,
+                                      reinterpret_cast<types::Type const*>(s->resolved_item_type));
+                        }
+                        visit_block(s->body, depth + 1);
+                        break;
+                    }
+                    case StmtKind::Defer: {
+                        auto const* s = static_cast<ast::DeferStmt const*>(stmt);
+                        if (s->body)
+                            visit_stmt(s->body, depth);
+                        break;
+                    }
+                    case StmtKind::StaticIf: {
+                        auto const* s = static_cast<ast::StaticIfStmt const*>(stmt);
+                        visit_block(s->then_block, depth + 1);
+                        if (s->else_branch)
+                            visit_stmt(s->else_branch, depth);
+                        break;
+                    }
+                    case StmtKind::StaticMatch: {
+                        auto const* s = static_cast<ast::StaticMatchStmt const*>(stmt);
+                        for (auto const& arm : s->arms)
+                            if (arm.body)
+                                visit_expr_locals(arm.body, depth);
+                        break;
+                    }
+                    case StmtKind::Ambiguous: {
+                        auto const* s = static_cast<ast::AmbiguousStmt const*>(stmt);
+                        if (s->as_decl && s->as_decl->kind == ast::DeclKind::Var)
+                        {
+                            auto const* vd = static_cast<ast::VarDecl const*>(s->as_decl);
+                            if (!vd->name.empty() && (!vd->name_range.valid() || vd->name_range.begin.offset < target.offset))
+                                add_var(vd, depth);
+                        }
+                        break;
+                    }
+                    default:
+                        break;
+                }
+            }
+
+            void visit_expr_locals(ast::Expr const* expr, std::uint32_t depth)
+            {
+                if (!expr)
+                    return;
+
+                using ast::ExprKind;
+                if (expr->kind == ExprKind::Block)
+                {
+                    auto const* b = static_cast<ast::BlockExpr const*>(expr);
+                    visit_block(b->body, depth + 1);
+                }
+                else if (expr->kind == ExprKind::If)
+                {
+                    auto const* e = static_cast<ast::IfExpr const*>(expr);
+                    visit_block(e->then_block, depth + 1);
+                    if (e->else_branch)
+                        visit_expr_locals(e->else_branch, depth);
+                }
+                else if (expr->kind == ExprKind::Match)
+                {
+                    auto const* e = static_cast<ast::MatchExpr const*>(expr);
+                    for (auto const& arm : e->arms)
+                        if (arm.body)
+                            visit_expr_locals(arm.body, depth);
+                }
+            }
+        };
+
+    } // anonymous namespace
+
+    LocalContext collect_local_context(session::CompilerSession const& session, sm::FileId file, sm::Location location)
+    {
+        LocalContext out;
+        out.location = location;
+
+        auto const* sf = session.source_manager().get(file);
+        if (!sf)
+            return out;
+
+        LocalCollector collector{session, location, out};
+        collector.run();
+        return out;
+    }
+
+    namespace
+    {
+        [[nodiscard]] std::vector<lex::Token> lex_up_to(lex::Lexer& lexer, std::uint32_t cursor)
+        {
+            std::vector<lex::Token> out;
+            for (;;)
+            {
+                auto tok = lexer.next();
+                if (tok.kind == lex::TokenKind::Eof)
+                    break;
+                if (tok.range.begin.offset >= cursor)
+                    break;
+                out.push_back(tok);
+                if (tok.range.end.offset >= cursor)
+                    break;
+            }
+            return out;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> find_call_open_paren(std::vector<lex::Token> const& tokens, ast::CallExpr const* call,
+                                                                      std::uint32_t callee_end)
+        {
+            std::uint32_t upper = static_cast<std::uint32_t>(call->range.end.offset);
+            if (!call->args.empty() && call->args.front())
+            {
+                auto first_arg_begin = static_cast<std::uint32_t>(call->args.front()->range.begin.offset);
+                upper = std::min(first_arg_begin, upper);
+            }
+
+            std::optional<std::size_t> result;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+            {
+                if (tokens[i].kind == lex::TokenKind::LParen && tokens[i].range.begin.offset >= callee_end && tokens[i].range.begin.offset < upper)
+                    result = i;
+            }
+            return result;
+        }
+
+        [[nodiscard]] std::optional<std::size_t> innermost_open_paren(std::vector<lex::Token> const& tokens)
+        {
+            std::vector<std::size_t> stack;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+            {
+                if (tokens[i].kind == lex::TokenKind::LParen)
+                    stack.push_back(i);
+                else if (tokens[i].kind == lex::TokenKind::RParen)
+                {
+                    if (!stack.empty())
+                        stack.pop_back();
+                }
+            }
+            if (stack.empty())
+                return std::nullopt;
+            return stack.back();
+        }
+
+        struct TokenCallee
+        {
+            std::string name;
+            bool ufcs{false};
+            bool found{false};
+        };
+
+        [[nodiscard]] TokenCallee callee_from_tokens(std::vector<lex::Token> const& tokens, std::size_t open_paren_index)
+        {
+            TokenCallee out;
+            if (open_paren_index == 0)
+                return out;
+
+            std::size_t i = open_paren_index - 1;
+            auto const& prev = tokens[i];
+
+            if (prev.kind == lex::TokenKind::Identifier)
+            {
+                out.name = std::string{prev.interned};
+                out.found = true;
+                if (i >= 1 && tokens[i - 1].kind == lex::TokenKind::Dot)
+                    out.ufcs = true;
+                return out;
+            }
+
+            if (prev.kind == lex::TokenKind::RParen)
+            {
+                int depth = 0;
+                std::size_t j = i;
+                for (;;)
+                {
+                    if (tokens[j].kind == lex::TokenKind::RParen)
+                        ++depth;
+                    else if (tokens[j].kind == lex::TokenKind::LParen)
+                    {
+                        if (--depth <= 0)
+                            break;
+                    }
+                    if (j == 0)
+                        return out;
+                    --j;
+                }
+                if (j >= 2 && tokens[j - 1].kind == lex::TokenKind::Bang && tokens[j - 2].kind == lex::TokenKind::Identifier)
+                {
+                    out.name = std::string{tokens[j - 2].interned};
+                    out.found = true;
+                }
+                return out;
+            }
+
+            return out;
+        }
+
+        struct ParenSlots
+        {
+            std::uint32_t top_level_commas{0};
+            bool current_arg_has_tokens{false};
+        };
+
+        [[nodiscard]] ParenSlots scan_paren_slots(std::vector<lex::Token> const& tokens, std::size_t open_paren_index, std::uint32_t cursor)
+        {
+            ParenSlots out;
+            int depth = 0;
+            std::optional<std::size_t> last_comma_index;
+
+            for (std::size_t i = open_paren_index + 1; i < tokens.size(); ++i)
+            {
+                auto const& tok = tokens[i];
+                if (tok.range.begin.offset >= cursor)
+                    break;
+
+                switch (tok.kind)
+                {
+                    case lex::TokenKind::LParen:
+                    case lex::TokenKind::LBracket:
+                    case lex::TokenKind::LBrace:
+                        ++depth;
+                        break;
+                    case lex::TokenKind::RParen:
+                    case lex::TokenKind::RBracket:
+                    case lex::TokenKind::RBrace:
+                        if (depth > 0)
+                            --depth;
+                        break;
+                    case lex::TokenKind::Comma:
+                        if (depth == 0)
+                        {
+                            ++out.top_level_commas;
+                            last_comma_index = i;
+                        }
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            std::uint32_t slot_start = tokens[open_paren_index].range.end.offset;
+            if (last_comma_index)
+                slot_start = tokens[*last_comma_index].range.end.offset;
+
+            for (std::size_t i = open_paren_index + 1; i < tokens.size(); ++i)
+            {
+                auto const& tok = tokens[i];
+                if (tok.range.begin.offset >= cursor)
+                    break;
+                if (tok.range.begin.offset >= slot_start)
+                {
+                    out.current_arg_has_tokens = true;
+                    break;
+                }
+            }
+            return out;
+        }
+
+    } // anonymous namespace
+
+    std::optional<ActiveCallInfo> find_active_call(session::CompilerSession const& session, sm::FileId file, sm::Location location)
+    {
+        auto const* sf = session.source_manager().get(file);
+        if (!sf)
+            return std::nullopt;
+
+        auto text = sf->text();
+        if (location.offset > static_cast<sm::Offset>(text.size()))
+            return std::nullopt;
+
+        auto cursor = static_cast<std::uint32_t>(location.offset);
+
+        lex::Lexer lexer{*sf, const_cast<si::string_interner&>(session.interner())};
+        auto tokens = lex_up_to(lexer, cursor);
+
+        ActiveCallInfo info;
+        auto node = find_node_at(session, location, QueryOptions{});
+        ast::CallExpr const* call = (node && node->enclosing_call) ? node->enclosing_call : nullptr;
+
+        std::optional<std::size_t> open_paren_index;
+
+        if (call)
+        {
+            info.call = call;
+            info.callee_expr = call->callee;
+
+            ast::Expr const* callee = call->callee;
+            while (callee && callee->kind == ast::ExprKind::TemplateInst)
+                callee = static_cast<ast::TemplateInstExpr const*>(callee)->callee;
+
+            if (callee)
+            {
+                if (callee->kind == ast::ExprKind::Ident)
+                    info.callee_name = std::string{static_cast<ast::IdentExpr const*>(callee)->name};
+                else if (callee->kind == ast::ExprKind::PathExpr)
+                {
+                    auto const* pe = static_cast<ast::PathExpr const*>(callee);
+                    if (!pe->path.segments.empty())
+                        info.callee_name = std::string{pe->path.segments.back().name};
+                }
+                else if (callee->kind == ast::ExprKind::FieldAccess)
+                {
+                    auto const* fa = static_cast<ast::FieldAccessExpr const*>(callee);
+                    info.callee_name = std::string{fa->field};
+                    info.ufcs = true;
+                }
+            }
+
+            info.ufcs = info.ufcs || call->sema.ufcs_callee != nullptr;
+            std::uint32_t callee_end = callee ? static_cast<std::uint32_t>(callee->range.end.offset) : static_cast<std::uint32_t>(call->range.begin.offset);
+            open_paren_index = find_call_open_paren(tokens, call, callee_end);
+        }
+
+        if (!open_paren_index)
+        {
+            if (node && node->enclosing_decl && node->enclosing_decl->kind == ast::DeclKind::Func)
+            {
+                auto const* fd = static_cast<ast::FuncDecl const*>(node->enclosing_decl);
+                bool in_body = fd->body.has_value() && fd->body->range.valid() && fd->body->range.begin.fileId == location.fileId &&
+                               fd->body->range.begin.offset <= cursor && cursor <= fd->body->range.end.offset;
+                if (!in_body)
+                    return std::nullopt;
+            }
+
+            open_paren_index = innermost_open_paren(tokens);
+            if (open_paren_index)
+            {
+                auto callee_info = callee_from_tokens(tokens, *open_paren_index);
+                if (callee_info.found)
+                {
+                    if (info.callee_name.empty())
+                    {
+                        info.callee_name = std::move(callee_info.name);
+                        info.ufcs = callee_info.ufcs;
+                    }
+                }
+                else if (info.callee_name.empty())
+                    return std::nullopt;
+            }
+        }
+
+        if (!open_paren_index)
+            return std::nullopt;
+
+        auto const& open_tok = tokens[*open_paren_index];
+        if (cursor <= open_tok.range.begin.offset)
+            return std::nullopt;
+
+        info.open_paren_offset = open_tok.range.begin.offset;
+        auto slots = scan_paren_slots(tokens, *open_paren_index, cursor);
+        info.active_parameter = info.ufcs ? slots.top_level_commas + 1 : slots.top_level_commas;
+        info.explicit_argument_count = slots.top_level_commas + (slots.current_arg_has_tokens ? 1u : 0u);
+        info.current_argument_has_tokens = slots.current_arg_has_tokens;
+        info.in_call_arguments = true;
+        return info;
+    }
+
+    namespace
+    {
+        enum class SourceLexMode : std::uint8_t
+        {
+            Code,
+            LineComment,
+            BlockComment,
+            String,
+            Char,
+        };
+
+        struct SourceScan
+        {
+            SourceLexMode mode{SourceLexMode::Code};
+
+            void feed(std::string_view text, std::size_t limit)
+            {
+                for (std::size_t i = 0; i < limit; ++i)
+                {
+                    char c = text[i];
+                    switch (mode)
+                    {
+                        case SourceLexMode::Code:
+                            if (c == '/' && i + 1 < text.size() && text[i + 1] == '/')
+                            {
+                                mode = SourceLexMode::LineComment;
+                                ++i;
+                            }
+                            else if (c == '/' && i + 1 < text.size() && text[i + 1] == '*')
+                            {
+                                mode = SourceLexMode::BlockComment;
+                                ++i;
+                            }
+                            else if (c == '"')
+                                mode = SourceLexMode::String;
+                            else if (c == '\'')
+                                mode = SourceLexMode::Char;
+                            break;
+                        case SourceLexMode::LineComment:
+                            if (c == '\n')
+                                mode = SourceLexMode::Code;
+                            break;
+                        case SourceLexMode::BlockComment:
+                            if (c == '*' && i + 1 < text.size() && text[i + 1] == '/')
+                            {
+                                mode = SourceLexMode::Code;
+                                ++i;
+                            }
+                            break;
+                        case SourceLexMode::String:
+                            if (c == '\\')
+                                ++i;
+                            else if (c == '"')
+                                mode = SourceLexMode::Code;
+                            break;
+                        case SourceLexMode::Char:
+                            if (c == '\\')
+                                ++i;
+                            else if (c == '\'')
+                                mode = SourceLexMode::Code;
+                            break;
+                    }
+                }
+            }
+        };
+
+    } // anonymous namespace
+
+    SourceRegion source_region_at(session::CompilerSession const& session, sm::FileId file, sm::Offset offset)
+    {
+        SourceRegion region;
+        auto const* sf = session.source_manager().get(file);
+        if (!sf)
+            return region;
+
+        auto text = sf->text();
+        if (offset > static_cast<sm::Offset>(text.size()))
+            return region;
+
+        SourceScan scan;
+        scan.feed(text, static_cast<std::size_t>(offset));
+        switch (scan.mode)
+        {
+            case SourceLexMode::String:
+            case SourceLexMode::Char:
+                region.in_string = true;
+                break;
+            case SourceLexMode::LineComment:
+            case SourceLexMode::BlockComment:
+                region.in_comment = true;
+                break;
+            case SourceLexMode::Code:
+                break;
+        }
+        return region;
     }
 
 } // namespace dcc::query
