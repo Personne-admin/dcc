@@ -295,6 +295,66 @@ export namespace dccd::protocol
         return notif;
     }
 
+    constexpr std::int32_t kErrorRequestCancelled = -32800;
+    constexpr std::string_view kCancelRequestMethod = "$/cancelRequest";
+
+    class RequestId
+    {
+    public:
+        RequestId() = default;
+
+        [[nodiscard]] static RequestId from_json(JsonValue const& v)
+        {
+            RequestId id;
+            if (v.is_number())
+                id.m_number = v.as_integer();
+            else if (v.is_string())
+                id.m_string = v.as_string();
+            return id;
+        }
+
+        [[nodiscard]] bool valid() const noexcept { return m_number.has_value() || m_string.has_value(); }
+
+        [[nodiscard]] bool is_number() const noexcept { return m_number.has_value(); }
+
+        [[nodiscard]] bool is_string() const noexcept { return m_string.has_value(); }
+
+        [[nodiscard]] std::int64_t number() const { return *m_number; }
+
+        [[nodiscard]] std::string const& string_val() const { return *m_string; }
+
+        [[nodiscard]] JsonValue to_json() const
+        {
+            if (m_number)
+                return JsonValue::integer(*m_number);
+            if (m_string)
+                return JsonValue::string_val(*m_string);
+            return JsonValue::null_val();
+        }
+
+        [[nodiscard]] bool operator==(RequestId const&) const = default;
+
+        [[nodiscard]] std::strong_ordering operator<=>(RequestId const&) const = default;
+
+    private:
+        std::optional<std::int64_t> m_number;
+        std::optional<std::string> m_string;
+    };
+
+    struct CancelParams
+    {
+        RequestId id;
+
+        [[nodiscard]] static CancelParams from_json(JsonValue const& v)
+        {
+            CancelParams p;
+            if (auto const* id_val = v.find_member("id"))
+                p.id = RequestId::from_json(*id_val);
+
+            return p;
+        }
+    };
+
     struct LspPosition
     {
         std::uint32_t line{};
@@ -303,10 +363,13 @@ export namespace dccd::protocol
         [[nodiscard]] static LspPosition from_json(JsonValue const& v)
         {
             LspPosition p;
+
             if (auto l = v.get_integer("line"))
-                p.line = static_cast<std::uint32_t>(*l);
+                if (*l >= 0)
+                    p.line = static_cast<std::uint32_t>(*l);
             if (auto c = v.get_integer("character"))
-                p.character = static_cast<std::uint32_t>(*c);
+                if (*c >= 0)
+                    p.character = static_cast<std::uint32_t>(*c);
 
             return p;
         }
@@ -350,11 +413,45 @@ export namespace dccd::protocol
         std::string uri;
         LspRange range;
 
+        [[nodiscard]] static LspLocation from_json(JsonValue const& v)
+        {
+            LspLocation loc;
+            if (auto s = v.get_string("uri"))
+                loc.uri = std::move(*s);
+            if (auto const* r = v.find_member("range"))
+                loc.range = LspRange::from_json(*r);
+            return loc;
+        }
+
         [[nodiscard]] JsonValue to_json() const
         {
             auto obj = JsonValue::empty_object();
             obj.set("uri", JsonValue::string_val(uri));
             obj.set("range", range.to_json());
+            return obj;
+        }
+    };
+
+    struct DiagnosticRelatedInformation
+    {
+        LspLocation location;
+        std::string message;
+
+        [[nodiscard]] static DiagnosticRelatedInformation from_json(JsonValue const& v)
+        {
+            DiagnosticRelatedInformation ri;
+            if (auto const* loc = v.find_member("location"))
+                ri.location = LspLocation::from_json(*loc);
+            if (auto s = v.get_string("message"))
+                ri.message = std::move(*s);
+            return ri;
+        }
+
+        [[nodiscard]] JsonValue to_json() const
+        {
+            auto obj = JsonValue::empty_object();
+            obj.set("location", location.to_json());
+            obj.set("message", JsonValue::string_val(message));
             return obj;
         }
     };
@@ -388,12 +485,106 @@ export namespace dccd::protocol
         TypeParameter = 25,
     };
 
+    struct TextEdit
+    {
+        LspRange range;
+        std::string newText;
+
+        [[nodiscard]] static TextEdit from_json(JsonValue const& v)
+        {
+            TextEdit edit;
+            if (auto const* r = v.find_member("range"))
+                edit.range = LspRange::from_json(*r);
+            if (auto s = v.get_string("newText"))
+                edit.newText = std::move(*s);
+            return edit;
+        }
+
+        [[nodiscard]] JsonValue to_json() const
+        {
+            auto obj = JsonValue::empty_object();
+            obj.set("range", range.to_json());
+            obj.set("newText", JsonValue::string_val(newText));
+            return obj;
+        }
+    };
+
+    namespace InsertTextFormat
+    {
+        constexpr std::int32_t PlainText = 1;
+        constexpr std::int32_t Snippet = 2;
+
+    } // namespace InsertTextFormat
+
+    struct Command
+    {
+        std::string title;
+        std::string command;
+        std::optional<JsonValue> arguments;
+
+        [[nodiscard]] static Command from_json(JsonValue const& v)
+        {
+            Command cmd;
+            if (auto s = v.get_string("title"))
+                cmd.title = std::move(*s);
+            if (auto s = v.get_string("command"))
+                cmd.command = std::move(*s);
+            if (auto const* args = v.find_member("arguments"))
+                cmd.arguments = *args;
+            return cmd;
+        }
+
+        [[nodiscard]] JsonValue to_json() const
+        {
+            auto obj = JsonValue::empty_object();
+            obj.set("title", JsonValue::string_val(title));
+            obj.set("command", JsonValue::string_val(command));
+            if (arguments)
+                obj.set("arguments", *arguments);
+            return obj;
+        }
+    };
+
+    constexpr std::string_view kTriggerParameterHintsCommand = "editor.action.triggerParameterHints";
+
     struct CompletionItem
     {
         std::string label;
         CompletionItemKind kind{CompletionItemKind::Text};
         std::optional<std::string> detail;
         std::optional<std::string> documentation;
+        std::optional<std::string> sortText;
+        std::optional<TextEdit> textEdit;
+        std::optional<std::string> insertText;
+        std::optional<std::int32_t> insertTextFormat;
+        std::optional<bool> preselect;
+        std::optional<Command> command;
+
+        [[nodiscard]] static CompletionItem from_json(JsonValue const& v)
+        {
+            CompletionItem item;
+            if (auto s = v.get_string("label"))
+                item.label = std::move(*s);
+            if (auto k = v.get_integer("kind"))
+                item.kind = static_cast<CompletionItemKind>(*k);
+            if (auto s = v.get_string("detail"))
+                item.detail = std::move(*s);
+            if (auto s = v.get_string("documentation"))
+                item.documentation = std::move(*s);
+            if (auto s = v.get_string("sortText"))
+                item.sortText = std::move(*s);
+            if (auto const* te = v.find_member("textEdit"))
+                item.textEdit = TextEdit::from_json(*te);
+            if (auto s = v.get_string("insertText"))
+                item.insertText = std::move(*s);
+            if (auto n = v.get_integer("insertTextFormat"))
+                item.insertTextFormat = static_cast<std::int32_t>(*n);
+            if (auto b = v.get_bool("preselect"))
+                item.preselect = *b;
+            if (auto const* cmd = v.find_member("command"))
+                item.command = Command::from_json(*cmd);
+            return item;
+        }
 
         [[nodiscard]] JsonValue to_json() const
         {
@@ -404,6 +595,18 @@ export namespace dccd::protocol
                 obj.set("detail", JsonValue::string_val(*detail));
             if (documentation)
                 obj.set("documentation", JsonValue::string_val(*documentation));
+            if (sortText)
+                obj.set("sortText", JsonValue::string_val(*sortText));
+            if (textEdit)
+                obj.set("textEdit", textEdit->to_json());
+            if (insertText)
+                obj.set("insertText", JsonValue::string_val(*insertText));
+            if (insertTextFormat)
+                obj.set("insertTextFormat", JsonValue::integer(*insertTextFormat));
+            if (preselect)
+                obj.set("preselect", JsonValue::boolean(*preselect));
+            if (command)
+                obj.set("command", command->to_json());
             return obj;
         }
     };
@@ -440,6 +643,7 @@ export namespace dccd::protocol
         std::optional<std::string> code;
         std::optional<std::string> source;
         std::string message;
+        std::optional<std::vector<DiagnosticRelatedInformation>> relatedInformation;
 
         [[nodiscard]] static LspDiagnostic from_json(JsonValue const& v)
         {
@@ -454,6 +658,14 @@ export namespace dccd::protocol
                 d.code = std::move(*s);
             if (auto s = v.get_string("source"))
                 d.source = std::move(*s);
+            if (auto const* ri = v.get_array("relatedInformation"))
+            {
+                std::vector<DiagnosticRelatedInformation> related;
+                for (auto const& item : ri->as_array())
+                    related.push_back(DiagnosticRelatedInformation::from_json(item));
+                if (!related.empty())
+                    d.relatedInformation = std::move(related);
+            }
             return d;
         }
 
@@ -471,6 +683,14 @@ export namespace dccd::protocol
             if (source)
                 obj.set("source", JsonValue::string_val(*source));
 
+            if (relatedInformation && !relatedInformation->empty())
+            {
+                auto arr = JsonValue::empty_array();
+                for (auto const& ri : *relatedInformation)
+                    arr.push_back(ri.to_json());
+                obj.set("relatedInformation", std::move(arr));
+            }
+
             return obj;
         }
     };
@@ -478,12 +698,29 @@ export namespace dccd::protocol
     struct PublishDiagnosticsParams
     {
         std::string uri;
+        std::optional<std::int64_t> version;
         std::vector<LspDiagnostic> diagnostics;
+
+        [[nodiscard]] static PublishDiagnosticsParams from_json(JsonValue const& v)
+        {
+            PublishDiagnosticsParams p;
+            if (auto s = v.get_string("uri"))
+                p.uri = std::move(*s);
+            if (auto n = v.get_integer("version"))
+                p.version = *n;
+            if (auto const* arr = v.get_array("diagnostics"))
+                for (auto const& d : arr->as_array())
+                    p.diagnostics.push_back(LspDiagnostic::from_json(d));
+            return p;
+        }
 
         [[nodiscard]] JsonValue to_json() const
         {
             auto obj = JsonValue::empty_object();
             obj.set("uri", JsonValue::string_val(uri));
+
+            if (version)
+                obj.set("version", JsonValue::integer(*version));
 
             auto arr = JsonValue::empty_array();
             for (auto const& d : diagnostics)
@@ -661,9 +898,8 @@ export namespace dccd::protocol
     };
 
     constexpr std::array token_types = {
-        "namespace",  "type",     "class",  "enum",  "interface", "struct",   "typeParameter", "parameter", "variable", "property",
-        "enumMember", "function", "method", "macro", "keyword",   "modifier", "comment",       "string",    "number",   "operator",
-        "asmPlaceholder", "asmRegister",
+        "namespace", "type",   "class", "enum",    "interface", "struct",  "typeParameter", "parameter", "variable", "property",       "enumMember",
+        "function",  "method", "macro", "keyword", "modifier",  "comment", "string",        "number",    "operator", "asmPlaceholder", "asmRegister",
     };
 
     constexpr std::array token_modifiers = {
@@ -899,6 +1135,9 @@ export namespace dccd::protocol
     {
         std::uint32_t tabSize{4};
         bool insertSpaces{true};
+        std::optional<bool> trimTrailingWhitespace;
+        std::optional<bool> insertFinalNewline;
+        std::optional<bool> trimFinalNewlines;
 
         [[nodiscard]] static FormattingOptions from_json(JsonValue const& v)
         {
@@ -910,8 +1149,23 @@ export namespace dccd::protocol
             if (auto is_opt = v.get_bool("insertSpaces"))
                 opts.insertSpaces = *is_opt;
 
+            if (auto b = v.get_bool("trimTrailingWhitespace"))
+                opts.trimTrailingWhitespace = *b;
+
+            if (auto b = v.get_bool("insertFinalNewline"))
+                opts.insertFinalNewline = *b;
+
+            if (auto b = v.get_bool("trimFinalNewlines"))
+                opts.trimFinalNewlines = *b;
+
             return opts;
         }
+
+        [[nodiscard]] bool insert_final_newline() const noexcept { return insertFinalNewline.value_or(true); }
+
+        [[nodiscard]] bool trim_trailing_whitespace() const noexcept { return trimTrailingWhitespace.value_or(false); }
+
+        [[nodiscard]] bool trim_final_newlines() const noexcept { return trimFinalNewlines.value_or(false); }
     };
 
     struct DocumentFormattingParams
@@ -924,6 +1178,54 @@ export namespace dccd::protocol
             DocumentFormattingParams p;
             if (auto const* td = v.find_member("textDocument"))
                 p.textDocument = TextDocumentIdentifier::from_json(*td);
+
+            if (auto const* opts = v.get_object("options"))
+                p.options = FormattingOptions::from_json(*opts);
+
+            return p;
+        }
+    };
+
+    struct DocumentRangeFormattingParams
+    {
+        TextDocumentIdentifier textDocument;
+        LspRange range;
+        FormattingOptions options;
+
+        [[nodiscard]] static DocumentRangeFormattingParams from_json(JsonValue const& v)
+        {
+            DocumentRangeFormattingParams p;
+            if (auto const* td = v.find_member("textDocument"))
+                p.textDocument = TextDocumentIdentifier::from_json(*td);
+
+            if (auto const* r = v.find_member("range"))
+                p.range = LspRange::from_json(*r);
+
+            if (auto const* opts = v.get_object("options"))
+                p.options = FormattingOptions::from_json(*opts);
+
+            return p;
+        }
+    };
+
+    struct DocumentOnTypeFormattingParams
+    {
+        TextDocumentIdentifier textDocument;
+        LspPosition position;
+        std::string ch;
+        FormattingOptions options;
+
+        [[nodiscard]] static DocumentOnTypeFormattingParams from_json(JsonValue const& v)
+        {
+            DocumentOnTypeFormattingParams p;
+            if (auto const* td = v.find_member("textDocument"))
+                p.textDocument = TextDocumentIdentifier::from_json(*td);
+
+            if (auto const* pos = v.find_member("position"))
+                p.position = LspPosition::from_json(*pos);
+
+            if (auto s = v.get_string("ch"))
+                p.ch = std::move(*s);
 
             if (auto const* opts = v.get_object("options"))
                 p.options = FormattingOptions::from_json(*opts);
@@ -969,16 +1271,32 @@ export namespace dccd::protocol
         }
     };
 
-    struct TextEdit
+    struct PrepareRenameParams
+    {
+        TextDocumentIdentifier textDocument;
+        LspPosition position;
+
+        [[nodiscard]] static PrepareRenameParams from_json(JsonValue const& v)
+        {
+            PrepareRenameParams p;
+            if (auto const* td = v.find_member("textDocument"))
+                p.textDocument = TextDocumentIdentifier::from_json(*td);
+            if (auto const* pos = v.find_member("position"))
+                p.position = LspPosition::from_json(*pos);
+            return p;
+        }
+    };
+
+    struct PrepareRenameResult
     {
         LspRange range;
-        std::string newText;
+        std::string placeholder;
 
         [[nodiscard]] JsonValue to_json() const
         {
             auto obj = JsonValue::empty_object();
             obj.set("range", range.to_json());
-            obj.set("newText", JsonValue::string_val(newText));
+            obj.set("placeholder", JsonValue::string_val(placeholder));
             return obj;
         }
     };
@@ -1095,10 +1413,20 @@ export namespace dccd::protocol
         }
     };
 
+    namespace PositionEncoding
+    {
+        constexpr std::string_view Utf8 = "utf-8";
+        constexpr std::string_view Utf16 = "utf-16";
+        constexpr std::string_view Utf32 = "utf-32";
+
+    } // namespace PositionEncoding
+
     struct InitializeParams
     {
         std::optional<std::string> rootUri;
         std::optional<std::vector<WorkspaceFolder>> workspaceFolders;
+        std::vector<std::string> positionEncodings;
+        bool didChangeWatchedFilesDynamicRegistration{false};
 
         [[nodiscard]] static InitializeParams from_json(JsonValue const& v)
         {
@@ -1112,6 +1440,19 @@ export namespace dccd::protocol
                     folders.push_back(WorkspaceFolder::from_json(f));
                 if (!folders.empty())
                     p.workspaceFolders = std::move(folders);
+            }
+            if (auto const* caps = v.get_object("capabilities"))
+            {
+                if (auto const* general = caps->get_object("general"))
+                    if (auto const* encs = general->get_array("positionEncodings"))
+                        for (auto const& e : encs->as_array())
+                            if (e.is_string())
+                                p.positionEncodings.push_back(e.as_string());
+
+                if (auto const* workspace = caps->get_object("workspace"))
+                    if (auto const* dwf = workspace->get_object("didChangeWatchedFiles"))
+                        if (auto dyn = dwf->get_bool("dynamicRegistration"))
+                            p.didChangeWatchedFilesDynamicRegistration = *dyn;
             }
             return p;
         }
@@ -1175,6 +1516,42 @@ export namespace dccd::protocol
         }
     };
 
+    constexpr std::string_view kClientRegisterCapabilityMethod = "client/registerCapability";
+
+    constexpr std::string_view kWatchedFilesMethod = "workspace/didChangeWatchedFiles";
+
+    constexpr std::string_view kWatchedFilesRegistrationRequestId = "dccd-register-capability";
+    constexpr std::string_view kWatchedFilesRegistrationId = "dccd-watched-files";
+
+    [[nodiscard]] JsonValue build_register_capability_request()
+    {
+        auto watcher_dc = JsonValue::empty_object();
+        watcher_dc.set("globPattern", JsonValue::string_val("**/*.dc"));
+        auto watcher_json = JsonValue::empty_object();
+        watcher_json.set("globPattern", JsonValue::string_val("**/dcc.json"));
+
+        auto watchers = JsonValue::empty_array();
+        watchers.push_back(std::move(watcher_dc));
+        watchers.push_back(std::move(watcher_json));
+
+        auto register_options = JsonValue::empty_object();
+        register_options.set("watchers", std::move(watchers));
+
+        auto registration = JsonValue::empty_object();
+        registration.set("id", JsonValue::string_val(std::string{kWatchedFilesRegistrationId}));
+        registration.set("method", JsonValue::string_val(std::string{kWatchedFilesMethod}));
+        registration.set("registerOptions", std::move(register_options));
+
+        auto registrations = JsonValue::empty_array();
+        registrations.push_back(std::move(registration));
+
+        auto params = JsonValue::empty_object();
+        params.set("registrations", std::move(registrations));
+
+        return build_request(JsonValue::string_val(std::string{kWatchedFilesRegistrationRequestId}), std::string{kClientRegisterCapabilityMethod},
+                             std::move(params));
+    }
+
     enum class SymbolKind : std::int32_t
     {
         File = 1,
@@ -1211,6 +1588,21 @@ export namespace dccd::protocol
         SymbolKind kind;
         LspLocation location;
         std::optional<std::string> containerName;
+
+        [[nodiscard]] static SymbolInformation from_json(JsonValue const& v)
+        {
+            SymbolInformation s;
+            if (auto n = v.get_string("name"))
+                s.name = std::move(*n);
+            if (auto k = v.get_integer("kind"))
+                s.kind = static_cast<SymbolKind>(*k);
+            if (auto const* loc = v.find_member("location"))
+                s.location = LspLocation::from_json(*loc);
+            if (auto const* c = v.find_member("containerName"))
+                if (c->is_string())
+                    s.containerName = c->as_string();
+            return s;
+        }
 
         [[nodiscard]] JsonValue to_json() const
         {
@@ -1254,31 +1646,56 @@ export namespace dccd::protocol
         }
     };
 
-    [[nodiscard]] JsonValue make_initialize_result()
+    struct InlayHintOptions
+    {
+        bool typeHints{true};
+        bool parameterHints{true};
+        bool suppressParameterNameMatches{true};
+
+        static [[nodiscard]] JsonValue to_json()
+        {
+            auto obj = JsonValue::empty_object();
+            obj.set("resolveProvider", JsonValue::boolean(false));
+            return obj;
+        }
+    };
+
+    [[nodiscard]] JsonValue make_initialize_result(std::string_view position_encoding = PositionEncoding::Utf16)
     {
         auto caps = JsonValue::empty_object();
         caps.set("textDocumentSync", JsonValue::integer(1));
         caps.set("hoverProvider", JsonValue::boolean(true));
         caps.set("definitionProvider", JsonValue::boolean(true));
         caps.set("referencesProvider", JsonValue::boolean(true));
-        caps.set("renameProvider", JsonValue::boolean(true));
-        caps.set("codeActionProvider", JsonValue::boolean(true));
-        caps.set("documentFormattingProvider", JsonValue::boolean(true));
-        caps.set("documentHighlightProvider", JsonValue::boolean(true));
-        caps.set("inlayHintProvider", JsonValue::boolean(true));
-        caps.set("workspaceSymbolProvider", JsonValue::boolean(true));
 
-        auto workspace_caps = JsonValue::empty_object();
-        {
-            auto file_ops = JsonValue::empty_object();
-            auto watchers = JsonValue::empty_array();
-            auto watcher_glob = JsonValue::empty_object();
-            watcher_glob.set("glob", JsonValue::string_val("**/dcc.json"));
-            watchers.push_back(std::move(watcher_glob));
-            file_ops.set("watchers", std::move(watchers));
-            workspace_caps.set("didChangeWatchedFiles", std::move(file_ops));
-        }
-        caps.set("workspace", std::move(workspace_caps));
+        caps.set("positionEncoding", JsonValue::string_val(std::string{position_encoding}));
+
+        auto rename_caps = JsonValue::empty_object();
+        rename_caps.set("prepareProvider", JsonValue::boolean(true));
+        caps.set("renameProvider", std::move(rename_caps));
+
+        auto code_action_caps = JsonValue::empty_object();
+        auto code_action_kinds = JsonValue::empty_array();
+        code_action_kinds.push_back(JsonValue::string_val("quickfix"));
+        code_action_caps.set("codeActionKinds", std::move(code_action_kinds));
+        caps.set("codeActionProvider", std::move(code_action_caps));
+
+        caps.set("documentFormattingProvider", JsonValue::boolean(true));
+        caps.set("documentRangeFormattingProvider", JsonValue::boolean(true));
+
+        auto on_type_provider = JsonValue::empty_object();
+        on_type_provider.set("firstTriggerCharacter", JsonValue::string_val("}"));
+        auto more_triggers = JsonValue::empty_array();
+        more_triggers.push_back(JsonValue::string_val(";"));
+        on_type_provider.set("moreTriggerCharacter", std::move(more_triggers));
+        caps.set("documentOnTypeFormattingProvider", std::move(on_type_provider));
+
+        caps.set("documentHighlightProvider", JsonValue::boolean(true));
+
+        protocol::InlayHintOptions inlay_opts;
+        caps.set("inlayHintProvider", inlay_opts.to_json());
+
+        caps.set("workspaceSymbolProvider", JsonValue::boolean(true));
 
         auto stp = JsonValue::empty_object();
         stp.set("legend", make_semantic_tokens_legend());
