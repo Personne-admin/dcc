@@ -13,8 +13,37 @@ import dccd.protocol;
 
 export namespace dccd::format
 {
+    struct FormatAnalysisStats
+    {
+        std::size_t token_count{};
+        std::size_t delimiter_match_lookups{};
+        std::size_t enum_region_lookups{};
+        std::size_t range_scan_steps{};
+    };
+
     [[nodiscard]] std::optional<protocol::TextEdit> format_document(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
-                                                                    protocol::FormattingOptions const& options);
+                                                                    protocol::FormattingOptions const& options,
+                                                                    dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
+    [[nodiscard]] std::optional<protocol::TextEdit> format_document(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                                    protocol::FormattingOptions const& options, FormatAnalysisStats& out_stats,
+                                                                    dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
+
+    [[nodiscard]] std::vector<protocol::TextEdit> format_range(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                               protocol::FormattingOptions const& options, protocol::LspRange const& range,
+                                                               dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
+    [[nodiscard]] std::vector<protocol::TextEdit> format_range(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                               protocol::FormattingOptions const& options, protocol::LspRange const& range,
+                                                               FormatAnalysisStats& out_stats,
+                                                               dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
+
+    [[nodiscard]] std::vector<protocol::TextEdit> format_on_type(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                                 protocol::FormattingOptions const& options, std::string_view trigger,
+                                                                 protocol::LspPosition const& position,
+                                                                 dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
+    [[nodiscard]] std::vector<protocol::TextEdit> format_on_type(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                                 protocol::FormattingOptions const& options, std::string_view trigger,
+                                                                 protocol::LspPosition const& position, FormatAnalysisStats& out_stats,
+                                                                 dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
 
 } // namespace dccd::format
 
@@ -29,71 +58,6 @@ namespace dccd::format
 
         constexpr std::size_t kMaxLineWidth = 80;
         constexpr std::size_t kNoTokenIndex = std::numeric_limits<std::size_t>::max();
-
-        [[nodiscard]] bool source_contains_comments(std::string_view src) noexcept
-        {
-            bool in_string = false;
-            bool in_char = false;
-            std::size_t i = 0;
-            while (i < src.size())
-            {
-                char c = src[i];
-
-                if (in_string)
-                {
-                    if (c == '\\')
-                    {
-                        i += 2;
-                        continue;
-                    }
-
-                    if (c == '"')
-                        in_string = false;
-                }
-                else if (in_char)
-                {
-                    if (c == '\\')
-                    {
-                        i += 2;
-                        continue;
-                    }
-
-                    if (c == '\'')
-                        in_char = false;
-                }
-                else
-                {
-                    if (c == '/' && i + 1 < src.size())
-                    {
-                        if (src[i + 1] == '/')
-                            return true;
-                        if (src[i + 1] == '*')
-                            return true;
-                    }
-
-                    if (c == '"')
-                        in_string = true;
-                    else if (c == '\'')
-                        in_char = true;
-
-                    else if (c == 'u' && i + 1 < src.size())
-                    {
-                        if (src[i + 1] == '"')
-                        {
-                            in_string = true;
-                            ++i;
-                        }
-                        else if (src[i + 1] == '\'')
-                        {
-                            in_char = true;
-                            ++i;
-                        }
-                    }
-                }
-                ++i;
-            }
-            return false;
-        }
 
         [[nodiscard]] std::string make_indent(int level, protocol::FormattingOptions const& opts)
         {
@@ -132,11 +96,19 @@ namespace dccd::format
             return (k >= TokenKind::Kwu8 && k <= TokenKind::KwIsize) || k == TokenKind::KwConst || k == TokenKind::KwRestrict || k == TokenKind::KwVolatile;
         }
 
-        struct CallShape
+        struct DelimitedGroup
         {
-            std::size_t lparen_tok{};
-            std::size_t rparen_tok{};
-            std::size_t callee_first_tok{};
+            std::size_t open_tok{};
+            std::size_t close_tok{};
+            std::size_t recovery_tok{};
+            TokenKind open_kind{TokenKind::Eof};
+            bool matched{true};
+            bool block{false};
+            bool compact{false};
+            bool wrap{false};
+            bool has_direct_newline{false};
+            bool tight{false};
+            bool has_comment_inside{false};
         };
 
         struct StructuralInfo
@@ -145,11 +117,16 @@ namespace dccd::format
             std::vector<bool> template_bang;
             std::vector<bool> binary_operator;
             std::vector<bool> unary_operator;
-            std::vector<bool> block_brace;
+            std::vector<bool> pointer_star;
             std::unordered_set<std::size_t> ast_compact_braces;
             std::unordered_set<std::size_t> ast_block_braces;
+            std::unordered_set<std::size_t> ast_struct_braces;
+            std::unordered_set<std::size_t> width_eligible_parens;
+            std::unordered_map<std::size_t, std::size_t> paren_context;
+            std::unordered_set<std::size_t> reanchor_starts;
+            std::unordered_set<std::size_t> for_header_parens;
             int tab_size{4};
-            std::unordered_map<std::size_t, CallShape> wrapping_calls;
+            std::unordered_map<std::size_t, DelimitedGroup> groups;
         };
 
         [[nodiscard]] bool space_before_token(std::vector<dcc::lex::Token> const& tokens, std::size_t i, StructuralInfo const& info) noexcept
@@ -228,6 +205,9 @@ namespace dccd::format
 
             if (cur == TokenKind::Star)
             {
+                if (i < info.pointer_star.size() && info.pointer_star[i])
+                    return false;
+
                 if (is_binary_operator)
                     return true;
 
@@ -412,17 +392,6 @@ namespace dccd::format
             }
         }
 
-        [[nodiscard]] int count_source_newlines(std::string_view src, Offset begin, Offset end) noexcept
-        {
-            int n = 0;
-            auto const limit = std::min(static_cast<std::size_t>(end), src.size());
-            for (auto off = static_cast<std::size_t>(begin); off < limit; ++off)
-                if (src[off] == '\n')
-                    ++n;
-
-            return n;
-        }
-
         [[nodiscard]] int desired_newlines(int src_nl, int indent, TokenKind cur_kind, TokenKind prev_kind) noexcept
         {
             if (src_nl == 0)
@@ -443,138 +412,406 @@ namespace dccd::format
             return target;
         }
 
-        [[nodiscard]] std::size_t flat_brace_content_width(std::vector<dcc::lex::Token> const& tokens, std::size_t lbrace_tok, std::string_view src,
-                                                           StructuralInfo const& info) noexcept
+        enum class TriviaKind : std::uint8_t
         {
-            std::size_t width = 0;
-            int depth = 0;
-            for (std::size_t j = lbrace_tok + 1; j < tokens.size(); ++j)
+            Whitespace,
+            LineComment,
+            BlockComment,
+        };
+
+        struct TriviaPiece
+        {
+            TriviaKind kind{TriviaKind::Whitespace};
+            std::size_t begin{};
+            std::size_t end{};
+            std::size_t newlines{};
+            std::string_view text;
+        };
+
+        struct Trivia
+        {
+            std::vector<std::vector<TriviaPiece>> gaps;
+        };
+
+        void scan_gap(std::string_view src, std::size_t begin, std::size_t end, std::vector<TriviaPiece>& out)
+        {
+            std::size_t pos = begin;
+            while (pos < end)
             {
-                if (tokens[j].kind == TokenKind::LBrace)
+                char const c = src[pos];
+
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r')
                 {
-                    ++depth;
+                    std::size_t const start = pos;
+                    std::size_t nl = 0;
+                    while (pos < end)
+                    {
+                        char const w = src[pos];
+                        if (w == '\n')
+                        {
+                            ++nl;
+                            ++pos;
+                        }
+                        else if (w == ' ' || w == '\t' || w == '\r')
+                            ++pos;
+                        else
+                            break;
+                    }
+                    out.push_back({TriviaKind::Whitespace, start, pos, nl, {}});
                     continue;
                 }
-                if (tokens[j].kind == TokenKind::RBrace)
+
+                if (c == '/' && pos + 1 < end && src[pos + 1] == '/')
                 {
-                    if (depth == 0)
-                        break;
-                    --depth;
+                    std::size_t const start = pos;
+                    pos += 2;
+                    while (pos < end && src[pos] != '\n')
+                        ++pos;
+                    out.push_back({TriviaKind::LineComment, start, pos, 0, src.substr(start, pos - start)});
                     continue;
                 }
-                width += spelling_at(src, tokens[j]).size();
-                if (space_before_token(tokens, j, info))
-                    ++width;
+
+                if (c == '/' && pos + 1 < end && src[pos + 1] == '*')
+                {
+                    std::size_t const start = pos;
+                    pos += 2;
+                    int depth = 1;
+                    while (pos < end && depth > 0)
+                    {
+                        if (src[pos] == '/' && pos + 1 < end && src[pos + 1] == '*')
+                        {
+                            pos += 2;
+                            ++depth;
+                        }
+                        else if (src[pos] == '*' && pos + 1 < end && src[pos + 1] == '/')
+                        {
+                            pos += 2;
+                            --depth;
+                        }
+                        else
+                            ++pos;
+                    }
+
+                    std::size_t nl = 0;
+                    for (std::size_t k = start; k < pos; ++k)
+                        if (src[k] == '\n')
+                            ++nl;
+
+                    out.push_back({TriviaKind::BlockComment, start, pos, nl, src.substr(start, pos - start)});
+                    continue;
+                }
+
+                ++pos;
             }
-            return width;
         }
 
-        [[nodiscard]] bool brace_has_direct_newline(std::string_view src, std::vector<dcc::lex::Token> const& tokens, std::size_t lbrace_tok) noexcept
+        [[nodiscard]] Trivia build_trivia(std::string_view src, std::vector<dcc::lex::Token> const& tokens)
         {
-            int depth = 0;
-            int paren_depth = 0;
-            int bracket_depth = 0;
-            auto prev_end = tokens[lbrace_tok].range.end.offset;
-
-            for (std::size_t j = lbrace_tok + 1; j < tokens.size(); ++j)
+            Trivia trivia;
+            trivia.gaps.resize(tokens.size());
+            std::size_t prev_end = 0;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
             {
-                if (depth == 0 && paren_depth == 0 && bracket_depth == 0)
-                    if (count_source_newlines(src, prev_end, tokens[j].range.begin.offset) > 0)
-                        return true;
-
-                switch (tokens[j].kind)
-                {
-                    case TokenKind::LBrace:
-                        ++depth;
-                        break;
-                    case TokenKind::RBrace:
-                        if (depth == 0)
-                            return false;
-                        --depth;
-                        break;
-                    case TokenKind::LParen:
-                        ++paren_depth;
-                        break;
-                    case TokenKind::RParen:
-                        if (paren_depth > 0)
-                            --paren_depth;
-                        break;
-                    case TokenKind::LBracket:
-                        ++bracket_depth;
-                        break;
-                    case TokenKind::RBracket:
-                        if (bracket_depth > 0)
-                            --bracket_depth;
-                        break;
-                    default:
-                        break;
-                }
-                prev_end = tokens[j].range.end.offset;
+                auto const begin = static_cast<std::size_t>(tokens[i].range.begin.offset);
+                scan_gap(src, prev_end, begin, trivia.gaps[i]);
+                prev_end = static_cast<std::size_t>(tokens[i].range.end.offset);
             }
+            return trivia;
+        }
+
+        [[nodiscard]] int gap_newline_count(Trivia const& trivia, std::size_t i) noexcept
+        {
+            if (i >= trivia.gaps.size())
+                return 0;
+            int n = 0;
+            for (auto const& p : trivia.gaps[i])
+                n += static_cast<int>(p.newlines);
+            return n;
+        }
+
+        [[nodiscard]] bool gap_has_comment(Trivia const& trivia, std::size_t i) noexcept
+        {
+            if (i >= trivia.gaps.size())
+                return false;
+            for (auto const& p : trivia.gaps[i])
+                if (p.kind != TriviaKind::Whitespace)
+                    return true;
             return false;
         }
 
-        void classify_braces(std::vector<dcc::lex::Token> const& tokens, std::string_view src, StructuralInfo& info)
+        [[nodiscard]] std::unordered_map<std::size_t, DelimitedGroup> analyze_groups(std::vector<dcc::lex::Token> const& tokens, std::string_view src,
+                                                                                     Trivia const& trivia, StructuralInfo const& info)
         {
-            info.block_brace.assign(tokens.size(), true);
+            std::unordered_map<std::size_t, DelimitedGroup> result;
 
-            std::vector<std::size_t> lbraces;
-            for (std::size_t i = 0; i < tokens.size(); ++i)
-                if (tokens[i].kind == TokenKind::LBrace)
-                    lbraces.push_back(i);
-
-            for (std::size_t n = lbraces.size(); n-- > 0;)
+            std::vector<DelimitedGroup> groups;
+            std::unordered_map<std::size_t, std::size_t> open_to_index;
             {
-                auto const i = lbraces[n];
-
-                if (i + 1 < tokens.size() && tokens[i + 1].kind == TokenKind::RBrace)
+                struct Frame
                 {
-                    info.block_brace[i] = false;
+                    std::size_t open_tok{};
+                    TokenKind kind{TokenKind::Eof};
+                };
+                std::vector<Frame> stack;
+                for (std::size_t i = 0; i < tokens.size(); ++i)
+                {
+                    auto const k = tokens[i].kind;
+                    if (k == TokenKind::LParen || k == TokenKind::LBracket || k == TokenKind::LBrace)
+                    {
+                        stack.push_back({i, k});
+                    }
+                    else if (k == TokenKind::RParen || k == TokenKind::RBracket || k == TokenKind::RBrace)
+                    {
+                        TokenKind const expect_open = k == TokenKind::RParen     ? TokenKind::LParen
+                                                      : k == TokenKind::RBracket ? TokenKind::LBracket
+                                                                                 : TokenKind::LBrace;
+                        if (!stack.empty() && stack.back().kind == expect_open)
+                        {
+                            auto const open_tok = stack.back().open_tok;
+                            stack.pop_back();
+                            open_to_index[open_tok] = groups.size();
+                            groups.push_back(DelimitedGroup{.open_tok = open_tok, .close_tok = i, .open_kind = expect_open, .matched = true});
+                        }
+                        else if (!stack.empty())
+                        {
+                            auto const open_tok = stack.back().open_tok;
+                            auto const kind = stack.back().kind;
+                            stack.pop_back();
+                            open_to_index[open_tok] = groups.size();
+                            groups.push_back(
+                                DelimitedGroup{.open_tok = open_tok, .close_tok = kNoTokenIndex, .recovery_tok = i, .open_kind = kind, .matched = false});
+                        }
+                    }
+                }
+                for (auto const& f : stack)
+                {
+                    open_to_index[f.open_tok] = groups.size();
+                    groups.push_back(DelimitedGroup{
+                        .open_tok = f.open_tok, .close_tok = kNoTokenIndex, .recovery_tok = kNoTokenIndex, .open_kind = f.kind, .matched = false});
+                }
+            }
+
+            if (groups.empty())
+                return result;
+
+            {
+                std::vector<std::size_t> stack;
+                for (std::size_t i = 0; i < tokens.size(); ++i)
+                {
+                    auto const k = tokens[i].kind;
+                    if (!stack.empty())
+                    {
+                        auto& g = groups[stack.back()];
+                        if (!g.matched && g.open_kind != TokenKind::LBrace)
+                        {
+                            bool const is_for_header = g.open_kind == TokenKind::LParen && info.for_header_parens.contains(g.open_tok);
+                            if (!is_for_header && info.reanchor_starts.contains(i))
+                                if (g.recovery_tok == kNoTokenIndex || i < g.recovery_tok)
+                                    g.recovery_tok = i;
+                        }
+                    }
+
+                    if (k == TokenKind::LParen || k == TokenKind::LBracket || k == TokenKind::LBrace)
+                    {
+                        if (auto it = open_to_index.find(i); it != open_to_index.end())
+                            stack.push_back(it->second);
+                    }
+                    else if (k == TokenKind::RParen || k == TokenKind::RBracket || k == TokenKind::RBrace)
+                    {
+                        if (!stack.empty())
+                            stack.pop_back();
+                    }
+                }
+            }
+
+            {
+                std::vector<std::size_t> stack;
+                for (std::size_t i = 0; i < tokens.size(); ++i)
+                {
+                    auto const k = tokens[i].kind;
+                    bool const eof_gap_is_content = k == TokenKind::Eof && gap_has_comment(trivia, i);
+                    if (gap_newline_count(trivia, i) > 0 && !stack.empty() && (k != TokenKind::Eof || eof_gap_is_content))
+                        groups[stack.back()].has_direct_newline = true;
+
+                    if (k == TokenKind::LParen || k == TokenKind::LBracket || k == TokenKind::LBrace)
+                    {
+                        if (auto it = open_to_index.find(i); it != open_to_index.end())
+                            stack.push_back(it->second);
+                    }
+                    else if (k == TokenKind::RParen || k == TokenKind::RBracket || k == TokenKind::RBrace)
+                    {
+                        if (!stack.empty())
+                            stack.pop_back();
+                    }
+                }
+            }
+
+            std::vector<std::size_t> tok_width(tokens.size(), 0);
+            for (std::size_t k = 0; k < tokens.size(); ++k)
+            {
+                std::size_t w = spelling_at(src, tokens[k]).size();
+                if (k > 0 && tokens[k].kind != TokenKind::Eof && space_before_token(tokens, k, info))
+                    ++w;
+                tok_width[k] = w;
+            }
+            std::vector<std::size_t> cum(tokens.size() + 1, 0);
+            for (std::size_t k = 0; k < tokens.size(); ++k)
+                cum[k + 1] = cum[k] + tok_width[k];
+
+            std::vector<std::size_t> line_start(tokens.size(), 0);
+            {
+                std::size_t last = 0;
+                for (std::size_t k = 0; k < tokens.size(); ++k)
+                {
+                    line_start[k] = last;
+                    auto const kk = tokens[k].kind;
+                    if (kk == TokenKind::Semicolon || kk == TokenKind::RBrace || kk == TokenKind::LBrace)
+                        last = k + 1;
+                }
+            }
+
+            std::vector<int> brace_depth(tokens.size(), 0);
+            {
+                int d = 0;
+                for (std::size_t k = 0; k < tokens.size(); ++k)
+                {
+                    brace_depth[k] = d;
+                    if (tokens[k].kind == TokenKind::LBrace)
+                        ++d;
+                    else if (tokens[k].kind == TokenKind::RBrace && d > 0)
+                        --d;
+                }
+            }
+
+            std::vector<std::size_t> comment_prefix(tokens.size() + 1, 0);
+            for (std::size_t k = 0; k < tokens.size(); ++k)
+                comment_prefix[k + 1] = comment_prefix[k] + (gap_has_comment(trivia, k) ? 1 : 0);
+
+            std::vector<std::size_t> block_opens;
+            for (std::size_t g = 0; g < groups.size(); ++g)
+            {
+                if (groups[g].open_kind != TokenKind::LBrace)
                     continue;
-                }
+                if (info.parsed && info.ast_compact_braces.contains(groups[g].open_tok))
+                    continue;
+                if ((info.parsed && info.ast_block_braces.contains(groups[g].open_tok)) || brace_is_block_context(tokens, groups[g].open_tok))
+                    block_opens.push_back(groups[g].open_tok);
+            }
+            std::ranges::sort(block_opens);
 
-                bool want_compact = false;
-                if (info.parsed && info.ast_compact_braces.contains(i))
+            auto has_inner_block = [&block_opens](std::size_t open_tok, std::size_t end_tok) -> bool {
+                auto it = std::ranges::upper_bound(block_opens, open_tok);
+                return it != block_opens.end() && *it < end_tok;
+            };
+
+            auto content_end = [&tokens](DelimitedGroup const& g) -> std::size_t {
+                if (g.matched)
+                    return g.close_tok;
+                if (g.recovery_tok != kNoTokenIndex)
+                    return g.recovery_tok;
+                return tokens.size() >= 2 ? tokens.size() - 2 : 0;
+            };
+            auto width_end = [&tokens](DelimitedGroup const& g) -> std::size_t {
+                if (g.matched)
+                    return g.close_tok + 1;
+                if (g.recovery_tok != kNoTokenIndex)
+                    return g.recovery_tok + 1;
+                return tokens.size() - 1;
+            };
+            auto boundary_tok = [](DelimitedGroup const& g) -> std::size_t {
+                if (g.matched)
+                    return g.close_tok;
+                return g.recovery_tok;
+            };
+
+            std::vector<std::size_t> order(groups.size());
+            for (std::size_t g = 0; g < groups.size(); ++g)
+                order[g] = g;
+            std::ranges::sort(order, [&groups](std::size_t a, std::size_t b) { return groups[a].open_tok < groups[b].open_tok; });
+
+            std::vector<std::size_t> wrap_stack;
+            for (std::size_t const gi : order)
+            {
+                auto& g = groups[gi];
+                while (!wrap_stack.empty() && boundary_tok(groups[wrap_stack.back()]) < g.open_tok)
+                    wrap_stack.pop_back();
+                bool const nested = !wrap_stack.empty();
+
+                if (g.open_kind == TokenKind::LBrace)
                 {
-                    want_compact = true;
-                }
-                else if (!info.parsed || !info.ast_block_braces.contains(i))
-                    if (!brace_is_block_context(tokens, i) && flat_brace_content_width(tokens, i, src, info) <= kMaxLineWidth)
+                    bool const empty_brace = g.matched && g.open_tok + 1 == g.close_tok;
+                    bool const ast_compact = info.parsed && info.ast_compact_braces.contains(g.open_tok);
+                    bool const ast_struct = info.parsed && info.ast_struct_braces.contains(g.open_tok);
+                    bool const ast_block = info.parsed && info.ast_block_braces.contains(g.open_tok);
+                    bool const block_context = brace_is_block_context(tokens, g.open_tok);
+
+                    bool want_compact = false;
+                    if (empty_brace || ast_compact)
                         want_compact = true;
-
-                if (want_compact)
-                {
-                    if (brace_has_direct_newline(src, tokens, i))
+                    else if (!info.parsed || !ast_block)
+                    {
+                        std::size_t const content_width = cum[content_end(g)] - cum[g.open_tok + 1];
+                        if (!block_context && content_width <= kMaxLineWidth)
+                            want_compact = true;
+                    }
+                    if (want_compact && g.has_direct_newline)
+                        want_compact = false;
+                    if (want_compact && has_inner_block(g.open_tok, content_end(g)))
                         want_compact = false;
 
                     if (want_compact)
                     {
-                        int inner_depth = 0;
-                        for (std::size_t j = i + 1; j < tokens.size(); ++j)
-                        {
-                            if (tokens[j].kind == TokenKind::LBrace)
-                            {
-                                ++inner_depth;
-                                if (info.block_brace[j])
-                                {
-                                    want_compact = false;
-                                    break;
-                                }
-                                continue;
-                            }
-                            if (tokens[j].kind == TokenKind::RBrace)
-                            {
-                                if (inner_depth == 0)
-                                    break;
-                                --inner_depth;
-                                continue;
-                            }
-                        }
+                        g.compact = true;
+                        g.tight = ast_struct;
+                    }
+                    else if (ast_block || block_context)
+                        g.block = true;
+                    else
+                        g.wrap = true;
+                }
+                else
+                {
+                    bool const direct_nl = g.has_direct_newline;
+                    bool const block_inside = has_inner_block(g.open_tok, content_end(g));
+                    bool const width_eligible = g.open_kind == TokenKind::LParen && info.width_eligible_parens.contains(g.open_tok);
+
+                    if (direct_nl || block_inside)
+                    {
+                        g.wrap = true;
+                    }
+                    else if (width_eligible)
+                    {
+                        std::size_t context = line_start[g.open_tok];
+                        if (nested)
+                            if (auto it = info.paren_context.find(g.open_tok); it != info.paren_context.end())
+                                context = it->second;
+
+                        std::size_t width = cum[width_end(g)] - cum[context];
+                        if (context > 0 && space_before_token(tokens, context, info))
+                            --width;
+                        if (!nested)
+                            width += static_cast<std::size_t>(brace_depth[context]) * static_cast<std::size_t>(info.tab_size);
+                        if (width > kMaxLineWidth)
+                            g.wrap = true;
                     }
                 }
 
-                info.block_brace[i] = !want_compact;
+                if (g.wrap)
+                    wrap_stack.push_back(gi);
             }
+
+            for (auto& g : groups)
+            {
+                if (g.open_kind != TokenKind::LBrace)
+                    continue;
+                auto const b = boundary_tok(g);
+                if (b != kNoTokenIndex && g.open_tok + 1 <= b && b + 1 < comment_prefix.size())
+                    g.has_comment_inside = comment_prefix[b + 1] - comment_prefix[g.open_tok + 1] > 0;
+            }
+
+            for (auto const& g : groups)
+                result.emplace(g.open_tok, g);
+            return result;
         }
 
         struct StructureCollector : dcc::ast::RecursiveAstVisitor
@@ -583,24 +820,163 @@ namespace dccd::format
             std::vector<Offset> const& begins;
             std::string_view src;
             StructuralInfo& info;
-            std::vector<CallShape> raw_calls;
+            std::vector<std::size_t> const& paren_match;
+            std::vector<std::size_t> const& paren_positions;
+            std::vector<std::size_t> const& brace_positions;
+            FormatAnalysisStats& stats;
 
             StructureCollector(std::vector<dcc::lex::Token> const& toks, std::vector<Offset> const& token_begins, std::string_view source,
-                               StructuralInfo& structural)
-                : tokens{toks}, begins{token_begins}, src{source}, info{structural}
+                               StructuralInfo& structural, std::vector<std::size_t> const& pmatch, std::vector<std::size_t> const& ppos,
+                               std::vector<std::size_t> const& bpos, FormatAnalysisStats& st)
+                : tokens{toks}, begins{token_begins}, src{source}, info{structural}, paren_match{pmatch}, paren_positions{ppos}, brace_positions{bpos},
+                  stats{st}
             {
-            }
-
-            void visitCallExpr(dcc::ast::CallExpr const* e) override
-            {
-                collect_call(e);
-                dcc::ast::RecursiveAstVisitor::visitCallExpr(e);
             }
 
             void visitUnaryExpr(dcc::ast::UnaryExpr const* e) override
             {
                 collect_unary_operator(e);
                 dcc::ast::RecursiveAstVisitor::visitUnaryExpr(e);
+            }
+
+            void visitStmt(dcc::ast::Stmt const* s) override
+            {
+                if (s && s->range.valid())
+                {
+                    auto const idx = token_index_at_or_after(s->range.begin.offset);
+                    if (idx != kNoTokenIndex)
+                        info.reanchor_starts.insert(idx);
+                }
+                dcc::ast::RecursiveAstVisitor::visitStmt(s);
+            }
+
+            void visitDecl(dcc::ast::Decl const* d) override
+            {
+                if (d && d->range.valid())
+                {
+                    auto const idx = token_index_at_or_after(d->range.begin.offset);
+                    if (idx != kNoTokenIndex)
+                        info.reanchor_starts.insert(idx);
+                }
+                dcc::ast::RecursiveAstVisitor::visitDecl(d);
+            }
+
+            void visitForStmt(dcc::ast::ForStmt const* s) override
+            {
+                if (s && s->range.valid())
+                {
+                    auto const lo = token_index_at_or_after(s->range.begin.offset);
+                    auto const hi = token_index_at_or_after(s->range.end.offset);
+                    if (lo != kNoTokenIndex && hi != kNoTokenIndex)
+                    {
+                        auto const pit = std::lower_bound(paren_positions.begin(), paren_positions.end(), lo);
+                        if (pit != paren_positions.end() && *pit < hi)
+                            info.for_header_parens.insert(*pit);
+                    }
+                }
+                dcc::ast::RecursiveAstVisitor::visitForStmt(s);
+            }
+
+            void visitCallExpr(dcc::ast::CallExpr const* e) override
+            {
+                if (e && e->callee && e->callee->range.valid() && e->range.valid())
+                {
+                    auto const callee_end = e->callee->range.end.offset;
+                    auto const call_end = e->range.end.offset;
+                    if (callee_end < call_end)
+                    {
+                        auto const first_after = token_index_at_or_after(callee_end);
+                        auto const limit = token_index_at_or_after(call_end);
+                        if (first_after != kNoTokenIndex && limit != kNoTokenIndex)
+                        {
+                            auto const pit = std::lower_bound(paren_positions.begin(), paren_positions.end(), first_after);
+                            if (pit != paren_positions.end() && *pit < limit)
+                            {
+                                auto const idx = *pit;
+                                info.width_eligible_parens.insert(idx);
+                                info.paren_context[idx] = token_index_at_or_after(e->callee->range.begin.offset);
+                            }
+                        }
+                    }
+                }
+                dcc::ast::RecursiveAstVisitor::visitCallExpr(e);
+            }
+
+            void visitFuncDecl(dcc::ast::FuncDecl const* d) override
+            {
+                if (d && d->name_range.valid() && d->range.valid())
+                {
+                    auto const first_idx = token_index_at_or_after(d->name_range.end.offset);
+                    auto const limit_idx = token_index_at_or_after(d->range.end.offset);
+                    if (first_idx != kNoTokenIndex && limit_idx != kNoTokenIndex)
+                    {
+                        auto const decl_head = token_index_at_or_after(d->range.begin.offset);
+                        auto const pit = std::lower_bound(paren_positions.begin(), paren_positions.end(), first_idx);
+                        if (pit != paren_positions.end() && *pit < limit_idx)
+                        {
+                            auto const j = *pit;
+                            info.width_eligible_parens.insert(j);
+                            info.paren_context[j] = decl_head;
+                            ++stats.delimiter_match_lookups;
+                            auto const close = j < paren_match.size() ? paren_match[j] : kNoTokenIndex;
+                            if (close != kNoTokenIndex && close + 1 < tokens.size() && tokens[close + 1].kind == TokenKind::LParen)
+                            {
+                                info.width_eligible_parens.insert(close + 1);
+                                info.paren_context[close + 1] = decl_head;
+                            }
+                        }
+                    }
+                }
+                dcc::ast::RecursiveAstVisitor::visitFuncDecl(d);
+            }
+
+            void visitNamedType(dcc::ast::NamedType const* t) override
+            {
+                if (t)
+                    mark_first_paren_in_range(t->range);
+                dcc::ast::RecursiveAstVisitor::visitNamedType(t);
+            }
+
+            void visitAmbiguousStmt(dcc::ast::AmbiguousStmt const* s) override
+            {
+                if (!s)
+                    return;
+                if (s->resolution == dcc::ast::AmbiguousStmt::Resolution::AsExpr && s->as_expr)
+                {
+                    visitExpr(s->as_expr);
+                    return;
+                }
+                if (s->as_decl)
+                {
+                    visitDecl(s->as_decl);
+                    return;
+                }
+                if (s->as_expr)
+                    visitExpr(s->as_expr);
+            }
+
+            void visitPointerType(dcc::ast::PointerType const* t) override
+            {
+                if (t && t->range.valid())
+                {
+                    auto const idx = token_ending_at(t->range.end.offset);
+                    if (idx != kNoTokenIndex && idx < info.pointer_star.size() && tokens[idx].kind == TokenKind::Star)
+                        info.pointer_star[idx] = true;
+                }
+                dcc::ast::RecursiveAstVisitor::visitPointerType(t);
+            }
+
+            void visitFuncPtrType(dcc::ast::FuncPtrType const* t) override
+            {
+                if (t && t->return_type && t->return_type->range.valid())
+                {
+                    auto const lo = token_index_at_or_after(t->return_type->range.end.offset);
+                    if (lo != kNoTokenIndex && lo + 2 < tokens.size() && tokens[lo].kind == TokenKind::LParen && tokens[lo + 1].kind == TokenKind::Star &&
+                        tokens[lo + 2].kind == TokenKind::RParen)
+                        if (lo + 1 < info.pointer_star.size())
+                            info.pointer_star[lo + 1] = true;
+                }
+                dcc::ast::RecursiveAstVisitor::visitFuncPtrType(t);
             }
 
             void visitBinaryExpr(dcc::ast::BinaryExpr const* e) override
@@ -613,15 +989,15 @@ namespace dccd::format
             {
                 if (e && e->range.valid())
                 {
-                    auto lo = std::lower_bound(begins.begin(), begins.end(), e->range.begin.offset);
-                    auto hi = std::lower_bound(begins.begin(), begins.end(), e->range.end.offset);
-                    for (auto it = lo; it != hi; ++it)
+                    auto const lo = token_index_at_or_after(e->range.begin.offset);
+                    auto const hi = token_index_at_or_after(e->range.end.offset);
+                    if (lo != kNoTokenIndex && hi != kNoTokenIndex)
                     {
-                        auto const idx = static_cast<std::size_t>(std::distance(begins.begin(), it));
-                        if (tokens[idx].kind == TokenKind::LBrace)
+                        auto const bit = std::lower_bound(brace_positions.begin(), brace_positions.end(), lo);
+                        if (bit != brace_positions.end() && *bit < hi)
                         {
-                            info.ast_compact_braces.insert(idx);
-                            break;
+                            info.ast_compact_braces.insert(*bit);
+                            info.ast_struct_braces.insert(*bit);
                         }
                     }
                 }
@@ -683,17 +1059,55 @@ namespace dccd::format
             {
                 if (e && e->range.valid())
                 {
-                    auto lo = std::lower_bound(begins.begin(), begins.end(), e->range.begin.offset);
-                    auto hi = std::lower_bound(begins.begin(), begins.end(), e->range.end.offset);
-                    for (auto it = lo; it != hi; ++it)
+                    if (e->callee && e->callee->range.valid())
                     {
-                        auto const idx = static_cast<std::size_t>(std::distance(begins.begin(), it));
-                        if (idx < info.template_bang.size() && tokens[idx].kind == TokenKind::Bang)
-                            info.template_bang[idx] = true;
+                        auto const bang = token_at(e->callee->range.end.offset);
+                        if (bang != kNoTokenIndex && bang < info.template_bang.size() && tokens[bang].kind == TokenKind::Bang)
+                            info.template_bang[bang] = true;
                     }
+                    mark_first_paren_in_range(e->range);
                 }
 
                 dcc::ast::RecursiveAstVisitor::visitTemplateInstExpr(e);
+            }
+
+            [[nodiscard]] std::size_t token_index_at_or_after(Offset off) const noexcept
+            {
+                auto const it = std::lower_bound(begins.begin(), begins.end(), off);
+                if (it == begins.end())
+                    return kNoTokenIndex;
+                return static_cast<std::size_t>(std::distance(begins.begin(), it));
+            }
+
+            [[nodiscard]] std::size_t token_ending_at(Offset off) const noexcept
+            {
+                auto const it = std::lower_bound(begins.begin(), begins.end(), off);
+                if (it == begins.begin())
+                    return kNoTokenIndex;
+
+                auto const idx = static_cast<std::size_t>(std::distance(begins.begin(), it) - 1);
+                if (idx < tokens.size() && tokens[idx].range.end.offset == off)
+                    return idx;
+
+                return kNoTokenIndex;
+            }
+
+            void mark_first_paren_in_range(dcc::sm::SourceRange const& range)
+            {
+                if (!range.valid())
+                    return;
+
+                auto const lo = token_index_at_or_after(range.begin.offset);
+                auto const hi = token_index_at_or_after(range.end.offset);
+                if (lo == kNoTokenIndex || hi == kNoTokenIndex)
+                    return;
+
+                auto const pit = std::lower_bound(paren_positions.begin(), paren_positions.end(), lo);
+                if (pit != paren_positions.end() && *pit < hi)
+                {
+                    info.width_eligible_parens.insert(*pit);
+                    info.paren_context[*pit] = lo;
+                }
             }
 
             [[nodiscard]] std::size_t token_at(Offset off) const noexcept
@@ -709,74 +1123,13 @@ namespace dccd::format
                 if (!range.valid())
                     return;
 
-                auto lo = std::lower_bound(begins.begin(), begins.end(), range.begin.offset);
-                auto hi = std::lower_bound(begins.begin(), begins.end(), range.end.offset);
-                for (auto it = lo; it != hi; ++it)
-                {
-                    auto const idx = static_cast<std::size_t>(std::distance(begins.begin(), it));
-                    if (tokens[idx].kind == TokenKind::LBrace)
-                    {
-                        info.ast_block_braces.insert(idx);
-                        return;
-                    }
-                }
-            }
-
-            void collect_call(dcc::ast::CallExpr const* e)
-            {
-                if (!e || !e->range.valid() || !e->callee || !e->callee->range.valid())
+                auto const lo = token_index_at_or_after(range.begin.offset);
+                auto const hi = token_index_at_or_after(range.end.offset);
+                if (lo == kNoTokenIndex || hi == kNoTokenIndex)
                     return;
-
-                auto const callee_end = e->callee->range.end.offset;
-                auto const call_end = e->range.end.offset;
-                if (callee_end >= call_end)
-                    return;
-
-                auto const first_callee = std::lower_bound(begins.begin(), begins.end(), e->callee->range.begin.offset);
-                if (first_callee == begins.end())
-                    return;
-
-                auto const first_after_callee = std::lower_bound(begins.begin(), begins.end(), callee_end);
-                if (first_after_callee == begins.end())
-                    return;
-
-                auto const callee_first_tok = static_cast<std::size_t>(std::distance(begins.begin(), first_callee));
-                auto const search_start = static_cast<std::size_t>(std::distance(begins.begin(), first_after_callee));
-
-                for (std::size_t i = search_start; i < tokens.size(); ++i)
-                {
-                    if (tokens[i].range.begin.offset >= call_end)
-                        break;
-
-                    if (tokens[i].kind != TokenKind::LParen)
-                        continue;
-
-                    std::size_t depth = 0;
-                    std::size_t rparen = kNoTokenIndex;
-                    for (std::size_t j = i; j < tokens.size(); ++j)
-                    {
-                        if (tokens[j].kind == TokenKind::LParen)
-                            ++depth;
-                        else if (tokens[j].kind == TokenKind::RParen)
-                        {
-                            if (depth == 0)
-                                break;
-
-                            --depth;
-                            if (depth == 0)
-                            {
-                                rparen = j;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (rparen == kNoTokenIndex)
-                        return;
-
-                    raw_calls.push_back(CallShape{.lparen_tok = i, .rparen_tok = rparen, .callee_first_tok = callee_first_tok});
-                    return;
-                }
+                auto const bit = std::lower_bound(brace_positions.begin(), brace_positions.end(), lo);
+                if (bit != brace_positions.end() && *bit < hi)
+                    info.ast_block_braces.insert(*bit);
             }
 
             void collect_binary_operator(dcc::ast::BinaryExpr const* e)
@@ -788,6 +1141,7 @@ namespace dccd::format
                 auto const end = std::lower_bound(begins.begin(), begins.end(), e->rhs->range.begin.offset);
                 for (auto it = begin; it != end; ++it)
                 {
+                    ++stats.range_scan_steps;
                     auto const idx = static_cast<std::size_t>(std::distance(begins.begin(), it));
                     if (idx < info.binary_operator.size() && tokens[idx].kind == e->op)
                     {
@@ -810,94 +1164,58 @@ namespace dccd::format
                 if (idx < info.unary_operator.size() && tokens[idx].kind == e->op)
                     info.unary_operator[idx] = true;
             }
-
-            void finalize() const
-            {
-                std::vector<int> brace_depth_at(tokens.size(), 0);
-                {
-                    int depth = 0;
-                    for (std::size_t k = 0; k < tokens.size(); ++k)
-                    {
-                        brace_depth_at[k] = depth;
-                        if (tokens[k].kind == TokenKind::LBrace)
-                            ++depth;
-                        else if (tokens[k].kind == TokenKind::RBrace && depth > 0)
-                            --depth;
-                    }
-                }
-
-                std::vector<bool> is_nested(raw_calls.size(), false);
-                for (std::size_t n = 0; n < raw_calls.size(); ++n)
-                    for (std::size_t m = 0; m < raw_calls.size(); ++m)
-                        if (m != n && raw_calls[m].lparen_tok < raw_calls[n].lparen_tok && raw_calls[n].rparen_tok < raw_calls[m].rparen_tok)
-                        {
-                            is_nested[n] = true;
-                            break;
-                        }
-
-                for (std::size_t n = 0; n < raw_calls.size(); ++n)
-                {
-                    auto const& call = raw_calls[n];
-
-                    bool wrap = count_source_newlines(src, tokens[call.lparen_tok].range.end.offset, tokens[call.rparen_tok].range.begin.offset) > 0;
-
-                    if (!wrap)
-                        for (std::size_t k = call.lparen_tok + 1; k < call.rparen_tok; ++k)
-                            if (tokens[k].kind == TokenKind::LBrace && k < info.block_brace.size() && info.block_brace[k])
-                            {
-                                wrap = true;
-                                break;
-                            }
-
-                    if (!wrap)
-                    {
-                        std::size_t width = 0;
-                        for (std::size_t k = call.callee_first_tok; k <= call.rparen_tok; ++k)
-                        {
-                            auto const spelling = spelling_at(src, tokens[k]);
-                            width += spelling.size();
-                            if (k > call.callee_first_tok && space_before_token(tokens, k, info))
-                                ++width;
-                        }
-
-                        if (!is_nested[n])
-                        {
-                            std::size_t prefix = 0;
-                            for (std::size_t k = call.callee_first_tok; k-- > 0;)
-                            {
-                                auto const kk = tokens[k].kind;
-                                if (kk == TokenKind::Semicolon || kk == TokenKind::RBrace || kk == TokenKind::LBrace)
-                                    break;
-                                prefix += spelling_at(src, tokens[k]).size();
-                                if (space_before_token(tokens, k + 1, info))
-                                    ++prefix;
-                            }
-                            width += prefix + static_cast<std::size_t>(brace_depth_at[call.callee_first_tok]) * static_cast<std::size_t>(info.tab_size);
-                        }
-
-                        if (width > kMaxLineWidth)
-                            wrap = true;
-                    }
-
-                    if (wrap)
-                        info.wrapping_calls.emplace(call.lparen_tok, call);
-                }
-            }
         };
 
+        [[nodiscard]] std::vector<std::size_t> build_paren_match(std::vector<dcc::lex::Token> const& tokens)
+        {
+            std::vector<std::size_t> match(tokens.size(), kNoTokenIndex);
+            std::vector<std::size_t> stack;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+            {
+                auto const k = tokens[i].kind;
+                if (k == TokenKind::LParen)
+                    stack.push_back(i);
+                else if (k == TokenKind::RParen)
+                {
+                    if (!stack.empty())
+                    {
+                        match[stack.back()] = i;
+                        stack.pop_back();
+                    }
+                }
+            }
+            return match;
+        }
+
+        [[nodiscard]] std::vector<std::size_t> collect_positions(std::vector<dcc::lex::Token> const& tokens, TokenKind kind)
+        {
+            std::vector<std::size_t> positions;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+                if (tokens[i].kind == kind)
+                    positions.push_back(i);
+            return positions;
+        }
+
         [[nodiscard]] StructuralInfo analyze_structure(std::vector<dcc::lex::Token> const& tokens, dcc::si::string_interner& interner,
-                                                       std::string_view src_text, protocol::FormattingOptions const& options)
+                                                       std::string_view src_text, protocol::FormattingOptions const& options, Trivia const& trivia,
+                                                       FormatAnalysisStats& stats)
         {
             StructuralInfo info;
             info.template_bang.assign(tokens.size(), false);
             info.binary_operator.assign(tokens.size(), false);
             info.unary_operator.assign(tokens.size(), false);
+            info.pointer_star.assign(tokens.size(), false);
             info.tab_size = static_cast<int>(options.tabSize);
+            stats.token_count = tokens.size();
 
             std::vector<Offset> begins;
             begins.reserve(tokens.size());
             for (auto const& tok : tokens)
                 begins.push_back(tok.range.begin.offset);
+
+            auto const paren_match = build_paren_match(tokens);
+            auto const paren_positions = collect_positions(tokens, TokenKind::LParen);
+            auto const brace_positions = collect_positions(tokens, TokenKind::LBrace);
 
             try
             {
@@ -912,16 +1230,16 @@ namespace dccd::format
                 std::ostringstream diag_sink;
                 dcc::diag::DiagnosticEngine diag{sm, diag_sink};
                 diag.set_color(false);
-                dcc::parser::Parser parser{lexer, ast_ctx, diag};
+
+                dcc::parser::Parser parser{lexer, ast_ctx, diag, dcc::parser::ParseMode::Interactive};
                 auto* tu = parser.parse();
-                if (!tu || diag.has_errors())
+                if (!tu)
                     return info;
 
-                StructureCollector collector{tokens, begins, src_text, info};
+                StructureCollector collector{tokens, begins, src_text, info, paren_match, paren_positions, brace_positions, stats};
                 collector.visitTranslationUnit(tu);
                 info.parsed = true;
-                classify_braces(tokens, src_text, info);
-                collector.finalize();
+                info.groups = analyze_groups(tokens, src_text, trivia, info);
             }
             catch (...)
             {
@@ -929,57 +1247,104 @@ namespace dccd::format
                                       .template_bang = std::vector<bool>(tokens.size(), false),
                                       .binary_operator = std::vector<bool>(tokens.size(), false),
                                       .unary_operator = std::vector<bool>(tokens.size(), false),
-                                      .block_brace = std::vector<bool>(tokens.size(), true),
+                                      .pointer_star = std::vector<bool>(tokens.size(), false),
                                       .ast_compact_braces = {},
                                       .ast_block_braces = {},
+                                      .ast_struct_braces = {},
+                                      .width_eligible_parens = {},
+                                      .paren_context = {},
+                                      .reanchor_starts = {},
+                                      .for_header_parens = {},
                                       .tab_size = static_cast<int>(options.tabSize),
-                                      .wrapping_calls = {}};
+                                      .groups = {}};
             }
 
             return info;
         }
 
-        [[nodiscard]] std::optional<std::string> emit_formatted(dcc::sm::SourceFile const& sf, std::vector<dcc::lex::Token> const& tokens,
-                                                                StructuralInfo const& info, protocol::FormattingOptions const& options)
+        [[nodiscard]] std::optional<std::string> emit_formatted(dcc::sm::SourceFile const& sf, std::vector<dcc::lex::Token> const& tokens, Trivia const& trivia,
+                                                                StructuralInfo const& info, protocol::FormattingOptions const& options,
+                                                                FormatAnalysisStats& stats)
         {
             auto const src_text = sf.text();
 
             std::string result;
             result.reserve(sf.size() + sf.size() / 4);
 
-            int indent = 0;
-            int paren_depth = 0;
-            int bracket_depth = 0;
-            int brace_depth = 0;
-            TokenKind prev_kind = TokenKind::Eof;
-            Offset prev_end_offset = 0;
-            int prev_post_nl = 0;
-            int compact_brace_depth = 0;
-
-            struct ActiveCall
+            std::vector<bool> enum_region(tokens.size(), false);
             {
-                std::size_t lparen_tok{};
-                std::size_t rparen_tok{};
-                int entry_paren_depth{};
-                int entry_brace_depth{};
-                int arg_indent{};
+                bool in_enum = false;
+                for (std::size_t i = 0; i < tokens.size(); ++i)
+                {
+                    enum_region[i] = in_enum;
+                    auto const k = tokens[i].kind;
+                    if (k == TokenKind::KwEnum)
+                        in_enum = true;
+                    else if (k == TokenKind::LBrace || k == TokenKind::RBrace || k == TokenKind::Semicolon || k == TokenKind::KwStruct ||
+                             k == TokenKind::KwUnion || k == TokenKind::KwModule)
+                        in_enum = false;
+                }
+            }
+
+            struct ActiveGroup
+            {
+                TokenKind kind{TokenKind::Eof};
+                std::size_t open_tok{};
+                std::size_t close_tok{};
+                std::size_t recovery_tok{};
+                bool matched{true};
+                bool wrap{false};
+                bool compact{false};
+                bool block{false};
+                bool tight{false};
+                bool has_comment_inside{false};
+                int item_indent{};
                 int close_indent{};
             };
 
-            std::vector<ActiveCall> call_stack;
+            std::vector<ActiveGroup> active;
+            std::vector<std::size_t> wrap_positions;
+            std::size_t wrap_nesting = 0;
+            std::size_t compact_count = 0;
+
+            int indent = 0;
+            int paren_depth = 0;
+            int bracket_depth = 0;
+            TokenKind prev_kind = TokenKind::Eof;
+            bool pending_break = false;
+
+            auto pop_active = [&](bool recovery) {
+                auto const& g = active.back();
+                if (g.compact && compact_count > 0)
+                    --compact_count;
+                if (g.wrap)
+                {
+                    if (g.kind != TokenKind::LBrace && wrap_nesting > 0)
+                        --wrap_nesting;
+                    wrap_positions.pop_back();
+                }
+
+                if (recovery)
+                {
+                    if (g.kind == TokenKind::LParen && paren_depth > 0)
+                        --paren_depth;
+                    else if (g.kind == TokenKind::LBracket && bracket_depth > 0)
+                        --bracket_depth;
+                }
+                active.pop_back();
+            };
 
             for (std::size_t i = 0; i < tokens.size(); ++i)
             {
                 auto const& tok = tokens[i];
-                if (tok.kind == TokenKind::Eof)
-                    continue;
+                bool const is_eof = tok.kind == TokenKind::Eof;
 
                 TokenKind next_kind = TokenKind::Eof;
                 if (i + 1 < tokens.size())
                     next_kind = tokens[i + 1].kind;
 
                 auto const spelling = spelling_at(src_text, tok);
-                if (spelling.empty())
+                if (!is_eof && spelling.empty())
                     return std::nullopt;
 
                 switch (tok.kind)
@@ -998,13 +1363,6 @@ namespace dccd::format
                         if (bracket_depth > 0)
                             --bracket_depth;
                         break;
-                    case TokenKind::LBrace:
-                        ++brace_depth;
-                        break;
-                    case TokenKind::RBrace:
-                        if (brace_depth > 0)
-                            --brace_depth;
-                        break;
                     default:
                         break;
                 }
@@ -1012,189 +1370,286 @@ namespace dccd::format
                 if (tok.kind == TokenKind::RBrace && indent > 0)
                     --indent;
 
-                bool opened_wrapping_call = false;
-                if (tok.kind == TokenKind::LParen)
+                while (!active.empty() && !active.back().matched && active.back().recovery_tok == i)
                 {
-                    if (auto it = info.wrapping_calls.find(i); it != info.wrapping_calls.end())
+                    if (active.back().kind == TokenKind::LBrace && tok.kind != TokenKind::RBrace && indent > 0)
+                        --indent;
+                    pop_active(true);
+                }
+
+                bool const is_open = tok.kind == TokenKind::LParen || tok.kind == TokenKind::LBracket || tok.kind == TokenKind::LBrace;
+                bool const is_close = tok.kind == TokenKind::RParen || tok.kind == TokenKind::RBracket || tok.kind == TokenKind::RBrace;
+                bool const closes_here = is_close && !active.empty() && active.back().matched && active.back().close_tok == i;
+                DelimitedGroup const* opening = nullptr;
+                if (is_open)
+                    if (auto it = info.groups.find(i); it != info.groups.end())
+                        opening = &it->second;
+
+                int want_indent = indent;
+                bool inside_wrapping_group = false;
+                if (!wrap_positions.empty())
+                {
+                    auto const& top = active[wrap_positions.back()];
+                    inside_wrapping_group = true;
+                    if (i == top.close_tok)
                     {
-                        auto const continuation_base = indent + static_cast<int>(call_stack.size());
-                        call_stack.push_back(ActiveCall{.lparen_tok = i,
-                                                        .rparen_tok = it->second.rparen_tok,
-                                                        .entry_paren_depth = paren_depth,
-                                                        .entry_brace_depth = brace_depth,
-                                                        .arg_indent = continuation_base + 1,
-                                                        .close_indent = continuation_base});
-                        opened_wrapping_call = true;
+                        want_indent = top.close_indent;
+                    }
+                    else
+                    {
+                        std::size_t extra = active.size() - 1 - wrap_positions.back();
+                        if (closes_here && !active.back().wrap)
+                            --extra;
+
+                        bool const item_start = (i == top.open_tok + 1) ||
+                                                (i > 0 && tokens[i - 1].kind == TokenKind::Comma && !active.empty() && active.back().open_tok == top.open_tok);
+                        want_indent = item_start ? top.item_indent : top.item_indent + static_cast<int>(extra);
                     }
                 }
 
                 int need_newlines = 0;
                 if (i > 0)
                 {
-                    int const src_nl = count_source_newlines(src_text, prev_end_offset, tok.range.begin.offset);
-                    int base = prev_post_nl;
+                    int const src_nl = gap_newline_count(trivia, i);
+                    int base = pending_break ? 1 : 0;
 
-                    if (tok.kind == TokenKind::RBrace && prev_kind != TokenKind::LBrace)
-                        if (src_nl == 0 && base == 0 && compact_brace_depth == 0)
-                            base = 1;
+                    bool const closing_wrap = closes_here && active.back().wrap;
+                    bool const closing_block = closes_here && active.back().block && prev_kind != TokenKind::LBrace;
 
-                    if (tok.kind == TokenKind::Semicolon && prev_kind == TokenKind::RBrace)
-                        base = 0;
-
-                    if (tok.kind == TokenKind::Comma && prev_kind == TokenKind::RBrace)
-                        base = 0;
-
-                    if (tok.kind == TokenKind::KwElse && prev_kind == TokenKind::RBrace)
-                        base = 0;
-
-                    if (src_nl > 0)
+                    if (closing_wrap || closing_block)
                     {
-                        need_newlines = desired_newlines(src_nl, indent, tok.kind, prev_kind);
-                        if (need_newlines < base)
-                            need_newlines = base;
+                        need_newlines = std::max(base, 1);
                     }
-                    else if (base > 0)
-                        need_newlines = base;
                     else
-                        need_newlines = 0;
-
-                    if (need_newlines >= 2 && tok.kind == TokenKind::KwImport && prev_kind == TokenKind::Semicolon && i >= 2)
                     {
-                        for (std::size_t k = i - 1; k > 0; --k)
+                        if (tok.kind == TokenKind::Semicolon && prev_kind == TokenKind::RBrace)
+                            base = 0;
+                        if (tok.kind == TokenKind::Comma && prev_kind == TokenKind::RBrace)
+                            base = 0;
+                        if (tok.kind == TokenKind::KwElse && prev_kind == TokenKind::RBrace)
+                            base = 0;
+
+                        if (inside_wrapping_group)
                         {
-                            if (tokens[k - 1].kind == TokenKind::KwImport)
-                            {
+                            if (src_nl > 0)
                                 need_newlines = 1;
-                                break;
-                            }
-                            if (tokens[k - 1].kind == TokenKind::Semicolon || tokens[k - 1].kind == TokenKind::RBrace ||
-                                tokens[k - 1].kind == TokenKind::KwModule || tokens[k - 1].kind == TokenKind::KwStruct ||
-                                tokens[k - 1].kind == TokenKind::KwEnum || tokens[k - 1].kind == TokenKind::KwUnion)
-                                break;
+                            else
+                                need_newlines = base;
                         }
-                    }
-
-                    if (!call_stack.empty() && tok.kind == TokenKind::RParen && i == call_stack.back().rparen_tok)
-                        if (need_newlines < 1)
-                            need_newlines = 1;
-                }
-
-                for (int j = prev_post_nl; j < need_newlines; ++j)
-                    result += '\n';
-
-                if (need_newlines > 0)
-                {
-                    int emit_indent = indent;
-                    auto const active_count = call_stack.size() - (opened_wrapping_call ? 1u : 0u);
-                    if (active_count > 0)
-                    {
-                        auto const& top = call_stack[active_count - 1];
-                        if (tok.kind == TokenKind::RParen && i == top.rparen_tok)
-                            emit_indent = top.close_indent;
-                        else if (i > 0 && tokens[i - 1].kind == TokenKind::LParen && i - 1 == top.lparen_tok)
-                            emit_indent = top.arg_indent;
-                        else if (i > 0 && tokens[i - 1].kind == TokenKind::Comma && paren_depth == top.entry_paren_depth &&
-                                 brace_depth == top.entry_brace_depth)
-                            emit_indent = top.arg_indent;
-                        else if (paren_depth >= top.entry_paren_depth || brace_depth > top.entry_brace_depth)
+                        else
                         {
-                            int const tok_brace_depth = (tok.kind == TokenKind::LBrace) ? brace_depth - 1 : brace_depth;
-                            int const paren_extra = paren_depth >= top.entry_paren_depth ? paren_depth - top.entry_paren_depth : 0;
-                            int const brace_extra = tok_brace_depth >= top.entry_brace_depth ? tok_brace_depth - top.entry_brace_depth : 0;
-                            emit_indent = top.arg_indent + paren_extra + brace_extra;
+                            if (src_nl > 0)
+                            {
+                                need_newlines = desired_newlines(src_nl, indent, tok.kind, prev_kind);
+                                if (need_newlines < base)
+                                    need_newlines = base;
+                            }
+                            else if (base > 0)
+                                need_newlines = base;
+                            else
+                                need_newlines = 0;
+                        }
+
+                        if (need_newlines >= 2 && tok.kind == TokenKind::KwImport && prev_kind == TokenKind::Semicolon && i >= 2)
+                        {
+                            for (std::size_t k = i - 1; k > 0; --k)
+                            {
+                                if (tokens[k - 1].kind == TokenKind::KwImport)
+                                {
+                                    need_newlines = 1;
+                                    break;
+                                }
+                                if (tokens[k - 1].kind == TokenKind::Semicolon || tokens[k - 1].kind == TokenKind::RBrace ||
+                                    tokens[k - 1].kind == TokenKind::KwModule || tokens[k - 1].kind == TokenKind::KwStruct ||
+                                    tokens[k - 1].kind == TokenKind::KwEnum || tokens[k - 1].kind == TokenKind::KwUnion)
+                                    break;
+                            }
                         }
                     }
-
-                    result += make_indent(emit_indent, options);
                 }
-                else if (i > 0 && space_before_token(tokens, i, info))
+
+                bool const has_comments = gap_has_comment(trivia, i);
+                if (is_eof && !has_comments && need_newlines > 1)
+                    need_newlines = 1;
+                if (has_comments)
                 {
-                    result += ' ';
+                    auto const& gap = trivia.gaps[i];
+                    int nl = 0;
+                    bool break_after_comment = pending_break;
+                    bool emitted_comment = false;
+                    for (auto const& piece : gap)
+                    {
+                        if (piece.kind == TriviaKind::Whitespace)
+                        {
+                            nl += static_cast<int>(piece.newlines);
+                            continue;
+                        }
+
+                        emitted_comment = true;
+                        if (nl == 0 && i > 0)
+                        {
+                            result += ' ';
+                            result += piece.text;
+                            if (piece.kind == TriviaKind::LineComment)
+                                break_after_comment = true;
+                        }
+                        else
+                        {
+                            int n = nl;
+                            if (n < 1)
+                                n = (i == 0) ? 0 : 1;
+                            if (n > 2)
+                                n = 2;
+                            result.append(static_cast<std::size_t>(n), '\n');
+                            result += make_indent(want_indent, options);
+                            result += piece.text;
+                            break_after_comment = true;
+                        }
+                        nl = 0;
+                    }
+
+                    int final_nl = nl;
+                    if (break_after_comment && final_nl == 0)
+                        final_nl = 1;
+                    if (need_newlines > 0 && final_nl == 0)
+                        final_nl = 1;
+                    if (final_nl > 2)
+                        final_nl = 2;
+
+                    if (final_nl > 0)
+                    {
+                        result.append(static_cast<std::size_t>(final_nl), '\n');
+                        if (!is_eof)
+                            result += make_indent(want_indent, options);
+                    }
+                    else if (emitted_comment)
+                    {
+                        switch (tok.kind)
+                        {
+                            case TokenKind::Comma:
+                            case TokenKind::Semicolon:
+                            case TokenKind::RParen:
+                            case TokenKind::RBracket:
+                            case TokenKind::RBrace:
+                            case TokenKind::Dot:
+                            case TokenKind::ColonColon:
+                            case TokenKind::DotDot:
+                            case TokenKind::Ellipsis:
+                            case TokenKind::Colon:
+                                break;
+                            default:
+                                result += ' ';
+                                break;
+                        }
+                    }
+                    else if (i > 0 && !is_eof && space_before_token(tokens, i, info))
+                    {
+                        result += ' ';
+                    }
+                }
+                else
+                {
+                    if (need_newlines > 0)
+                    {
+                        result.append(static_cast<std::size_t>(need_newlines), '\n');
+                        if (!is_eof)
+                            result += make_indent(want_indent, options);
+                    }
+                    else if (i > 0 && !is_eof && space_before_token(tokens, i, info))
+                    {
+                        result += ' ';
+                    }
+                }
+                pending_break = false;
+
+                if (is_eof)
+                    break;
+
+                if (tok.kind == TokenKind::RBrace && closes_here && !active.empty() && active.back().compact)
+                {
+                    bool const tight_close = active.back().tight;
+                    if (tight_close)
+                    {
+                        if (prev_kind != TokenKind::LBrace && active.back().has_comment_inside)
+                            result += ' ';
+                    }
+                    else if (prev_kind != TokenKind::LBrace || gap_has_comment(trivia, i))
+                        result += ' ';
                 }
 
                 if (tok.kind == TokenKind::Colon && i > 0 && need_newlines == 0)
                 {
-                    bool is_enum = false;
-                    for (std::size_t k = i; k > 0; --k)
-                    {
-                        auto const pk = tokens[k - 1].kind;
-                        if (pk == TokenKind::KwEnum)
-                        {
-                            is_enum = true;
-                            break;
-                        }
-                        if (pk == TokenKind::LBrace || pk == TokenKind::RBrace || pk == TokenKind::Semicolon || pk == TokenKind::KwStruct ||
-                            pk == TokenKind::KwUnion || pk == TokenKind::KwModule)
-                            break;
-                    }
-                    if (is_enum)
+                    ++stats.enum_region_lookups;
+                    if (i < enum_region.size() && enum_region[i])
                         result += ' ';
                 }
 
-                if (tok.kind == TokenKind::RBrace && compact_brace_depth > 0 && prev_kind != TokenKind::LBrace)
-                    result += ' ';
-
                 result += spelling;
 
-                prev_post_nl = 0;
+                if (is_open && opening)
+                {
+                    if (opening->wrap)
+                    {
+                        int const wbase = indent + static_cast<int>(wrap_nesting);
+                        active.push_back(ActiveGroup{.kind = tok.kind,
+                                                     .open_tok = i,
+                                                     .close_tok = opening->close_tok,
+                                                     .recovery_tok = opening->recovery_tok,
+                                                     .matched = opening->matched,
+                                                     .wrap = true,
+                                                     .item_indent = wbase + 1,
+                                                     .close_indent = wbase});
+                        wrap_positions.push_back(active.size() - 1);
+                        if (tok.kind != TokenKind::LBrace)
+                            ++wrap_nesting;
+                        pending_break = true;
+                    }
+                    else
+                    {
+                        active.push_back(ActiveGroup{.kind = tok.kind,
+                                                     .open_tok = i,
+                                                     .close_tok = opening->close_tok,
+                                                     .recovery_tok = opening->recovery_tok,
+                                                     .matched = opening->matched,
+                                                     .compact = opening->compact,
+                                                     .block = opening->block,
+                                                     .tight = opening->tight,
+                                                     .has_comment_inside = opening->has_comment_inside});
+                        if (opening->block)
+                            pending_break = true;
+                        else if (opening->compact && !opening->tight && next_kind != TokenKind::RBrace && next_kind != TokenKind::Eof &&
+                                 !gap_has_comment(trivia, i + 1))
+                            result += ' ';
+                        if (opening->compact)
+                            ++compact_count;
+                    }
+                }
 
                 if (tok.kind == TokenKind::LBrace)
                 {
                     ++indent;
-                    bool compact_brace = (next_kind == TokenKind::RBrace);
-                    if (!compact_brace && i < info.block_brace.size())
-                        compact_brace = !info.block_brace[i];
-
-                    if (compact_brace)
-                    {
-                        if (next_kind != TokenKind::RBrace)
-                        {
-                            ++compact_brace_depth;
-                            result += ' ';
-                        }
-                    }
-                    else
-                    {
-                        result += '\n';
-                        prev_post_nl = 1;
-                    }
                 }
                 else if (tok.kind == TokenKind::RBrace)
                 {
-                    bool const was_empty = (prev_kind == TokenKind::LBrace);
-                    bool const was_compact = compact_brace_depth > 0;
-                    if (was_compact && !was_empty)
-                        --compact_brace_depth;
-
+                    bool const was_compact = compact_count > 0;
+                    bool const was_empty = prev_kind == TokenKind::LBrace;
                     if (!was_compact && !was_empty && next_kind != TokenKind::Semicolon && next_kind != TokenKind::Comma && next_kind != TokenKind::KwElse &&
                         next_kind != TokenKind::RParen && next_kind != TokenKind::RBracket)
-                    {
-                        result += '\n';
-                        prev_post_nl = 1;
-                    }
+                        pending_break = true;
                 }
-                else if (tok.kind == TokenKind::Semicolon && paren_depth <= 0 && bracket_depth <= 0 && compact_brace_depth == 0)
+                else if (tok.kind == TokenKind::Semicolon && paren_depth <= 0 && bracket_depth <= 0 && compact_count == 0)
                 {
-                    result += '\n';
-                    prev_post_nl = 1;
+                    pending_break = true;
                 }
-                else if (tok.kind == TokenKind::Comma && !call_stack.empty() && paren_depth == call_stack.back().entry_paren_depth &&
-                         brace_depth == call_stack.back().entry_brace_depth)
+                else if (tok.kind == TokenKind::Comma && !active.empty() && active.back().wrap)
                 {
-                    result += '\n';
-                    prev_post_nl = 1;
-                }
-                else if (opened_wrapping_call)
-                {
-                    result += '\n';
-                    prev_post_nl = 1;
+                    pending_break = true;
                 }
 
-                if (tok.kind == TokenKind::RParen && !call_stack.empty() && i == call_stack.back().rparen_tok)
-                    call_stack.pop_back();
+                if (closes_here)
+                    pop_active(false);
 
                 prev_kind = tok.kind;
-                prev_end_offset = tok.range.end.offset;
             }
 
             if (result.empty() || result.back() != '\n')
@@ -1203,40 +1658,143 @@ namespace dccd::format
             return result;
         }
 
+        [[nodiscard]] std::string apply_output_options(std::string result, protocol::FormattingOptions const& options)
+        {
+            if (options.trim_trailing_whitespace())
+            {
+                std::size_t line_start = 0;
+                while (line_start <= result.size())
+                {
+                    auto const nl = result.find('\n', line_start);
+                    auto const line_end = (nl == std::string::npos) ? result.size() : nl;
+
+                    auto trim = line_end;
+                    while (trim > line_start && (result[trim - 1] == ' ' || result[trim - 1] == '\t'))
+                        --trim;
+                    if (trim < line_end)
+                        result.erase(trim, line_end - trim);
+
+                    if (nl == std::string::npos)
+                        break;
+                    line_start = nl + 1;
+                }
+            }
+
+            if (options.trim_final_newlines())
+            {
+                while (!result.empty() && result.back() == '\n')
+                    result.pop_back();
+                if (options.insert_final_newline())
+                    result += '\n';
+            }
+            else if (!options.insert_final_newline())
+                if (!result.empty() && result.back() == '\n')
+                    result.pop_back();
+
+            return result;
+        }
+
+        [[nodiscard]] bool is_utf8_boundary(std::string_view s, std::size_t off) noexcept
+        {
+            if (off == 0 || off == s.size())
+                return true;
+
+            return (static_cast<unsigned char>(s[off]) & 0xC0u) != 0x80u;
+        }
+
+        [[nodiscard]] std::size_t snap_boundary_down(std::string_view s, std::size_t off) noexcept
+        {
+            while (off > 0 && !is_utf8_boundary(s, off))
+                --off;
+            return off;
+        }
+
+        [[nodiscard]] std::size_t snap_boundary_up(std::string_view s, std::size_t off) noexcept
+        {
+            while (off < s.size() && !is_utf8_boundary(s, off))
+                ++off;
+            return off;
+        }
+
+        [[nodiscard]] std::optional<std::string> format_source_text(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                                    protocol::FormattingOptions const& options, FormatAnalysisStats& stats)
+        {
+            auto const src_text = sf.text();
+
+            dcc::lex::Lexer lexer{sf, interner};
+            std::vector<dcc::lex::Token> tokens;
+
+            while (true)
+            {
+                auto tok = lexer.next();
+                if (tok.kind == TokenKind::Invalid)
+                    return std::nullopt;
+
+                tokens.push_back(tok);
+                if (tok.kind == TokenKind::Eof)
+                    break;
+            }
+
+            auto const trivia = build_trivia(src_text, tokens);
+
+            auto const structure = analyze_structure(tokens, interner, src_text, options, trivia, stats);
+
+            if (!structure.parsed)
+                return std::nullopt;
+
+            auto formatted = emit_formatted(sf, tokens, trivia, structure, options, stats);
+            if (!formatted.has_value())
+                return std::nullopt;
+
+            return apply_output_options(std::move(*formatted), options);
+        }
+
+        [[nodiscard]] std::optional<std::pair<dcc::sm::SourceRange, std::string>> derive_minimal_edit(std::string_view orig, std::string_view formatted)
+        {
+            std::size_t prefix = 0;
+            while (prefix < orig.size() && prefix < formatted.size() && orig[prefix] == formatted[prefix])
+                ++prefix;
+            prefix = snap_boundary_down(orig, prefix);
+
+            std::size_t const max_suffix = std::min(orig.size() - prefix, formatted.size() - prefix);
+            std::size_t suffix = 0;
+            while (suffix < max_suffix && orig[orig.size() - 1 - suffix] == formatted[formatted.size() - 1 - suffix])
+                ++suffix;
+
+            auto const r_begin = prefix;
+            auto const r_end = snap_boundary_up(orig, orig.size() - suffix);
+            auto const fmt_end = formatted.size() - (orig.size() - r_end);
+            if (fmt_end < prefix)
+                return std::nullopt;
+
+            if (r_begin == r_end && fmt_end == prefix)
+                return std::nullopt;
+
+            dcc::sm::SourceRange range;
+            range.begin.offset = static_cast<dcc::sm::Offset>(r_begin);
+            range.end.offset = static_cast<dcc::sm::Offset>(r_end);
+            return std::make_pair(range, std::string{formatted.substr(prefix, fmt_end - prefix)});
+        }
+
     } // anonymous namespace
 
     std::optional<protocol::TextEdit> format_document(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
-                                                      protocol::FormattingOptions const& options)
+                                                      protocol::FormattingOptions const& options, dcc::sm::PositionEncoding position_encoding)
     {
-        auto const src_text = sf.text();
-        if (source_contains_comments(src_text))
-            return std::nullopt;
+        FormatAnalysisStats stats;
+        return format_document(sf, interner, options, stats, position_encoding);
+    }
 
-        dcc::lex::Lexer lexer{sf, interner};
-        std::vector<dcc::lex::Token> tokens;
-
-        while (true)
-        {
-            auto tok = lexer.next();
-            if (tok.kind == TokenKind::Invalid)
-                return std::nullopt;
-
-            tokens.push_back(tok);
-            if (tok.kind == TokenKind::Eof)
-                break;
-        }
-
-        auto const structure = analyze_structure(tokens, interner, src_text, options);
-
-        if (!structure.parsed)
-            return std::nullopt;
-
-        auto formatted = emit_formatted(sf, tokens, structure, options);
+    std::optional<protocol::TextEdit> format_document(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                      protocol::FormattingOptions const& options, FormatAnalysisStats& out_stats,
+                                                      dcc::sm::PositionEncoding position_encoding)
+    {
+        auto formatted = format_source_text(sf, interner, options, out_stats);
         if (!formatted.has_value())
             return std::nullopt;
 
         auto const end_offset = static_cast<dcc::sm::Offset>(sf.size());
-        auto end_pos = sf.lsp_position(end_offset);
+        auto end_pos = sf.lsp_position(end_offset, position_encoding);
         if (!end_pos)
             return std::nullopt;
 
@@ -1248,6 +1806,102 @@ namespace dccd::format
         edit.newText = std::move(*formatted);
 
         return edit;
+    }
+
+    std::vector<protocol::TextEdit> format_range(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner, protocol::FormattingOptions const& options,
+                                                 protocol::LspRange const& range, dcc::sm::PositionEncoding position_encoding)
+    {
+        FormatAnalysisStats stats;
+        return format_range(sf, interner, options, range, stats, position_encoding);
+    }
+
+    std::vector<protocol::TextEdit> format_range(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner, protocol::FormattingOptions const& options,
+                                                 protocol::LspRange const& range, FormatAnalysisStats& out_stats, dcc::sm::PositionEncoding position_encoding)
+    {
+        auto start_off = sf.offset_at_lsp_position(range.start.line, range.start.character, position_encoding);
+        auto end_off = sf.offset_at_lsp_position(range.end.line, range.end.character, position_encoding);
+        if (!start_off || !end_off)
+            return {};
+
+        if (*start_off > *end_off || *end_off > static_cast<dcc::sm::Offset>(sf.size()))
+            return {};
+
+        auto formatted = format_source_text(sf, interner, options, out_stats);
+        if (!formatted.has_value())
+            return {};
+
+        auto minimal = derive_minimal_edit(sf.text(), *formatted);
+        if (!minimal)
+            return {};
+
+        auto const r_begin = static_cast<std::size_t>(minimal->first.begin.offset);
+        auto const r_end = static_cast<std::size_t>(minimal->first.end.offset);
+        if (r_begin < static_cast<std::size_t>(*start_off) || r_end > static_cast<std::size_t>(*end_off))
+            return {};
+
+        auto begin_pos = sf.lsp_position(minimal->first.begin.offset, position_encoding);
+        auto end_pos = sf.lsp_position(minimal->first.end.offset, position_encoding);
+        if (!begin_pos || !end_pos)
+            return {};
+
+        protocol::TextEdit edit;
+        edit.range.start.line = begin_pos->line;
+        edit.range.start.character = begin_pos->character;
+        edit.range.end.line = end_pos->line;
+        edit.range.end.character = end_pos->character;
+        edit.newText = std::move(minimal->second);
+
+        return {std::move(edit)};
+    }
+
+    std::vector<protocol::TextEdit> format_on_type(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                   protocol::FormattingOptions const& options, std::string_view trigger, protocol::LspPosition const& position,
+                                                   dcc::sm::PositionEncoding position_encoding)
+    {
+        FormatAnalysisStats stats;
+        return format_on_type(sf, interner, options, trigger, position, stats, position_encoding);
+    }
+
+    std::vector<protocol::TextEdit> format_on_type(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
+                                                   protocol::FormattingOptions const& options, std::string_view trigger, protocol::LspPosition const& position,
+                                                   FormatAnalysisStats& out_stats, dcc::sm::PositionEncoding position_encoding)
+    {
+        if (trigger.empty())
+            return {};
+
+        auto pos_off = sf.offset_at_lsp_position(position.line, position.character, position_encoding);
+        if (!pos_off)
+            return {};
+
+        auto const text = sf.text();
+        auto const pos = static_cast<std::size_t>(*pos_off);
+        if (pos < trigger.size())
+            return {};
+        if (text.substr(pos - trigger.size(), trigger.size()) != trigger)
+            return {};
+
+        std::size_t line_start = pos;
+        while (line_start > 0 && text[line_start - 1] != '\n')
+            --line_start;
+
+        auto line_end = text.find('\n', line_start);
+        if (line_end == std::string::npos)
+            line_end = text.size();
+        if (line_end > line_start && text[line_end - 1] == '\r')
+            --line_end;
+
+        auto line_start_pos = sf.lsp_position(static_cast<dcc::sm::Offset>(line_start), position_encoding);
+        auto line_end_pos = sf.lsp_position(static_cast<dcc::sm::Offset>(line_end), position_encoding);
+        if (!line_start_pos || !line_end_pos)
+            return {};
+
+        protocol::LspRange line_range;
+        line_range.start.line = line_start_pos->line;
+        line_range.start.character = line_start_pos->character;
+        line_range.end.line = line_end_pos->line;
+        line_range.end.character = line_end_pos->character;
+
+        return format_range(sf, interner, options, line_range, out_stats, position_encoding);
     }
 
 } // namespace dccd::format
