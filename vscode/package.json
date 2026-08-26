@@ -68,6 +68,21 @@
                     },
                     "default": [],
                     "description": "Additional include/import paths used to resolve modules. Relative paths are resolved from the first workspace folder."
+                },
+                "dcc.inlayHints.typeHints": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show inferred type hints (e.g. for-in binding types)."
+                },
+                "dcc.inlayHints.parameterHints": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Show parameter name hints on call arguments."
+                },
+                "dcc.inlayHints.suppressParameterNameMatches": {
+                    "type": "boolean",
+                    "default": true,
+                    "description": "Suppress a parameter hint when the argument is a simple identifier that already equals the parameter name."
                 }
             }
         }

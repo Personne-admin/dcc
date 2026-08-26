@@ -5,12 +5,14 @@ import dcc.sm;
 import dcc.diag;
 import dcc.session;
 import dccd.protocol;
+import dccd.transport;
 import dccd.semantic_tokens;
 import dccd.completion;
 import dccd.inlay_hints;
-import dccd.workspace_symbols;
+import dccd.workspace_index;
 import dccd.format;
 import dcc.query;
+import dcc.lex;
 import dcc.ast;
 import dcc.sema;
 import dcc.sema.type_helpers;
@@ -22,8 +24,14 @@ export namespace dccd
     class LanguageServer
     {
     public:
-        LanguageServer()
+        explicit LanguageServer(std::ostream* output_sink = nullptr) : LanguageServer(output_sink, std::make_shared<transport::CancellationRegistry>()) {}
+
+        LanguageServer(std::ostream* output_sink, std::shared_ptr<transport::CancellationRegistry> cancellation)
+            : m_output{output_sink}, m_cancellation{std::move(cancellation)}
         {
+            if (!m_cancellation)
+                m_cancellation = std::make_shared<transport::CancellationRegistry>();
+
             dcc::session::SessionOptions sopts;
             sopts.silent_diagnostics = true;
             sopts.diagnostic_stream = &m_log;
@@ -41,61 +49,89 @@ export namespace dccd
             {
                 std::string method = rpc.method.value();
 
-                if (method == "initialize")
-                    return handle_initialize(rpc);
-                if (method == "initialized")
-                    return handle_initialized(rpc);
-                if (method == "shutdown")
-                    return handle_shutdown(rpc);
-                if (method == "textDocument/didOpen")
-                {
-                    handle_did_open(rpc);
-                    return std::nullopt;
-                }
-                if (method == "textDocument/didChange")
-                {
-                    handle_did_change(rpc);
-                    return std::nullopt;
-                }
-                if (method == "textDocument/didClose")
-                {
-                    handle_did_close(rpc);
-                    return std::nullopt;
-                }
-                if (method == "textDocument/definition")
-                    return handle_definition(rpc);
-                if (method == "textDocument/hover")
-                    return handle_hover(rpc);
-                if (method == "textDocument/semanticTokens/full")
-                    return handle_semantic_tokens_full(rpc);
-                if (method == "textDocument/completion")
-                    return handle_completion(rpc);
-                if (method == "textDocument/signatureHelp")
-                    return handle_signature_help(rpc);
-                if (method == "textDocument/references")
-                    return handle_references(rpc);
-                if (method == "textDocument/documentHighlight")
-                    return handle_document_highlight(rpc);
-                if (method == "textDocument/rename")
-                    return handle_rename(rpc);
-                if (method == "textDocument/codeAction")
-                    return handle_code_action(rpc);
-                if (method == "textDocument/inlayHint")
-                    return handle_inlay_hint(rpc);
-                if (method == "textDocument/formatting")
-                    return handle_formatting(rpc);
-                if (method == "workspace/symbol")
-                    return handle_workspace_symbol(rpc);
-                if (method == "dccd/virtualDocument")
-                    return handle_virtual_document(rpc);
+                auto request_id = protocol::RequestId::from_json(rpc.id.value());
+                if (!request_id.valid())
+                    return protocol::build_error_response(rpc.id.value(), -32600, "Invalid Request: id must be a number or a string");
 
-                return protocol::build_error_response(rpc.id.value(), -32601, std::format("Method not found: {}", method));
+                std::ignore = m_cancellation->register_pending(request_id);
+                CurrentRequestScope scope{*this, request_id};
+
+                if (m_cancellation->is_cancelled(request_id))
+                    return protocol::build_error_response(rpc.id.value(), protocol::kErrorRequestCancelled, "Request cancelled");
+
+                try
+                {
+                    if (method == "initialize")
+                        return handle_initialize(rpc);
+                    if (method == "initialized")
+                        return handle_initialized(rpc);
+                    if (method == "shutdown")
+                        return handle_shutdown(rpc);
+                    if (method == "textDocument/didOpen")
+                    {
+                        handle_did_open(rpc);
+                        return std::nullopt;
+                    }
+                    if (method == "textDocument/didChange")
+                    {
+                        handle_did_change(rpc);
+                        return std::nullopt;
+                    }
+                    if (method == "textDocument/didClose")
+                    {
+                        handle_did_close(rpc);
+                        return std::nullopt;
+                    }
+                    if (method == "textDocument/definition")
+                        return handle_definition(rpc);
+                    if (method == "textDocument/hover")
+                        return handle_hover(rpc);
+                    if (method == "textDocument/semanticTokens/full")
+                        return handle_semantic_tokens_full(rpc);
+                    if (method == "textDocument/completion")
+                        return handle_completion(rpc);
+                    if (method == "textDocument/signatureHelp")
+                        return handle_signature_help(rpc);
+                    if (method == "textDocument/references")
+                        return handle_references(rpc);
+                    if (method == "textDocument/documentHighlight")
+                        return handle_document_highlight(rpc);
+                    if (method == "textDocument/rename")
+                        return handle_rename(rpc);
+                    if (method == "textDocument/prepareRename")
+                        return handle_prepare_rename(rpc);
+                    if (method == "textDocument/codeAction")
+                        return handle_code_action(rpc);
+                    if (method == "textDocument/inlayHint")
+                        return handle_inlay_hint(rpc);
+                    if (method == "textDocument/formatting")
+                        return handle_formatting(rpc);
+                    if (method == "textDocument/rangeFormatting")
+                        return handle_range_formatting(rpc);
+                    if (method == "textDocument/onTypeFormatting")
+                        return handle_on_type_formatting(rpc);
+                    if (method == "workspace/symbol")
+                        return handle_workspace_symbol(rpc);
+                    if (method == "dccd/virtualDocument")
+                        return handle_virtual_document(rpc);
+
+                    return protocol::build_error_response(rpc.id.value(), -32601, std::format("Method not found: {}", method));
+                }
+                catch (RequestCancelledError const&)
+                {
+                    return protocol::build_error_response(rpc.id.value(), protocol::kErrorRequestCancelled, "Request cancelled");
+                }
             }
 
             if (rpc.is_notification())
             {
                 std::string method = rpc.method.value();
 
+                if (method == protocol::kCancelRequestMethod)
+                {
+                    handle_cancel_request(rpc);
+                    return std::nullopt;
+                }
                 if (method == "initialized")
                 {
                     std::ignore = handle_initialized(rpc);
@@ -140,14 +176,31 @@ export namespace dccd
 
         [[nodiscard]] bool should_exit() const noexcept { return m_should_exit; }
 
+        [[nodiscard]] transport::CancellationRegistry& cancellation_registry() noexcept { return *m_cancellation; }
+        [[nodiscard]] transport::CancellationRegistry const& cancellation_registry() const noexcept { return *m_cancellation; }
+
+        [[nodiscard]] dccd::workspace_index::WorkspaceIndex& workspace_index() noexcept { return m_workspace_index; }
+        [[nodiscard]] dccd::workspace_index::WorkspaceIndex const& workspace_index() const noexcept { return m_workspace_index; }
+
+        [[nodiscard]] dcc::sm::SourceManager& source_manager() noexcept { return m_session->source_manager(); }
+        [[nodiscard]] dcc::sm::SourceManager const& source_manager() const noexcept { return m_session->source_manager(); }
+
     private:
         std::optional<dcc::session::CompilerSession> m_session;
         std::ostream& m_log{std::cerr};
+        std::ostream* m_output{nullptr};
         bool m_should_exit{false};
+        std::shared_ptr<transport::CancellationRegistry> m_cancellation;
+        std::optional<protocol::RequestId> m_current_request_id;
         std::vector<std::filesystem::path> m_workspace_roots;
         std::vector<std::filesystem::path> m_lsp_include_paths;
         std::vector<std::filesystem::path> m_project_include_paths;
         std::vector<std::filesystem::path> m_global_include_paths;
+        std::string m_active_entry_uri;
+        dccd::workspace_index::WorkspaceIndex m_workspace_index;
+        bool m_did_change_watched_files_supported{false};
+        bool m_watch_registration_sent{false};
+        protocol::InlayHintOptions m_inlay_hint_options;
 
         struct CachedDiagnostic
         {
@@ -155,16 +208,190 @@ export namespace dccd
             dcc::diag::Diagnostic compiler_diag;
         };
 
-        std::map<std::string, std::vector<CachedDiagnostic>, std::less<>> m_diagnostic_cache;
+        struct CachedDiagnosticEntry
+        {
+            std::optional<std::int64_t> version;
+            std::uint64_t content_revision{0};
+            std::uint64_t graph_generation{0};
+            std::vector<CachedDiagnostic> diagnostics;
+        };
+
+        std::map<std::string, CachedDiagnosticEntry, std::less<>> m_diagnostic_cache;
+        std::unordered_set<std::string> m_published_uris;
         std::unordered_set<std::string> m_stale_uris;
+
+        std::map<dcc::sm::FileId, std::uint64_t> m_graph_revisions;
+        std::uint64_t m_graph_generation{0};
+        bool m_recompiling{false};
+
+        [[nodiscard]] std::string const& active_entry_uri() const noexcept { return m_active_entry_uri; }
+
+        [[nodiscard]] bool graph_snapshot_fresh() const noexcept
+        {
+            if (m_graph_revisions.empty())
+                return false;
+
+            auto const& sm = m_session->source_manager();
+            for (auto const& [fid, rev] : m_graph_revisions)
+                if (sm.content_revision(fid) != rev)
+                    return false;
+
+            return true;
+        }
+
+        struct RecompilingGuard
+        {
+            bool& flag;
+            explicit RecompilingGuard(bool& f) noexcept : flag{f} { flag = true; }
+            ~RecompilingGuard() noexcept { flag = false; }
+            RecompilingGuard(RecompilingGuard const&) = delete;
+            RecompilingGuard& operator=(RecompilingGuard const&) = delete;
+        };
+
+        struct RequestCancelledError
+        {
+        };
+
+        struct CurrentRequestScope
+        {
+            LanguageServer& server;
+            protocol::RequestId id;
+            std::optional<protocol::RequestId> previous;
+
+            CurrentRequestScope(LanguageServer& s, protocol::RequestId request_id) : server{s}, id{std::move(request_id)}
+            {
+                previous = server.m_current_request_id;
+                server.m_current_request_id = id;
+            }
+
+            ~CurrentRequestScope()
+            {
+                server.m_cancellation->finish(id);
+                server.m_current_request_id = previous;
+            }
+
+            CurrentRequestScope(CurrentRequestScope const&) = delete;
+            CurrentRequestScope& operator=(CurrentRequestScope const&) = delete;
+        };
+
+        [[nodiscard]] bool current_request_cancelled() const noexcept
+        {
+            if (!m_current_request_id)
+                return false;
+
+            return m_cancellation->is_cancelled(*m_current_request_id);
+        }
+
+        void checkpoint_cancelled()
+        {
+            if (current_request_cancelled())
+                throw RequestCancelledError{};
+        }
+
+        void handle_cancel_request(protocol::RpcInfo const& rpc)
+        {
+            if (!rpc.params.has_value())
+            {
+                std::println(m_log, "[dccd] $/cancelRequest: missing params");
+                return;
+            }
+
+            auto params = protocol::CancelParams::from_json(rpc.params.value());
+            if (!params.id.valid())
+            {
+                std::println(m_log, "[dccd] $/cancelRequest: id must be a number or a string");
+                return;
+            }
+
+            bool cancelled = m_cancellation->cancel(params.id);
+            std::println(m_log, "[dccd] $/cancelRequest: id={} {}", params.id.to_json().serialize(), cancelled ? "cancelled" : "no-op (not pending)");
+        }
+
+        bool ensure_graph_fresh(std::string const& uri)
+        {
+            if (m_stale_uris.contains(uri))
+            {
+                std::println(m_log, "[dccd] ensure_graph_fresh: URI marked stale (previous update failed) for {}; refusing", uri);
+                return false;
+            }
+
+            if (graph_snapshot_fresh())
+                return true;
+
+            if (m_recompiling)
+            {
+                std::println(m_log, "[dccd] ensure_graph_fresh: already recompiling; not recursing for {}", uri);
+                return false;
+            }
+
+            RecompilingGuard guard{m_recompiling};
+            if (!m_active_entry_uri.empty())
+                recompile_document(m_active_entry_uri);
+            else
+                recompile_document(uri);
+
+            return graph_snapshot_fresh();
+        }
+
+        [[nodiscard]] bool analyzed_file_current(std::string const& uri) const noexcept
+        {
+            auto opt_fid = m_session->source_manager().find_by_uri(uri);
+            if (!opt_fid)
+                return false;
+
+            auto it = m_graph_revisions.find(*opt_fid);
+            if (it == m_graph_revisions.end())
+                return true;
+
+            return it->second == m_session->source_manager().content_revision(*opt_fid);
+        }
+
+        [[nodiscard]] std::uint64_t content_revision_for_uri(std::string const& uri) const noexcept
+        {
+            auto opt_fid = m_session->source_manager().find_by_uri(uri);
+            if (!opt_fid)
+                return 0;
+
+            return m_session->source_manager().content_revision(*opt_fid);
+        }
+
+        [[nodiscard]] bool diagnostic_cache_fresh(std::string const& uri) const
+        {
+            auto it = m_diagnostic_cache.find(uri);
+            if (it == m_diagnostic_cache.end())
+                return false;
+
+            auto const& entry = it->second;
+
+            if (entry.graph_generation != m_graph_generation)
+                return false;
+
+            auto opt_fid = m_session->source_manager().find_by_uri(uri);
+            if (!opt_fid)
+                return false;
+
+            auto const* sf = m_session->source_manager().get(*opt_fid);
+            if (!sf || sf->content_revision() != entry.content_revision)
+                return false;
+
+            if (entry.version.has_value())
+            {
+                auto current = version_for_uri(uri);
+                if (!current || *current != *entry.version)
+                    return false;
+            }
+
+            return true;
+        }
 
         [[nodiscard]] std::optional<protocol::JsonValue> handle_initialize(protocol::RpcInfo const& rpc)
         {
             m_workspace_roots.clear();
 
+            protocol::InitializeParams init_params;
             if (rpc.params.has_value())
             {
-                auto init_params = protocol::InitializeParams::from_json(rpc.params.value());
+                init_params = protocol::InitializeParams::from_json(rpc.params.value());
 
                 if (init_params.workspaceFolders.has_value())
                 {
@@ -182,6 +409,15 @@ export namespace dccd
                         m_workspace_roots.push_back(std::move(*path));
                 }
             }
+
+            m_did_change_watched_files_supported = init_params.didChangeWatchedFilesDynamicRegistration;
+            m_watch_registration_sent = false;
+            std::println(m_log, "[dccd] initialize: didChangeWatchedFiles dynamicRegistration = {}",
+                         m_did_change_watched_files_supported ? "supported" : "not supported");
+
+            auto const selected = select_position_encoding(init_params);
+            m_session->source_manager().set_position_encoding(selected);
+            std::println(m_log, "[dccd] initialize: position encoding = {}", dcc::sm::to_string(selected));
 
             if (!m_workspace_roots.empty())
             {
@@ -205,14 +441,50 @@ export namespace dccd
                 }
             }
 
-            return protocol::build_response(rpc.id.value(), protocol::make_initialize_result());
+            return protocol::build_response(rpc.id.value(), protocol::make_initialize_result(dcc::sm::to_string(selected)));
         }
 
-        [[nodiscard]] std::optional<protocol::JsonValue> handle_initialized(protocol::RpcInfo const&) { return std::nullopt; }
+        [[nodiscard]] std::optional<protocol::JsonValue> handle_initialized(protocol::RpcInfo const&)
+        {
+            maybe_register_watched_files();
+            return std::nullopt;
+        }
+
+        void maybe_register_watched_files()
+        {
+            if (!m_did_change_watched_files_supported || m_watch_registration_sent)
+                return;
+
+            m_watch_registration_sent = true;
+            std::println(m_log, "[dccd] initialized: registering watched files via {}", protocol::kClientRegisterCapabilityMethod);
+            send_message(protocol::build_register_capability_request());
+        }
 
         [[nodiscard]] std::optional<protocol::JsonValue> handle_shutdown(protocol::RpcInfo const& rpc)
         {
             return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+        }
+
+        [[nodiscard]] bool is_stale_version(std::string const& uri, std::optional<std::int64_t> incoming_version, bool reject_equal) const
+        {
+            if (!incoming_version)
+                return false;
+
+            auto opt_fid = m_session->source_manager().find_by_uri(uri);
+            if (!opt_fid)
+                return false;
+
+            auto const* sf = m_session->source_manager().get(*opt_fid);
+            if (!sf || !sf->is_in_memory() || sf->is_closed())
+                return false;
+
+            auto current = sf->version();
+            if (!current)
+                return false;
+
+            if (reject_equal)
+                return *incoming_version <= *current;
+            return *incoming_version < *current;
         }
 
         void handle_did_open(protocol::RpcInfo const& rpc)
@@ -222,6 +494,13 @@ export namespace dccd
             if (dcc::vfs::is_dcc_core_uri(params.textDocument.uri))
             {
                 std::println(m_log, "[dccd] didOpen: rejecting read-only dcc-core: document {}", params.textDocument.uri);
+                return;
+            }
+
+            if (is_stale_version(params.textDocument.uri, params.textDocument.version, false))
+            {
+                std::println(m_log, "[dccd] didOpen: rejecting stale/duplicate open version {} for already-open document {}", params.textDocument.version,
+                             params.textDocument.uri);
                 return;
             }
 
@@ -237,7 +516,7 @@ export namespace dccd
                 std::println(m_log, "[dccd] didOpen: uri={} fid={} (file lookup failed)", params.textDocument.uri, static_cast<std::uint32_t>(fid));
 
             recompile_document(params.textDocument.uri);
-            publish_diagnostics(params.textDocument.uri);
+            publish_all_diagnostics();
         }
 
         void handle_did_change(protocol::RpcInfo const& rpc)
@@ -256,6 +535,12 @@ export namespace dccd
                 return;
             }
 
+            if (is_stale_version(params.textDocument.uri, params.textDocument.version, true))
+            {
+                std::println(m_log, "[dccd] didChange: rejecting stale/duplicate version {} for {}", params.textDocument.version, params.textDocument.uri);
+                return;
+            }
+
             auto const& last_change = params.contentChanges.back();
 
             auto result = m_session->update_in_memory(params.textDocument.uri, last_change.text, params.textDocument.version);
@@ -263,7 +548,7 @@ export namespace dccd
             {
                 std::println(m_log, "[dccd] update_in_memory failed for {}: {}", params.textDocument.uri, dcc::sm::to_string(result.error()));
                 m_stale_uris.insert(params.textDocument.uri);
-                m_diagnostic_cache.erase(params.textDocument.uri);
+                publish_empty_diagnostics(params.textDocument.uri, params.textDocument.version);
                 return;
             }
 
@@ -279,27 +564,46 @@ export namespace dccd
             }
 
             recompile_document(params.textDocument.uri);
-            publish_diagnostics(params.textDocument.uri);
+            publish_all_diagnostics();
         }
 
         void handle_did_close(protocol::RpcInfo const& rpc)
         {
             auto params = protocol::DidCloseTextDocumentParams::from_json(rpc.params.value());
 
+            std::optional<std::int64_t> known_version;
+            if (auto fid = m_session->source_manager().find_by_uri(params.uri))
+                if (auto const* sf = m_session->source_manager().get(*fid))
+                    known_version = sf->version();
+
             auto result = m_session->close_in_memory(params.uri);
             if (!result)
                 std::println(m_log, "[dccd] close_in_memory failed for {}: {}", params.uri, dcc::sm::to_string(result.error()));
 
-            m_diagnostic_cache.erase(params.uri);
+            clear_stale_marker(params.uri);
 
-            protocol::PublishDiagnosticsParams empty_params;
-            empty_params.uri = params.uri;
-            publish_lsp_diagnostics(empty_params);
+            publish_empty_diagnostics(params.uri, known_version);
+            m_published_uris.erase(params.uri);
         }
 
         [[nodiscard]] static dcc::sm::Position protocol_position_to_sm_position(protocol::LspPosition const& pos) noexcept
         {
             return dcc::sm::Position{pos.line, pos.character};
+        }
+
+        [[nodiscard]] static dcc::sm::PositionEncoding select_position_encoding(protocol::InitializeParams const& params) noexcept
+        {
+            for (auto const& enc : params.positionEncodings)
+            {
+                if (enc == protocol::PositionEncoding::Utf8)
+                    return dcc::sm::PositionEncoding::Utf8;
+                if (enc == protocol::PositionEncoding::Utf16)
+                    return dcc::sm::PositionEncoding::Utf16;
+                if (enc == protocol::PositionEncoding::Utf32)
+                    return dcc::sm::PositionEncoding::Utf32;
+            }
+
+            return dcc::sm::PositionEncoding::Utf16;
         }
 
         [[nodiscard]] std::optional<dcc::sm::FileId> file_id_from_uri(std::string const& uri)
@@ -388,7 +692,97 @@ export namespace dccd
             loc.range.start.character = start_pos->character;
             loc.range.end.line = end_pos->line;
             loc.range.end.character = end_pos->character;
+
             return loc;
+        }
+
+        static void sort_dedup_source_ranges(std::vector<dcc::sm::SourceRange>& ranges)
+        {
+            std::ranges::sort(ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
+                auto fa = static_cast<std::uint32_t>(a.begin.fileId);
+                auto fb = static_cast<std::uint32_t>(b.begin.fileId);
+                if (fa != fb)
+                    return fa < fb;
+                if (a.begin.offset != b.begin.offset)
+                    return a.begin.offset < b.begin.offset;
+                return a.end.offset < b.end.offset;
+            });
+            auto [first, last] = std::ranges::unique(ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
+                return a.begin.fileId == b.begin.fileId && a.begin.offset == b.begin.offset && a.end.offset == b.end.offset;
+            });
+            ranges.erase(first, last);
+        }
+
+        struct RankedLabel
+        {
+            dcc::diag::Label const* label;
+            std::size_t length;
+        };
+
+        [[nodiscard]] static std::vector<RankedLabel> rank_labels(std::span<dcc::diag::Label const> labels, dcc::sm::FileId target_fid)
+        {
+            std::vector<RankedLabel> out;
+            for (auto const& label : labels)
+            {
+                if (!label.range.valid())
+                    continue;
+
+                if (target_fid != dcc::sm::FileId::Invalid && (label.range.begin.fileId != target_fid || label.range.end.fileId != target_fid))
+                    continue;
+
+                out.push_back({&label, static_cast<std::size_t>(label.range.end.offset - label.range.begin.offset)});
+            }
+
+            std::ranges::stable_sort(out, [](RankedLabel const& a, RankedLabel const& b) {
+                bool a_primary = a.label->style == dcc::diag::LabelStyle::Primary;
+                bool b_primary = b.label->style == dcc::diag::LabelStyle::Primary;
+                if (a_primary != b_primary)
+                    return a_primary;
+
+                if (a.length != b.length)
+                    return a.length < b.length;
+
+                return false;
+            });
+
+            return out;
+        }
+
+        [[nodiscard]] static std::optional<protocol::LspRange> pick_primary_range(dcc::sm::SourceManager const& sm, std::span<dcc::diag::Label const> labels,
+                                                                                  dcc::sm::FileId target_fid)
+        {
+            auto ranked = rank_labels(labels, target_fid);
+            for (auto const& cand : ranked)
+            {
+                auto const* label = cand.label;
+
+                auto start_pos = sm.location_to_lsp_position(label->range.begin);
+                auto end_pos = sm.location_to_lsp_position(label->range.end);
+                if (!start_pos || !end_pos)
+                    continue;
+
+                protocol::LspRange range;
+                range.start.line = start_pos->line;
+                range.start.character = start_pos->character;
+                range.end.line = end_pos->line;
+                range.end.character = end_pos->character;
+                return range;
+            }
+
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> version_for_uri(std::string const& uri) const
+        {
+            auto opt_fid = m_session->source_manager().find_by_uri(uri);
+            if (!opt_fid)
+                return std::nullopt;
+
+            auto const* sf = m_session->source_manager().get(*opt_fid);
+            if (!sf || !sf->is_in_memory() || sf->is_closed())
+                return std::nullopt;
+
+            return sf->version();
         }
 
         [[nodiscard]] static protocol::LspLocation make_location_at_start(std::string uri)
@@ -456,70 +850,45 @@ export namespace dccd
         {
             auto params = protocol::DefinitionParams::from_json(rpc.params.value());
             auto sm_pos = protocol_position_to_sm_position(params.position);
-            auto node = query_at_params(params.textDocument.uri, sm_pos);
-            if (!node)
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            if (node->resolved_field)
-            {
-                auto loc = source_range_to_lsp_location(node->resolved_field->range);
-                if (loc)
-                    return protocol::build_response(rpc.id.value(), loc->to_json());
-
+            if (!ensure_graph_fresh(params.textDocument.uri))
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-            }
 
-            if (node->resolved_definition_range.valid())
-            {
-                auto loc = source_range_to_lsp_location(node->resolved_definition_range);
-                if (loc)
-                    return protocol::build_response(rpc.id.value(), loc->to_json());
-
+            auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            if (!symbol || !symbol->has_target())
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-            }
 
-            if (node->hovered_decl && node->hovered_decl->kind == dcc::ast::DeclKind::Import)
+            if (symbol->kind == dcc::query::SymbolKind::ImportAlias || symbol->kind == dcc::query::SymbolKind::Module)
             {
-                auto const* import_decl = static_cast<dcc::ast::ImportDecl const*>(node->hovered_decl);
-                auto uri = resolve_import_decl_uri(*import_decl);
-                if (uri)
+                if (symbol->via_import)
                 {
-                    auto loc = make_location_at_start(std::move(*uri));
-                    return protocol::build_response(rpc.id.value(), loc.to_json());
+                    auto uri = resolve_import_decl_uri(*symbol->via_import);
+                    if (uri)
+                    {
+                        auto loc = make_location_at_start(std::move(*uri));
+                        return protocol::build_response(rpc.id.value(), loc.to_json());
+                    }
                 }
 
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
             }
 
-            dcc::ast::Decl const* target = nullptr;
-            if (node->resolved_specialization)
-                target = node->resolved_specialization;
-            else if (node->ufcs_callee)
-                target = node->ufcs_callee;
-            else if (node->resolved_decl)
-                target = node->resolved_decl;
-            else if (node->hovered_decl)
-                target = node->hovered_decl;
-
-            if (!target)
+            if (!symbol->definition_range.valid())
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            auto target_range = dcc::query::decl_name_range(target);
-            if (!target_range.valid())
-                target_range = target->range;
-
-            if (!target_range.valid())
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-
-            auto loc = source_range_to_lsp_location(target_range);
+            auto loc = source_range_to_lsp_location(symbol->definition_range);
             if (!loc)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            if (node->resolved_via_using)
+            if (symbol->via_using)
             {
-                auto using_range = dcc::query::decl_name_range(node->resolved_via_using);
+                auto using_range = dcc::query::decl_name_range(symbol->via_using);
                 if (!using_range.valid())
-                    using_range = node->resolved_via_using->range;
+                    using_range = symbol->via_using->range;
 
                 auto using_loc = using_range.valid() ? source_range_to_lsp_location(using_range) : std::nullopt;
                 if (using_loc && !(using_loc->uri == loc->uri && using_loc->range.start.line == loc->range.start.line &&
@@ -540,179 +909,44 @@ export namespace dccd
             auto params = protocol::HoverParams::from_json(rpc.params.value());
             auto sm_pos = protocol_position_to_sm_position(params.position);
             std::println(m_log, "[dccd] hover: uri={} line={} char={}", params.textDocument.uri, sm_pos.line, sm_pos.character);
-            auto node = query_at_params(params.textDocument.uri, sm_pos);
-            if (!node)
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            if (!ensure_graph_fresh(params.textDocument.uri))
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
             {
-                std::println(m_log, "[dccd] hover: query_at_params returned null");
+                auto loc_result = m_session->source_manager().lsp_position_to_location(*fid_opt, sm_pos);
+                if (loc_result)
+                {
+                    auto asm_hover = try_asm_hover(*fid_opt, *loc_result);
+                    if (asm_hover)
+                    {
+                        std::println(m_log, "[dccd] hover: returning inline-asm hover info");
+                        return protocol::build_response(rpc.id.value(), asm_hover->to_json());
+                    }
+                }
+            }
+
+            auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            if (!symbol || !symbol->has_target())
+            {
+                auto node = query_at_params(params.textDocument.uri, sm_pos);
+                if (node && node->resolved_type)
+                {
+                    protocol::Hover hover;
+                    hover.contents.kind = "markdown";
+                    hover.contents.value = std::format("```dc\n{}\n```", format_dcc_type(node->resolved_type));
+                    return protocol::build_response(rpc.id.value(), hover.to_json());
+                }
+
+                std::println(m_log, "[dccd] hover: no resolved symbol");
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
             }
 
-            {
-                auto fid_opt = file_id_from_uri(params.textDocument.uri);
-                if (fid_opt)
-                {
-                    auto loc_result = m_session->source_manager().lsp_position_to_location(*fid_opt, sm_pos);
-                    if (loc_result)
-                    {
-                        auto asm_hover = try_asm_hover(*fid_opt, *loc_result);
-                        if (asm_hover)
-                        {
-                            std::println(m_log, "[dccd] hover: returning inline-asm hover info");
-                            return protocol::build_response(rpc.id.value(), asm_hover->to_json());
-                        }
-                    }
-                }
-            }
-
-            std::string markdown;
-
-            if (node->resolved_field)
-            {
-                auto const* f = node->resolved_field;
-                std::string type_str = "<unknown>";
-                if (f->type && f->type->sema.canonical)
-                    type_str = format_dcc_type(dcc::sema::get_canonical(f->type->sema));
-
-                markdown = std::format("```dc\n{} {}\n```", type_str, f->name);
-            }
-            else if (node->resolved_param)
-            {
-                auto const& p = *node->resolved_param;
-                std::string type_str;
-                if (node->resolved_type)
-                    type_str = format_dcc_type(node->resolved_type);
-                else if (p.type && p.type->sema.canonical)
-                    type_str = format_dcc_type(dcc::sema::get_canonical(p.type->sema));
-                else
-                    type_str = "<template-dependent>";
-
-                if (p.name.empty())
-                    markdown = std::format("```dc\n{}\n```", type_str);
-                else
-                    markdown = std::format("```dc\n{} {}\n```", type_str, p.name);
-            }
-            else
-            {
-                dcc::ast::Decl const* target = nullptr;
-                if (node->resolved_specialization)
-                    target = node->resolved_specialization;
-                else if (node->ufcs_callee)
-                    target = node->ufcs_callee;
-                else if (node->resolved_decl)
-                    target = node->resolved_decl;
-                else if (node->hovered_decl)
-                    target = node->hovered_decl;
-
-                if (!target && node->resolved_type)
-                    markdown = std::format("```dc\n{}\n```", format_dcc_type(node->resolved_type));
-                else if (target)
-                {
-                    switch (target->kind)
-                    {
-                        case dcc::ast::DeclKind::Func: {
-                            auto const* fd = static_cast<dcc::ast::FuncDecl const*>(target);
-                            std::string ret_str = "void";
-                            if (fd->return_type && fd->return_type->sema.canonical)
-                                ret_str = format_dcc_type(dcc::sema::get_canonical(fd->return_type->sema));
-                            std::string sig = std::format("{} {}(", ret_str, fd->name);
-                            for (std::size_t i = 0; i < fd->params.size(); ++i)
-                            {
-                                if (i > 0)
-                                    sig += ", ";
-                                if (fd->params[i].type && fd->params[i].type->sema.canonical)
-                                {
-                                    auto ty = dcc::sema::get_canonical(fd->params[i].type->sema);
-                                    sig += std::format("{} {}", format_dcc_type(ty), fd->params[i].name);
-                                }
-                                else
-                                {
-                                    sig += fd->params[i].name;
-                                }
-                            }
-                            sig += ")";
-                            markdown = std::format("```dc\n{}\n```", sig);
-                            break;
-                        }
-                        case dcc::ast::DeclKind::Var: {
-                            auto const* vd = static_cast<dcc::ast::VarDecl const*>(target);
-                            std::string type_str;
-
-                            if (node->resolved_type)
-                                type_str = format_dcc_type(node->resolved_type);
-                            else if (vd->type && vd->type->sema.canonical)
-                                type_str = format_dcc_type(dcc::sema::get_canonical(vd->type->sema));
-                            if (type_str.empty())
-                                markdown = std::format("```dc\n{}\n```", vd->name);
-                            else
-                                markdown = std::format("```dc\n{} {}\n```", type_str, vd->name);
-                            break;
-                        }
-                        case dcc::ast::DeclKind::Using: {
-                            auto const* ud = static_cast<dcc::ast::UsingDecl const*>(target);
-                            std::string name_str;
-                            if (!ud->alias_path.is_empty())
-                                name_str = std::string{ud->alias_path.tail_name()};
-                            else
-                                name_str = "<unnamed>";
-
-                            std::string target_str;
-                            if (ud->target_type && ud->target_type->sema.canonical)
-                                target_str = format_dcc_type(dcc::sema::get_canonical(ud->target_type->sema));
-                            else if (!ud->target_path.is_empty())
-                            {
-                                for (std::size_t i = 0; i < ud->target_path.segments.size(); ++i)
-                                {
-                                    if (i > 0)
-                                        target_str += "::";
-                                    target_str += ud->target_path.segments[i].name;
-                                }
-                            }
-                            else if (ud->target_expr)
-                                target_str = "<expr>";
-
-                            if (target_str.empty())
-                                target_str = "<unknown>";
-
-                            markdown = std::format("```dc\nusing {} = {}\n```", name_str, target_str);
-                            break;
-                        }
-                        default: {
-                            std::string_view kind_str;
-                            std::string_view name;
-                            switch (target->kind)
-                            {
-                                case dcc::ast::DeclKind::Struct:
-                                    kind_str = "struct";
-                                    name = static_cast<dcc::ast::StructDecl const*>(target)->name;
-                                    break;
-                                case dcc::ast::DeclKind::Union:
-                                    kind_str = "union";
-                                    name = static_cast<dcc::ast::UnionDecl const*>(target)->name;
-                                    break;
-                                case dcc::ast::DeclKind::Enum:
-                                    kind_str = "enum";
-                                    name = static_cast<dcc::ast::EnumDecl const*>(target)->name;
-                                    break;
-                                case dcc::ast::DeclKind::Module:
-                                    kind_str = "module";
-                                    break;
-                                case dcc::ast::DeclKind::Import:
-                                    kind_str = "import";
-                                    break;
-                                default:
-                                    kind_str = "decl";
-                                    break;
-                            }
-                            if (name.empty())
-                                markdown = std::format("```dc\n{}\n```", kind_str);
-                            else
-                                markdown = std::format("```dc\n{} {}\n```", kind_str, name);
-                            break;
-                        }
-                    }
-                }
-            }
-
+            auto markdown = hover_markdown(*symbol);
             if (markdown.empty())
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
@@ -720,6 +954,111 @@ export namespace dccd
             hover.contents.kind = "markdown";
             hover.contents.value = std::move(markdown);
             return protocol::build_response(rpc.id.value(), hover.to_json());
+        }
+
+        [[nodiscard]] static std::string hover_markdown(dcc::query::ResolvedSymbol const& symbol)
+        {
+            switch (symbol.kind)
+            {
+                case dcc::query::SymbolKind::Field: {
+                    auto const* f = field_of_symbol(symbol);
+                    if (!f)
+                        return {};
+                    std::string type_str = "<unknown>";
+                    if (f->type && f->type->sema.canonical)
+                        type_str = format_dcc_type(dcc::sema::get_canonical(f->type->sema));
+                    return std::format("```dc\n{} {}\n```", type_str, f->name);
+                }
+                case dcc::query::SymbolKind::FuncParam: {
+                    auto const* fd = symbol.owner_decl && symbol.owner_decl->kind == dcc::ast::DeclKind::Func
+                                         ? static_cast<dcc::ast::FuncDecl const*>(symbol.owner_decl)
+                                         : nullptr;
+                    if (!fd || symbol.sub_index >= fd->params.size())
+                        return {};
+                    auto const& p = fd->params[symbol.sub_index];
+                    std::string type_str;
+                    if (p.type && p.type->sema.canonical)
+                        type_str = format_dcc_type(dcc::sema::get_canonical(p.type->sema));
+                    else
+                        type_str = "<template-dependent>";
+
+                    if (p.name.empty())
+                        return std::format("```dc\n{}\n```", type_str);
+                    return std::format("```dc\n{} {}\n```", type_str, p.name);
+                }
+                case dcc::query::SymbolKind::TemplateParam: {
+                    std::string_view name = symbol.name.empty() ? "<unnamed>" : symbol.name;
+                    return std::format("```dc\ntemplate parameter {}\n```", name);
+                }
+                case dcc::query::SymbolKind::EnumVariant: {
+                    std::string_view enum_name = "<enum>";
+                    if (symbol.owner_decl && symbol.owner_decl->kind == dcc::ast::DeclKind::Enum)
+                        enum_name = static_cast<dcc::ast::EnumDecl const*>(symbol.owner_decl)->name;
+                    return std::format("```dc\n{}::{}\n```", enum_name, symbol.name);
+                }
+                case dcc::query::SymbolKind::UsingAlias: {
+                    auto const* ud = symbol.decl ? dcc::ast::node_cast<dcc::ast::UsingDecl>(symbol.decl) : nullptr;
+                    if (!ud)
+                        return {};
+                    std::string name_str = symbol.name.empty() ? "<unnamed>" : std::string{symbol.name};
+
+                    std::string target_str;
+                    if (ud->target_type && ud->target_type->sema.canonical)
+                        target_str = format_dcc_type(dcc::sema::get_canonical(ud->target_type->sema));
+                    else if (!ud->target_path.is_empty())
+                    {
+                        for (std::size_t i = 0; i < ud->target_path.segments.size(); ++i)
+                        {
+                            if (i > 0)
+                                target_str += "::";
+                            target_str += ud->target_path.segments[i].name;
+                        }
+                    }
+                    else if (ud->target_expr)
+                        target_str = "<expr>";
+
+                    if (target_str.empty())
+                        target_str = "<unknown>";
+
+                    return std::format("```dc\nusing {} = {}\n```", name_str, target_str);
+                }
+                case dcc::query::SymbolKind::Module:
+                case dcc::query::SymbolKind::ImportAlias:
+                    return std::format("```dc\nmodule {}\n```", symbol.name);
+                case dcc::query::SymbolKind::Declaration:
+                    break;
+                default:
+                    return {};
+            }
+
+            auto const* target = symbol.decl;
+            if (!target)
+            {
+                if (symbol.kind == dcc::query::SymbolKind::Declaration)
+                    return std::format("```dc\n{}\n```", symbol.name);
+                return {};
+            }
+
+            return std::format("```dc\n{}\n```", dcc::query::symbol_display_name(symbol));
+        }
+
+        [[nodiscard]] static dcc::ast::FieldDecl const* field_of_symbol(dcc::query::ResolvedSymbol const& symbol)
+        {
+            if (symbol.kind != dcc::query::SymbolKind::Field || !symbol.owner_decl)
+                return nullptr;
+
+            if (auto const* sd = dcc::ast::node_cast<dcc::ast::StructDecl>(symbol.owner_decl))
+            {
+                if (symbol.sub_index < sd->fields.size())
+                    return &sd->fields[symbol.sub_index];
+            }
+            else if (auto const* ud = dcc::ast::node_cast<dcc::ast::UnionDecl>(symbol.owner_decl))
+            {
+                if (symbol.sub_index < ud->fields.size())
+                    return &ud->fields[symbol.sub_index];
+            }
+
+            return nullptr;
         }
 
         [[nodiscard]] std::optional<protocol::Hover> try_asm_hover(dcc::sm::FileId fid, dcc::sm::Location cursor_loc)
@@ -763,8 +1102,18 @@ export namespace dccd
 
                 for (auto const& span : placeholder_spans)
                 {
-                    auto span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
-                    auto span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+                    dcc::sm::Offset span_start;
+                    dcc::sm::Offset span_end;
+                    if (span.raw_range.valid() && span.raw_range.begin.fileId == template_range.begin.fileId)
+                    {
+                        span_start = span.raw_range.begin.offset;
+                        span_end = span.raw_range.end.offset;
+                    }
+                    else
+                    {
+                        span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
+                        span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+                    }
 
                     if (cursor_loc.offset >= span_start && cursor_loc.offset <= span_end)
                     {
@@ -974,9 +1323,9 @@ export namespace dccd
             auto const requested_fid = *fid_opt;
             dcc::ast::TranslationUnit const* tu = nullptr;
 
-            if (m_stale_uris.contains(params.textDocument.uri))
+            if (!ensure_graph_fresh(params.textDocument.uri))
             {
-                std::println(m_log, "[dccd] semanticTokens/full: URI marked stale (previous update failed) for {}; returning empty", params.textDocument.uri);
+                std::println(m_log, "[dccd] semanticTokens/full: stale graph for {}; returning empty", params.textDocument.uri);
                 protocol::SemanticTokens empty;
                 return protocol::build_response(rpc.id.value(), empty.to_json());
             }
@@ -1018,7 +1367,9 @@ export namespace dccd
                 return protocol::build_response(rpc.id.value(), empty.to_json());
             }
 
-            auto data = dccd::semantic_tokens::collect_tokens(m_session->source_manager(), tu, requested_fid);
+            auto data = dccd::semantic_tokens::collect_tokens(m_session->source_manager(), tu, requested_fid, [this] { return current_request_cancelled(); });
+
+            checkpoint_cancelled();
 
             protocol::SemanticTokens result;
             result.data = std::move(data);
@@ -1030,95 +1381,18 @@ export namespace dccd
             auto params = protocol::CompletionParams::from_json(rpc.params.value());
             auto sm_pos = protocol_position_to_sm_position(params.position);
 
+            if (!ensure_graph_fresh(params.textDocument.uri))
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
             auto completion_list = dccd::completion::compute_completions(*m_session, params.textDocument.uri, sm_pos);
+
+            checkpoint_cancelled();
+
             return protocol::build_response(rpc.id.value(), completion_list.to_json());
         }
 
-        [[nodiscard]] std::optional<protocol::JsonValue> handle_signature_help(protocol::RpcInfo const& rpc)
+        [[nodiscard]] protocol::SignatureInformation build_signature_information(dcc::ast::FuncDecl const* target)
         {
-            auto params = protocol::SignatureHelpParams::from_json(rpc.params.value());
-            auto sm_pos = protocol_position_to_sm_position(params.position);
-            auto node = query_at_params(params.textDocument.uri, sm_pos);
-            if (!node)
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-
-            if (!node->enclosing_call)
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-
-            auto const* call = node->enclosing_call;
-
-            dcc::ast::FuncDecl const* target = nullptr;
-            if (call->sema.ufcs_callee && call->sema.ufcs_callee->kind == dcc::ast::DeclKind::Func)
-                target = static_cast<dcc::ast::FuncDecl const*>(call->sema.ufcs_callee);
-            else if (call->sema.resolved_specialization)
-                target = call->sema.resolved_specialization;
-            else if (call->sema.resolved_decl && call->sema.resolved_decl->kind == dcc::ast::DeclKind::Func)
-                target = static_cast<dcc::ast::FuncDecl const*>(call->sema.resolved_decl);
-
-            if (!target && call->callee)
-            {
-                if (call->callee->sema.resolved_specialization)
-                    target = call->callee->sema.resolved_specialization;
-                else if (call->callee->sema.resolved_decl && call->callee->sema.resolved_decl->kind == dcc::ast::DeclKind::Func)
-                    target = static_cast<dcc::ast::FuncDecl const*>(call->callee->sema.resolved_decl);
-                else if (call->callee->sema.ufcs_callee && call->callee->sema.ufcs_callee->kind == dcc::ast::DeclKind::Func)
-                    target = static_cast<dcc::ast::FuncDecl const*>(call->callee->sema.ufcs_callee);
-            }
-
-            if (!target && call->callee && node->scope)
-            {
-                auto const* callee_expr = call->callee;
-                while (callee_expr && callee_expr->kind == dcc::ast::ExprKind::TemplateInst)
-                    callee_expr = static_cast<dcc::ast::TemplateInstExpr const*>(callee_expr)->callee;
-
-                if (callee_expr)
-                {
-                    std::span<dcc::sema::Symbol const> syms;
-                    if (callee_expr->kind == dcc::ast::ExprKind::Ident)
-                    {
-                        auto const* id = static_cast<dcc::ast::IdentExpr const*>(callee_expr);
-                        syms = node->scope->lookup_values(id->name);
-                    }
-                    else if (callee_expr->kind == dcc::ast::ExprKind::PathExpr)
-                    {
-                        auto const* path_expr = static_cast<dcc::ast::PathExpr const*>(callee_expr);
-                        syms = dcc::sema::resolve_value_overloads(*node->scope, path_expr->path);
-                    }
-
-                    if (!syms.empty())
-                    {
-                        dcc::ast::FuncDecl const* best_fd = nullptr;
-                        std::size_t arg_count = call->args.size();
-                        std::size_t best_excess = std::numeric_limits<std::size_t>::max();
-
-                        for (auto const& sym : syms)
-                        {
-                            if (!sym.decl || sym.decl->kind != dcc::ast::DeclKind::Func)
-                                continue;
-
-                            auto const* fd = static_cast<dcc::ast::FuncDecl const*>(sym.decl);
-                            if (fd->params.size() >= arg_count)
-                            {
-                                std::size_t excess = fd->params.size() - arg_count;
-                                if (!best_fd || excess < best_excess)
-                                {
-                                    best_fd = fd;
-                                    best_excess = excess;
-                                }
-                            }
-                            else if (!best_fd)
-                                best_fd = fd;
-                        }
-
-                        if (best_fd)
-                            target = best_fd;
-                    }
-                }
-            }
-
-            if (!target)
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-
             std::string ret_str = "void";
             if (target->return_type && target->return_type->sema.canonical)
                 ret_str = format_dcc_type(dcc::sema::get_canonical(target->return_type->sema));
@@ -1154,16 +1428,156 @@ export namespace dccd
                 sig_info.parameters.push_back(std::move(param));
             }
             sig_info.label += ")";
+            return sig_info;
+        }
 
-            std::uint32_t active_param = node->active_argument_index;
-            if (active_param > target->params.size())
-                active_param = static_cast<std::uint32_t>(target->params.size());
-            sig_info.activeParameter = active_param;
+        [[nodiscard]] std::optional<protocol::JsonValue> handle_signature_help(protocol::RpcInfo const& rpc)
+        {
+            auto params = protocol::SignatureHelpParams::from_json(rpc.params.value());
+            auto sm_pos = protocol_position_to_sm_position(params.position);
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            if (!ensure_graph_fresh(params.textDocument.uri))
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto loc_opt = m_session->source_manager().lsp_position_to_location(*fid_opt, sm_pos);
+            if (!loc_opt)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto active = dcc::query::find_active_call(*m_session, *fid_opt, *loc_opt);
+            if (!active || !active->in_call_arguments)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            dcc::sema::Scope const* scope = nullptr;
+            dcc::sema::ModuleInfo const* module = nullptr;
+            {
+                auto node = query_at_params(params.textDocument.uri, sm_pos);
+                if (node)
+                {
+                    scope = node->scope;
+                    module = node->module;
+                }
+                else if (auto* sema_ctx = m_session->sema_context())
+                {
+                    auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+                    for (auto const& mod : graph.all())
+                        if (mod->file_id == *fid_opt)
+                        {
+                            module = mod.get();
+                            break;
+                        }
+                }
+            }
+
+            std::vector<dcc::ast::FuncDecl const*> candidates;
+            std::unordered_set<dcc::ast::Decl const*> seen;
+            dcc::ast::FuncDecl const* resolved_target = nullptr;
+
+            auto add_candidate = [&](dcc::ast::FuncDecl const* fd, bool resolved) {
+                if (!fd || !seen.insert(fd).second)
+                    return;
+                candidates.push_back(fd);
+                if (resolved && !resolved_target)
+                    resolved_target = fd;
+            };
+
+            auto add_syms = [&](std::span<dcc::sema::Symbol const> syms) {
+                for (auto const& sym : syms)
+                    if (sym.decl && sym.decl->kind == dcc::ast::DeclKind::Func)
+                        add_candidate(static_cast<dcc::ast::FuncDecl const*>(sym.decl), false);
+            };
+
+            if (active->call)
+            {
+                auto const* call = active->call;
+                if (call->sema.ufcs_callee && call->sema.ufcs_callee->kind == dcc::ast::DeclKind::Func)
+                    add_candidate(static_cast<dcc::ast::FuncDecl const*>(call->sema.ufcs_callee), true);
+                if (call->sema.resolved_specialization)
+                    add_candidate(call->sema.resolved_specialization, true);
+                if (call->sema.resolved_decl && call->sema.resolved_decl->kind == dcc::ast::DeclKind::Func)
+                    add_candidate(static_cast<dcc::ast::FuncDecl const*>(call->sema.resolved_decl), true);
+            }
+            if (active->callee_expr)
+            {
+                if (active->callee_expr->sema.resolved_specialization)
+                    add_candidate(active->callee_expr->sema.resolved_specialization, true);
+                if (active->callee_expr->sema.resolved_decl && active->callee_expr->sema.resolved_decl->kind == dcc::ast::DeclKind::Func)
+                    add_candidate(static_cast<dcc::ast::FuncDecl const*>(active->callee_expr->sema.resolved_decl), true);
+            }
+
+            if (!active->callee_name.empty())
+            {
+                auto callee_name = m_session->interner().intern(active->callee_name);
+                if (scope)
+                    add_syms(scope->lookup_values(callee_name));
+                if (module)
+                {
+                    if (module->ufcs_scope)
+                        add_syms(module->ufcs_scope->lookup_values(callee_name));
+                    if (module->own_scope)
+                        add_syms(module->own_scope->lookup_values(callee_name));
+                    for (auto const& imp : module->imports)
+                        if (imp.target && imp.target->export_scope)
+                            add_syms(imp.target->export_scope->lookup_values(callee_name));
+                }
+            }
+
+            if (candidates.empty())
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            std::uint32_t explicit_args = active->explicit_argument_count;
+            std::uint32_t min_params = active->ufcs ? explicit_args + 1 : explicit_args;
+
+            std::vector<protocol::SignatureInformation> sigs;
+            sigs.reserve(candidates.size());
+            std::size_t active_sig = 0;
+            std::size_t best_excess = std::numeric_limits<std::size_t>::max();
+
+            for (std::size_t idx = 0; idx < candidates.size(); ++idx)
+            {
+                auto const* fd = candidates[idx];
+                auto sig = build_signature_information(fd);
+
+                std::uint32_t ap = active->active_parameter;
+                if (!sig.parameters.empty())
+                    ap = std::min(ap, static_cast<std::uint32_t>(sig.parameters.size() - 1));
+                else
+                    ap = 0;
+                sig.activeParameter = ap;
+
+                sigs.push_back(std::move(sig));
+
+                if (fd == resolved_target)
+                {
+                    active_sig = idx;
+                    best_excess = 0;
+                }
+                else if (best_excess != 0)
+                {
+                    std::size_t excess = (fd->params.size() >= min_params) ? fd->params.size() - min_params : std::numeric_limits<std::size_t>::max();
+                    if (excess < best_excess)
+                    {
+                        best_excess = excess;
+                        active_sig = idx;
+                    }
+                }
+            }
 
             protocol::SignatureHelp help;
-            help.signatures.push_back(std::move(sig_info));
-            help.activeSignature = 0;
+            help.signatures = std::move(sigs);
+            help.activeSignature = static_cast<std::uint32_t>(active_sig);
+
+            std::uint32_t active_param = active->active_parameter;
+            if (!help.signatures[active_sig].parameters.empty())
+                active_param = std::min(active_param, static_cast<std::uint32_t>(help.signatures[active_sig].parameters.size() - 1));
+            else
+                active_param = 0;
             help.activeParameter = active_param;
+
+            checkpoint_cancelled();
 
             return protocol::build_response(rpc.id.value(), help.to_json());
         }
@@ -1172,83 +1586,32 @@ export namespace dccd
         {
             auto params = protocol::ReferenceParams::from_json(rpc.params.value());
             auto sm_pos = protocol_position_to_sm_position(params.position);
-            auto node = query_at_params(params.textDocument.uri, sm_pos);
-            if (!node)
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            dcc::ast::Decl const* target = nullptr;
-            if (node->ufcs_callee)
-                target = node->ufcs_callee;
-            else if (node->resolved_field)
-                ;
-            else if (node->resolved_decl)
-                target = node->resolved_decl;
-            else if (node->hovered_decl)
-                target = node->hovered_decl;
-
-            std::vector<dcc::sm::SourceRange> field_ranges;
-            if (node->resolved_field && !target)
-            {
-                auto const* field_decl = node->resolved_field;
-                auto const* parent_decl = node->resolved_field_parent;
-                if (parent_decl)
-                {
-                    auto* sema_ctx = m_session->sema_context();
-                    if (sema_ctx)
-                    {
-                        auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
-                        for (auto const& mod : graph.all())
-                        {
-                            if (!mod || !mod->tu)
-                                continue;
-
-                            collect_field_references(mod->tu, field_ranges, field_decl->name, parent_decl);
-                        }
-                    }
-                }
-            }
-
-            if (!target && field_ranges.empty())
+            if (!ensure_graph_fresh(params.textDocument.uri))
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            if (!symbol || !symbol->has_target())
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto& sm = m_session->source_manager();
 
             std::vector<dcc::sm::SourceRange> ref_ranges;
-            if (target)
-                ref_ranges = dcc::query::find_references(*m_session, target);
-
-            if (!field_ranges.empty())
-                ref_ranges.insert(ref_ranges.end(), std::make_move_iterator(field_ranges.begin()), std::make_move_iterator(field_ranges.end()));
-
-            if (params.context.includeDeclaration)
+            if (m_workspace_index.module_fresh(symbol->id.file, sm.content_revision(symbol->id.file)))
             {
-                if (target)
-                {
-                    auto decl_range = dcc::query::decl_name_range(target);
-                    if (decl_range.valid())
-                        ref_ranges.push_back(decl_range);
-                }
-                else if (node->resolved_field)
-                {
-                    auto field_decl_range = dcc::query::field_name_range(node->resolved_field);
-                    if (field_decl_range.valid())
-                        ref_ranges.push_back(field_decl_range);
-                }
+                ref_ranges = m_workspace_index.occurrences_for(symbol->id);
+                if (params.context.includeDeclaration && symbol->definition_range.valid())
+                    ref_ranges.push_back(symbol->definition_range);
+                sort_dedup_source_ranges(ref_ranges);
             }
+            else
+                ref_ranges = dcc::query::find_symbol_references(*m_session, *symbol, params.context.includeDeclaration);
 
-            std::ranges::sort(ref_ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
-                auto fid_a = static_cast<std::uint32_t>(a.begin.fileId);
-                auto fid_b = static_cast<std::uint32_t>(b.begin.fileId);
-                if (fid_a != fid_b)
-                    return fid_a < fid_b;
-                if (a.begin.offset != b.begin.offset)
-                    return a.begin.offset < b.begin.offset;
-                return a.end.offset < b.end.offset;
-            });
-
-            auto [first2, last2] = std::ranges::unique(ref_ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
-                return a.begin.fileId == b.begin.fileId && a.begin.offset == b.begin.offset && a.end.offset == b.end.offset;
-            });
-
-            ref_ranges.erase(first2, last2);
+            checkpoint_cancelled();
 
             auto arr = protocol::JsonValue::empty_array();
             for (auto const& range : ref_ranges)
@@ -1267,84 +1630,36 @@ export namespace dccd
         {
             auto params = protocol::DocumentHighlightParams::from_json(rpc.params.value());
             auto sm_pos = protocol_position_to_sm_position(params.position);
-            auto node = query_at_params(params.textDocument.uri, sm_pos);
-            if (!node)
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            dcc::ast::Decl const* target = nullptr;
-            if (node->ufcs_callee)
-                target = node->ufcs_callee;
-            else if (node->resolved_field)
-                ;
-            else if (node->resolved_decl)
-                target = node->resolved_decl;
-            else if (node->hovered_decl)
-                target = node->hovered_decl;
-
-            std::vector<dcc::sm::SourceRange> field_ranges;
-            if (node->resolved_field && !target)
-            {
-                auto const* field_decl = node->resolved_field;
-                auto const* parent_decl = node->resolved_field_parent;
-                if (parent_decl)
-                {
-                    auto* sema_ctx = m_session->sema_context();
-                    if (sema_ctx)
-                    {
-                        auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
-                        for (auto const& mod : graph.all())
-                        {
-                            if (!mod || !mod->tu)
-                                continue;
-
-                            collect_field_references(mod->tu, field_ranges, field_decl->name, parent_decl);
-                        }
-                    }
-                }
-            }
-
-            if (!target && field_ranges.empty())
+            if (!ensure_graph_fresh(params.textDocument.uri))
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            std::vector<dcc::sm::SourceRange> ref_ranges;
-            if (target)
-                ref_ranges = dcc::query::find_references(*m_session, target);
-
-            if (!field_ranges.empty())
-                ref_ranges.insert(ref_ranges.end(), std::make_move_iterator(field_ranges.begin()), std::make_move_iterator(field_ranges.end()));
-
-            if (target)
-            {
-                auto decl_range = dcc::query::decl_name_range(target);
-                if (decl_range.valid())
-                    ref_ranges.push_back(decl_range);
-            }
-            else if (node->resolved_field)
-            {
-                auto field_decl_range = dcc::query::field_name_range(node->resolved_field);
-                if (field_decl_range.valid())
-                    ref_ranges.push_back(field_decl_range);
-            }
-
-            std::ranges::sort(ref_ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
-                auto fid_a = static_cast<std::uint32_t>(a.begin.fileId);
-                auto fid_b = static_cast<std::uint32_t>(b.begin.fileId);
-                if (fid_a != fid_b)
-                    return fid_a < fid_b;
-                if (a.begin.offset != b.begin.offset)
-                    return a.begin.offset < b.begin.offset;
-                return a.end.offset < b.end.offset;
-            });
-
-            auto [first2, last2] = std::ranges::unique(ref_ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
-                return a.begin.fileId == b.begin.fileId && a.begin.offset == b.begin.offset && a.end.offset == b.end.offset;
-            });
-
-            ref_ranges.erase(first2, last2);
-
-            auto active_fid = node->file;
+            auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            if (!symbol || !symbol->has_target())
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
             auto& sm = m_session->source_manager();
+
+            std::vector<dcc::sm::SourceRange> ref_ranges;
+            if (m_workspace_index.module_fresh(symbol->id.file, sm.content_revision(symbol->id.file)))
+            {
+                ref_ranges = m_workspace_index.occurrences_for(symbol->id);
+                if (symbol->definition_range.valid())
+                    ref_ranges.push_back(symbol->definition_range);
+                sort_dedup_source_ranges(ref_ranges);
+            }
+            else
+            {
+                ref_ranges = dcc::query::find_symbol_references(*m_session, *symbol, true);
+            }
+
+            checkpoint_cancelled();
+
+            auto active_fid = *fid_opt;
 
             auto arr = protocol::JsonValue::empty_array();
             for (auto const& range : ref_ranges)
@@ -1376,94 +1691,60 @@ export namespace dccd
         {
             auto params = protocol::RenameParams::from_json(rpc.params.value());
             auto sm_pos = protocol_position_to_sm_position(params.position);
-            auto node = query_at_params(params.textDocument.uri, sm_pos);
-            if (!node)
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            dcc::ast::Decl const* target = nullptr;
-            if (node->ufcs_callee)
-                target = node->ufcs_callee;
-            else if (node->resolved_field)
-                ;
-            else if (node->resolved_decl)
-                target = node->resolved_decl;
-            else if (node->hovered_decl)
-                target = node->hovered_decl;
-
-            std::vector<dcc::sm::SourceRange> field_ranges;
-            if (node->resolved_field && !target)
-            {
-                auto const* field_decl = node->resolved_field;
-                auto const* parent_decl = node->resolved_field_parent;
-                if (parent_decl)
-                {
-                    auto* sema_ctx = m_session->sema_context();
-                    if (sema_ctx)
-                    {
-                        auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
-                        for (auto const& mod : graph.all())
-                        {
-                            if (!mod || !mod->tu)
-                                continue;
-
-                            collect_field_references(mod->tu, field_ranges, field_decl->name, parent_decl);
-                        }
-                    }
-                }
-            }
-
-            if (!target && field_ranges.empty())
+            if (!ensure_graph_fresh(params.textDocument.uri))
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
 
-            if (target)
+            auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            if (!symbol || !symbol->has_target())
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            if (!dcc::query::can_rename_symbol(*symbol))
             {
-                auto decl_range = dcc::query::decl_name_range(target);
-                if (!decl_range.valid())
-                    return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+                auto reason = std::string{"not renameable"};
+                if (symbol->is_module)
+                    reason = "module/import aliases cannot be renamed";
+                else if (symbol->is_ambiguous)
+                    reason = "ambiguous symbol; refusing to guess";
+                else if (symbol->is_external_alias)
+                    reason = "symbol reached through an import/using alias cannot be safely renamed";
+                else
+                    reason = "symbol has no renamable name range";
+
+                std::println(m_log, "[dccd] textDocument/rename: refusing: {}", reason);
+                return protocol::build_error_response(rpc.id.value(), -32602, std::format("Cannot rename: {}", reason));
             }
+
+            if (!is_valid_identifier(params.newName))
+            {
+                std::println(m_log, "[dccd] textDocument/rename: invalid newName \"{}\"", params.newName);
+                return protocol::build_error_response(rpc.id.value(), -32602, std::format("`{}` is not a valid identifier", params.newName));
+            }
+
+            auto& sm = m_session->source_manager();
 
             std::vector<dcc::sm::SourceRange> ref_ranges;
-            if (target)
-                ref_ranges = dcc::query::find_references(*m_session, target);
-
-            if (!field_ranges.empty())
+            if (m_workspace_index.module_fresh(symbol->id.file, sm.content_revision(symbol->id.file)))
             {
-                ref_ranges.insert(ref_ranges.end(), std::make_move_iterator(field_ranges.begin()), std::make_move_iterator(field_ranges.end()));
+                ref_ranges = m_workspace_index.occurrences_for(symbol->id);
+                if (symbol->definition_range.valid())
+                    ref_ranges.push_back(symbol->definition_range);
+                sort_dedup_source_ranges(ref_ranges);
+            }
+            else
+            {
+                ref_ranges = dcc::query::find_symbol_references(*m_session, *symbol, true);
             }
 
-            if (target)
-            {
-                auto decl_range = dcc::query::decl_name_range(target);
-                if (decl_range.valid())
-                    ref_ranges.push_back(decl_range);
-            }
-            else if (node->resolved_field)
-            {
-                auto field_decl_range = dcc::query::field_name_range(node->resolved_field);
-                if (field_decl_range.valid())
-                    ref_ranges.push_back(field_decl_range);
-            }
-
-            std::ranges::sort(ref_ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
-                auto fid_a = static_cast<std::uint32_t>(a.begin.fileId);
-                auto fid_b = static_cast<std::uint32_t>(b.begin.fileId);
-                if (fid_a != fid_b)
-                    return fid_a < fid_b;
-                if (a.begin.offset != b.begin.offset)
-                    return a.begin.offset < b.begin.offset;
-                return a.end.offset < b.end.offset;
-            });
-
-            auto [first3, last3] = std::ranges::unique(ref_ranges, [](dcc::sm::SourceRange const& a, dcc::sm::SourceRange const& b) {
-                return a.begin.fileId == b.begin.fileId && a.begin.offset == b.begin.offset && a.end.offset == b.end.offset;
-            });
-
-            ref_ranges.erase(first3, last3);
+            checkpoint_cancelled();
 
             protocol::WorkspaceEdit we;
             for (auto const& range : ref_ranges)
             {
-                auto& sm = m_session->source_manager();
                 auto const* file = sm.get(range.begin.fileId);
                 if (!file)
                     continue;
@@ -1490,6 +1771,62 @@ export namespace dccd
             std::println(m_log, "[dccd] textDocument/rename: {} reference(s), {} edit(s)", ref_ranges.size(), total_edits);
 
             return protocol::build_response(rpc.id.value(), we.to_json());
+        }
+
+        [[nodiscard]] std::optional<protocol::JsonValue> handle_prepare_rename(protocol::RpcInfo const& rpc)
+        {
+            auto params = protocol::PrepareRenameParams::from_json(rpc.params.value());
+            auto sm_pos = protocol_position_to_sm_position(params.position);
+
+            auto fid_opt = file_id_from_uri(params.textDocument.uri);
+            if (!fid_opt)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            if (!ensure_graph_fresh(params.textDocument.uri))
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            if (!symbol || !symbol->has_target() || !dcc::query::can_rename_symbol(*symbol))
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto name_range = dcc::query::symbol_name_range(*symbol);
+            if (!name_range.valid())
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto& sm = m_session->source_manager();
+            auto start_pos = sm.location_to_lsp_position(name_range.begin);
+            auto end_pos = sm.location_to_lsp_position(name_range.end);
+            if (!start_pos || !end_pos)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            protocol::PrepareRenameResult result;
+            result.range.start.line = start_pos->line;
+            result.range.start.character = start_pos->character;
+            result.range.end.line = end_pos->line;
+            result.range.end.character = end_pos->character;
+            result.placeholder = symbol->name.empty() ? std::string{} : std::string{symbol->name};
+
+            std::println(m_log, "[dccd] textDocument/prepareRename: range {},{}-{},{} placeholder=\"{}\"", result.range.start.line,
+                         result.range.start.character, result.range.end.line, result.range.end.character, result.placeholder);
+
+            return protocol::build_response(rpc.id.value(), result.to_json());
+        }
+
+        [[nodiscard]] static bool is_valid_identifier(std::string_view name)
+        {
+            if (name.empty())
+                return false;
+
+            auto is_ident_start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+            auto is_ident_cont = [&](char c) { return is_ident_start(c) || (c >= '0' && c <= '9'); };
+
+            if (!is_ident_start(name.front()))
+                return false;
+            for (char c : name)
+                if (!is_ident_cont(c))
+                    return false;
+
+            return dcc::lex::classify_identifier(name) == dcc::lex::TokenKind::Identifier;
         }
 
         [[nodiscard]] CachedDiagnostic const* match_cached_diagnostic(std::vector<CachedDiagnostic> const& cached,
@@ -1521,6 +1858,12 @@ export namespace dccd
 
             std::println(m_log, "[dccd] codeAction: uri={} context_diagnostics={}", params.textDocument.uri, params.context.diagnostics.size());
 
+            if (!ensure_graph_fresh(params.textDocument.uri))
+            {
+                std::println(m_log, "[dccd] codeAction: stale graph for {}; refusing cached fixes", params.textDocument.uri);
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
+            }
+
             auto cache_it = m_diagnostic_cache.find(params.textDocument.uri);
             if (cache_it == m_diagnostic_cache.end())
             {
@@ -1528,7 +1871,13 @@ export namespace dccd
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
             }
 
-            auto& cached = cache_it->second;
+            if (!diagnostic_cache_fresh(params.textDocument.uri))
+            {
+                std::println(m_log, "[dccd] codeAction: stale diagnostic cache for {}; refusing cached fixes", params.textDocument.uri);
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
+            }
+
+            auto& cached = cache_it->second.diagnostics;
 
             auto arr = protocol::JsonValue::empty_array();
             for (auto const& ctx_diag : params.context.diagnostics)
@@ -1571,6 +1920,8 @@ export namespace dccd
                 }
             }
 
+            checkpoint_cancelled();
+
             std::println(m_log, "[dccd] codeAction: returning {} code action(s)", arr.array_size());
             return protocol::build_response(rpc.id.value(), std::move(arr));
         }
@@ -1579,17 +1930,23 @@ export namespace dccd
         {
             auto params = protocol::InlayHintParams::from_json(rpc.params.value());
 
-            auto* sema_ctx = m_session->sema_context();
-            if (!sema_ctx)
-            {
-                std::println(m_log, "[dccd] inlayHint: no sema context for {}", params.textDocument.uri);
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
-            }
-
             auto fid_opt = file_id_from_uri(params.textDocument.uri);
             if (!fid_opt)
             {
                 std::println(m_log, "[dccd] inlayHint: cannot find file for {}", params.textDocument.uri);
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
+            }
+
+            if (!ensure_graph_fresh(params.textDocument.uri))
+            {
+                std::println(m_log, "[dccd] inlayHint: stale graph for {}", params.textDocument.uri);
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
+            }
+
+            auto* sema_ctx = m_session->sema_context();
+            if (!sema_ctx)
+            {
+                std::println(m_log, "[dccd] inlayHint: no sema context for {}", params.textDocument.uri);
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
             }
 
@@ -1645,7 +2002,10 @@ export namespace dccd
 
             auto formatter = [&](dcc::types::Type const* ty) -> std::string { return LanguageServer::format_dcc_type(ty); };
 
-            auto hints = dccd::inlay_hints::collect_inlay_hints(sm, module->tu, request_range, formatter);
+            auto hints = dccd::inlay_hints::collect_inlay_hints(sm, module->tu, request_range, formatter, m_inlay_hint_options,
+                                                                [this] { return current_request_cancelled(); });
+
+            checkpoint_cancelled();
 
             auto arr = protocol::JsonValue::empty_array();
             for (auto const& h : hints)
@@ -1663,27 +2023,14 @@ export namespace dccd
             std::println(m_log, "[dccd] formatting: uri={} tabSize={} insertSpaces={}", params.textDocument.uri, params.options.tabSize,
                          params.options.insertSpaces);
 
-            if (!m_session.has_value())
-            {
-                std::println(m_log, "[dccd] formatting: no session");
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-            }
-
-            auto fid_opt = file_id_from_uri(params.textDocument.uri);
-            if (!fid_opt)
-            {
-                std::println(m_log, "[dccd] formatting: cannot find file for {}", params.textDocument.uri);
-                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-            }
-
-            auto const* sf = m_session->source_manager().get(*fid_opt);
+            auto const* sf = formatting_source_file(params.textDocument.uri);
             if (!sf)
-            {
-                std::println(m_log, "[dccd] formatting: null source file for {}", params.textDocument.uri);
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
-            }
 
-            auto edit = dccd::format::format_document(*sf, m_session->interner(), params.options);
+            auto edit = dccd::format::format_document(*sf, m_session->interner(), params.options, m_session->source_manager().position_encoding());
+
+            checkpoint_cancelled();
+
             if (!edit)
             {
                 std::println(m_log, "[dccd] formatting: format_document returned null (lex errors or malformed input)");
@@ -1693,6 +2040,87 @@ export namespace dccd
             auto arr = protocol::JsonValue::empty_array();
             arr.push_back(edit->to_json());
             return protocol::build_response(rpc.id.value(), std::move(arr));
+        }
+
+        [[nodiscard]] std::optional<protocol::JsonValue> handle_range_formatting(protocol::RpcInfo const& rpc)
+        {
+            auto params = protocol::DocumentRangeFormattingParams::from_json(rpc.params.value());
+
+            std::println(m_log, "[dccd] rangeFormatting: uri={} range=({}:{})-({}:{}) tabSize={} insertSpaces={}", params.textDocument.uri,
+                         params.range.start.line, params.range.start.character, params.range.end.line, params.range.end.character, params.options.tabSize,
+                         params.options.insertSpaces);
+
+            auto const* sf = formatting_source_file(params.textDocument.uri);
+            if (!sf)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto edits = dccd::format::format_range(*sf, m_session->interner(), params.options, params.range, m_session->source_manager().position_encoding());
+
+            checkpoint_cancelled();
+
+            auto arr = protocol::JsonValue::empty_array();
+            for (auto const& edit : edits)
+                arr.push_back(edit.to_json());
+
+            std::println(m_log, "[dccd] rangeFormatting: {} edit(s) for {}", arr.array_size(), params.textDocument.uri);
+
+            return protocol::build_response(rpc.id.value(), std::move(arr));
+        }
+
+        [[nodiscard]] std::optional<protocol::JsonValue> handle_on_type_formatting(protocol::RpcInfo const& rpc)
+        {
+            auto params = protocol::DocumentOnTypeFormattingParams::from_json(rpc.params.value());
+
+            std::println(m_log, "[dccd] onTypeFormatting: uri={} ch=\"{}\" position=({}:{}) tabSize={} insertSpaces={}", params.textDocument.uri, params.ch,
+                         params.position.line, params.position.character, params.options.tabSize, params.options.insertSpaces);
+
+            auto const* sf = formatting_source_file(params.textDocument.uri);
+            if (!sf)
+                return protocol::build_response(rpc.id.value(), protocol::JsonValue::null_val());
+
+            auto edits = dccd::format::format_on_type(*sf, m_session->interner(), params.options, params.ch, params.position,
+                                                      m_session->source_manager().position_encoding());
+
+            checkpoint_cancelled();
+
+            auto arr = protocol::JsonValue::empty_array();
+            for (auto const& edit : edits)
+                arr.push_back(edit.to_json());
+
+            std::println(m_log, "[dccd] onTypeFormatting: {} edit(s) for {}", arr.array_size(), params.textDocument.uri);
+
+            return protocol::build_response(rpc.id.value(), std::move(arr));
+        }
+
+        [[nodiscard]] dcc::sm::SourceFile const* formatting_source_file(std::string const& uri)
+        {
+            if (!m_session.has_value())
+            {
+                std::println(m_log, "[dccd] formatting: no session");
+                return nullptr;
+            }
+
+            if (m_stale_uris.contains(uri))
+            {
+                std::println(m_log, "[dccd] formatting: refusing stale URI (previous didChange failed) for {}", uri);
+                return nullptr;
+            }
+
+            auto fid_opt = file_id_from_uri(uri);
+            if (!fid_opt)
+            {
+                std::println(m_log, "[dccd] formatting: cannot find file for {}", uri);
+                return nullptr;
+            }
+
+            auto const* sf = m_session->source_manager().get(*fid_opt);
+            if (!sf)
+            {
+                std::println(m_log, "[dccd] formatting: null source file for {}", uri);
+                return nullptr;
+            }
+
+            return sf;
         }
 
         [[nodiscard]] std::optional<protocol::JsonValue> handle_workspace_symbol(protocol::RpcInfo const& rpc)
@@ -1707,7 +2135,9 @@ export namespace dccd
                 return protocol::build_response(rpc.id.value(), protocol::JsonValue::empty_array());
             }
 
-            auto symbols = dccd::workspace_symbols::search_workspace_symbols(*m_session, m_workspace_roots, params.query);
+            auto symbols = m_workspace_index.search_symbols(*m_session, m_workspace_roots, params.query);
+
+            checkpoint_cancelled();
 
             auto arr = protocol::JsonValue::empty_array();
             for (auto const& sym : symbols)
@@ -1741,265 +2171,6 @@ export namespace dccd
             return protocol::build_response(rpc.id.value(), std::move(result));
         }
 
-        void collect_field_references_in_expr(dcc::ast::Expr const* expr, std::vector<dcc::sm::SourceRange>& out, std::string_view field_name,
-                                              dcc::ast::Decl const* parent_decl)
-        {
-            if (!expr)
-                return;
-
-            switch (expr->kind)
-            {
-                case dcc::ast::ExprKind::FieldAccess: {
-                    auto* e = static_cast<dcc::ast::FieldAccessExpr const*>(expr);
-                    if (e->field == field_name)
-                    {
-                        if (e->sema.resolved_decl == parent_decl || e->object)
-                        {
-                            if (e->sema.resolved_decl == parent_decl)
-                                out.push_back(e->field_range);
-                            else if (e->object && e->object->sema.resolved_type)
-                            {
-                                auto* obj_type = dcc::sema::get_resolved_type(e->object->sema);
-                                if (obj_type)
-                                {
-                                    dcc::ast::Decl const* dd = nullptr;
-                                    if (obj_type->kind == dcc::types::TypeKind::Struct || obj_type->kind == dcc::types::TypeKind::Union ||
-                                        obj_type->kind == dcc::types::TypeKind::Enum)
-                                    {
-                                        dd = reinterpret_cast<dcc::ast::Decl const*>(static_cast<dcc::types::UserType const*>(obj_type)->decl);
-                                    }
-
-                                    if (!dd && obj_type->kind == dcc::types::TypeKind::Pointer)
-                                    {
-                                        auto const* pt = static_cast<dcc::types::PointerType const*>(obj_type);
-                                        if (pt->pointee &&
-                                            (pt->pointee->kind == dcc::types::TypeKind::Struct || pt->pointee->kind == dcc::types::TypeKind::Union ||
-                                             pt->pointee->kind == dcc::types::TypeKind::Enum))
-                                        {
-                                            dd = reinterpret_cast<dcc::ast::Decl const*>(static_cast<dcc::types::UserType const*>(pt->pointee)->decl);
-                                        }
-                                    }
-                                    if (dd == parent_decl)
-                                        out.push_back(e->field_range);
-                                }
-                            }
-                        }
-                    }
-
-                    collect_field_references_in_expr(e->object, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Call: {
-                    auto* e = static_cast<dcc::ast::CallExpr const*>(expr);
-                    collect_field_references_in_expr(e->callee, out, field_name, parent_decl);
-                    for (auto* a : e->args)
-                        collect_field_references_in_expr(a, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::TemplateInst: {
-                    auto* e = static_cast<dcc::ast::TemplateInstExpr const*>(expr);
-                    collect_field_references_in_expr(e->callee, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Unary: {
-                    auto* e = static_cast<dcc::ast::UnaryExpr const*>(expr);
-                    collect_field_references_in_expr(e->operand, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Postfix: {
-                    auto* e = static_cast<dcc::ast::PostfixExpr const*>(expr);
-                    collect_field_references_in_expr(e->operand, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Binary: {
-                    auto* e = static_cast<dcc::ast::BinaryExpr const*>(expr);
-                    collect_field_references_in_expr(e->lhs, out, field_name, parent_decl);
-                    collect_field_references_in_expr(e->rhs, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Index: {
-                    auto* e = static_cast<dcc::ast::IndexExpr const*>(expr);
-                    collect_field_references_in_expr(e->object, out, field_name, parent_decl);
-                    collect_field_references_in_expr(e->index, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Cast: {
-                    auto* e = static_cast<dcc::ast::CastExpr const*>(expr);
-                    collect_field_references_in_expr(e->operand, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Block: {
-                    auto* e = static_cast<dcc::ast::BlockExpr const*>(expr);
-                    for (auto* s : e->body.stmts)
-                        collect_field_references_in_stmt(s, out, field_name, parent_decl);
-                    collect_field_references_in_expr(e->body.tail, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::If: {
-                    auto* e = static_cast<dcc::ast::IfExpr const*>(expr);
-                    collect_field_references_in_expr(e->condition, out, field_name, parent_decl);
-                    for (auto* s : e->then_block.stmts)
-                        collect_field_references_in_stmt(s, out, field_name, parent_decl);
-                    collect_field_references_in_expr(e->then_block.tail, out, field_name, parent_decl);
-                    collect_field_references_in_expr(e->else_branch, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Match: {
-                    auto* e = static_cast<dcc::ast::MatchExpr const*>(expr);
-                    collect_field_references_in_expr(e->operand, out, field_name, parent_decl);
-                    for (auto const& arm : e->arms)
-                        collect_field_references_in_expr(arm.body, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::StructLiteral: {
-                    auto* e = static_cast<dcc::ast::StructLiteralExpr const*>(expr);
-                    for (auto const& f : e->fields)
-                        collect_field_references_in_expr(f.value, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::Range: {
-                    auto* e = static_cast<dcc::ast::RangeExpr const*>(expr);
-                    collect_field_references_in_expr(e->start, out, field_name, parent_decl);
-                    collect_field_references_in_expr(e->end, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::ExprKind::TypeAST: {
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-
-        void collect_field_references_in_stmt(dcc::ast::Stmt const* stmt, std::vector<dcc::sm::SourceRange>& out, std::string_view field_name,
-                                              dcc::ast::Decl const* parent_decl)
-        {
-            if (!stmt)
-                return;
-
-            switch (stmt->kind)
-            {
-                case dcc::ast::StmtKind::Expr: {
-                    auto* s = static_cast<dcc::ast::ExprStmt const*>(stmt);
-                    collect_field_references_in_expr(s->expr, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::Return: {
-                    auto* s = static_cast<dcc::ast::ReturnStmt const*>(stmt);
-                    collect_field_references_in_expr(s->value, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::While: {
-                    auto* s = static_cast<dcc::ast::WhileStmt const*>(stmt);
-                    collect_field_references_in_expr(s->condition, out, field_name, parent_decl);
-                    for (auto* bs : s->body.stmts)
-                        collect_field_references_in_stmt(bs, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->body.tail, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::DoWhile: {
-                    auto* s = static_cast<dcc::ast::DoWhileStmt const*>(stmt);
-                    for (auto* bs : s->body.stmts)
-                        collect_field_references_in_stmt(bs, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->body.tail, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->condition, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::For: {
-                    auto* s = static_cast<dcc::ast::ForStmt const*>(stmt);
-                    collect_field_references_in_stmt(s->init, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->cond, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->update, out, field_name, parent_decl);
-                    for (auto* bs : s->body.stmts)
-                        collect_field_references_in_stmt(bs, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->body.tail, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::ForIn: {
-                    auto* s = static_cast<dcc::ast::ForInStmt const*>(stmt);
-                    collect_field_references_in_expr(s->iterable, out, field_name, parent_decl);
-                    for (auto* bs : s->body.stmts)
-                        collect_field_references_in_stmt(bs, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->body.tail, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::Defer: {
-                    auto* s = static_cast<dcc::ast::DeferStmt const*>(stmt);
-                    collect_field_references_in_stmt(s->body, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::StaticIf: {
-                    auto* s = static_cast<dcc::ast::StaticIfStmt const*>(stmt);
-                    collect_field_references_in_expr(s->condition, out, field_name, parent_decl);
-                    for (auto* bs : s->then_block.stmts)
-                        collect_field_references_in_stmt(bs, out, field_name, parent_decl);
-                    collect_field_references_in_expr(s->then_block.tail, out, field_name, parent_decl);
-                    collect_field_references_in_stmt(s->else_branch, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::StaticMatch: {
-                    auto* s = static_cast<dcc::ast::StaticMatchStmt const*>(stmt);
-                    collect_field_references_in_expr(s->operand, out, field_name, parent_decl);
-                    for (auto const& arm : s->arms)
-                        collect_field_references_in_expr(arm.body, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::StmtKind::Ambiguous: {
-                    auto* s = static_cast<dcc::ast::AmbiguousStmt const*>(stmt);
-                    collect_field_references_in_expr(s->as_expr, out, field_name, parent_decl);
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-
-        void collect_field_references_in_decl(dcc::ast::Decl const* decl, std::vector<dcc::sm::SourceRange>& out, std::string_view field_name,
-                                              dcc::ast::Decl const* parent_decl)
-        {
-            if (!decl)
-                return;
-
-            switch (decl->kind)
-            {
-                case dcc::ast::DeclKind::Func: {
-                    auto* d = static_cast<dcc::ast::FuncDecl const*>(decl);
-                    collect_field_references_in_expr(d->constraint, out, field_name, parent_decl);
-                    if (d->body.has_value())
-                    {
-                        for (auto* s : d->body->stmts)
-                            collect_field_references_in_stmt(s, out, field_name, parent_decl);
-                        collect_field_references_in_expr(d->body->tail, out, field_name, parent_decl);
-                    }
-                    break;
-                }
-                case dcc::ast::DeclKind::Var: {
-                    auto* d = static_cast<dcc::ast::VarDecl const*>(decl);
-                    collect_field_references_in_expr(d->init, out, field_name, parent_decl);
-                    break;
-                }
-                case dcc::ast::DeclKind::Using: {
-                    auto* d = static_cast<dcc::ast::UsingDecl const*>(decl);
-                    collect_field_references_in_expr(d->target_expr, out, field_name, parent_decl);
-                    break;
-                }
-                default:
-                    break;
-            }
-        }
-
-        void collect_field_references(dcc::ast::TranslationUnit const* tu, std::vector<dcc::sm::SourceRange>& out, std::string_view field_name,
-                                      dcc::ast::Decl const* parent_decl)
-        {
-            if (!tu)
-                return;
-
-            for (auto* d : tu->imports)
-                collect_field_references_in_decl(d, out, field_name, parent_decl);
-            for (auto* d : tu->decls)
-                collect_field_references_in_decl(d, out, field_name, parent_decl);
-        }
-
         void recompile_document(std::string const& uri)
         {
             std::println(m_log, "[dccd] recompile_document: incoming URI=\"{}\"", uri);
@@ -2010,10 +2181,14 @@ export namespace dccd
                 return;
             }
 
+            m_active_entry_uri = uri;
+
             auto path = dcc::sm::SourceManager::parse_file_uri(uri);
             if (!path)
             {
                 std::println(m_log, "[dccd] recompile_document: cannot resolve non-file URI to local path: {}", uri);
+                publish_empty_diagnostics(uri, version_for_uri(uri));
+                m_published_uris.erase(uri);
                 return;
             }
             std::println(m_log, "[dccd] recompile_document: resolved path=\"{}\"", path->string());
@@ -2067,6 +2242,22 @@ export namespace dccd
                 std::println(m_log, "[dccd]   import root: \"{}\"", r.string());
 
             auto result = m_session->analyze_entry(*path, opts);
+
+            checkpoint_cancelled();
+
+            m_workspace_index.sync(*m_session);
+
+            m_graph_revisions.clear();
+            if (auto* sema_ctx = m_session->sema_context())
+            {
+                auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+                auto const& sm = m_session->source_manager();
+                for (auto const& mod : graph.all())
+                    m_graph_revisions[mod->file_id] = sm.content_revision(mod->file_id);
+            }
+            ++m_graph_generation;
+
+            checkpoint_cancelled();
 
             if (result.module)
             {
@@ -2300,6 +2491,30 @@ export namespace dccd
             std::println(m_log, "[dccd] LSP config: {} include paths", m_lsp_include_paths.size());
         }
 
+        void parse_inlay_hint_options(protocol::DidChangeConfigurationParams const& params)
+        {
+            if (!params.settings.has_value())
+                return;
+
+            auto const* dcc_obj = params.settings->get_object("dcc");
+            if (!dcc_obj)
+                return;
+
+            auto const* hints_obj = dcc_obj->get_object("inlayHints");
+            if (!hints_obj)
+                return;
+
+            if (auto b = hints_obj->get_bool("typeHints"))
+                m_inlay_hint_options.typeHints = *b;
+            if (auto b = hints_obj->get_bool("parameterHints"))
+                m_inlay_hint_options.parameterHints = *b;
+            if (auto b = hints_obj->get_bool("suppressParameterNameMatches"))
+                m_inlay_hint_options.suppressParameterNameMatches = *b;
+
+            std::println(m_log, "[dccd] inlay hints: type={} parameter={} suppressNameMatch={}", m_inlay_hint_options.typeHints,
+                         m_inlay_hint_options.parameterHints, m_inlay_hint_options.suppressParameterNameMatches);
+        }
+
         [[nodiscard]] std::vector<std::filesystem::path> compute_import_roots() const
         {
             std::vector<std::filesystem::path> roots;
@@ -2349,18 +2564,24 @@ export namespace dccd
             }
 
             for (auto const& uri : uris)
-            {
                 recompile_document(uri);
-                publish_diagnostics(uri);
-            }
+
+            publish_all_diagnostics();
         }
 
         void handle_workspace_did_change_configuration(protocol::RpcInfo const& rpc)
         {
             std::println(m_log, "[dccd] workspace/didChangeConfiguration received");
             auto params = protocol::DidChangeConfigurationParams::from_json(rpc.params.value());
+
+            auto old_lsp_include_paths = m_lsp_include_paths;
             parse_lsp_include_paths(params);
-            reconfigure_and_recompile();
+            bool include_paths_changed = (old_lsp_include_paths != m_lsp_include_paths);
+
+            parse_inlay_hint_options(params);
+
+            if (include_paths_changed)
+                reconfigure_and_recompile();
         }
 
         void handle_workspace_did_change_watched_files(protocol::RpcInfo const& rpc)
@@ -2370,6 +2591,9 @@ export namespace dccd
 
             bool reload = false;
             auto global_cfg = global_config_path();
+            bool graph_file_changed = false;
+            std::vector<std::string> changed_graph_uris;
+
             for (auto const& change : params.changes)
             {
                 auto path = dcc::sm::SourceManager::parse_file_uri(change.uri);
@@ -2388,39 +2612,76 @@ export namespace dccd
                     break;
                 }
 
+                bool project_cfg = false;
                 for (auto const& root : m_workspace_roots)
                 {
-                    auto project_cfg = std::filesystem::weakly_canonical(project_config_path(root), ec);
-                    if (canonical == project_cfg)
+                    auto project_cfg_path = std::filesystem::weakly_canonical(project_config_path(root), ec);
+                    if (canonical == project_cfg_path)
                     {
                         std::println(m_log, "[dccd] project config changed: {}", canonical.string());
-                        reload = true;
+                        project_cfg = true;
                         break;
                     }
                 }
-                if (reload)
+                if (project_cfg)
+                {
+                    reload = true;
                     break;
+                }
+
+                std::ignore = m_session->source_manager().refresh_disk_file(*path);
+                m_workspace_index.invalidate_unlinked(canonical.string());
+
+                auto fid = m_session->source_manager().find_by_path(*path);
+                if (fid && dcc::query::file_in_module_graph(*m_session, *fid))
+                {
+                    graph_file_changed = true;
+                    changed_graph_uris.push_back(change.uri);
+                }
             }
 
             if (reload)
+            {
                 reconfigure_and_recompile();
+                return;
+            }
+
+            if (graph_file_changed)
+            {
+                if (!m_active_entry_uri.empty())
+                    recompile_document(m_active_entry_uri);
+                else
+                    for (auto const& uri : changed_graph_uris)
+                        recompile_document(uri);
+
+                publish_all_diagnostics();
+            }
         }
 
-        void publish_diagnostics(std::string const& uri)
+        void publish_all_diagnostics()
         {
-            protocol::PublishDiagnosticsParams params;
-            params.uri = uri;
-
             auto const& sm = m_session->source_manager();
 
-            auto opt_fid = sm.find_by_uri(uri);
-            dcc::sm::FileId target_fid = opt_fid.value_or(dcc::sm::FileId::Invalid);
-
-            auto& cache = m_diagnostic_cache[uri];
-            cache.clear();
+            std::map<std::string, std::vector<CachedDiagnostic>, std::less<>> grouped;
 
             for (auto const& diag : m_session->diagnostics().diagnostics())
             {
+                auto labels = diag.labels();
+
+                auto ranked = rank_labels(labels, dcc::sm::FileId::Invalid);
+                if (ranked.empty())
+                    continue;
+
+                auto const* chosen = ranked.front().label;
+                auto const* pub_file = sm.get(chosen->range.begin.fileId);
+                if (!pub_file || pub_file->uri().empty())
+                    continue;
+
+                if (dcc::vfs::is_dcc_core_uri(pub_file->uri()))
+                    continue;
+
+                auto const& pub_uri = pub_file->uri();
+
                 protocol::LspDiagnostic lsp_diag;
                 lsp_diag.source = "dcc";
                 lsp_diag.message = diag.message();
@@ -2441,43 +2702,29 @@ export namespace dccd
                         break;
                 }
 
-                bool has_range = false;
-                auto labels = diag.labels();
-                if (!labels.empty())
+                auto primary_range = pick_primary_range(sm, labels, chosen->range.begin.fileId);
+                if (!primary_range)
+                    continue;
+
+                lsp_diag.range = *primary_range;
+
+                std::vector<protocol::DiagnosticRelatedInformation> related;
+                for (auto const& label : labels)
                 {
-                    for (auto const& label : labels)
-                    {
-                        if (label.style == dcc::diag::LabelStyle::Primary && label.range.begin.fileId == target_fid)
-                        {
-                            auto start_pos = sm.location_to_lsp_position(label.range.begin);
-                            auto end_pos = sm.location_to_lsp_position(label.range.end);
-
-                            if (start_pos && end_pos)
-                            {
-                                lsp_diag.range.start.line = start_pos->line;
-                                lsp_diag.range.start.character = start_pos->character;
-                                lsp_diag.range.end.line = end_pos->line;
-                                lsp_diag.range.end.character = end_pos->character;
-                                has_range = true;
-                            }
-                            break;
-                        }
-                    }
-                }
-
-                if (!has_range && !labels.empty())
-                {
-                    bool any_for_target = false;
-                    for (auto const& label : labels)
-                        if (label.range.begin.fileId == target_fid)
-                        {
-                            any_for_target = true;
-                            break;
-                        }
-
-                    if (!any_for_target)
+                    if (label.style != dcc::diag::LabelStyle::Secondary)
                         continue;
+
+                    auto loc = source_range_to_lsp_location(label.range);
+                    if (!loc)
+                        continue;
+
+                    protocol::DiagnosticRelatedInformation ri;
+                    ri.location = std::move(*loc);
+                    ri.message = label.message;
+                    related.push_back(std::move(ri));
                 }
+                if (!related.empty())
+                    lsp_diag.relatedInformation = std::move(related);
 
                 std::string extended_msg = diag.message();
                 for (auto const& note : diag.notes())
@@ -2493,11 +2740,59 @@ export namespace dccd
                 }
 
                 lsp_diag.message = std::move(extended_msg);
-                cache.push_back(CachedDiagnostic{lsp_diag, diag});
-
-                params.diagnostics.push_back(std::move(lsp_diag));
+                grouped[pub_uri].push_back(CachedDiagnostic{lsp_diag, diag});
             }
 
+            std::unordered_set<std::string> published_this_round;
+            for (auto& [uri, cached] : grouped)
+                if (publish_diagnostics_group(uri, cached))
+                    published_this_round.insert(uri);
+
+            for (auto const& uri : m_published_uris)
+            {
+                if (published_this_round.contains(uri))
+                    continue;
+
+                publish_empty_diagnostics(uri, version_for_uri(uri));
+            }
+
+            m_published_uris = std::move(published_this_round);
+        }
+
+        [[nodiscard]] bool publish_diagnostics_group(std::string const& uri, std::vector<CachedDiagnostic>& cached)
+        {
+            if (!analyzed_file_current(uri))
+            {
+                std::println(m_log, "[dccd] publish_diagnostics_group: discarding stale diagnostics for {}", uri);
+                return false;
+            }
+
+            protocol::PublishDiagnosticsParams params;
+            params.uri = uri;
+            params.version = version_for_uri(uri);
+
+            CachedDiagnosticEntry entry;
+            entry.version = params.version;
+            entry.content_revision = content_revision_for_uri(uri);
+            entry.graph_generation = m_graph_generation;
+            entry.diagnostics = std::move(cached);
+
+            m_diagnostic_cache[uri] = std::move(entry);
+
+            for (auto const& c : m_diagnostic_cache[uri].diagnostics)
+                params.diagnostics.push_back(c.lsp_diag);
+
+            publish_lsp_diagnostics(params);
+            return true;
+        }
+
+        void publish_empty_diagnostics(std::string const& uri, std::optional<std::int64_t> version)
+        {
+            m_diagnostic_cache.erase(uri);
+
+            protocol::PublishDiagnosticsParams params;
+            params.uri = uri;
+            params.version = version;
             publish_lsp_diagnostics(params);
         }
 
@@ -2512,8 +2807,16 @@ export namespace dccd
         void send_message(protocol::JsonValue const& msg)
         {
             std::string payload = msg.serialize();
-            std::print("Content-Length: {}\r\n\r\n{}", payload.size(), payload);
-            std::cout.flush();
+            if (m_output)
+            {
+                *m_output << "Content-Length: " << payload.size() << "\r\n\r\n" << payload;
+                m_output->flush();
+            }
+            else
+            {
+                std::print("Content-Length: {}\r\n\r\n{}", payload.size(), payload);
+                std::cout.flush();
+            }
         }
 
         [[nodiscard]] static std::optional<std::filesystem::path> file_uri_to_path(std::string_view uri)
