@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+using FnPtr = i32(*)(i32);
+
+@nomangle
+public i32 triple(i32 x) {
+    return x * 3;
+}
+
+@nomangle
+const FnPtr g_fn = triple;
+
+@nomangle
+public i32 dcc_main() {
+    FnPtr fp = g_fn;
+    return fp(14);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42
