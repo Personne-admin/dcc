@@ -235,6 +235,25 @@ namespace dcc::backend::em64t
             return (val + alignment - 1) / alignment * alignment;
         }
 
+        [[nodiscard]] std::uint64_t max_global_alignment(std::vector<GlobalLayout*> const& globals)
+        {
+            std::uint64_t a = 1;
+            for (auto* glp : globals)
+                if (glp->alignment > a)
+                    a = glp->alignment;
+            return a;
+        }
+
+        [[nodiscard]] std::uint32_t coff_align_bits(std::uint64_t align)
+        {
+            if (align > 8192)
+                align = 8192;
+            std::uint64_t log2_align = 0;
+            while ((std::uint64_t{1} << log2_align) < align)
+                ++log2_align;
+            return static_cast<std::uint32_t>((log2_align + 1) << 20);
+        }
+
         [[nodiscard]] bool has_global_ref(ir::IrValue const* val)
         {
             if (!val)
@@ -690,6 +709,11 @@ export namespace dcc::backend::em64t
             else if (gl.sec == DataSection::Bss)
                 bss_globals.push_back(&gl);
         }
+
+        std::uint64_t max_rodata_align = max_global_alignment(rodata_globals);
+        std::uint64_t max_rodata_relro_align = max_global_alignment(rodata_relro_globals);
+        std::uint64_t max_data_align = max_global_alignment(data_globals);
+        std::uint64_t max_bss_align = max_global_alignment(bss_globals);
 
         for (auto& cs : custom_sections)
         {
@@ -1389,7 +1413,7 @@ export namespace dcc::backend::em64t
             shdrs[sec_rodata].sh_flags = SHF_ALLOC;
             shdrs[sec_rodata].sh_offset = rodata_off;
             shdrs[sec_rodata].sh_size = rodata_size;
-            shdrs[sec_rodata].sh_addralign = 8;
+            shdrs[sec_rodata].sh_addralign = std::max<std::uint64_t>(8, max_rodata_align);
         }
 
         if (has_rodata_rela)
@@ -1413,7 +1437,7 @@ export namespace dcc::backend::em64t
             shdrs[sec_data_rel_ro].sh_flags = SHF_ALLOC | SHF_WRITE;
             shdrs[sec_data_rel_ro].sh_offset = data_rel_ro_off;
             shdrs[sec_data_rel_ro].sh_size = data_rel_ro_size;
-            shdrs[sec_data_rel_ro].sh_addralign = 8;
+            shdrs[sec_data_rel_ro].sh_addralign = std::max<std::uint64_t>(8, max_rodata_relro_align);
         }
 
         if (has_rodata_relro_rela)
@@ -1437,7 +1461,7 @@ export namespace dcc::backend::em64t
             shdrs[sec_data].sh_flags = SHF_ALLOC | SHF_WRITE;
             shdrs[sec_data].sh_offset = data_off;
             shdrs[sec_data].sh_size = data_size;
-            shdrs[sec_data].sh_addralign = 8;
+            shdrs[sec_data].sh_addralign = std::max<std::uint64_t>(8, max_data_align);
         }
 
         if (has_data_rela)
@@ -1461,7 +1485,7 @@ export namespace dcc::backend::em64t
             shdrs[sec_bss].sh_flags = SHF_ALLOC | SHF_WRITE;
             shdrs[sec_bss].sh_offset = 0;
             shdrs[sec_bss].sh_size = bss_size;
-            shdrs[sec_bss].sh_addralign = 8;
+            shdrs[sec_bss].sh_addralign = std::max<std::uint64_t>(8, max_bss_align);
         }
 
         for (auto& cs : custom_sections)
@@ -1743,6 +1767,12 @@ export namespace dcc::backend::em64t
             else if (gl.sec == DataSection::Bss)
                 bss_globals.push_back(&gl);
         }
+
+        std::uint64_t rodata_align = max_global_alignment(rodata_globals);
+        std::uint64_t data_align = max_global_alignment(data_globals);
+        std::uint64_t bss_align = max_global_alignment(bss_globals);
+        for (auto& cs : custom_sections)
+            cs.characteristics |= coff_align_bits(max_global_alignment(cs.globals));
 
         std::string strtab;
         auto add_str = [&](std::string_view s) -> std::uint32_t {
@@ -2215,7 +2245,7 @@ export namespace dcc::backend::em64t
             std::size_t ri = 1;
             auto reloc_ptr = rdata_rels.empty() ? 0U : sec_relocs[ri].raw_start;
             write_sec_hdr(".rdata", 0, static_cast<std::uint32_t>(rdata_data.size()), rdata_raw_start, reloc_ptr, static_cast<std::uint16_t>(rdata_rels.size()),
-                          IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ);
+                          IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | coff_align_bits(rodata_align));
         }
 
         if (has_data_sec)
@@ -2223,13 +2253,13 @@ export namespace dcc::backend::em64t
             std::size_t ri = (has_rdata ? std::size_t{2} : std::size_t{1});
             auto reloc_ptr = data_rels.empty() ? 0U : sec_relocs[ri].raw_start;
             write_sec_hdr(".data", 0, static_cast<std::uint32_t>(data_sec_data.size()), data_raw_start, reloc_ptr, static_cast<std::uint16_t>(data_rels.size()),
-                          IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
+                          IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE | coff_align_bits(data_align));
         }
 
         if (has_bss_sec)
         {
             write_sec_hdr(".bss", 0, static_cast<std::uint32_t>(bss_sec_size), 0, 0, 0,
-                          IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
+                          IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE | coff_align_bits(bss_align));
         }
 
         for (auto& cs : custom_sections)
