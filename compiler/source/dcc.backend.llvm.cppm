@@ -327,6 +327,13 @@ namespace dcc::backend
                     return func_ty;
                 }
 
+                if (t->kind == IrTypeKind::Aggregate && has_overlapping_members(static_cast<IrAggregateType const*>(t)))
+                {
+                    auto* storage_ty = LLVMArrayType2(LLVMInt8TypeInContext(ctx), t->byte_size);
+                    map[t] = storage_ty;
+                    return storage_ty;
+                }
+
                 auto* opaque = LLVMStructCreateNamed(ctx, "");
                 map[t] = opaque;
 
@@ -343,7 +350,48 @@ namespace dcc::backend
                 return ir_field_idx;
             }
 
+            [[nodiscard]] bool uses_byte_storage(IrType const* t) const
+            {
+                return t && t->kind == IrTypeKind::Aggregate && has_overlapping_members(static_cast<IrAggregateType const*>(t));
+            }
+
+            [[nodiscard]] bool contains_byte_storage(IrType const* t) const
+            {
+                if (!t)
+                    return false;
+                if (uses_byte_storage(t))
+                    return true;
+                if (t->kind == IrTypeKind::Array)
+                    return contains_byte_storage(static_cast<IrArrayType const*>(t)->element);
+                if (t->kind == IrTypeKind::Aggregate)
+                    return std::ranges::any_of(static_cast<IrAggregateType const*>(t)->members, [this](auto* member) { return contains_byte_storage(member); });
+                return false;
+            }
+
         private:
+            [[nodiscard]] static bool has_overlapping_members(IrAggregateType const* at)
+            {
+                for (std::size_t i = 0; i < at->members.size(); ++i)
+                {
+                    auto* lhs = at->members[i];
+                    if (!lhs || lhs->byte_size == 0)
+                        continue;
+                    auto lhs_offset = i < at->member_offsets.size() ? at->member_offsets[i] : 0;
+
+                    for (std::size_t j = 0; j < i; ++j)
+                    {
+                        auto* rhs = at->members[j];
+                        if (!rhs || rhs->byte_size == 0)
+                            continue;
+                        auto rhs_offset = j < at->member_offsets.size() ? at->member_offsets[j] : 0;
+                        if (lhs_offset < rhs_offset + rhs->byte_size && rhs_offset < lhs_offset + lhs->byte_size)
+                            return true;
+                    }
+                }
+
+                return false;
+            }
+
             [[nodiscard]] static bool is_simple_type(IrTypeKind k)
             {
                 switch (k)
@@ -608,6 +656,15 @@ namespace dcc::backend
         {
             if (!v)
                 return nullptr;
+
+            if (v->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(v->type))
+            {
+                auto* storage_ty = c_api_type_cached(tc, v->type, true);
+                auto byte_count = LLVMGetArrayLength2(storage_ty);
+                std::vector<std::uint8_t> bytes(byte_count, 0);
+                if (serialize_constant_memory(v, v->type, bytes, tc.little_endian, constant_error))
+                    return LLVMConstStringInContext(ctx, reinterpret_cast<char const*>(bytes.data()), static_cast<unsigned>(bytes.size()), 1);
+            }
 
             if (is_llvm_byte_array_type(expected_mem_type))
             {
@@ -2019,8 +2076,11 @@ namespace dcc::backend
                         }
                         else
                             ai = LLVMBuildAlloca(builder, at, "");
-                        if (a->alignment > 0)
-                            LLVMSetAlignment(ai, a->alignment);
+                        auto alignment = a->alignment;
+                        if (alignment == 0 && tc.contains_byte_storage(a->allocated_type))
+                            alignment = static_cast<std::uint32_t>(a->allocated_type->byte_align);
+                        if (alignment > 0)
+                            LLVMSetAlignment(ai, alignment);
 
                         set_name(ai);
                         val_map[inst] = ai;
@@ -2191,6 +2251,124 @@ namespace dcc::backend
                         {
                             add_diag(diags, inst->range, "LLVM backend cannot emit GEP without element type information");
                             return false;
+                        }
+
+                        bool has_byte_storage_field = false;
+                        IrType const* path_type = source_elem;
+                        for (auto const& ir_idx : g->indices)
+                        {
+                            if (ir_idx.kind == IrGepInst::IndexKind::Field)
+                            {
+                                if (path_type && path_type->kind == IrTypeKind::Aggregate)
+                                {
+                                    auto* aggregate = static_cast<IrAggregateType const*>(path_type);
+                                    has_byte_storage_field |= tc.uses_byte_storage(aggregate);
+                                    path_type = ir_idx.field_index < aggregate->members.size() ? aggregate->members[ir_idx.field_index] : nullptr;
+                                }
+                                else
+                                    path_type = nullptr;
+                            }
+                            else if (path_type && path_type->kind == IrTypeKind::Array)
+                                path_type = static_cast<IrArrayType const*>(path_type)->element;
+                            else if (path_type && path_type->kind == IrTypeKind::Pointer)
+                                path_type = static_cast<IrPointerType const*>(path_type)->pointee;
+                            else
+                                path_type = nullptr;
+                        }
+
+                        if (has_byte_storage_field)
+                        {
+                            auto* current_ptr = base_ptr;
+                            bool pointer_changed = false;
+                            IrType const* current_type = source_elem;
+
+                            for (auto const& ir_idx : g->indices)
+                            {
+                                if (ir_idx.kind == IrGepInst::IndexKind::Field)
+                                {
+                                    if (current_type && current_type->kind == IrTypeKind::Aggregate)
+                                    {
+                                        auto* aggregate = static_cast<IrAggregateType const*>(current_type);
+                                        if (ir_idx.field_index >= aggregate->members.size())
+                                            return false;
+
+                                        if (tc.uses_byte_storage(aggregate))
+                                        {
+                                            auto offset =
+                                                ir_idx.field_index < aggregate->member_offsets.size() ? aggregate->member_offsets[ir_idx.field_index] : 0;
+                                            if (offset != 0)
+                                            {
+                                                LLVMValueRef offset_value = LLVMConstInt(LLVMInt64TypeInContext(ctx), offset, false);
+                                                current_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), current_ptr, &offset_value, 1, "");
+                                                pointer_changed = true;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            auto* aggregate_type = llvm_mem_type_cached(tc, aggregate);
+                                            auto llvm_index = tc.get_llvm_field_index(aggregate, ir_idx.field_index);
+                                            current_ptr = LLVMBuildStructGEP2(builder, aggregate_type, current_ptr, llvm_index, "");
+                                            pointer_changed = true;
+                                        }
+
+                                        current_type = aggregate->members[ir_idx.field_index];
+                                    }
+                                    else if (current_type && current_type->kind == IrTypeKind::Slice)
+                                    {
+                                        auto* slice_type = llvm_mem_type_cached(tc, current_type);
+                                        current_ptr = LLVMBuildStructGEP2(builder, slice_type, current_ptr, ir_idx.field_index, "");
+                                        pointer_changed = true;
+                                        current_type = nullptr;
+                                    }
+                                    else
+                                        return false;
+                                }
+                                else
+                                {
+                                    auto* index_value = lookup(ir_idx.dynamic_index);
+                                    if (!index_value)
+                                        return false;
+
+                                    if (current_type && current_type->kind == IrTypeKind::Array)
+                                    {
+                                        auto* array_type = llvm_mem_type_cached(tc, current_type);
+                                        LLVMValueRef indices[] = {
+                                            LLVMConstInt(LLVMInt32TypeInContext(ctx), 0, false),
+                                            index_value,
+                                        };
+                                        current_ptr = LLVMBuildGEP2(builder, array_type, current_ptr, indices, 2, "");
+                                        pointer_changed = true;
+                                        current_type = static_cast<IrArrayType const*>(current_type)->element;
+                                    }
+                                    else
+                                    {
+                                        auto* element_type = llvm_mem_type_cached(tc, current_type);
+                                        if (!element_type)
+                                            return false;
+                                        current_ptr = LLVMBuildGEP2(builder, element_type, current_ptr, &index_value, 1, "");
+                                        pointer_changed = true;
+                                        if (current_type && current_type->kind == IrTypeKind::Pointer)
+                                            current_type = static_cast<IrPointerType const*>(current_type)->pointee;
+                                    }
+                                }
+                            }
+
+                            if (pointer_changed)
+                                set_name(current_ptr);
+                            else
+                            {
+                                bool already_named_by_gep = false;
+                                for (auto const& [ir_value, llvm_value] : val_map)
+                                    if (llvm_value == current_ptr && ir_value && ir_value->kind == IrNodeKind::Gep)
+                                    {
+                                        already_named_by_gep = true;
+                                        break;
+                                    }
+                                if (!already_named_by_gep)
+                                    set_name(current_ptr);
+                            }
+                            val_map[inst] = current_ptr;
+                            break;
                         }
 
                         std::vector<LLVMValueRef> llvm_indices;
@@ -2987,7 +3165,40 @@ namespace dcc::backend
                             break;
                         }
 
-                        auto* result = LLVMGetUndef(agg_ty);
+                        LLVMValueRef result = nullptr;
+
+                        if (tc.uses_byte_storage(agg->type))
+                        {
+                            auto* aggregate_type = static_cast<IrAggregateType const*>(agg->type);
+                            auto* storage = LLVMBuildAlloca(builder, agg_ty, "");
+                            LLVMSetAlignment(storage, static_cast<unsigned>(aggregate_type->byte_align));
+                            LLVMBuildStore(builder, LLVMConstNull(agg_ty), storage);
+
+                            auto count = std::min(agg->values.size(), aggregate_type->members.size());
+                            for (std::size_t i = 0; i < count; ++i)
+                            {
+                                auto* member = lookup(agg->values[i]);
+                                if (!member)
+                                    return false;
+                                auto offset = i < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[i] : 0;
+                                auto* member_ptr = storage;
+                                if (offset != 0)
+                                {
+                                    LLVMValueRef offset_value = LLVMConstInt(LLVMInt64TypeInContext(ctx), offset, false);
+                                    member_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), storage, &offset_value, 1, "");
+                                }
+                                if (is_bool_type(aggregate_type->members[i]))
+                                    member = LLVMBuildZExt(builder, member, LLVMInt8TypeInContext(ctx), "");
+                                LLVMBuildStore(builder, member, member_ptr);
+                            }
+
+                            result = LLVMBuildLoad2(builder, agg_ty, storage, "");
+                            set_name(result);
+                            val_map[inst] = result;
+                            break;
+                        }
+
+                        result = LLVMGetUndef(agg_ty);
                         if (agg->type && agg->type->kind == IrTypeKind::Aggregate)
                         {
                             auto* ir_agg_type = static_cast<IrAggregateType const*>(agg->type);
@@ -3022,6 +3233,36 @@ namespace dcc::backend
                         if (!agg_val)
                             return false;
 
+                        if (e->aggregate && tc.uses_byte_storage(e->aggregate->type))
+                        {
+                            auto* aggregate_type = static_cast<IrAggregateType const*>(e->aggregate->type);
+                            if (e->field_index >= aggregate_type->members.size())
+                                return false;
+                            auto* aggregate_llvm_type = llvm_type_cached(tc, aggregate_type);
+                            auto* storage = LLVMBuildAlloca(builder, aggregate_llvm_type, "");
+                            LLVMSetAlignment(storage, static_cast<unsigned>(aggregate_type->byte_align));
+                            LLVMBuildStore(builder, agg_val, storage);
+                            auto offset = e->field_index < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[e->field_index] : 0;
+                            auto* member_ptr = storage;
+                            if (offset != 0)
+                            {
+                                LLVMValueRef offset_value = LLVMConstInt(LLVMInt64TypeInContext(ctx), offset, false);
+                                member_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), storage, &offset_value, 1, "");
+                            }
+                            auto* member_type = aggregate_type->members[e->field_index];
+                            LLVMValueRef result = nullptr;
+                            if (is_bool_type(member_type))
+                            {
+                                auto* raw = LLVMBuildLoad2(builder, LLVMInt8TypeInContext(ctx), member_ptr, "");
+                                result = LLVMBuildTrunc(builder, raw, LLVMInt1TypeInContext(ctx), "");
+                            }
+                            else
+                                result = LLVMBuildLoad2(builder, llvm_type_cached(tc, member_type), member_ptr, "");
+                            set_name(result);
+                            val_map[inst] = result;
+                            break;
+                        }
+
                         unsigned llvm_field_idx = e->field_index;
                         if (e->aggregate && e->aggregate->type && e->aggregate->type->kind == IrTypeKind::Aggregate)
                             llvm_field_idx = tc.get_llvm_field_index(static_cast<IrAggregateType const*>(e->aggregate->type), e->field_index);
@@ -3037,6 +3278,31 @@ namespace dcc::backend
                         auto* val = lookup(ins->value);
                         if (!agg_val || !val)
                             return false;
+
+                        if (ins->aggregate && tc.uses_byte_storage(ins->aggregate->type))
+                        {
+                            auto* aggregate_type = static_cast<IrAggregateType const*>(ins->aggregate->type);
+                            if (ins->field_index >= aggregate_type->members.size())
+                                return false;
+                            auto* aggregate_llvm_type = llvm_type_cached(tc, aggregate_type);
+                            auto* storage = LLVMBuildAlloca(builder, aggregate_llvm_type, "");
+                            LLVMSetAlignment(storage, static_cast<unsigned>(aggregate_type->byte_align));
+                            LLVMBuildStore(builder, agg_val, storage);
+                            auto offset = ins->field_index < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[ins->field_index] : 0;
+                            auto* member_ptr = storage;
+                            if (offset != 0)
+                            {
+                                LLVMValueRef offset_value = LLVMConstInt(LLVMInt64TypeInContext(ctx), offset, false);
+                                member_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), storage, &offset_value, 1, "");
+                            }
+                            if (is_bool_type(aggregate_type->members[ins->field_index]))
+                                val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
+                            LLVMBuildStore(builder, val, member_ptr);
+                            auto* result = LLVMBuildLoad2(builder, aggregate_llvm_type, storage, "");
+                            set_name(result);
+                            val_map[inst] = result;
+                            break;
+                        }
 
                         unsigned llvm_field_idx = ins->field_index;
                         if (ins->aggregate && ins->aggregate->type && ins->aggregate->type->kind == IrTypeKind::Aggregate)
