@@ -5536,6 +5536,15 @@ export namespace dcc::ir::lower
                         if (u->operand->kind == ast::ExprKind::Ident)
                         {
                             auto* resolved = static_cast<ast::IdentExpr const*>(u->operand)->sema.resolved_decl;
+                            if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
+                            {
+                                auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
+                                if (global)
+                                {
+                                    auto* ptr_type = m_ctx.pointer_to(global->type);
+                                    return m_ctx.global_ref(global, ptr_type);
+                                }
+                            }
                             if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
                             {
                                 auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
@@ -5546,6 +5555,15 @@ export namespace dcc::ir::lower
                         else if (u->operand->kind == ast::ExprKind::PathExpr)
                         {
                             auto* resolved = static_cast<ast::PathExpr const*>(u->operand)->sema.resolved_decl;
+                            if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
+                            {
+                                auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
+                                if (global)
+                                {
+                                    auto* ptr_type = m_ctx.pointer_to(global->type);
+                                    return m_ctx.global_ref(global, ptr_type);
+                                }
+                            }
                             if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
                             {
                                 auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
