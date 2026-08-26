@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+const i32 G = 5;
+
+void f() {
+    G = 6;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: assignment target is not assignable
