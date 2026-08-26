@@ -752,16 +752,6 @@ namespace dcc::backend
                 std::unordered_map<IrValue const*, LLVMValueRef> val_map;
                 TypeCache type_cache{ctx, opts.target.pointer_bits};
 
-                for (auto* g : input_module->globals)
-                {
-                    if (!g || !g->type)
-                        continue;
-
-                    auto* gv = emit_global(g, llvm_mod, ctx, type_cache, val_map, diags);
-                    if (gv)
-                        val_map[g] = gv;
-                }
-
                 auto* debug_ptr = wants_debug ? &debug : nullptr;
 
                 for (auto* func : input_module->functions)
@@ -771,6 +761,16 @@ namespace dcc::backend
 
                     if (!create_function_decl(func, llvm_mod, ctx, type_cache, val_map, opts, diags, debug_ptr))
                         has_unsupported = true;
+                }
+
+                for (auto* g : input_module->globals)
+                {
+                    if (!g || !g->type)
+                        continue;
+
+                    auto* gv = emit_global(g, llvm_mod, ctx, type_cache, val_map, diags);
+                    if (gv)
+                        val_map[g] = gv;
                 }
 
                 for (auto* func : input_module->functions)
