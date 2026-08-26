@@ -5309,13 +5309,19 @@ export namespace dcc::ir::lower
                 if (!vd->sema.section.empty())
                     ir_global->section = vd->sema.section;
 
+                m_global_map[vd] = ir_global;
+            }
+
+            for (auto* vd : m_global_order)
+            {
+                auto* ir_global = m_global_map[vd];
+                auto storage = vd->sema.storage;
                 if (vd->init && storage != ast::StorageClass::Extern)
                 {
                     auto* init_val = lower_constant_expr(vd->init, get_canonical_type(vd->type));
                     ir_global->init = init_val;
                 }
 
-                m_global_map[vd] = ir_global;
                 m_module->globals.push_back(ir_global);
             }
         }

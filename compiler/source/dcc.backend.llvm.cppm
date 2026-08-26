@@ -768,9 +768,20 @@ namespace dcc::backend
                     if (!g || !g->type)
                         continue;
 
-                    auto* gv = emit_global(g, llvm_mod, ctx, type_cache, val_map, diags);
-                    if (gv)
+                    if (auto* gv = declare_global(g, llvm_mod, type_cache))
                         val_map[g] = gv;
+                }
+
+                for (auto* g : input_module->globals)
+                {
+                    if (!g || !g->type)
+                        continue;
+
+                    auto it = val_map.find(g);
+                    if (it == val_map.end())
+                        continue;
+
+                    std::ignore = init_global(g, it->second, ctx, type_cache, val_map, diags);
                 }
 
                 for (auto* func : input_module->functions)
@@ -1201,8 +1212,7 @@ namespace dcc::backend
                 return false;
             }
 
-            [[nodiscard]] static LLVMValueRef emit_global(IrGlobal const* g, LLVMModuleRef mod, LLVMContextRef ctx, TypeCache& tc,
-                                                          std::unordered_map<IrValue const*, LLVMValueRef>& val_map, std::vector<BackendDiagnostic>& diags)
+            [[nodiscard]] static LLVMValueRef declare_global(IrGlobal const* g, LLVMModuleRef mod, TypeCache& tc)
             {
                 auto* mem_ty = llvm_mem_type_cached(tc, g->type);
                 if (!mem_ty)
@@ -1210,6 +1220,14 @@ namespace dcc::backend
 
                 auto* gv = LLVMAddGlobal(mod, mem_ty, std::string{g->name}.c_str());
                 apply_linkage_and_comdat(gv, g->linkage, mod, g->name);
+                return gv;
+            }
+
+            [[nodiscard]] static bool init_global(IrGlobal const* g, LLVMValueRef gv, LLVMContextRef ctx, TypeCache& tc,
+                                                  std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
+                                                  std::vector<BackendDiagnostic>& diags)
+            {
+                auto* mem_ty = LLVMGlobalGetValueType(gv);
 
                 LLVMValueRef init_val = nullptr;
                 if (g->init)
@@ -1218,7 +1236,7 @@ namespace dcc::backend
                     if (!init_val)
                     {
                         add_diag(diags, g->range, "LLVM backend: unsupported global initializer");
-                        return nullptr;
+                        return false;
                     }
                     LLVMSetInitializer(gv, init_val);
                 }
@@ -1234,7 +1252,7 @@ namespace dcc::backend
                 if (g->alignment > 0)
                     LLVMSetAlignment(gv, g->alignment);
 
-                return gv;
+                return true;
             }
 
             [[nodiscard]] static LLVMLinkage llvm_linkage(Linkage l)
