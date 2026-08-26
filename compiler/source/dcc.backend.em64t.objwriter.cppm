@@ -1686,9 +1686,56 @@ export namespace dcc::backend::em64t
             globals.push_back(std::move(gl));
         }
 
+        struct CoffReloc
+        {
+            std::uint32_t virt_addr;
+            std::uint32_t sym_idx;
+            std::uint16_t type;
+        };
+
+        struct CoffCustomSection
+        {
+            std::string name;
+            std::uint32_t str_off{};
+            std::uint32_t characteristics{};
+            bool is_bss{true};
+            std::vector<GlobalLayout*> globals;
+            std::vector<std::uint8_t> data;
+            std::vector<CoffReloc> rels;
+            std::uint64_t bss_size{};
+            std::uint32_t section_index{};
+            std::uint32_t raw_start{};
+            std::uint32_t reloc_block{};
+        };
+
         std::vector<GlobalLayout*> rodata_globals, data_globals, bss_globals;
+        std::vector<CoffCustomSection> custom_sections;
+        std::unordered_map<std::string, std::size_t> custom_section_index;
         for (auto& gl : globals)
         {
+            if (!gl.g->section.empty())
+            {
+                std::string sname{gl.g->section};
+                auto it = custom_section_index.find(sname);
+                if (it == custom_section_index.end())
+                {
+                    CoffCustomSection cs;
+                    cs.name = sname;
+                    custom_section_index[sname] = custom_sections.size();
+                    custom_sections.push_back(std::move(cs));
+                }
+                auto& cs = custom_sections[custom_section_index[sname]];
+                if (gl.sec == DataSection::Rodata)
+                    cs.characteristics |= IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ;
+                else if (gl.sec == DataSection::RodataRelRO || gl.sec == DataSection::Data)
+                    cs.characteristics |= IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+                else if (gl.sec == DataSection::Bss)
+                    cs.characteristics |= IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+                if (gl.sec != DataSection::Bss)
+                    cs.is_bss = false;
+                cs.globals.push_back(&gl);
+                continue;
+            }
             if (gl.sec == DataSection::Rodata || gl.sec == DataSection::RodataRelRO)
                 rodata_globals.push_back(&gl);
             else if (gl.sec == DataSection::Data)
@@ -1711,6 +1758,7 @@ export namespace dcc::backend::em64t
             std::uint32_t str_off{};
             bool is_func : 1 {};
             bool is_object : 1 {};
+            bool is_sec : 1 {};
             std::uint32_t sec_idx;
             std::uint64_t value;
             std::uint64_t size;
@@ -1719,7 +1767,7 @@ export namespace dcc::backend::em64t
         std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
 
         auto text_sec_str = add_str(".text");
-        coff_syms.push_back({.name = ".text", .str_off = text_sec_str, .is_func = false, .is_object = false, .sec_idx = 1, .value = 0, .size = 0});
+        coff_syms.push_back({.name = ".text", .str_off = text_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = 1, .value = 0, .size = 0});
 
         std::uint32_t sec_rdata = 0, sec_data = 0, sec_bss = 0;
         bool has_coff_jt = false;
@@ -1739,23 +1787,34 @@ export namespace dcc::backend::em64t
             rdata_sec_str = add_str(".rdata");
             sec_rdata = 2;
             coff_syms.push_back(
-                {.name = ".rdata", .str_off = rdata_sec_str, .is_func = false, .is_object = false, .sec_idx = sec_rdata, .value = 0, .size = 0});
+                {.name = ".rdata", .str_off = rdata_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_rdata, .value = 0, .size = 0});
         }
         if (has_data_sec)
         {
             data_sec_str = add_str(".data");
             sec_data = has_rdata ? 3 : 2;
-            coff_syms.push_back({.name = ".data", .str_off = data_sec_str, .is_func = false, .is_object = false, .sec_idx = sec_data, .value = 0, .size = 0});
+            coff_syms.push_back({.name = ".data", .str_off = data_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_data, .value = 0, .size = 0});
         }
         if (has_bss_sec)
         {
             bss_sec_str = add_str(".bss");
             sec_bss = (has_rdata ? 1 : 0) + (has_data_sec ? 1 : 0) + 2;
-            coff_syms.push_back({.name = ".bss", .str_off = bss_sec_str, .is_func = false, .is_object = false, .sec_idx = sec_bss, .value = 0, .size = 0});
+            coff_syms.push_back({.name = ".bss", .str_off = bss_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_bss, .value = 0, .size = 0});
+        }
+
+        std::uint32_t num_std_sec = 1 + (has_rdata ? 1U : 0U) + (has_data_sec ? 1U : 0U) + (has_bss_sec ? 1U : 0U);
+        std::uint32_t next_sec = num_std_sec + 1;
+        for (auto& cs : custom_sections)
+        {
+            cs.section_index = next_sec++;
+            cs.str_off = add_str(cs.name);
+            coff_syms.push_back({.name = cs.name, .str_off = cs.str_off, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = cs.section_index, .value = 0, .size = 0});
         }
 
         for (auto& gl : globals)
         {
+            if (!gl.g->section.empty())
+                continue;
             if (gl.sec == DataSection::Rodata || gl.sec == DataSection::RodataRelRO)
                 gl.section_index = sec_rdata;
             else if (gl.sec == DataSection::Data)
@@ -1763,6 +1822,9 @@ export namespace dcc::backend::em64t
             else if (gl.sec == DataSection::Bss)
                 gl.section_index = sec_bss;
         }
+        for (auto& cs : custom_sections)
+            for (auto* glp : cs.globals)
+                glp->section_index = cs.section_index;
 
         for (auto const& ext : ext_syms)
         {
@@ -1846,13 +1908,6 @@ export namespace dcc::backend::em64t
             }
         }
 
-        struct CoffReloc
-        {
-            std::uint32_t virt_addr;
-            std::uint32_t sym_idx;
-            std::uint16_t type;
-        };
-
         auto build_coff_init_data = [&](std::vector<GlobalLayout*>& gvec, std::uint32_t) -> std::pair<std::vector<std::uint8_t>, std::vector<CoffReloc>> {
             std::vector<std::uint8_t> sec_data;
             std::vector<CoffReloc> rels;
@@ -1923,6 +1978,53 @@ export namespace dcc::backend::em64t
 
         auto [data_sec_data, data_rels] = build_coff_init_data(data_globals, sec_data);
 
+        for (auto& cs : custom_sections)
+        {
+            if (cs.is_bss)
+            {
+                for (auto* glp : cs.globals)
+                {
+                    auto pad = align_up(cs.bss_size, glp->alignment);
+                    glp->offset = pad;
+                    cs.bss_size = pad + (glp->g->type ? glp->g->type->byte_size : 0);
+                }
+                continue;
+            }
+
+            for (auto* glp : cs.globals)
+            {
+                auto pad = align_up(cs.data.size(), glp->alignment);
+                while (cs.data.size() < pad)
+                    cs.data.push_back(0);
+
+                glp->offset = cs.data.size();
+
+                if (glp->g->init)
+                {
+                    auto size = init_type_size(glp->g->type);
+                    if (size == 0 && glp->g->init->type)
+                        size = init_type_size(glp->g->init->type);
+                    std::vector<std::uint8_t> image(size, 0);
+                    std::vector<InitReloc> init_relocs;
+                    serialize_init_memory(image, init_relocs, glp->g->init, glp->g->type, 0);
+                    cs.data.insert(cs.data.end(), image.begin(), image.end());
+                    for (auto const& init_reloc : init_relocs)
+                    {
+                        auto it = sym_name_to_idx.find(init_reloc.name);
+                        if (it == sym_name_to_idx.end())
+                            continue;
+                        CoffReloc rel{};
+                        rel.virt_addr = static_cast<std::uint32_t>(glp->offset + init_reloc.offset);
+                        rel.sym_idx = it->second;
+                        rel.type = IMAGE_REL_AMD64_ADDR64;
+                        cs.rels.push_back(rel);
+                    }
+                }
+                else
+                    cs.data.resize(cs.data.size() + (glp->g->type ? glp->g->type->byte_size : 0), 0);
+            }
+        }
+
         for (auto& cs : coff_syms)
         {
             if (!cs.is_object)
@@ -1985,6 +2087,7 @@ export namespace dcc::backend::em64t
             num_sec++;
         if (has_bss_sec)
             num_sec++;
+        num_sec += static_cast<std::uint32_t>(custom_sections.size());
 
         std::uint32_t hdr_size = 20;
         std::uint32_t sec_hdr_size = 40;
@@ -2012,6 +2115,16 @@ export namespace dcc::backend::em64t
         if (cur_raw % 4 != 0)
             cur_raw += 4 - (cur_raw % 4);
 
+        for (auto& cs : custom_sections)
+        {
+            if (cs.is_bss)
+                continue;
+            cs.raw_start = cur_raw;
+            cur_raw += static_cast<std::uint32_t>(cs.data.size());
+            if (cur_raw % 4 != 0)
+                cur_raw += 4 - (cur_raw % 4);
+        }
+
         struct CoffSecReloc
         {
             std::uint32_t raw_start;
@@ -2025,6 +2138,14 @@ export namespace dcc::backend::em64t
             sec_relocs.push_back({data_raw_start, data_rels});
         if (has_bss_sec)
             sec_relocs.push_back({0, {}});
+        for (auto& cs : custom_sections)
+        {
+            if (cs.is_bss)
+                sec_relocs.push_back({0, {}});
+            else
+                sec_relocs.push_back({cs.raw_start, cs.rels});
+            cs.reloc_block = static_cast<std::uint32_t>(sec_relocs.size() - 1);
+        }
 
         for (auto& sr : sec_relocs)
         {
@@ -2054,11 +2175,20 @@ export namespace dcc::backend::em64t
         w16(out, 0);
         w16(out, IMAGE_FILE_LINE_NUMS_STRIPPED | IMAGE_FILE_DEBUG_STRIPPED);
 
-        auto write_sec_hdr = [&](std::string_view name8, std::uint32_t raw_size, std::uint32_t raw_ptr, std::uint32_t reloc_ptr, std::uint16_t reloc_count,
-                                 std::uint32_t characteristics) {
+        auto write_sec_hdr = [&](std::string_view name, std::uint32_t name_str_off, std::uint32_t raw_size, std::uint32_t raw_ptr, std::uint32_t reloc_ptr,
+                                 std::uint16_t reloc_count, std::uint32_t characteristics) {
             std::array<std::uint8_t, 8> name_buf = {0};
-            for (std::size_t i = 0; i < name8.size() && i < 8; ++i)
-                name_buf[i] = into_u8(name8[i]);
+            if (name.size() <= 8)
+            {
+                for (std::size_t i = 0; i < name.size(); ++i)
+                    name_buf[i] = into_u8(name[i]);
+            }
+            else
+            {
+                auto offset_str = "/" + std::to_string(name_str_off + 4);
+                for (std::size_t i = 0; i < offset_str.size() && i < 8; ++i)
+                    name_buf[i] = into_u8(offset_str[i]);
+            }
 
             for (auto c : name_buf)
                 w8(out, c);
@@ -2076,7 +2206,7 @@ export namespace dcc::backend::em64t
 
         {
             auto reloc_ptr = text_rels.empty() ? 0 : sec_relocs[0].raw_start;
-            write_sec_hdr(".text", static_cast<std::uint32_t>(text_data.size()), text_raw_start, reloc_ptr, static_cast<std::uint16_t>(text_rels.size()),
+            write_sec_hdr(".text", 0, static_cast<std::uint32_t>(text_data.size()), text_raw_start, reloc_ptr, static_cast<std::uint16_t>(text_rels.size()),
                           IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_16BYTES);
         }
 
@@ -2084,7 +2214,7 @@ export namespace dcc::backend::em64t
         {
             std::size_t ri = 1;
             auto reloc_ptr = rdata_rels.empty() ? 0U : sec_relocs[ri].raw_start;
-            write_sec_hdr(".rdata", static_cast<std::uint32_t>(rdata_data.size()), rdata_raw_start, reloc_ptr, static_cast<std::uint16_t>(rdata_rels.size()),
+            write_sec_hdr(".rdata", 0, static_cast<std::uint32_t>(rdata_data.size()), rdata_raw_start, reloc_ptr, static_cast<std::uint16_t>(rdata_rels.size()),
                           IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ);
         }
 
@@ -2092,14 +2222,24 @@ export namespace dcc::backend::em64t
         {
             std::size_t ri = (has_rdata ? std::size_t{2} : std::size_t{1});
             auto reloc_ptr = data_rels.empty() ? 0U : sec_relocs[ri].raw_start;
-            write_sec_hdr(".data", static_cast<std::uint32_t>(data_sec_data.size()), data_raw_start, reloc_ptr, static_cast<std::uint16_t>(data_rels.size()),
+            write_sec_hdr(".data", 0, static_cast<std::uint32_t>(data_sec_data.size()), data_raw_start, reloc_ptr, static_cast<std::uint16_t>(data_rels.size()),
                           IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
         }
 
         if (has_bss_sec)
         {
-            write_sec_hdr(".bss", static_cast<std::uint32_t>(bss_sec_size), 0, 0, 0,
+            write_sec_hdr(".bss", 0, static_cast<std::uint32_t>(bss_sec_size), 0, 0, 0,
                           IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE);
+        }
+
+        for (auto& cs : custom_sections)
+        {
+            auto reloc_ptr = cs.rels.empty() ? 0U : sec_relocs[cs.reloc_block].raw_start;
+            if (cs.is_bss)
+                write_sec_hdr(cs.name, cs.str_off, static_cast<std::uint32_t>(cs.bss_size), 0, 0, 0, cs.characteristics);
+            else
+                write_sec_hdr(cs.name, cs.str_off, static_cast<std::uint32_t>(cs.data.size()), cs.raw_start, reloc_ptr,
+                              static_cast<std::uint16_t>(cs.rels.size()), cs.characteristics);
         }
 
         while (out.size() < text_raw_start)
@@ -2118,6 +2258,15 @@ export namespace dcc::backend::em64t
             while (out.size() < data_raw_start)
                 w8(out, 0);
             out.insert(out.end(), data_sec_data.begin(), data_sec_data.end());
+        }
+
+        for (auto& cs : custom_sections)
+        {
+            if (cs.is_bss)
+                continue;
+            while (out.size() < cs.raw_start)
+                w8(out, 0);
+            out.insert(out.end(), cs.data.begin(), cs.data.end());
         }
 
         for (auto const& sr : sec_relocs)
@@ -2175,8 +2324,10 @@ export namespace dcc::backend::em64t
             else
             {
                 w16(out, 0);
-                bool is_sec_sym = (cs.name == ".text" || cs.name == ".data" || cs.name == ".bss" || cs.name == ".rdata");
-                w8(out, cs.name.empty() ? 0 : (is_sec_sym ? 3 : 2));
+                if (cs.is_sec)
+                    w8(out, 3);
+                else
+                    w8(out, cs.name.empty() ? 0 : 2);
                 w8(out, 0);
             }
         }
