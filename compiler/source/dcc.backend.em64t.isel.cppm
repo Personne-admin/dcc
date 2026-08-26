@@ -1196,6 +1196,21 @@ namespace dcc::backend::em64t
         {
             CallLowering cl;
 
+            std::uint32_t callee_slot = std::numeric_limits<std::uint32_t>::max();
+            if (!dcc::ir::ir_cast<dcc::ir::IrGlobalRef>(callee))
+            {
+                VReg callee_vreg = ctx.try_materialize(callee);
+                callee_slot = ctx.mfunc.new_frame_slot(8, 8);
+
+                MInstr store;
+                store.opc = MOpc::MOV64mr;
+                store.num_ops = 2;
+                store.num_defs = 0;
+                store.ops[0] = MOp::from_frame_slot(callee_slot);
+                store.ops[1] = MOp::from_reg(callee_vreg);
+                ctx.append_instr(store);
+            }
+
             VReg sret_addr;
             ReturnPlan ret_plan;
             if (is_memory_type(result_type))
@@ -1394,7 +1409,15 @@ namespace dcc::backend::em64t
             }
             else
             {
-                VReg callee_vreg = ctx.try_materialize(callee);
+                VReg callee_vreg = VReg::phys(PhysReg::R11);
+                MInstr load;
+                load.opc = MOpc::MOV64rm;
+                load.num_ops = 2;
+                load.num_defs = 1;
+                load.ops[0] = MOp::from_reg(callee_vreg);
+                load.ops[1] = MOp::from_frame_slot(callee_slot);
+                ctx.append_instr(load);
+
                 call_instr.opc = MOpc::CALL;
                 call_instr.num_ops = 1;
                 call_instr.num_defs = 0;
