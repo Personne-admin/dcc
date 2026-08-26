@@ -369,7 +369,7 @@ namespace dcc::backend::em64t
                     if (it != sym_name_to_idx.end())
                     {
                         Elf64_Rela rela{};
-                        rela.r_offset = base_offset + pos;
+                        rela.r_offset = pos;
                         rela.r_addend = 0;
                         rela.r_info = elf_r_info(it->second, R_X86_64_64);
                         relas.push_back(rela);
