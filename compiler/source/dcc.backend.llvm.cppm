@@ -1496,6 +1496,8 @@ namespace dcc::backend
                     LLVMSetDLLStorageClass(gv, LLVMDLLImportStorageClass);
                 else if (g->is_dll_export)
                     LLVMSetDLLStorageClass(gv, LLVMDLLExportStorageClass);
+                if (!g->section.empty())
+                    LLVMSetSection(gv, std::string{g->section}.c_str());
                 return gv;
             }
 
