@@ -253,8 +253,64 @@ namespace dcc::backend::em64t
             return DataSection::Bss;
         }
 
-        void serialize_init_value(std::vector<std::uint8_t>& data, ir::IrValue const* val, ir::IrType const* expected_type, std::vector<Elf64_Rela>& relas,
-                                  std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, std::uint64_t base_offset)
+        struct InitReloc
+        {
+            std::uint64_t offset{};
+            std::uint64_t size{};
+            std::string name;
+        };
+
+        [[nodiscard]] std::uint64_t init_type_size(ir::IrType const* type)
+        {
+            if (!type || type->byte_size != 0)
+                return type ? type->byte_size : 0;
+            if (type->kind == ir::IrTypeKind::Aggregate)
+            {
+                auto* aggregate = static_cast<ir::IrAggregateType const*>(type);
+                std::uint64_t size = 0;
+                for (std::size_t i = 0; i < aggregate->members.size(); ++i)
+                {
+                    auto offset = i < aggregate->member_offsets.size() ? aggregate->member_offsets[i] : 0;
+                    size = std::max(size, offset + init_type_size(aggregate->members[i]));
+                }
+                return size;
+            }
+            if (type->kind == ir::IrTypeKind::Array)
+            {
+                auto* array = static_cast<ir::IrArrayType const*>(type);
+                return array->count * init_type_size(array->element);
+            }
+            return 0;
+        }
+
+        void erase_init_relocs(std::vector<InitReloc>& relocs, std::uint64_t offset, std::uint64_t size)
+        {
+            if (size == 0)
+                return;
+            auto end = offset + size;
+            std::erase_if(relocs, [&](InitReloc const& reloc) { return reloc.offset < end && offset < reloc.offset + reloc.size; });
+        }
+
+        void write_init_bytes(std::vector<std::uint8_t>& data, std::vector<InitReloc>& relocs, std::uint64_t offset, std::span<std::uint8_t const> bytes)
+        {
+            if (offset >= data.size() || bytes.empty())
+                return;
+            auto size = std::min<std::uint64_t>(bytes.size(), data.size() - offset);
+            erase_init_relocs(relocs, offset, size);
+            std::ranges::copy(bytes.first(size), data.begin() + static_cast<std::ptrdiff_t>(offset));
+        }
+
+        void zero_init_bytes(std::vector<std::uint8_t>& data, std::vector<InitReloc>& relocs, std::uint64_t offset, std::uint64_t size)
+        {
+            if (offset >= data.size() || size == 0)
+                return;
+            size = std::min<std::uint64_t>(size, data.size() - offset);
+            erase_init_relocs(relocs, offset, size);
+            std::fill_n(data.begin() + static_cast<std::ptrdiff_t>(offset), size, 0);
+        }
+
+        void serialize_init_memory(std::vector<std::uint8_t>& data, std::vector<InitReloc>& relocs, ir::IrValue const* val, ir::IrType const* expected_type,
+                                   std::uint64_t offset)
         {
             if (!val || !expected_type)
                 return;
@@ -265,11 +321,13 @@ namespace dcc::backend::em64t
                     auto* ic = static_cast<ir::IrIntConstant const*>(val);
                     auto sz = expected_type->byte_size;
                     std::uint64_t uv = static_cast<std::uint64_t>(ic->value);
+                    std::vector<std::uint8_t> bytes(sz);
                     for (std::uint64_t i = 0; i < sz; ++i)
                     {
-                        data.push_back(into_u8(uv & 0xFF));
+                        bytes[i] = into_u8(uv & 0xFF);
                         uv >>= 8;
                     }
+                    write_init_bytes(data, relocs, offset, bytes);
                     break;
                 }
                 case ir::IrNodeKind::FloatConstant: {
@@ -281,35 +339,40 @@ namespace dcc::backend::em64t
                         float f = static_cast<float>(fc->value);
                         std::uint32_t raw;
                         std::memcpy(&raw, &f, 4);
-                        w32(data, raw);
+                        std::array<std::uint8_t, 4> bytes{};
+                        for (std::size_t i = 0; i < bytes.size(); ++i)
+                            bytes[i] = into_u8(raw >> (i * 8));
+                        write_init_bytes(data, relocs, offset, bytes);
                     }
                     else
                     {
                         double d = fc->value;
                         std::uint64_t raw;
                         std::memcpy(&raw, &d, 8);
-                        w64(data, raw);
+                        std::array<std::uint8_t, 8> bytes{};
+                        for (std::size_t i = 0; i < bytes.size(); ++i)
+                            bytes[i] = into_u8(raw >> (i * 8));
+                        write_init_bytes(data, relocs, offset, bytes);
                     }
                     break;
                 }
                 case ir::IrNodeKind::BoolConstant: {
                     auto* bc = static_cast<ir::IrBoolConstant const*>(val);
-                    data.push_back(bc->value ? 1 : 0);
-
-                    for (std::uint64_t i = 1; i < expected_type->byte_size; ++i)
-                        data.push_back(0);
+                    zero_init_bytes(data, relocs, offset, expected_type->byte_size);
+                    std::array<std::uint8_t, 1> byte{bc->value ? std::uint8_t{1} : std::uint8_t{0}};
+                    write_init_bytes(data, relocs, offset, byte);
                     break;
                 }
                 case ir::IrNodeKind::NullConstant: {
-                    for (std::uint64_t i = 0; i < expected_type->byte_size; ++i)
-                        data.push_back(0);
+                    zero_init_bytes(data, relocs, offset, expected_type->byte_size);
                     break;
                 }
                 case ir::IrNodeKind::StringConstant: {
                     auto* sc = static_cast<ir::IrStringConstant const*>(val);
-                    data.insert(data.end(), sc->value.begin(), sc->value.end());
-
-                    data.push_back(0);
+                    zero_init_bytes(data, relocs, offset, expected_type->byte_size);
+                    auto size = std::min<std::uint64_t>(sc->value.size(), expected_type->byte_size);
+                    write_init_bytes(data, relocs, offset,
+                                     std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(sc->value.data()), static_cast<std::size_t>(size)});
                     break;
                 }
                 case ir::IrNodeKind::Aggregate: {
@@ -331,28 +394,20 @@ namespace dcc::backend::em64t
 
                             auto field_off = (i < at->member_offsets.size()) ? at->member_offsets[i] : 0;
                             auto* field_type = (i < at->members.size()) ? at->members[i] : nullptr;
-
-                            auto target_pos = base_offset + field_off;
-                            if (target_pos > data.size())
-                                data.resize(target_pos, 0);
-                            serialize_init_value(data, fval, field_type, relas, sym_name_to_idx, data.size());
+                            serialize_init_memory(data, relocs, fval, field_type, offset + field_off);
                         }
                     }
                     else if (agg_type->kind == ir::IrTypeKind::Array)
                     {
                         auto* at = static_cast<ir::IrArrayType const*>(agg_type);
                         auto elem_size = at->element ? at->element->byte_size : 1;
-                        for (std::size_t i = 0; i < agg->values.size(); ++i)
+                        auto count = std::min<std::uint64_t>(agg->values.size(), at->count);
+                        for (std::uint64_t i = 0; i < count; ++i)
                         {
                             auto* fval = agg->values[i];
                             if (!fval)
-                            {
-                                for (std::uint64_t j = 0; j < elem_size; ++j)
-                                    data.push_back(0);
-
                                 continue;
-                            }
-                            serialize_init_value(data, fval, at->element, relas, sym_name_to_idx, data.size());
+                            serialize_init_memory(data, relocs, fval, at->element, offset + i * elem_size);
                         }
                     }
                     else if (agg_type->kind == ir::IrTypeKind::Slice)
@@ -362,43 +417,51 @@ namespace dcc::backend::em64t
 
                         auto const* data_val = ir::slice_data_index < agg->values.size() ? agg->values[ir::slice_data_index] : nullptr;
                         if (data_val && data_val->type)
-                            serialize_init_value(data, data_val, data_val->type, relas, sym_name_to_idx, data.size());
-                        else
-                            for (std::uint64_t i = 0; i < ptr_bytes; ++i)
-                                data.push_back(0);
+                            serialize_init_memory(data, relocs, data_val, data_val->type, offset);
 
                         auto const* len_val = ir::slice_len_index < agg->values.size() ? agg->values[ir::slice_len_index] : nullptr;
                         if (len_val && len_val->type)
-                            serialize_init_value(data, len_val, len_val->type, relas, sym_name_to_idx, data.size());
-                        else
-                            for (std::uint64_t i = 0; i < ptr_bytes; ++i)
-                                data.push_back(0);
+                            serialize_init_memory(data, relocs, len_val, len_val->type, offset + ptr_bytes);
                     }
                     break;
                 }
                 case ir::IrNodeKind::GlobalRef: {
                     auto* gr = static_cast<ir::IrGlobalRef const*>(val);
                     auto sz = expected_type ? expected_type->byte_size : 8;
-
-                    auto pos = data.size();
-                    for (std::uint64_t i = 0; i < sz; ++i)
-                        data.push_back(0);
-
-                    auto it = sym_name_to_idx.find(std::string{gr->name});
-                    if (it != sym_name_to_idx.end())
-                    {
-                        Elf64_Rela rela{};
-                        rela.r_offset = pos;
-                        rela.r_addend = 0;
-                        rela.r_info = elf_r_info(it->second, R_X86_64_64);
-                        relas.push_back(rela);
-                    }
+                    zero_init_bytes(data, relocs, offset, sz);
+                    if (offset <= data.size() && sz <= data.size() - offset)
+                        relocs.push_back({offset, sz, std::string{gr->name}});
                     break;
                 }
                 default:
-                    for (std::uint64_t i = 0; i < expected_type->byte_size; ++i)
-                        data.push_back(0);
+                    zero_init_bytes(data, relocs, offset, expected_type->byte_size);
                     break;
+            }
+        }
+
+        void serialize_init_value(std::vector<std::uint8_t>& data, ir::IrValue const* val, ir::IrType const* expected_type, std::vector<Elf64_Rela>& relas,
+                                  std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, std::uint64_t base_offset)
+        {
+            auto size = init_type_size(expected_type);
+            if (size == 0 && val && val->type)
+                size = init_type_size(val->type);
+            std::vector<std::uint8_t> image(size, 0);
+            std::vector<InitReloc> init_relocs;
+            serialize_init_memory(image, init_relocs, val, expected_type, 0);
+            if (data.size() < base_offset)
+                data.resize(base_offset, 0);
+            data.resize(base_offset + size, 0);
+            std::ranges::copy(image, data.begin() + static_cast<std::ptrdiff_t>(base_offset));
+            for (auto const& init_reloc : init_relocs)
+            {
+                auto it = sym_name_to_idx.find(init_reloc.name);
+                if (it == sym_name_to_idx.end())
+                    continue;
+                Elf64_Rela rela{};
+                rela.r_offset = base_offset + init_reloc.offset;
+                rela.r_addend = 0;
+                rela.r_info = elf_r_info(it->second, R_X86_64_64);
+                relas.push_back(rela);
             }
         }
 
@@ -1593,141 +1656,24 @@ export namespace dcc::backend::em64t
 
                 if (glp->g->init)
                 {
-                    std::function<void(ir::IrValue const*, ir::IrType const*)> walker;
-                    walker = [&](ir::IrValue const* val, ir::IrType const* exp_type) {
-                        if (!val || !exp_type)
-                            return;
-
-                        if (val->kind == ir::IrNodeKind::GlobalRef)
-                        {
-                            auto* gr = static_cast<ir::IrGlobalRef const*>(val);
-                            auto pos = sec_data.size();
-                            auto sz = exp_type->byte_size;
-                            for (std::uint64_t i = 0; i < sz; ++i)
-                                sec_data.push_back(0);
-
-                            auto it = sym_name_to_idx.find(std::string{gr->name});
-                            if (it != sym_name_to_idx.end())
-                            {
-                                CoffReloc rel{};
-                                rel.virt_addr = static_cast<std::uint32_t>(pos);
-                                rel.sym_idx = it->second;
-                                rel.type = IMAGE_REL_AMD64_ADDR64;
-                                rels.push_back(rel);
-                            }
-                        }
-                        else if (val->kind == ir::IrNodeKind::Aggregate)
-                        {
-                            auto* agg = static_cast<ir::IrAggregateInst const*>(val);
-                            auto const* agg_type = agg->type ? agg->type : exp_type;
-                            if (!agg_type)
-                                return;
-
-                            if (agg_type->kind == ir::IrTypeKind::Aggregate)
-                            {
-                                auto* at = static_cast<ir::IrAggregateType const*>(agg_type);
-                                auto nf = std::min(agg->values.size(), at->members.size());
-                                for (std::size_t i = 0; i < nf; ++i)
-                                {
-                                    auto* fv = agg->values[i];
-                                    if (!fv)
-                                        continue;
-
-                                    auto field_off = (i < at->member_offsets.size()) ? at->member_offsets[i] : 0;
-                                    auto* ft = (i < at->members.size()) ? at->members[i] : nullptr;
-                                    auto target_pos = field_off;
-                                    while (sec_data.size() - glp->offset < target_pos)
-                                        sec_data.push_back(0);
-
-                                    walker(fv, ft);
-                                }
-                            }
-                            else if (agg_type->kind == ir::IrTypeKind::Array)
-                            {
-                                auto* at = static_cast<ir::IrArrayType const*>(agg_type);
-                                for (auto* fv : agg->values)
-                                {
-                                    if (!fv)
-                                    {
-                                        for (std::uint64_t i = 0; i < (at->element ? at->element->byte_size : 1); ++i)
-                                            sec_data.push_back(0);
-                                        continue;
-                                    }
-                                    walker(fv, at->element);
-                                }
-                            }
-                            else if (agg_type->kind == ir::IrTypeKind::Slice)
-                            {
-                                auto* st = static_cast<ir::IrSliceType const*>(agg_type);
-                                auto ptr_bytes = st->byte_size / 2;
-
-                                auto const* data_val = ir::slice_data_index < agg->values.size() ? agg->values[ir::slice_data_index] : nullptr;
-                                if (data_val && data_val->type)
-                                    walker(data_val, data_val->type);
-                                else
-                                    for (std::uint64_t i = 0; i < ptr_bytes; ++i)
-                                        sec_data.push_back(0);
-
-                                auto const* len_val = ir::slice_len_index < agg->values.size() ? agg->values[ir::slice_len_index] : nullptr;
-                                if (len_val && len_val->type)
-                                    walker(len_val, len_val->type);
-                                else
-                                    for (std::uint64_t i = 0; i < ptr_bytes; ++i)
-                                        sec_data.push_back(0);
-                            }
-                        }
-                        else
-                        {
-                            ir::IrType const* effective_type = exp_type;
-                            if (val->type && val->type->byte_size > 0)
-                                effective_type = val->type;
-
-                            if (auto* ic = ir::ir_cast<ir::IrIntConstant>(val))
-                            {
-                                auto sz = effective_type->byte_size;
-                                std::uint64_t uv = static_cast<std::uint64_t>(ic->value);
-                                for (std::uint64_t i = 0; i < sz; ++i)
-                                {
-                                    sec_data.push_back(into_u8(uv & 0xFF));
-                                    uv >>= 8;
-                                }
-                            }
-                            else if (auto* fc = ir::ir_cast<ir::IrFloatConstant>(val))
-                            {
-                                auto bits = effective_type->kind == ir::IrTypeKind::Float ? static_cast<ir::IrFloatType const*>(effective_type)->bits : 64;
-                                if (bits == 32)
-                                {
-                                    float f = static_cast<float>(fc->value);
-                                    std::uint32_t raw;
-                                    std::memcpy(&raw, &f, 4);
-                                    for (int i = 0; i < 4; ++i)
-                                        sec_data.push_back(into_u8((raw >> (i * 8)) & 0xFF));
-                                }
-                                else
-                                {
-                                    double d = fc->value;
-                                    std::uint64_t raw;
-                                    std::memcpy(&raw, &d, 8);
-                                    for (int i = 0; i < 8; ++i)
-                                        sec_data.push_back(into_u8((raw >> (i * 8)) & 0xFF));
-                                }
-                            }
-                            else if (auto* bc = ir::ir_cast<ir::IrBoolConstant>(val))
-                            {
-                                sec_data.push_back(bc->value ? 1 : 0);
-                                for (std::uint64_t i = 1; i < effective_type->byte_size; ++i)
-                                    sec_data.push_back(0);
-                            }
-                            else if (ir::ir_cast<ir::IrNullConstant>(val))
-                                for (std::uint64_t i = 0; i < effective_type->byte_size; ++i)
-                                    sec_data.push_back(0);
-                            else
-                                for (std::uint64_t i = 0; i < effective_type->byte_size; ++i)
-                                    sec_data.push_back(0);
-                        }
-                    };
-
-                    walker(glp->g->init, glp->g->type);
+                    auto size = init_type_size(glp->g->type);
+                    if (size == 0 && glp->g->init->type)
+                        size = init_type_size(glp->g->init->type);
+                    std::vector<std::uint8_t> image(size, 0);
+                    std::vector<InitReloc> init_relocs;
+                    serialize_init_memory(image, init_relocs, glp->g->init, glp->g->type, 0);
+                    sec_data.insert(sec_data.end(), image.begin(), image.end());
+                    for (auto const& init_reloc : init_relocs)
+                    {
+                        auto it = sym_name_to_idx.find(init_reloc.name);
+                        if (it == sym_name_to_idx.end())
+                            continue;
+                        CoffReloc rel{};
+                        rel.virt_addr = static_cast<std::uint32_t>(glp->offset + init_reloc.offset);
+                        rel.sym_idx = it->second;
+                        rel.type = IMAGE_REL_AMD64_ADDR64;
+                        rels.push_back(rel);
+                    }
                 }
             }
             return {std::move(sec_data), std::move(rels)};
