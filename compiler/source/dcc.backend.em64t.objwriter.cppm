@@ -1478,7 +1478,7 @@ export namespace dcc::backend::em64t
         std::vector<GlobalLayout*> rodata_globals, data_globals, bss_globals;
         for (auto& gl : globals)
         {
-            if (gl.sec == DataSection::Rodata)
+            if (gl.sec == DataSection::Rodata || gl.sec == DataSection::RodataRelRO)
                 rodata_globals.push_back(&gl);
             else if (gl.sec == DataSection::Data)
                 data_globals.push_back(&gl);
@@ -1545,7 +1545,7 @@ export namespace dcc::backend::em64t
 
         for (auto& gl : globals)
         {
-            if (gl.sec == DataSection::Rodata)
+            if (gl.sec == DataSection::Rodata || gl.sec == DataSection::RodataRelRO)
                 gl.section_index = sec_rdata;
             else if (gl.sec == DataSection::Data)
                 gl.section_index = sec_data;
@@ -1711,6 +1711,20 @@ export namespace dcc::backend::em64t
         }
 
         auto [data_sec_data, data_rels] = build_coff_init_data(data_globals, sec_data);
+
+        for (auto& cs : coff_syms)
+        {
+            if (!cs.is_object)
+                continue;
+            for (auto const& gl : globals)
+            {
+                if (gl.name_str == cs.name)
+                {
+                    cs.value = gl.offset;
+                    break;
+                }
+            }
+        }
 
         for (auto& cs : coff_syms)
         {
