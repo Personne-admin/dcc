@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module test;
+
+using FnPtr = i32(*)();
+
+@nomangle
+public i32 target_fn() {
+    return 42;
+}
+
+@nomangle
+const FnPtr g_const_fn_ptr = target_fn;
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+CONTAINS: g_const_fn_ptr
+REQUIRE-COFF-RELOC: .rdata IMAGE_REL_AMD64_ADDR64 target_fn
