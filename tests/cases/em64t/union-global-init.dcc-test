@@ -1,0 +1,32 @@
+=== FILE: test.dc ===
+module test;
+
+public union Data {
+    u8 as_first;
+    u8 as_second;
+}
+
+@nomangle
+Data g_data = Data{as_first = 0x11, as_second = 0x22};
+
+@nomangle
+public i32 dcc_main() {
+    return g_data.as_second as i32;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-unknown-linux-gnu"
+
+@"0" = internal global [1 x i8] c"\22"
+
+define i32 @dcc_main() {
+entry:
+  %"1" = load i8, ptr @"0", align 1
+  %"2" = zext i8 %"1" to i32
+  ret i32 %"2"
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 34
