@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+
+i64 value = 42;
+i64* p = &value;
+
+=== EXPECT-IR ===
+module "test"
+
+global @_DC0G1.4.test5.valuei64s : i64 = #42
+
+global @_DC0G1.4.test1.pPqi64s : ptr<i64> = @_DC0G1.4.test5.valuei64s
+
+=== EXPECT-LLVM FLAGS: -verify ===
