@@ -5776,7 +5776,7 @@ export namespace dcc::sema
 
         void analyze_var(ModuleInfo& mod, ast::VarDecl& var)
         {
-            var.sema.storage = ast::StorageClass::ModuleGlobal;
+            var.sema.storage = var.is_extern ? ast::StorageClass::Extern : ast::StorageClass::ModuleGlobal;
 
             if (var.type && var.type->kind == ast::TypeKind::Qualified)
             {
