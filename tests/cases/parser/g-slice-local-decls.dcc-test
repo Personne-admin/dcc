@@ -1,0 +1,116 @@
+=== FILE: main.dc ===
+module m;
+
+public struct Vec(T) {
+    T* data;
+    usize len;
+}
+
+[]T push_uninitialised(T)(Vec(T)* self, usize n) {
+    []T s;
+    s.ptr = self.data;
+    s.len = n;
+    return s;
+}
+
+public void extend(T)(Vec(T)* self, [] const T values) {
+    []T a;
+    [] T b;
+    []const T c;
+    [] const T d;
+    [] T destination = self.push_uninitialised(values.len);
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=Vec
+    public
+    TemplateParams
+      Param name=T
+    Field name=data
+      Pointer
+        Named T
+    Field name=len
+      Primitive usize
+  Func name=push_uninitialised
+    TemplateParams
+      Param name=T
+    Return
+      Slice
+        Named T
+    Params
+      Param name=self
+        Pointer
+          Named Vec
+            TemplateArgs
+              Arg
+                Named T
+      Param name=n
+        Primitive usize
+    Body
+      Var name=s
+        Type
+          Slice
+            Named T
+      ExprStmt
+        Binary op==
+          FieldAccess field=ptr
+            Ident s
+          FieldAccess field=data
+            Ident self
+      ExprStmt
+        Binary op==
+          FieldAccess field=len
+            Ident s
+          Ident n
+      Return
+        Ident s
+  Func name=extend
+    public
+    TemplateParams
+      Param name=T
+    Return
+      Primitive void
+    Params
+      Param name=self
+        Pointer
+          Named Vec
+            TemplateArgs
+              Arg
+                Named T
+      Param name=values
+        Slice
+          Qualified const
+            Named T
+    Body
+      Var name=a
+        Type
+          Slice
+            Named T
+      Var name=b
+        Type
+          Slice
+            Named T
+      Var name=c
+        Type
+          Slice
+            Qualified const
+              Named T
+      Var name=d
+        Type
+          Slice
+            Qualified const
+              Named T
+      Var name=destination
+        Type
+          Slice
+            Named T
+        Init
+          Call
+            Callee
+              FieldAccess field=push_uninitialised
+                Ident self
+            Args
+              FieldAccess field=len
+                Ident values
