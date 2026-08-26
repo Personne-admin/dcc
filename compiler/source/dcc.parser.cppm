@@ -2221,13 +2221,10 @@ export namespace dcc::parser
             {
                 Speculation spec(*this);
                 decl_alt = speculate_var_decl(start);
-                if (decl_alt)
-                {
-                    da.had_suppressed_error = spec.had_suppressed_errors();
-                    da.end_pos = m_pos;
-                    da.end_prev = m_prev_end;
-                    da.ok = !da.had_suppressed_error;
-                }
+                da.had_suppressed_error = spec.had_suppressed_errors();
+                da.end_pos = m_pos;
+                da.end_prev = m_prev_end;
+                da.ok = decl_alt && !da.had_suppressed_error;
             }
 
             ast::Expr* expr_alt = nullptr;
@@ -2266,6 +2263,26 @@ export namespace dcc::parser
             {
                 adopt(ea);
                 return m_ctx.make<ast::ExprStmt>(range_from(start), expr_alt);
+            }
+
+            if (da.had_suppressed_error && !ea.ok)
+            {
+                bool type_failed = false;
+                bool type_advanced = false;
+                {
+                    Speculation spec(*this);
+                    auto probe_pos = m_pos;
+                    type_failed = !parse_type();
+                    type_advanced = m_pos != probe_pos;
+                }
+
+                if (type_failed && type_advanced)
+                {
+                    std::ignore = parse_type();
+                    synchronize_to_stmt();
+
+                    return m_ctx.make<ast::ExprStmt>(range_from(start), nullptr);
+                }
             }
 
             m_prev_end = save_prev_end;

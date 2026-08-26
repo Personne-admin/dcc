@@ -1,0 +1,33 @@
+=== FILE: main.dc ===
+module m;
+
+void f() {
+    [];
+    u8 ok = 1;
+    [x];
+    u8 ok2 = 2;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4: expected type, found ';'
+main.dc:6: expected expression, found '['
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=f
+    Return
+      Primitive void
+    Body
+      ExprStmt
+        <null-expr>
+      Var name=ok
+        Type
+          Primitive u8
+        Init
+          IntLiteral 1
+      Var name=ok2
+        Type
+          Primitive u8
+        Init
+          IntLiteral 2
