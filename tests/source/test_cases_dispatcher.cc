@@ -139,6 +139,12 @@ namespace
         std::string symbol;
     };
 
+    struct RequiredSectionAlign
+    {
+        std::string section;
+        std::uint64_t align;
+    };
+
     struct ExpectEm64tObject
     {
         std::size_t base_line{};
@@ -150,6 +156,7 @@ namespace
         std::string target_triple;
         std::vector<RequiredRela> required_relas;
         std::vector<RequiredCoffReloc> required_coff_relocs;
+        std::vector<RequiredSectionAlign> required_section_aligns;
         std::vector<std::string> required_coff_undefined;
         std::vector<std::string> forbidden_coff_defined;
         std::vector<std::string> contains;
@@ -576,6 +583,26 @@ namespace
                                     }
                                 }
                                 e.required_relas.push_back(rr);
+                            }
+                        }
+                        else if (starts_with(tl, "REQUIRE-SECTION-ALIGN:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(22));
+
+                            auto sp = val_str.find(' ');
+                            if (sp != std::string::npos)
+                            {
+                                RequiredSectionAlign rsa;
+                                rsa.section = trim(val_str.substr(0, sp));
+                                auto align_str = trim(val_str.substr(sp + 1));
+                                try
+                                {
+                                    rsa.align = static_cast<std::uint64_t>(std::stoull(std::string{align_str}));
+                                }
+                                catch (...)
+                                {
+                                }
+                                e.required_section_aligns.push_back(rsa);
                             }
                         }
                         else if (starts_with(tl, "REQUIRE-COFF-RELOC:"))
@@ -2327,6 +2354,35 @@ namespace
                             {
                                 elf_valid = false;
                                 std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: missing .bss section  ({}:{})", path.string(), exp.base_line);
+                            }
+
+                            for (auto const& rsa : exp.required_section_aligns)
+                            {
+                                bool section_found = false;
+                                for (std::uint64_t si = 0; si < e_shnum; ++si)
+                                {
+                                    if (get_sec_name(si) != rsa.section)
+                                        continue;
+
+                                    section_found = true;
+                                    std::uint64_t sdoff = e_shoff + si * shdr_size;
+                                    std::uint64_t sh_addralign = rd_elf64(static_cast<std::size_t>(sdoff + 48), 8);
+                                    if (sh_addralign < rsa.align)
+                                    {
+                                        elf_valid = false;
+                                        std::println(std::cerr,
+                                                     "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-SECTION-ALIGN: section '{}' sh_addralign {} is less than required {}  ({}:{})",
+                                                     rsa.section, sh_addralign, rsa.align, path.string(), exp.base_line);
+                                    }
+                                    break;
+                                }
+
+                                if (!section_found)
+                                {
+                                    elf_valid = false;
+                                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-SECTION-ALIGN: section '{}' not found  ({}:{})",
+                                                 rsa.section, path.string(), exp.base_line);
+                                }
                             }
                         }
                     }

@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+@align(64)
+i32 aligned_val = 42;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    return aligned_val;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+REQUIRE-SECTION-ALIGN: .data 64
+RUN-EXIT: 42
