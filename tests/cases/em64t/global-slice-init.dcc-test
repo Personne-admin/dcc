@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+const []u8 MSG = "abc";
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    if (MSG.len != 3) {
+        return 1;
+    }
+    if (MSG[0] as i32 != 97) {
+        return 2;
+    }
+    if (MSG[2] as i32 != 99) {
+        return 3;
+    }
+    return 0;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
