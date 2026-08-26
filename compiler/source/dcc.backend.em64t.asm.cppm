@@ -1886,9 +1886,6 @@ namespace
             if (!g)
                 continue;
 
-            if (g->linkage == ir::Linkage::Internal)
-                continue;
-
             std::string name{g->name};
             bool is_declaration = !g->init && (g->linkage == ir::Linkage::External || g->is_dll_import);
             if (is_declaration)
