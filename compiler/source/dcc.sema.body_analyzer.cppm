@@ -794,6 +794,7 @@ export namespace dcc::sema
             ConstructionKind construction_kind{ConstructionKind::None};
             ast::EnumVariant const* constructed_variant{};
             bool is_lvalue{};
+            bool is_writable{true};
             bool is_constant{};
             bool is_diverging{};
             bool is_type_instantiation{};
@@ -3903,6 +3904,9 @@ export namespace dcc::sema
                         return nullptr;
                 }
             }();
+
+            while (ty && ty->kind == ast::TypeKind::Array)
+                ty = static_cast<ast::ArrayType const*>(ty)->element;
 
             auto const* q = ast::node_cast<ast::QualifiedType>(ty);
             return q && ast::has_qual(q->quals, ast::Qual::Const);
@@ -7080,6 +7084,7 @@ export namespace dcc::sema
                     out.resolved_decl = sym->decl;
                     track_decl_read(sym->decl);
                     out.is_lvalue = (sym->kind == SymbolKind::Variable);
+                    out.is_writable = out.is_lvalue && !decl_is_top_level_const(*sym->decl);
                 }
 
                 out.type = get_resolved_type(expr.sema);
@@ -7486,6 +7491,7 @@ export namespace dcc::sema
             out.type = decl_type(*sym->decl);
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
+            out.is_writable = out.is_lvalue && !decl_is_top_level_const(*sym->decl);
             if (out.is_lvalue)
             {
                 if (auto const* c = const_eval::lookup_identifier(name, [&](std::string_view n) { return lookup_constant(const_env, n); }))
@@ -7700,6 +7706,7 @@ export namespace dcc::sema
             out.type = decl_type(*sym->decl);
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
+            out.is_writable = out.is_lvalue && !decl_is_top_level_const(*sym->decl);
 
             if (sym->kind == SymbolKind::EnumVariant && sym->decl && sym->decl->kind == ast::DeclKind::Enum)
             {
@@ -7841,7 +7848,7 @@ export namespace dcc::sema
                     break;
                 case lex::TokenKind::Increment:
                 case lex::TokenKind::Decrement: {
-                    if (!op.is_lvalue)
+                    if (!op.is_lvalue || !op.is_writable)
                     {
                         out.type = m_types.m_errort();
                         error(u.range, "pre-increment/decrement requires an lvalue");
@@ -7889,7 +7896,7 @@ export namespace dcc::sema
             {
                 case lex::TokenKind::Increment:
                 case lex::TokenKind::Decrement: {
-                    if (!op.is_lvalue)
+                    if (!op.is_lvalue || !op.is_writable)
                     {
                         out.type = m_types.m_errort();
                         error(p.range, "postfix increment/decrement requires an lvalue");
@@ -8059,7 +8066,7 @@ export namespace dcc::sema
                 case lex::TokenKind::CaretEq:
                 case lex::TokenKind::LtLtEq:
                 case lex::TokenKind::GtGtEq: {
-                    if (!lhs.is_lvalue)
+                    if (!lhs.is_lvalue || !lhs.is_writable)
                     {
                         out.type = m_types.m_errort();
                         error(b.lhs->range, "assignment target is not assignable");
