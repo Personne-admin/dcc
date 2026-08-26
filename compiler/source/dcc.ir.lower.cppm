@@ -5529,6 +5529,33 @@ export namespace dcc::ir::lower
                     }
                     lower_panic(expr, "path expr cannot be lowered as constant");
                 }
+                case ast::ExprKind::Unary: {
+                    auto* u = static_cast<ast::UnaryExpr const*>(expr);
+                    if (u->op == dcc::lex::TokenKind::Amp)
+                    {
+                        if (u->operand->kind == ast::ExprKind::Ident)
+                        {
+                            auto* resolved = static_cast<ast::IdentExpr const*>(u->operand)->sema.resolved_decl;
+                            if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
+                            {
+                                auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
+                                if (ir_func)
+                                    return m_ctx.func_ref(ir_func);
+                            }
+                        }
+                        else if (u->operand->kind == ast::ExprKind::PathExpr)
+                        {
+                            auto* resolved = static_cast<ast::PathExpr const*>(u->operand)->sema.resolved_decl;
+                            if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
+                            {
+                                auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
+                                if (ir_func)
+                                    return m_ctx.func_ref(ir_func);
+                            }
+                        }
+                    }
+                    lower_panic(expr, std::format("expression kind {} cannot be lowered as constant", static_cast<int>(expr->kind)));
+                }
                 case ast::ExprKind::Cast: {
                     auto* c = static_cast<ast::CastExpr const*>(expr);
                     auto* operand_val = lower_constant_expr(c->operand, get_sema_resolved_type(c->operand));
