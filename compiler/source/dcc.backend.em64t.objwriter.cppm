@@ -355,6 +355,25 @@ namespace dcc::backend::em64t
                             serialize_init_value(data, fval, at->element, relas, sym_name_to_idx, data.size());
                         }
                     }
+                    else if (agg_type->kind == ir::IrTypeKind::Slice)
+                    {
+                        auto* st = static_cast<ir::IrSliceType const*>(agg_type);
+                        auto ptr_bytes = st->byte_size / 2;
+
+                        auto const* data_val = ir::slice_data_index < agg->values.size() ? agg->values[ir::slice_data_index] : nullptr;
+                        if (data_val && data_val->type)
+                            serialize_init_value(data, data_val, data_val->type, relas, sym_name_to_idx, data.size());
+                        else
+                            for (std::uint64_t i = 0; i < ptr_bytes; ++i)
+                                data.push_back(0);
+
+                        auto const* len_val = ir::slice_len_index < agg->values.size() ? agg->values[ir::slice_len_index] : nullptr;
+                        if (len_val && len_val->type)
+                            serialize_init_value(data, len_val, len_val->type, relas, sym_name_to_idx, data.size());
+                        else
+                            for (std::uint64_t i = 0; i < ptr_bytes; ++i)
+                                data.push_back(0);
+                    }
                     break;
                 }
                 case ir::IrNodeKind::GlobalRef: {
@@ -1636,6 +1655,25 @@ export namespace dcc::backend::em64t
                                     }
                                     walker(fv, at->element);
                                 }
+                            }
+                            else if (agg_type->kind == ir::IrTypeKind::Slice)
+                            {
+                                auto* st = static_cast<ir::IrSliceType const*>(agg_type);
+                                auto ptr_bytes = st->byte_size / 2;
+
+                                auto const* data_val = ir::slice_data_index < agg->values.size() ? agg->values[ir::slice_data_index] : nullptr;
+                                if (data_val && data_val->type)
+                                    walker(data_val, data_val->type);
+                                else
+                                    for (std::uint64_t i = 0; i < ptr_bytes; ++i)
+                                        sec_data.push_back(0);
+
+                                auto const* len_val = ir::slice_len_index < agg->values.size() ? agg->values[ir::slice_len_index] : nullptr;
+                                if (len_val && len_val->type)
+                                    walker(len_val, len_val->type);
+                                else
+                                    for (std::uint64_t i = 0; i < ptr_bytes; ++i)
+                                        sec_data.push_back(0);
                             }
                         }
                         else
