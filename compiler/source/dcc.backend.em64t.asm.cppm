@@ -1594,39 +1594,82 @@ namespace
         }
     }
 
-    void emit_int_data(std::string& out, std::int64_t value, std::uint64_t size)
+    struct AsmInitReloc
     {
-        switch (size)
+        std::uint64_t offset{};
+        std::uint64_t size{};
+        std::string name;
+    };
+
+    [[nodiscard]] std::uint64_t asm_init_type_size(ir::IrType const* type)
+    {
+        if (!type || type->byte_size != 0)
+            return type ? type->byte_size : 0;
+        if (type->kind == ir::IrTypeKind::Aggregate)
         {
-            case 1:
-                out += "    db " + std::to_string(static_cast<std::uint8_t>(value & 0xFF)) + "\n";
-                break;
-            case 2:
-                out += "    dw " + std::to_string(static_cast<std::uint16_t>(value & 0xFFFF)) + "\n";
-                break;
-            case 4:
-                out += "    dd " + std::to_string(static_cast<std::uint32_t>(value & 0xFFFFFFFF)) + "\n";
-                break;
-            default:
-                out += "    dq " + std::to_string(value) + "\n";
-                break;
+            auto* aggregate = static_cast<ir::IrAggregateType const*>(type);
+            std::uint64_t size = 0;
+            for (std::size_t i = 0; i < aggregate->members.size(); ++i)
+            {
+                auto offset = i < aggregate->member_offsets.size() ? aggregate->member_offsets[i] : 0;
+                size = std::max(size, offset + asm_init_type_size(aggregate->members[i]));
+            }
+            return size;
         }
+        if (type->kind == ir::IrTypeKind::Array)
+        {
+            auto* array = static_cast<ir::IrArrayType const*>(type);
+            return array->count * asm_init_type_size(array->element);
+        }
+        return 0;
     }
 
-    void emit_init_value(std::string& out, ir::IrValue const* val, ir::IrType const* expected_type, std::uint64_t byte_size)
+    void erase_asm_init_relocs(std::vector<AsmInitReloc>& relocs, std::uint64_t offset, std::uint64_t size)
     {
-        if (!val)
-        {
-            if (byte_size > 0)
-                out += "    times " + std::to_string(byte_size) + " db 0\n";
+        if (size == 0)
             return;
-        }
+        auto end = offset + size;
+        std::erase_if(relocs, [&](AsmInitReloc const& reloc) { return reloc.offset < end && offset < reloc.offset + reloc.size; });
+    }
+
+    void write_asm_init_bytes(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, std::uint64_t offset,
+                              std::span<std::uint8_t const> bytes)
+    {
+        if (offset >= data.size() || bytes.empty())
+            return;
+        auto size = std::min<std::uint64_t>(bytes.size(), data.size() - offset);
+        erase_asm_init_relocs(relocs, offset, size);
+        std::ranges::copy(bytes.first(size), data.begin() + static_cast<std::ptrdiff_t>(offset));
+    }
+
+    void zero_asm_init_bytes(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, std::uint64_t offset, std::uint64_t size)
+    {
+        if (offset >= data.size() || size == 0)
+            return;
+        size = std::min<std::uint64_t>(size, data.size() - offset);
+        erase_asm_init_relocs(relocs, offset, size);
+        std::fill_n(data.begin() + static_cast<std::ptrdiff_t>(offset), size, 0);
+    }
+
+    void serialize_asm_init(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, ir::IrValue const* val,
+                            ir::IrType const* expected_type, std::uint64_t offset)
+    {
+        if (!val || !expected_type)
+            return;
 
         switch (val->kind)
         {
             case IrNodeKind::IntConstant: {
                 auto* ic = static_cast<IrIntConstant const*>(val);
-                emit_int_data(out, ic->value, expected_type ? expected_type->byte_size : 8);
+                auto size = expected_type->byte_size;
+                auto value = static_cast<std::uint64_t>(ic->value);
+                std::vector<std::uint8_t> bytes(size);
+                for (std::uint64_t i = 0; i < size; ++i)
+                {
+                    bytes[i] = static_cast<std::uint8_t>(value);
+                    value >>= 8;
+                }
+                write_asm_init_bytes(data, relocs, offset, bytes);
                 break;
             }
             case IrNodeKind::FloatConstant: {
@@ -1637,122 +1680,132 @@ namespace
                     float f = static_cast<float>(fc->value);
                     std::uint32_t raw;
                     std::memcpy(&raw, &f, 4);
-                    char buf[24];
-                    std::snprintf(buf, sizeof buf, "    dd 0x%08x", raw);
-                    out += buf;
-                    out += '\n';
+                    std::array<std::uint8_t, 4> bytes{};
+                    for (std::size_t i = 0; i < bytes.size(); ++i)
+                        bytes[i] = static_cast<std::uint8_t>(raw >> (i * 8));
+                    write_asm_init_bytes(data, relocs, offset, bytes);
                 }
                 else
                 {
                     double d = fc->value;
                     std::uint64_t raw;
                     std::memcpy(&raw, &d, 8);
-                    char buf[32];
-                    std::snprintf(buf, sizeof buf, "    dq 0x%016lx", static_cast<unsigned long>(raw));
-                    out += buf;
-                    out += '\n';
+                    std::array<std::uint8_t, 8> bytes{};
+                    for (std::size_t i = 0; i < bytes.size(); ++i)
+                        bytes[i] = static_cast<std::uint8_t>(raw >> (i * 8));
+                    write_asm_init_bytes(data, relocs, offset, bytes);
                 }
                 break;
             }
             case IrNodeKind::BoolConstant: {
                 auto* bc = static_cast<IrBoolConstant const*>(val);
-                out += "    db " + std::string(bc->value ? "1" : "0") + "\n";
+                zero_asm_init_bytes(data, relocs, offset, expected_type->byte_size);
+                std::array<std::uint8_t, 1> byte{bc->value ? std::uint8_t{1} : std::uint8_t{0}};
+                write_asm_init_bytes(data, relocs, offset, byte);
                 break;
             }
             case IrNodeKind::NullConstant: {
-                auto sz = expected_type ? expected_type->byte_size : 8;
-                if (sz <= 8)
-                    out += "    dq 0\n";
-                else
-                    out += "    times " + std::to_string(sz) + " db 0\n";
+                zero_asm_init_bytes(data, relocs, offset, expected_type->byte_size);
                 break;
             }
             case IrNodeKind::StringConstant: {
                 auto* sc = static_cast<IrStringConstant const*>(val);
-                out += "    db \"";
-                for (char c : sc->value)
-                {
-                    if (c == '"' || c == '\\')
-                    {
-                        out += '\\';
-                        out += c;
-                    }
-                    else if (c >= 32 && c < 127)
-                        out += c;
-                    else
-                    {
-                        char buf[8];
-                        std::snprintf(buf, sizeof buf, "\\x%02x", static_cast<unsigned char>(c));
-                        out += buf;
-                    }
-                }
-                out += "\", 0\n";
+                zero_asm_init_bytes(data, relocs, offset, expected_type->byte_size);
+                auto size = std::min<std::uint64_t>(sc->value.size(), expected_type->byte_size);
+                write_asm_init_bytes(data, relocs, offset,
+                                     std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(sc->value.data()), static_cast<std::size_t>(size)});
                 break;
             }
             case IrNodeKind::GlobalRef: {
                 auto* gr = static_cast<IrGlobalRef const*>(val);
-                out += "    dq " + std::string{gr->name} + "\n";
+                auto size = expected_type->byte_size;
+                zero_asm_init_bytes(data, relocs, offset, size);
+                if (offset <= data.size() && size <= data.size() - offset)
+                    relocs.push_back({offset, size, std::string{gr->name}});
                 break;
             }
             case IrNodeKind::Aggregate: {
                 auto* agg = static_cast<IrAggregateInst const*>(val);
                 auto const* agg_type = agg->type ? agg->type : expected_type;
                 if (!agg_type)
-                {
-                    out += "    times " + std::to_string(byte_size > 0 ? byte_size : 1) + " db 0\n";
                     break;
-                }
 
                 if (agg_type->kind == IrTypeKind::Aggregate)
                 {
                     auto* at = static_cast<IrAggregateType const*>(agg_type);
                     auto num_fields = std::min(agg->values.size(), at->members.size());
-                    std::uint64_t cur_offset = 0;
                     for (std::size_t i = 0; i < num_fields; ++i)
                     {
-                        auto field_off = (i < at->member_offsets.size()) ? at->member_offsets[i] : cur_offset;
-                        if (field_off > cur_offset)
-                            out += "    times " + std::to_string(field_off - cur_offset) + " db 0\n";
-
                         auto* fval = agg->values[i];
+                        if (!fval)
+                            continue;
+                        auto field_off = (i < at->member_offsets.size()) ? at->member_offsets[i] : 0;
                         auto* field_type = (i < at->members.size()) ? at->members[i] : nullptr;
-                        if (fval)
-                            emit_init_value(out, fval, field_type, field_type ? field_type->byte_size : 0);
-
-                        else
-                        {
-                            auto fsz = field_type ? field_type->byte_size : 0;
-                            if (fsz > 0)
-                                out += "    times " + std::to_string(fsz) + " db 0\n";
-                        }
-                        cur_offset = field_off + (field_type ? field_type->byte_size : 0);
+                        serialize_asm_init(data, relocs, fval, field_type, offset + field_off);
                     }
-                    if (byte_size > cur_offset)
-                        out += "    times " + std::to_string(byte_size - cur_offset) + " db 0\n";
                 }
                 else if (agg_type->kind == IrTypeKind::Array)
                 {
                     auto* at = static_cast<IrArrayType const*>(agg_type);
-                    for (auto* fval : agg->values)
+                    auto element_size = at->element ? at->element->byte_size : 1;
+                    auto count = std::min<std::uint64_t>(agg->values.size(), at->count);
+                    for (std::uint64_t i = 0; i < count; ++i)
                     {
-                        if (fval)
-                            emit_init_value(out, fval, at->element, at->element ? at->element->byte_size : 0);
-                        else
-                        {
-                            auto esz = at->element ? at->element->byte_size : 1;
-                            out += "    times " + std::to_string(esz) + " db 0\n";
-                        }
+                        auto* fval = agg->values[i];
+                        if (!fval)
+                            continue;
+                        serialize_asm_init(data, relocs, fval, at->element, offset + i * element_size);
                     }
                 }
-                else
-                    out += "    times " + std::to_string(byte_size > 0 ? byte_size : 1) + " db 0\n";
+                else if (agg_type->kind == IrTypeKind::Slice)
+                {
+                    auto pointer_size = agg_type->byte_size / 2;
+                    auto* data_value = ir::slice_data_index < agg->values.size() ? agg->values[ir::slice_data_index] : nullptr;
+                    if (data_value && data_value->type)
+                        serialize_asm_init(data, relocs, data_value, data_value->type, offset);
+                    auto* length_value = ir::slice_len_index < agg->values.size() ? agg->values[ir::slice_len_index] : nullptr;
+                    if (length_value && length_value->type)
+                        serialize_asm_init(data, relocs, length_value, length_value->type, offset + pointer_size);
+                }
                 break;
             }
             default:
-                if (byte_size > 0)
-                    out += "    times " + std::to_string(byte_size) + " db 0\n";
+                zero_asm_init_bytes(data, relocs, offset, expected_type->byte_size);
                 break;
         }
+    }
+
+    void emit_asm_init_bytes(std::string& out, std::span<std::uint8_t const> bytes)
+    {
+        for (std::size_t offset = 0; offset < bytes.size(); offset += 16)
+        {
+            auto size = std::min<std::size_t>(16, bytes.size() - offset);
+            out += "    db ";
+            for (std::size_t i = 0; i < size; ++i)
+            {
+                if (i != 0)
+                    out += ", ";
+                out += std::to_string(bytes[offset + i]);
+            }
+            out += '\n';
+        }
+    }
+
+    void emit_init_value(std::string& out, ir::IrValue const* val, ir::IrType const* expected_type, std::uint64_t byte_size)
+    {
+        std::vector<std::uint8_t> data(byte_size, 0);
+        std::vector<AsmInitReloc> relocs;
+        serialize_asm_init(data, relocs, val, expected_type, 0);
+        std::ranges::sort(relocs, {}, &AsmInitReloc::offset);
+        std::uint64_t offset = 0;
+        for (auto const& reloc : relocs)
+        {
+            emit_asm_init_bytes(out, std::span<std::uint8_t const>{data}.subspan(offset, reloc.offset - offset));
+            auto directive = reloc.size == 1 ? "db" : reloc.size == 2 ? "dw" : reloc.size == 4 ? "dd" : "dq";
+            out += "    " + std::string{directive} + " " + reloc.name + "\n";
+            offset = reloc.offset + reloc.size;
+        }
+        emit_asm_init_bytes(out, std::span<std::uint8_t const>{data}.subspan(offset));
     }
 
     [[nodiscard]] std::string emit_globals(ir::IrModule const& ir_mod, std::unordered_set<std::string>& defined_syms,
@@ -1842,7 +1895,9 @@ namespace
                 if (!defined_syms.contains(name))
                     continue;
 
-            auto sz = g->type ? g->type->byte_size : 0;
+            auto sz = asm_init_type_size(g->type);
+            if (sz == 0 && g->init && g->init->type)
+                sz = asm_init_type_size(g->init->type);
             if (g->is_constant && g->init)
                 rodata.push_back({g, true, true, name, sz});
             else if (g->init)
