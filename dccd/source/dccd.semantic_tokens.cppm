@@ -9,8 +9,6 @@ import dcc.ast.visitor;
 
 export namespace dccd::semantic_tokens
 {
-    inline constexpr int kMaxSkippedLogs = 5;
-
     enum class TokenType : std::uint32_t
     {
         Namespace,
@@ -47,9 +45,8 @@ export namespace dccd::semantic_tokens
     };
 
     constexpr std::array token_types = {
-        "namespace",  "type",     "class",  "enum",  "interface", "struct",   "typeParameter", "parameter", "variable", "property",
-        "enumMember", "function", "method", "macro", "keyword",   "modifier", "comment",       "string",    "number",   "operator",
-        "asmPlaceholder", "asmRegister",
+        "namespace", "type",   "class", "enum",    "interface", "struct",  "typeParameter", "parameter", "variable", "property",       "enumMember",
+        "function",  "method", "macro", "keyword", "modifier",  "comment", "string",        "number",    "operator", "asmPlaceholder", "asmRegister",
     };
 
     constexpr std::array token_modifiers = {
@@ -67,9 +64,13 @@ export namespace dccd::semantic_tokens
         [[nodiscard]] auto operator<=>(RawToken const&) const = default;
     };
 
+    using CancelCheck = std::function<bool()>;
+
     [[nodiscard]] std::vector<std::uint32_t> delta_encode(std::vector<RawToken> tokens);
     [[nodiscard]] std::vector<std::uint32_t> collect_tokens(dcc::sm::SourceManager const& sm, dcc::ast::TranslationUnit const* tu,
-                                                            dcc::sm::FileId requested_file = dcc::sm::FileId::Invalid);
+                                                            dcc::sm::FileId requested_file = dcc::sm::FileId::Invalid, CancelCheck const& cancel = {});
+
+    [[nodiscard]] std::vector<RawToken> split_range(dcc::sm::SourceManager const& sm, dcc::sm::SourceRange range, TokenType type, std::uint32_t modifiers = 0);
 
 } // namespace dccd::semantic_tokens
 
@@ -79,14 +80,39 @@ namespace dccd::semantic_tokens
 {
     namespace
     {
+        [[nodiscard]] constexpr bool is_ascii_ident_start(char c) noexcept
+        {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+        }
+
+        [[nodiscard]] constexpr bool is_ascii_ident_cont(char c) noexcept
+        {
+            return is_ascii_ident_start(c) || (c >= '0' && c <= '9');
+        }
+
+        struct TraversalCancelled
+        {
+        };
+
         struct Collector : dcc::ast::RecursiveAstVisitor
         {
             dcc::sm::SourceManager const& sm;
             std::vector<RawToken> tokens;
             dcc::sm::FileId requested_file;
-            int skipped_log_count{0};
+            CancelCheck cancel;
+            std::uint32_t visit_count{0};
+            static constexpr std::uint32_t kCancelInterval = 256;
 
-            explicit Collector(dcc::sm::SourceManager const& s, dcc::sm::FileId req_file = dcc::sm::FileId::Invalid) : sm{s}, requested_file{req_file} {}
+            explicit Collector(dcc::sm::SourceManager const& s, dcc::sm::FileId req_file, CancelCheck const& c) : sm{s}, requested_file{req_file}, cancel{c} {}
+
+            void tick()
+            {
+                if (!cancel)
+                    return;
+                if ((++visit_count & (kCancelInterval - 1)) == 0)
+                    if (cancel())
+                        throw TraversalCancelled{};
+            }
 
             void emit(dcc::sm::SourceRange range, TokenType type, std::uint32_t modifiers = 0)
             {
@@ -102,73 +128,17 @@ namespace dccd::semantic_tokens
 
                 auto const* sf = sm.get(range.begin.fileId);
                 if (!sf)
-                {
-                    log_skipped("source file not found", range);
                     return;
-                }
 
                 auto const file_size = static_cast<dcc::sm::Offset>(sf->size());
                 if (range.begin.offset > file_size || range.end.offset > file_size)
-                {
-                    log_skipped("offset exceeds file size", range);
                     return;
-                }
 
                 if (range.begin.offset > range.end.offset)
-                {
-                    log_skipped("begin offset > end offset", range);
-                    return;
-                }
-
-                auto start_pos = sm.location_to_lsp_position(range.begin);
-                if (!start_pos)
-                {
-                    log_skipped("location_to_lsp_position failed for begin", range);
-                    return;
-                }
-
-                auto end_pos = sm.location_to_lsp_position(range.end);
-                if (!end_pos)
-                {
-                    log_skipped("location_to_lsp_position failed for end", range);
-                    return;
-                }
-
-                if (start_pos->line != end_pos->line)
                     return;
 
-                if (end_pos->character <= start_pos->character)
-                    return;
-
-                RawToken t;
-                t.line = start_pos->line;
-                t.character = start_pos->character;
-                t.length = end_pos->character - start_pos->character;
-                t.type = static_cast<std::uint32_t>(type);
-                t.modifiers = modifiers;
-                tokens.push_back(t);
-            }
-
-            void log_skipped(std::string_view reason, dcc::sm::SourceRange const& range)
-            {
-                if (skipped_log_count < kMaxSkippedLogs)
-                {
-                    std::cerr << "[dccd.semantic_tokens] skipping token: " << reason << " (fileId=" << static_cast<std::uint32_t>(range.begin.fileId)
-                              << ", offset=" << range.begin.offset << "-" << range.end.offset << ")" << std::endl;
-                    ++skipped_log_count;
-                    if (skipped_log_count >= kMaxSkippedLogs)
-                        std::cerr << "[dccd.semantic_tokens] (further skipped tokens suppressed)" << std::endl;
-                }
-            }
-
-            void log_expr_emit(dcc::sm::SourceRange range, TokenType type) const
-            {
-                if (type != TokenType::Function && type != TokenType::Method)
-                    return;
-
-                auto text_opt = sm.text(range);
-                std::cerr << "[dccd.semantic_tokens] emitting " << (type == TokenType::Function ? "function" : "method") << " token: '"
-                          << (text_opt ? *text_opt : std::string_view{}) << "'" << std::endl;
+                auto segments = split_range(sm, range, type, modifiers);
+                tokens.insert(tokens.end(), segments.begin(), segments.end());
             }
 
             void emit_decl_name(dcc::sm::SourceRange range, TokenType type) { emit(range, type, 1u << static_cast<std::uint32_t>(TokenModifier::Declaration)); }
@@ -178,10 +148,7 @@ namespace dccd::semantic_tokens
                 if (!range.valid() || name.empty())
                     return {};
 
-                auto search_end = range.begin.offset + std::min(range.byte_length(), dcc::sm::Offset{512});
-                auto search_range = dcc::sm::SourceRange{range.begin, dcc::sm::Location{range.begin.fileId, search_end}};
-
-                auto text_opt = sm.text(search_range);
+                auto text_opt = sm.text(range);
                 if (!text_opt)
                     return {};
 
@@ -193,14 +160,14 @@ namespace dccd::semantic_tokens
                 if (pos > 0)
                 {
                     char prev = text[pos - 1];
-                    if (std::isalnum(static_cast<unsigned char>(prev)) || prev == '_')
+                    if (is_ascii_ident_cont(prev))
                         return {};
                 }
 
                 if (pos + name.size() < text.size())
                 {
                     char next = text[pos + name.size()];
-                    if (std::isalnum(static_cast<unsigned char>(next)) || next == '_')
+                    if (is_ascii_ident_cont(next))
                         return {};
                 }
 
@@ -287,13 +254,13 @@ namespace dccd::semantic_tokens
             void visitTemplateParams(std::pmr::vector<dcc::ast::TemplateParam> const& params) override;
             void visitAttrs(std::pmr::vector<dcc::ast::Attribute> const& attrs) override;
 
-            void emit_asm_tokens(dcc::sm::SourceRange template_range,
-                                 std::span<dcc::ast::AsmPlaceholderSpan const> placeholder_spans);
+            void emit_asm_tokens(dcc::sm::SourceRange template_range, std::span<dcc::ast::AsmPlaceholderSpan const> placeholder_spans);
             void emit_using_item(dcc::ast::UsingItem const* item);
         };
 
         void Collector::visitAttrs(std::pmr::vector<dcc::ast::Attribute> const& attrs)
         {
+            tick();
             for (auto const& a : attrs)
                 for (auto* arg : a.args)
                     if (arg)
@@ -302,6 +269,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitTemplateParams(std::pmr::vector<dcc::ast::TemplateParam> const& params)
         {
+            tick();
             for (auto const& tp : params)
             {
                 auto name_range = find_name_in_range(tp.range, tp.name);
@@ -314,6 +282,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitTemplateArgs(std::pmr::vector<dcc::ast::TemplateArg> const& args)
         {
+            tick();
             for (auto const& a : args)
             {
                 if (a.type)
@@ -326,6 +295,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitMatchArm(dcc::ast::MatchArm const& arm)
         {
+            tick();
             if (arm.pattern)
                 visitPattern(arm.pattern);
             if (arm.type_pattern)
@@ -338,6 +308,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitPattern(dcc::ast::Pattern const* pat)
         {
+            tick();
             if (!pat)
                 return;
 
@@ -352,8 +323,14 @@ namespace dccd::semantic_tokens
                 }
                 case dcc::ast::PatternKind::EnumDestructure: {
                     auto* p = static_cast<dcc::ast::EnumDestructurePattern const*>(pat);
-                    for (auto const& seg : p->variant_path.segments)
-                        emit(seg.range, TokenType::Namespace);
+                    auto const& segs = p->variant_path.segments;
+                    for (std::size_t i = 0; i < segs.size(); ++i)
+                    {
+                        if (i == segs.size() - 1)
+                            emit(segs[i].range, TokenType::EnumMember);
+                        else
+                            emit(segs[i].range, TokenType::Namespace);
+                    }
                     for (auto* sub : p->payload)
                         if (sub)
                             visitPattern(sub);
@@ -361,8 +338,14 @@ namespace dccd::semantic_tokens
                 }
                 case dcc::ast::PatternKind::StructDestructure: {
                     auto* p = static_cast<dcc::ast::StructDestructurePattern const*>(pat);
-                    for (auto const& seg : p->type_path.segments)
-                        emit(seg.range, TokenType::Namespace);
+                    auto const& segs = p->type_path.segments;
+                    for (std::size_t i = 0; i < segs.size(); ++i)
+                    {
+                        if (i == segs.size() - 1)
+                            emit(segs[i].range, TokenType::Struct);
+                        else
+                            emit(segs[i].range, TokenType::Namespace);
+                    }
                     for (auto const& f : p->fields)
                         if (f.pattern)
                             visitPattern(f.pattern);
@@ -376,6 +359,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitTypeExpr(dcc::ast::TypeExpr const* type_expr)
         {
+            tick();
             if (!type_expr)
                 return;
 
@@ -405,6 +389,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitExpr(dcc::ast::Expr const* expr)
         {
+            tick();
             if (!expr)
                 return;
 
@@ -442,7 +427,6 @@ namespace dccd::semantic_tokens
                     auto* e = static_cast<dcc::ast::IdentExpr const*>(expr);
                     auto tt = classify_expr_name(expr);
                     emit(e->range, tt);
-                    log_expr_emit(e->range, tt);
                     break;
                 }
                 case dcc::ast::ExprKind::PathExpr: {
@@ -454,7 +438,6 @@ namespace dccd::semantic_tokens
                         {
                             auto tt = classify_expr_name(expr);
                             emit(segs[i].range, tt);
-                            log_expr_emit(segs[i].range, tt);
                         }
                         else
                             emit(segs[i].range, TokenType::Namespace);
@@ -481,11 +464,6 @@ namespace dccd::semantic_tokens
                             {
                                 case dcc::ast::ExprKind::Ident: {
                                     auto* ident = static_cast<dcc::ast::IdentExpr const*>(e->callee);
-                                    {
-                                        auto text_opt = sm.text(ident->range);
-                                        std::cerr << "[dccd.semantic_tokens] emitting function token from CallExpr: "
-                                                  << (text_opt ? *text_opt : std::string_view{}) << std::endl;
-                                    }
                                     emit(ident->range, TokenType::Function);
                                     break;
                                 }
@@ -495,14 +473,7 @@ namespace dccd::semantic_tokens
                                     for (std::size_t i = 0; i < segs.size(); ++i)
                                     {
                                         if (i == segs.size() - 1)
-                                        {
-                                            {
-                                                auto text_opt = sm.text(segs[i].range);
-                                                std::cerr << "[dccd.semantic_tokens] emitting function token from CallExpr: "
-                                                          << (text_opt ? *text_opt : std::string_view{}) << std::endl;
-                                            }
                                             emit(segs[i].range, TokenType::Function);
-                                        }
                                         else
                                             emit(segs[i].range, TokenType::Namespace);
                                     }
@@ -516,12 +487,6 @@ namespace dccd::semantic_tokens
                                         if (ti->callee->kind == dcc::ast::ExprKind::Ident)
                                         {
                                             auto* inner_ident = static_cast<dcc::ast::IdentExpr const*>(ti->callee);
-                                            {
-                                                auto text_opt = sm.text(inner_ident->range);
-                                                std::cerr << "[dccd.semantic_tokens] emitting function token from CallExpr: "
-                                                          << (text_opt ? *text_opt : std::string_view{}) << std::endl;
-                                            }
-
                                             emit(inner_ident->range, TokenType::Function);
                                         }
                                         else if (ti->callee->kind == dcc::ast::ExprKind::PathExpr)
@@ -531,15 +496,7 @@ namespace dccd::semantic_tokens
                                             for (std::size_t i = 0; i < segs.size(); ++i)
                                             {
                                                 if (i == segs.size() - 1)
-                                                {
-                                                    {
-                                                        auto text_opt = sm.text(segs[i].range);
-                                                        std::cerr << "[dccd.semantic_tokens] emitting function token from CallExpr: "
-                                                                  << (text_opt ? *text_opt : std::string_view{}) << std::endl;
-                                                    }
-
                                                     emit(segs[i].range, TokenType::Function);
-                                                }
                                                 else
                                                     emit(segs[i].range, TokenType::Namespace);
                                             }
@@ -579,7 +536,6 @@ namespace dccd::semantic_tokens
                             tt = TokenType::Function;
 
                     emit(e->field_range, tt);
-                    log_expr_emit(e->field_range, tt);
                     break;
                 }
                 case dcc::ast::ExprKind::StructLiteral: {
@@ -624,6 +580,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitStmt(dcc::ast::Stmt const* stmt)
         {
+            tick();
             if (!stmt)
                 return;
 
@@ -653,6 +610,7 @@ namespace dccd::semantic_tokens
 
         void Collector::visitDecl(dcc::ast::Decl const* decl)
         {
+            tick();
             if (!decl)
                 return;
 
@@ -789,58 +747,187 @@ namespace dccd::semantic_tokens
 
         void Collector::emit_using_item(dcc::ast::UsingItem const* item)
         {
+            tick();
             for (auto const& seg : item->path.segments)
                 emit(seg.range, TokenType::Namespace);
             for (auto const* child : item->children)
                 emit_using_item(child);
         }
 
-        void Collector::emit_asm_tokens(dcc::sm::SourceRange template_range,
-                                        std::span<dcc::ast::AsmPlaceholderSpan const> placeholder_spans)
+        void Collector::emit_asm_tokens(dcc::sm::SourceRange template_range, std::span<dcc::ast::AsmPlaceholderSpan const> placeholder_spans)
         {
+            tick();
             if (!template_range.valid())
                 return;
 
-            emit(template_range, TokenType::String);
+            auto const begin = template_range.begin.offset;
+            auto const end = template_range.end.offset;
+            if (end <= begin + 1)
+                return;
 
-            auto content_base = template_range.begin.offset + 1;
-            auto file_id = template_range.begin.fileId;
+            auto const content_begin = begin + 1;
+            auto const content_end = end - 1;
+            auto const file_id = template_range.begin.fileId;
 
+            struct Interior
+            {
+                std::uint32_t begin;
+                std::uint32_t end;
+                TokenType type;
+            };
+
+            std::vector<Interior> interiors;
+            interiors.reserve(placeholder_spans.size());
             for (auto const& span : placeholder_spans)
             {
-                auto span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
-                auto span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
-
-                if (span_end > template_range.end.offset)
+                std::uint32_t span_start;
+                std::uint32_t span_end;
+                if (span.raw_range.valid() && span.raw_range.begin.fileId == file_id)
+                {
+                    span_start = span.raw_range.begin.offset;
+                    span_end = span.raw_range.end.offset;
+                }
+                else
+                {
+                    span_start = content_begin + static_cast<dcc::sm::Offset>(span.byte_offset);
+                    span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+                    if (span_end <= span_start)
+                        continue;
+                    span_start = std::max(span_start, content_begin);
+                    span_end = std::min(span_end, content_end);
+                }
+                if (span_end <= span_start)
                     continue;
 
-                dcc::sm::SourceRange span_range{
-                    dcc::sm::Location{file_id, span_start},
-                    dcc::sm::Location{file_id, span_end}
-                };
+                TokenType type = TokenType::AsmPlaceholder;
+                if (span.kind == dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral)
+                    type = TokenType::AsmRegister;
 
-                switch (span.kind)
-                {
-                case dcc::ast::AsmPlaceholderSpan::Kind::OperandRef:
-                case dcc::ast::AsmPlaceholderSpan::Kind::Unresolved:
-                    emit(span_range, TokenType::AsmPlaceholder);
-                    break;
-                case dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral:
-                    emit(span_range, TokenType::AsmRegister);
-                    break;
-                }
+                interiors.push_back(Interior{span_start, span_end, type});
             }
+
+            std::ranges::sort(interiors, [](Interior const& a, Interior const& b) {
+                if (a.begin != b.begin)
+                    return a.begin < b.begin;
+                return a.end > b.end;
+            });
+
+            std::vector<Interior> merged;
+            merged.reserve(interiors.size());
+            for (auto const& in : interiors)
+            {
+                if (merged.empty() || in.begin > merged.back().end)
+                {
+                    merged.push_back(in);
+                    continue;
+                }
+                if (in.end > merged.back().end)
+                    merged.back().end = in.end;
+            }
+
+            auto emit_string_gap = [&](std::uint32_t gap_begin, std::uint32_t gap_end) {
+                if (gap_end > gap_begin)
+                    emit(dcc::sm::SourceRange{dcc::sm::Location{file_id, gap_begin}, dcc::sm::Location{file_id, gap_end}}, TokenType::String);
+            };
+
+            std::uint32_t cursor = begin;
+            for (auto const& in : merged)
+            {
+                emit_string_gap(cursor, in.begin);
+                cursor = in.end;
+            }
+            emit_string_gap(cursor, end);
+
+            for (auto const& in : merged)
+                emit(dcc::sm::SourceRange{dcc::sm::Location{file_id, in.begin}, dcc::sm::Location{file_id, in.end}}, in.type);
         }
 
     } // anonymous namespace
 
+    std::vector<RawToken> split_range(dcc::sm::SourceManager const& sm, dcc::sm::SourceRange range, TokenType type, std::uint32_t modifiers)
+    {
+        std::vector<RawToken> out;
+        if (!range.valid())
+            return out;
+
+        if (range.byte_length() == 0)
+            return out;
+
+        if (range.begin.fileId != range.end.fileId)
+            return out;
+
+        auto const* sf = sm.get(range.begin.fileId);
+        if (!sf)
+            return out;
+
+        auto const file_size = static_cast<dcc::sm::Offset>(sf->size());
+        if (range.begin.offset > file_size || range.end.offset > file_size)
+            return out;
+
+        if (range.begin.offset > range.end.offset)
+            return out;
+
+        auto const* data = sf->text().data();
+        auto const file_id = range.begin.fileId;
+
+        std::uint32_t offset = range.begin.offset;
+        while (offset < range.end.offset)
+        {
+            auto lc = sf->line_col(offset);
+            if (!lc)
+                return out;
+
+            auto line_start = offset - (lc->byte_col - 1);
+            auto line_text = sf->line_text(lc->line);
+            if (!line_text)
+                return out;
+
+            auto line_content_end = line_start + static_cast<dcc::sm::Offset>(line_text->size());
+            auto seg_end = std::min(range.end.offset, line_content_end);
+
+            if (seg_end > offset)
+            {
+                auto start_pos = sm.location_to_lsp_position(dcc::sm::Location{file_id, offset});
+                auto end_pos = sm.location_to_lsp_position(dcc::sm::Location{file_id, seg_end});
+                if (start_pos && end_pos && start_pos->line == end_pos->line && end_pos->character >= start_pos->character)
+                {
+                    RawToken t;
+                    t.line = start_pos->line;
+                    t.character = start_pos->character;
+                    t.length = end_pos->character - start_pos->character;
+                    t.type = static_cast<std::uint32_t>(type);
+                    t.modifiers = modifiers;
+                    out.push_back(t);
+                }
+            }
+
+            if (seg_end >= range.end.offset)
+                break;
+
+            auto next = seg_end;
+            if (next < file_size)
+            {
+                if (data[next] == '\n')
+                    ++next;
+                else if (data[next] == '\r')
+                {
+                    ++next;
+                    if (next < file_size && data[next] == '\n')
+                        ++next;
+                }
+            }
+            if (next <= offset)
+                break;
+            offset = next;
+        }
+
+        return out;
+    }
+
     std::vector<std::uint32_t> delta_encode(std::vector<RawToken> tokens)
     {
         if (tokens.empty())
-        {
-            std::cerr << "Returning 0 semantic tokens" << std::endl;
             return {};
-        }
 
         std::ranges::sort(tokens, [](RawToken const& a, RawToken const& b) {
             if (a.line != b.line)
@@ -897,20 +984,12 @@ namespace dccd::semantic_tokens
             }
 
             if (t.line < prev_line)
-            {
-                std::cerr << "[dccd] delta_encode: negative delta_line from " << prev_line << " to " << t.line << " at char " << t.character << "; skipping"
-                          << std::endl;
                 continue;
-            }
 
             if (t.line == prev_line)
             {
                 if (t.character < prev_char)
-                {
-                    std::cerr << "[dccd] delta_encode: negative delta_start_char on line " << t.line << " from " << prev_char << " to " << t.character
-                              << "; skipping" << std::endl;
                     continue;
-                }
 
                 data.push_back(0);
                 data.push_back(t.character - prev_char);
@@ -930,27 +1009,34 @@ namespace dccd::semantic_tokens
             ++encoded_count;
         }
 
-        std::cerr << "Returning " << encoded_count << " semantic tokens" << '\n';
         return data;
     }
 
-    std::vector<std::uint32_t> collect_tokens(dcc::sm::SourceManager const& sm, dcc::ast::TranslationUnit const* tu, dcc::sm::FileId requested_file)
+    std::vector<std::uint32_t> collect_tokens(dcc::sm::SourceManager const& sm, dcc::ast::TranslationUnit const* tu, dcc::sm::FileId requested_file,
+                                              CancelCheck const& cancel)
     {
         if (!tu)
             return {};
 
-        Collector c{sm, requested_file};
+        Collector c{sm, requested_file, cancel};
 
-        if (tu->module_decl)
-            c.visitDecl(tu->module_decl);
+        try
+        {
+            if (tu->module_decl)
+                c.visitDecl(tu->module_decl);
 
-        for (auto* d : tu->imports)
-            if (d)
-                c.visitDecl(d);
+            for (auto* d : tu->imports)
+                if (d)
+                    c.visitDecl(d);
 
-        for (auto* d : tu->decls)
-            if (d)
-                c.visitDecl(d);
+            for (auto* d : tu->decls)
+                if (d)
+                    c.visitDecl(d);
+        }
+        catch (TraversalCancelled const&)
+        {
+            return {};
+        }
 
         return delta_encode(std::move(c.tokens));
     }

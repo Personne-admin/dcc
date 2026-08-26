@@ -2,6 +2,7 @@ export module dccd.completion;
 
 import std;
 import dcc.sm;
+import dcc.si;
 import dcc.ast;
 import dcc.types;
 import dcc.sema;
@@ -24,6 +25,11 @@ namespace dccd::completion
 {
     namespace
     {
+        [[nodiscard]] constexpr bool is_ident_char(char c) noexcept
+        {
+            return c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+        }
+
         [[nodiscard]] protocol::CompletionItemKind symbol_kind_to_completion_kind(dcc::sema::SymbolKind sk)
         {
             using dcc::sema::SymbolKind;
@@ -63,29 +69,34 @@ namespace dccd::completion
             return dcc::sema::format_dcc_type(ty);
         }
 
-        void dedup_and_sort(std::vector<protocol::CompletionItem>& items)
+        [[nodiscard]] std::string func_signature_str(dcc::ast::FuncDecl const* fd)
         {
-            std::ranges::sort(items, [](protocol::CompletionItem const& a, protocol::CompletionItem const& b) {
-                auto cmp = a.label <=> b.label;
-                if (cmp != 0)
-                    return cmp < 0;
-                return static_cast<std::int32_t>(a.kind) < static_cast<std::int32_t>(b.kind);
-            });
+            if (!fd)
+                return {};
 
-            auto [first, last] = std::ranges::unique(
-                items, [](protocol::CompletionItem const& a, protocol::CompletionItem const& b) { return a.label == b.label && a.kind == b.kind; });
+            std::string ret = "void";
+            if (fd->return_type && fd->return_type->sema.canonical)
+                ret = format_type_str_local(dcc::sema::get_canonical(fd->return_type->sema));
 
-            items.erase(first, last);
-        }
-
-        void add_item(std::vector<protocol::CompletionItem>& items, std::string_view label, protocol::CompletionItemKind kind,
-                      std::optional<std::string> detail = std::nullopt)
-        {
-            protocol::CompletionItem item;
-            item.label = std::string{label};
-            item.kind = kind;
-            item.detail = std::move(detail);
-            items.push_back(std::move(item));
+            std::string sig = std::format("{} {}(", ret, fd->name);
+            for (std::size_t i = 0; i < fd->params.size(); ++i)
+            {
+                if (i > 0)
+                    sig += ", ";
+                auto const& p = fd->params[i];
+                if (p.type && p.type->sema.canonical)
+                {
+                    auto ty = dcc::sema::get_canonical(p.type->sema);
+                    if (p.name.empty())
+                        sig += format_type_str_local(ty);
+                    else
+                        sig += std::format("{} {}", format_type_str_local(ty), p.name);
+                }
+                else if (!p.name.empty())
+                    sig += p.name;
+            }
+            sig += ")";
+            return sig;
         }
 
         [[nodiscard]] dcc::sema::ModuleInfo const* find_module_by_file_id(dcc::sema::SemaContext const& sema, dcc::sm::FileId fid)
@@ -112,7 +123,225 @@ namespace dccd::completion
             return nullptr;
         }
 
-        void add_field_completions(std::vector<protocol::CompletionItem>& items, dcc::ast::Decl const& decl)
+        struct ItemOptions
+        {
+            std::optional<std::string> detail;
+            std::string sort_text{"2"};
+            std::optional<std::string> insert_text;
+            std::optional<std::int32_t> insert_text_format;
+            bool signature_help_command{false};
+        };
+
+        void add_item(std::vector<protocol::CompletionItem>& items, std::string_view label, protocol::CompletionItemKind kind,
+                      protocol::LspRange const* replacement_range, ItemOptions opts = {})
+        {
+            protocol::CompletionItem item;
+            item.label = std::string{label};
+            item.kind = kind;
+            item.detail = std::move(opts.detail);
+            item.sortText = std::move(opts.sort_text);
+
+            std::string const& insert = opts.insert_text ? *opts.insert_text : item.label;
+            if (replacement_range)
+            {
+                protocol::TextEdit edit;
+                edit.range = *replacement_range;
+                edit.newText = insert;
+                item.textEdit = std::move(edit);
+                item.insertText = insert;
+            }
+            else if (opts.insert_text)
+                item.insertText = insert;
+
+            if (opts.insert_text_format)
+                item.insertTextFormat = *opts.insert_text_format;
+
+            if (opts.signature_help_command)
+            {
+                protocol::Command cmd;
+                cmd.title = "trigger signature help";
+                cmd.command = std::string{protocol::kTriggerParameterHintsCommand};
+                item.command = std::move(cmd);
+            }
+
+            items.push_back(std::move(item));
+        }
+
+        void dedup_and_sort(std::vector<protocol::CompletionItem>& items)
+        {
+            auto rank = [](protocol::CompletionItem const& item) -> std::string_view {
+                return item.sortText ? std::string_view{*item.sortText} : std::string_view{"2"};
+            };
+
+            std::ranges::sort(items, [&](protocol::CompletionItem const& a, protocol::CompletionItem const& b) {
+                auto ra = rank(a);
+                auto rb = rank(b);
+                if (ra != rb)
+                    return ra < rb;
+                auto cmp = a.label <=> b.label;
+                if (cmp != 0)
+                    return cmp < 0;
+                return static_cast<std::int32_t>(a.kind) < static_cast<std::int32_t>(b.kind);
+            });
+
+            std::unordered_set<std::string> seen;
+            std::vector<protocol::CompletionItem> out;
+            out.reserve(items.size());
+            for (auto& item : items)
+            {
+                auto key = std::format("{}-{}", item.label, static_cast<std::int32_t>(item.kind));
+                if (seen.insert(std::move(key)).second)
+                    out.push_back(std::move(item));
+            }
+            items = std::move(out);
+        }
+
+        struct CompletionContext
+        {
+            enum class Trigger : std::uint8_t
+            {
+                None,
+                Dot,
+                ColonColon
+            };
+            enum class ContextKind : std::uint8_t
+            {
+                Value,
+                Type,
+                Statement
+            };
+            Trigger trigger{Trigger::None};
+            ContextKind kind{ContextKind::Value};
+            std::string prefix;
+            std::vector<std::string> namespace_path;
+            std::size_t token_start{0};
+            std::size_t token_end{0};
+            std::size_t trigger_offset{0};
+        };
+
+        [[nodiscard]] CompletionContext::ContextKind determine_context_kind(std::string_view text, std::size_t token_start)
+        {
+            std::size_t p = token_start;
+            while (p > 0 && (text[p - 1] == ' ' || text[p - 1] == '\t' || text[p - 1] == '\r' || text[p - 1] == '\n'))
+                --p;
+
+            if (p == 0)
+                return CompletionContext::ContextKind::Statement;
+
+            char c = text[p - 1];
+            if (c == ':')
+                return CompletionContext::ContextKind::Type;
+
+            if (c == ';' || c == '{' || c == '}')
+                return CompletionContext::ContextKind::Statement;
+
+            if (c == '(' || c == '=' || c == ',' || c == '[' || c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '!' || c == '<' || c == '>' ||
+                c == '&' || c == '|' || c == '^' || c == '~' || c == '?')
+                return CompletionContext::ContextKind::Value;
+
+            std::size_t word_end = p;
+            std::size_t q = p;
+            while (q > 0 && is_ident_char(text[q - 1]))
+                --q;
+            std::string_view word = text.substr(q, word_end - q);
+
+            if (word == "return" || word == "if" || word == "while" || word == "for" || word == "match" || word == "else" || word == "do" || word == "in" ||
+                word == "as")
+                return CompletionContext::ContextKind::Value;
+
+            if (word == "struct" || word == "enum" || word == "union" || word == "using" || word == "const" || word == "volatile" || word == "restrict")
+                return CompletionContext::ContextKind::Type;
+
+            if (word == "import" || word == "module" || word == "public" || word == "static" || word == "extern")
+                return CompletionContext::ContextKind::Statement;
+
+            return CompletionContext::ContextKind::Value;
+        }
+
+        [[nodiscard]] CompletionContext detect_context(dcc::sm::SourceFile const& file, dcc::sm::Offset cursor_offset)
+        {
+            CompletionContext ctx;
+            auto text = file.text();
+            if (cursor_offset > static_cast<dcc::sm::Offset>(text.size()))
+                return ctx;
+
+            auto cur = static_cast<std::size_t>(cursor_offset);
+
+            std::size_t start = cur;
+            if (cur > 0 && is_ident_char(text[cur - 1]))
+            {
+                start = cur - 1;
+                while (start > 0 && is_ident_char(text[start - 1]))
+                    --start;
+                ctx.prefix = std::string{text.substr(start, cur - start)};
+            }
+            ctx.token_start = start;
+            ctx.token_end = cur;
+            while (ctx.token_end < text.size() && is_ident_char(text[ctx.token_end]))
+                ++ctx.token_end;
+
+            std::size_t p = start;
+            while (p > 0 && (text[p - 1] == ' ' || text[p - 1] == '\t' || text[p - 1] == '\r' || text[p - 1] == '\n'))
+                --p;
+
+            if (p > 0 && text[p - 1] == '.')
+            {
+                ctx.trigger = CompletionContext::Trigger::Dot;
+                ctx.trigger_offset = p - 1;
+            }
+            else if (p > 1 && text[p - 1] == ':' && text[p - 2] == ':')
+            {
+                ctx.trigger = CompletionContext::Trigger::ColonColon;
+                ctx.trigger_offset = p - 2;
+
+                std::size_t q = p - 2;
+                while (q > 0)
+                {
+                    if (is_ident_char(text[q - 1]))
+                    {
+                        std::size_t seg_end = q;
+                        --q;
+                        while (q > 0 && is_ident_char(text[q - 1]))
+                            --q;
+                        ctx.namespace_path.push_back(std::string{text.substr(q, seg_end - q)});
+                        if (q >= 2 && text[q - 2] == ':' && text[q - 1] == ':')
+                        {
+                            q -= 2;
+                            continue;
+                        }
+                        break;
+                    }
+                    break;
+                }
+                std::ranges::reverse(ctx.namespace_path);
+            }
+            else
+            {
+                ctx.trigger = CompletionContext::Trigger::None;
+                ctx.kind = determine_context_kind(text, start);
+            }
+
+            return ctx;
+        }
+
+        [[nodiscard]] std::optional<protocol::LspRange> compute_replacement_range(dcc::sm::SourceManager const& sm, dcc::sm::FileId fid,
+                                                                                  CompletionContext const& ctx)
+        {
+            auto start = sm.location_to_lsp_position(dcc::sm::Location{fid, static_cast<dcc::sm::Offset>(ctx.token_start)});
+            auto end = sm.location_to_lsp_position(dcc::sm::Location{fid, static_cast<dcc::sm::Offset>(ctx.token_end)});
+            if (!start || !end)
+                return std::nullopt;
+
+            protocol::LspRange range;
+            range.start.line = start->line;
+            range.start.character = start->character;
+            range.end.line = end->line;
+            range.end.character = end->character;
+            return range;
+        }
+
+        void add_field_completions(std::vector<protocol::CompletionItem>& items, dcc::ast::Decl const& decl, std::string_view prefix,
+                                   protocol::LspRange const* replacement_range)
         {
             using dcc::ast::DeclKind;
             switch (decl.kind)
@@ -121,13 +350,16 @@ namespace dccd::completion
                     auto const* sd = static_cast<dcc::ast::StructDecl const*>(&decl);
                     for (auto const& f : sd->fields)
                     {
-                        std::optional<std::string> detail;
+                        if (!prefix.empty() && !f.name.starts_with(prefix))
+                            continue;
+
+                        ItemOptions opts;
+                        opts.sort_text = "1";
+                        opts.insert_text = std::string{f.name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
                         if (f.type && f.type->sema.canonical)
-                        {
-                            auto ty = dcc::sema::get_canonical(f.type->sema);
-                            detail = format_type_str_local(ty);
-                        }
-                        add_item(items, f.name, field_kind(), std::move(detail));
+                            opts.detail = format_type_str_local(dcc::sema::get_canonical(f.type->sema));
+                        add_item(items, f.name, field_kind(), replacement_range, std::move(opts));
                     }
                     break;
                 }
@@ -135,20 +367,32 @@ namespace dccd::completion
                     auto const* ud = static_cast<dcc::ast::UnionDecl const*>(&decl);
                     for (auto const& f : ud->fields)
                     {
-                        std::optional<std::string> detail;
+                        if (!prefix.empty() && !f.name.starts_with(prefix))
+                            continue;
+
+                        ItemOptions opts;
+                        opts.sort_text = "1";
+                        opts.insert_text = std::string{f.name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
                         if (f.type && f.type->sema.canonical)
-                        {
-                            auto ty = dcc::sema::get_canonical(f.type->sema);
-                            detail = format_type_str_local(ty);
-                        }
-                        add_item(items, f.name, field_kind(), std::move(detail));
+                            opts.detail = format_type_str_local(dcc::sema::get_canonical(f.type->sema));
+                        add_item(items, f.name, field_kind(), replacement_range, std::move(opts));
                     }
                     break;
                 }
                 case DeclKind::Enum: {
                     auto const* ed = static_cast<dcc::ast::EnumDecl const*>(&decl);
                     for (auto const& v : ed->variants)
-                        add_item(items, v.name, protocol::CompletionItemKind::EnumMember);
+                    {
+                        if (!prefix.empty() && !v.name.starts_with(prefix))
+                            continue;
+
+                        ItemOptions opts;
+                        opts.sort_text = "1";
+                        opts.insert_text = std::string{v.name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                        add_item(items, v.name, protocol::CompletionItemKind::EnumMember, replacement_range, std::move(opts));
+                    }
                     break;
                 }
                 default:
@@ -179,32 +423,157 @@ namespace dccd::completion
             }
         }
 
-        void add_function_completions_from_scope(std::vector<protocol::CompletionItem>& items, dcc::sema::Scope const& scope,
-                                                 dcc::types::Type const* receiver_type, std::string_view prefix)
+        [[nodiscard]] bool receiver_compatible(dcc::types::Type const* param0, dcc::types::Type const* receiver)
         {
-            for (auto const& [name, binding] : scope.bindings())
+            if (!param0 || !receiver)
+                return false;
+
+            if (param0 == receiver)
+                return true;
+
+            if (auto const* param_ptr = dcc::types::type_cast<dcc::types::PointerType>(param0))
             {
-                if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
-                    continue;
+                if (param_ptr->pointee == receiver)
+                    return true;
+                if (receiver->kind == dcc::types::TypeKind::Pointer && param_ptr->pointee->kind == dcc::types::TypeKind::TemplateParam)
+                    return true;
+            }
 
-                for (auto const& vs : binding.value_syms)
+            if (auto const* recv_ptr = dcc::types::type_cast<dcc::types::PointerType>(receiver))
+                if (recv_ptr->pointee == param0)
+                    return true;
+
+            if (receiver->kind == dcc::types::TypeKind::Array && param0->kind == dcc::types::TypeKind::Slice)
+            {
+                auto const* recv_arr = dcc::types::type_cast<dcc::types::ArrayType>(receiver);
+                auto const* param_slice = dcc::types::type_cast<dcc::types::SliceType>(param0);
+                if (recv_arr && param_slice && recv_arr->element == param_slice->element)
+                    return true;
+            }
+
+            if (param0->kind == dcc::types::TypeKind::TemplateParam || param0->kind == dcc::types::TypeKind::TypePack)
+                return true;
+
+            return false;
+        }
+
+        [[nodiscard]] bool following_paren(std::string_view text, std::size_t token_end) noexcept
+        {
+            std::size_t i = token_end;
+            for (;;)
+            {
+                while (i < text.size() && (text[i] == ' ' || text[i] == '\t' || text[i] == '\r' || text[i] == '\n'))
+                    ++i;
+
+                if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '/')
                 {
-                    if (vs.kind != dcc::sema::SymbolKind::Function)
+                    while (i < text.size() && text[i] != '\n')
+                        ++i;
+                    continue;
+                }
+                if (i + 1 < text.size() && text[i] == '/' && text[i + 1] == '*')
+                {
+                    i += 2;
+                    while (i + 1 < text.size() && (text[i] != '*' || text[i + 1] != '/'))
+                        ++i;
+                    if (i + 1 < text.size())
+                        i += 2;
+                    continue;
+                }
+                break;
+            }
+            return i < text.size() && text[i] == '(';
+        }
+
+        struct SnippetInfo
+        {
+            std::string insert_text;
+            std::int32_t format{protocol::InsertTextFormat::PlainText};
+        };
+
+        [[nodiscard]] SnippetInfo make_function_insert(std::string_view name, dcc::ast::FuncDecl const* fd, bool ufcs_receiver, bool paren_follows)
+        {
+            if (paren_follows)
+                return {std::string{name}, protocol::InsertTextFormat::PlainText};
+
+            std::string text{name};
+            text += "(";
+            std::size_t start = ufcs_receiver ? 1 : 0;
+            int tab = 1;
+            for (std::size_t i = start; i < fd->params.size(); ++i)
+            {
+                if (i > start)
+                    text += ", ";
+                text += "${" + std::to_string(tab++) + "}";
+            }
+            text += ")";
+            return {std::move(text), protocol::InsertTextFormat::Snippet};
+        }
+
+        void add_ufcs_method_completions(std::vector<protocol::CompletionItem>& items, dcc::session::CompilerSession const& session,
+                                         dcc::sema::ModuleInfo const* module, dcc::sema::Scope const* local_scope, dcc::types::Type const* receiver_type,
+                                         std::string_view prefix, std::string_view source_text, std::size_t token_end,
+                                         protocol::LspRange const* replacement_range)
+        {
+            std::ignore = session;
+            if (!receiver_type)
+                return;
+
+            std::vector<dcc::sema::Scope const*> scopes;
+            if (module)
+            {
+                if (module->ufcs_scope)
+                    scopes.push_back(module->ufcs_scope);
+                if (module->own_scope)
+                    scopes.push_back(module->own_scope);
+                for (auto const& imp : module->imports)
+                    if (imp.target && imp.target->export_scope)
+                        scopes.push_back(imp.target->export_scope);
+            }
+            if (local_scope)
+                scopes.push_back(local_scope);
+
+            std::unordered_set<dcc::ast::Decl const*> seen;
+
+            auto consider = [&](dcc::sema::Symbol const& sym) {
+                if (!sym.decl || sym.decl->kind != dcc::ast::DeclKind::Func)
+                    return;
+                if (!seen.insert(sym.decl).second)
+                    return;
+
+                auto const* fd = static_cast<dcc::ast::FuncDecl const*>(sym.decl);
+                if (fd->params.empty())
+                    return;
+
+                dcc::types::Type const* param0 = nullptr;
+                if (fd->params[0].type && fd->params[0].type->sema.canonical)
+                    param0 = dcc::sema::get_canonical(fd->params[0].type->sema);
+
+                if (!receiver_compatible(param0, receiver_type))
+                    return;
+
+                ItemOptions opts;
+                opts.sort_text = "1";
+                opts.detail = func_signature_str(fd);
+                opts.signature_help_command = true;
+
+                auto snippet = make_function_insert(sym.name, fd, true, following_paren(source_text, token_end));
+                opts.insert_text = std::move(snippet.insert_text);
+                opts.insert_text_format = snippet.format;
+
+                add_item(items, sym.name, protocol::CompletionItemKind::Method, replacement_range, std::move(opts));
+            };
+
+            for (auto const* scope : scopes)
+            {
+                if (!scope)
+                    continue;
+                for (auto const& [name, binding] : scope->bindings())
+                {
+                    if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
                         continue;
-
-                    auto const* fd = vs.decl ? dcc::ast::node_cast<dcc::ast::FuncDecl>(vs.decl) : nullptr;
-                    if (!fd)
-                        continue;
-
-                    bool include = true;
-                    if (receiver_type && !fd->params.empty() && fd->params[0].type && fd->params[0].type->sema.canonical)
-                    {
-                        auto first_param_type = dcc::sema::get_canonical(fd->params[0].type->sema);
-                        include = (first_param_type == receiver_type);
-                    }
-
-                    if (include)
-                        add_item(items, name, protocol::CompletionItemKind::Method);
+                    for (auto const& vs : binding.value_syms)
+                        consider(vs);
                 }
             }
         }
@@ -238,384 +607,337 @@ namespace dccd::completion
             return {};
         }
 
-        [[nodiscard]] dcc::types::Type const* resolve_type_in_tu(dcc::sema::ModuleInfo const& module, std::string_view name)
+        [[nodiscard]] dcc::types::Type const* resolve_receiver_type(dcc::session::CompilerSession const& session, dcc::sema::ModuleInfo const* module,
+                                                                    dcc::sm::FileId fid, dcc::sm::SourceFile const& file, CompletionContext const& ctx,
+                                                                    dcc::sm::Location cursor_loc)
         {
-            if (!module.tu)
-                return nullptr;
+            auto const& sm = session.source_manager();
 
-            auto type_from_var = [](dcc::ast::VarDecl const* vd) -> dcc::types::Type const* {
-                if (vd && vd->type && vd->type->sema.canonical)
-                    return dcc::sema::get_canonical(vd->type->sema);
-
-                return nullptr;
-            };
-
-            std::function<dcc::types::Type const*(dcc::ast::Stmt const*)> walk_stmt_for_type;
-            std::function<dcc::types::Type const*(dcc::ast::Block const&)> walk_block_for_type;
-            std::function<dcc::types::Type const*(dcc::ast::Decl const*)> walk_decl_for_type;
-
-            walk_stmt_for_type = [&](dcc::ast::Stmt const* stmt) -> dcc::types::Type const* {
-                if (!stmt)
-                    return nullptr;
-
-                using dcc::ast::StmtKind;
-                switch (stmt->kind)
-                {
-                    case StmtKind::DeclStmt: {
-                        auto const* ds = static_cast<dcc::ast::DeclStmt const*>(stmt);
-                        if (ds->decl)
-                        {
-                            if (auto const* vd = dcc::ast::node_cast<dcc::ast::VarDecl>(ds->decl))
-                                if (vd->name == name)
-                                    return type_from_var(vd);
-
-                            if (auto t = walk_decl_for_type(ds->decl))
-                                return t;
-                        }
-                        break;
-                    }
-                    case StmtKind::While: {
-                        auto const* ws = static_cast<dcc::ast::WhileStmt const*>(stmt);
-                        if (auto t = walk_block_for_type(ws->body))
-                            return t;
-                        break;
-                    }
-                    case StmtKind::DoWhile: {
-                        auto const* dws = static_cast<dcc::ast::DoWhileStmt const*>(stmt);
-                        if (auto t = walk_block_for_type(dws->body))
-                            return t;
-                        break;
-                    }
-                    case StmtKind::For: {
-                        auto const* fs = static_cast<dcc::ast::ForStmt const*>(stmt);
-                        if (fs->init)
-                            if (auto t = walk_stmt_for_type(fs->init))
-                                return t;
-
-                        if (auto t = walk_block_for_type(fs->body))
-                            return t;
-                        break;
-                    }
-                    case StmtKind::ForIn: {
-                        auto const* fis = static_cast<dcc::ast::ForInStmt const*>(stmt);
-                        if (auto t = walk_block_for_type(fis->body))
-                            return t;
-                        break;
-                    }
-                    case StmtKind::Defer: {
-                        auto const* ds = static_cast<dcc::ast::DeferStmt const*>(stmt);
-                        if (ds->body)
-                            if (auto t = walk_stmt_for_type(ds->body))
-                                return t;
-
-                        break;
-                    }
-                    case StmtKind::StaticIf: {
-                        auto const* sis = static_cast<dcc::ast::StaticIfStmt const*>(stmt);
-                        if (auto t = walk_block_for_type(sis->then_block))
-                            return t;
-
-                        if (sis->else_branch)
-                            if (auto t = walk_stmt_for_type(sis->else_branch))
-                                return t;
-
-                        break;
-                    }
-                    case StmtKind::StaticMatch: {
-                        auto const* sms = static_cast<dcc::ast::StaticMatchStmt const*>(stmt);
-                        for (auto const& arm : sms->arms)
-                        {
-                            if (arm.body)
-                                ;
-                        }
-                        break;
-                    }
-                    case StmtKind::Ambiguous: {
-                        auto const* as = static_cast<dcc::ast::AmbiguousStmt const*>(stmt);
-                        if (as->as_decl)
-                        {
-                            if (auto const* vd = dcc::ast::node_cast<dcc::ast::VarDecl>(as->as_decl))
-                                if (vd->name == name)
-                                    return type_from_var(vd);
-
-                            if (auto t = walk_decl_for_type(as->as_decl))
-                                return t;
-                        }
-                        break;
-                    }
-                    default:
-                        break;
-                }
-                return nullptr;
-            };
-
-            walk_block_for_type = [&](dcc::ast::Block const& block) -> dcc::types::Type const* {
-                for (auto* s : block.stmts)
-                    if (auto t = walk_stmt_for_type(s))
-                        return t;
-
-                return nullptr;
-            };
-
-            walk_decl_for_type = [&](dcc::ast::Decl const* decl) -> dcc::types::Type const* {
-                if (!decl)
-                    return nullptr;
-
-                using dcc::ast::DeclKind;
-                switch (decl->kind)
-                {
-                    case DeclKind::Func: {
-                        auto const* fd = static_cast<dcc::ast::FuncDecl const*>(decl);
-                        for (auto const& p : fd->params)
-                            if (p.name == name && p.type && p.type->sema.canonical)
-                                return dcc::sema::get_canonical(p.type->sema);
-
-                        if (fd->body.has_value())
-                            if (auto t = walk_block_for_type(*fd->body))
-                                return t;
-
-                        break;
-                    }
-                    case DeclKind::Var: {
-                        auto const* vd = static_cast<dcc::ast::VarDecl const*>(decl);
-                        if (vd->name == name)
-                            return type_from_var(vd);
-
-                        break;
-                    }
-                    default:
-                        break;
-                }
-                return nullptr;
-            };
-
-            if (module.own_scope)
+            if (auto node = dcc::query::find_node_at(session, cursor_loc))
             {
-                auto syms = module.own_scope->lookup_values(name);
-                if (!syms.empty())
+                if (node->expr)
                 {
-                    auto const& sym = syms.front();
-                    if (sym.decl)
-                        if (auto const* vd = dcc::ast::node_cast<dcc::ast::VarDecl>(sym.decl))
-                            return type_from_var(vd);
+                    if (node->expr->kind == dcc::ast::ExprKind::FieldAccess)
+                    {
+                        auto const* fa = static_cast<dcc::ast::FieldAccessExpr const*>(node->expr);
+                        if (fa->object)
+                            if (auto t = dcc::sema::get_resolved_type(fa->object->sema))
+                                return t;
+                    }
+                    else if (node->resolved_type)
+                        return node->resolved_type;
                 }
             }
 
-            for (auto* d : module.tu->decls)
-                if (auto t = walk_decl_for_type(d))
+            if (ctx.trigger_offset > 0)
+            {
+                auto loc = sm.location(fid, static_cast<dcc::sm::Offset>(ctx.trigger_offset - 1));
+                if (auto node = dcc::query::find_node_at(session, loc))
+                {
+                    if (node->expr && node->resolved_type)
+                        return node->resolved_type;
+                    if (node->type_expr && node->resolved_type)
+                        return node->resolved_type;
+                }
+            }
+
+            auto receiver_name = extract_receiver_name(file, static_cast<dcc::sm::Offset>(ctx.trigger_offset));
+            if (!receiver_name.empty())
+            {
+                auto local_ctx = dcc::query::collect_local_context(session, fid, cursor_loc);
+                if (auto t = local_ctx.local_type(receiver_name))
                     return t;
+
+                if (module)
+                {
+                    auto interned = const_cast<dcc::si::string_interner&>(session.interner()).intern(receiver_name);
+                    auto syms = module->own_scope->lookup_values(interned);
+                    for (auto const& sym : syms)
+                    {
+                        if (sym.decl && sym.decl->kind == dcc::ast::DeclKind::Var)
+                        {
+                            auto const* vd = static_cast<dcc::ast::VarDecl const*>(sym.decl);
+                            if (vd->type && vd->type->sema.canonical)
+                                return dcc::sema::get_canonical(vd->type->sema);
+                        }
+                    }
+                }
+            }
 
             return nullptr;
         }
 
         void handle_member_access_completion(std::vector<protocol::CompletionItem>& items, dcc::session::CompilerSession const& session,
-                                             dcc::sema::ModuleInfo const* module, std::string_view prefix, dcc::sm::FileId fid, dcc::sm::Location cursor_loc,
-                                             dcc::sm::Offset trigger_offset)
+                                             dcc::sema::ModuleInfo const* module, dcc::sm::FileId fid, dcc::sm::SourceFile const& file,
+                                             CompletionContext const& ctx, dcc::sm::Location cursor_loc, protocol::LspRange const* replacement_range)
         {
-            dcc::types::Type const* receiver_type = nullptr;
-            auto const& sm = session.source_manager();
-            auto const* file = sm.get(fid);
+            auto receiver_type = resolve_receiver_type(session, module, fid, file, ctx, cursor_loc);
+            if (!receiver_type)
+                return;
 
-            if (module && file)
+            if (auto const* decl = nominal_decl(receiver_type))
+                add_field_completions(items, *decl, ctx.prefix, replacement_range);
+
+            auto local_ctx = dcc::query::collect_local_context(session, fid, cursor_loc);
+            add_ufcs_method_completions(items, session, module, local_ctx.scope, receiver_type, ctx.prefix, file.text(), ctx.token_end, replacement_range);
+        }
+
+        void add_scope_bindings(std::vector<protocol::CompletionItem>& items, dcc::sema::Scope const& scope, std::string_view prefix,
+                                std::string_view source_text, std::size_t token_end, protocol::LspRange const* replacement_range)
+        {
+            for (auto const& [name, binding] : scope.bindings())
             {
-                if (auto pos_result = sm.location_to_lsp_position(cursor_loc))
+                if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
+                    continue;
+
+                if (binding.has_type)
                 {
-                    auto pos = *pos_result;
-                    for (int offset = 1; offset <= 3 && !receiver_type; ++offset)
-                    {
-                        if (pos.character >= static_cast<std::uint32_t>(offset))
-                        {
-                            auto query_pos = dcc::sm::Position{pos.line, pos.character - static_cast<std::uint32_t>(offset)};
-                            auto node = dcc::query::find_node_at(session, module->file_id, query_pos);
-                            if (node && node->expr)
-                                receiver_type = node->resolved_type;
-                        }
-                    }
+                    ItemOptions opts;
+                    opts.sort_text = "2";
+                    opts.insert_text = std::string{name};
+                    opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                    add_item(items, name, symbol_kind_to_completion_kind(binding.type_sym.kind), replacement_range, std::move(opts));
                 }
-            }
-
-            if (!receiver_type && file && module && trigger_offset > 0)
-            {
-                auto receiver_name = extract_receiver_name(*file, trigger_offset);
-                if (!receiver_name.empty())
-                    receiver_type = resolve_type_in_tu(*module, receiver_name);
-            }
-
-            if (receiver_type)
-            {
-                if (auto const* decl = nominal_decl(receiver_type))
-                    add_field_completions(items, *decl);
-
-                if (module && module->own_scope)
-                    add_function_completions_from_scope(items, *module->own_scope, receiver_type, prefix);
-                if (module && module->export_scope && module->export_scope != module->own_scope)
-                    add_function_completions_from_scope(items, *module->export_scope, receiver_type, prefix);
-            }
-            else
-            {
-                if (module && module->own_scope)
+                for (auto const& vs : binding.value_syms)
                 {
-                    for (auto const& [name, binding] : module->own_scope->bindings())
+                    ItemOptions opts;
+                    opts.sort_text = "2";
+                    if (vs.kind == dcc::sema::SymbolKind::Function)
                     {
-                        if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
-                            continue;
-
-                        for (auto const& vs : binding.value_syms)
-                            if (vs.kind == dcc::sema::SymbolKind::Function)
-                                add_item(items, name, protocol::CompletionItemKind::Method);
+                        auto const* fd = static_cast<dcc::ast::FuncDecl const*>(vs.decl);
+                        opts.detail = func_signature_str(fd);
+                        opts.signature_help_command = true;
+                        auto snippet = make_function_insert(name, fd, false, following_paren(source_text, token_end));
+                        opts.insert_text = std::move(snippet.insert_text);
+                        opts.insert_text_format = snippet.format;
                     }
+                    else
+                    {
+                        opts.insert_text = std::string{name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                    }
+                    add_item(items, name, symbol_kind_to_completion_kind(vs.kind), replacement_range, std::move(opts));
+                }
+                if (binding.has_namespace)
+                {
+                    ItemOptions opts;
+                    opts.sort_text = "2";
+                    opts.insert_text = std::string{name};
+                    opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                    add_item(items, name, symbol_kind_to_completion_kind(binding.namespace_sym.kind), replacement_range, std::move(opts));
                 }
             }
         }
 
         void handle_namespace_completion(std::vector<protocol::CompletionItem>& items, dcc::session::CompilerSession const& session,
-                                         dcc::sema::ModuleInfo const* module, std::string_view prefix)
+                                         dcc::sema::ModuleInfo const* module, CompletionContext const& ctx, std::string_view source_text,
+                                         protocol::LspRange const* replacement_range)
         {
+            if (!module)
+                return;
+
             auto* sema_ctx = session.sema_context();
-            if (!sema_ctx || !module)
+            if (!sema_ctx)
                 return;
 
             auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
 
-            dcc::sema::Scope const* target_scope = module->own_scope;
-
-            for (auto const& imp : module->imports)
+            auto& interner = const_cast<dcc::si::string_interner&>(session.interner());
+            dcc::sema::Scope const* target = module->own_scope;
+            if (target)
             {
-                if (imp.target && imp.target->export_scope)
+                for (std::size_t i = 0; i < ctx.namespace_path.size(); ++i)
                 {
-                    for (auto const& [name, binding] : imp.target->export_scope->bindings())
+                    auto seg = interner.intern(ctx.namespace_path[i]);
+                    dcc::sema::Scope const* next = nullptr;
+                    if (i == 0)
+                        next = target->lookup_namespace(seg);
+                    else
+                        next = target->lookup_namespace_local(seg);
+
+                    if (!next)
                     {
-                        if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
-                            continue;
-                        if (binding.has_type)
-                            add_item(items, name, symbol_kind_to_completion_kind(binding.type_sym.kind));
-                        for (auto const& vs : binding.value_syms)
-                            add_item(items, name, symbol_kind_to_completion_kind(vs.kind));
-                        if (binding.has_namespace)
-                            add_item(items, name, symbol_kind_to_completion_kind(binding.namespace_sym.kind));
+                        target = nullptr;
+                        break;
                     }
+                    target = next;
                 }
             }
 
-            if (target_scope)
-            {
-                for (auto const& [name, binding] : target_scope->bindings())
-                {
-                    if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
-                        continue;
-                    if (binding.has_type)
-                        add_item(items, name, symbol_kind_to_completion_kind(binding.type_sym.kind));
-                    for (auto const& vs : binding.value_syms)
-                        add_item(items, name, symbol_kind_to_completion_kind(vs.kind));
-                    if (binding.has_namespace)
-                        add_item(items, name, symbol_kind_to_completion_kind(binding.namespace_sym.kind));
-                }
-            }
+            if (target)
+                add_scope_bindings(items, *target, ctx.prefix, source_text, ctx.token_end, replacement_range);
 
             for (auto const& other_mod : graph.all())
             {
-                if (other_mod.get() == module)
+                auto const& segments = other_mod->canonical_path.segments();
+                if (segments.size() <= ctx.namespace_path.size())
                     continue;
 
-                auto const& segments = other_mod->canonical_path.segments();
-                if (!segments.empty())
+                bool prefix_match = true;
+                for (std::size_t i = 0; i < ctx.namespace_path.size(); ++i)
                 {
-                    std::string_view mod_name = segments[0];
-                    if (!mod_name.empty() && (prefix.empty() || mod_name.starts_with(prefix)))
-                        add_item(items, mod_name, protocol::CompletionItemKind::Module);
+                    if (segments[i] != ctx.namespace_path[i])
+                    {
+                        prefix_match = false;
+                        break;
+                    }
+                }
+                if (!prefix_match)
+                    continue;
+
+                std::string_view next_seg = segments[ctx.namespace_path.size()];
+                if (!ctx.prefix.empty() && !next_seg.starts_with(ctx.prefix))
+                    continue;
+
+                ItemOptions opts;
+                opts.sort_text = "2";
+                opts.insert_text = std::string{next_seg};
+                opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                add_item(items, next_seg, protocol::CompletionItemKind::Module, replacement_range, std::move(opts));
+            }
+        }
+
+        void add_keyword_completions(std::vector<protocol::CompletionItem>& items, CompletionContext::ContextKind kind, std::string_view prefix,
+                                     protocol::LspRange const* replacement_range)
+        {
+            static constexpr std::array value_keywords = {
+                std::string_view{"true"},    std::string_view{"false"},    std::string_view{"null"},     std::string_view{"sizeof"},
+                std::string_view{"alignof"}, std::string_view{"offsetof"}, std::string_view{"compiles"}, std::string_view{"asm"},
+            };
+            static constexpr std::array type_keywords = {
+                std::string_view{"u8"},    std::string_view{"i8"},       std::string_view{"u16"},      std::string_view{"i16"},    std::string_view{"u32"},
+                std::string_view{"i32"},   std::string_view{"u64"},      std::string_view{"i64"},      std::string_view{"f32"},    std::string_view{"f64"},
+                std::string_view{"char"},  std::string_view{"void"},     std::string_view{"bool"},     std::string_view{"null_t"}, std::string_view{"usize"},
+                std::string_view{"isize"}, std::string_view{"struct"},   std::string_view{"enum"},     std::string_view{"union"},  std::string_view{"using"},
+                std::string_view{"const"}, std::string_view{"volatile"}, std::string_view{"restrict"},
+            };
+            static constexpr std::array statement_keywords = {
+                std::string_view{"if"},     std::string_view{"while"},    std::string_view{"for"},    std::string_view{"do"},     std::string_view{"return"},
+                std::string_view{"break"},  std::string_view{"continue"}, std::string_view{"defer"},  std::string_view{"match"},  std::string_view{"import"},
+                std::string_view{"module"}, std::string_view{"public"},   std::string_view{"static"}, std::string_view{"extern"}, std::string_view{"using"},
+                std::string_view{"struct"}, std::string_view{"enum"},     std::string_view{"union"},  std::string_view{"const"},  std::string_view{"asm"},
+                std::string_view{"u8"},     std::string_view{"i8"},       std::string_view{"u16"},    std::string_view{"i16"},    std::string_view{"u32"},
+                std::string_view{"i32"},    std::string_view{"u64"},      std::string_view{"i64"},    std::string_view{"f32"},    std::string_view{"f64"},
+                std::string_view{"char"},   std::string_view{"void"},     std::string_view{"bool"},   std::string_view{"null_t"}, std::string_view{"usize"},
+                std::string_view{"isize"},
+            };
+
+            std::span<std::string_view const> words;
+            switch (kind)
+            {
+                case CompletionContext::ContextKind::Value:
+                    words = value_keywords;
+                    break;
+                case CompletionContext::ContextKind::Type:
+                    words = type_keywords;
+                    break;
+                case CompletionContext::ContextKind::Statement:
+                    words = statement_keywords;
+                    break;
+            }
+
+            for (auto w : words)
+            {
+                if (!prefix.empty() && !w.starts_with(prefix))
+                    continue;
+
+                ItemOptions opts;
+                opts.sort_text = "3";
+                opts.insert_text = std::string{w};
+                opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                add_item(items, w, protocol::CompletionItemKind::Keyword, replacement_range, std::move(opts));
+            }
+        }
+
+        void add_scope_symbols_for_context(std::vector<protocol::CompletionItem>& items, dcc::sema::Scope const& scope, std::string_view prefix,
+                                           CompletionContext::ContextKind kind, std::string_view source_text, std::size_t token_end,
+                                           protocol::LspRange const* replacement_range)
+        {
+            if (kind == CompletionContext::ContextKind::Statement)
+            {
+                add_scope_bindings(items, scope, prefix, source_text, token_end, replacement_range);
+                return;
+            }
+
+            for (auto const& [name, binding] : scope.bindings())
+            {
+                if (name.empty() || (!prefix.empty() && !name.starts_with(prefix)))
+                    continue;
+
+                if (kind == CompletionContext::ContextKind::Value)
+                {
+                    for (auto const& vs : binding.value_syms)
+                    {
+                        ItemOptions opts;
+                        opts.sort_text = "2";
+                        if (vs.kind == dcc::sema::SymbolKind::Function)
+                        {
+                            auto const* fd = static_cast<dcc::ast::FuncDecl const*>(vs.decl);
+                            opts.detail = func_signature_str(fd);
+                            opts.signature_help_command = true;
+                            auto snippet = make_function_insert(name, fd, false, following_paren(source_text, token_end));
+                            opts.insert_text = std::move(snippet.insert_text);
+                            opts.insert_text_format = snippet.format;
+                        }
+                        else
+                        {
+                            opts.insert_text = std::string{name};
+                            opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                        }
+                        add_item(items, name, symbol_kind_to_completion_kind(vs.kind), replacement_range, std::move(opts));
+                    }
+                    if (binding.has_namespace)
+                    {
+                        ItemOptions opts;
+                        opts.sort_text = "2";
+                        opts.insert_text = std::string{name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                        add_item(items, name, symbol_kind_to_completion_kind(binding.namespace_sym.kind), replacement_range, std::move(opts));
+                    }
+                }
+                else if (kind == CompletionContext::ContextKind::Type)
+                {
+                    if (binding.has_type)
+                    {
+                        ItemOptions opts;
+                        opts.sort_text = "2";
+                        opts.insert_text = std::string{name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                        add_item(items, name, symbol_kind_to_completion_kind(binding.type_sym.kind), replacement_range, std::move(opts));
+                    }
+                    if (binding.has_namespace)
+                    {
+                        ItemOptions opts;
+                        opts.sort_text = "2";
+                        opts.insert_text = std::string{name};
+                        opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                        add_item(items, name, symbol_kind_to_completion_kind(binding.namespace_sym.kind), replacement_range, std::move(opts));
+                    }
                 }
             }
         }
 
-        struct CompletionContext
+        void add_local_completions(std::vector<protocol::CompletionItem>& items, dcc::query::LocalContext const& local_ctx, std::string_view prefix,
+                                   protocol::LspRange const* replacement_range)
         {
-            enum class Trigger : std::uint8_t
+            for (auto const& local : local_ctx.locals)
             {
-                None,
-                Dot,
-                ColonColon
-            };
-            Trigger trigger{Trigger::None};
-            std::string prefix;
-            std::size_t trigger_offset{};
-        };
+                if (!prefix.empty() && !local.name.starts_with(prefix))
+                    continue;
 
-        [[nodiscard]] CompletionContext detect_context(dcc::sm::SourceFile const& file, dcc::sm::Offset cursor_offset)
-        {
-            CompletionContext ctx;
-            auto text = file.text();
-            if (cursor_offset == 0 || cursor_offset > static_cast<dcc::sm::Offset>(text.size()))
-                return ctx;
+                ItemOptions opts;
+                opts.sort_text = "0";
+                opts.insert_text = std::string{local.name};
+                opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                if (local.type)
+                    opts.detail = format_type_str_local(local.type);
 
-            auto pos = static_cast<std::ptrdiff_t>(cursor_offset) - 1;
-            bool have_partial = false;
+                protocol::CompletionItemKind kind = protocol::CompletionItemKind::Variable;
+                if (local.kind == dcc::query::LocalSymbolKind::TemplateParam)
+                    kind = protocol::CompletionItemKind::TypeParameter;
 
-            while (pos >= 0)
-            {
-                char c = text[static_cast<std::size_t>(pos)];
-                if (c == '.')
-                {
-                    ctx.trigger = CompletionContext::Trigger::Dot;
-                    ctx.trigger_offset = static_cast<std::size_t>(pos);
-                    break;
-                }
-                if (c == ':')
-                {
-                    if (pos > 0 && text[static_cast<std::size_t>(pos) - 1] == ':')
-                    {
-                        ctx.trigger = CompletionContext::Trigger::ColonColon;
-                        ctx.trigger_offset = static_cast<std::size_t>(pos) - 1;
-                    }
-                    break;
-                }
-
-                if (c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '(' || c == ')' || c == '{' || c == '}' || c == '[' || c == ']' || c == ';' ||
-                    c == ',')
-                {
-                    ctx.prefix.clear();
-                    return ctx;
-                }
-
-                if (c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
-                    have_partial = true;
-
-                --pos;
+                add_item(items, local.name, kind, replacement_range, std::move(opts));
             }
-
-            if (ctx.trigger != CompletionContext::Trigger::None)
-            {
-                auto trigger_end = ctx.trigger_offset + ((ctx.trigger == CompletionContext::Trigger::ColonColon) ? 2 : 1);
-                if (trigger_end < cursor_offset)
-                {
-                    auto prefix_len = cursor_offset - trigger_end;
-                    ctx.prefix = std::string{text.substr(trigger_end, prefix_len)};
-                }
-            }
-            else if (have_partial)
-            {
-                auto start_pos = static_cast<std::size_t>(pos) + 1;
-                while (start_pos < cursor_offset)
-                {
-                    auto c = text[start_pos];
-                    if (c == '_' || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
-                    {
-                        auto end = start_pos;
-                        while (end < cursor_offset)
-                        {
-                            auto ec = text[end];
-                            if (!(ec == '_' || (ec >= 'a' && ec <= 'z') || (ec >= 'A' && ec <= 'Z') || (ec >= '0' && ec <= '9')))
-                                break;
-
-                            ++end;
-                        }
-                        ctx.prefix = std::string{text.substr(start_pos, end - start_pos)};
-                        break;
-                    }
-                    ++start_pos;
-                }
-            }
-
-            return ctx;
         }
 
         static void find_asm_node_in_tu(dcc::session::CompilerSession const& session, dcc::sm::FileId fid, dcc::sm::Offset cursor_offset,
@@ -623,7 +945,8 @@ namespace dccd::completion
 
         [[nodiscard]] bool try_asm_operand_completion(std::vector<protocol::CompletionItem>& items, dcc::session::CompilerSession const& session,
                                                       dcc::sm::FileId fid, dcc::sm::Offset cursor_offset, dcc::sm::SourceFile const& file,
-                                                      std::optional<dcc::query::NodeAtLocation> const& node, std::string_view prefix)
+                                                      std::optional<dcc::query::NodeAtLocation> const& node, std::string_view prefix,
+                                                      protocol::LspRange const* replacement_range)
         {
             dcc::ast::AsmStmt const* asm_stmt = nullptr;
             dcc::ast::AsmExpr const* asm_expr = nullptr;
@@ -651,28 +974,47 @@ namespace dccd::completion
             bool inside_placeholder = false;
             std::string partial_name;
 
+            auto const text = file.text();
+
             for (auto const& span : *spans_owner)
             {
                 if (span.kind == dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral)
                     continue;
 
-                auto span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
-                auto span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+                dcc::sm::Offset span_start;
+                dcc::sm::Offset span_end;
+                if (span.raw_range.valid() && span.raw_range.begin.fileId == tpl_range->begin.fileId)
+                {
+                    span_start = span.raw_range.begin.offset;
+                    span_end = span.raw_range.end.offset;
+                }
+                else
+                {
+                    span_start = content_base + static_cast<dcc::sm::Offset>(span.byte_offset);
+                    span_end = span_start + static_cast<dcc::sm::Offset>(span.byte_length);
+                }
+
+                auto name_start = span_start + 2;
+                if (span_end <= static_cast<dcc::sm::Offset>(text.size()))
+                {
+                    auto bracket = text.find('[', static_cast<std::size_t>(span_start));
+                    if (bracket != std::string_view::npos && bracket < static_cast<std::size_t>(span_end))
+                        name_start = static_cast<dcc::sm::Offset>(bracket) + 1;
+                }
 
                 if (cursor_offset >= span_start && cursor_offset <= span_end)
                 {
                     inside_placeholder = true;
-                    auto after_bracket = span_start + 2;
-                    if (cursor_offset > after_bracket)
+                    if (cursor_offset > name_start)
                     {
-                        auto len = static_cast<std::size_t>(cursor_offset - after_bracket);
-                        if (after_bracket + static_cast<dcc::sm::Offset>(len) <= static_cast<dcc::sm::Offset>(file.text().size()))
-                            partial_name = std::string{file.text().substr(after_bracket, len)};
+                        auto len = static_cast<std::size_t>(cursor_offset - name_start);
+                        if (name_start + static_cast<dcc::sm::Offset>(len) <= static_cast<dcc::sm::Offset>(text.size()))
+                            partial_name = std::string{text.substr(static_cast<std::size_t>(name_start), len)};
                     }
                     break;
                 }
 
-                if (cursor_offset >= span_start && cursor_offset < span_start + 2)
+                if (cursor_offset >= span_start && cursor_offset <= name_start)
                 {
                     inside_placeholder = true;
                     partial_name.clear();
@@ -685,7 +1027,6 @@ namespace dccd::completion
                 auto rel_offset = static_cast<std::int64_t>(cursor_offset) - static_cast<std::int64_t>(content_base);
                 if (rel_offset >= 2)
                 {
-                    auto text = file.text();
                     auto search_start = static_cast<std::size_t>(content_base);
                     auto search_end = static_cast<std::size_t>(cursor_offset);
                     if (search_end <= text.size() && search_start < search_end)
@@ -744,7 +1085,12 @@ namespace dccd::completion
                         break;
                 }
 
-                add_item(items, std::string{op.placeholder}, protocol::CompletionItemKind::Variable, std::move(detail));
+                ItemOptions opts;
+                opts.sort_text = "0";
+                opts.detail = std::move(detail);
+                opts.insert_text = std::string{op.placeholder};
+                opts.insert_text_format = protocol::InsertTextFormat::PlainText;
+                add_item(items, op.placeholder, protocol::CompletionItemKind::Variable, replacement_range, std::move(opts));
             }
 
             // TODO(asm): instruction mnemonic completion
@@ -889,11 +1235,7 @@ namespace dccd::completion
 
         auto* sema_ctx = session.sema_context();
         if (!sema_ctx)
-        {
-            if (ctx.trigger == CompletionContext::Trigger::None && !ctx.prefix.empty())
-                ;
             return result;
-        }
 
         auto const* module = find_module_by_uri(*sema_ctx, sm, uri);
         if (!module)
@@ -905,41 +1247,53 @@ namespace dccd::completion
             return result;
         }
 
+        auto replacement_range = compute_replacement_range(sm, fid, ctx);
+        auto region = dcc::query::source_region_at(session, fid, cursor_offset);
+
+        if (ctx.trigger == CompletionContext::Trigger::None)
+            if (auto node = dcc::query::find_node_at(session, *loc_result))
+                if (node->type_expr)
+                    ctx.kind = CompletionContext::ContextKind::Type;
+
         switch (ctx.trigger)
         {
             case CompletionContext::Trigger::Dot:
-                handle_member_access_completion(result.items, session, module, ctx.prefix, fid, *loc_result, static_cast<dcc::sm::Offset>(ctx.trigger_offset));
+                if (!region.in_string_or_comment())
+                    handle_member_access_completion(result.items, session, module, fid, *file, ctx, *loc_result,
+                                                    replacement_range ? &*replacement_range : nullptr);
                 break;
             case CompletionContext::Trigger::ColonColon:
-                handle_namespace_completion(result.items, session, module, ctx.prefix);
+                if (!region.in_string_or_comment())
+                    handle_namespace_completion(result.items, session, module, ctx, file->text(), replacement_range ? &*replacement_range : nullptr);
                 break;
             case CompletionContext::Trigger::None: {
                 auto node = dcc::query::find_node_at(session, fid, cursor);
                 if (!node || !node->has_ast_node())
                     std::println(std::cerr, "[dccd] compute_completions: no AST node at cursor position");
 
-                if (try_asm_operand_completion(result.items, session, fid, cursor_offset, *file, node, ctx.prefix))
+                if (try_asm_operand_completion(result.items, session, fid, cursor_offset, *file, node, ctx.prefix,
+                                               replacement_range ? &*replacement_range : nullptr))
                     break;
 
+                if (region.in_string_or_comment())
+                    break;
+
+                auto local_ctx = dcc::query::collect_local_context(session, fid, *loc_result);
+
+                add_local_completions(result.items, local_ctx, ctx.prefix, replacement_range ? &*replacement_range : nullptr);
+
                 if (module->own_scope)
-                {
-                    for (auto const& [name, binding] : module->own_scope->bindings())
-                    {
-                        if (name.empty() || (!ctx.prefix.empty() && !name.starts_with(ctx.prefix)))
-                            continue;
-                        if (binding.has_type)
-                            add_item(result.items, name, symbol_kind_to_completion_kind(binding.type_sym.kind));
-                        for (auto const& vs : binding.value_syms)
-                            add_item(result.items, name, symbol_kind_to_completion_kind(vs.kind));
-                        if (binding.has_namespace)
-                            add_item(result.items, name, symbol_kind_to_completion_kind(binding.namespace_sym.kind));
-                    }
-                }
+                    add_scope_symbols_for_context(result.items, *module->own_scope, ctx.prefix, ctx.kind, file->text(), ctx.token_end,
+                                                  replacement_range ? &*replacement_range : nullptr);
+
+                add_keyword_completions(result.items, ctx.kind, ctx.prefix, replacement_range ? &*replacement_range : nullptr);
                 break;
             }
         }
-
         dedup_and_sort(result.items);
+        if (!result.items.empty())
+            result.items.front().preselect = true;
+
         return result;
     }
 
