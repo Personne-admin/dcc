@@ -416,6 +416,10 @@ namespace dcc::backend
                 index_map.reserve(at->members.size());
 
                 std::uint64_t expected_offset = 0;
+                std::uint64_t natural_offset = 0;
+                std::uint32_t max_align = 1;
+                bool natural_layout = true;
+                bool layout_data_ok = true;
                 unsigned next_llvm_idx = 0;
                 for (std::size_t i = 0; i < at->members.size(); ++i)
                 {
@@ -428,12 +432,26 @@ namespace dcc::backend
                         auto* pad_ty = LLVMArrayType2(LLVMInt8TypeInContext(ctx), static_cast<unsigned>(pad_size));
                         elems.push_back(pad_ty);
                         ++next_llvm_idx;
+                        natural_offset += pad_size;
                     }
 
                     auto* mem_ty = get(m, true);
                     elems.push_back(mem_ty);
                     index_map.push_back(next_llvm_idx);
                     ++next_llvm_idx;
+
+                    auto member_align = m ? static_cast<std::uint32_t>(m->byte_align) : 1u;
+                    if (member_align == 0)
+                    {
+                        member_align = 1;
+                        layout_data_ok = false;
+                    }
+                    natural_offset = (natural_offset + member_align - 1) / member_align * member_align;
+                    if (layout_data_ok && natural_offset != offset)
+                        natural_layout = false;
+                    if (member_align > max_align)
+                        max_align = member_align;
+                    natural_offset += m ? m->byte_size : 0;
 
                     expected_offset = offset + (m ? m->byte_size : 0);
                 }
@@ -443,11 +461,15 @@ namespace dcc::backend
                     auto pad_size = at->byte_size - expected_offset;
                     auto* pad_ty = LLVMArrayType2(LLVMInt8TypeInContext(ctx), static_cast<unsigned>(pad_size));
                     elems.push_back(pad_ty);
+                    natural_offset += pad_size;
                 }
+
+                if (layout_data_ok && at->byte_size >= expected_offset && (natural_offset + max_align - 1) / max_align * max_align != at->byte_size)
+                    natural_layout = false;
 
                 field_index_map[t] = std::move(index_map);
 
-                LLVMStructSetBody(opaque, elems.data(), static_cast<unsigned>(elems.size()), 0);
+                LLVMStructSetBody(opaque, elems.data(), static_cast<unsigned>(elems.size()), natural_layout ? 0 : 1);
             }
         };
 
