@@ -212,6 +212,24 @@ namespace dcc::backend::em64t
             std::string name_str;
         };
 
+        struct ElfCustomSection
+        {
+            std::string name;
+            std::uint32_t type{};
+            std::uint64_t flags{};
+            std::uint64_t alignment{1};
+            std::vector<GlobalLayout*> globals;
+            std::vector<std::uint8_t> data;
+            std::vector<Elf64_Rela> relas;
+            std::uint64_t bss_size{};
+            std::uint32_t section_index{};
+            std::uint32_t rela_section_index{};
+            std::uint32_t sh_name{};
+            std::uint32_t rela_sh_name{};
+            std::uint64_t file_offset{};
+            std::uint64_t rela_file_offset{};
+        };
+
         [[nodiscard]] std::uint64_t align_up(std::uint64_t val, std::uint64_t alignment)
         {
             return (val + alignment - 1) / alignment * alignment;
@@ -251,6 +269,23 @@ namespace dcc::backend::em64t
                 return DataSection::Data;
 
             return DataSection::Bss;
+        }
+
+        [[nodiscard]] std::pair<std::uint32_t, std::uint64_t> elf_section_traits(DataSection section)
+        {
+            switch (section)
+            {
+                case DataSection::Rodata:
+                    return {SHT_PROGBITS, SHF_ALLOC};
+                case DataSection::RodataRelRO:
+                case DataSection::Data:
+                    return {SHT_PROGBITS, SHF_ALLOC | SHF_WRITE};
+                case DataSection::Bss:
+                    return {SHT_NOBITS, SHF_ALLOC | SHF_WRITE};
+                case DataSection::None:
+                    break;
+            }
+            return {0, 0};
         }
 
         struct InitReloc
@@ -465,6 +500,27 @@ namespace dcc::backend::em64t
             }
         }
 
+        void serialize_custom_section_global(ElfCustomSection& section, GlobalLayout& gl, std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx)
+        {
+            if (section.type == SHT_NOBITS)
+            {
+                auto pad = align_up(section.bss_size, gl.alignment);
+                gl.offset = pad;
+                section.bss_size = pad + (gl.g->type ? gl.g->type->byte_size : 0);
+                return;
+            }
+
+            auto pad = align_up(section.data.size(), gl.alignment);
+            while (section.data.size() < pad)
+                section.data.push_back(0);
+
+            gl.offset = section.data.size();
+            if (gl.g->init)
+                serialize_init_value(section.data, gl.g->init, gl.g->type, section.relas, sym_name_to_idx, section.data.size());
+            else
+                section.data.resize(section.data.size() + (gl.g->type ? gl.g->type->byte_size : 0), 0);
+        }
+
         void collect_ref_names(ir::IrValue const* val, std::unordered_set<std::string>& out)
         {
             if (!val)
@@ -600,8 +656,31 @@ export namespace dcc::backend::em64t
         }
 
         std::vector<GlobalLayout*> rodata_globals, rodata_relro_globals, data_globals, bss_globals;
+        std::vector<ElfCustomSection> custom_sections;
+        std::unordered_map<std::string, std::size_t> custom_section_index;
         for (auto& gl : globals)
         {
+            if (!gl.g->section.empty())
+            {
+                std::string sname{gl.g->section};
+                auto it = custom_section_index.find(sname);
+                if (it == custom_section_index.end())
+                {
+                    ElfCustomSection cs;
+                    cs.name = sname;
+                    cs.type = SHT_NOBITS;
+                    custom_section_index[sname] = custom_sections.size();
+                    custom_sections.push_back(std::move(cs));
+                }
+                auto& cs = custom_sections[custom_section_index[sname]];
+                auto [ty, fl] = elf_section_traits(gl.sec);
+                if (ty == SHT_PROGBITS)
+                    cs.type = SHT_PROGBITS;
+                cs.flags |= fl;
+                cs.alignment = std::max(cs.alignment, gl.alignment);
+                cs.globals.push_back(&gl);
+                continue;
+            }
             if (gl.sec == DataSection::Rodata)
                 rodata_globals.push_back(&gl);
             else if (gl.sec == DataSection::RodataRelRO)
@@ -610,6 +689,12 @@ export namespace dcc::backend::em64t
                 data_globals.push_back(&gl);
             else if (gl.sec == DataSection::Bss)
                 bss_globals.push_back(&gl);
+        }
+
+        for (auto& cs : custom_sections)
+        {
+            cs.sh_name = add_str(shstrtab, cs.name);
+            cs.rela_sh_name = add_str(shstrtab, ".rela" + cs.name);
         }
 
         std::vector<std::uint8_t> rodata_data;
@@ -676,6 +761,10 @@ export namespace dcc::backend::em64t
             glp->offset = pad;
             bss_size = pad + (glp->g->type ? glp->g->type->byte_size : 0);
         }
+
+        for (auto& cs : custom_sections)
+            for (auto* glp : cs.globals)
+                serialize_custom_section_global(cs, *glp, empty_sym_map);
 
         struct BlockSymInfo
         {
@@ -762,6 +851,10 @@ export namespace dcc::backend::em64t
         for (auto* glp : data_globals)
             if (glp->g->init)
                 collect_ref_names(glp->g->init, data_ref_names);
+        for (auto& cs : custom_sections)
+            for (auto* glp : cs.globals)
+                if (glp->g->init)
+                    collect_ref_names(glp->g->init, data_ref_names);
 
         for (auto const& n : data_ref_names)
             if (!defined_names.contains(n))
@@ -847,6 +940,13 @@ export namespace dcc::backend::em64t
         if (has_bss)
             next_sec++;
 
+        for (auto& cs : custom_sections)
+        {
+            cs.section_index = next_sec++;
+            if (section_has_refs(cs.globals))
+                cs.rela_section_index = next_sec++;
+        }
+
         std::uint32_t sec_symtab = next_sec++;
         std::uint32_t sec_strtab = next_sec++;
         std::uint32_t sec_shstrtab = next_sec++;
@@ -854,6 +954,8 @@ export namespace dcc::backend::em64t
 
         for (auto& gl : globals)
         {
+            if (!gl.g->section.empty())
+                continue;
             if (gl.sec == DataSection::Rodata)
                 gl.section_index = sec_rodata;
             else if (gl.sec == DataSection::RodataRelRO)
@@ -863,6 +965,10 @@ export namespace dcc::backend::em64t
             else if (gl.sec == DataSection::Bss)
                 gl.section_index = sec_bss;
         }
+
+        for (auto& cs : custom_sections)
+            for (auto* glp : cs.globals)
+                glp->section_index = cs.section_index;
 
         for (auto* glp : rodata_globals)
         {
@@ -918,6 +1024,23 @@ export namespace dcc::backend::em64t
                 s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
                 name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
                 syms.push_back(s);
+            }
+        }
+        for (auto& cs : custom_sections)
+        {
+            for (auto* glp : cs.globals)
+            {
+                if (glp->g->linkage == ir::Linkage::Internal)
+                {
+                    Elf64_Sym s{};
+                    s.st_name = add_str(strtab, glp->name_str);
+                    s.st_info = elf_st_info(STB_LOCAL, STT_OBJECT);
+                    s.st_shndx = static_cast<std::uint16_t>(glp->section_index);
+                    s.st_value = glp->offset;
+                    s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
+                    name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
+                    syms.push_back(s);
+                }
             }
         }
 
@@ -1044,6 +1167,25 @@ export namespace dcc::backend::em64t
                 syms.push_back(s);
             }
         }
+        for (auto& cs : custom_sections)
+        {
+            for (auto* glp : cs.globals)
+            {
+                if (glp->g->linkage == ir::Linkage::External)
+                {
+                    if (name_to_sym_idx.contains(std::string{glp->g->name}))
+                        continue;
+                    Elf64_Sym s{};
+                    s.st_name = add_str(strtab, glp->name_str);
+                    s.st_info = elf_st_info(STB_GLOBAL, STT_OBJECT);
+                    s.st_shndx = static_cast<std::uint16_t>(glp->section_index);
+                    s.st_value = glp->offset;
+                    s.st_size = glp->g->type ? glp->g->type->byte_size : 0;
+                    name_to_sym_idx[std::string{glp->g->name}] = static_cast<std::uint32_t>(syms.size());
+                    syms.push_back(s);
+                }
+            }
+        }
 
         rodata_data.clear();
         rodata_relas.clear();
@@ -1123,6 +1265,15 @@ export namespace dcc::backend::em64t
             }
         }
 
+        for (auto& cs : custom_sections)
+        {
+            cs.data.clear();
+            cs.relas.clear();
+            cs.bss_size = 0;
+            for (auto* glp : cs.globals)
+                serialize_custom_section_global(cs, *glp, name_to_sym_idx);
+        }
+
         std::vector<Elf64_Rela> final_text_relas;
         for (std::size_t fi = 0; fi < func_relocs.size(); ++fi)
         {
@@ -1178,6 +1329,21 @@ export namespace dcc::backend::em64t
         auto rela_data_off = cur_offset;
         auto rela_data_size = data_relas.size() * sizeof(Elf64_Rela);
         cur_offset = rela_data_off + rela_data_size;
+
+        for (auto& cs : custom_sections)
+        {
+            if (cs.type == SHT_NOBITS)
+                continue;
+            cs.file_offset = cur_offset;
+            cur_offset += cs.data.size();
+        }
+        for (auto& cs : custom_sections)
+        {
+            if (cs.rela_section_index == 0)
+                continue;
+            cs.rela_file_offset = cur_offset;
+            cur_offset += cs.relas.size() * sizeof(Elf64_Rela);
+        }
 
         auto symtab_off = cur_offset;
         auto symtab_size = static_cast<std::uint64_t>(syms.size()) * sizeof(Elf64_Sym);
@@ -1298,6 +1464,29 @@ export namespace dcc::backend::em64t
             shdrs[sec_bss].sh_addralign = 8;
         }
 
+        for (auto& cs : custom_sections)
+        {
+            shdrs[cs.section_index] = {};
+            shdrs[cs.section_index].sh_name = cs.sh_name;
+            shdrs[cs.section_index].sh_type = cs.type;
+            shdrs[cs.section_index].sh_flags = cs.flags;
+            shdrs[cs.section_index].sh_offset = cs.type == SHT_NOBITS ? 0 : cs.file_offset;
+            shdrs[cs.section_index].sh_size = cs.type == SHT_NOBITS ? cs.bss_size : cs.data.size();
+            shdrs[cs.section_index].sh_addralign = cs.alignment;
+            if (cs.rela_section_index != 0)
+            {
+                shdrs[cs.rela_section_index] = {};
+                shdrs[cs.rela_section_index].sh_name = cs.rela_sh_name;
+                shdrs[cs.rela_section_index].sh_type = SHT_RELA;
+                shdrs[cs.rela_section_index].sh_offset = cs.rela_file_offset;
+                shdrs[cs.rela_section_index].sh_size = cs.relas.size() * sizeof(Elf64_Rela);
+                shdrs[cs.rela_section_index].sh_link = sec_symtab;
+                shdrs[cs.rela_section_index].sh_info = cs.section_index;
+                shdrs[cs.rela_section_index].sh_addralign = 8;
+                shdrs[cs.rela_section_index].sh_entsize = sizeof(Elf64_Rela);
+            }
+        }
+
         shdrs[sec_symtab] = {};
         shdrs[sec_symtab].sh_name = sh_name_symtab;
         shdrs[sec_symtab].sh_type = SHT_SYMTAB;
@@ -1381,6 +1570,28 @@ export namespace dcc::backend::em64t
             w64(out, rel.r_offset);
             w64(out, rel.r_info);
             w64(out, static_cast<std::uint64_t>(rel.r_addend));
+        }
+
+        for (auto& cs : custom_sections)
+        {
+            if (cs.type == SHT_NOBITS)
+                continue;
+            while (out.size() < cs.file_offset)
+                out.push_back(0);
+            out.insert(out.end(), cs.data.begin(), cs.data.end());
+        }
+        for (auto& cs : custom_sections)
+        {
+            if (cs.rela_section_index == 0)
+                continue;
+            while (out.size() < cs.rela_file_offset)
+                out.push_back(0);
+            for (auto const& rel : cs.relas)
+            {
+                w64(out, rel.r_offset);
+                w64(out, rel.r_info);
+                w64(out, static_cast<std::uint64_t>(rel.r_addend));
+            }
         }
 
         for (auto const& sym : syms)
