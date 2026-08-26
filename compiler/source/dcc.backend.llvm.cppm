@@ -1492,6 +1492,10 @@ namespace dcc::backend
 
                 auto* gv = LLVMAddGlobal(mod, mem_ty, std::string{g->name}.c_str());
                 apply_linkage_and_comdat(gv, g->linkage, mod, g->name);
+                if (g->is_dll_import)
+                    LLVMSetDLLStorageClass(gv, LLVMDLLImportStorageClass);
+                else if (g->is_dll_export)
+                    LLVMSetDLLStorageClass(gv, LLVMDLLExportStorageClass);
                 return gv;
             }
 

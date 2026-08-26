@@ -5302,6 +5302,8 @@ export namespace dcc::ir::lower
                 {
                     ir_global->linkage = vd->is_public ? Linkage::External : Linkage::Internal;
                 }
+                if (vd->sema.is_dll_export)
+                    ir_global->linkage = Linkage::External;
 
                 ir_global->is_dll_import = vd->sema.is_dll_import;
                 ir_global->is_dll_export = vd->sema.is_dll_export;
