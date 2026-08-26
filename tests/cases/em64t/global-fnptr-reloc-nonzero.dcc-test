@@ -1,0 +1,38 @@
+=== FILE: test.dc ===
+module test;
+
+using FnPtr = i32(*)();
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 fn_one() {
+    return 1;
+}
+
+@nomangle
+public i32 fn_two() {
+    return 2;
+}
+
+@nomangle
+const FnPtr g_fn_one = fn_one;
+
+@nomangle
+const FnPtr g_fn_two = fn_two;
+
+@nomangle
+public i32 dcc_main() {
+    FnPtr fp = g_fn_two;
+    return fp();
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 2
