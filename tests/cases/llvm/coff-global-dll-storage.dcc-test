@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+@import @nomangle extern
+const i32 imported_data;
+
+@export @nomangle
+i32 exported_data = 42;
+
+=== EXPECT-LLVM FLAGS: -target x86_64-coff -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-pc-windows-msvc"
+
+@imported_data = external dllimport constant i32
+@exported_data = dllexport global i32 42
