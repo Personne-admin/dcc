@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+using BinOp = i64(*)(i64, i64);
+
+i64 add(i64 a, i64 b) {
+    return a + b;
+}
+
+const BinOp g = &add;
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test1.gpi64s2i64si64s : ptr<fn(i64, i64) -> i64> = @_DC0F1.4.test3.add2i64si64si64s
+
+
+i64@_DC0F1.4.test3.add2i64si64si64s(i64, i64) {
+%entry(i64 %a, i64 %b):
+  %0 = add i64 %a, i64 %b
+  ret i64 %0
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
