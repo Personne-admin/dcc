@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module m;
+
+using BinOp = i32(*)(i32, i32);
+
+public struct Table {
+    i64 tag;
+    BinOp op;
+}
+
+i32 wrong_sig(f32 a, f32 b) { return 0; }
+
+@nomangle
+const Table table = {tag = 1, op = wrong_sig};
+
+=== EXPECT-ERRORS ===
+test.dc:13:31: field type mismatch

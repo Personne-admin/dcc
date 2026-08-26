@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+using BinOp = i64(*)(i64, i64);
+
+public struct Inner {
+    i64 id;
+    BinOp fn;
+}
+
+public struct Table {
+    BinOp first;
+    Inner inner;
+    BinOp[2] arr;
+}
+
+i64 add(i64 a, i64 b) {
+    return a + b;
+}
+
+i64 sub(i64 a, i64 b) {
+    return a - b;
+}
+
+@nomangle
+const Table table = {first = add, inner = {id = 5, fn = sub}, arr = {add, sub}};
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-unknown-linux-gnu"
+
+%0 = type { ptr, %1, [2 x ptr] }
+%1 = type { i64, ptr }
+
+@table = internal constant %0 { ptr @_DC0F1.4.test3.add2i64si64si64s, %1 { i64 5, ptr @_DC0F1.4.test3.sub2i64si64si64s }, [2 x ptr] [ptr @_DC0F1.4.test3.add2i64si64si64s, ptr @_DC0F1.4.test3.sub2i64si64si64s] }
+
+define i64 @_DC0F1.4.test3.add2i64si64si64s(i64 %a, i64 %b) {
+entry:
+  %"0" = add i64 %a, %b
+  ret i64 %"0"
+}
+
+define i64 @_DC0F1.4.test3.sub2i64si64si64s(i64 %a, i64 %b) {
+entry:
+  %"0" = sub i64 %a, %b
+  ret i64 %"0"
+}
