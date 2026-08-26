@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+i32 counter = 10;
+
+@nomangle
+public i32 dcc_main() {
+    counter = counter + 1;
+    return counter;
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: section .data
+CONTAINS: counter:
