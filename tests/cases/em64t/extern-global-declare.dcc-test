@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+extern i32 ext_global;
+
+@nomangle
+public i32 dcc_main() {
+    return ext_global;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-unknown-linux-gnu"
+
+@ext_global = external global i32
+
+define i32 @dcc_main() {
+entry:
+  %"0" = load i32, ptr @ext_global, align 4
+  ret i32 %"0"
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: extern ext_global
