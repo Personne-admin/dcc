@@ -587,10 +587,12 @@ export namespace dcc::backend::em64t
             }
         }
 
+        std::uint64_t bss_size = 0;
         for (auto* glp : bss_globals)
         {
-            auto pad = align_up(0, glp->alignment);
+            auto pad = align_up(bss_size, glp->alignment);
             glp->offset = pad;
+            bss_size = pad + (glp->g->type ? glp->g->type->byte_size : 0);
         }
 
         struct BlockSymInfo
@@ -1031,14 +1033,6 @@ export namespace dcc::backend::em64t
             {
                 serialize_init_value(data_data, glp->g->init, glp->g->type, data_relas, name_to_sym_idx, data_data.size());
             }
-        }
-
-        std::uint64_t bss_size = 0;
-        for (auto* glp : bss_globals)
-        {
-            auto pad = align_up(bss_size, glp->alignment);
-            glp->offset = pad;
-            bss_size = pad + (glp->g->type ? glp->g->type->byte_size : 0);
         }
 
         std::vector<Elf64_Rela> final_text_relas;
@@ -1496,6 +1490,14 @@ export namespace dcc::backend::em64t
             sym_name_to_idx[func_names[i]] = static_cast<std::uint32_t>(coff_syms.size() - 1);
         }
 
+        std::uint64_t bss_sec_size = 0;
+        for (auto* glp : bss_globals)
+        {
+            auto pad = align_up(bss_sec_size, glp->alignment);
+            glp->offset = pad;
+            bss_sec_size = pad + (glp->g->type ? glp->g->type->byte_size : 0);
+        }
+
         for (auto& gl : globals)
         {
             auto so = add_str(gl.name_str);
@@ -1719,14 +1721,6 @@ export namespace dcc::backend::em64t
         }
 
         auto [data_sec_data, data_rels] = build_coff_init_data(data_globals, sec_data);
-
-        std::uint64_t bss_sec_size = 0;
-        for (auto* glp : bss_globals)
-        {
-            auto pad = align_up(bss_sec_size, glp->alignment);
-            glp->offset = pad;
-            bss_sec_size = pad + (glp->g->type ? glp->g->type->byte_size : 0);
-        }
 
         for (auto& cs : coff_syms)
         {
