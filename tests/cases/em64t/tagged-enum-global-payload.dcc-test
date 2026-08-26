@@ -1,0 +1,64 @@
+=== FILE: test.dc ===
+module test;
+
+enum Opt(T) {
+    Some(T),
+    None,
+}
+
+@nomangle
+Opt(i32) g = Opt::Some(42);
+
+@nomangle
+public i32 dcc_main() {
+    Opt(i32) s = g;
+    return match s { Opt::Some(v) => v, Opt::None => 0, };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-unknown-linux-gnu"
+
+%0 = type { i8, [3 x i8], [4 x i8] }
+
+@g = internal global %0 { i8 0, [3 x i8] zeroinitializer, [4 x i8] c"*\00\00\00" }
+
+define i32 @dcc_main() {
+entry:
+  %"0" = alloca %0, align 8
+  %"1" = load %0, ptr @g, align 1
+  store %0 %"1", ptr %"0", align 1
+  %"2" = load %0, ptr %"0", align 1
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
+  %"11" = phi i32 [ %"8", %match.arm0.body4 ], [ 0, %match.arm1.body6 ]
+  ret i32 %"11"
+
+match.fail2:                                      ; preds = %match.arm1.test5
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"3" = extractvalue %0 %"2", 0
+  %"4" = icmp eq i8 %"3", 0
+  br i1 %"4", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  %"5" = extractvalue %0 %"2", 2
+  %"7" = alloca [4 x i8], align 1
+  store [4 x i8] %"5", ptr %"7", align 1
+  %"8" = load i32, ptr %"7", align 4
+  br label %match.merge1
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  %"9" = extractvalue %0 %"2", 0
+  %"10" = icmp eq i8 %"9", 1
+  br i1 %"10", label %match.arm1.body6, label %match.fail2
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  br label %match.merge1
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42
