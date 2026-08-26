@@ -268,10 +268,11 @@ namespace dcc::backend
         {
             LLVMContextRef ctx;
             std::uint8_t pointer_bits;
+            bool little_endian;
             std::unordered_map<IrType const*, LLVMTypeRef> map;
             std::unordered_map<IrType const*, std::vector<unsigned>> field_index_map;
 
-            explicit TypeCache(LLVMContextRef c, std::uint8_t pb) : ctx(c), pointer_bits(pb) {}
+            explicit TypeCache(LLVMContextRef c, std::uint8_t pb, bool le) : ctx(c), pointer_bits(pb), little_endian(le) {}
 
             [[nodiscard]] LLVMTypeRef get(IrType const* t, bool for_memory)
             {
@@ -423,11 +424,203 @@ namespace dcc::backend
             return c_api_type_cached(tc, t, true);
         }
 
+        void set_constant_error(std::string* error, std::string message)
+        {
+            if (error && error->empty())
+                *error = std::move(message);
+        }
+
+        [[nodiscard]] bool is_byte_array_type(IrType const* type)
+        {
+            if (!type || type->kind != IrTypeKind::Array)
+                return false;
+
+            auto* array = static_cast<IrArrayType const*>(type);
+            if (!array->element || array->element->kind != IrTypeKind::Int)
+                return false;
+
+            return static_cast<IrIntType const*>(array->element)->bits == 8;
+        }
+
+        [[nodiscard]] bool is_llvm_byte_array_type(LLVMTypeRef type)
+        {
+            return type && LLVMGetTypeKind(type) == LLVMArrayTypeKind && LLVMGetTypeKind(LLVMGetElementType(type)) == LLVMIntegerTypeKind &&
+                   LLVMGetIntTypeWidth(LLVMGetElementType(type)) == 8;
+        }
+
+        void write_integer_bytes(std::span<std::uint8_t> output, std::uint64_t value, std::uint8_t fill, bool little_endian)
+        {
+            for (std::size_t i = 0; i < output.size(); ++i)
+            {
+                auto significance = little_endian ? i : output.size() - i - 1;
+                output[i] = significance < sizeof(value) ? static_cast<std::uint8_t>(value >> (significance * 8)) : fill;
+            }
+        }
+
+        [[nodiscard]] bool serialize_constant_memory(IrValue const* value, IrType const* storage_type, std::span<std::uint8_t> output, bool little_endian,
+                                                     std::string* error)
+        {
+            if (!value || !storage_type)
+            {
+                set_constant_error(error, "LLVM backend: opaque payload constant is missing a value or type");
+                return false;
+            }
+
+            if (storage_type->byte_size > output.size())
+            {
+                set_constant_error(error, "LLVM backend: opaque payload constant exceeds its storage");
+                return false;
+            }
+
+            if (is_byte_array_type(storage_type) && value->type && value->type != storage_type && !is_byte_array_type(value->type))
+                return serialize_constant_memory(value, value->type, output, little_endian, error);
+
+            switch (value->kind)
+            {
+                case IrNodeKind::IntConstant: {
+                    auto* constant = static_cast<IrIntConstant const*>(value);
+                    auto size = static_cast<std::size_t>(storage_type->byte_size);
+                    auto fill = static_cast<std::uint8_t>(0);
+                    if (value->type && value->type->kind == IrTypeKind::Int)
+                    {
+                        auto* integer_type = static_cast<IrIntType const*>(value->type);
+                        if (integer_type->is_signed && constant->value < 0)
+                            fill = 0xff;
+                    }
+                    write_integer_bytes(output.first(size), static_cast<std::uint64_t>(constant->value), fill, little_endian);
+                    return true;
+                }
+                case IrNodeKind::FloatConstant: {
+                    auto* constant = static_cast<IrFloatConstant const*>(value);
+                    if (storage_type->byte_size == sizeof(float))
+                    {
+                        auto bits = std::bit_cast<std::uint32_t>(static_cast<float>(constant->value));
+                        write_integer_bytes(output.first(sizeof(bits)), bits, 0, little_endian);
+                        return true;
+                    }
+                    if (storage_type->byte_size == sizeof(double))
+                    {
+                        auto bits = std::bit_cast<std::uint64_t>(constant->value);
+                        write_integer_bytes(output.first(sizeof(bits)), bits, 0, little_endian);
+                        return true;
+                    }
+                    set_constant_error(error, "LLVM backend: opaque payload constant has an unsupported floating-point width");
+                    return false;
+                }
+                case IrNodeKind::BoolConstant:
+                    if (!output.empty())
+                        output[0] = static_cast<IrBoolConstant const*>(value)->value ? 1 : 0;
+                    return true;
+                case IrNodeKind::NullConstant:
+                    return true;
+                case IrNodeKind::StringConstant: {
+                    auto const& string = static_cast<IrStringConstant const*>(value)->value;
+                    if (string.size() > output.size())
+                    {
+                        set_constant_error(error, "LLVM backend: opaque payload string constant exceeds its storage");
+                        return false;
+                    }
+                    for (std::size_t i = 0; i < string.size(); ++i)
+                        output[i] = static_cast<std::uint8_t>(string[i]);
+                    return true;
+                }
+                case IrNodeKind::Aggregate: {
+                    auto* aggregate = static_cast<IrAggregateInst const*>(value);
+                    if (storage_type->kind == IrTypeKind::Aggregate)
+                    {
+                        auto* aggregate_type = static_cast<IrAggregateType const*>(storage_type);
+                        auto count = std::min(aggregate->values.size(), aggregate_type->members.size());
+                        for (std::size_t i = 0; i < count; ++i)
+                        {
+                            if (!aggregate->values[i])
+                                continue;
+                            auto offset = i < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[i] : 0;
+                            auto* member_type = aggregate_type->members[i];
+                            if (!member_type || offset > output.size() || member_type->byte_size > output.size() - offset)
+                            {
+                                set_constant_error(error, "LLVM backend: opaque aggregate payload has an invalid field layout");
+                                return false;
+                            }
+                            if (!serialize_constant_memory(aggregate->values[i], member_type, output.subspan(offset, member_type->byte_size), little_endian, error))
+                                return false;
+                        }
+                        return true;
+                    }
+                    if (storage_type->kind == IrTypeKind::Array)
+                    {
+                        auto* array_type = static_cast<IrArrayType const*>(storage_type);
+                        if (!array_type->element)
+                        {
+                            set_constant_error(error, "LLVM backend: opaque array payload is missing its element type");
+                            return false;
+                        }
+                        auto count = std::min<std::uint64_t>(aggregate->values.size(), array_type->count);
+                        for (std::uint64_t i = 0; i < count; ++i)
+                        {
+                            auto offset = i * array_type->element->byte_size;
+                            if (!aggregate->values[i])
+                                continue;
+                            if (offset > output.size() || array_type->element->byte_size > output.size() - offset)
+                            {
+                                set_constant_error(error, "LLVM backend: opaque array payload has an invalid element layout");
+                                return false;
+                            }
+                            if (!serialize_constant_memory(aggregate->values[i], array_type->element,
+                                                           output.subspan(offset, array_type->element->byte_size), little_endian, error))
+                                return false;
+                        }
+                        return true;
+                    }
+                    if (storage_type->kind == IrTypeKind::Slice)
+                    {
+                        auto pointer_size = storage_type->byte_size / 2;
+                        for (std::size_t i = 0; i < std::min<std::size_t>(aggregate->values.size(), 2); ++i)
+                        {
+                            if (!aggregate->values[i])
+                                continue;
+                            auto offset = i * pointer_size;
+                            auto* element_type = aggregate->values[i]->type;
+                            if (!element_type || offset > output.size() || pointer_size > output.size() - offset || element_type->byte_size > pointer_size)
+                            {
+                                set_constant_error(error, "LLVM backend: opaque slice payload has an invalid layout");
+                                return false;
+                            }
+                            if (!serialize_constant_memory(aggregate->values[i], element_type, output.subspan(offset, pointer_size), little_endian, error))
+                                return false;
+                        }
+                        return true;
+                    }
+                    set_constant_error(error, "LLVM backend: opaque payload aggregate has an unsupported storage type");
+                    return false;
+                }
+                case IrNodeKind::GlobalRef:
+                    set_constant_error(error, "LLVM backend: relocatable pointer, function, or global references cannot be encoded in opaque payload bytes");
+                    return false;
+                default:
+                    set_constant_error(error, "LLVM backend: unsupported constant value in opaque payload bytes");
+                    return false;
+            }
+        }
+
         [[nodiscard]] LLVMValueRef c_api_constant(IrValue const* v, LLVMContextRef ctx, TypeCache& tc,
-                                                  std::unordered_map<IrValue const*, LLVMValueRef>& val_map, LLVMTypeRef expected_mem_type = nullptr)
+                                                   std::unordered_map<IrValue const*, LLVMValueRef>& val_map, LLVMTypeRef expected_mem_type = nullptr,
+                                                   std::string* constant_error = nullptr)
         {
             if (!v)
                 return nullptr;
+
+            if (is_llvm_byte_array_type(expected_mem_type))
+            {
+                auto* native_mem_type = v->type ? c_api_type_cached(tc, v->type, true) : nullptr;
+                if (native_mem_type != expected_mem_type)
+                {
+                    auto byte_count = LLVMGetArrayLength2(expected_mem_type);
+                    std::vector<std::uint8_t> bytes(byte_count, 0);
+                    if (!serialize_constant_memory(v, v->type, bytes, tc.little_endian, constant_error))
+                        return nullptr;
+                    return LLVMConstStringInContext(ctx, reinterpret_cast<char const*>(bytes.data()), static_cast<unsigned>(bytes.size()), 1);
+                }
+            }
 
             switch (v->kind)
             {
@@ -542,7 +735,7 @@ namespace dcc::backend
                                 if (llvm_idx < llvm_field_count)
                                 {
                                     auto* field_ty = LLVMStructGetTypeAtIndex(mem_ty, llvm_idx);
-                                    auto* cv = c_api_constant(agg->values[i], ctx, tc, val_map, field_ty);
+                                    auto* cv = c_api_constant(agg->values[i], ctx, tc, val_map, field_ty, constant_error);
                                     if (!cv)
                                         return nullptr;
                                     fields[llvm_idx] = cv;
@@ -556,7 +749,7 @@ namespace dcc::backend
                                 if (i < agg->values.size())
                                 {
                                     auto* field_ty = LLVMStructGetTypeAtIndex(mem_ty, i);
-                                    auto* cv = c_api_constant(agg->values[i], ctx, tc, val_map, field_ty);
+                                    auto* cv = c_api_constant(agg->values[i], ctx, tc, val_map, field_ty, constant_error);
                                     if (!cv)
                                         return nullptr;
                                     fields[i] = cv;
@@ -578,7 +771,7 @@ namespace dcc::backend
                         elems.reserve(agg->values.size());
                         for (auto* mv : agg->values)
                         {
-                            auto* cv = c_api_constant(mv, ctx, tc, val_map, elem_ty);
+                            auto* cv = c_api_constant(mv, ctx, tc, val_map, elem_ty, constant_error);
                             if (!cv)
                                 return nullptr;
 
@@ -750,7 +943,7 @@ namespace dcc::backend
                 }
 
                 std::unordered_map<IrValue const*, LLVMValueRef> val_map;
-                TypeCache type_cache{ctx, opts.target.pointer_bits};
+                TypeCache type_cache{ctx, opts.target.pointer_bits, opts.target.little_endian};
 
                 auto* debug_ptr = wants_debug ? &debug : nullptr;
 
@@ -1232,10 +1425,11 @@ namespace dcc::backend
                 LLVMValueRef init_val = nullptr;
                 if (g->init)
                 {
-                    init_val = c_api_constant(g->init, ctx, tc, val_map, mem_ty);
+                    std::string constant_error;
+                    init_val = c_api_constant(g->init, ctx, tc, val_map, mem_ty, &constant_error);
                     if (!init_val)
                     {
-                        add_diag(diags, g->range, "LLVM backend: unsupported global initializer");
+                        add_diag(diags, g->range, constant_error.empty() ? "LLVM backend: unsupported global initializer" : std::move(constant_error));
                         return false;
                     }
                     LLVMSetInitializer(gv, init_val);
