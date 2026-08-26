@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+@section(".mysect")
+@nomangle
+i32 custom_val = 42;
+
+@nomangle
+public i32 dcc_main() {
+    return custom_val;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+CONTAINS: .mysect
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 custom_val
