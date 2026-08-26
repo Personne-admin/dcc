@@ -719,9 +719,15 @@ export namespace dcc::backend::em64t
         bool has_rodata_relro = !rodata_relro_globals.empty();
         bool has_data = !data_globals.empty();
         bool has_bss = !bss_globals.empty();
-        bool has_rodata_rela = has_rodata && (!rodata_relas.empty() || has_jump_tables);
-        bool has_rodata_relro_rela = has_rodata_relro && !data_rel_ro_relas.empty();
-        bool has_data_rela = has_data && !data_relas.empty();
+        auto section_has_refs = [](std::vector<GlobalLayout*> const& gs) {
+            for (auto* glp : gs)
+                if (glp->g->init && has_global_ref(glp->g->init))
+                    return true;
+            return false;
+        };
+        bool has_rodata_rela = has_rodata && (has_jump_tables || section_has_refs(rodata_globals));
+        bool has_rodata_relro_rela = has_rodata_relro && section_has_refs(rodata_relro_globals);
+        bool has_data_rela = has_data && section_has_refs(data_globals);
         bool has_text_rela = !text_relas.empty();
 
         std::uint32_t sec_text = 1;
