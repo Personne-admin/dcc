@@ -1,0 +1,80 @@
+=== FILE: test.dc ===
+module test;
+
+@[packed]
+public struct Header {
+    u8 b0;
+    u8 b1;
+    u8 b2;
+    u8 b3;
+    u8 b4;
+    u8 b5;
+    u8 b6;
+    u8 b7;
+    u8 b8;
+    i32 value;
+}
+
+@nomangle
+Header g_hdr;
+
+@nomangle
+public i32 dcc_main() {
+    g_hdr.value = 0x11223344;
+    u8* p = &g_hdr as u8*;
+    if (p[9] != 0x44) {
+        return 1;
+    }
+    if (p[12] != 0x11) {
+        return 2;
+    }
+    return 0;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-unknown-linux-gnu"
+
+%0 = type <{ i8, i8, i8, i8, i8, i8, i8, i8, i8, i32 }>
+
+@"2" = internal global %0 zeroinitializer
+
+define i32 @dcc_main() {
+entry:
+  store i32 287454020, ptr getelementptr (%0, ptr @"2", i32 0, i32 9), align 4
+  %"1" = alloca ptr, align 8
+  store ptr @"2", ptr %"1", align 8
+  %"3" = load ptr, ptr %"1", align 8
+  %"4" = load ptr, ptr %"1", align 8
+  %"5" = getelementptr i8, ptr %"4", i64 9
+  %"6" = load i8, ptr %"5", align 1
+  %"7" = icmp ne i8 %"6", 68
+  br i1 %"7", label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  ret i32 1
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2
+  %"8" = load ptr, ptr %"1", align 8
+  %"9" = load ptr, ptr %"1", align 8
+  %"10" = getelementptr i8, ptr %"9", i64 12
+  %"11" = load i8, ptr %"10", align 1
+  %"12" = icmp ne i8 %"11", 17
+  br i1 %"12", label %if.then4, label %if.else5
+
+if.then4:                                         ; preds = %if.merge3
+  ret i32 2
+
+if.else5:                                         ; preds = %if.merge3
+  br label %if.merge6
+
+if.merge6:                                        ; preds = %if.else5
+  ret i32 0
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
