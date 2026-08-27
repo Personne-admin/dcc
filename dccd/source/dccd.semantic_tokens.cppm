@@ -563,6 +563,20 @@ namespace dccd::semantic_tokens
                     visitBlock(e->body);
                     break;
                 }
+                case dcc::ast::ExprKind::Lambda: {
+                    auto* e = static_cast<dcc::ast::LambdaExpr const*>(expr);
+                    for (auto const& p : e->params)
+                    {
+                        auto name_range = find_name_in_range(p.range, p.name);
+                        if (name_range.valid())
+                            emit(name_range, TokenType::Parameter);
+                        if (p.type)
+                            visitTypeExpr(p.type);
+                    }
+                    if (e->body)
+                        visitExpr(e->body);
+                    break;
+                }
                 case dcc::ast::ExprKind::Asm: {
                     auto* e = static_cast<dcc::ast::AsmExpr const*>(expr);
                     emit_asm_tokens(e->template_range, e->placeholder_spans);

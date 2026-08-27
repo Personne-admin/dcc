@@ -121,6 +121,7 @@ namespace dccd::format
             std::unordered_set<std::size_t> ast_compact_braces;
             std::unordered_set<std::size_t> ast_block_braces;
             std::unordered_set<std::size_t> ast_struct_braces;
+            std::unordered_set<std::size_t> lambda_pipe;
             std::unordered_set<std::size_t> width_eligible_parens;
             std::unordered_map<std::size_t, std::size_t> paren_context;
             std::unordered_set<std::size_t> reanchor_starts;
@@ -129,15 +130,19 @@ namespace dccd::format
             std::unordered_map<std::size_t, DelimitedGroup> groups;
         };
 
-        [[nodiscard]] bool space_before_token(std::vector<dcc::lex::Token> const& tokens, std::size_t i, StructuralInfo const& info) noexcept
-        {
-            if (i == 0)
-                return false;
+            [[nodiscard]] bool space_before_token(std::vector<dcc::lex::Token> const& tokens, std::size_t i, StructuralInfo const& info) noexcept
+            {
+                if (i == 0)
+                    return false;
 
-            auto const cur = tokens[i].kind;
-            auto const prev = tokens[i - 1].kind;
+                auto const cur = tokens[i].kind;
+                auto const prev = tokens[i - 1].kind;
 
-            bool const is_binary_operator = i < info.binary_operator.size() && info.binary_operator[i];
+                if (info.lambda_pipe.count(i - 1) > 0)
+                    if (cur != TokenKind::Arrow)
+                        return false;
+
+                bool const is_binary_operator = i < info.binary_operator.size() && info.binary_operator[i];
 
             bool const prev_is_unary_operator = i - 1 < info.unary_operator.size() && info.unary_operator[i - 1];
             if (prev_is_unary_operator)
@@ -839,6 +844,17 @@ namespace dccd::format
                 dcc::ast::RecursiveAstVisitor::visitUnaryExpr(e);
             }
 
+            void visitLambdaExpr(dcc::ast::LambdaExpr const* e) override
+            {
+                if (e && e->range.valid())
+                {
+                    auto const idx = token_at(e->range.begin.offset);
+                    if (idx != kNoTokenIndex && idx < tokens.size() && tokens[idx].kind == TokenKind::Pipe)
+                        info.lambda_pipe.insert(idx);
+                }
+                dcc::ast::RecursiveAstVisitor::visitLambdaExpr(e);
+            }
+
             void visitStmt(dcc::ast::Stmt const* s) override
             {
                 if (s && s->range.valid())
@@ -1251,6 +1267,7 @@ namespace dccd::format
                                       .ast_compact_braces = {},
                                       .ast_block_braces = {},
                                       .ast_struct_braces = {},
+                                      .lambda_pipe = {},
                                       .width_eligible_parens = {},
                                       .paren_context = {},
                                       .reanchor_starts = {},

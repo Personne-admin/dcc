@@ -301,6 +301,39 @@ namespace dccd::inlay_hints
                             visitExpr(f.value);
                     break;
                 }
+                case dcc::ast::ExprKind::Lambda: {
+                    auto* e = static_cast<dcc::ast::LambdaExpr const*>(expr);
+                    if (e->synthesized_func)
+                    {
+                        auto const& synth = *e->synthesized_func;
+                        for (std::size_t i = 0; i < e->params.size() && i < synth.params.size(); ++i)
+                        {
+                            auto const& lp = e->params[i];
+                            if (lp.type != nullptr)
+                                continue;
+
+                            auto const& sp = synth.params[i];
+                            if (!sp.type || !sp.type->sema.canonical)
+                                continue;
+
+                            auto const* canon = dcc::sema::get_canonical(sp.type->sema);
+                            if (!canon || canon->kind == dcc::types::TypeKind::Error)
+                                continue;
+
+                            // Untyped lambda params are a bare name token.
+                            auto const name_range = lp.range;
+                            if (!name_range.valid() || !range_overlaps(name_range, request_range))
+                                continue;
+
+                            auto type_str = format_type(canon);
+                            if (!type_str.empty())
+                                emit_type_hint(name_range.end, std::format(": {}", type_str));
+                        }
+                    }
+                    if (e->body)
+                        visitExpr(e->body);
+                    break;
+                }
                 default:
                     dcc::ast::RecursiveAstVisitor::visitExpr(expr);
                     break;

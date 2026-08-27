@@ -160,6 +160,56 @@ TEST_CASE("multiline call keeps grouped first arg stable")
                  "}\n");
 }
 
+TEST_CASE("lambda keeps compact leading pipe and spaces binary or")
+{
+    check_format("module m;\n"
+                 "i32 a = |x -> x | 1;\n"
+                 "i32 b = |x, y -> x | y;\n",
+                 "module m;\n"
+                 "i32 a = |x -> x | 1;\n"
+                 "i32 b = |x, y -> x | y;\n");
+}
+
+TEST_CASE("lambda formats spaced pipes into compact form")
+{
+    check_format("module m;\n"
+                 "i32 a = | x -> x;\n"
+                 "i32 b = | i32 n -> n * 2;\n",
+                 "module m;\n"
+                 "i32 a = |x -> x;\n"
+                 "i32 b = |i32 n -> n * 2;\n");
+}
+
+TEST_CASE("lambda no-param and nested forms stay stable")
+{
+    check_format("module m;\n"
+                 "i32 a = | -> 42;\n"
+                 "i32 b = |x -> |y -> x + y;\n",
+                 "module m;\n"
+                 "i32 a = | -> 42;\n"
+                 "i32 b = |x -> |y -> x + y;\n");
+}
+
+TEST_CASE("lambda in call arguments keeps compact pipe")
+{
+    check_format("module m;\n"
+                 "void apply(F)(F f) {\n"
+                 "    f(1);\n"
+                 "}\n"
+                 "void g() {\n"
+                 "    apply(|v -> v * 2);\n"
+                 "    apply(|a, b -> a | b);\n"
+                 "}\n",
+                 "module m;\n"
+                 "void apply(F)(F f) {\n"
+                 "    f(1);\n"
+                 "}\n"
+                 "void g() {\n"
+                 "    apply(|v -> v * 2);\n"
+                 "    apply(|a, b -> a | b);\n"
+                 "}\n");
+}
+
 TEST_CASE("unary bang keeps separating whitespace in conditions")
 {
     check_format("module m;\n"
