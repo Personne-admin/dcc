@@ -924,6 +924,7 @@ export namespace dcc::sema
         SpecializationRegistry& m_spec_registry;
         target::TargetConfig const* m_target{};
         bool m_suppress_errors{};
+
         std::uint32_t m_suppressed_error_count{};
         bool m_allow_implicit_enum{true};
         bool m_disallow_nested_implicit_enum{};
@@ -1047,12 +1048,48 @@ export namespace dcc::sema
             m_pending_lambdas.resize(keep);
         }
 
+        void drop_pending_deferred_lambdas(ast::LambdaExpr* expr) noexcept
+        {
+            if (!expr)
+                return;
+            std::unordered_map<ModuleInfo*, std::uint32_t> counters;
+            std::size_t keep = 0;
+            for (std::size_t i = 0; i < m_pending_lambdas.size(); ++i)
+            {
+                auto& p = m_pending_lambdas[i];
+                if (p.expr == expr && p.func == nullptr)
+                {
+                    if (p.mod)
+                    {
+                        auto it = counters.find(p.mod);
+                        if (it == counters.end() || p.counter_before < it->second)
+                            counters[p.mod] = p.counter_before;
+                    }
+                    continue;
+                }
+                m_pending_lambdas[keep++] = p;
+            }
+            m_pending_lambdas.resize(keep);
+            for (auto const& [mod, counter] : counters)
+                mod->lambda_counter = counter;
+        }
+
+        [[nodiscard]] bool has_pending_deferred_lambda(ast::LambdaExpr const* expr) const noexcept
+        {
+            if (!expr)
+                return false;
+            for (auto const& p : m_pending_lambdas)
+                if (p.expr == expr && p.func == nullptr)
+                    return true;
+            return false;
+        }
+
         class ErrorSuppressionGuard
         {
         public:
             explicit ErrorSuppressionGuard(bool& suppress, std::uint32_t& suppressed_count, std::pmr::vector<PendingLambda>* pending = nullptr) noexcept
-                : m_suppress(suppress), m_saved_suppress(suppress), m_suppressed_count(suppressed_count), m_saved_count(suppressed_count),
-                  m_pending(pending), m_saved_pending_size(pending ? pending->size() : 0)
+                : m_suppress(suppress), m_saved_suppress(suppress), m_suppressed_count(suppressed_count), m_saved_count(suppressed_count), m_pending(pending),
+                  m_saved_pending_size(pending ? pending->size() : 0)
             {
                 m_suppress = true;
             }
@@ -1091,6 +1128,7 @@ export namespace dcc::sema
                     }
                 }
                 m_suppress = m_saved_suppress;
+                m_suppressed_count = m_saved_count;
             }
 
             [[nodiscard]] bool had_suppressed_errors() const noexcept { return m_suppressed_count != m_saved_count; }
@@ -3549,21 +3587,128 @@ export namespace dcc::sema
                         }
                     }
 
+                    auto const body_lambda_mark = pending_lambda_mark();
                     auto pre_count = m_diag.diagnostic_count();
                     analyze_single_function(mod, *spec.decl);
                     auto post_count = m_diag.diagnostic_count();
 
                     m_specialization_defining_module = saved_defining_mod;
 
-                    if (post_count > pre_count)
+                    bool spec_failed = (post_count > pre_count);
+                    if (!spec_failed)
+                        spec_failed = report_unresolved_spec_lambdas(*spec.decl, body_lambda_mark);
+
+                    if (spec_failed)
                         m_spec_registry.mark_failed(spec.decl);
                     else
                         m_spec_registry.mark_analyzed(spec.decl);
                 }
                 else
-                    m_spec_registry.mark_analyzed(spec.decl);
+                {
+                    if (report_unresolved_spec_lambdas(*spec.decl, {}))
+                        m_spec_registry.mark_failed(spec.decl);
+                    else
+                        m_spec_registry.mark_analyzed(spec.decl);
+                }
             }
             return detail::CommittedSpecialization{spec.decl, spec.type};
+        }
+
+        [[nodiscard]] bool spec_type_has_unresolved_lambda(types::TypePtr ty, ast::LambdaExpr** out_expr)
+        {
+            if (!ty || has_error(ty))
+                return false;
+            switch (ty->kind)
+            {
+                case types::TypeKind::Lambda: {
+                    auto const* lt = static_cast<types::LambdaType const*>(ty);
+                    auto* l = lt->expr ? static_cast<ast::LambdaExpr*>(const_cast<void*>(lt->expr)) : nullptr;
+                    if (l && !l->synthesized_func)
+                    {
+                        if (out_expr)
+                            *out_expr = l;
+                        return true;
+                    }
+                    return false;
+                }
+                case types::TypeKind::Pointer:
+                    return spec_type_has_unresolved_lambda(static_cast<types::PointerType const*>(ty)->pointee, out_expr);
+                case types::TypeKind::Slice:
+                    return spec_type_has_unresolved_lambda(static_cast<types::SliceType const*>(ty)->element, out_expr);
+                case types::TypeKind::Array:
+                    return spec_type_has_unresolved_lambda(static_cast<types::ArrayType const*>(ty)->element, out_expr);
+                case types::TypeKind::RuntimeArray:
+                    return spec_type_has_unresolved_lambda(static_cast<types::RuntimeArrayType const*>(ty)->element, out_expr);
+                case types::TypeKind::FuncPtr: {
+                    auto const* ft = static_cast<types::FuncPtrType const*>(ty);
+                    if (spec_type_has_unresolved_lambda(ft->return_type, out_expr))
+                        return true;
+                    for (auto* pt : ft->params)
+                        if (spec_type_has_unresolved_lambda(pt, out_expr))
+                            return true;
+                    return false;
+                }
+                case types::TypeKind::Nominal:
+                    return spec_type_has_unresolved_lambda(static_cast<types::NominalType const*>(ty)->underlying, out_expr);
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool report_unresolved_spec_lambdas(ast::FuncDecl const& spec_decl, LambdaMark body_mark)
+        {
+            std::unordered_set<ast::LambdaExpr*> unresolved;
+            std::function<void(types::TypePtr)> scan = [&](types::TypePtr ty) {
+                ast::LambdaExpr* l = nullptr;
+                if (spec_type_has_unresolved_lambda(ty, &l) && l)
+                    unresolved.insert(l);
+            };
+            if (spec_decl.return_type)
+                scan(get_canonical(spec_decl.return_type->sema));
+            for (auto const& p : spec_decl.params)
+                if (p.type)
+                    scan(get_canonical(p.type->sema));
+
+            for (std::size_t i = body_mark.pending_size; i < m_pending_lambdas.size(); ++i)
+            {
+                auto const& p = m_pending_lambdas[i];
+                if (p.func == nullptr && p.expr && p.expr->synthesized_func == nullptr)
+                    unresolved.insert(p.expr);
+            }
+
+            bool failed = false;
+            for (auto* l : unresolved)
+            {
+                failed = true;
+                if (!has_pending_deferred_lambda(l))
+                    continue;
+
+                std::string_view name;
+                sm::SourceRange param_range = l->range;
+                for (auto const& p : l->params)
+                    if (!p.type)
+                    {
+                        name = p.name;
+                        param_range = p.range;
+                        break;
+                    }
+                if (name.empty())
+                    for (auto const& p : l->params)
+                        if (!p.name.empty())
+                        {
+                            name = p.name;
+                            param_range = p.range;
+                            break;
+                        }
+
+                if (!m_suppress_errors)
+                    error(param_range, "cannot deduce type for lambda parameter `{}`: no function-pointer context", name);
+                else
+                    ++m_suppressed_error_count;
+
+                drop_pending_deferred_lambdas(l);
+            }
+            return failed;
         }
 
         [[nodiscard]] std::optional<types::FuncPtrType const*> resolve_explicit_probe(ModuleInfo& mod, Scope& scope, ast::FuncDecl const& f,
@@ -5955,7 +6100,7 @@ export namespace dcc::sema
                 auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, nullptr, root_consts);
                 fn.sema.is_diverging = !res.falls_through;
                 auto ret_ty = fn.return_type ? get_canonical(fn.return_type->sema) : nullptr;
-                if (ret_ty && ret_ty != m_types.m_voidt() && res.falls_through)
+                if (ret_ty && ret_ty != m_types.m_voidt() && res.falls_through && !fn.body->tail)
                     error(fn.range, "missing return in function `{}`", fn.name);
             }
 
@@ -6083,6 +6228,8 @@ export namespace dcc::sema
 
             auto saved_counter = mod.lambda_counter;
             auto* fd = m_ast_ctx.make<ast::FuncDecl>(l.range, synth_lambda_name(mod), l.range);
+            fd->synthesized_lambda = true;
+            fd->lambda_source = &l;
             fd->params.reserve(l.params.size());
             for (std::size_t i = 0; i < l.params.size(); ++i)
             {
@@ -6124,16 +6271,22 @@ export namespace dcc::sema
             auto* saved_capture_scope = m_lambda_capture_scope;
             m_lambda_capture_scope = &scope;
             detail::StmtResult body_res{};
+            auto pre_body_diags = m_diag.diagnostic_count();
+            auto pre_body_suppressed = m_suppressed_error_count;
             if (fd->body)
                 body_res = analyze_block(mod, fd, *root, *fd->body, 0, frame_off, enforce_expected_ret ? expected_ret : nullptr, root_consts);
             else
                 body_res.falls_through = true;
             m_lambda_capture_scope = saved_capture_scope;
 
+            bool body_has_error = (m_diag.diagnostic_count() > pre_body_diags) || (m_suppressed_error_count > pre_body_suppressed);
+            if (fd->body && fd->body->tail)
+                if (auto const* tail_type = get_resolved_type(fd->body->tail->sema); tail_type && has_error(tail_type))
+                    body_has_error = true;
+
             fd->sema.is_diverging = !body_res.falls_through;
 
             types::TypePtr ret_ty = m_types.m_voidt();
-            bool body_has_error = false;
             if (enforce_expected_ret)
             {
                 ret_ty = expected_ret;
@@ -6170,6 +6323,7 @@ export namespace dcc::sema
             {
                 l.synthesized_func = nullptr;
                 mod.lambda_counter = saved_counter;
+                drop_pending_deferred_lambdas(&l);
                 return {m_types.m_errort()};
             }
 
@@ -6252,8 +6406,7 @@ export namespace dcc::sema
             if (expected_type == nullptr)
                 return finalize_lambda(mod, enclosing_fn, scope, l, loop_depth, next_off, param_types, nullptr, const_env);
 
-            bool can_defer = (expected_fp != nullptr) ||
-                             (!expected_fp && (contains_template_param(expected_type) || as_lambda_type(expected_type) != nullptr));
+            bool can_defer = (expected_fp != nullptr) || (!expected_fp && (contains_template_param(expected_type) || as_lambda_type(expected_type) != nullptr));
             if (can_defer)
             {
                 auto lt = m_types.lambda_t(&l);
@@ -11190,7 +11343,7 @@ export namespace dcc::sema
 
             auto fp = lambda_fp_of(*l);
             if (fp)
-                return invoke_funcptr(mod, scope, types::type_cast<types::FuncPtrType>(fp), arg_exprs, range, loop_depth, next_off, const_env, quiet);
+                return invoke_funcptr(mod, scope, types::type_cast<types::FuncPtrType>(fp), effective_args, range, loop_depth, next_off, const_env, quiet);
 
             return ret;
         }

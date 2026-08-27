@@ -14,10 +14,10 @@ i32 use_struct() {
 === EXPECT-IR ===
 module "test"
 
-const global @_DC0G1.4.test9.g_handlerD1.4.test7.Handler0. : {@0 ptr<fn(i32) -> i32>} = aggregate {@0 ptr<fn(i32) -> i32>}, @_DC0F1.4.test10.__lambda_01i32si32s
+const global @_DC0G1.4.test9.g_handlerD1.4.test7.Handler0. : {@0 ptr<fn(i32) -> i32>} = aggregate {@0 ptr<fn(i32) -> i32>}, @_DC0L1.4.test1.02.841i32si32s
 
 
-i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+i32@_DC0L1.4.test1.02.841i32si32s(i32) {
 %entry(i32 %v):
   %0 = add i32 %v, i32 #100
   ret i32 %0

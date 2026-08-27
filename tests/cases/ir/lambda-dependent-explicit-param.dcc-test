@@ -24,7 +24,7 @@ i32@_DC0F1.4.test4.test0i32s() {
   ret i32 %0
 }
 
-i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+i32@_DC0L1.4.test1.03.1321i32si32s(i32) {
 %entry(i32 %x):
   %0 = call fn(@_DC0S1.4.test2.id1i32si32sX1ti32s)(i32 %x) -> i32
   ret i32 %0
@@ -43,6 +43,6 @@ linkonce_odr i32@_DC0S1.4.test2.id1i32si32sX1ti32s(i32) {
 
 linkonce_odr i32@_DC0S1.4.test5.twice1i32si32sX1ti32s(i32) {
 %entry(i32 %v):
-  %0 = call fn(@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s)(ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_01i32si32s, i32 %v) -> i32
+  %0 = call fn(@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s)(ptr<fn(i32) -> i32> @_DC0L1.4.test1.03.1321i32si32s, i32 %v) -> i32
   ret i32 %0
 }

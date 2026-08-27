@@ -18,7 +18,7 @@ module "test"
 i32@_DC0F1.4.test10.make_inner0i32s() {
 %entry:
   %0 = alloca ptr<fn(i32) -> i32>
-  store ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_01i32si32s, ptr<ptr<fn(i32) -> i32>> %0
+  store ptr<fn(i32) -> i32> @_DC0L1.4.test1.02.571i32si32s, ptr<ptr<fn(i32) -> i32>> %0
   %1 = load ptr<fn(i32) -> i32>, ptr<ptr<fn(i32) -> i32>> %0
   %2 = call fn(%1)(i32 #5) -> i32
   ret i32 %2
@@ -26,35 +26,35 @@ i32@_DC0F1.4.test10.make_inner0i32s() {
 
 i32@_DC0F1.4.test13.direct_nested0i32s() {
 %entry:
-  %0 = call fn(@_DC0F1.4.test10.__lambda_21i32si32s)(i32 #41) -> i32
+  %0 = call fn(@_DC0L1.4.test1.03.1961i32si32s)(i32 #41) -> i32
   ret i32 %0
 }
 
-i32@_DC0F1.4.test10.__lambda_11i32si32s(i32) {
+i32@_DC0L1.4.test1.02.971i32si32s(i32) {
 %entry(i32 %v):
   %0 = mul i32 %v, i32 #2
   ret i32 %0
 }
 
-i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+i32@_DC0L1.4.test1.02.571i32si32s(i32) {
 %entry(i32 %a):
   %0 = alloca ptr<fn(i32) -> i32>
-  store ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_11i32si32s, ptr<ptr<fn(i32) -> i32>> %0
+  store ptr<fn(i32) -> i32> @_DC0L1.4.test1.02.971i32si32s, ptr<ptr<fn(i32) -> i32>> %0
   %1 = load ptr<fn(i32) -> i32>, ptr<ptr<fn(i32) -> i32>> %0
   %2 = call fn(%1)(i32 %a) -> i32
   ret i32 %2
 }
 
-i32@_DC0F1.4.test10.__lambda_31i32si32s(i32) {
+i32@_DC0L1.4.test1.03.2241i32si32s(i32) {
 %entry(i32 %v):
   %0 = add i32 %v, i32 #1
   ret i32 %0
 }
 
-i32@_DC0F1.4.test10.__lambda_21i32si32s(i32) {
+i32@_DC0L1.4.test1.03.1961i32si32s(i32) {
 %entry(i32 %a):
   %0 = alloca ptr<fn(i32) -> i32>
-  store ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_31i32si32s, ptr<ptr<fn(i32) -> i32>> %0
+  store ptr<fn(i32) -> i32> @_DC0L1.4.test1.03.2241i32si32s, ptr<ptr<fn(i32) -> i32>> %0
   %1 = load ptr<fn(i32) -> i32>, ptr<ptr<fn(i32) -> i32>> %0
   %2 = call fn(%1)(i32 %a) -> i32
   ret i32 %2
