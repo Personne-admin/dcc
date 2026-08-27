@@ -994,6 +994,8 @@ export namespace dcc::sema
             for (std::size_t i = begin; i < end && i < m_pending_lambdas.size(); ++i)
             {
                 auto& p = m_pending_lambdas[i];
+                if (p.func == nullptr && p.expr && p.expr->synthesized_func && p.expr->synthesized_func != p.prev_synth)
+                    continue;
                 if (p.expr)
                     first_prev.try_emplace(p.expr, p.prev_synth);
                 if (p.mod)
@@ -1029,6 +1031,8 @@ export namespace dcc::sema
                 auto& p = m_pending_lambdas[i];
                 if (p.is_spec_owned)
                     m_pending_lambdas[keep++] = p;
+                else if (p.func == nullptr && p.expr && p.expr->synthesized_func && p.expr->synthesized_func != p.prev_synth)
+                    continue;
                 else
                 {
                     if (p.expr)
@@ -1108,6 +1112,8 @@ export namespace dcc::sema
                             auto& p = vec[i];
                             if (p.is_spec_owned)
                                 vec[keep++] = p;
+                            else if (p.func == nullptr && p.expr && p.expr->synthesized_func && p.expr->synthesized_func != p.prev_synth)
+                                continue;
                             else
                             {
                                 if (p.expr)
