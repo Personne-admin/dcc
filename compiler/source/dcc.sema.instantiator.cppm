@@ -2898,6 +2898,8 @@ export namespace dcc::sema
                                     if (ident)
                                     {
                                         auto it = pack_info.find(ident->name);
+                                        if (it != pack_info.end() && it->second.types.empty())
+                                            continue;
                                         if (it != pack_info.end() && !it->second.types.empty())
                                         {
                                             bool multi = it->second.types.size() > 1;

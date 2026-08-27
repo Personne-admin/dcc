@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module m;
+
+i32 total = 0;
+
+void accumulate(i32 x) { total += x; }
+
+void apply(F, Args...)(F f, Args args) {
+    f(args...);
+}
+
+void use_empty() {
+    apply(| -> accumulate(42));
+}
+
+void use_bad() {
+    apply(|x -> x);
+}
+=== EXPECT-ERRORS EXACT ===
+main.dc:16:12: cannot deduce type for lambda parameter `x`: no function-pointer context
+=== EXPECT-BODY ===
+Module m
+  Var total type=i32 storage=module offset=0
+    IntLiteral 0 [type=i32 const=0 constant]
+  Func accumulate diverging=false
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+      Binary += [type=i32 const=<none>]
+        Ident total [type=i32 const=<none> lvalue decl=total]
+        Ident x [type=i32 const=<none> lvalue decl=x]
+  Func apply diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Param args type=Args storage=param offset=0 index=1
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident f [type=<unresolved> const=<none>]
+        PackExpansion [type=<unresolved> const=<none>]
+  Func use_empty diverging=false
+    Body
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=void(*)() const=<none>]
+          Call [type=void const=<none> decl=accumulate]
+            Ident accumulate [type=<unresolved> const=<none>]
+            IntLiteral 42 [type=i32 const=42 constant]
+  Func use_bad diverging=false
+    Body
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=x
+          Ident x [type=<unresolved> const=<none>]

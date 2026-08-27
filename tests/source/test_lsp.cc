@@ -2393,6 +2393,34 @@ TEST_CASE("lambda parameter references connect declaration and body uses")
     CHECK(has_range(ranges, 6u, 24u, 25u));
 }
 
+TEST_CASE("lambda parameter definition and hover")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    TempDir td;
+    auto text = std::string{"module m;\n"
+                            "i32 apply(i32(*)(i32) f) {\n"
+                            "    return f(1);\n"
+                            "}\n"
+                            "void use() {\n"
+                            "    i32 a = apply(|x -> x * 2);\n"
+                            "}\n"};
+    auto uri = open_file(server, sink, td.path / "main.dc", text);
+
+    auto def = request_definition(server, sink, uri, 5u, 24u);
+    REQUIRE(def.has_value());
+    CHECK_EQ(def->uri, uri);
+    CHECK_EQ(def->range.start.line, 5u);
+    CHECK_EQ(def->range.start.character, 19u);
+    CHECK_EQ(def->range.end.character, 20u);
+
+    auto hover = request_hover(server, sink, uri, 5u, 24u);
+    REQUIRE(hover.has_value());
+    CHECK(hover->find("i32 x") != std::string::npos);
+}
+
 TEST_CASE("references and rename never touch comments or strings")
 {
     Sink sink;

@@ -1299,4 +1299,3 @@ TEST_CASE("demangle rejects invalid _DC0L strings")
     CHECK(!demangle_check("_DC0L1.4.main1.33.512"));
     CHECK(!demangle_check("_DC0L1.4.main1.33.5121i32si32s_extra"));
 }
-
