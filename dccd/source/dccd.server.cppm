@@ -2186,10 +2186,20 @@ export namespace dccd
             auto path = dcc::sm::SourceManager::parse_file_uri(uri);
             if (!path)
             {
-                std::println(m_log, "[dccd] recompile_document: cannot resolve non-file URI to local path: {}", uri);
-                publish_empty_diagnostics(uri, version_for_uri(uri));
-                m_published_uris.erase(uri);
-                return;
+                auto fid = m_session->source_manager().find_by_uri(uri);
+                auto const* sf = fid ? m_session->source_manager().get(*fid) : nullptr;
+                if (sf && sf->kind() == dcc::sm::FileKind::InMemory && !sf->is_closed())
+                {
+                    path = sf->path();
+                    std::println(m_log, "[dccd] recompile_document: resolved non-file URI to in-memory path \"{}\"", path->string());
+                }
+                else
+                {
+                    std::println(m_log, "[dccd] recompile_document: cannot resolve non-file URI to local path: {}", uri);
+                    publish_empty_diagnostics(uri, version_for_uri(uri));
+                    m_published_uris.erase(uri);
+                    return;
+                }
             }
             std::println(m_log, "[dccd] recompile_document: resolved path=\"{}\"", path->string());
 
