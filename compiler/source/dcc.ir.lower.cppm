@@ -158,7 +158,7 @@ export namespace dcc::ir::lower
             if (!fd)
                 return false;
 
-            if (fd->name.starts_with("__lambda_"))
+            if (fd->synthesized_lambda || fd->lambda_source != nullptr)
                 return true;
 
             if (m_module_graph)
@@ -250,6 +250,8 @@ export namespace dcc::ir::lower
 
                 for (auto const& spec : specs)
                 {
+                    if (spec.state != sema::SpecState::Analyzed)
+                        continue;
                     if (spec.specialization_decl)
                         create_specialization_shell(spec);
                 }
@@ -2092,7 +2094,12 @@ export namespace dcc::ir::lower
                 }
 
                 case ast::StmtKind::StaticIf: {
-                    lower_panic(stmt, "StaticIf reached IR lowering (should have been folded during instantiation)");
+                    auto* si = static_cast<ast::StaticIfStmt const*>(stmt);
+                    if (si->taken_branch == 0)
+                        lower_block(si->then_block);
+                    else if (si->else_branch)
+                        lower_stmt(si->else_branch);
+                    break;
                 }
 
                 case ast::StmtKind::StaticFor: {
@@ -2264,6 +2271,13 @@ export namespace dcc::ir::lower
 
                 case ast::ExprKind::Lambda: {
                     return lower_lambda_expr(static_cast<ast::LambdaExpr const*>(expr));
+                }
+
+                case ast::ExprKind::Compiles: {
+                    auto* ce = static_cast<ast::CompilesExpr const*>(expr);
+                    if (ce->sema.const_value && ce->sema.const_value->kind() == dcc::comptime::Value::Kind::Bool)
+                        return materialize_comptime(*ce->sema.const_value, get_sema_resolved_type(expr));
+                    lower_panic(ce, "compiles expression without a constant value");
                 }
 
                 case ast::ExprKind::StringLiteral: {
@@ -5629,6 +5643,12 @@ export namespace dcc::ir::lower
                         lower_panic(le, std::format("lambda function `{}` not in function map for constant init", fd->name));
 
                     return m_ctx.func_ref(ir_func);
+                }
+                case ast::ExprKind::Compiles: {
+                    auto* ce = static_cast<ast::CompilesExpr const*>(expr);
+                    if (ce->sema.const_value && ce->sema.const_value->kind() == dcc::comptime::Value::Kind::Bool)
+                        return materialize_comptime(*ce->sema.const_value, target_type);
+                    lower_panic(ce, "compiles expression without a constant value");
                 }
                 case ast::ExprKind::Ident: {
                     auto* id = static_cast<ast::IdentExpr const*>(expr);

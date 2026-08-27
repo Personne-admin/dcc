@@ -1190,6 +1190,8 @@ export namespace dcc::ast
         std::pmr::vector<FuncParam> params;
         ExprPtr constraint{};
         std::optional<Block> body;
+        struct LambdaExpr* lambda_source{};
+        bool synthesized_lambda : 1 {};
         FuncDecl(sm::SourceRange r, std::string_view n, sm::SourceRange nr, Allocator a)
             : Decl(Kind, r, a), name(n), name_range(nr), template_params(a), params(a)
         {

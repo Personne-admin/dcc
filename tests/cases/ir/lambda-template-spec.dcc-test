@@ -25,35 +25,35 @@ i32 use0() {
 module "test"
 i32@_DC0F1.4.test7.use_i320i32s() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s)(ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_01i32si32s, i32 #41) -> i32
+  %0 = call fn(@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s)(ptr<fn(i32) -> i32> @_DC0L1.4.test1.02.961i32si32s, i32 #41) -> i32
   ret i32 %0
 }
 
 f64@_DC0F1.4.test7.use_f640f64.() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test5.apply2pf64.1f64.f64.f64.X1tf64.)(ptr<fn(f64) -> f64> @_DC0F1.4.test10.__lambda_11f64.f64., f64 #8) -> f64
+  %0 = call fn(@_DC0S1.4.test5.apply2pf64.1f64.f64.f64.X1tf64.)(ptr<fn(f64) -> f64> @_DC0L1.4.test1.03.1501f64.f64., f64 #8) -> f64
   ret f64 %0
 }
 
 i32@_DC0F1.4.test4.use00i32s() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test7.invoke01pi32s0i32sX1ti32s)(ptr<fn() -> i32> @_DC0F1.4.test10.__lambda_20i32s) -> i32
+  %0 = call fn(@_DC0S1.4.test7.invoke01pi32s0i32sX1ti32s)(ptr<fn() -> i32> @_DC0L1.4.test1.03.2500i32s) -> i32
   ret i32 %0
 }
 
-i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+i32@_DC0L1.4.test1.02.961i32si32s(i32) {
 %entry(i32 %x):
   %0 = add i32 %x, i32 #1
   ret i32 %0
 }
 
-f64@_DC0F1.4.test10.__lambda_11f64.f64.(f64) {
+f64@_DC0L1.4.test1.03.1501f64.f64.(f64) {
 %entry(f64 %y):
   %0 = mul f64 %y, f64 #0.5
   ret f64 %0
 }
 
-i32@_DC0F1.4.test10.__lambda_20i32s() {
+i32@_DC0L1.4.test1.03.2500i32s() {
 %entry:
   ret i32 #5
 }

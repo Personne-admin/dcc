@@ -51,6 +51,7 @@ export namespace dcc::ir::mangle
             Range,
             RangeInclusive,
             Error,
+            Lambda,
         };
 
         Tag tag{};
@@ -125,7 +126,8 @@ export namespace dcc::ir::mangle
             Specialization,
             Type,
             Value,
-            TypeSpec
+            TypeSpec,
+            Lambda
         };
 
         Kind kind{};
@@ -147,6 +149,10 @@ export namespace dcc::ir::mangle
     std::string mangle_value(dcc::comptime::Value const& value, NominalResolver resolver = {});
     std::string mangle_function(std::span<std::string_view const> module_path, dcc::ast::FuncDecl const& decl, std::span<dcc::types::TypePtr const> param_types,
                                 dcc::types::TypePtr return_type, std::span<TemplateArg const> template_args = {}, NominalResolver resolver = {});
+
+    std::string mangle_lambda_function(std::span<std::string_view const> module_path, dcc::ast::FuncDecl const& decl,
+                                       std::span<dcc::types::TypePtr const> param_types, dcc::types::TypePtr return_type,
+                                       NominalResolver resolver = {});
 
     std::string mangle_global(std::span<std::string_view const> module_path, dcc::ast::VarDecl const& decl, dcc::types::TypePtr type,
                               std::span<TemplateArg const> template_args = {}, NominalResolver resolver = {});
@@ -492,8 +498,11 @@ namespace dcc::ir::mangle
                     if (lt->expr)
                     {
                         auto* lexpr = static_cast<dcc::ast::LambdaExpr const*>(lt->expr);
-                        if (lexpr->synthesized_func)
-                            encode_seg(out, lexpr->synthesized_func->name);
+                        if (lexpr->range.valid())
+                        {
+                            encode_seg(out, std::to_string(static_cast<std::uint32_t>(lexpr->range.begin.fileId)));
+                            encode_seg(out, std::to_string(lexpr->range.begin.offset));
+                        }
                     }
                     return;
                 }
@@ -947,6 +956,20 @@ namespace dcc::ir::mangle
                 case 'E':
                     dt.tag = DemangledType::Tag::Error;
                     return true;
+                case 'L': {
+                    dt.tag = DemangledType::Tag::Lambda;
+                    std::string fid;
+                    if (!parse_ident(sv, pos, fid))
+                        return false;
+                    dt.name = std::move(fid);
+                    std::string off;
+                    if (!parse_ident(sv, pos, off))
+                        return false;
+                    if (!dt.name.empty())
+                        dt.name += ".";
+                    dt.name += off;
+                    return true;
+                }
                 default:
                     return false;
             }
@@ -1151,6 +1174,9 @@ namespace dcc::ir::mangle
         if (decl.sema.is_nomangle)
             return std::string{decl.name};
 
+        if (decl.synthesized_lambda || decl.lambda_source)
+            return mangle_lambda_function(module_path, decl, param_types, return_type, resolver);
+
         std::string out = "_DC0F";
         encode_path(out, module_path, resolver);
         encode_seg(out, decl.name);
@@ -1164,6 +1190,32 @@ namespace dcc::ir::mangle
             out += cc;
 
         encode_template_args(out, template_args, resolver);
+        return out;
+    }
+
+    std::string mangle_lambda_function(std::span<std::string_view const> module_path, dcc::ast::FuncDecl const& decl,
+                                        std::span<dcc::types::TypePtr const> param_types, dcc::types::TypePtr return_type, NominalResolver resolver)
+    {
+        std::string out = "_DC0L";
+        encode_path(out, module_path, resolver);
+        if (decl.lambda_source && decl.lambda_source->range.valid())
+        {
+            encode_seg(out, std::to_string(static_cast<std::uint32_t>(decl.lambda_source->range.begin.fileId)));
+            encode_seg(out, std::to_string(decl.lambda_source->range.begin.offset));
+        }
+        else
+        {
+            encode_seg(out, "0");
+            encode_seg(out, "0");
+        }
+        out += to_dec(param_types.size());
+        for (auto* pt : param_types)
+            encode_type(out, pt, resolver);
+
+        encode_type(out, return_type, resolver);
+        auto cc = encode_cc(decl.sema.calling_conv);
+        if (!cc.empty())
+            out += cc;
         return out;
     }
 
@@ -1280,6 +1332,8 @@ namespace dcc::ir::mangle
             return parse_func_like(DemangledName::Kind::Function);
         else if (kind == 'S')
             return parse_func_like(DemangledName::Kind::Specialization);
+        else if (kind == 'L')
+            return parse_func_like(DemangledName::Kind::Lambda);
         else if (kind == 'G')
         {
             result.kind = DemangledName::Kind::Global;

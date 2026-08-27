@@ -12,10 +12,10 @@ i32 use_global() {
 === EXPECT-IR ===
 module "test"
 
-const global @_DC0G1.4.test8.g_doublepi32s1i32s : ptr<fn(i32) -> i32> = @_DC0F1.4.test10.__lambda_01i32si32s
+const global @_DC0G1.4.test8.g_doublepi32s1i32s : ptr<fn(i32) -> i32> = @_DC0L1.4.test1.02.571i32si32s
 
 
-i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+i32@_DC0L1.4.test1.02.571i32si32s(i32) {
 %entry(i32 %x):
   %0 = mul i32 %x, i32 #2
   ret i32 %0

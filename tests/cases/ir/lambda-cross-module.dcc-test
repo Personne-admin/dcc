@@ -38,11 +38,11 @@ i32@_DC0F1.4.main19.use_imported_global0i32s() {
 
 i32@_DC0F1.4.main16.call_imported_fn0i32s() {
 %entry:
-  %0 = call fn(@_DC0F1.4.math5.apply1pi32s1i32si32s)(ptr<fn(i32) -> i32> @_DC0F1.4.main10.__lambda_01i32si32s) -> i32
+  %0 = call fn(@_DC0F1.4.math5.apply1pi32s1i32si32s)(ptr<fn(i32) -> i32> @_DC0L1.4.main1.03.1331i32si32s) -> i32
   ret i32 %0
 }
 
-i32@_DC0F1.4.main10.__lambda_01i32si32s(i32) {
+i32@_DC0L1.4.main1.03.1331i32si32s(i32) {
 %entry(i32 %x):
   %0 = mul i32 %x, i32 #10
   ret i32 %0

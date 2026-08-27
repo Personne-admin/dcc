@@ -4106,6 +4106,7 @@ export namespace dcc::sema
         ast::FuncDecl const* template_decl{};
         std::vector<CanonicalArg> canonical_args;
         ast::FuncDecl* specialization_decl{};
+        SpecState state{SpecState::Pending};
     };
 
     class SpecializationRegistry
@@ -4123,6 +4124,7 @@ export namespace dcc::sema
                 view.template_decl = key.decl;
                 view.canonical_args = key.args;
                 view.specialization_decl = entry.decl;
+                view.state = entry.state;
                 result.push_back(std::move(view));
             }
             return result;
@@ -4322,7 +4324,10 @@ export namespace dcc::sema
                 if (a.fn_name != b.fn_name)
                     return a.fn_name < b.fn_name;
 
-                return a.args_str < b.args_str;
+                if (a.args_str != b.args_str)
+                    return a.args_str < b.args_str;
+
+                return a.state < b.state;
             });
 
             std::string out;
