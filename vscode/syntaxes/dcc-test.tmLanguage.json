@@ -1,0 +1,197 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "DCC Test",
+    "scopeName": "source.dcc-test",
+    "fileTypes": [
+        "dcc-test"
+    ],
+    "patterns": [
+        {
+            "include": "#file-section"
+        },
+        {
+            "include": "#ir-section"
+        },
+        {
+            "include": "#dump-section"
+        }
+    ],
+    "repository": {
+        "file-section": {
+            "begin": "^(=== FILE: )([^\\r\\n]*?)( ===)(\\s*)$",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.section.delimiter.dcc-test"
+                },
+                "2": {
+                    "name": "string.unquoted.path.dcc-test"
+                },
+                "3": {
+                    "name": "punctuation.section.delimiter.dcc-test"
+                }
+            },
+            "end": "(?=^===)",
+            "contentName": "source.dc",
+            "patterns": [
+                {
+                    "include": "source.dc"
+                }
+            ]
+        },
+        "ir-section": {
+            "begin": "^(=== )(EXPECT-IR)(.*?)( ===)(\\s*)$",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.section.delimiter.dcc-test"
+                },
+                "2": {
+                    "name": "entity.name.section.dcc-test"
+                },
+                "3": {
+                    "patterns": [
+                        {
+                            "match": "\\bFLAGS:\\s*",
+                            "name": "keyword.other.flag.dcc-test"
+                        },
+                        {
+                            "match": "-[a-zA-Z0-9=_.-]+",
+                            "name": "constant.language.flag.dcc-test"
+                        }
+                    ]
+                },
+                "4": {
+                    "name": "punctuation.section.delimiter.dcc-test"
+                }
+            },
+            "end": "(?=^===)",
+            "contentName": "source.dcc-dir",
+            "patterns": [
+                {
+                    "include": "source.dcc-dir"
+                }
+            ]
+        },
+        "dump-section": {
+            "begin": "^(=== )([^\\r\\n]*?)( ===)(\\s*)$",
+            "beginCaptures": {
+                "1": {
+                    "name": "punctuation.section.delimiter.dcc-test"
+                },
+                "2": {
+                    "patterns": [
+                        {
+                            "match": "^([A-Z][A-Z0-9-]*)",
+                            "name": "entity.name.section.dcc-test"
+                        },
+                        {
+                            "match": "\\b(?:FILE|ENTRY|MODE|INJECT|FOR|FLAGS|EXACT|interactive)\\b",
+                            "name": "keyword.other.dcc-test"
+                        },
+                        {
+                            "match": "(?:\\b(?:FILE|ENTRY|FOR):)\\s*([^\\s]+)",
+                            "captures": {
+                                "1": {
+                                    "name": "string.unquoted.path.dcc-test"
+                                }
+                            }
+                        },
+                        {
+                            "match": "-[a-zA-Z0-9=_.-]+",
+                            "name": "constant.language.flag.dcc-test"
+                        },
+                        {
+                            "match": "\\b[0-9]+\\b",
+                            "name": "constant.numeric.dcc-test"
+                        }
+                    ]
+                },
+                "3": {
+                    "name": "punctuation.section.delimiter.dcc-test"
+                }
+            },
+            "end": "(?=^===)",
+            "patterns": [
+                {
+                    "include": "#dump-content"
+                }
+            ]
+        },
+        "dump-content": {
+            "patterns": [
+                {
+                    "match": "^\\s*(error|warning|note|help|fix):",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.other.diagnostic.dcc-test"
+                        }
+                    }
+                },
+                {
+                    "match": "\\b([A-Za-z0-9_./-]+\\.(?:dc|dcc-test))(?::([0-9]+))?(?::([0-9]+))?",
+                    "captures": {
+                        "1": {
+                            "name": "string.unquoted.path.dcc-test"
+                        },
+                        "2": {
+                            "name": "constant.numeric.line-number.dcc-test"
+                        },
+                        "3": {
+                            "name": "constant.numeric.column-number.dcc-test"
+                        }
+                    }
+                },
+                {
+                    "match": "^(\\s*)(TARGET|CONTAINS|RUN-EXIT|PIC|SHARED-LINK|REQUIRE-RELA|REQUIRE-SECTION-ALIGN|REQUIRE-COFF-RELOC|REQUIRE-COFF-UNDEFINED|FORBID-COFF-DEFINED):",
+                    "captures": {
+                        "2": {
+                            "name": "keyword.other.body-key.dcc-test"
+                        }
+                    }
+                },
+                {
+                    "match": "#(?:true|false|null)",
+                    "name": "constant.language.dcc-test"
+                },
+                {
+                    "match": "#[0-9][0-9a-fA-FxX_]*",
+                    "name": "constant.numeric.dcc-test"
+                },
+                {
+                    "match": "@[A-Za-z0-9_.$]+",
+                    "name": "variable.other.global.dcc-test"
+                },
+                {
+                    "match": "%[A-Za-z_$?][A-Za-z0-9_.$]*",
+                    "name": "variable.other.ssa.dcc-test"
+                },
+                {
+                    "name": "string.quoted.double.dcc-test",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.dcc-test",
+                            "match": "\\\\."
+                        }
+                    ]
+                },
+                {
+                    "match": "\\b(?:module|global|const|struct|enum|union|fn|label|to|field|ptr|void|bool|i8|u8|i16|u16|i32|u32|i64|u64|isize|usize|f32|f64)\\b",
+                    "name": "keyword.other.dcc-test"
+                },
+                {
+                    "match": "\\b[0-9][0-9_]*\\b",
+                    "name": "constant.numeric.dcc-test"
+                },
+                {
+                    "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b",
+                    "name": "entity.name.identifier.dcc-test"
+                },
+                {
+                    "match": "//.*$",
+                    "name": "comment.line.double-slash.dcc-test"
+                }
+            ]
+        }
+    }
+}

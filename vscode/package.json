@@ -1,9 +1,9 @@
 {
     "name": "dcc-vscode",
     "displayName": "DC Language Support",
-    "description": "Syntax highlighting and language server support for the DC programming language",
+    "description": "Syntax highlighting and language server support for the DC programming language, .dcc-test harness fixtures and DC IR (DIR) dumps",
     "publisher": "dcc",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "license": "GPL-3.0-only",
     "repository": {
         "type": "git",
@@ -22,12 +22,16 @@
     ],
     "activationEvents": [
         "onLanguage:dc",
+        "onLanguage:dcc-dir",
+        "onLanguage:dcc-test",
         "onFileSystem:dcc-core"
     ],
     "main": "./out/extension.js",
     "scripts": {
         "compile": "tsc -p .",
         "watch": "tsc -watch -p .",
+        "test": "npm run compile && node --test \"out/test/*.test.js\"",
+        "validate": "node scripts/validate.mjs",
         "vscode:prepublish": "npm run esbuild-base -- --minify",
         "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=out/extension.js --external:vscode --format=cjs --platform=node"
     },
@@ -43,6 +47,28 @@
                     "dc"
                 ],
                 "configuration": "./language-configuration.json"
+            },
+            {
+                "id": "dcc-dir",
+                "extensions": [
+                    ".dir"
+                ],
+                "aliases": [
+                    "DCC IR",
+                    "dcc-dir"
+                ],
+                "configuration": "./language-configuration-dcc-dir.json"
+            },
+            {
+                "id": "dcc-test",
+                "extensions": [
+                    ".dcc-test"
+                ],
+                "aliases": [
+                    "DCC Test",
+                    "dcc-test"
+                ],
+                "configuration": "./language-configuration-dcc-test.json"
             }
         ],
         "grammars": [
@@ -50,6 +76,16 @@
                 "language": "dc",
                 "scopeName": "source.dc",
                 "path": "./syntaxes/dcc.tmLanguage.json"
+            },
+            {
+                "language": "dcc-dir",
+                "scopeName": "source.dcc-dir",
+                "path": "./syntaxes/dcc-dir.tmLanguage.json"
+            },
+            {
+                "language": "dcc-test",
+                "scopeName": "source.dcc-test",
+                "path": "./syntaxes/dcc-test.tmLanguage.json"
             }
         ],
         "configuration": {
