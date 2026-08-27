@@ -1,0 +1,173 @@
+=== FILE: test.dc ===
+module test;
+
+f64 apply_f64(f64(*)(f64) f) {
+    return f(2.5);
+}
+
+f64 call_f64() {
+    return apply_f64(|x -> x * 2.0);
+}
+
+i64 apply_i64(i64(*)(i64, i64) f) {
+    return f(10, 20);
+}
+
+i64 call_i64() {
+    return apply_i64(|a, b -> a + b);
+}
+
+i32 apply_ptr(i32(*)(i32*) f) {
+    i32 v = 7;
+    return f(&v);
+}
+
+i32 call_ptr() {
+    return apply_ptr(|p -> *p + 1);
+}
+
+i32 sum_slice(i32(*)([]i32) f) {
+    return f({1, 2});
+}
+
+i32 call_slice() {
+    return sum_slice(|s -> s[0] + s[1]);
+}
+
+struct Pair {
+    i32 a;
+    i32 b;
+}
+
+i32 apply_agg(i32(*)(Pair) f) {
+    Pair p = {a = 3, b = 4};
+    return f(p);
+}
+
+i32 call_agg() {
+    return apply_agg(|q -> q.a + q.b);
+}
+
+=== EXPECT-IR ===
+module "test"
+f64@_DC0F1.4.test9.apply_f641pf64.1f64.f64.(ptr<fn(f64) -> f64>) {
+%entry(ptr<fn(f64) -> f64> %f):
+  %0 = call fn(%f)(f64 #2.5) -> f64
+  ret f64 %0
+}
+
+f64@_DC0F1.4.test8.call_f640f64.() {
+%entry:
+  %0 = call fn(@_DC0F1.4.test9.apply_f641pf64.1f64.f64.)(ptr<fn(f64) -> f64> @_DC0F1.4.test10.__lambda_11f64.f64.) -> f64
+  ret f64 %0
+}
+
+i64@_DC0F1.4.test9.apply_i641pi64s2i64si64si64s(ptr<fn(i64, i64) -> i64>) {
+%entry(ptr<fn(i64, i64) -> i64> %f):
+  %0 = call fn(%f)(i64 #10, i64 #20) -> i64
+  ret i64 %0
+}
+
+i64@_DC0F1.4.test8.call_i640i64s() {
+%entry:
+  %0 = call fn(@_DC0F1.4.test9.apply_i641pi64s2i64si64si64s)(ptr<fn(i64, i64) -> i64> @_DC0F1.4.test10.__lambda_32i64si64si64s) -> i64
+  ret i64 %0
+}
+
+i32@_DC0F1.4.test9.apply_ptr1pi32s1Pqi32si32s(ptr<fn(ptr<i32>) -> i32>) {
+%entry(ptr<fn(ptr<i32>) -> i32> %f):
+  %0 = alloca i32
+  store i32 #7, ptr<i32> %0
+  %1 = call fn(%f)(ptr<i32> %0) -> i32
+  ret i32 %1
+}
+
+i32@_DC0F1.4.test8.call_ptr0i32s() {
+%entry:
+  %0 = call fn(@_DC0F1.4.test9.apply_ptr1pi32s1Pqi32si32s)(ptr<fn(ptr<i32>) -> i32> @_DC0F1.4.test10.__lambda_51Pqi32si32s) -> i32
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test9.sum_slice1pi32s1Sqi32si32s(ptr<fn([]i32) -> i32>) {
+%entry(ptr<fn([]i32) -> i32> %f):
+  %0 = alloca [2 x i32]
+  %1 = gep ptr<[2 x i32]> %0, #0
+  store i32 #1, ptr<i32> %1
+  %2 = gep ptr<[2 x i32]> %0, #1
+  store i32 #2, ptr<i32> %2
+  %3 = gep ptr<[2 x i32]> %0, #0
+  %4 = aggregate []i32, %3, #2
+  %5 = call fn(%f)([]i32 %4) -> i32
+  ret i32 %5
+}
+
+i32@_DC0F1.4.test10.call_slice0i32s() {
+%entry:
+  %0 = call fn(@_DC0F1.4.test9.sum_slice1pi32s1Sqi32si32s)(ptr<fn([]i32) -> i32> @_DC0F1.4.test10.__lambda_71Sqi32si32s) -> i32
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test9.apply_agg1pi32s1D1.4.test4.Pair0.i32s(ptr<fn({@0 i32, @4 i32}) -> i32>) {
+%entry(ptr<fn({@0 i32, @4 i32}) -> i32> %f):
+  %0 = alloca {@0 i32, @4 i32}
+  %1 = aggregate {@0 i32, @4 i32}, #3, #4
+  store {@0 i32, @4 i32} %1, ptr<{@0 i32, @4 i32}> %0
+  %2 = load {@0 i32, @4 i32}, ptr<{@0 i32, @4 i32}> %0
+  %3 = call fn(%f)({@0 i32, @4 i32} %2) -> i32
+  ret i32 %3
+}
+
+i32@_DC0F1.4.test8.call_agg0i32s() {
+%entry:
+  %0 = call fn(@_DC0F1.4.test9.apply_agg1pi32s1D1.4.test4.Pair0.i32s)(ptr<fn({@0 i32, @4 i32}) -> i32> @_DC0F1.4.test10.__lambda_91D1.4.test4.Pair0.i32s) -> i32
+  ret i32 %0
+}
+
+f64@_DC0F1.4.test10.__lambda_11f64.f64.(f64) {
+%entry(f64 %x):
+  %0 = mul f64 %x, f64 #2
+  ret f64 %0
+}
+
+i64@_DC0F1.4.test10.__lambda_32i64si64si64s(i64, i64) {
+%entry(i64 %a, i64 %b):
+  %0 = add i64 %a, i64 %b
+  ret i64 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_51Pqi32si32s(ptr<i32>) {
+%entry(ptr<i32> %p):
+  %0 = load i32, ptr<i32> %p
+  %1 = add i32 %0, i32 #1
+  ret i32 %1
+}
+
+i32@_DC0F1.4.test10.__lambda_71Sqi32si32s([]i32) {
+%entry([]i32 %s):
+  %0 = alloca []i32
+  store []i32 %s, ptr<[]i32> %0
+  %1 = load []i32, ptr<[]i32> %0
+  %2 = extract []i32 %1, field #0
+  %3 = extract []i32 %1, field #1
+  %4 = gep ptr<i32> %2, #0
+  %5 = load i32, ptr<i32> %4
+  %6 = load []i32, ptr<[]i32> %0
+  %7 = extract []i32 %6, field #0
+  %8 = extract []i32 %6, field #1
+  %9 = gep ptr<i32> %7, #1
+  %10 = load i32, ptr<i32> %9
+  %11 = add i32 %5, i32 %10
+  ret i32 %11
+}
+
+i32@_DC0F1.4.test10.__lambda_91D1.4.test4.Pair0.i32s({@0 i32, @4 i32}) {
+%entry({@0 i32, @4 i32} %q):
+  %0 = alloca {@0 i32, @4 i32}
+  store {@0 i32, @4 i32} %q, ptr<{@0 i32, @4 i32}> %0
+  %1 = gep ptr<{@0 i32, @4 i32}> %0, field #0
+  %2 = load i32, ptr<i32> %1
+  %3 = gep ptr<{@0 i32, @4 i32}> %0, field #1
+  %4 = load i32, ptr<i32> %3
+  %5 = add i32 %2, i32 %4
+  ret i32 %5
+}

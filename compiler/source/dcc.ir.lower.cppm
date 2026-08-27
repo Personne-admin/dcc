@@ -153,6 +153,42 @@ export namespace dcc::ir::lower
             return m_entry_module;
         }
 
+        [[nodiscard]] bool is_lambda_func(ast::FuncDecl const* fd) const
+        {
+            if (!fd)
+                return false;
+
+            if (fd->name.starts_with("__lambda_"))
+                return true;
+
+            if (m_module_graph)
+                for (auto const& mod_ptr : m_module_graph->all())
+                    if (mod_ptr)
+                        for (auto* lf : mod_ptr->lambda_funcs)
+                            if (lf == fd)
+                                return true;
+
+            return false;
+        }
+
+        [[nodiscard]] std::span<std::string_view const> lambda_module_path(ast::FuncDecl const* fd)
+        {
+            if (m_module_graph)
+                for (auto const& mod_ptr : m_module_graph->all())
+                    if (mod_ptr && mod_ptr.get() != m_entry_module)
+                        for (auto* lf : mod_ptr->lambda_funcs)
+                            if (lf == fd)
+                            {
+                                m_module_path_cache.clear();
+                                auto segs = mod_ptr->canonical_path.segments();
+                                for (auto const& s : segs)
+                                    m_module_path_cache.push_back(std::string_view{s});
+                                return m_module_path_cache;
+                            }
+
+            return m_module_path;
+        }
+
         [[nodiscard]] std::span<std::string_view const> module_path_for_decl(ast::Decl const* decl)
         {
             auto* owning = owning_module_of(decl);
@@ -173,6 +209,13 @@ export namespace dcc::ir::lower
                     if (auto* fd = ast::node_cast<ast::FuncDecl>(d))
                         if (!is_template_func(fd))
                             create_func_shell(fd, true);
+
+            for (auto* lf : mod.lambda_funcs)
+                if (lf && !is_template_func(lf))
+                {
+                    auto lambda_path = lambda_module_path(lf);
+                    create_func_shell(lf, true, &lambda_path);
+                }
 
             if (m_spec_reg)
             {
@@ -216,15 +259,23 @@ export namespace dcc::ir::lower
         void lower_all_function_bodies()
         {
             std::vector<ast::FuncDecl const*> to_lower;
-            to_lower.reserve(m_func_map.size());
-            for (auto& [fd, ir_func] : m_func_map)
-            {
-                if (!fd->body || is_template_func(fd))
-                    continue;
-                if (ir_func->linkage == Linkage::External && !m_definition_functions.contains(fd))
-                    continue;
+            std::unordered_set<ast::FuncDecl const*> queued;
+
+            auto queue_func = [&](ast::FuncDecl const* fd) {
+                if (!fd || !fd->body || is_template_func(fd))
+                    return;
+                if (!queued.insert(fd).second)
+                    return;
+                auto it = m_func_map.find(fd);
+                if (it == m_func_map.end())
+                    return;
+                if (it->second->linkage == Linkage::External && !m_definition_functions.contains(fd))
+                    return;
                 to_lower.push_back(fd);
-            }
+            };
+
+            for (auto& [fd, ir_func] : m_func_map)
+                queue_func(fd);
 
             std::ranges::sort(to_lower, [](ast::FuncDecl const* a, ast::FuncDecl const* b) {
                 auto const a_ok = a->range.begin.valid();
@@ -240,16 +291,23 @@ export namespace dcc::ir::lower
                 return a->range.begin.offset < b->range.begin.offset;
             });
 
-            for (auto* fd : to_lower)
+            std::size_t head = 0;
+            while (head < to_lower.size())
             {
+                auto* fd = to_lower[head++];
+
                 auto it = m_func_map.find(fd);
                 if (it == m_func_map.end())
                     lower_panic(std::format("function `{}` missing from func_map during body lowering", fd->name));
+
                 lower_func_body(fd, it->second);
+
+                for (auto& [new_fd, new_ir_func] : m_func_map)
+                    queue_func(new_fd);
             }
         }
 
-        void create_func_shell(ast::FuncDecl const* decl, bool is_definition_here)
+        void create_func_shell(ast::FuncDecl const* decl, bool is_definition_here, std::span<std::string_view const> const* module_path_override = nullptr)
         {
             if (m_func_map.find(decl) != m_func_map.end())
                 return;
@@ -257,7 +315,9 @@ export namespace dcc::ir::lower
             if (is_template_func(decl))
                 return;
 
-            auto module_path = is_definition_here ? std::span<std::string_view const>{m_module_path} : module_path_for_decl(decl);
+            auto module_path =
+                module_path_override ? *module_path_override
+                                     : (is_definition_here ? std::span<std::string_view const>{m_module_path} : module_path_for_decl(decl));
 
             auto* ret_canonical = get_canonical_type(decl->return_type);
             std::vector<dcc::types::TypePtr> param_canonical;
@@ -376,16 +436,24 @@ export namespace dcc::ir::lower
             if (it != m_func_map.end())
                 return it->second;
 
-            auto* owning = owning_module_of(fd);
-            if (owning == m_entry_module || !owning)
+            if (is_lambda_func(fd))
             {
-                if (owning == m_entry_module)
-                    create_func_shell(fd, true);
-                else
-                    return nullptr;
+                auto lambda_path = lambda_module_path(fd);
+                create_func_shell(fd, true, &lambda_path);
             }
             else
-                create_func_shell(fd, false);
+            {
+                auto* owning = owning_module_of(fd);
+                if (owning == m_entry_module || !owning)
+                {
+                    if (owning == m_entry_module)
+                        create_func_shell(fd, true);
+                    else
+                        return nullptr;
+                }
+                else
+                    create_func_shell(fd, false);
+            }
 
             it = m_func_map.find(fd);
             if (it != m_func_map.end())
@@ -611,7 +679,30 @@ export namespace dcc::ir::lower
             }
 
             if (decl->body)
-                lower_block(*decl->body);
+            {
+                if (is_lambda_func(decl))
+                {
+                    auto* tail_val = lower_block_body(*decl->body);
+                    if (tail_val && ir_ret_type->kind != IrTypeKind::Void && decl->body->tail)
+                    {
+                        auto* ret_sema_type = get_canonical_type(decl->return_type);
+                        auto* val_sema_type = get_sema_resolved_type(decl->body->tail);
+                        if (ret_sema_type && ret_sema_type->kind == types::TypeKind::Slice && val_sema_type &&
+                            val_sema_type->kind == types::TypeKind::Array)
+                            tail_val = coerce_array_to_slice(tail_val, val_sema_type, ret_sema_type);
+                    }
+
+                    if (!current_block_terminated())
+                    {
+                        if (ir_ret_type->kind == IrTypeKind::Void)
+                            emit_ret();
+                        else if (tail_val)
+                            emit_ret(tail_val);
+                    }
+                }
+                else
+                    lower_block(*decl->body);
+            }
 
             if (!current_block_terminated())
                 if (ir_ret_type->kind == IrTypeKind::Void)
@@ -2154,6 +2245,10 @@ export namespace dcc::ir::lower
                     return lower_call_expr(static_cast<ast::CallExpr const*>(expr));
                 }
 
+                case ast::ExprKind::Lambda: {
+                    return lower_lambda_expr(static_cast<ast::LambdaExpr const*>(expr));
+                }
+
                 case ast::ExprKind::StringLiteral: {
                     auto* sl = static_cast<ast::StringLiteralExpr const*>(expr);
                     if (expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && expr->sema.constructed_variant)
@@ -2307,6 +2402,19 @@ export namespace dcc::ir::lower
                     lower_unimplemented(expr, reason);
                 }
             }
+        }
+
+        IrValue* lower_lambda_expr(ast::LambdaExpr const* le)
+        {
+            auto* fd = le->synthesized_func;
+            if (!fd)
+                lower_panic(le, "lambda expression missing synthesized function");
+
+            auto* ir_func = get_or_create_func_ref(fd);
+            if (!ir_func)
+                lower_panic(le, std::format("lambda function `{}` not in function map", fd->name));
+
+            return m_ctx.func_ref(ir_func);
         }
 
         IrValue* lower_call_expr(ast::CallExpr const* call)
@@ -5492,6 +5600,18 @@ export namespace dcc::ir::lower
                 case ast::ExprKind::StructLiteral: {
                     auto* sl = static_cast<ast::StructLiteralExpr const*>(expr);
                     return lower_struct_literal_constant(sl, target_type);
+                }
+                case ast::ExprKind::Lambda: {
+                    auto* le = static_cast<ast::LambdaExpr const*>(expr);
+                    auto* fd = le->synthesized_func;
+                    if (!fd)
+                        lower_panic(le, "lambda expression missing synthesized function in constant context");
+
+                    auto* ir_func = get_or_create_func_ref(fd);
+                    if (!ir_func)
+                        lower_panic(le, std::format("lambda function `{}` not in function map for constant init", fd->name));
+
+                    return m_ctx.func_ref(ir_func);
                 }
                 case ast::ExprKind::Ident: {
                     auto* id = static_cast<ast::IdentExpr const*>(expr);

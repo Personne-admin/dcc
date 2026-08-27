@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+using F = i32(*)(i32);
+
+const F g_double = |i32 x -> x * 2;
+
+i32 use_global() {
+    return g_double(21);
+}
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test8.g_doublepi32s1i32s : ptr<fn(i32) -> i32> = @_DC0F1.4.test10.__lambda_01i32si32s
+
+
+i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+%entry(i32 %x):
+  %0 = mul i32 %x, i32 #2
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test10.use_global0i32s() {
+%entry:
+  %0 = load ptr<fn(i32) -> i32>, ptr<ptr<fn(i32) -> i32>> @_DC0G1.4.test8.g_doublepi32s1i32s
+  %1 = call fn(%0)(i32 #21) -> i32
+  ret i32 %1
+}

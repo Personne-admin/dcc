@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+T apply(T)(T(*)(T) f, T v) {
+    return f(v);
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 r1 = apply(|x -> x * 3, 14);
+    f64 r2 = apply(|y -> y + 0.5, 1.5);
+    return r1 + r2 as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 44

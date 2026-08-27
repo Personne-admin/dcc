@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+using F = i32(*)(i32);
+
+const F g_double = |i32 x -> x * 2;
+
+struct Handler {
+    i32(*)(i32) h;
+}
+
+const Handler g_handler = {h = |i32 v -> v + 100};
+
+i32 use_global() {
+    return g_double(21);
+}
+
+i32 use_struct() {
+    return g_handler.h(5);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

@@ -1,0 +1,77 @@
+=== FILE: test.dc ===
+module test;
+
+T apply(T)(T(*)(T) f, T v) {
+    return f(v);
+}
+
+i32 use_i32() {
+    return apply(|x -> x + 1, 41);
+}
+
+f64 use_f64() {
+    return apply(|y -> y * 0.5, 8.0);
+}
+
+T invoke0(T)(T(*)() f) {
+    return f();
+}
+
+i32 use0() {
+    return invoke0(| -> 5);
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test7.use_i320i32s() {
+%entry:
+  %0 = call fn(@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s)(ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_11i32si32s, i32 #41) -> i32
+  ret i32 %0
+}
+
+f64@_DC0F1.4.test7.use_f640f64.() {
+%entry:
+  %0 = call fn(@_DC0S1.4.test5.apply2pf64.1f64.f64.f64.X1tf64.)(ptr<fn(f64) -> f64> @_DC0F1.4.test10.__lambda_31f64.f64., f64 #8) -> f64
+  ret f64 %0
+}
+
+i32@_DC0F1.4.test4.use00i32s() {
+%entry:
+  %0 = call fn(@_DC0S1.4.test7.invoke01pi32s0i32sX1ti32s)(ptr<fn() -> i32> @_DC0F1.4.test10.__lambda_50i32s) -> i32
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_11i32si32s(i32) {
+%entry(i32 %x):
+  %0 = add i32 %x, i32 #1
+  ret i32 %0
+}
+
+f64@_DC0F1.4.test10.__lambda_31f64.f64.(f64) {
+%entry(f64 %y):
+  %0 = mul f64 %y, f64 #0.5
+  ret f64 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_50i32s() {
+%entry:
+  ret i32 #5
+}
+
+linkonce_odr f64@_DC0S1.4.test5.apply2pf64.1f64.f64.f64.X1tf64.(ptr<fn(f64) -> f64>, f64) {
+%entry(ptr<fn(f64) -> f64> %f, f64 %v):
+  %0 = call fn(%f)(f64 %v) -> f64
+  ret f64 %0
+}
+
+linkonce_odr i32@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s(ptr<fn(i32) -> i32>, i32) {
+%entry(ptr<fn(i32) -> i32> %f, i32 %v):
+  %0 = call fn(%f)(i32 %v) -> i32
+  ret i32 %0
+}
+
+linkonce_odr i32@_DC0S1.4.test7.invoke01pi32s0i32sX1ti32s(ptr<fn() -> i32>) {
+%entry(ptr<fn() -> i32> %f):
+  %0 = call fn(%f)() -> i32
+  ret i32 %0
+}

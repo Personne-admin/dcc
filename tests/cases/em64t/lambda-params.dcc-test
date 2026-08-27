@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    f64(*)(f64) ff = |x -> x * 2.0;
+    i32(*)(i32, i32) ii = |a, b -> a + b;
+    i32 v = 5;
+    i32(*)(i32*) pp = |p -> *p + 1;
+    i32 r = (|i32 n -> n - 1)(10);
+    return ff(2.0) as i32 + ii(3, 4) + pp(&v) + r;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 26

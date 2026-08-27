@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+T apply(T)(T(*)(T) f, T v) {
+    return f(v);
+}
+
+i32 use_i32() {
+    return apply(|x -> x + 1, 41);
+}
+
+f64 use_f64() {
+    return apply(|y -> y * 0.5, 8.0);
+}
+
+T invoke0(T)(T(*)() f) {
+    return f();
+}
+
+i32 use0() {
+    return invoke0(| -> 5);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

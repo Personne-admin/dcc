@@ -1,0 +1,70 @@
+=== FILE: test.dc ===
+module test;
+
+i32 call_local() {
+    i32(*)(i32) f = |i32 x -> x * 2;
+    return f(21);
+}
+
+i32 call_local_ctx() {
+    i32(*)(i32, i32) fp = |a, b -> a + b;
+    return fp(3, 4);
+}
+
+i32 call_param(i32(*)(i32) cb) {
+    return cb(9);
+}
+
+i32 pass_lambda() {
+    return call_param(|i32 n -> n + 1);
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test10.call_local0i32s() {
+%entry:
+  %0 = alloca ptr<fn(i32) -> i32>
+  store ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_01i32si32s, ptr<ptr<fn(i32) -> i32>> %0
+  %1 = load ptr<fn(i32) -> i32>, ptr<ptr<fn(i32) -> i32>> %0
+  %2 = call fn(%1)(i32 #21) -> i32
+  ret i32 %2
+}
+
+i32@_DC0F1.4.test14.call_local_ctx0i32s() {
+%entry:
+  %0 = alloca ptr<fn(i32, i32) -> i32>
+  store ptr<fn(i32, i32) -> i32> @_DC0F1.4.test10.__lambda_12i32si32si32s, ptr<ptr<fn(i32, i32) -> i32>> %0
+  %1 = load ptr<fn(i32, i32) -> i32>, ptr<ptr<fn(i32, i32) -> i32>> %0
+  %2 = call fn(%1)(i32 #3, i32 #4) -> i32
+  ret i32 %2
+}
+
+i32@_DC0F1.4.test10.call_param1pi32s1i32si32s(ptr<fn(i32) -> i32>) {
+%entry(ptr<fn(i32) -> i32> %cb):
+  %0 = call fn(%cb)(i32 #9) -> i32
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test11.pass_lambda0i32s() {
+%entry:
+  %0 = call fn(@_DC0F1.4.test10.call_param1pi32s1i32si32s)(ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_31i32si32s) -> i32
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+%entry(i32 %x):
+  %0 = mul i32 %x, i32 #2
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_12i32si32si32s(i32, i32) {
+%entry(i32 %a, i32 %b):
+  %0 = add i32 %a, i32 %b
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_31i32si32s(i32) {
+%entry(i32 %n):
+  %0 = add i32 %n, i32 #1
+  ret i32 %0
+}
