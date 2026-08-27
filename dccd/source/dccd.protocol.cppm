@@ -1652,7 +1652,7 @@ export namespace dccd::protocol
         bool parameterHints{true};
         bool suppressParameterNameMatches{true};
 
-        static [[nodiscard]] JsonValue to_json()
+        [[nodiscard]] static JsonValue to_json()
         {
             auto obj = JsonValue::empty_object();
             obj.set("resolveProvider", JsonValue::boolean(false));
