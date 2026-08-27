@@ -122,3 +122,9 @@ export function mapContainerRangeToVirtual(vfile: VirtualFile, r: Range): Range 
 export function virtualFileAtContainerPosition(model: DccTestDocument, cline: number): VirtualFile | undefined {
     return model.fileSectionAt(cline);
 }
+
+export function virtualDocumentRange(vfile: VirtualFile): Range {
+    const lines = vfile.content.split('\n');
+    const last = Math.max(0, lines.length - 1);
+    return { start: pos(0, 0), end: pos(last, lines[last].length) };
+}

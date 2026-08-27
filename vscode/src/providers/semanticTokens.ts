@@ -52,6 +52,13 @@ export class TokenBuilder {
         });
     }
 
+    addIndexed(line: number, char: number, length: number, typeIndex: number, modMask: number): void {
+        if (length <= 0)
+            return;
+
+        this.m_tokens.push({ line, char, length, type: typeIndex, mods: modMask });
+    }
+
     build(): vscode.SemanticTokens {
         return encodeTokens(this.m_tokens);
     }

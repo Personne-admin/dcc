@@ -120,6 +120,7 @@ export function registerDccTestProviders(
             '=',
             ' ',
             '-',
+            '.',
         ),
     );
 
@@ -161,6 +162,37 @@ export function registerDccTestProviders(
     );
 
     context.subscriptions.push(
+        vscode.languages.registerDeclarationProvider('dcc-test', {
+            async provideDeclaration(document, position): Promise<vscode.Declaration | null> {
+                const model = cache.get(document);
+                const scope = dirScopeAtPosition(document, cache, position);
+                if (scope) {
+                    const locs = dirDefinition(scope, position);
+                    return locs.length > 0 ? locs : null;
+                }
+                if (fileSectionAt(model, position)) {
+                    const proxied = await bridge.declaration(document, position);
+                    return proxied && proxied.length > 0 ? proxied : null;
+                }
+                return null;
+            },
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerTypeDefinitionProvider('dcc-test', {
+            async provideTypeDefinition(document, position): Promise<vscode.Definition | null> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, position)) {
+                    const proxied = await bridge.typeDefinition(document, position);
+                    return proxied && proxied.length > 0 ? proxied : null;
+                }
+                return null;
+            },
+        }),
+    );
+
+    context.subscriptions.push(
         vscode.languages.registerReferenceProvider('dcc-test', {
             async provideReferences(document, position, _context): Promise<vscode.Location[] | null> {
                 const model = cache.get(document);
@@ -179,6 +211,117 @@ export function registerDccTestProviders(
                 return locs.length > 0 ? locs : null;
             },
         }),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerDocumentHighlightProvider('dcc-test', {
+            async provideDocumentHighlights(document, position): Promise<vscode.DocumentHighlight[] | null> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, position)) {
+                    return bridge.documentHighlights(document, position);
+                }
+                return null;
+            },
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerSignatureHelpProvider(
+            'dcc-test',
+            {
+                async provideSignatureHelp(document, position): Promise<vscode.SignatureHelp | null> {
+                    const model = cache.get(document);
+                    if (fileSectionAt(model, position)) {
+                        return bridge.signatureHelp(document, position);
+                    }
+                    return null;
+                },
+            },
+            '(',
+            ',',
+        ),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerInlayHintsProvider('dcc-test', {
+            async provideInlayHints(document, range): Promise<vscode.InlayHint[] | null> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, range.start)) {
+                    return bridge.inlayHints(document, range);
+                }
+                return [];
+            },
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerCodeActionsProvider('dcc-test', {
+            async provideCodeActions(document, range, context): Promise<vscode.CodeAction[]> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, range.start)) {
+                    const proxied = await bridge.codeActions(document, range, context);
+                    return proxied ?? [];
+                }
+                return [];
+            },
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerRenameProvider('dcc-test', {
+            async provideRenameEdits(document, position, newName): Promise<vscode.WorkspaceEdit | null> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, position)) {
+                    return bridge.rename(document, position, newName);
+                }
+                return null;
+            },
+            async prepareRename(document, position): Promise<vscode.Range | { range: vscode.Range; placeholder: string } | null> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, position)) {
+                    return bridge.prepareRename(document, position);
+                }
+                return null;
+            },
+        }),
+    );
+
+    context.subscriptions.push(
+        vscode.languages.registerDocumentFormattingEditProvider('dcc-test', {
+            async provideDocumentFormattingEdits(document, options): Promise<vscode.TextEdit[]> {
+                const model = cache.get(document);
+                if (model.virtualFiles.length === 0) {
+                    return [];
+                }
+                const proxied = await bridge.formatting(document, options);
+                return proxied ?? [];
+            },
+        }),
+        vscode.languages.registerDocumentRangeFormattingEditProvider('dcc-test', {
+            async provideDocumentRangeFormattingEdits(document, range, options): Promise<vscode.TextEdit[]> {
+                const model = cache.get(document);
+                if (fileSectionAt(model, range.start) || fileSectionAt(model, range.end)) {
+                    const proxied = await bridge.rangeFormatting(document, range, options);
+                    return proxied ?? [];
+                }
+                return [];
+            },
+        }),
+        vscode.languages.registerOnTypeFormattingEditProvider(
+            'dcc-test',
+            {
+                async provideOnTypeFormattingEdits(document, position, ch, options): Promise<vscode.TextEdit[]> {
+                    const model = cache.get(document);
+                    if (fileSectionAt(model, position)) {
+                        const proxied = await bridge.onTypeFormatting(document, position, ch, options);
+                        return proxied ?? [];
+                    }
+                    return [];
+                },
+            },
+            '}',
+            ';',
+        ),
     );
 
     const semanticTokenProvider = vscode.languages.registerDocumentSemanticTokensProvider(
