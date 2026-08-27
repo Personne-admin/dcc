@@ -54,6 +54,7 @@ export namespace dcc::query
 
         sm::SourceRange resolved_definition_range{};
         ast::FuncParam const* resolved_param{};
+        ast::LambdaExpr const* resolved_lambda{};
 
         ast::CallExpr const* enclosing_call{nullptr};
 
@@ -823,6 +824,7 @@ namespace dcc::query
                         if (nr.valid() && range_contains(nr, target) && !result.resolved_param)
                         {
                             result.resolved_param = &p;
+                            result.resolved_lambda = e;
                             result.resolved_definition_range = nr;
                         }
                     }
@@ -1990,6 +1992,32 @@ namespace dcc::query
             return source ? source : spec;
         }
 
+        struct LambdaParamRef
+        {
+            ast::LambdaExpr const* lambda{nullptr};
+            std::size_t index{0};
+        };
+
+        [[nodiscard]] std::optional<LambdaParamRef> find_lambda_param_for_synthetic(session::CompilerSession const& session, ast::VarDecl const* vd)
+        {
+            if (!vd)
+                return std::nullopt;
+
+            auto* sema_ctx = const_cast<sema::SemaContext*>(session.sema_context());
+            if (!sema_ctx)
+                return std::nullopt;
+
+            auto& graph = const_cast<sema::SemaContext*>(sema_ctx)->graph();
+            for (auto const& mod : graph.all())
+                if (mod)
+                    for (auto* lf : mod->lambda_funcs)
+                        if (lf && lf->lambda_source)
+                            for (std::size_t i = 0; i < lf->params.size(); ++i)
+                                if (lf->params[i].synthetic_decl == vd)
+                                    return LambdaParamRef{lf->lambda_source, i};
+            return std::nullopt;
+        }
+
         [[nodiscard]] ast::FieldDecl const* resolve_field_access(ast::FieldAccessExpr const* fa, ast::Decl const** out_owner)
         {
             if (out_owner)
@@ -2307,6 +2335,32 @@ namespace dcc::query
                 out.sub_index = static_cast<std::uint32_t>(param_index);
                 out.id = param_symbol_id(fd, param_index);
             }
+            else if (node->resolved_lambda)
+            {
+                std::size_t lambda_param_index = 0;
+                for (std::size_t i = 0; i < node->resolved_lambda->params.size(); ++i)
+                    if (&node->resolved_lambda->params[i] == node->resolved_param)
+                    {
+                        lambda_param_index = i;
+                        break;
+                    }
+                out.owner_decl = nullptr;
+                out.sub_index = static_cast<std::uint32_t>(lambda_param_index);
+                SymbolId id;
+                id.kind = SymbolKind::FuncParam;
+                if (out.name_range.valid())
+                {
+                    id.file = out.name_range.begin.fileId;
+                    id.name_offset = out.name_range.begin.offset;
+                }
+                if (node->resolved_lambda->range.valid())
+                {
+                    id.owner_file = node->resolved_lambda->range.begin.fileId;
+                    id.owner_offset = node->resolved_lambda->range.begin.offset;
+                }
+                id.sub_index = static_cast<std::uint32_t>(lambda_param_index);
+                out.id = id;
+            }
             return out;
         }
 
@@ -2497,6 +2551,37 @@ namespace dcc::query
                 }
             }
 
+            if (target && target->kind == ast::DeclKind::Var && static_cast<ast::VarDecl const*>(target)->sema.storage == ast::StorageClass::Param)
+            {
+                if (auto lpr = find_lambda_param_for_synthetic(session, static_cast<ast::VarDecl const*>(target)))
+                {
+                    auto const* l = lpr->lambda;
+                    auto const& lp = l->params[lpr->index];
+                    auto nr = func_param_name_range(lp);
+                    if (!nr.valid())
+                        nr = lp.range;
+                    out.kind = SymbolKind::FuncParam;
+                    out.name = lp.name;
+                    out.name_range = expr_name_range_at(node->expr, location);
+                    if (!out.name_range.valid())
+                        out.name_range = nr;
+                    out.definition_range = nr;
+                    out.sub_index = static_cast<std::uint32_t>(lpr->index);
+                    SymbolId id;
+                    id.kind = SymbolKind::FuncParam;
+                    id.file = nr.begin.fileId;
+                    id.name_offset = nr.begin.offset;
+                    if (l->range.valid())
+                    {
+                        id.owner_file = l->range.begin.fileId;
+                        id.owner_offset = l->range.begin.offset;
+                    }
+                    id.sub_index = static_cast<std::uint32_t>(lpr->index);
+                    out.id = id;
+                    return out;
+                }
+            }
+
             if (target)
             {
                 out.kind = SymbolKind::Declaration;
@@ -2614,10 +2699,52 @@ namespace dcc::query
             ResolvedSymbol const& target;
             session::CompilerSession const& session;
             ast::Decl const* current_template_decl{nullptr};
+            std::unordered_map<ast::VarDecl const*, SymbolId> m_lambda_param_ids;
 
             SymbolReferenceCollector(std::vector<sm::SourceRange>& o, ResolvedSymbol const& t, session::CompilerSession const& s)
                 : out{o}, target{t}, session{s}
             {
+            }
+
+            void visitLambdaExpr(ast::LambdaExpr const* e) override
+            {
+                if (!e)
+                    return;
+
+                std::unordered_map<ast::VarDecl const*, SymbolId> local_ids;
+                if (e->synthesized_func && target.kind == SymbolKind::FuncParam)
+                {
+                    auto const& synth = *e->synthesized_func;
+                    for (std::size_t i = 0; i < e->params.size() && i < synth.params.size(); ++i)
+                    {
+                        auto const& lp = e->params[i];
+                        auto nr = func_param_name_range(lp);
+                        if (!nr.valid())
+                            nr = lp.range;
+                        SymbolId id;
+                        id.kind = SymbolKind::FuncParam;
+                        id.file = nr.begin.fileId;
+                        id.name_offset = nr.begin.offset;
+                        if (e->range.valid())
+                        {
+                            id.owner_file = e->range.begin.fileId;
+                            id.owner_offset = e->range.begin.offset;
+                        }
+                        id.sub_index = static_cast<std::uint32_t>(i);
+                        if (id == target.id && nr.valid())
+                            out.push_back(nr);
+                        if (auto* syn = synth.params[i].synthetic_decl)
+                            local_ids.emplace(syn, id);
+                    }
+                }
+
+                auto saved = std::move(m_lambda_param_ids);
+                m_lambda_param_ids = std::move(local_ids);
+
+                if (e->body)
+                    visitExpr(e->body);
+
+                m_lambda_param_ids = std::move(saved);
             }
 
             void visitDecl(ast::Decl const* decl) override
@@ -2753,6 +2880,12 @@ namespace dcc::query
                             {
                                 auto idx = param_index_for_synthetic(fd, expr->sema.resolved_decl);
                                 if (idx && *idx == target.sub_index)
+                                    out.push_back(expr->range);
+                            }
+                            else if (expr->sema.resolved_decl && expr->sema.resolved_decl->kind == ast::DeclKind::Var)
+                            {
+                                auto lit = m_lambda_param_ids.find(static_cast<ast::VarDecl const*>(expr->sema.resolved_decl));
+                                if (lit != m_lambda_param_ids.end() && lit->second == target.id)
                                     out.push_back(expr->range);
                             }
                         }
@@ -3046,6 +3179,7 @@ namespace dcc::query
             ast::Decl const* current_template_decl{nullptr};
             ast::FuncDecl const* current_func{nullptr};
             std::unordered_map<ast::EnumVariant const*, SymbolId> const& variant_ids;
+            std::unordered_map<ast::VarDecl const*, SymbolId> m_lambda_param_ids;
 
             BulkReferenceCollector(ExtractionSink& s, session::CompilerSession const& sess, sema::Scope const* scope,
                                    std::unordered_map<ast::EnumVariant const*, SymbolId> const& vids)
@@ -3184,6 +3318,16 @@ namespace dcc::query
                 {
                     case ast::ExprKind::Ident: {
                         auto const* id = static_cast<ast::IdentExpr const*>(expr);
+
+                        if (expr->sema.resolved_decl && expr->sema.resolved_decl->kind == ast::DeclKind::Var)
+                        {
+                            auto lit = m_lambda_param_ids.find(static_cast<ast::VarDecl const*>(expr->sema.resolved_decl));
+                            if (lit != m_lambda_param_ids.end())
+                            {
+                                sink.add_reference(lit->second, expr->range);
+                                break;
+                            }
+                        }
 
                         if (!bulk_is_synthetic_param(current_func, expr))
                         {
@@ -3341,6 +3485,47 @@ namespace dcc::query
                         ast::RecursiveAstVisitor::visitExpr(expr);
                         break;
                 }
+            }
+
+            void visitLambdaExpr(ast::LambdaExpr const* e) override
+            {
+                if (!e)
+                    return;
+
+                std::unordered_map<ast::VarDecl const*, SymbolId> local_ids;
+                if (e->synthesized_func)
+                {
+                    auto const& synth = *e->synthesized_func;
+                    for (std::size_t i = 0; i < e->params.size() && i < synth.params.size(); ++i)
+                    {
+                        auto const& lp = e->params[i];
+                        auto nr = func_param_name_range(lp);
+                        if (!nr.valid())
+                            nr = lp.range;
+                        SymbolId id;
+                        id.kind = SymbolKind::FuncParam;
+                        id.file = nr.begin.fileId;
+                        id.name_offset = nr.begin.offset;
+                        if (e->range.valid())
+                        {
+                            id.owner_file = e->range.begin.fileId;
+                            id.owner_offset = e->range.begin.offset;
+                        }
+                        id.sub_index = static_cast<std::uint32_t>(i);
+                        if (nr.valid())
+                            sink.add_reference(id, nr);
+                        if (auto* syn = synth.params[i].synthetic_decl)
+                            local_ids.emplace(syn, id);
+                    }
+                }
+
+                auto saved_lambda_params = std::move(m_lambda_param_ids);
+                m_lambda_param_ids = std::move(local_ids);
+
+                if (e->body)
+                    visitExpr(e->body);
+
+                m_lambda_param_ids = std::move(saved_lambda_params);
             }
 
             void push_callee_range(ast::Expr const* ce, ast::Decl const* d)

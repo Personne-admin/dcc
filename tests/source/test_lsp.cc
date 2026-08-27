@@ -2363,6 +2363,36 @@ TEST_CASE("references includeDeclaration flag controls the declaration range")
     CHECK(has_range(locations_to_ranges(refs), 3u, 12u, 19u));
 }
 
+TEST_CASE("lambda parameter references connect declaration and body uses")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    TempDir td;
+    auto text = std::string{"module m;\n"
+                            "i32 apply(i32(*)(i32) f) {\n"
+                            "    return f(1);\n"
+                            "}\n"
+                            "void use() {\n"
+                            "    i32 a = apply(|x -> x * 2);\n"
+                            "    i32 b = apply(|y -> y + 1);\n"
+                            "}\n"};
+    auto uri = open_file(server, sink, td.path / "main.dc", text);
+
+    auto refs = request_references(server, sink, uri, 5u, 19u, true);
+    REQUIRE(refs.size() == 2);
+    auto ranges = locations_to_ranges(refs);
+    CHECK(has_range(ranges, 5u, 19u, 20u));
+    CHECK(has_range(ranges, 5u, 24u, 25u));
+
+    refs = request_references(server, sink, uri, 6u, 24u, true);
+    REQUIRE(refs.size() == 2);
+    ranges = locations_to_ranges(refs);
+    CHECK(has_range(ranges, 6u, 19u, 20u));
+    CHECK(has_range(ranges, 6u, 24u, 25u));
+}
+
 TEST_CASE("references and rename never touch comments or strings")
 {
     Sink sink;
