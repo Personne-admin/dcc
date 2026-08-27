@@ -808,7 +808,111 @@ apply(add, 1, 2);
 
 ---
 
-## 16. Atomics (`core::atomic`)
+## 16. Lambda Expressions
+
+A lambda (anonymous function) literal has a compact pipe syntax: an optional
+parameter list between `|` and `->`, followed by an expression or block body.
+
+```dc
+i32(*)(i32, i32) add = |a, b -> a + b;   // expression body
+i32(*)(i32)      twice = |i32 x -> x * 2; // explicit parameter type
+i32(*)(i32)      block = |x -> {          // block body
+    i32 y = x + 1;
+    y
+};
+i32(*)(i32)      noparams = | -> 42;      // no parameters
+```
+
+### 16.1 Syntax
+
+- `|` introduces the lambda. The compact canonical form has no space between
+  the pipe and the first parameter (`|x`, never `| x`). An empty parameter
+  list is written `| ->`.
+- Parameters follow the same rules as function parameters: a bare identifier
+  infers the type from context, or an explicit type may be given
+  (`|i32 x -> ...`). Multiple parameters are comma-separated (`|a, b -> ...`).
+- `->` separates the parameter list from the body and is written with spaces
+  around it (`|x -> x`).
+- A binary `|` inside the body is ordinary bitwise-or and is spaced like any
+  other binary operator (`|x -> x | 1`).
+
+### 16.2 Bodies
+
+The body may be an expression (its value is the lambda's return value) or a
+`{ ... }` block (the block's tail expression is the return value). A block
+body may contain statements, locals, `return`, and nested lambdas.
+
+### 16.3 Contextual typing
+
+An untyped parameter's type is deduced from the expected function-pointer
+type when the lambda appears in one of these positions:
+
+- initializing a function-pointer variable: `i32(*)(i32) f = |x -> x;`
+- passing to a function with a function-pointer parameter:
+  `apply(|x -> x * 2, 1)`
+- an immediate call: `(|x -> x)(5)`
+
+If no function-pointer context is available the compiler emits a focused
+"cannot deduce type for lambda parameter" diagnostic. Passing an untyped
+lambda through a generic that never invokes it is an error; a fully typed
+lambda may pass through freely.
+
+### 16.4 Generic deduction
+
+When a lambda is passed to a template whose parameter is generic (`F`), the
+lambda's type is a distinct lambda type. If the generic invokes the callable,
+the parameter types are deduced from the invocation and the lambda is
+finalized to a function pointer. If the generic never invokes the callable,
+the lambda parameters must be explicitly typed.
+
+```dc
+void apply(F, Args...)(F f, Args args) {
+    f(args...);              // lambda parameter types deduced from `args`
+}
+
+apply(|x -> consume(x), 1); // `x` deduced as i32
+```
+
+### 16.5 Function-pointer conversion
+
+A typed lambda converts implicitly to the matching function-pointer type and
+may be stored, passed, returned, and called through the pointer. Its
+generated function has a distinct synthesized symbol identity and never
+collides with a source function even if the source happens to be named like
+a generated lambda symbol.
+
+### 16.6 Globals
+
+Lambdas may initialize global function-pointer constants and struct fields
+of function-pointer type:
+
+```dc
+using F = i32(*)(i32);
+
+const F g_double = |i32 x -> x * 2;
+
+struct Handler {
+    F h;
+}
+const Handler g_handler = {h = |i32 v -> v + 1};
+```
+
+### 16.7 Non-capture
+
+Lambdas are non-capturing: a lambda body may reference only its parameters,
+globals, and values from its own nested scope. Referencing a local variable
+of an enclosing function is rejected:
+
+```dc
+void bad() {
+    i32 local = 1;
+    i32(*)(i32) f = |x -> x + local; // error: lambda body cannot capture
+}
+```
+
+---
+
+## 17. Atomics (`core::atomic`)
 
 `core::atomic` is a compiler-provided module (no import path needed beyond
 `import core::atomic;`) exposing atomic memory operations as `@intrinsic`
