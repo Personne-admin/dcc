@@ -3965,6 +3965,53 @@ TEST_CASE("server negotiates utf-32 and measures non-ASCII tokens in code points
     CHECK_EQ(y_it->modifiers, 1u);
 }
 
+TEST_CASE("server semanticTokens/full classifies lambda params as parameters")
+{
+    namespace st = dccd::semantic_tokens;
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    TempDir td;
+    auto uri = open_file(server, sink, td.path / "main.dc",
+                         "module main;\n"
+                         "i32 apply(i32(*)(i32) f) {\n"
+                         "    return f(1);\n"
+                         "}\n"
+                         "void use() {\n"
+                         "    i32 a = apply(|x -> x * 2);\n"
+                         "    i32 b = apply(|i32 y -> y + 1);\n"
+                         "}\n");
+    auto resp = send_request(server, sink, make_semantic_tokens_request(uri));
+    REQUIRE(resp.has_value());
+    auto const* result = resp->find_member("result");
+    REQUIRE(result != nullptr);
+    auto const* data = result->get_array("data");
+    REQUIRE(data != nullptr);
+
+    std::vector<std::uint32_t> flat;
+    for (auto const& v : data->as_array())
+    {
+        REQUIRE(v.is_number());
+        flat.push_back(static_cast<std::uint32_t>(v.as_integer()));
+    }
+    auto tokens = decode_delta(flat);
+    REQUIRE(!tokens.empty());
+
+    auto x_it = std::ranges::find_if(
+        tokens, [](DecodedToken const& t) { return t.line == 5u && t.type == static_cast<std::uint32_t>(st::TokenType::Parameter) && t.character == 19u; });
+    REQUIRE(x_it != tokens.end());
+    CHECK_EQ(x_it->length, 1u);
+    CHECK_EQ(x_it->modifiers, static_cast<std::uint32_t>(st::TokenModifier::Declaration));
+
+    auto y_it = std::ranges::find_if(
+        tokens, [](DecodedToken const& t) { return t.line == 6u && t.type == static_cast<std::uint32_t>(st::TokenType::Parameter) && t.character == 23u; });
+    REQUIRE(y_it != tokens.end());
+    CHECK_EQ(y_it->length, 1u);
+    CHECK_EQ(y_it->modifiers, static_cast<std::uint32_t>(st::TokenModifier::Declaration));
+}
+
 TEST_CASE("server picks the client's first supported encoding and echoes it in initialize")
 {
     Sink sink;
@@ -5152,6 +5199,33 @@ TEST_CASE("direct collector filters hints to the requested range")
     CHECK(has_hint(hints, 10, 16, "lhs:"));
     CHECK(has_hint(hints, 10, 19, "rhs:"));
     CHECK(!has_any_at(hints, 8, 12));
+}
+
+TEST_CASE("direct collector emits type hints for contextually deduced lambda params")
+{
+    AnalyzedDoc doc;
+    std::string src = "module main;\n"
+                      "\n"
+                      "i32 apply(i32(*)(i32) f) {\n"
+                      "    return f(1);\n"
+                      "}\n"
+                      "i32 add(i32(*)(i32, i32) f) {\n"
+                      "    return f(1, 2);\n"
+                      "}\n"
+                      "\n"
+                      "void use() {\n"
+                      "    i32 a = apply(|x -> x * 2);\n"
+                      "    i32 b = add(|l, r -> l + r);\n"
+                      "    i32 c = apply(|i32 y -> y + 1);\n"
+                      "}\n";
+    REQUIRE(doc.analyze(src));
+
+    auto hints = doc.collect();
+    REQUIRE(hints.size() == 6u);
+    CHECK(has_hint(hints, 10, 20, ": i32"));
+    CHECK(has_hint(hints, 11, 18, ": i32"));
+    CHECK(has_hint(hints, 11, 21, ": i32"));
+    CHECK(!has_any_at(hints, 12, 23));
 }
 
 TEST_CASE("direct collector sorts deterministically and never duplicates a hint")
