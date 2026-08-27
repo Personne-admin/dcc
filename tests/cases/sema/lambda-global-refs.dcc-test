@@ -1,0 +1,51 @@
+=== FILE: main.dc ===
+module m;
+
+i32 g_add(i32 a, i32 b) { return a + b; }
+i32 global_val = 42;
+
+void apply1(i32(*)(i32) f) {}
+
+void test_globals() {
+    apply1(|x -> global_val);
+    apply1(|x -> g_add(x, x));
+    apply1(|x -> g_add(global_val, x));
+}
+=== EXPECT-BODY ===
+Module m
+  Func g_add diverging=true
+    Param a type=i32 storage=param offset=0 index=0
+    Param b type=i32 storage=param offset=4 index=1
+    Body
+      Return
+        Binary + [type=i32 const=<none>]
+          Ident a [type=i32 const=<none> lvalue decl=a]
+          Ident b [type=i32 const=<none> lvalue decl=b]
+  Var global_val type=i32 storage=module offset=0
+    IntLiteral 42 [type=i32 const=42 constant]
+  Func apply1 diverging=false
+    Param f type=i32(*)(i32) storage=param offset=0 index=0
+    Body
+  Func test_globals diverging=false
+    Body
+      Call [type=void const=<none> decl=apply1]
+        Ident apply1 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Ident global_val [type=i32 const=<none> lvalue decl=global_val]
+      Call [type=void const=<none> decl=apply1]
+        Ident apply1 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Call [type=i32 const=<none> decl=g_add]
+            Ident g_add [type=<unresolved> const=<none>]
+            Ident x [type=i32 const=<none> lvalue decl=x]
+            Ident x [type=i32 const=<none> lvalue decl=x]
+      Call [type=void const=<none> decl=apply1]
+        Ident apply1 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Call [type=i32 const=<none> decl=g_add]
+            Ident g_add [type=<unresolved> const=<none>]
+            Ident global_val [type=i32 const=<none> lvalue decl=global_val]
+            Ident x [type=i32 const=<none> lvalue decl=x]

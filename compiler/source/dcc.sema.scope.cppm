@@ -478,6 +478,9 @@ export namespace dcc::sema
 
         ModuleState state{ModuleState::Discovered};
         bool has_errors{};
+
+        std::vector<ast::FuncDecl*> lambda_funcs;
+        std::uint32_t lambda_counter{};
     };
 
 } // namespace dcc::sema

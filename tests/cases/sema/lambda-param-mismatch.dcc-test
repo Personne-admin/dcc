@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+void apply2(i32(*)(i32, f64) f) {}
+
+void test_param_mismatch() {
+    apply2(|i32 a, i32 b -> a);
+    i32(*)(i32) fp = |i32* p -> *p;
+}
+=== EXPECT-ERRORS EXACT ===
+main.dc:6:20: lambda parameter `b` type mismatch: expected `f64`, found `i32`
+main.dc:6:12: argument 1 of call to `apply2` has wrong type: expected `i32(*)(i32, f64)`, found `i32(*)(i32, i32)`
+main.dc:7:23: lambda parameter `p` type mismatch: expected `i32`, found `i32*`
+main.dc:7:5: initializer type mismatch

@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+i32 apply3(f64(*)(i32) f) { return 1; }
+
+void test_ret_bad() {
+    apply3(|x -> "nope");
+}
+=== EXPECT-ERRORS EXACT ===
+main.dc:6:12: lambda return type mismatch: expected `f64`, found `[]const char`

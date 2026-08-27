@@ -796,6 +796,7 @@ export namespace dcc::ast
         static constexpr auto Kind = ExprKind::Lambda;
         std::pmr::vector<FuncParam> params;
         ExprPtr body{};
+        FuncDecl* synthesized_func{};
         LambdaExpr(sm::SourceRange r, Allocator a) : Expr(Kind, r), params(a) {}
     };
 

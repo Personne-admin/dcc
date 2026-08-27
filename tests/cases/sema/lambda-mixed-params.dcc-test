@@ -1,0 +1,35 @@
+=== FILE: main.dc ===
+module m;
+
+void apply2(i32(*)(i32, f64) f) {}
+
+void test_mixed() {
+    apply2(|i32 a, b -> a);
+    apply2(|a, f64 b -> 3);
+    apply2(|i32 a, f64 b -> 7);
+}
+=== EXPECT-BODY ===
+Module m
+  Func apply2 diverging=false
+    Param f type=i32(*)(i32, f64) storage=param offset=0 index=0
+    Body
+  Func test_mixed diverging=false
+    Body
+      Call [type=void const=<none> decl=apply2]
+        Ident apply2 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32, f64) const=<none>]
+          Param name=a
+          Param name=b
+          Ident a [type=i32 const=<none> lvalue decl=a]
+      Call [type=void const=<none> decl=apply2]
+        Ident apply2 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32, f64) const=<none>]
+          Param name=a
+          Param name=b
+          IntLiteral 3 [type=i32 const=3 constant]
+      Call [type=void const=<none> decl=apply2]
+        Ident apply2 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32, f64) const=<none>]
+          Param name=a
+          Param name=b
+          IntLiteral 7 [type=i32 const=7 constant]

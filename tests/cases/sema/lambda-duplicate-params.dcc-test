@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+void apply2(i32(*)(i32, i32) f) {}
+
+void test_dup() {
+    apply2(|i32 x, i32 x -> x);
+    apply2(|a, a -> a);
+}
+=== EXPECT-ERRORS EXACT ===
+main.dc:6:20: duplicate parameter name `x` in lambda
+main.dc:7:16: duplicate parameter name `a` in lambda

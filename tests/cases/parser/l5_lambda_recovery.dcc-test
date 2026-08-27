@@ -24,8 +24,7 @@ i32 eof_case = |x
 main.dc:3:11: expected ',' or '->' in lambda parameter list, found ';'
 main.dc:4:12: expected ',' or '->' in lambda parameter list, found '{'
 main.dc:5:11: expected lambda parameter after ','
-main.dc:12:5: lambda expressions are not yet supported by the compiler
-main.dc:13:5: lambda expressions are not yet supported by the compiler
+main.dc:12:6: cannot deduce type for lambda parameter `x`: no function-pointer context
 main.dc:19:7: expected ',' or '->' in lambda parameter list, found '}'
 main.dc:21:1: expected ',' or '->' in lambda parameter list, found 'eof'
 main.dc:21:1: expected expression, found 'eof'
