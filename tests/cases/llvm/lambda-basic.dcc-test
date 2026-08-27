@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+i32 call_direct() {
+    return (|i32 x -> x + 1)(5);
+}
+
+i32 call_local() {
+    i32(*)(i32) f = |i32 x -> x * 2;
+    return f(21);
+}
+
+i32 call_ctx() {
+    i32(*)(i32, i32) fp = |a, b -> a + b;
+    return fp(3, 4);
+}
+
+i32 call_param(i32(*)(i32) cb) {
+    return cb(9);
+}
+
+i32 pass_lambda() {
+    return call_param(|i32 n -> n + 1);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

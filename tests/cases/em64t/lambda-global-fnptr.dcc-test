@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module test;
+
+using F = i32(*)(i32);
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+const F g_double = |i32 x -> x * 2;
+
+struct Handler {
+    i32(*)(i32) h;
+}
+
+@nomangle
+const Handler g_handler = {h = |i32 v -> v + 100};
+
+@nomangle
+public i32 dcc_main() {
+    return g_double(21) + g_handler.h(1);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 143
