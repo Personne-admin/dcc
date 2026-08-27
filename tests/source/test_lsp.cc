@@ -615,6 +615,13 @@ namespace
         return uri;
     }
 
+    [[nodiscard]] std::string open_virtual_file(dccd::LanguageServer& server, Sink& sink, std::string uri, std::string_view text)
+    {
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, text));
+        std::ignore = publishes;
+        return uri;
+    }
+
     [[nodiscard]] dccd::protocol::CompletionItem const* find_item(std::vector<dccd::protocol::CompletionItem> const& items, std::string_view label)
     {
         for (auto const& item : items)
@@ -3580,6 +3587,7 @@ namespace
     {
         return decode_delta(std::span<std::uint32_t const>{data});
     }
+
 } // namespace
 
 TEST_CASE("delta_encode produces a monotonic non-overlapping delta stream")
@@ -5533,4 +5541,193 @@ TEST_CASE("hint-only configuration changes avoid a semantic recompile")
 
     auto hints = request_inlay_hints(server, sink, uri, full_file_range(src));
     CHECK(hints.empty());
+}
+
+TEST_CASE("virtual dccv didOpen compiles and publishes diagnostics on the virtual uri")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto uri = std::string{"dccv:Zm9v/main.dc"};
+    auto publishes = send_and_collect_publishes(
+        server, sink, make_did_open(uri, 1, "module main;\nvoid f() {\n    i32 x = 0;\n    i32 x = 1;\n}\n"));
+
+    REQUIRE(publishes.size() == 1);
+    auto const& publish = publishes[0];
+    CHECK_EQ(publish.uri, uri);
+    REQUIRE(publish.version.has_value());
+    CHECK_EQ(*publish.version, 1);
+    REQUIRE(publish.diagnostics.size() == 1);
+    CHECK(publish.diagnostics[0].message.find("redefinition of `x`") != std::string::npos);
+    CHECK_EQ(publish.diagnostics[0].range.start.line, 3u);
+    CHECK_EQ(publish.diagnostics[0].range.start.character, 8u);
+    CHECK_EQ(publish.diagnostics[0].range.end.character, 9u);
+}
+
+TEST_CASE("virtual dccv didChange recompiles and clears diagnostics on the virtual uri")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto uri = std::string{"dccv:Zm9v/main.dc"};
+    {
+        auto publishes = send_and_collect_publishes(
+            server, sink, make_did_open(uri, 1, "module main;\ni32 x = 0;\ni32 x = 1;\n"));
+        REQUIRE(publishes.size() == 1);
+        REQUIRE(publishes[0].diagnostics.size() == 1);
+    }
+
+    auto publishes = send_and_collect_publishes(server, sink, make_did_change(uri, 2, "module main;\ni32 x = 0;\n"));
+    REQUIRE(publishes.size() == 1);
+    REQUIRE(publishes[0].version.has_value());
+    CHECK_EQ(*publishes[0].version, 2);
+    CHECK(publishes[0].diagnostics.empty());
+
+    publishes = send_and_collect_publishes(server, sink, make_did_close(uri));
+    REQUIRE(publishes.size() == 1);
+    CHECK(publishes[0].diagnostics.empty());
+}
+
+TEST_CASE("virtual dccv documents answer definition, references, rename and semantic tokens")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto uri = std::string{"dccv:Zm9v/main.dc"};
+    std::ignore = open_virtual_file(server, sink, uri, "module main;\ni32 counter = 0;\nvoid f() {\n    i32 x = counter;\n}\n");
+
+    auto def = request_definition(server, sink, uri, 3u, 14u);
+    REQUIRE(def.has_value());
+    CHECK_EQ(def->uri, uri);
+    CHECK_EQ(def->range.start.line, 1u);
+    CHECK_EQ(def->range.start.character, 4u);
+    CHECK_EQ(def->range.end.line, 1u);
+    CHECK_EQ(def->range.end.character, 11u);
+
+    auto refs = request_references(server, sink, uri, 1u, 5u, true);
+    REQUIRE(refs.size() == 2);
+    auto ranges = locations_to_ranges(refs);
+    CHECK(has_range(ranges, 1u, 4u, 11u));
+    CHECK(has_range(ranges, 3u, 12u, 19u));
+    for (auto const& loc : refs)
+        CHECK_EQ(loc.uri, uri);
+
+    auto outcome = request_rename(server, sink, uri, 3u, 14u, "total");
+    REQUIRE(outcome.edit.has_value());
+    CHECK(!outcome.error.has_value());
+    auto it = outcome.edit->changes.find(uri);
+    REQUIRE(it != outcome.edit->changes.end());
+    CHECK(check_edit_set(it->second, "total", {{1u, 4u, 11u}, {3u, 12u, 19u}}));
+
+    auto resp = send_request(server, sink, make_semantic_tokens_request(uri));
+    REQUIRE(resp.has_value());
+    auto const* result = resp->find_member("result");
+    REQUIRE(result != nullptr);
+    auto const* data = result->get_array("data");
+    REQUIRE(data != nullptr);
+    CHECK(!data->as_array().empty());
+}
+
+TEST_CASE("virtual dccv documents answer hover and completion")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto uri = std::string{"dccv:Zm9v/main.dc"};
+    auto text = std::string{"module main;\npublic i32 added(i32 a, i32 b) { return a + b; }\nvoid f() {\n    i32 y = ad|ded(1, 2);\n}\n"};
+    auto [src, pos] = strip_marker(text, '|');
+    std::ignore = open_virtual_file(server, sink, uri, src);
+
+    auto hover = request_hover(server, sink, uri, pos.line, pos.character);
+    REQUIRE(hover.has_value());
+    CHECK(hover->find("added") != std::string::npos);
+
+    auto items = request_completion_items(server, sink, uri, 3u, 12u);
+    CHECK(has_label(items, "added"));
+}
+
+TEST_CASE("virtual dccv imports resolve among sibling virtual documents")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto lib_uri = std::string{"dccv:Zm9v/lib.dc"};
+    std::ignore = open_virtual_file(server, sink, lib_uri, "module lib;\npublic i32 binary_search(i32 v) { return v; }\n");
+
+    auto main_uri = std::string{"dccv:Zm9v/main.dc"};
+    auto main_text = std::string{"module main;\nimport lib;\nvoid f() {\n    i32 y = lib::binary_search(2);\n}\n"};
+    std::ignore = open_virtual_file(server, sink, main_uri, main_text);
+
+    auto def = request_definition(server, sink, main_uri, 3u, 21u);
+    REQUIRE(def.has_value());
+    CHECK_EQ(def->uri, lib_uri);
+    CHECK_EQ(def->range.start.line, 1u);
+    CHECK_EQ(def->range.start.character, 11u);
+    CHECK_EQ(def->range.end.line, 1u);
+    CHECK_EQ(def->range.end.character, 24u);
+
+    auto refs = request_references(server, sink, lib_uri, 1u, 12u, true);
+    REQUIRE(refs.size() == 2);
+    auto ranges = locations_to_ranges(refs);
+    CHECK(has_range(ranges, 1u, 11u, 24u));
+    CHECK(has_range(ranges, 3u, 17u, 30u));
+    for (auto const& loc : refs)
+        CHECK(loc.uri == lib_uri || loc.uri == main_uri);
+
+    auto outcome = request_rename(server, sink, main_uri, 3u, 21u, "search");
+    REQUIRE(outcome.edit.has_value());
+    REQUIRE(!outcome.error.has_value());
+    auto lit = outcome.edit->changes.find(lib_uri);
+    REQUIRE(lit != outcome.edit->changes.end());
+    CHECK(check_edit_set(lit->second, "search", {{1u, 11u, 24u}}));
+    auto mit = outcome.edit->changes.find(main_uri);
+    REQUIRE(mit != outcome.edit->changes.end());
+    CHECK(check_edit_set(mit->second, "search", {{3u, 17u, 30u}}));
+}
+
+TEST_CASE("closed virtual dccv documents publish empty diagnostics and return null results")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto uri = std::string{"dccv:Zm9v/main.dc"};
+    {
+        auto publishes = send_and_collect_publishes(
+            server, sink, make_did_open(uri, 1, "module main;\ni32 x = 0;\ni32 x = 1;\n"));
+        REQUIRE(publishes.size() == 1);
+        REQUIRE(publishes[0].diagnostics.size() == 1);
+    }
+
+    auto closes = send_and_collect_publishes(server, sink, make_did_close(uri));
+    REQUIRE(closes.size() == 1);
+    CHECK(closes[0].diagnostics.empty());
+
+    auto changes = send_and_collect_publishes(server, sink, make_did_change(uri, 2, "module main;\ni32 x = 0;\n"));
+    REQUIRE(changes.size() == 1);
+    REQUIRE(changes[0].version.has_value());
+    CHECK_EQ(*changes[0].version, 2);
+    CHECK(changes[0].diagnostics.empty());
+
+    auto def = request_definition(server, sink, uri, 1u, 4u);
+    CHECK(!def.has_value());
+}
+
+TEST_CASE("dcc-core didOpen remains rejected and publishes nothing")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    auto uri = std::string{"dcc-core:/core.dc"};
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, "module core;\n"));
+    CHECK(publishes.empty());
+
+    auto def = request_definition(server, sink, uri, 0u, 0u);
+    CHECK(!def.has_value());
 }
