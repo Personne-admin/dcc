@@ -1,0 +1,226 @@
+{
+    "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+    "name": "DCC IR",
+    "scopeName": "source.dcc-dir",
+    "fileTypes": [
+        "dir"
+    ],
+    "patterns": [
+        {
+            "include": "#comments"
+        },
+        {
+            "include": "#attributes"
+        },
+        {
+            "include": "#module"
+        },
+        {
+            "include": "#global"
+        },
+        {
+            "include": "#linkage"
+        },
+        {
+            "include": "#block-label"
+        },
+        {
+            "include": "#types"
+        },
+        {
+            "include": "#instruction"
+        },
+        {
+            "include": "#values"
+        },
+        {
+            "include": "#keywords"
+        },
+        {
+            "include": "#numbers"
+        }
+    ],
+    "repository": {
+        "comments": {
+            "patterns": [
+                {
+                    "name": "comment.line.double-slash.dcc-dir",
+                    "match": "//.*$"
+                },
+                {
+                    "name": "comment.line.semicolon.dcc-dir",
+                    "match": ";.*$"
+                }
+            ]
+        },
+        "attributes": {
+            "match": "^\\s*(@[A-Za-z_$][A-Za-z0-9_$]*)(?:\\s*\\([^\\)]*\\))?\\s*$",
+            "captures": {
+                "1": {
+                    "name": "keyword.other.attribute.dcc-dir"
+                }
+            }
+        },
+        "linkage": {
+            "match": "^\\s*(?:(linkonce_odr|weak_odr)\\s+|import\\s+|export\\s+)+",
+            "captures": {
+                "1": {
+                    "name": "storage.modifier.dcc-dir"
+                }
+            }
+        },
+        "module": {
+            "match": "^(module)\\s+(\"[^\"]*\")",
+            "captures": {
+                "1": {
+                    "name": "keyword.other.dcc-dir"
+                },
+                "2": {
+                    "name": "string.quoted.double.dcc-dir"
+                }
+            }
+        },
+        "global": {
+            "match": "^(?:(linkonce_odr|weak_odr)\\s+)?(?:import\\s+|export\\s+)*(const\\s+)?(global)\\s+(@[A-Za-z0-9_.$]+)",
+            "captures": {
+                "1": {
+                    "name": "storage.modifier.dcc-dir"
+                },
+                "2": {
+                    "name": "storage.modifier.dcc-dir"
+                },
+                "3": {
+                    "name": "storage.type.dcc-dir"
+                },
+                "4": {
+                    "name": "variable.other.global.definition.dcc-dir"
+                }
+            }
+        },
+        "block-label": {
+            "match": "^\\s*(%[A-Za-z_$][A-Za-z0-9_.$]*)(\\s*\\([^\\)]*\\))?:",
+            "captures": {
+                "1": {
+                    "name": "entity.name.function.label.dcc-dir"
+                },
+                "2": {
+                    "name": "meta.block.params.dcc-dir",
+                    "patterns": [
+                        {
+                            "include": "#types"
+                        },
+                        {
+                            "include": "#values"
+                        }
+                    ]
+                }
+            }
+        },
+        "instruction": {
+            "patterns": [
+                {
+                    "name": "meta.instruction.dcc-dir",
+                    "match": "^\\s*(%[A-Za-z_$][A-Za-z0-9_.$]*)\\s*=\\s*([a-z][a-z0-9_.]*)",
+                    "captures": {
+                        "1": {
+                            "name": "variable.other.ssa.definition.dcc-dir"
+                        },
+                        "2": {
+                            "name": "keyword.operator.instruction.dcc-dir"
+                        }
+                    }
+                },
+                {
+                    "name": "meta.instruction.dcc-dir",
+                    "match": "^\\s*([a-z][a-z0-9_.]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.operator.instruction.dcc-dir"
+                        }
+                    }
+                },
+                {
+                    "include": "#values"
+                }
+            ]
+        },
+        "values": {
+            "patterns": [
+                {
+                    "match": "\\b(label)\\s+(%[A-Za-z_$][A-Za-z0-9_.$]*)",
+                    "captures": {
+                        "1": {
+                            "name": "keyword.other.dcc-dir"
+                        },
+                        "2": {
+                            "name": "entity.name.function.label.dcc-dir"
+                        }
+                    }
+                },
+                {
+                    "match": "=>",
+                    "name": "keyword.operator.arrow.dcc-dir"
+                },
+                {
+                    "match": "@[A-Za-z0-9_.$]+",
+                    "name": "variable.other.global.dcc-dir"
+                },
+                {
+                    "match": "%[A-Za-z_$?][A-Za-z0-9_.$]*",
+                    "name": "variable.other.ssa.dcc-dir"
+                },
+                {
+                    "match": "#(?:true|false|null)",
+                    "name": "constant.language.dcc-dir"
+                },
+                {
+                    "match": "#[0-9][0-9a-fA-FxX_.+-]*",
+                    "name": "constant.numeric.dcc-dir"
+                },
+                {
+                    "name": "string.quoted.double.dcc-dir",
+                    "begin": "\"",
+                    "end": "\"",
+                    "patterns": [
+                        {
+                            "name": "constant.character.escape.dcc-dir",
+                            "match": "\\\\."
+                        }
+                    ]
+                }
+            ]
+        },
+        "types": {
+            "patterns": [
+                {
+                    "name": "storage.type.dcc-dir",
+                    "match": "\\b(?:void|bool|i8|u8|i16|u16|i32|u32|i64|u64|isize|usize|f32|f64)\\b"
+                },
+                {
+                    "name": "storage.type.pointer.dcc-dir",
+                    "match": "\\bptr\\b"
+                },
+                {
+                    "name": "storage.type.function.dcc-dir",
+                    "match": "\\bfn\\b"
+                },
+                {
+                    "name": "storage.type.slice.dcc-dir",
+                    "match": "\\[\\]"
+                },
+                {
+                    "name": "storage.type.array.dcc-dir",
+                    "match": "\\[\\s*[0-9]+\\s*x\\s*"
+                }
+            ]
+        },
+        "keywords": {
+            "match": "\\b(?:module|global|const|linkonce_odr|weak_odr|import|export|align|section|to|field|aggregate)\\b",
+            "name": "keyword.other.dcc-dir"
+        },
+        "numbers": {
+            "match": "\\b[0-9][0-9_]*\\b",
+            "name": "constant.numeric.dcc-dir"
+        }
+    }
+}
