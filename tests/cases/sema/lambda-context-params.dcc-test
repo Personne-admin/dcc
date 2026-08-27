@@ -1,0 +1,37 @@
+=== FILE: main.dc ===
+module m;
+
+void apply1(i32(*)(i32) f) {}
+
+void test_ctx() {
+    apply1(|x -> x);
+    apply1(|i32 y -> y);
+    i32(*)(i32) fp = |z -> z;
+    fp = |q -> q;
+}
+=== EXPECT-BODY ===
+Module m
+  Func apply1 diverging=false
+    Param f type=i32(*)(i32) storage=param offset=0 index=0
+    Body
+  Func test_ctx diverging=false
+    Body
+      Call [type=void const=<none> decl=apply1]
+        Ident apply1 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Ident x [type=i32 const=<none> lvalue decl=x]
+      Call [type=void const=<none> decl=apply1]
+        Ident apply1 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=y
+          Ident y [type=i32 const=<none> lvalue decl=y]
+      Var fp type=i32(*)(i32) storage=local offset=0
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=z
+          Ident z [type=i32 const=<none> lvalue decl=z]
+      Binary = [type=i32(*)(i32) const=<none>]
+        Ident fp [type=i32(*)(i32) const=<none> lvalue decl=fp]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=q
+          Ident q [type=i32 const=<none> lvalue decl=q]

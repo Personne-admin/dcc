@@ -1,0 +1,84 @@
+=== FILE: main.dc ===
+module m;
+
+void apply1(i32(*)(i32) f) {}
+
+using HasValue(T) = compiles(T x) {
+    x.value;
+};
+
+struct WithValue { i32 value; }
+struct WithoutValue { }
+
+void constrained_fn(T)(T x) if HasValue(T) {}
+
+void test_probe() {
+    static if compiles {
+        apply1(|x -> x);
+    } {
+    }
+
+    bool b = compiles {
+        apply1(|bad -> bad + "x");
+    };
+
+    WithoutValue nv;
+    static if compiles {
+        constrained_fn(nv);
+    } {
+    }
+
+    WithValue wv;
+    constrained_fn(wv);
+
+    i32(*)(i32) fp = |q -> q;
+    apply1(|z -> z);
+}
+=== EXPECT-BODY ===
+Module m
+  Func apply1 diverging=false
+    Param f type=i32(*)(i32) storage=param offset=0 index=0
+    Body
+  Func constrained_fn diverging=false
+    Param x type=T storage=param offset=0 index=0
+    Body
+  Func test_probe diverging=false
+    Body
+      StaticIf taken=0
+        Compiles [type=bool const=true constant]
+        Body
+          Call [type=void const=<none> decl=apply1]
+            Ident apply1 [type=<unresolved> const=<none>]
+            Lambda [type=i32(*)(i32) const=<none>]
+              Param name=x
+              Ident x [type=i32 const=<none> lvalue decl=x]
+      Var b type=bool storage=local offset=0
+        Compiles [type=bool const=false constant]
+        Body
+          Call [type=void const=<none> decl=apply1]
+            Ident apply1 [type=<unresolved> const=<none>]
+            Lambda [type=i32(*)(i32) const=<none>]
+              Param name=bad
+              Binary + [type=<error> const=<none>]
+                Ident bad [type=i32 const=<none> lvalue decl=bad]
+                StringLiteral x [type=[]const char const="x" constant]
+      Var nv type=WithoutValue storage=local offset=1
+      StaticIf taken=1
+        Compiles [type=bool const=false constant]
+        Body
+          Call [type=<error> const=<none>]
+            Ident constrained_fn [type=<unresolved> const=<none>]
+            Ident nv [type=WithoutValue const=<none> lvalue decl=nv]
+      Var wv type=WithValue storage=local offset=4
+      Call [type=void const=<none> decl=constrained_fn spec=constrained_fn]
+        Ident constrained_fn [type=<unresolved> const=<none>]
+        Ident wv [type=WithValue const=<none> lvalue decl=wv]
+      Var fp type=i32(*)(i32) storage=local offset=8
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=q
+          Ident q [type=i32 const=<none> lvalue decl=q]
+      Call [type=void const=<none> decl=apply1]
+        Ident apply1 [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=z
+          Ident z [type=i32 const=<none> lvalue decl=z]

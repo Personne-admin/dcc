@@ -397,6 +397,7 @@ namespace dcc::sema
                         n->params.push_back(std::move(fp));
                     }
                     n->body = clone_expr(ex->body);
+                    n->synthesized_func = nullptr;
                     n->sema = ex->sema;
                     return n;
                 }

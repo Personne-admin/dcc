@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module m;
+
+i32 call_typed() {
+    return (|i32 x -> x)(5);
+}
+
+i32 call_ctx() {
+    i32(*)(i32, i32) fp = |a, b -> a + b;
+    return fp(3, 4);
+}
+
+void stored_global() {
+    i32(*)(i32) gp = |i32 n -> n * 2;
+    i32 r = gp(21);
+}
+=== EXPECT-BODY ===
+Module m
+  Func call_typed diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none>]
+          Lambda [type=i32(*)(i32) const=<none>]
+            Param name=x
+            Ident x [type=i32 const=<none> lvalue decl=x]
+          IntLiteral 5 [type=i32 const=5 constant]
+  Func call_ctx diverging=true
+    Body
+      Var fp type=i32(*)(i32, i32) storage=local offset=0
+        Lambda [type=i32(*)(i32, i32) const=<none>]
+          Param name=a
+          Param name=b
+          Binary + [type=i32 const=<none>]
+            Ident a [type=i32 const=<none> lvalue decl=a]
+            Ident b [type=i32 const=<none> lvalue decl=b]
+      Return
+        Call [type=i32 const=<none>]
+          Ident fp [type=i32(*)(i32, i32) const=<none> lvalue decl=fp]
+          IntLiteral 3 [type=i32 const=3 constant]
+          IntLiteral 4 [type=i32 const=4 constant]
+  Func stored_global diverging=false
+    Body
+      Var gp type=i32(*)(i32) storage=local offset=0
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=n
+          Binary * [type=i32 const=<none>]
+            Ident n [type=i32 const=<none> lvalue decl=n]
+            IntLiteral 2 [type=i32 const=2 constant]
+      Var r type=i32 storage=local offset=8
+        Call [type=i32 const=<none>]
+          Ident gp [type=i32(*)(i32) const=<none> lvalue decl=gp]
+          IntLiteral 21 [type=i32 const=21 constant]

@@ -872,9 +872,24 @@ export namespace dcc::sema
                 analyze_module(*m);
                 m->state = std::max(m->state, ModuleState::BodiesAnalyzed);
             }
+
+            flush_pending_lambdas();
         }
 
-        void analyze_single_function(ModuleInfo& mod, ast::FuncDecl& fn) { analyze_function(mod, fn); }
+        void analyze_single_function(ModuleInfo& mod, ast::FuncDecl& fn)
+        {
+            ++m_spec_analysis_depth;
+            analyze_function(mod, fn);
+            --m_spec_analysis_depth;
+        }
+
+        void flush_pending_lambdas()
+        {
+            for (auto& pending : m_pending_lambdas)
+                if (pending.mod && pending.func)
+                    pending.mod->lambda_funcs.push_back(pending.func);
+            m_pending_lambdas.clear();
+        }
 
     private:
         std::span<std::unique_ptr<ModuleInfo> const> m_modules;
@@ -925,15 +940,49 @@ export namespace dcc::sema
         std::vector<diag::Diagnostic>* m_captured_diagnostics{};
         ModuleInfo* m_specialization_defining_module{};
 
+        struct PendingLambda
+        {
+            ModuleInfo* mod{};
+            ast::FuncDecl* func{};
+            bool is_spec_owned{};
+        };
+
+        std::pmr::vector<PendingLambda> m_pending_lambdas{m_alloc};
+        Scope const* m_lambda_capture_scope{};
+        std::size_t m_spec_analysis_depth{};
+
+        [[nodiscard]] std::size_t pending_lambda_mark() const noexcept { return m_pending_lambdas.size(); }
+
+        void rollback_pending_lambdas(std::size_t mark) noexcept { m_pending_lambdas.resize(mark); }
+
+        void rollback_non_spec_lambdas(std::size_t mark) noexcept
+        {
+            if (mark >= m_pending_lambdas.size())
+                return;
+            auto it = std::remove_if(m_pending_lambdas.begin() + static_cast<std::ptrdiff_t>(mark), m_pending_lambdas.end(),
+                                     [](PendingLambda const& p) { return !p.is_spec_owned; });
+            m_pending_lambdas.erase(it, m_pending_lambdas.end());
+        }
+
         class ErrorSuppressionGuard
         {
         public:
-            explicit ErrorSuppressionGuard(bool& suppress, std::uint32_t& suppressed_count) noexcept
-                : m_suppress(suppress), m_saved_suppress(suppress), m_suppressed_count(suppressed_count), m_saved_count(suppressed_count)
+            explicit ErrorSuppressionGuard(bool& suppress, std::uint32_t& suppressed_count, std::pmr::vector<PendingLambda>* pending = nullptr) noexcept
+                : m_suppress(suppress), m_saved_suppress(suppress), m_suppressed_count(suppressed_count), m_saved_count(suppressed_count),
+                  m_pending(pending), m_saved_pending_size(pending ? pending->size() : 0)
             {
                 m_suppress = true;
             }
-            ~ErrorSuppressionGuard() noexcept { m_suppress = m_saved_suppress; }
+            ~ErrorSuppressionGuard() noexcept
+            {
+                if (m_pending)
+                {
+                    auto it = std::remove_if(m_pending->begin() + static_cast<std::ptrdiff_t>(m_saved_pending_size), m_pending->end(),
+                                             [](PendingLambda const& p) { return !p.is_spec_owned; });
+                    m_pending->erase(it, m_pending->end());
+                }
+                m_suppress = m_saved_suppress;
+            }
 
             [[nodiscard]] bool had_suppressed_errors() const noexcept { return m_suppressed_count != m_saved_count; }
 
@@ -945,6 +994,8 @@ export namespace dcc::sema
             bool m_saved_suppress{};
             std::uint32_t& m_suppressed_count;
             std::uint32_t m_saved_count{};
+            std::pmr::vector<PendingLambda>* m_pending{};
+            std::size_t m_saved_pending_size{};
         };
 
         class NestedImplicitEnumGuard
@@ -2461,13 +2512,14 @@ export namespace dcc::sema
 
             if (mode == RequirementMode::Bool)
             {
-                ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                 std::ignore = analyze_block(mod, const_cast<ast::FuncDecl*>(fn), *inner, const_cast<ast::Block&>(compiles.body), 0, tmp_off, nullptr, nullptr);
                 return {!suppress.had_suppressed_errors(), {}};
             }
 
             auto saved_silent = m_diag.silent();
             m_diag.set_silent(true);
+            auto const lambda_mark = m_pending_lambdas.size();
 
             auto const& block = compiles.body;
             for (auto* stmt : block.stmts)
@@ -2538,6 +2590,7 @@ export namespace dcc::sema
             }
 
             m_diag.set_silent(saved_silent);
+            rollback_non_spec_lambdas(lambda_mark);
 
             bool const satisfied = failures.empty();
             return {satisfied ? std::optional<bool>(true) : std::optional<bool>(false), std::move(failures)};
@@ -2645,6 +2698,7 @@ export namespace dcc::sema
 
                 auto* probe_scope = make_probe_scope(scope);
                 std::uint32_t probe_off = next_off;
+                auto const lambda_mark = m_pending_lambdas.size();
 
                 infer::TemplateBindings b{m_types};
 
@@ -2677,6 +2731,7 @@ export namespace dcc::sema
                     continue;
 
                 std::ignore = check_template_constraint(mod, scope, f, b, true);
+                rollback_non_spec_lambdas(lambda_mark);
 
                 break;
             }
@@ -3040,7 +3095,7 @@ export namespace dcc::sema
             std::ignore = dm_guard;
 
             {
-                [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                 auto evaluated = evaluate_concept_expr(mod, scope, &f, std::span<ast::TemplateParam const>{f.template_params.data(), f.template_params.size()},
                                                        bindings, *f.constraint);
                 if (evaluated.value_or(false) && !suppress.had_suppressed_errors())
@@ -3101,7 +3156,7 @@ export namespace dcc::sema
             std::ignore = dm_guard;
 
             {
-                [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                 auto evaluated = evaluate_concept_expr(mod, scope, nullptr, template_params, bindings, *constraint);
                 if (evaluated.value_or(false) && !suppress.had_suppressed_errors())
                     return true;
@@ -4189,7 +4244,7 @@ export namespace dcc::sema
 
             auto* probe_scope = make_probe_scope(scope);
             std::uint32_t probe_off = next_off;
-            [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+            [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
             [[maybe_unused]] NestedImplicitEnumGuard nested_enum_guard{m_disallow_nested_implicit_enum};
 
             infer::TemplateBindings b{m_types};
@@ -4553,7 +4608,7 @@ export namespace dcc::sema
 
             auto* probe_scope = make_probe_scope(scope);
             std::uint32_t probe_off = next_off;
-            ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+            ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
             [[maybe_unused]] NestedImplicitEnumGuard nested_enum_guard{m_disallow_nested_implicit_enum};
 
             infer::TemplateBindings b{m_types};
@@ -5040,6 +5095,7 @@ export namespace dcc::sema
 
             auto* seed_scope = make_probe_scope(scope);
             std::uint32_t seed_off = next_off;
+            auto const seed_lambda_mark = m_pending_lambdas.size();
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
@@ -5048,11 +5104,15 @@ export namespace dcc::sema
 
                 auto r = analyze_expr(mod, nullptr, *seed_scope, *arg_exprs[func_arg_start + i], loop_depth, seed_off, param_ty, const_env);
                 if (has_error(r.type))
+                {
+                    rollback_non_spec_lambdas(seed_lambda_mark);
                     return std::nullopt;
+                }
 
                 if (params[i + 1] && r.type && !contains_template_param(r.type))
                     std::ignore = b.deduce(params[i + 1], r.type);
             }
+            rollback_non_spec_lambdas(seed_lambda_mark);
 
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
@@ -5790,6 +5850,181 @@ export namespace dcc::sema
             }
 
             fn.sema.storage = ast::StorageClass::ModuleGlobal;
+        }
+
+        [[nodiscard]] ast::TypeExpr* synth_type_expr(sm::SourceRange range, types::TypePtr ty)
+        {
+            auto* nt = m_ast_ctx.make<ast::NamedType>(range, ast::Path{m_ast_ctx.allocator()});
+            set_canonical(nt->sema, ty);
+            return nt;
+        }
+
+        [[nodiscard]] std::string_view synth_lambda_name(ModuleInfo& mod)
+        {
+            auto* s = m_alloc.allocate_object<std::pmr::string>();
+            std::construct_at(s, std::format("__lambda_{}", mod.lambda_counter++), m_alloc);
+            return std::string_view{*s};
+        }
+
+        [[nodiscard]] static types::FuncPtrType const* as_funcptr(types::TypePtr ty) noexcept
+        {
+            while (ty && ty->kind == types::TypeKind::Nominal)
+                ty = static_cast<types::NominalType const*>(ty)->underlying;
+            return types::type_cast<types::FuncPtrType>(ty);
+        }
+
+        detail::ExprResult analyze_lambda(ModuleInfo& mod, ast::FuncDecl* enclosing_fn, Scope& scope, ast::LambdaExpr& l, int loop_depth,
+                                          std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
+        {
+            std::ignore = enclosing_fn;
+            std::ignore = loop_depth;
+            std::ignore = next_off;
+            std::ignore = const_env;
+
+            auto const* expected_fp = as_funcptr(expected_type);
+
+            std::pmr::unordered_set<std::string_view> seen_param_names{m_alloc};
+            for (auto const& p : l.params)
+            {
+                if (!p.name.empty() && !seen_param_names.insert(p.name).second)
+                    error(p.range, "duplicate parameter name `{}` in lambda", p.name);
+            }
+
+            if (expected_fp && l.params.size() != expected_fp->params.size())
+            {
+                error(l.range, "lambda parameter count mismatch: expected {}, got {}", expected_fp->params.size(), l.params.size());
+                l.synthesized_func = nullptr;
+                return {m_types.m_errort()};
+            }
+
+            std::vector<types::TypePtr> param_types;
+            param_types.reserve(l.params.size());
+            bool any_param_error = false;
+            for (std::size_t i = 0; i < l.params.size(); ++i)
+            {
+                auto const& p = l.params[i];
+                types::TypePtr ty = nullptr;
+                if (p.type)
+                {
+                    ty = p.type->sema.canonical ? get_canonical(p.type->sema) : resolve_type_node(mod, scope, p.type);
+                    if (expected_fp && i < expected_fp->params.size() && ty && expected_fp->params[i] != ty && !has_error(ty) &&
+                        !has_error(expected_fp->params[i]))
+                        error(p.range, "lambda parameter `{}` type mismatch: expected `{}`, found `{}`", p.name, format_type_str(expected_fp->params[i]),
+                              format_type_str(ty));
+                }
+                else if (expected_fp && i < expected_fp->params.size())
+                {
+                    auto const* ctx_ty = expected_fp->params[i];
+                    if (ctx_ty && !contains_template_param(ctx_ty))
+                        ty = ctx_ty;
+                    else
+                        error(p.range, "cannot deduce type for lambda parameter `{}`: no concrete function-pointer context", p.name);
+                }
+                else
+                    error(p.range, "cannot deduce type for lambda parameter `{}`: no function-pointer context", p.name);
+
+                if (!ty)
+                    ty = m_types.m_errort();
+                if (has_error(ty))
+                    any_param_error = true;
+                param_types.push_back(ty);
+            }
+
+            auto const* expected_ret = expected_fp ? expected_fp->return_type : nullptr;
+            bool enforce_expected_ret = expected_ret && !contains_template_param(expected_ret) && !has_error(expected_ret);
+
+            auto* fd = m_ast_ctx.make<ast::FuncDecl>(l.range, synth_lambda_name(mod), l.range);
+            fd->params.reserve(l.params.size());
+            for (std::size_t i = 0; i < l.params.size(); ++i)
+            {
+                ast::FuncParam fp;
+                fp.name = l.params[i].name;
+                fp.range = l.params[i].range;
+                fp.type = synth_type_expr(l.params[i].range, param_types[i]);
+                fd->params.push_back(std::move(fp));
+            }
+
+            if (enforce_expected_ret)
+                fd->return_type = synth_type_expr(l.range, expected_ret);
+
+            if (l.body)
+            {
+                fd->body.emplace(l.range, m_alloc);
+                fd->body->tail = l.body;
+            }
+
+            auto* root = make_scope(ScopeKind::Function, nullptr);
+            auto* root_consts = make_const_env(nullptr);
+            std::uint32_t frame_off = 0;
+            for (std::size_t i = 0; i < fd->params.size(); ++i)
+            {
+                auto& p = fd->params[i];
+                p.sema.storage = ast::StorageClass::Param;
+                p.sema.param_index = static_cast<std::uint32_t>(i);
+                auto const* type = get_canonical(p.type->sema);
+                if (type)
+                    check_type_valid_for_value(p.range, type, "lambda parameter type");
+                if (type && mod.own_scope)
+                    check_type_constraints_in_type(mod, *mod.own_scope, type, p.range);
+                p.sema.frame_offset = allocate_frame_slot(frame_off, type);
+                auto* synthetic = make_param_decl(p);
+                if (i == 0 || fd->params[i - 1].name != p.name)
+                    define_local(*root, synthetic);
+            }
+
+            auto* saved_capture_scope = m_lambda_capture_scope;
+            m_lambda_capture_scope = &scope;
+            detail::StmtResult body_res{};
+            if (fd->body)
+                body_res = analyze_block(mod, fd, *root, *fd->body, 0, frame_off, enforce_expected_ret ? expected_ret : nullptr, root_consts);
+            else
+                body_res.falls_through = true;
+            m_lambda_capture_scope = saved_capture_scope;
+
+            fd->sema.is_diverging = !body_res.falls_through;
+
+            types::TypePtr ret_ty = m_types.m_voidt();
+            if (enforce_expected_ret)
+            {
+                ret_ty = expected_ret;
+                auto const* tail_type = fd->body && fd->body->tail ? get_resolved_type(fd->body->tail->sema) : m_types.m_voidt();
+                if (tail_type && !has_error(tail_type))
+                {
+                    bool compatible = can_assign_return(ret_ty, tail_type);
+                    if (!compatible)
+                    {
+                        ast::EnumVariant const* implicit_enum_var = nullptr;
+                        auto* conv = try_implicit_enum_conversion(ret_ty, tail_type, mod, *root, &implicit_enum_var);
+                        compatible = conv && !has_error(conv);
+                    }
+                    if (!compatible)
+                        error(l.range, "lambda return type mismatch: expected `{}`, found `{}`", format_type_str(ret_ty), format_type_str(tail_type));
+                }
+            }
+            else if (fd->body && fd->body->tail)
+            {
+                auto const* tail_type = get_resolved_type(fd->body->tail->sema);
+                if (tail_type && !has_error(tail_type))
+                    ret_ty = tail_type;
+            }
+
+            if (!fd->return_type)
+                fd->return_type = synth_type_expr(l.range, ret_ty);
+            else
+                set_canonical(fd->return_type->sema, ret_ty);
+
+            fd->sema.storage = ast::StorageClass::ModuleGlobal;
+
+            auto fp = m_types.funcptr_t(ret_ty, param_types);
+            if (any_param_error || has_error(ret_ty))
+            {
+                l.synthesized_func = nullptr;
+                return {m_types.m_errort()};
+            }
+
+            l.synthesized_func = fd;
+            m_pending_lambdas.push_back(PendingLambda{&mod, fd, m_spec_analysis_depth > 0});
+            return {.type = fp};
         }
 
         void analyze_var(ModuleInfo& mod, ast::VarDecl& var)
@@ -7374,8 +7609,7 @@ export namespace dcc::sema
                         break;
                     }
                     case ast::ExprKind::Lambda: {
-                        error(expr.range, "lambda expressions are not yet supported by the compiler");
-                        out.type = m_types.m_errort();
+                        out = analyze_lambda(mod, fn, scope, static_cast<ast::LambdaExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     }
                 }
@@ -7415,6 +7649,15 @@ export namespace dcc::sema
             if (syms.empty())
             {
                 out.type = m_types.m_errort();
+                if (m_lambda_capture_scope)
+                {
+                    auto captured = m_lambda_capture_scope->lookup_values(name);
+                    if (!captured.empty())
+                    {
+                        error(range, "lambda body cannot capture local variable `{}`", name);
+                        return out;
+                    }
+                }
                 error(range, "unknown name `{}`", name);
                 return out;
             }
@@ -7959,7 +8202,7 @@ export namespace dcc::sema
                     };
 
                     auto resolve_method = [&](std::string_view name) -> std::optional<MethodInfo> {
-                        ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                        ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                         auto* fa = m_ast_ctx.make<ast::FieldAccessExpr>(p.range, p.operand, name, p.range);
                         auto call_result = resolve_ufcs(mod, fn, scope, *fa, {}, loop_depth, next_off, const_env, nullptr, &op, true);
                         if (has_error(call_result.type))
@@ -8950,7 +9193,7 @@ export namespace dcc::sema
                 std::optional<detail::ExprResult> chosen;
                 ast::EnumVariant const* chosen_variant = nullptr;
                 {
-                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                     for (auto const& variant : enum_decl->variants)
                     {
                         if (!variant_has_attr(variant, "implicit_construction"))
@@ -9123,7 +9366,7 @@ export namespace dcc::sema
                 std::vector<comptime::Value const*> chosen_arg_constants;
                 bool ambiguous = false;
                 {
-                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                     for (auto const& variant : enum_decl->variants)
                     {
                         if (!s.type && !variant_has_attr(variant, "implicit_construction"))
@@ -9461,7 +9704,7 @@ export namespace dcc::sema
         {
             auto* inner = make_scope(ScopeKind::Block, &scope);
             std::uint32_t tmp_off = next_off;
-            [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+            [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
             auto* inner_consts = make_const_env(const_env);
             for (auto const& p : c.params)
             {
@@ -9714,6 +9957,7 @@ export namespace dcc::sema
                     std::vector<CandidateInfo> rejected;
                     bool saw_constraint_failure = false;
                     bool saw_non_constraint_failure = false;
+                    auto const probe_lambda_mark = m_pending_lambdas.size();
                     for (auto const& cand : scan.viable)
                     {
                         bool probe_error = false;
@@ -9776,6 +10020,7 @@ export namespace dcc::sema
                     if (!chosen.explicit_fp)
                         return std::nullopt;
 
+                    rollback_non_spec_lambdas(probe_lambda_mark);
                     m_analyzing_call_callee = true;
                     std::ignore = analyze_expr(mod, fn, scope, *t->callee, loop_depth, next_off, expected_type, const_env);
                     m_analyzing_call_callee = false;
@@ -9837,6 +10082,7 @@ export namespace dcc::sema
                 ranked.reserve(syms.size());
                 std::vector<CandidateInfo> rejected;
                 bool saw_function = false;
+                auto const probe_lambda_mark = m_pending_lambdas.size();
                 for (auto const& sym : syms)
                 {
                     if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
@@ -9897,6 +10143,7 @@ export namespace dcc::sema
                     return detail::ExprResult{m_types.m_errort()};
                 }
 
+                rollback_non_spec_lambdas(probe_lambda_mark);
                 return invoke_ranked_candidate(mod, scope, *ranked[*winner].sym, c.args, c.range, loop_depth, next_off, const_env, expected_type);
             };
 
@@ -10262,6 +10509,7 @@ export namespace dcc::sema
                 std::vector<RankedCandidate> ranked;
                 ranked.reserve(all_syms.size());
                 std::vector<CandidateInfo> rejected;
+                auto const probe_lambda_mark = m_pending_lambdas.size();
 
                 for (auto const* sym : all_syms)
                 {
@@ -10299,6 +10547,7 @@ export namespace dcc::sema
                         return detail::ExprResult{m_types.m_errort()};
                     }
 
+                    rollback_non_spec_lambdas(probe_lambda_mark);
                     auto out_opt = invoke_ufcs_candidate(mod, scope, *ranked[*winner].sym, *f.object, args, f.range, loop_depth, next_off, const_env,
                                                          ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup);
                     if (!out_opt)
@@ -10316,8 +10565,10 @@ export namespace dcc::sema
                 {
                     if (!rejected.empty())
                     {
+                        auto const lambda_mark = m_pending_lambdas.size();
                         auto* probe_scope = make_probe_scope(scope);
                         auto receiver_r = analyze_expr(mod, nullptr, *probe_scope, *f.object, loop_depth, next_off, nullptr, const_env);
+                        rollback_non_spec_lambdas(lambda_mark);
                         std::string receiver_ctx;
                         if (receiver_r.type && receiver_r.type->kind != types::TypeKind::Error)
                             receiver_ctx = std::format(" on receiver type `{}`", format_type_str(receiver_r.type));
@@ -10804,7 +11055,7 @@ export namespace dcc::sema
                                         }
                                     }
 
-                                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count};
+                                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
                                     if (fn)
                                     {
                                         auto result = evaluate_concept_decl(mod, scope, fn, *use, concept_bindings);
@@ -12653,7 +12904,9 @@ export namespace dcc::sema
         std::span<std::unique_ptr<ModuleInfo> const> empty_span{dummy};
         static SpecializationRegistry reg;
         reg = SpecializationRegistry{};
-        BodyAnalyzer{empty_span, diag, ast_ctx, type_ctx, alloc, reg, target}.analyze_single_function(mod, fn);
+        BodyAnalyzer ba{empty_span, diag, ast_ctx, type_ctx, alloc, reg, target};
+        ba.analyze_single_function(mod, fn);
+        ba.flush_pending_lambdas();
     }
 
     [[nodiscard]] std::uint64_t align_up_enum(std::uint64_t n, std::uint64_t align)

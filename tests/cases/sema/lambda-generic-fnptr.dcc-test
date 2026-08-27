@@ -1,0 +1,58 @@
+=== FILE: main.dc ===
+module m;
+
+T apply_generic(T)(T f) { return f; }
+
+T invoke0(T)(T(*)() f) { return f(); }
+
+i32 use0() {
+    return invoke0(| -> 5);
+}
+
+i32 use0b() {
+    i32(*)(i32) fp = apply_generic(|i32 x -> x);
+    return fp(7);
+}
+
+void use0c() {
+    apply_generic(|i32 x -> x);
+}
+=== EXPECT-BODY ===
+Module m
+  Func apply_generic diverging=false
+    Param f type=T storage=param offset=0 index=0
+    Body
+      Return
+        Ident f [type=<unresolved> const=<none>]
+  Func invoke0 diverging=false
+    Param f type=T(*)() storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=<unresolved> const=<none>]
+          Ident f [type=<unresolved> const=<none>]
+  Func use0 diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none> decl=invoke0 spec=invoke0]
+          Ident invoke0 [type=<unresolved> const=<none>]
+          Lambda [type=i32(*)() const=<none>]
+            IntLiteral 5 [type=i32 const=5 constant]
+  Func use0b diverging=true
+    Body
+      Var fp type=i32(*)(i32) storage=local offset=0
+        Call [type=i32(*)(i32) const=<none> decl=apply_generic spec=apply_generic]
+          Ident apply_generic [type=<unresolved> const=<none>]
+          Lambda [type=i32(*)(i32) const=<none>]
+            Param name=x
+            Ident x [type=i32 const=<none> lvalue decl=x]
+      Return
+        Call [type=i32 const=<none>]
+          Ident fp [type=i32(*)(i32) const=<none> lvalue decl=fp]
+          IntLiteral 7 [type=i32 const=7 constant]
+  Func use0c diverging=false
+    Body
+      Call [type=i32(*)(i32) const=<none> decl=apply_generic spec=apply_generic]
+        Ident apply_generic [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Ident x [type=i32 const=<none> lvalue decl=x]

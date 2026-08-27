@@ -17,17 +17,19 @@ i32 j = foo(|a, b -> a + b).field;
 i32 k = match (|x -> x) { _ => 1 };
 
 === EXPECT-ERRORS EXACT ===
-main.dc:4:17: lambda expressions are not yet supported by the compiler
-main.dc:5:14: lambda expressions are not yet supported by the compiler
-main.dc:6:14: lambda expressions are not yet supported by the compiler
+main.dc:4:18: cannot deduce type for lambda parameter `x`: no function-pointer context
+main.dc:5:15: cannot deduce type for lambda parameter `x`: no function-pointer context
+main.dc:6:15: cannot deduce type for lambda parameter `x`: no function-pointer context
 main.dc:7:13: unknown name `foo`
 main.dc:8:13: unknown name `foo`
 main.dc:9:13: unknown name `arr`
-main.dc:10:27: lambda expressions are not yet supported by the compiler
-main.dc:11:13: lambda expressions are not yet supported by the compiler
-main.dc:12:15: lambda expressions are not yet supported by the compiler
+main.dc:10:28: cannot deduce type for lambda parameter `z`: no function-pointer context
+main.dc:11:14: cannot deduce type for lambda parameter `x`: no function-pointer context
+main.dc:11:20: cannot deduce type for lambda parameter `y`: no function-pointer context
+main.dc:11:25: lambda body cannot capture local variable `x`
+main.dc:12:16: cannot deduce type for lambda parameter `x`: no function-pointer context
 main.dc:15:9: unknown name `foo`
-main.dc:16:16: lambda expressions are not yet supported by the compiler
+main.dc:16:17: cannot deduce type for lambda parameter `x`: no function-pointer context
 
 === EXPECT-AST ===
 TranslationUnit

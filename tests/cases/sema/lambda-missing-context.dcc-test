@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+void test_missing() {
+    i32(*)(i32) fp = |x -> x;
+    i32 r = |y -> y;
+    bool c = compiles {
+        |z -> z;
+    };
+}
+=== EXPECT-ERRORS EXACT ===
+main.dc:5:14: cannot deduce type for lambda parameter `y`: no function-pointer context

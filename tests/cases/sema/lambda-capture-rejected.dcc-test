@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+void apply1(i32(*)(i32) f) {}
+
+void test_capture() {
+    i32 local = 5;
+    apply1(|x -> local);
+    i32(*)(i32) fp = |y -> local + y;
+}
+=== EXPECT-ERRORS EXACT ===
+main.dc:7:18: lambda body cannot capture local variable `local`
+main.dc:8:28: lambda body cannot capture local variable `local`

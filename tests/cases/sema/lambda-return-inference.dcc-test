@@ -1,0 +1,45 @@
+=== FILE: main.dc ===
+module m;
+
+i32 apply3(f64(*)(i32) f) { return 1; }
+void apply_void(void(*)() f) {}
+
+void test_ret() {
+    apply3(|x -> 3.5);
+    apply3(|x -> 3);
+    apply_void(| -> {});
+    i32(*)(i32) fp = |i32 x -> x * 2;
+}
+=== EXPECT-BODY ===
+Module m
+  Func apply3 diverging=true
+    Param f type=f64(*)(i32) storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 1 [type=i32 const=1 constant]
+  Func apply_void diverging=false
+    Param f type=void(*)() storage=param offset=0 index=0
+    Body
+  Func test_ret diverging=false
+    Body
+      Call [type=i32 const=<none> decl=apply3]
+        Ident apply3 [type=<unresolved> const=<none>]
+        Lambda [type=f64(*)(i32) const=<none>]
+          Param name=x
+          FloatLiteral 3.5 [type=f64 const=3.5 constant]
+      Call [type=i32 const=<none> decl=apply3]
+        Ident apply3 [type=<unresolved> const=<none>]
+        Lambda [type=f64(*)(i32) const=<none>]
+          Param name=x
+          IntLiteral 3 [type=i32 const=3 constant]
+      Call [type=void const=<none> decl=apply_void]
+        Ident apply_void [type=<unresolved> const=<none>]
+        Lambda [type=void(*)() const=<none>]
+          Block [type=void const=<none>]
+            Body
+      Var fp type=i32(*)(i32) storage=local offset=0
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Binary * [type=i32 const=<none>]
+            Ident x [type=i32 const=<none> lvalue decl=x]
+            IntLiteral 2 [type=i32 const=2 constant]

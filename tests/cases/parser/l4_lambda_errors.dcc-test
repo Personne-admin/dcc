@@ -21,8 +21,6 @@ main.dc:9:15: expected expression, found ';'
 main.dc:10:1: expected ';' after variable declaration, found 'i32'
 main.dc:11:14: expected expression, found ';'
 main.dc:12:1: expected ';' after variable declaration, found 'eof'
-main.dc:8:9: lambda expressions are not yet supported by the compiler
-main.dc:10:9: lambda expressions are not yet supported by the compiler
 
 === EXPECT-AST ===
 TranslationUnit

@@ -14,17 +14,12 @@ i32 j = |x -> x | 1;
 i32 k = | -> | -> 7;
 
 === EXPECT-ERRORS EXACT ===
-main.dc:3:9: lambda expressions are not yet supported by the compiler
-main.dc:4:9: lambda expressions are not yet supported by the compiler
-main.dc:5:9: lambda expressions are not yet supported by the compiler
-main.dc:6:9: lambda expressions are not yet supported by the compiler
-main.dc:7:9: lambda expressions are not yet supported by the compiler
-main.dc:8:9: lambda expressions are not yet supported by the compiler
-main.dc:9:9: lambda expressions are not yet supported by the compiler
-main.dc:10:9: lambda expressions are not yet supported by the compiler
-main.dc:11:9: lambda expressions are not yet supported by the compiler
-main.dc:12:9: lambda expressions are not yet supported by the compiler
-main.dc:13:9: lambda expressions are not yet supported by the compiler
+main.dc:4:10: cannot deduce type for lambda parameter `x`: no function-pointer context
+main.dc:6:10: cannot deduce type for lambda parameter `x`: no function-pointer context
+main.dc:8:10: cannot deduce type for lambda parameter `a`: no function-pointer context
+main.dc:8:13: cannot deduce type for lambda parameter `b`: no function-pointer context
+main.dc:8:16: cannot deduce type for lambda parameter `c`: no function-pointer context
+main.dc:12:10: cannot deduce type for lambda parameter `x`: no function-pointer context
 
 === EXPECT-AST ===
 TranslationUnit
