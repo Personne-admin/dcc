@@ -1140,6 +1140,23 @@ export namespace dcc::ir::lower
                 return m_ctx.pointer_to(ir_func, ir::Segment::None);
             }
 
+            if (auto* lt = dcc::types::type_cast<dcc::types::LambdaType>(type))
+            {
+                auto* lexpr = lt->expr ? static_cast<ast::LambdaExpr const*>(lt->expr) : nullptr;
+                auto* fd = lexpr ? lexpr->synthesized_func : nullptr;
+                if (!fd)
+                    lower_panic("LambdaType reached IR type lowering without synthesized function");
+
+                auto* ir_ret = lower_type(get_canonical_type(fd->return_type));
+                std::vector<IrType const*> ir_params;
+                ir_params.reserve(fd->params.size());
+                for (auto const& p : fd->params)
+                    ir_params.push_back(lower_type(get_canonical_type(p.type)));
+
+                auto* ir_func = m_ctx.func_t(ir_ret, ir_params);
+                return m_ctx.pointer_to(ir_func, ir::Segment::None);
+            }
+
             if (auto* st = dcc::types::type_cast<dcc::types::SliceType>(type))
             {
                 auto* ir_el = lower_type(st->element);

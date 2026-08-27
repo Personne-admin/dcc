@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module m;
+
+i32 id(T)(T x) {
+    return x;
+}
+
+T apply(T)(T(*)(T) f, T v) {
+    return f(v);
+}
+
+T twice(T)(T v) {
+    return apply(|T x -> id(x), v);
+}
+
+i32 test() {
+    return twice!i32(21);
+}
+=== EXPECT-BODY ===
+Module m
+  Func id diverging=false
+    Param x type=T storage=param offset=0 index=0
+    Body
+      Return
+        Ident x [type=<unresolved> const=<none>]
+  Func apply diverging=false
+    Param f type=T(*)(T) storage=param offset=0 index=0
+    Param v type=T storage=param offset=8 index=1
+    Body
+      Return
+        Call [type=<unresolved> const=<none>]
+          Ident f [type=<unresolved> const=<none>]
+          Ident v [type=<unresolved> const=<none>]
+  Func twice diverging=false
+    Param v type=T storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=<unresolved> const=<none>]
+          Ident apply [type=<unresolved> const=<none>]
+          Lambda [type=<unresolved> const=<none>]
+            Param name=x
+            Call [type=<unresolved> const=<none>]
+              Ident id [type=<unresolved> const=<none>]
+              Ident x [type=<unresolved> const=<none>]
+          Ident v [type=<unresolved> const=<none>]
+  Func test diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none> decl=twice spec=twice]
+          TemplateInst [type=i32(*)(i32) const=<none> decl=twice spec=twice]
+            Ident twice [type=T(*)(T) const=<none> decl=twice]
+          IntLiteral 21 [type=i32 const=21 constant]

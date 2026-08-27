@@ -1,0 +1,28 @@
+=== FILE: main.dc ===
+module m;
+
+void consume(i32 x) {}
+
+void apply(F, Args...)(F f, Args a) {
+    f(a...);
+}
+
+using Callable(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void constrained(F, P...)(F f, P args) if Callable(F, P...) {
+    f(args...);
+}
+
+void test() {
+    bool failed = compiles {
+        apply(|bad -> consume(bad + "x"), 1);
+    };
+    apply(|x -> consume(x), 1);
+    constrained(|y -> consume(y), 2);
+}
+=== EXPECT-REGISTRY ===
+fn=apply args=[<type>, i32] state=2
+fn=apply args=[<type>, i32] state=2
+fn=constrained args=[<type>, i32] state=2

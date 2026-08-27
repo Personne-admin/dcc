@@ -1,0 +1,66 @@
+=== FILE: main.dc ===
+module m;
+
+i32 consume(i32 x) {
+    return x;
+}
+
+T apply(T)(T(*)(T) f, T v) {
+    return f(v);
+}
+
+void applyd(F, Args...)(F f, Args a) {
+    f(a...);
+}
+
+i32 test_explicit() {
+    return apply!i32(|i32 x -> consume(x), 21);
+}
+
+void test_deduced() {
+    applyd(|i32 y -> consume(y), 21);
+}
+=== EXPECT-BODY ===
+Module m
+  Func consume diverging=true
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+      Return
+        Ident x [type=i32 const=<none> lvalue decl=x]
+  Func apply diverging=false
+    Param f type=T(*)(T) storage=param offset=0 index=0
+    Param v type=T storage=param offset=8 index=1
+    Body
+      Return
+        Call [type=<unresolved> const=<none>]
+          Ident f [type=<unresolved> const=<none>]
+          Ident v [type=<unresolved> const=<none>]
+  Func applyd diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Param a type=Args storage=param offset=0 index=1
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident f [type=<unresolved> const=<none>]
+        PackExpansion [type=<unresolved> const=<none>]
+  Func test_explicit diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none> decl=apply spec=apply]
+          TemplateInst [type=i32(*)(i32(*)(i32), i32) const=<none> decl=apply spec=apply]
+            Ident apply [type=T(*)(T(*)(T), T) const=<none> decl=apply]
+          Lambda [type=i32(*)(i32) const=<none>]
+            Param name=x
+            Call [type=i32 const=<none> decl=consume]
+              Ident consume [type=<unresolved> const=<none>]
+              Ident x [type=i32 const=<none> lvalue decl=x]
+          IntLiteral 21 [type=i32 const=21 constant]
+  Func test_deduced diverging=false
+    Body
+      Call [type=void const=<none> decl=applyd spec=applyd]
+        Ident applyd [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=y
+          Call [type=i32 const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Ident y [type=i32 const=<none> lvalue decl=y]
+        IntLiteral 21 [type=i32 const=21 constant]

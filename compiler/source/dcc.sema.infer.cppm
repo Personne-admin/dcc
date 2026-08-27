@@ -461,6 +461,7 @@ export namespace dcc::infer
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:
                 case types::TypeKind::TemplateParam:
+                case types::TypeKind::Lambda:
                 case types::TypeKind::Error:
                     return false;
             }
@@ -615,6 +616,12 @@ export namespace dcc::infer
                     return ok();
                 }
 
+                case types::TypeKind::Lambda: {
+                    auto const* a = static_cast<types::LambdaType const*>(lhs);
+                    auto const* b = static_cast<types::LambdaType const*>(rhs);
+                    return (a->expr == b->expr) ? ok() : fail(DeductionError::Conflict, "lambda identity mismatch");
+                }
+
                 case types::TypeKind::Nominal: {
                     auto const* a = static_cast<types::NominalType const*>(lhs);
                     auto const* b = static_cast<types::NominalType const*>(rhs);
@@ -682,6 +689,7 @@ export namespace dcc::infer
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:
                 case types::TypeKind::TemplateParam:
+                case types::TypeKind::Lambda:
                 case types::TypeKind::Error:
                     break;
 

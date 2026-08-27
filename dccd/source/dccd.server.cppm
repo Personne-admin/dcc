@@ -2916,6 +2916,8 @@ export namespace dccd
                     }
                     return std::format("{}(*)({})", format_dcc_type(f->return_type), params);
                 }
+                case dcc::types::TypeKind::Lambda:
+                    return "lambda";
                 case dcc::types::TypeKind::Struct:
                 case dcc::types::TypeKind::Union:
                 case dcc::types::TypeKind::Enum: {

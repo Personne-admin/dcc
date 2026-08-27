@@ -25,6 +25,7 @@ export namespace dcc::types
         Slice,
         Fam,
         FuncPtr,
+        Lambda,
         Struct,
         Union,
         Enum,
@@ -263,6 +264,19 @@ export namespace dcc::types
         std::pmr::vector<TypePtr> params;
 
         FuncPtrType(TypePtr r, std::pmr::polymorphic_allocator<> a, std::uint8_t pb = 64, std::uint8_t pa = 8) : Type(Kind), return_type(r), params(a)
+        {
+            byte_size = pb / 8;
+            byte_align = pa;
+        }
+    };
+
+    struct LambdaType : Type
+    {
+        static constexpr auto Kind = TypeKind::Lambda;
+
+        void const* expr;
+
+        LambdaType(void const* e, std::uint8_t pb = 64, std::uint8_t pa = 8) : Type(Kind), expr(e)
         {
             byte_size = pb / 8;
             byte_align = pa;
@@ -557,6 +571,17 @@ export namespace dcc::types
             return t;
         }
 
+        [[nodiscard]] TypePtr lambda_t(void const* expr)
+        {
+            for (auto const* t : m_lambdas)
+                if (t->expr == expr)
+                    return t;
+
+            auto* t = make<LambdaType>(expr, m_pointer_bits, m_pointer_align);
+            m_lambdas.push_back(t);
+            return t;
+        }
+
         [[nodiscard]] TypePtr nominal_t(TypeKind kind, void const* decl, std::span<TypePtr const> args = {})
         {
             auto matches = [&](UserType const* u) { return u->kind == kind && u->decl == decl && same_span(u->template_args, args); };
@@ -655,6 +680,7 @@ export namespace dcc::types
         std::vector<RuntimeArrayType const*> m_runtime_arrays;
         std::vector<TypePackType const*> m_type_packs;
         std::vector<FuncPtrType const*> m_funcptrs;
+        std::vector<LambdaType const*> m_lambdas;
         std::vector<StructType const*> m_structs;
         std::vector<UnionType const*> m_unions;
         std::vector<EnumType const*> m_enums;

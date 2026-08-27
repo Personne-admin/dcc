@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module main;
+
+void consume(i32 x) {}
+
+void apply(F, Args...)(F callable, Args args) {
+    callable(args...);
+}
+
+T get_return(T)(T(*)() callable) {
+    return callable();
+}
+
+@nomangle
+public i32 dcc_main() {
+    apply(|x -> consume(x * 2), 21);
+    return get_return(| -> 42);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42
