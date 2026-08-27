@@ -1,0 +1,33 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pair {
+    i32 a;
+    i32 b;
+}
+
+i32 sum_slice(i32(*)([]i32) f) {
+    return f({1, 2});
+}
+
+i32 apply_agg(i32(*)(Pair) f) {
+    Pair p = {a = 3, b = 4};
+    return f(p);
+}
+
+Pair agg_ret(i32(*)(i32) f) {
+    Pair p = {a = f(1), b = f(2)};
+    return p;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 a = sum_slice(|s -> s[0] + s[1]);
+    Pair r = agg_ret(|x -> x * 10);
+    i32 b = r.a + r.b;
+    i32 c = apply_agg(|q -> q.a * q.b);
+    return a + b + c;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 45

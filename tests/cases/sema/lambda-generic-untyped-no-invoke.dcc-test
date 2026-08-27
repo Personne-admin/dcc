@@ -1,0 +1,64 @@
+=== FILE: main.dc ===
+module m;
+
+void consume(i32 x) {}
+
+void keep(F)(F f) { }
+
+void use() {
+    keep(|x -> x);
+}
+
+void typed_ok() {
+    keep(|i32 x -> consume(x));
+    keep(|i32 x -> x);
+}
+
+void typed_ret() {
+    i32(*)(i32) fp = |i32 y -> y * 2;
+    keep(fp);
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:8:11: cannot deduce type for lambda parameter `x`: no function-pointer context
+
+=== EXPECT-BODY ===
+Module m
+  Func consume diverging=false
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+  Func keep diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Body
+  Func use diverging=false
+    Body
+      Call [type=void const=<none> decl=keep spec=keep]
+        Ident keep [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=x
+          Ident x [type=<unresolved> const=<none>]
+  Func typed_ok diverging=false
+    Body
+      Call [type=void const=<none> decl=keep spec=keep]
+        Ident keep [type=<unresolved> const=<none>]
+        Lambda [type=void(*)(i32) const=<none>]
+          Param name=x
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Ident x [type=i32 const=<none> lvalue decl=x]
+      Call [type=void const=<none> decl=keep spec=keep]
+        Ident keep [type=<unresolved> const=<none>]
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=x
+          Ident x [type=i32 const=<none> lvalue decl=x]
+  Func typed_ret diverging=false
+    Body
+      Var fp type=i32(*)(i32) storage=local offset=0
+        Lambda [type=i32(*)(i32) const=<none>]
+          Param name=y
+          Binary * [type=i32 const=<none>]
+            Ident y [type=i32 const=<none> lvalue decl=y]
+            IntLiteral 2 [type=i32 const=2 constant]
+      Call [type=void const=<none> decl=keep spec=keep]
+        Ident keep [type=<unresolved> const=<none>]
+        Ident fp [type=i32(*)(i32) const=<none> lvalue decl=fp]
