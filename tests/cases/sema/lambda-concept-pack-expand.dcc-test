@@ -1,0 +1,66 @@
+=== FILE: main.dc ===
+module m;
+
+i32 total = 0;
+
+void accumulate(i32 x) { total += x; }
+
+using Callable(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void run(F, P...)(F f, P args) if Callable(F, P...) {
+    f(args...);
+}
+
+void test() {
+    run(|a, b, c -> accumulate(a + b + c), 1, 2, 3);
+    run(|x -> accumulate(x * 2), 10);
+}
+
+=== EXPECT-ERRORS ===
+=== EXPECT-BODY ===
+Module m
+  Var total type=i32 storage=module offset=0
+    IntLiteral 0 [type=i32 const=0 constant]
+  Func accumulate diverging=false
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+      Binary += [type=i32 const=<none>]
+        Ident total [type=i32 const=<none> lvalue decl=total]
+        Ident x [type=i32 const=<none> lvalue decl=x]
+  Func run diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Param args type=P storage=param offset=0 index=1
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident f [type=<unresolved> const=<none>]
+        PackExpansion [type=<unresolved> const=<none>]
+  Func test diverging=false
+    Body
+      Call [type=void const=<none> decl=run spec=run]
+        Ident run [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=a
+          Param name=b
+          Param name=c
+          Call [type=void const=<none> decl=accumulate]
+            Ident accumulate [type=<unresolved> const=<none>]
+            Binary + [type=i32 const=<none>]
+              Binary + [type=i32 const=<none>]
+                Ident a [type=i32 const=<none> lvalue decl=a]
+                Ident b [type=i32 const=<none> lvalue decl=b]
+              Ident c [type=i32 const=<none> lvalue decl=c]
+        IntLiteral 1 [type=i32 const=1 constant]
+        IntLiteral 2 [type=i32 const=2 constant]
+        IntLiteral 3 [type=i32 const=3 constant]
+      Call [type=void const=<none> decl=run spec=run]
+        Ident run [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=x
+          Call [type=void const=<none> decl=accumulate]
+            Ident accumulate [type=<unresolved> const=<none>]
+            Binary * [type=i32 const=<none>]
+              Ident x [type=i32 const=<none> lvalue decl=x]
+              IntLiteral 2 [type=i32 const=2 constant]
+        IntLiteral 10 [type=i32 const=10 constant]
