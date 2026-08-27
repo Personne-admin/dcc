@@ -1,0 +1,157 @@
+=== FILE: main.dc ===
+module m;
+
+i32 a = |x;
+i32 b = |x { i32 q = 1; q };
+i32 c = |x, -> 1;
+
+T max(T)(T a, T b) {
+    return if a > b { a } else { b };
+}
+
+void f() {
+    |x -> x;
+    |i32 y -> y;
+    i32 z = max!i32(|p -> p, 1);
+    bool c2 = compiles(i32 v) { |w -> w; };
+}
+
+void g() {
+    |x}
+i32 eof_case = |x
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:3:11: expected ',' or '->' in lambda parameter list, found ';'
+main.dc:4:12: expected ',' or '->' in lambda parameter list, found '{'
+main.dc:5:11: expected lambda parameter after ','
+main.dc:12:5: lambda expressions are not yet supported by the compiler
+main.dc:13:5: lambda expressions are not yet supported by the compiler
+main.dc:19:7: expected ',' or '->' in lambda parameter list, found '}'
+main.dc:21:1: expected ',' or '->' in lambda parameter list, found 'eof'
+main.dc:21:1: expected expression, found 'eof'
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Var name=a
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+  Var name=b
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Block
+            Var name=q
+              Type
+                Primitive i32
+              Init
+                IntLiteral 1
+            Tail
+              Ident q
+  Var name=c
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          IntLiteral 1
+  Func name=max
+    TemplateParams
+      Param name=T
+    Return
+      Named T
+    Params
+      Param name=a
+        Named T
+      Param name=b
+        Named T
+    Body
+      Return
+        If
+          Cond
+            Binary op=>
+              Ident a
+              Ident b
+          Then
+            Tail
+              Ident a
+          Else
+            Block
+              Tail
+                Ident b
+  Func name=f
+    Return
+      Primitive void
+    Body
+      ExprStmt
+        Lambda
+          Params
+            Param name=x
+          Body
+            Ident x
+      ExprStmt
+        Lambda
+          Params
+            Param name=y
+              Primitive i32
+          Body
+            Ident y
+      Var name=z
+        Type
+          Primitive i32
+        Init
+          Call
+            Callee
+              TemplateInst
+                Callee
+                  Ident max
+                TemplateArgs
+                  Arg
+                    Primitive i32
+            Args
+              Lambda
+                Params
+                  Param name=p
+                Body
+                  Ident p
+              IntLiteral 1
+      Var name=c2
+        Type
+          Primitive bool
+        Init
+          Compiles
+            Params
+              Param name=v
+                Primitive i32
+            Body
+              ExprStmt
+                Lambda
+                  Params
+                    Param name=w
+                  Body
+                    Ident w
+  Func name=g
+    Return
+      Primitive void
+    Body
+      Tail
+        Lambda
+          Params
+            Param name=x
+  Var name=eof_case
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x

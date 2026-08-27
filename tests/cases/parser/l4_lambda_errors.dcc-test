@@ -1,0 +1,104 @@
+=== FILE: main.dc ===
+module m;
+
+i32 a = |, -> 1;
+i32 b = |x, -> 2;
+i32 c = |i32 -> 4;
+i32 d = |x, , y -> 1;
+i32 e = |x| -> 1;
+i32 f = |x y -> 3;
+i32 g = |x -> ;
+i32 h = | -> 1;
+i32 i = | -> ;
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:3:10: expected lambda parameter before ','
+main.dc:4:11: expected lambda parameter after ','
+main.dc:5:14: expected 'identifier' in lambda parameter declaration, found '->'
+main.dc:6:13: expected lambda parameter before ','
+main.dc:7:11: expected 'identifier' in lambda parameter declaration, found '|'
+main.dc:9:15: expected expression, found ';'
+main.dc:10:1: expected ';' after variable declaration, found 'i32'
+main.dc:11:14: expected expression, found ';'
+main.dc:12:1: expected ';' after variable declaration, found 'eof'
+main.dc:8:9: lambda expressions are not yet supported by the compiler
+main.dc:10:9: lambda expressions are not yet supported by the compiler
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Var name=a
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Body
+          IntLiteral 1
+  Var name=b
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          IntLiteral 2
+  Var name=c
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=
+            Primitive i32
+        Body
+          IntLiteral 4
+  Var name=d
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+          Param name=y
+        Body
+          IntLiteral 1
+  Var name=e
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=
+            Named x
+        Body
+          IntLiteral 1
+  Var name=f
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=y
+            Named x
+        Body
+          IntLiteral 3
+  Var name=g
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+  Var name=h
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Body
+          IntLiteral 1
+  Var name=i
+    Type
+      Primitive i32
+    Init
+      Lambda

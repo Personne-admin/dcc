@@ -3029,6 +3029,107 @@ export namespace dcc::parser
             }
         }
 
+        ast::Expr* parse_lambda_expr()
+        {
+            auto start = loc();
+            advance();
+
+            auto* lambda = m_ctx.make<ast::LambdaExpr>(sm::SourceRange{}, m_ctx.allocator());
+
+            bool parse_body = true;
+            if (!match(TK::Arrow))
+            {
+                for (;;)
+                {
+                    if (eof())
+                        break;
+
+                    if (check(TK::Arrow))
+                    {
+                        advance();
+                        break;
+                    }
+
+                    if (check(TK::Semicolon) || check(TK::RBrace))
+                    {
+                        error_at(single_range(), std::format("expected '->' after lambda parameters, found '{}'", lex::to_string(peek().kind)));
+                        parse_body = false;
+                        break;
+                    }
+
+                    if (check(TK::LBrace))
+                    {
+                        error_at(single_range(), std::format("expected '->' after lambda parameters, found '{}'", lex::to_string(peek().kind)));
+                        break;
+                    }
+
+                    if (check(TK::Comma))
+                    {
+                        error_at(single_range(), "expected lambda parameter before ','");
+                        advance();
+                        continue;
+                    }
+
+                    if (check(TK::Pipe) || check(TK::PipePipe))
+                    {
+                        error_at(single_range(), std::format("unexpected '{}' in lambda parameter list", lex::to_string(peek().kind)));
+                        advance();
+                        continue;
+                    }
+
+                    auto param_start = loc();
+                    ast::FuncParam fp;
+                    if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::Arrow) || check_at(1, TK::Semicolon) || check_at(1, TK::LBrace) ||
+                                                  check_at(1, TK::RBrace) || check_at(1, TK::Eof)))
+                    {
+                        auto tok = advance();
+                        fp.name = tok.interned;
+                        fp.range = tok.range;
+                    }
+                    else
+                    {
+                        fp.type = parse_type();
+                        auto name = expect(TK::Identifier, "in lambda parameter declaration");
+                        if (name.kind == TK::Identifier)
+                        {
+                            fp.name = name.interned;
+                            fp.range = sm::SourceRange{param_start, name.range.end};
+                        }
+                        else
+                            fp.range = range_from(param_start);
+                    }
+                    lambda->params.push_back(std::move(fp));
+
+                    if (match(TK::Comma))
+                    {
+                        if (check(TK::Arrow))
+                        {
+                            error_at(previous().range, "expected lambda parameter after ','");
+                            advance();
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if (match(TK::Arrow))
+                        break;
+
+                    error_at(single_range(), std::format("expected ',' or '->' in lambda parameter list, found '{}'", lex::to_string(peek().kind)));
+                    while (!eof() && !check(TK::Comma) && !check(TK::Arrow) && !check(TK::LBrace) && !check(TK::RBrace) && !check(TK::Semicolon))
+                        advance();
+                    if (match(TK::Comma))
+                        continue;
+                    if (match(TK::Arrow))
+                        break;
+                }
+            }
+
+            if (parse_body)
+                lambda->body = parse_expr();
+            lambda->range = range_from(start);
+            return lambda;
+        }
+
         ast::Expr* parse_primary(bool no_struct_lit)
         {
             auto start = loc();
@@ -3132,6 +3233,9 @@ export namespace dcc::parser
                     expr->range = range_from(start);
                     return expr;
                 }
+
+                case TK::Pipe:
+                    return parse_lambda_expr();
 
                 case TK::Identifier: {
                     {

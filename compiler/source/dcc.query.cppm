@@ -813,6 +813,23 @@ namespace dcc::query
                     }
                     break;
                 }
+                case ast::ExprKind::Lambda: {
+                    auto* e = static_cast<ast::LambdaExpr const*>(expr);
+                    for (auto const& p : e->params)
+                    {
+                        if (p.type && range_contains_or_touches_end(p.type->range, target))
+                            walk_type_expr(p.type, result, target, opts);
+                        auto nr = func_param_name_range(p);
+                        if (nr.valid() && range_contains(nr, target) && !result.resolved_param)
+                        {
+                            result.resolved_param = &p;
+                            result.resolved_definition_range = nr;
+                        }
+                    }
+                    if (e->body && range_contains_or_touches_end(e->body->range, target))
+                        walk_expr(e->body, result, target, opts);
+                    break;
+                }
             }
         }
 
@@ -2263,28 +2280,33 @@ namespace dcc::query
             auto const* fd =
                 node->enclosing_decl && node->enclosing_decl->kind == ast::DeclKind::Func ? static_cast<ast::FuncDecl const*>(node->enclosing_decl) : nullptr;
 
-            if (!fd)
-                return std::nullopt;
-
             std::size_t param_index = 0;
-            for (std::size_t i = 0; i < fd->params.size(); ++i)
-                if (&fd->params[i] == node->resolved_param)
-                {
-                    param_index = i;
-                    break;
-                }
+            bool found = false;
+            if (fd)
+            {
+                for (std::size_t i = 0; i < fd->params.size(); ++i)
+                    if (&fd->params[i] == node->resolved_param)
+                    {
+                        param_index = i;
+                        found = true;
+                        break;
+                    }
+            }
 
             out.kind = SymbolKind::FuncParam;
             out.name = node->resolved_param->name;
-            if (node->expr)
+            if (found && node->expr)
                 out.name_range = expr_name_range_at(node->expr, location);
             else
                 out.name_range = func_param_name_range(*node->resolved_param);
             out.definition_range = node->resolved_definition_range.valid() ? node->resolved_definition_range : out.name_range;
 
-            out.owner_decl = fd;
-            out.sub_index = static_cast<std::uint32_t>(param_index);
-            out.id = param_symbol_id(fd, param_index);
+            if (found)
+            {
+                out.owner_decl = fd;
+                out.sub_index = static_cast<std::uint32_t>(param_index);
+                out.id = param_symbol_id(fd, param_index);
+            }
             return out;
         }
 

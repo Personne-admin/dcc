@@ -768,6 +768,17 @@ export namespace dcc::sema
                     line_fmt("Asm volatile={} dialect={}", static_cast<ast::AsmExpr const&>(e).is_volatile,
                              static_cast<ast::AsmExpr const&>(e).dialect == ast::AsmDialect::Intel ? "intel" : "att");
                     break;
+                case ast::ExprKind::Lambda:
+                    line_fmt("Lambda {}", expr_suffix(e));
+                    m_indent++;
+                    for (auto const& p : static_cast<ast::LambdaExpr const&>(e).params)
+                        line_fmt("Param name={}", p.name);
+                    if (static_cast<ast::LambdaExpr const&>(e).body)
+                        print_expr(*static_cast<ast::LambdaExpr const&>(e).body);
+                    else
+                        line("<null>");
+                    m_indent--;
+                    break;
             }
         }
     };
@@ -2282,6 +2293,13 @@ export namespace dcc::sema
                                 visit_type(op.type_override);
                                 visit_expr(op.expr);
                             }
+                            return;
+                        }
+                        case ast::ExprKind::Lambda: {
+                            auto* l = static_cast<ast::LambdaExpr*>(e);
+                            for (auto& p : l->params)
+                                visit_type(p.type);
+                            visit_expr(l->body);
                             return;
                         }
                         default:
@@ -7353,6 +7371,11 @@ export namespace dcc::sema
                         else
                             set_asm_result_type(static_cast<ast::AsmExpr&>(expr), out);
                         out.is_lvalue = false;
+                        break;
+                    }
+                    case ast::ExprKind::Lambda: {
+                        error(expr.range, "lambda expressions are not yet supported by the compiler");
+                        out.type = m_types.m_errort();
                         break;
                     }
                 }
