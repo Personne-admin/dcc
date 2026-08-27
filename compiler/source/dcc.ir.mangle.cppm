@@ -486,6 +486,17 @@ namespace dcc::ir::mangle
                 case dcc::types::TypeKind::NullT:
                     out += 'n';
                     return;
+                case dcc::types::TypeKind::Lambda: {
+                    auto* lt = static_cast<dcc::types::LambdaType const*>(type);
+                    out += 'L';
+                    if (lt->expr)
+                    {
+                        auto* lexpr = static_cast<dcc::ast::LambdaExpr const*>(lt->expr);
+                        if (lexpr->synthesized_func)
+                            encode_seg(out, lexpr->synthesized_func->name);
+                    }
+                    return;
+                }
                 case dcc::types::TypeKind::Pointer: {
                     auto* pt = static_cast<dcc::types::PointerType const*>(type);
                     out += 'P';

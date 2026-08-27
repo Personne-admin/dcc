@@ -1,0 +1,48 @@
+=== FILE: main.dc ===
+module m;
+
+void consume(i32 x) {}
+
+void layer1(F, A)(F f, A a) {
+    layer2(f, a);
+}
+
+void layer2(F, A)(F f, A a) {
+    f(a);
+}
+
+void test() {
+    layer1(|x -> consume(x * 2), 21);
+}
+=== EXPECT-BODY ===
+Module m
+  Func consume diverging=false
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+  Func layer1 diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Param a type=A storage=param offset=0 index=1
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident layer2 [type=<unresolved> const=<none>]
+        Ident f [type=<unresolved> const=<none>]
+        Ident a [type=<unresolved> const=<none>]
+  Func layer2 diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Param a type=A storage=param offset=0 index=1
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident f [type=<unresolved> const=<none>]
+        Ident a [type=<unresolved> const=<none>]
+  Func test diverging=false
+    Body
+      Call [type=void const=<none> decl=layer1 spec=layer1]
+        Ident layer1 [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=x
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Binary * [type=i32 const=<none>]
+              Ident x [type=i32 const=<none> lvalue decl=x]
+              IntLiteral 2 [type=i32 const=2 constant]
+        IntLiteral 21 [type=i32 const=21 constant]

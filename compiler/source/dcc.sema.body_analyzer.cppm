@@ -885,9 +885,33 @@ export namespace dcc::sema
 
         void flush_pending_lambdas()
         {
+            std::unordered_set<ast::LambdaExpr*> reported;
             for (auto& pending : m_pending_lambdas)
+            {
                 if (pending.mod && pending.func)
-                    pending.mod->lambda_funcs.push_back(pending.func);
+                {
+                    if (!pending.body_has_error)
+                        pending.mod->lambda_funcs.push_back(pending.func);
+                    continue;
+                }
+
+                if (pending.expr && !pending.expr->synthesized_func)
+                {
+                    if (!reported.insert(pending.expr).second)
+                        continue;
+
+                    std::string_view name;
+                    sm::SourceRange range = pending.expr->range;
+                    for (auto const& p : pending.expr->params)
+                        if (!p.type)
+                        {
+                            name = p.name;
+                            range = p.range;
+                            break;
+                        }
+                    error(range, "cannot deduce type for lambda parameter `{}`: no function-pointer context", name);
+                }
+            }
             m_pending_lambdas.clear();
         }
 
@@ -944,24 +968,83 @@ export namespace dcc::sema
         {
             ModuleInfo* mod{};
             ast::FuncDecl* func{};
+            ast::LambdaExpr* expr{};
+            ast::FuncDecl* prev_synth{};
+            std::uint32_t counter_before{};
             bool is_spec_owned{};
+            bool body_has_error{};
+        };
+
+        struct LambdaMark
+        {
+            std::size_t pending_size{};
         };
 
         std::pmr::vector<PendingLambda> m_pending_lambdas{m_alloc};
         Scope const* m_lambda_capture_scope{};
         std::size_t m_spec_analysis_depth{};
 
-        [[nodiscard]] std::size_t pending_lambda_mark() const noexcept { return m_pending_lambdas.size(); }
+        [[nodiscard]] LambdaMark pending_lambda_mark() const noexcept { return LambdaMark{m_pending_lambdas.size()}; }
 
-        void rollback_pending_lambdas(std::size_t mark) noexcept { m_pending_lambdas.resize(mark); }
-
-        void rollback_non_spec_lambdas(std::size_t mark) noexcept
+        void restore_lambda_entries(std::size_t begin, std::size_t end) noexcept
         {
-            if (mark >= m_pending_lambdas.size())
+            std::unordered_map<ast::LambdaExpr*, ast::FuncDecl*> first_prev;
+            std::unordered_map<ModuleInfo*, std::uint32_t> counters;
+            for (std::size_t i = begin; i < end && i < m_pending_lambdas.size(); ++i)
+            {
+                auto& p = m_pending_lambdas[i];
+                if (p.expr)
+                    first_prev.try_emplace(p.expr, p.prev_synth);
+                if (p.mod)
+                {
+                    auto it = counters.find(p.mod);
+                    if (it == counters.end() || p.counter_before < it->second)
+                        counters[p.mod] = p.counter_before;
+                }
+            }
+            for (auto const& [expr, prev] : first_prev)
+                expr->synthesized_func = prev;
+            for (auto const& [mod, counter] : counters)
+                mod->lambda_counter = counter;
+        }
+
+        void rollback_pending_lambdas(LambdaMark mark) noexcept
+        {
+            if (mark.pending_size >= m_pending_lambdas.size())
                 return;
-            auto it = std::remove_if(m_pending_lambdas.begin() + static_cast<std::ptrdiff_t>(mark), m_pending_lambdas.end(),
-                                     [](PendingLambda const& p) { return !p.is_spec_owned; });
-            m_pending_lambdas.erase(it, m_pending_lambdas.end());
+            restore_lambda_entries(mark.pending_size, m_pending_lambdas.size());
+            m_pending_lambdas.resize(mark.pending_size);
+        }
+
+        void rollback_non_spec_lambdas(LambdaMark mark) noexcept
+        {
+            if (mark.pending_size >= m_pending_lambdas.size())
+                return;
+            std::unordered_map<ast::LambdaExpr*, ast::FuncDecl*> first_prev;
+            std::unordered_map<ModuleInfo*, std::uint32_t> counters;
+            std::size_t keep = mark.pending_size;
+            for (std::size_t i = mark.pending_size; i < m_pending_lambdas.size(); ++i)
+            {
+                auto& p = m_pending_lambdas[i];
+                if (p.is_spec_owned)
+                    m_pending_lambdas[keep++] = p;
+                else
+                {
+                    if (p.expr)
+                        first_prev.try_emplace(p.expr, p.prev_synth);
+                    if (p.mod)
+                    {
+                        auto it = counters.find(p.mod);
+                        if (it == counters.end() || p.counter_before < it->second)
+                            counters[p.mod] = p.counter_before;
+                    }
+                }
+            }
+            for (auto const& [expr, prev] : first_prev)
+                expr->synthesized_func = prev;
+            for (auto const& [mod, counter] : counters)
+                mod->lambda_counter = counter;
+            m_pending_lambdas.resize(keep);
         }
 
         class ErrorSuppressionGuard
@@ -977,9 +1060,35 @@ export namespace dcc::sema
             {
                 if (m_pending)
                 {
-                    auto it = std::remove_if(m_pending->begin() + static_cast<std::ptrdiff_t>(m_saved_pending_size), m_pending->end(),
-                                             [](PendingLambda const& p) { return !p.is_spec_owned; });
-                    m_pending->erase(it, m_pending->end());
+                    auto& vec = *m_pending;
+                    if (m_saved_pending_size < vec.size())
+                    {
+                        std::unordered_map<ast::LambdaExpr*, ast::FuncDecl*> first_prev;
+                        std::unordered_map<ModuleInfo*, std::uint32_t> counters;
+                        std::size_t keep = m_saved_pending_size;
+                        for (std::size_t i = m_saved_pending_size; i < vec.size(); ++i)
+                        {
+                            auto& p = vec[i];
+                            if (p.is_spec_owned)
+                                vec[keep++] = p;
+                            else
+                            {
+                                if (p.expr)
+                                    first_prev.try_emplace(p.expr, p.prev_synth);
+                                if (p.mod)
+                                {
+                                    auto it = counters.find(p.mod);
+                                    if (it == counters.end() || p.counter_before < it->second)
+                                        counters[p.mod] = p.counter_before;
+                                }
+                            }
+                        }
+                        for (auto const& [expr, prev] : first_prev)
+                            expr->synthesized_func = prev;
+                        for (auto const& [mod, counter] : counters)
+                            mod->lambda_counter = counter;
+                        vec.resize(keep);
+                    }
                 }
                 m_suppress = m_saved_suppress;
             }
@@ -2519,7 +2628,7 @@ export namespace dcc::sema
 
             auto saved_silent = m_diag.silent();
             m_diag.set_silent(true);
-            auto const lambda_mark = m_pending_lambdas.size();
+            auto const lambda_mark = pending_lambda_mark();
 
             auto const& block = compiles.body;
             for (auto* stmt : block.stmts)
@@ -2698,7 +2807,7 @@ export namespace dcc::sema
 
                 auto* probe_scope = make_probe_scope(scope);
                 std::uint32_t probe_off = next_off;
-                auto const lambda_mark = m_pending_lambdas.size();
+                auto const lambda_mark = pending_lambda_mark();
 
                 infer::TemplateBindings b{m_types};
 
@@ -5095,7 +5204,7 @@ export namespace dcc::sema
 
             auto* seed_scope = make_probe_scope(scope);
             std::uint32_t seed_off = next_off;
-            auto const seed_lambda_mark = m_pending_lambdas.size();
+            auto const seed_lambda_mark = pending_lambda_mark();
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
@@ -5437,6 +5546,7 @@ export namespace dcc::sema
                 case types::TypeKind::Range:
                 case types::TypeKind::RangeInclusive:
                 case types::TypeKind::FuncPtr:
+                case types::TypeKind::Lambda:
                     return Layout{ty->byte_size, std::max<std::uint32_t>(1, ty->byte_align)};
                 case types::TypeKind::Array: {
                     auto const* a = static_cast<types::ArrayType const*>(ty);
@@ -5873,32 +5983,76 @@ export namespace dcc::sema
             return types::type_cast<types::FuncPtrType>(ty);
         }
 
-        detail::ExprResult analyze_lambda(ModuleInfo& mod, ast::FuncDecl* enclosing_fn, Scope& scope, ast::LambdaExpr& l, int loop_depth,
-                                          std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
+        [[nodiscard]] static types::LambdaType const* as_lambda_type(types::TypePtr ty) noexcept
+        {
+            while (ty && ty->kind == types::TypeKind::Nominal)
+                ty = static_cast<types::NominalType const*>(ty)->underlying;
+            return types::type_cast<types::LambdaType>(ty);
+        }
+
+        [[nodiscard]] types::TypePtr lambda_fp_of(ast::LambdaExpr const& l) const
+        {
+            auto* fd = l.synthesized_func;
+            if (!fd)
+                return nullptr;
+
+            std::vector<types::TypePtr> param_types;
+            param_types.reserve(fd->params.size());
+            for (auto const& p : fd->params)
+                param_types.push_back(p.type && p.type->sema.canonical ? get_canonical(p.type->sema) : m_types.m_errort());
+
+            auto ret = fd->return_type && fd->return_type->sema.canonical ? get_canonical(fd->return_type->sema) : m_types.m_voidt();
+            return m_types.funcptr_t(ret, param_types);
+        }
+
+        [[nodiscard]] bool lambda_matches_fp(ast::LambdaExpr const& l, std::span<types::TypePtr const> param_types, types::TypePtr expected_ret) const
+        {
+            auto* fd = l.synthesized_func;
+            if (!fd || fd->params.size() != param_types.size())
+                return false;
+
+            for (std::size_t i = 0; i < param_types.size(); ++i)
+            {
+                auto pty = fd->params[i].type && fd->params[i].type->sema.canonical ? get_canonical(fd->params[i].type->sema) : nullptr;
+                if (pty != param_types[i])
+                    return false;
+            }
+
+            if (expected_ret && !has_error(expected_ret) && !contains_template_param(expected_ret))
+            {
+                auto ret = fd->return_type && fd->return_type->sema.canonical ? get_canonical(fd->return_type->sema) : m_types.m_voidt();
+                if (ret != expected_ret)
+                    return false;
+            }
+
+            return true;
+        }
+
+        detail::ExprResult finalize_lambda(ModuleInfo& mod, ast::FuncDecl* enclosing_fn, Scope& scope, ast::LambdaExpr& l, int loop_depth,
+                                           std::uint32_t& next_off, std::span<types::TypePtr const> param_types, types::TypePtr expected_ret,
+                                           ConstEnv const* const_env)
         {
             std::ignore = enclosing_fn;
             std::ignore = loop_depth;
             std::ignore = next_off;
             std::ignore = const_env;
 
-            auto const* expected_fp = as_funcptr(expected_type);
-
-            std::pmr::unordered_set<std::string_view> seen_param_names{m_alloc};
-            for (auto const& p : l.params)
+            if (lambda_matches_fp(l, param_types, expected_ret))
             {
-                if (!p.name.empty() && !seen_param_names.insert(p.name).second)
-                    error(p.range, "duplicate parameter name `{}` in lambda", p.name);
+                auto fp = lambda_fp_of(l);
+                if (fp)
+                    return {.type = fp};
             }
 
-            if (expected_fp && l.params.size() != expected_fp->params.size())
+            if (l.params.size() != param_types.size())
             {
-                error(l.range, "lambda parameter count mismatch: expected {}, got {}", expected_fp->params.size(), l.params.size());
+                error(l.range, "lambda parameter count mismatch: expected {}, got {}", param_types.size(), l.params.size());
                 l.synthesized_func = nullptr;
                 return {m_types.m_errort()};
             }
 
-            std::vector<types::TypePtr> param_types;
-            param_types.reserve(l.params.size());
+            std::vector<types::TypePtr> resolved_param_types;
+            resolved_param_types.reserve(l.params.size());
             bool any_param_error = false;
             for (std::size_t i = 0; i < l.params.size(); ++i)
             {
@@ -5907,32 +6061,27 @@ export namespace dcc::sema
                 if (p.type)
                 {
                     ty = p.type->sema.canonical ? get_canonical(p.type->sema) : resolve_type_node(mod, scope, p.type);
-                    if (expected_fp && i < expected_fp->params.size() && ty && expected_fp->params[i] != ty && !has_error(ty) &&
-                        !has_error(expected_fp->params[i]))
-                        error(p.range, "lambda parameter `{}` type mismatch: expected `{}`, found `{}`", p.name, format_type_str(expected_fp->params[i]),
+                    if (i < param_types.size() && ty && param_types[i] != ty && !has_error(ty) && !has_error(param_types[i]))
+                        error(p.range, "lambda parameter `{}` type mismatch: expected `{}`, found `{}`", p.name, format_type_str(param_types[i]),
                               format_type_str(ty));
                 }
-                else if (expected_fp && i < expected_fp->params.size())
-                {
-                    auto const* ctx_ty = expected_fp->params[i];
-                    if (ctx_ty && !contains_template_param(ctx_ty))
-                        ty = ctx_ty;
-                    else
-                        error(p.range, "cannot deduce type for lambda parameter `{}`: no concrete function-pointer context", p.name);
-                }
                 else
-                    error(p.range, "cannot deduce type for lambda parameter `{}`: no function-pointer context", p.name);
+                {
+                    ty = param_types[i];
+                    if (has_error(ty))
+                        error(p.range, "cannot deduce type for lambda parameter `{}`: no function-pointer context", p.name);
+                }
 
                 if (!ty)
                     ty = m_types.m_errort();
                 if (has_error(ty))
                     any_param_error = true;
-                param_types.push_back(ty);
+                resolved_param_types.push_back(ty);
             }
 
-            auto const* expected_ret = expected_fp ? expected_fp->return_type : nullptr;
             bool enforce_expected_ret = expected_ret && !contains_template_param(expected_ret) && !has_error(expected_ret);
 
+            auto saved_counter = mod.lambda_counter;
             auto* fd = m_ast_ctx.make<ast::FuncDecl>(l.range, synth_lambda_name(mod), l.range);
             fd->params.reserve(l.params.size());
             for (std::size_t i = 0; i < l.params.size(); ++i)
@@ -5940,7 +6089,7 @@ export namespace dcc::sema
                 ast::FuncParam fp;
                 fp.name = l.params[i].name;
                 fp.range = l.params[i].range;
-                fp.type = synth_type_expr(l.params[i].range, param_types[i]);
+                fp.type = synth_type_expr(l.params[i].range, resolved_param_types[i]);
                 fd->params.push_back(std::move(fp));
             }
 
@@ -5984,6 +6133,7 @@ export namespace dcc::sema
             fd->sema.is_diverging = !body_res.falls_through;
 
             types::TypePtr ret_ty = m_types.m_voidt();
+            bool body_has_error = false;
             if (enforce_expected_ret)
             {
                 ret_ty = expected_ret;
@@ -6015,16 +6165,103 @@ export namespace dcc::sema
 
             fd->sema.storage = ast::StorageClass::ModuleGlobal;
 
-            auto fp = m_types.funcptr_t(ret_ty, param_types);
-            if (any_param_error || has_error(ret_ty))
+            auto fp = m_types.funcptr_t(ret_ty, resolved_param_types);
+            if (any_param_error || has_error(ret_ty) || (body_has_error && m_spec_analysis_depth > 0))
             {
                 l.synthesized_func = nullptr;
+                mod.lambda_counter = saved_counter;
                 return {m_types.m_errort()};
             }
 
             l.synthesized_func = fd;
-            m_pending_lambdas.push_back(PendingLambda{&mod, fd, m_spec_analysis_depth > 0});
+            m_pending_lambdas.push_back(PendingLambda{&mod, fd, &l, nullptr, saved_counter, m_spec_analysis_depth > 0, body_has_error});
             return {.type = fp};
+        }
+
+        detail::ExprResult analyze_lambda(ModuleInfo& mod, ast::FuncDecl* enclosing_fn, Scope& scope, ast::LambdaExpr& l, int loop_depth,
+                                          std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
+        {
+            std::ignore = enclosing_fn;
+            std::ignore = loop_depth;
+            std::ignore = next_off;
+            std::ignore = const_env;
+
+            auto const* expected_fp = as_funcptr(expected_type);
+
+            std::pmr::unordered_set<std::string_view> seen_param_names{m_alloc};
+            for (auto const& p : l.params)
+            {
+                if (!p.name.empty() && !seen_param_names.insert(p.name).second)
+                    error(p.range, "duplicate parameter name `{}` in lambda", p.name);
+            }
+
+            bool concrete_context = expected_fp != nullptr;
+            if (concrete_context)
+            {
+                if (expected_fp->params.size() != l.params.size())
+                {
+                    error(l.range, "lambda parameter count mismatch: expected {}, got {}", expected_fp->params.size(), l.params.size());
+                    l.synthesized_func = nullptr;
+                    return {m_types.m_errort()};
+                }
+
+                for (auto const* pt : expected_fp->params)
+                {
+                    if (pt && (has_error(pt) || contains_template_param(pt)))
+                    {
+                        concrete_context = false;
+                        break;
+                    }
+                }
+                if (concrete_context && expected_fp->return_type && has_error(expected_fp->return_type))
+                    concrete_context = false;
+            }
+
+            std::vector<types::TypePtr> param_types;
+            param_types.reserve(l.params.size());
+            bool any_unresolved_param = false;
+            for (std::size_t i = 0; i < l.params.size(); ++i)
+            {
+                auto const& p = l.params[i];
+                types::TypePtr ty = nullptr;
+                if (p.type)
+                {
+                    ty = p.type->sema.canonical ? get_canonical(p.type->sema) : resolve_type_node(mod, scope, p.type);
+                    if (concrete_context && ty && expected_fp->params[i] != ty && !has_error(ty) && !has_error(expected_fp->params[i]))
+                        error(p.range, "lambda parameter `{}` type mismatch: expected `{}`, found `{}`", p.name, format_type_str(expected_fp->params[i]),
+                              format_type_str(ty));
+                }
+                else if (concrete_context)
+                    ty = expected_fp->params[i];
+                else
+                    any_unresolved_param = true;
+
+                if (!ty)
+                    ty = m_types.m_errort();
+                param_types.push_back(ty);
+            }
+
+            auto const* expected_ret = expected_fp ? expected_fp->return_type : nullptr;
+
+            if (concrete_context)
+                return finalize_lambda(mod, enclosing_fn, scope, l, loop_depth, next_off, param_types, expected_ret, const_env);
+
+            if (!any_unresolved_param)
+                return finalize_lambda(mod, enclosing_fn, scope, l, loop_depth, next_off, param_types, nullptr, const_env);
+
+            if (expected_type == nullptr)
+                return finalize_lambda(mod, enclosing_fn, scope, l, loop_depth, next_off, param_types, nullptr, const_env);
+
+            bool can_defer = (expected_fp != nullptr) ||
+                             (!expected_fp && (contains_template_param(expected_type) || as_lambda_type(expected_type) != nullptr));
+            if (can_defer)
+            {
+                auto lt = m_types.lambda_t(&l);
+                m_pending_lambdas.push_back(PendingLambda{&mod, nullptr, &l, l.synthesized_func, mod.lambda_counter, m_spec_analysis_depth > 0, false});
+                return {.type = lt};
+            }
+
+            return finalize_lambda(mod, enclosing_fn, scope, l, loop_depth, next_off, param_types, nullptr, const_env);
         }
 
         void analyze_var(ModuleInfo& mod, ast::VarDecl& var)
@@ -9957,7 +10194,7 @@ export namespace dcc::sema
                     std::vector<CandidateInfo> rejected;
                     bool saw_constraint_failure = false;
                     bool saw_non_constraint_failure = false;
-                    auto const probe_lambda_mark = m_pending_lambdas.size();
+                    auto const probe_lambda_mark = pending_lambda_mark();
                     for (auto const& cand : scan.viable)
                     {
                         bool probe_error = false;
@@ -10082,7 +10319,7 @@ export namespace dcc::sema
                 ranked.reserve(syms.size());
                 std::vector<CandidateInfo> rejected;
                 bool saw_function = false;
-                auto const probe_lambda_mark = m_pending_lambdas.size();
+                auto const probe_lambda_mark = pending_lambda_mark();
                 for (auto const& sym : syms)
                 {
                     if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
@@ -10223,6 +10460,9 @@ export namespace dcc::sema
 
             if (auto* fp = types::type_cast<types::FuncPtrType>(callee.type))
                 return invoke_funcptr(mod, scope, fp, c.args, c.range, loop_depth, next_off, const_env);
+
+            if (auto* lt = types::type_cast<types::LambdaType>(callee.type))
+                return invoke_lambda_value(mod, scope, lt, c.args, c.range, loop_depth, next_off, const_env);
 
             if (callee.resolved_decl && callee.resolved_decl->kind == ast::DeclKind::Enum)
             {
@@ -10509,7 +10749,7 @@ export namespace dcc::sema
                 std::vector<RankedCandidate> ranked;
                 ranked.reserve(all_syms.size());
                 std::vector<CandidateInfo> rejected;
-                auto const probe_lambda_mark = m_pending_lambdas.size();
+                auto const probe_lambda_mark = pending_lambda_mark();
 
                 for (auto const* sym : all_syms)
                 {
@@ -10565,7 +10805,7 @@ export namespace dcc::sema
                 {
                     if (!rejected.empty())
                     {
-                        auto const lambda_mark = m_pending_lambdas.size();
+                        auto const lambda_mark = pending_lambda_mark();
                         auto* probe_scope = make_probe_scope(scope);
                         auto receiver_r = analyze_expr(mod, nullptr, *probe_scope, *f.object, loop_depth, next_off, nullptr, const_env);
                         rollback_non_spec_lambdas(lambda_mark);
@@ -10849,66 +11089,117 @@ export namespace dcc::sema
             return out;
         }
 
+        [[nodiscard]] std::span<ast::Expr* const> expand_concept_call_args(ModuleInfo& mod, Scope& scope, std::span<ast::Expr* const> arg_exprs,
+                                                                           std::pmr::vector<ast::Expr*>& out)
+        {
+            if (!m_concept_bindings)
+                return arg_exprs;
+
+            bool has_pack_exp = false;
+            for (auto* a : arg_exprs)
+                if (a && a->kind == ast::ExprKind::PackExpansion)
+                {
+                    has_pack_exp = true;
+                    break;
+                }
+
+            if (!has_pack_exp)
+                return arg_exprs;
+
+            for (auto* a : arg_exprs)
+            {
+                if (a && a->kind == ast::ExprKind::PackExpansion)
+                {
+                    auto* pe = static_cast<ast::PackExpansionExpr*>(a);
+                    auto* ident = ast::node_cast<ast::IdentExpr>(pe->operand);
+                    if (ident)
+                    {
+                        auto const* sym = lookup_name(mod, scope, ident->name);
+                        if (sym && sym->decl)
+                        {
+                            types::TypePtr decl_type = nullptr;
+                            if (sym->decl->kind == ast::DeclKind::Var)
+                            {
+                                auto* var_decl = static_cast<ast::VarDecl const*>(sym->decl);
+                                if (var_decl->type && var_decl->type->sema.canonical)
+                                    decl_type = get_canonical(var_decl->type->sema);
+                            }
+
+                            if (decl_type)
+                            {
+                                auto expanded_types = expand_pack_param_type(decl_type, *m_concept_bindings);
+                                for (std::size_t ei = 0; ei < expanded_types.size(); ++ei)
+                                {
+                                    auto* elem_ident = m_ast_ctx.make<ast::IdentExpr>(pe->operand->range, ident->name);
+                                    set_resolved_type(elem_ident->sema, expanded_types[ei]);
+                                    out.push_back(elem_ident);
+                                }
+                                continue;
+                            }
+                        }
+                    }
+                    out.push_back(a);
+                }
+                else
+                    out.push_back(a);
+            }
+            return out;
+        }
+
+        detail::ExprResult invoke_lambda_value(ModuleInfo& mod, Scope& scope, types::LambdaType const* lt, std::span<ast::Expr* const> arg_exprs,
+                                               sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false)
+        {
+            auto* l = lt->expr ? static_cast<ast::LambdaExpr*>(const_cast<void*>(lt->expr)) : nullptr;
+            if (!l)
+            {
+                if (!quiet)
+                    error(range, "call target is not callable");
+                return {m_types.m_errort()};
+            }
+
+            if (l->synthesized_func)
+            {
+                auto fp = lambda_fp_of(*l);
+                if (fp)
+                    return invoke_funcptr(mod, scope, types::type_cast<types::FuncPtrType>(fp), arg_exprs, range, loop_depth, next_off, const_env, quiet);
+            }
+
+            std::pmr::vector<ast::Expr*> expanded_args{m_alloc};
+            auto effective_args = expand_concept_call_args(mod, scope, arg_exprs, expanded_args);
+
+            if (effective_args.size() != l->params.size())
+            {
+                if (!quiet)
+                    error(range, "lambda parameter count mismatch: expected {}, got {}", l->params.size(), effective_args.size());
+                return {m_types.m_errort()};
+            }
+
+            std::vector<types::TypePtr> arg_types;
+            arg_types.reserve(effective_args.size());
+            for (auto* a : effective_args)
+            {
+                auto r = analyze_expr(mod, nullptr, scope, *a, loop_depth, next_off, nullptr, const_env);
+                if (has_error(r.type))
+                    return {m_types.m_errort()};
+                arg_types.push_back(r.type);
+            }
+
+            auto ret = finalize_lambda(mod, nullptr, scope, *l, loop_depth, next_off, arg_types, nullptr, const_env);
+            if (has_error(ret.type))
+                return ret;
+
+            auto fp = lambda_fp_of(*l);
+            if (fp)
+                return invoke_funcptr(mod, scope, types::type_cast<types::FuncPtrType>(fp), arg_exprs, range, loop_depth, next_off, const_env, quiet);
+
+            return ret;
+        }
+
         detail::ExprResult invoke_funcptr(ModuleInfo& mod, Scope& scope, types::FuncPtrType const* fp, std::span<ast::Expr* const> arg_exprs,
                                           sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false)
         {
             std::pmr::vector<ast::Expr*> expanded_args{m_alloc};
-            std::span<ast::Expr* const> effective_args = arg_exprs;
-
-            if (m_concept_bindings)
-            {
-                bool has_pack_exp = false;
-                for (auto* a : arg_exprs)
-                {
-                    if (a && a->kind == ast::ExprKind::PackExpansion)
-                    {
-                        has_pack_exp = true;
-                        break;
-                    }
-                }
-
-                if (has_pack_exp)
-                {
-                    for (auto* a : arg_exprs)
-                    {
-                        if (a && a->kind == ast::ExprKind::PackExpansion)
-                        {
-                            auto* pe = static_cast<ast::PackExpansionExpr*>(a);
-                            auto* ident = ast::node_cast<ast::IdentExpr>(pe->operand);
-                            if (ident)
-                            {
-                                auto const* sym = lookup_name(mod, scope, ident->name);
-                                if (sym && sym->decl)
-                                {
-                                    types::TypePtr decl_type = nullptr;
-                                    if (sym->decl->kind == ast::DeclKind::Var)
-                                    {
-                                        auto* var_decl = static_cast<ast::VarDecl const*>(sym->decl);
-                                        if (var_decl->type && var_decl->type->sema.canonical)
-                                            decl_type = get_canonical(var_decl->type->sema);
-                                    }
-
-                                    if (decl_type)
-                                    {
-                                        auto expanded_types = expand_pack_param_type(decl_type, *m_concept_bindings);
-                                        for (std::size_t ei = 0; ei < expanded_types.size(); ++ei)
-                                        {
-                                            auto* elem_ident = m_ast_ctx.make<ast::IdentExpr>(pe->operand->range, ident->name);
-                                            set_resolved_type(elem_ident->sema, expanded_types[ei]);
-                                            expanded_args.push_back(elem_ident);
-                                        }
-                                        continue;
-                                    }
-                                }
-                            }
-                            expanded_args.push_back(a);
-                        }
-                        else
-                            expanded_args.push_back(a);
-                    }
-                    effective_args = expanded_args;
-                }
-            }
+            auto effective_args = expand_concept_call_args(mod, scope, arg_exprs, expanded_args);
 
             if (fp->params.size() != effective_args.size())
             {

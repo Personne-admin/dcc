@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+i32 id(T)(T x) {
+    return x;
+}
+
+T apply(T)(T(*)(T) f, T v) {
+    return f(v);
+}
+
+T twice(T)(T v) {
+    return apply(|T x -> id(x), v);
+}
+
+i32 test() {
+    return twice!i32(21);
+}
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test4.test0i32s() {
+%entry:
+  %0 = call fn(@_DC0S1.4.test5.twice1i32si32sX1ti32s)(i32 #21) -> i32
+  ret i32 %0
+}
+
+i32@_DC0F1.4.test10.__lambda_01i32si32s(i32) {
+%entry(i32 %x):
+  %0 = call fn(@_DC0S1.4.test2.id1i32si32sX1ti32s)(i32 %x) -> i32
+  ret i32 %0
+}
+
+linkonce_odr i32@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s(ptr<fn(i32) -> i32>, i32) {
+%entry(ptr<fn(i32) -> i32> %f, i32 %v):
+  %0 = call fn(%f)(i32 %v) -> i32
+  ret i32 %0
+}
+
+linkonce_odr i32@_DC0S1.4.test2.id1i32si32sX1ti32s(i32) {
+%entry(i32 %x):
+  ret i32 %x
+}
+
+linkonce_odr i32@_DC0S1.4.test5.twice1i32si32sX1ti32s(i32) {
+%entry(i32 %v):
+  %0 = call fn(@_DC0S1.4.test5.apply2pi32s1i32si32si32sX1ti32s)(ptr<fn(i32) -> i32> @_DC0F1.4.test10.__lambda_01i32si32s, i32 %v) -> i32
+  ret i32 %0
+}

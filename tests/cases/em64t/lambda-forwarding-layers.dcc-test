@@ -1,0 +1,25 @@
+=== FILE: main.dc ===
+module main;
+
+i32 consume(i32 x) { return x; }
+
+void layer1(F, A)(F f, A a) {
+    layer2(f, a);
+}
+
+void layer2(F, A)(F f, A a) {
+    f(a);
+}
+
+i32 total = 0;
+
+void accumulate(i32 x) { total += x; }
+
+@nomangle
+public i32 dcc_main() {
+    layer1(|x -> accumulate(x * 2), 21);
+    return total;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42

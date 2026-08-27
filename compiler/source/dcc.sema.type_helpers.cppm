@@ -92,6 +92,8 @@ export namespace dcc::sema
                 }
                 return std::format("{}(*)({})", format_dcc_type(f->return_type), params);
             }
+            case types::TypeKind::Lambda:
+                return "lambda";
             case types::TypeKind::Struct:
             case types::TypeKind::Union:
             case types::TypeKind::Enum: {

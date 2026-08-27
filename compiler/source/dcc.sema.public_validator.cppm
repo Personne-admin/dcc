@@ -375,6 +375,7 @@ export namespace dcc::sema
                 case types::TypeKind::Union:
                 case types::TypeKind::Enum:
                 case types::TypeKind::TemplateParam:
+                case types::TypeKind::Lambda:
                 case types::TypeKind::TypePack:
                 case types::TypeKind::Error:
                     return;

@@ -1,0 +1,88 @@
+=== FILE: main.dc ===
+module m;
+
+void consume(i32 x) {}
+
+void apply(F, Args...)(F f, Args a) {
+    f(a...);
+}
+
+void test_repeated() {
+    apply(|a -> consume(a), 1);
+    apply(|b -> consume(b), 1);
+    apply(|c -> consume(c), 2);
+}
+
+i32 test_failed_probe() {
+    i32 r = 0;
+    bool ok = compiles {
+        apply(|bad -> consume(bad + "x"), 1);
+    };
+    apply(|d -> consume(d), 3);
+    return r;
+}
+=== EXPECT-BODY ===
+Module m
+  Func consume diverging=false
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+  Func apply diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Param a type=Args storage=param offset=0 index=1
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident f [type=<unresolved> const=<none>]
+        PackExpansion [type=<unresolved> const=<none>]
+  Func test_repeated diverging=false
+    Body
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=a
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Ident a [type=i32 const=<none> lvalue decl=a]
+        IntLiteral 1 [type=i32 const=1 constant]
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=b
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Ident b [type=i32 const=<none> lvalue decl=b]
+        IntLiteral 1 [type=i32 const=1 constant]
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=c
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Ident c [type=i32 const=<none> lvalue decl=c]
+        IntLiteral 2 [type=i32 const=2 constant]
+  Func test_failed_probe diverging=true
+    Body
+      Var r type=i32 storage=local offset=0
+        IntLiteral 0 [type=i32 const=0 constant]
+      Var ok type=bool storage=local offset=4
+        Compiles [type=bool const=false constant]
+        Body
+          Call [type=void const=<none> decl=apply spec=apply]
+            Ident apply [type=<unresolved> const=<none>]
+            Lambda [type=lambda const=<none>]
+              Param name=bad
+              Call [type=<error> const=<none>]
+                Ident consume [type=void(*)(i32) const=<none> decl=consume]
+                Binary + [type=<error> const=<none>]
+                  Ident bad [type=i32 const=<none> lvalue decl=bad]
+                  StringLiteral x [type=[]const char const="x" constant]
+            IntLiteral 1 [type=i32 const=1 constant]
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=d
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Ident d [type=i32 const=<none> lvalue decl=d]
+        IntLiteral 3 [type=i32 const=3 constant]
+      Return
+        Ident r [type=i32 const=0 lvalue constant decl=r]

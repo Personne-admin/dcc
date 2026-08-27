@@ -1,0 +1,57 @@
+=== FILE: main.dc ===
+module m;
+
+void consume(i32 x) {}
+
+using Callable(T) = compiles(T f) {
+    f(1);
+};
+
+void apply(F)(F callable) if Callable(F) {
+    callable(1);
+}
+
+struct NotCallable {}
+
+void test_positive() {
+    apply(|x -> consume(x * 2));
+}
+
+void test_negative() {
+    NotCallable nc;
+    static if compiles {
+        apply(nc);
+    } {
+    }
+}
+=== EXPECT-BODY ===
+Module m
+  Func consume diverging=false
+    Param x type=i32 storage=param offset=0 index=0
+    Body
+  Func apply diverging=false
+    Param callable type=F storage=param offset=0 index=0
+    Body
+      Call [type=<unresolved> const=<none>]
+        Ident callable [type=<unresolved> const=<none>]
+        IntLiteral 1 [type=<unresolved> const=<none>]
+  Func test_positive diverging=false
+    Body
+      Call [type=void const=<none> decl=apply spec=apply]
+        Ident apply [type=<unresolved> const=<none>]
+        Lambda [type=lambda const=<none>]
+          Param name=x
+          Call [type=void const=<none> decl=consume]
+            Ident consume [type=<unresolved> const=<none>]
+            Binary * [type=i32 const=<none>]
+              Ident x [type=i32 const=<none> lvalue decl=x]
+              IntLiteral 2 [type=i32 const=2 constant]
+  Func test_negative diverging=false
+    Body
+      Var nc type=NotCallable storage=local offset=0
+      StaticIf taken=1
+        Compiles [type=bool const=false constant]
+        Body
+          Call [type=<error> const=<none>]
+            Ident apply [type=<unresolved> const=<none>]
+            Ident nc [type=NotCallable const=<none> lvalue decl=nc]

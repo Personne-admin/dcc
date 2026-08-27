@@ -1,0 +1,49 @@
+=== FILE: main.dc ===
+module m;
+
+i32 apply1(i32(*)(i32) f) {
+    return f(1);
+}
+
+i32 apply1(F)(F f) {
+    return 0;
+}
+
+i32 test_fp_wins() {
+    return apply1(|x -> x + 1);
+}
+
+i32 test_generic_only(i32(*)(i32) fp) {
+    return apply1(fp);
+}
+=== EXPECT-BODY ===
+Module m
+  Func apply1 diverging=true
+    Param f type=i32(*)(i32) storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none>]
+          Ident f [type=i32(*)(i32) const=<none> lvalue decl=f]
+          IntLiteral 1 [type=i32 const=1 constant]
+  Func apply1 diverging=false
+    Param f type=F storage=param offset=0 index=0
+    Body
+      Return
+        IntLiteral 0 [type=<unresolved> const=<none>]
+  Func test_fp_wins diverging=true
+    Body
+      Return
+        Call [type=i32 const=<none> decl=apply1]
+          Ident apply1 [type=<unresolved> const=<none>]
+          Lambda [type=i32(*)(i32) const=<none>]
+            Param name=x
+            Binary + [type=i32 const=<none>]
+              Ident x [type=i32 const=<none> lvalue decl=x]
+              IntLiteral 1 [type=i32 const=1 constant]
+  Func test_generic_only diverging=true
+    Param fp type=i32(*)(i32) storage=param offset=0 index=0
+    Body
+      Return
+        Call [type=i32 const=<none> decl=apply1]
+          Ident apply1 [type=<unresolved> const=<none>]
+          Ident fp [type=i32(*)(i32) const=<none> lvalue decl=fp]

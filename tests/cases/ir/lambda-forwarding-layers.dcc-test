@@ -1,0 +1,47 @@
+=== FILE: test.dc ===
+module test;
+
+void consume(i32 x) {}
+
+void layer1(F, A)(F f, A a) {
+    layer2(f, a);
+}
+
+void layer2(F, A)(F f, A a) {
+    f(a);
+}
+
+void test() {
+    layer1(|x -> consume(x * 2), 21);
+}
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test7.consume1i32sv(i32) {
+%entry(i32 %x):
+  ret void
+}
+
+void@_DC0F1.4.test4.test0v() {
+%entry:
+  call fn(@_DC0S1.4.test6.layer12L10.__lambda_0i32svX2tL10.__lambda_0ti32s)(ptr<fn(i32) -> void> @_DC0F1.4.test10.__lambda_01i32sv, i32 #21)
+  ret void
+}
+
+void@_DC0F1.4.test10.__lambda_01i32sv(i32) {
+%entry(i32 %x):
+  %0 = mul i32 %x, i32 #2
+  call fn(@_DC0F1.4.test7.consume1i32sv)(i32 %0)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test6.layer12L10.__lambda_0i32svX2tL10.__lambda_0ti32s(ptr<fn(i32) -> void>, i32) {
+%entry(ptr<fn(i32) -> void> %f, i32 %a):
+  call fn(@_DC0S1.4.test6.layer22L10.__lambda_0i32svX2tL10.__lambda_0ti32s)(ptr<fn(i32) -> void> %f, i32 %a)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test6.layer22L10.__lambda_0i32svX2tL10.__lambda_0ti32s(ptr<fn(i32) -> void>, i32) {
+%entry(ptr<fn(i32) -> void> %f, i32 %a):
+  call fn(%f)(i32 %a)
+  ret void
+}
