@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module main;
+
+i32 total = 0;
+
+void accumulate(i32 x) { total += x; }
+
+void apply(F, Args...)(F callable, Args args) {
+    callable(args...);
+}
+
+@nomangle
+public i32 dcc_main() {
+    apply(| -> accumulate(42));
+    return total;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42

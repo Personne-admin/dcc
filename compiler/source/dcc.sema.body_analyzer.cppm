@@ -11328,7 +11328,14 @@ export namespace dcc::sema
 
             if (effective_args.size() != l->params.size())
             {
-                if (!quiet)
+                bool has_untyped_param = false;
+                for (auto const& p : l->params)
+                    if (p.type == nullptr)
+                    {
+                        has_untyped_param = true;
+                        break;
+                    }
+                if (!quiet && !has_untyped_param)
                     error(range, "lambda parameter count mismatch: expected {}, got {}", l->params.size(), effective_args.size());
                 return {m_types.m_errort()};
             }

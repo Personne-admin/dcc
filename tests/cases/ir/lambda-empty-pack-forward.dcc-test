@@ -1,0 +1,36 @@
+=== FILE: test.dc ===
+module test;
+
+void consume(i32 x) {}
+
+void apply(F, Args...)(F callable, Args args) {
+    callable(args...);
+}
+
+void use_apply() {
+    apply(| -> consume(42));
+}
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test7.consume1i32sv(i32) {
+%entry(i32 %x):
+  ret void
+}
+
+void@_DC0F1.4.test9.use_apply0v() {
+%entry:
+  call fn(@_DC0S1.4.test5.apply1pv0vX1tpv0)(ptr<fn() -> void> @_DC0L1.4.test1.03.1410v)
+  ret void
+}
+
+void@_DC0L1.4.test1.03.1410v() {
+%entry:
+  call fn(@_DC0F1.4.test7.consume1i32sv)(i32 #42)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test5.apply1pv0vX1tpv0(ptr<fn() -> void>) {
+%entry(ptr<fn() -> void> %callable):
+  call fn(%callable)()
+  ret void
+}

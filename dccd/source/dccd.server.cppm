@@ -956,7 +956,7 @@ export namespace dccd
             return protocol::build_response(rpc.id.value(), hover.to_json());
         }
 
-        [[nodiscard]] static std::string hover_markdown(dcc::query::ResolvedSymbol const& symbol)
+        [[nodiscard]] std::string hover_markdown(dcc::query::ResolvedSymbol const& symbol)
         {
             switch (symbol.kind)
             {
@@ -973,18 +973,54 @@ export namespace dccd
                     auto const* fd = symbol.owner_decl && symbol.owner_decl->kind == dcc::ast::DeclKind::Func
                                          ? static_cast<dcc::ast::FuncDecl const*>(symbol.owner_decl)
                                          : nullptr;
-                    if (!fd || symbol.sub_index >= fd->params.size())
-                        return {};
-                    auto const& p = fd->params[symbol.sub_index];
-                    std::string type_str;
-                    if (p.type && p.type->sema.canonical)
-                        type_str = format_dcc_type(dcc::sema::get_canonical(p.type->sema));
-                    else
-                        type_str = "<template-dependent>";
+                    if (fd)
+                    {
+                        if (symbol.sub_index >= fd->params.size())
+                            return {};
+                        auto const& p = fd->params[symbol.sub_index];
+                        std::string type_str;
+                        if (p.type && p.type->sema.canonical)
+                            type_str = format_dcc_type(dcc::sema::get_canonical(p.type->sema));
+                        else
+                            type_str = "<template-dependent>";
 
-                    if (p.name.empty())
+                        if (p.name.empty())
+                            return std::format("```dc\n{}\n```", type_str);
+                        return std::format("```dc\n{} {}\n```", type_str, p.name);
+                    }
+
+                    std::string_view name = symbol.name;
+                    std::string type_str = "<unknown>";
+                    if (auto* sema_ctx = m_session->sema_context())
+                    {
+                        auto& graph = const_cast<dcc::sema::SemaContext*>(sema_ctx)->graph();
+                        for (auto const& mod : graph.all())
+                        {
+                            if (!mod)
+                                continue;
+                            for (auto* lf : mod->lambda_funcs)
+                            {
+                                if (!lf || !lf->lambda_source)
+                                    continue;
+                                auto const* l = lf->lambda_source;
+                                if (!l->range.valid())
+                                    continue;
+                                if (l->range.begin.fileId != symbol.id.owner_file || l->range.begin.offset != symbol.id.owner_offset)
+                                    continue;
+                                if (symbol.sub_index >= lf->params.size())
+                                    break;
+                                auto const& lp = lf->params[symbol.sub_index];
+                                if (name.empty())
+                                    name = lp.name;
+                                if (lp.type && lp.type->sema.canonical)
+                                    type_str = format_dcc_type(dcc::sema::get_canonical(lp.type->sema));
+                                break;
+                            }
+                        }
+                    }
+                    if (name.empty())
                         return std::format("```dc\n{}\n```", type_str);
-                    return std::format("```dc\n{} {}\n```", type_str, p.name);
+                    return std::format("```dc\n{} {}\n```", type_str, name);
                 }
                 case dcc::query::SymbolKind::TemplateParam: {
                     std::string_view name = symbol.name.empty() ? "<unnamed>" : symbol.name;

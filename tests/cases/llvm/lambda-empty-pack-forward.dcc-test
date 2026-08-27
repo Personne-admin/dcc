@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module main;
+
+void consume(i32 x) {}
+
+void apply(F, Args...)(F callable, Args args) {
+    callable(args...);
+}
+
+@nomangle
+i32 dcc_main() {
+    apply(| -> consume(42));
+    return 0;
+}
+=== ENTRY: main.dc ===
+
+=== EXPECT-LLVM FLAGS: -verify ===
