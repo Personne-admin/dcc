@@ -1,0 +1,152 @@
+=== FILE: main.dc ===
+module m;
+
+i32 a = | -> 42;
+i32 b = |x -> x;
+i32 c = |i32 x -> x;
+i32 d = |x, i32 y -> x + y;
+i32 e = |i32 a, i32 b -> a + b;
+i32 f = |a, b, c -> a * b * c;
+i32 g = |const i32 n -> n;
+i32 h = |[]i32 p -> p;
+i32 i = |i32* p -> p;
+i32 j = |x -> x | 1;
+i32 k = | -> | -> 7;
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:3:9: lambda expressions are not yet supported by the compiler
+main.dc:4:9: lambda expressions are not yet supported by the compiler
+main.dc:5:9: lambda expressions are not yet supported by the compiler
+main.dc:6:9: lambda expressions are not yet supported by the compiler
+main.dc:7:9: lambda expressions are not yet supported by the compiler
+main.dc:8:9: lambda expressions are not yet supported by the compiler
+main.dc:9:9: lambda expressions are not yet supported by the compiler
+main.dc:10:9: lambda expressions are not yet supported by the compiler
+main.dc:11:9: lambda expressions are not yet supported by the compiler
+main.dc:12:9: lambda expressions are not yet supported by the compiler
+main.dc:13:9: lambda expressions are not yet supported by the compiler
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Var name=a
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Body
+          IntLiteral 42
+  Var name=b
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Ident x
+  Var name=c
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+            Primitive i32
+        Body
+          Ident x
+  Var name=d
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+          Param name=y
+            Primitive i32
+        Body
+          Binary op=+
+            Ident x
+            Ident y
+  Var name=e
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=a
+            Primitive i32
+          Param name=b
+            Primitive i32
+        Body
+          Binary op=+
+            Ident a
+            Ident b
+  Var name=f
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=a
+          Param name=b
+          Param name=c
+        Body
+          Binary op=*
+            Binary op=*
+              Ident a
+              Ident b
+            Ident c
+  Var name=g
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=n
+            Qualified const
+              Primitive i32
+        Body
+          Ident n
+  Var name=h
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=p
+            Slice
+              Primitive i32
+        Body
+          Ident p
+  Var name=i
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=p
+            Pointer
+              Primitive i32
+        Body
+          Ident p
+  Var name=j
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Binary op=|
+            Ident x
+            IntLiteral 1
+  Var name=k
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Body
+          Lambda
+            Body
+              IntLiteral 7

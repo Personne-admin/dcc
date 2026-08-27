@@ -144,6 +144,7 @@ export namespace dcc::ast
         SizeofPack,
         PackExpansion,
         Asm,
+        Lambda,
     };
 
     enum class StmtKind : std::uint8_t
@@ -788,6 +789,14 @@ export namespace dcc::ast
         ExprPtr end;
         bool inclusive;
         RangeExpr(sm::SourceRange r, ExprPtr s, ExprPtr e, bool incl = false) : Expr(Kind, r), start(s), end(e), inclusive(incl) {}
+    };
+
+    struct LambdaExpr : Expr
+    {
+        static constexpr auto Kind = ExprKind::Lambda;
+        std::pmr::vector<FuncParam> params;
+        ExprPtr body{};
+        LambdaExpr(sm::SourceRange r, Allocator a) : Expr(Kind, r), params(a) {}
     };
 
     enum class AsmOperandDirection : std::uint8_t

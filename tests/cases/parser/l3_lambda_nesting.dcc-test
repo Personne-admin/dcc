@@ -1,0 +1,188 @@
+=== FILE: main.dc ===
+module m;
+
+void f() {
+    i32 a = 1 + |x -> x;
+    i32 b = (|x -> x) + 1;
+    i32 c = -|x -> x;
+    i32 d = foo(|x -> x, 1);
+    i32 e = foo(bar(|y -> y)).baz;
+    i32 f = arr[|x -> x];
+    i32 g = { i32 inner = |z -> z; inner };
+    i32 h = |x -> |y -> x + y;
+    i32 i = !(|x -> x);
+}
+
+i32 j = foo(|a, b -> a + b).field;
+i32 k = match (|x -> x) { _ => 1 };
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4:17: lambda expressions are not yet supported by the compiler
+main.dc:5:14: lambda expressions are not yet supported by the compiler
+main.dc:6:14: lambda expressions are not yet supported by the compiler
+main.dc:7:13: unknown name `foo`
+main.dc:8:13: unknown name `foo`
+main.dc:9:13: unknown name `arr`
+main.dc:10:27: lambda expressions are not yet supported by the compiler
+main.dc:11:13: lambda expressions are not yet supported by the compiler
+main.dc:12:15: lambda expressions are not yet supported by the compiler
+main.dc:15:9: unknown name `foo`
+main.dc:16:16: lambda expressions are not yet supported by the compiler
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=f
+    Return
+      Primitive void
+    Body
+      Var name=a
+        Type
+          Primitive i32
+        Init
+          Binary op=+
+            IntLiteral 1
+            Lambda
+              Params
+                Param name=x
+              Body
+                Ident x
+      Var name=b
+        Type
+          Primitive i32
+        Init
+          Binary op=+
+            Lambda
+              Params
+                Param name=x
+              Body
+                Ident x
+            IntLiteral 1
+      Var name=c
+        Type
+          Primitive i32
+        Init
+          Unary op=-
+            Lambda
+              Params
+                Param name=x
+              Body
+                Ident x
+      Var name=d
+        Type
+          Primitive i32
+        Init
+          Call
+            Callee
+              Ident foo
+            Args
+              Lambda
+                Params
+                  Param name=x
+                Body
+                  Ident x
+              IntLiteral 1
+      Var name=e
+        Type
+          Primitive i32
+        Init
+          FieldAccess field=baz
+            Call
+              Callee
+                Ident foo
+              Args
+                Call
+                  Callee
+                    Ident bar
+                  Args
+                    Lambda
+                      Params
+                        Param name=y
+                      Body
+                        Ident y
+      Var name=f
+        Type
+          Primitive i32
+        Init
+          Index
+            Object
+              Ident arr
+            Subscript
+              Lambda
+                Params
+                  Param name=x
+                Body
+                  Ident x
+      Var name=g
+        Type
+          Primitive i32
+        Init
+          Block
+            Var name=inner
+              Type
+                Primitive i32
+              Init
+                Lambda
+                  Params
+                    Param name=z
+                  Body
+                    Ident z
+            Tail
+              Ident inner
+      Var name=h
+        Type
+          Primitive i32
+        Init
+          Lambda
+            Params
+              Param name=x
+            Body
+              Lambda
+                Params
+                  Param name=y
+                Body
+                  Binary op=+
+                    Ident x
+                    Ident y
+      Var name=i
+        Type
+          Primitive i32
+        Init
+          Unary op=!
+            Lambda
+              Params
+                Param name=x
+              Body
+                Ident x
+  Var name=j
+    Type
+      Primitive i32
+    Init
+      FieldAccess field=field
+        Call
+          Callee
+            Ident foo
+          Args
+            Lambda
+              Params
+                Param name=a
+                Param name=b
+              Body
+                Binary op=+
+                  Ident a
+                  Ident b
+  Var name=k
+    Type
+      Primitive i32
+    Init
+      Match
+        Operand
+          Lambda
+            Params
+              Param name=x
+            Body
+              Ident x
+        Arm
+          WildcardPattern
+          Body
+            IntLiteral 1

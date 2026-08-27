@@ -1,0 +1,185 @@
+=== FILE: main.dc ===
+module m;
+
+i32 a = |x -> { i32 y = x; y };
+i32 b = |x, i32 y -> { i32 s = x + y; s };
+i32 c = |x -> { i32 a = 1; { i32 b = 2; a + b } };
+i32 d = |x -> |y -> x + y;
+i32 e = | -> | -> | -> 1;
+i32 f = |x -> { |y -> x * y };
+i32 g = |x -> if x > 0 { x } else { -x };
+i32 h = |x -> { i32 r = 0; i32 i = 0; r };
+i32 i = |a, b -> a + b;
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:3:9: lambda expressions are not yet supported by the compiler
+main.dc:4:9: lambda expressions are not yet supported by the compiler
+main.dc:5:9: lambda expressions are not yet supported by the compiler
+main.dc:6:9: lambda expressions are not yet supported by the compiler
+main.dc:7:9: lambda expressions are not yet supported by the compiler
+main.dc:8:9: lambda expressions are not yet supported by the compiler
+main.dc:9:9: lambda expressions are not yet supported by the compiler
+main.dc:10:9: lambda expressions are not yet supported by the compiler
+main.dc:11:9: lambda expressions are not yet supported by the compiler
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Var name=a
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Block
+            Var name=y
+              Type
+                Primitive i32
+              Init
+                Ident x
+            Tail
+              Ident y
+  Var name=b
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+          Param name=y
+            Primitive i32
+        Body
+          Block
+            Var name=s
+              Type
+                Primitive i32
+              Init
+                Binary op=+
+                  Ident x
+                  Ident y
+            Tail
+              Ident s
+  Var name=c
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Block
+            Var name=a
+              Type
+                Primitive i32
+              Init
+                IntLiteral 1
+            Tail
+              Block
+                Var name=b
+                  Type
+                    Primitive i32
+                  Init
+                    IntLiteral 2
+                Tail
+                  Binary op=+
+                    Ident a
+                    Ident b
+  Var name=d
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Lambda
+            Params
+              Param name=y
+            Body
+              Binary op=+
+                Ident x
+                Ident y
+  Var name=e
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Body
+          Lambda
+            Body
+              Lambda
+                Body
+                  IntLiteral 1
+  Var name=f
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Block
+            Tail
+              Lambda
+                Params
+                  Param name=y
+                Body
+                  Binary op=*
+                    Ident x
+                    Ident y
+  Var name=g
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          If
+            Cond
+              Binary op=>
+                Ident x
+                IntLiteral 0
+            Then
+              Tail
+                Ident x
+            Else
+              Block
+                Tail
+                  Unary op=-
+                    Ident x
+  Var name=h
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=x
+        Body
+          Block
+            Var name=r
+              Type
+                Primitive i32
+              Init
+                IntLiteral 0
+            Var name=i
+              Type
+                Primitive i32
+              Init
+                IntLiteral 0
+            Tail
+              Ident r
+  Var name=i
+    Type
+      Primitive i32
+    Init
+      Lambda
+        Params
+          Param name=a
+          Param name=b
+        Body
+          Binary op=+
+            Ident a
+            Ident b

@@ -69,6 +69,7 @@ export namespace dcc::ast
         virtual void visitTypeASTExpr(TypeASTExpr const*) {}
         virtual void visitTemplateInstExpr(TemplateInstExpr const*) {}
         virtual void visitAsmExpr(AsmExpr const*) {}
+        virtual void visitLambdaExpr(LambdaExpr const*) {}
 
         virtual void visitExprStmt(ExprStmt const*) {}
         virtual void visitDeclStmt(DeclStmt const*) {}
@@ -163,6 +164,7 @@ export namespace dcc::ast
         void visitAsmExpr(AsmExpr const*) override;
         void visitTypeASTExpr(TypeASTExpr const*) override;
         void visitTemplateInstExpr(TemplateInstExpr const*) override;
+        void visitLambdaExpr(LambdaExpr const*) override;
 
         void visitExprStmt(ExprStmt const*) override;
         void visitDeclStmt(DeclStmt const*) override;
@@ -543,6 +545,9 @@ namespace dcc::ast
             case ExprKind::Asm:
                 visitAsmExpr(node_cast<AsmExpr>(expr));
                 break;
+            case ExprKind::Lambda:
+                visitLambdaExpr(node_cast<LambdaExpr>(expr));
+                break;
         }
     }
 
@@ -701,6 +706,15 @@ namespace dcc::ast
         for (auto const& op : e->operands)
             if (op.expr)
                 visitExpr(op.expr);
+    }
+
+    void RecursiveAstVisitor::visitLambdaExpr(LambdaExpr const* e)
+    {
+        for (auto const& p : e->params)
+            if (p.type)
+                visitTypeExpr(p.type);
+        if (e->body)
+            visitExpr(e->body);
     }
 
     void RecursiveAstVisitor::visitAsmStmt(AsmStmt const* s)

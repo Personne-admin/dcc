@@ -495,6 +495,25 @@ export namespace dcc::ast
             }
         }
 
+        void visitLambdaExpr(LambdaExpr const* e) override
+        {
+            line("Lambda");
+            IndentScope is(m_indent_level);
+            if (!e->params.empty())
+            {
+                line("Params");
+                IndentScope is2(m_indent_level);
+                for (auto const& p : e->params)
+                    print_func_param(p);
+            }
+            if (e->body)
+            {
+                line("Body");
+                IndentScope is2(m_indent_level);
+                visitExpr(e->body);
+            }
+        }
+
         void visitAsmStmt(AsmStmt const* s) override
         {
             line_fmt("AsmStmt volatile={} dialect={}", s->is_volatile, s->dialect == AsmDialect::Intel ? "intel" : "att");

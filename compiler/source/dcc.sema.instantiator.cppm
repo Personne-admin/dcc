@@ -381,6 +381,25 @@ namespace dcc::sema
                     n->sema = ex->sema;
                     return n;
                 }
+                case ast::ExprKind::Lambda: {
+                    auto* ex = static_cast<ast::LambdaExpr const*>(e);
+                    auto* n = m_ctx.make<ast::LambdaExpr>(ex->range);
+                    n->params.reserve(ex->params.size());
+                    for (auto const& p : ex->params)
+                    {
+                        ast::FuncParam fp;
+                        fp.name = p.name;
+                        fp.range = p.range;
+                        fp.type = clone_type(p.type);
+                        fp.sema = p.sema;
+                        fp.synthetic_decl = nullptr;
+                        fp.is_pack = p.is_pack;
+                        n->params.push_back(std::move(fp));
+                    }
+                    n->body = clone_expr(ex->body);
+                    n->sema = ex->sema;
+                    return n;
+                }
             }
 
             return nullptr;
@@ -1201,6 +1220,13 @@ namespace dcc::sema
                         substitute_in_type(op.type_override);
                         substitute_in_expr(op.expr);
                     }
+                    break;
+                }
+                case ast::ExprKind::Lambda: {
+                    auto* ex = static_cast<ast::LambdaExpr*>(e);
+                    for (auto& p : ex->params)
+                        substitute_in_type(p.type);
+                    substitute_in_expr(ex->body);
                     break;
                 }
             }
@@ -2242,6 +2268,13 @@ export namespace dcc::sema
                         auto* ae = static_cast<ast::AsmExpr*>(e);
                         for (auto& op : ae->operands)
                             replace_in_expr(op.expr);
+                        break;
+                    }
+                    case ast::ExprKind::Lambda: {
+                        auto* le = static_cast<ast::LambdaExpr*>(e);
+                        for (auto& p : le->params)
+                            replace_in_type(p.type);
+                        replace_in_expr(le->body);
                         break;
                     }
                 }
