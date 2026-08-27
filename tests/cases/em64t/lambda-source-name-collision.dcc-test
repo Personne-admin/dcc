@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module main;
+
+i32 __lambda_0(i32 x) {
+    return x + 100;
+}
+
+i32 __lambda_1(i32 x) {
+    return x + 200;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32(*)(i32) fp = |i32 y -> y * 2;
+    i32(*)(i32) fp2 = |i32 z -> z * 3;
+    return __lambda_0(1) + __lambda_1(1) + fp(21) + fp2(7);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 109

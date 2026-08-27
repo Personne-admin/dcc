@@ -1,0 +1,24 @@
+=== FILE: main.dc ===
+module main;
+
+void consume(i32 x) {}
+
+void apply(F, Args...)(F f, Args a) {
+    f(a...);
+}
+
+void keep(F)(F f) { }
+
+@nomangle
+public i32 dcc_main() {
+    bool ok = compiles {
+        apply(|bad -> consume(bad + "x"), 1);
+    };
+    bool ok2 = compiles {
+        keep(|never -> never);
+    };
+    apply(|x -> consume(x * 2), 21);
+    return 42;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

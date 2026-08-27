@@ -1328,12 +1328,49 @@ namespace dcc::ir::mangle
             return (pos == s.size());
         };
 
+        auto parse_lambda_like = [&]() -> bool {
+            result.kind = DemangledName::Kind::Lambda;
+            {
+                std::vector<std::string> path;
+                if (!parse_path(s, pos, path))
+                    return false;
+
+                result.module_path = std::move(path);
+            }
+            std::string fid;
+            if (!parse_ident(s, pos, fid))
+                return false;
+            std::string off;
+            if (!parse_ident(s, pos, off))
+                return false;
+
+            result.name = fid + "." + off;
+
+            std::uint64_t pc;
+            if (!parse_dec(s, pos, pc))
+                return false;
+
+            for (std::uint64_t i = 0; i < pc; ++i)
+            {
+                DemangledType pt;
+                if (!demangle_type_into(pt, s, pos))
+                    return false;
+
+                result.param_types.push_back(std::move(pt));
+            }
+
+            if (!demangle_type_into(result.return_type, s, pos))
+                return false;
+
+            return (pos == s.size());
+        };
+
         if (kind == 'F')
             return parse_func_like(DemangledName::Kind::Function);
         else if (kind == 'S')
             return parse_func_like(DemangledName::Kind::Specialization);
         else if (kind == 'L')
-            return parse_func_like(DemangledName::Kind::Lambda);
+            return parse_lambda_like();
         else if (kind == 'G')
         {
             result.kind = DemangledName::Kind::Global;

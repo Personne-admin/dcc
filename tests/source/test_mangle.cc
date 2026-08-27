@@ -1210,3 +1210,93 @@ TEST_CASE("mangle_type_specialization with user type resolution")
     CHECK_EQ(d->template_args[1].kind, mangle::DemangledTemplateArg::Kind::Type);
     CHECK_EQ(d->template_args[1].type.name, "String");
 }
+
+SECTION("mangle_lambda_function");
+
+TEST_CASE("mangle_lambda_function uses distinct _DC0L path and source identity")
+{
+    types::TypeContext ctx;
+    ast::AstContext actx;
+    auto* l = actx.make<ast::LambdaExpr>(
+        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 512}, dcc::sm::Location{dcc::sm::FileId{3}, 520}}, actx.allocator());
+    auto* fd = actx.make<ast::FuncDecl>(l->range, "__lambda_0", l->range);
+    fd->synthesized_lambda = true;
+    fd->lambda_source = l;
+    std::vector<types::TypePtr> params = {i32(ctx)};
+    auto s = mangle::mangle_function({"main"}, *fd, params, i32(ctx));
+    CHECK_EQ(s, "_DC0L1.4.main1.33.5121i32si32s");
+    auto d = mangle::demangle(s);
+    REQUIRE(d.has_value());
+    CHECK_EQ(d->kind, mangle::DemangledName::Kind::Lambda);
+    CHECK_EQ(d->module_path.size(), 1u);
+    CHECK_EQ(d->module_path[0], "main");
+    CHECK_EQ(d->param_types.size(), 1u);
+}
+
+TEST_CASE("mangle_lambda_function distinct from same-named source function")
+{
+    types::TypeContext ctx;
+    ast::AstContext actx;
+    auto* l = actx.make<ast::LambdaExpr>(
+        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 512}, dcc::sm::Location{dcc::sm::FileId{3}, 520}}, actx.allocator());
+    auto* fd = actx.make<ast::FuncDecl>(l->range, "__lambda_0", l->range);
+    fd->synthesized_lambda = true;
+    fd->lambda_source = l;
+    std::vector<types::TypePtr> params = {i32(ctx)};
+    auto lambda_s = mangle::mangle_function({"main"}, *fd, params, i32(ctx));
+
+    auto* src = actx.make<ast::FuncDecl>(dcc::sm::SourceRange{}, "__lambda_0", dcc::sm::SourceRange{});
+    auto src_s = mangle::mangle_function({"main"}, *src, params, i32(ctx));
+
+    CHECK_NE(lambda_s, src_s);
+    CHECK(lambda_s.starts_with("_DC0L"));
+    CHECK(src_s.starts_with("_DC0F"));
+}
+
+TEST_CASE("mangle_lambda_function same-signature lambdas differ")
+{
+    types::TypeContext ctx;
+    ast::AstContext actx;
+    auto* l1 = actx.make<ast::LambdaExpr>(
+        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 100}, dcc::sm::Location{dcc::sm::FileId{3}, 108}}, actx.allocator());
+    auto* fd1 = actx.make<ast::FuncDecl>(l1->range, "__lambda_0", l1->range);
+    fd1->synthesized_lambda = true;
+    fd1->lambda_source = l1;
+    auto* l2 = actx.make<ast::LambdaExpr>(
+        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 300}, dcc::sm::Location{dcc::sm::FileId{3}, 308}}, actx.allocator());
+    auto* fd2 = actx.make<ast::FuncDecl>(l2->range, "__lambda_1", l2->range);
+    fd2->synthesized_lambda = true;
+    fd2->lambda_source = l2;
+    std::vector<types::TypePtr> params = {i32(ctx)};
+    auto s1 = mangle::mangle_function({"main"}, *fd1, params, i32(ctx));
+    auto s2 = mangle::mangle_function({"main"}, *fd2, params, i32(ctx));
+    CHECK_NE(s1, s2);
+    CHECK_EQ(s1, "_DC0L1.4.main1.33.1001i32si32s");
+    CHECK_EQ(s2, "_DC0L1.4.main1.33.3001i32si32s");
+}
+
+SECTION("mangle_type Lambda");
+
+TEST_CASE("mangle_type Lambda encodes stable source identity")
+{
+    types::TypeContext ctx;
+    ast::AstContext actx;
+    auto* l = actx.make<ast::LambdaExpr>(
+        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{2}, 77}, dcc::sm::Location{dcc::sm::FileId{2}, 85}}, actx.allocator());
+    auto lt = ctx.lambda_t(l);
+    auto s = mangle::mangle_type(lt);
+    CHECK_EQ(s, "_DC0TL1.22.77");
+    auto d = mangle::demangle(s);
+    REQUIRE(d.has_value());
+    CHECK_EQ(d->kind, mangle::DemangledName::Kind::Type);
+    CHECK_EQ(d->type_only.tag, mangle::DemangledType::Tag::Lambda);
+}
+
+TEST_CASE("demangle rejects invalid _DC0L strings")
+{
+    CHECK(!demangle_check("_DC0L"));
+    CHECK(!demangle_check("_DC0L1.4.main"));
+    CHECK(!demangle_check("_DC0L1.4.main1.33.512"));
+    CHECK(!demangle_check("_DC0L1.4.main1.33.5121i32si32s_extra"));
+}
+
