@@ -21,6 +21,9 @@ OBJS := $(call objs-from-srcs,$(ALL_CC_SRCS))
 DEPS := $(OBJS:.o=.d)
 
 COMPILER_PCMS := $(wildcard $(PCM_DIR)/dcc.*.pcm)
+DCCD_PCM_FILES := $(filter $(PCM_DIR)/dccd.%.pcm,$(MODULE_PCM_FILES))
+
+$(DCCD_PCM_FILES): $(COMPILER_PCMS)
 
 $(BINARY): $(MODULE_OBJS) $(OBJS) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(DCCD_LDFLAGS))
