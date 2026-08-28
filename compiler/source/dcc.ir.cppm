@@ -1296,6 +1296,8 @@ export namespace dcc::ir
 #ifndef NDEBUG
             if (default_layout)
                 verify_aggregate_layout(members, member_offsets, byte_size, byte_align);
+#else
+            std::ignore = default_layout;
 #endif
 
             for (auto const* t : m_aggregates)
