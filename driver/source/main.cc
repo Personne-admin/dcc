@@ -22,8 +22,12 @@ import dcc.backend.em64t;
 import dcc.backend.em64t.objwriter;
 
 #ifndef _WIN32
+#include <cerrno>
+#include <fcntl.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
+#else
+#include <windows.h>
 #endif
 
 namespace
@@ -109,6 +113,7 @@ namespace
     {
         std::filesystem::path input_file;
         std::filesystem::path output_file;
+        std::optional<std::filesystem::path> depfile;
         std::vector<std::filesystem::path> import_paths;
         bool dump_ast{false};
         bool dump_ir{false};
@@ -354,6 +359,13 @@ namespace
                 continue;
             }
 
+            if (arg == "--depfile" && i + 1 < argc)
+            {
+                opts.depfile = argv[++i];
+                ++i;
+                continue;
+            }
+
             if (arg == "-I" && i + 1 < argc)
             {
                 opts.import_paths.emplace_back(argv[++i]);
@@ -501,6 +513,7 @@ namespace
         } options[] = {{"-I<dir>", "add import search path"},
                        {"-J<decl>", "inject a declaration"},
                        {"-o <file>", "output file"},
+                       {"--depfile <file>", "write Make-compatible module dependencies"},
                        {"-c", "compile to object file only"},
                        {"-S", "emit assembly only"},
                        {"-shared", "build a shared library (.so / .dll)"},
@@ -595,6 +608,48 @@ namespace
         return input_path.stem();
     }
 
+    [[nodiscard]] std::optional<std::filesystem::path> primary_output_path(Options const& opts, std::filesystem::path const& input_path,
+                                                                           dcc::target::TargetConfig const& target)
+    {
+        auto base = output_base(opts, input_path);
+
+        if (opts.emit_asm_only)
+        {
+            auto path = opts.output_file.empty() ? base : opts.output_file;
+            if (opts.output_file.empty())
+                path += ".s";
+            return path;
+        }
+
+        if (opts.compile_only)
+        {
+            auto path = opts.output_file.empty() ? base : opts.output_file;
+            if (opts.output_file.empty())
+                path += ".o";
+            return path;
+        }
+
+        if (opts.dump_llvm || opts.dump_mir)
+            return opts.output_file.empty() ? std::nullopt : std::optional{opts.output_file};
+
+        if (!opts.output_file.empty())
+            return opts.output_file;
+
+        if (opts.shared_library)
+        {
+            auto path = base;
+            if (target.object_format == dcc::target::ObjectFormat::Coff)
+                path += ".dll";
+            else
+                path += ".so";
+            return path;
+        }
+
+        auto path = base;
+        path.replace_extension("");
+        return path;
+    }
+
     [[nodiscard]] std::optional<dcc::backend::ArtifactKind> artifact_kind_for_extension(std::string_view ext)
     {
         if (ext == ".ll")
@@ -633,9 +688,13 @@ namespace
     }
 
     bool write_artifacts(dcc::backend::BackendArtifact const& artifact, Options const& opts, std::filesystem::path const& input_path,
-                         dcc::target::TargetConfig const& target)
+                         dcc::target::TargetConfig const& target, std::filesystem::path* primary_out = nullptr)
     {
         auto base = output_base(opts, input_path);
+        auto primary = primary_output_path(opts, input_path, target);
+
+        if (primary_out)
+            primary_out->clear();
 
         auto do_write = [&](std::filesystem::path const& path, auto const& content) -> bool {
             if (!write_file(path, content))
@@ -650,10 +709,9 @@ namespace
         {
             if (artifact.asm_text)
             {
-                auto path = opts.output_file.empty() ? base : opts.output_file;
-                if (opts.output_file.empty())
-                    path += ".s";
-                return do_write(path, *artifact.asm_text);
+                if (primary_out)
+                    *primary_out = *primary;
+                return do_write(*primary, *artifact.asm_text);
             }
             return true;
         }
@@ -662,10 +720,9 @@ namespace
         {
             if (artifact.object_bytes)
             {
-                auto path = opts.output_file.empty() ? base : opts.output_file;
-                if (opts.output_file.empty())
-                    path += ".o";
-                return do_write(path, *artifact.object_bytes);
+                if (primary_out)
+                    *primary_out = *primary;
+                return do_write(*primary, *artifact.object_bytes);
             }
             return true;
         }
@@ -690,6 +747,9 @@ namespace
                     if (!do_write(opts.output_file, *artifact.mir_text))
                         return false;
 
+                    if (primary_out)
+                        *primary_out = opts.output_file;
+
                     auto llvm_path = base;
                     llvm_path += ".ll";
                     if (!do_write(llvm_path, *artifact.llvm_ir_text))
@@ -699,6 +759,9 @@ namespace
                 {
                     if (!do_write(opts.output_file, *artifact.llvm_ir_text))
                         return false;
+
+                    if (primary_out)
+                        *primary_out = opts.output_file;
 
                     auto mir_path = base;
                     mir_path += ".mir";
@@ -710,11 +773,17 @@ namespace
             {
                 if (!do_write(opts.output_file, *artifact.llvm_ir_text))
                     return false;
+
+                if (primary_out)
+                    *primary_out = opts.output_file;
             }
             else if (has_mir)
             {
                 if (!do_write(opts.output_file, *artifact.mir_text))
                     return false;
+
+                if (primary_out)
+                    *primary_out = opts.output_file;
             }
             return true;
         }
@@ -735,33 +804,63 @@ namespace
                 switch (*kind)
                 {
                     case dcc::backend::ArtifactKind::LlvmIrText:
-                        if (artifact.llvm_ir_text && !do_write(opts.output_file, *artifact.llvm_ir_text))
-                            ok = false;
+                        if (artifact.llvm_ir_text)
+                        {
+                            if (primary_out)
+                                *primary_out = opts.output_file;
+                            if (!do_write(opts.output_file, *artifact.llvm_ir_text))
+                                ok = false;
+                        }
                         llvm_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::MirText:
-                        if (artifact.mir_text && !do_write(opts.output_file, *artifact.mir_text))
-                            ok = false;
+                        if (artifact.mir_text)
+                        {
+                            if (primary_out)
+                                *primary_out = opts.output_file;
+                            if (!do_write(opts.output_file, *artifact.mir_text))
+                                ok = false;
+                        }
                         mir_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::AsmText:
-                        if (artifact.asm_text && !do_write(opts.output_file, *artifact.asm_text))
-                            ok = false;
+                        if (artifact.asm_text)
+                        {
+                            if (primary_out)
+                                *primary_out = opts.output_file;
+                            if (!do_write(opts.output_file, *artifact.asm_text))
+                                ok = false;
+                        }
                         asm_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::ObjectBytes:
-                        if (artifact.object_bytes && !do_write(opts.output_file, *artifact.object_bytes))
-                            ok = false;
+                        if (artifact.object_bytes)
+                        {
+                            if (primary_out)
+                                *primary_out = opts.output_file;
+                            if (!do_write(opts.output_file, *artifact.object_bytes))
+                                ok = false;
+                        }
                         obj_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::ArchiveBytes:
-                        if (artifact.archive_bytes && !do_write(opts.output_file, *artifact.archive_bytes))
-                            ok = false;
+                        if (artifact.archive_bytes)
+                        {
+                            if (primary_out)
+                                *primary_out = opts.output_file;
+                            if (!do_write(opts.output_file, *artifact.archive_bytes))
+                                ok = false;
+                        }
                         archive_written_via_extension = true;
                         break;
                     case dcc::backend::ArtifactKind::SharedLibraryBytes:
-                        if (artifact.shared_library_bytes && !do_write(opts.output_file, *artifact.shared_library_bytes))
-                            ok = false;
+                        if (artifact.shared_library_bytes)
+                        {
+                            if (primary_out)
+                                *primary_out = opts.output_file;
+                            if (!do_write(opts.output_file, *artifact.shared_library_bytes))
+                                ok = false;
+                        }
                         break;
                     default:
                         break;
@@ -769,6 +868,8 @@ namespace
             }
             else if (artifact.executable_bytes)
             {
+                if (primary_out)
+                    *primary_out = opts.output_file;
                 if (!do_write(opts.output_file, *artifact.executable_bytes))
                     ok = false;
                 else
@@ -782,8 +883,9 @@ namespace
         }
         else if (artifact.executable_bytes)
         {
-            auto path = base;
-            path.replace_extension("");
+            auto path = *primary;
+            if (primary_out)
+                *primary_out = path;
             if (!do_write(path, *artifact.executable_bytes))
                 ok = false;
             else
@@ -796,11 +898,9 @@ namespace
         }
         else if (artifact.shared_library_bytes)
         {
-            auto path = base;
-            if (target.object_format == dcc::target::ObjectFormat::Coff)
-                path += ".dll";
-            else
-                path += ".so";
+            auto path = *primary;
+            if (primary_out)
+                *primary_out = path;
             if (!do_write(path, *artifact.shared_library_bytes))
                 ok = false;
         }
@@ -865,6 +965,293 @@ namespace
         return ok;
     }
 
+    [[nodiscard]] std::vector<std::filesystem::path> collect_depfile_dependencies(dcc::sema::ModuleInfo const* root, dcc::sema::ModuleGraph const& graph,
+                                                                                  dcc::sm::SourceManager const& sm)
+    {
+        std::vector<std::filesystem::path> deps;
+        std::unordered_set<dcc::sm::FileId> seen_ids;
+        std::unordered_set<std::string> seen_paths;
+
+        auto push_unique = [&](dcc::sema::ModuleInfo const* m) -> bool {
+            auto const* file = sm.get(m->file_id);
+            if (!file || file->kind() != dcc::sm::FileKind::Disk)
+                return false;
+
+            if (m->file_id != dcc::sm::FileId::Invalid && !seen_ids.insert(m->file_id).second)
+                return false;
+
+            if (!seen_paths.insert(m->file_path.string()).second)
+                return false;
+
+            deps.push_back(m->file_path);
+            return true;
+        };
+
+        if (root)
+            push_unique(root);
+
+        for (auto const& m : graph.all())
+            push_unique(m.get());
+
+        if (deps.size() > 1)
+            std::sort(deps.begin() + 1, deps.end(), [](std::filesystem::path const& a, std::filesystem::path const& b) { return a.string() < b.string(); });
+
+        return deps;
+    }
+
+    [[nodiscard]] std::string escape_make_path(std::string_view path, bool is_target, bool at_line_end)
+    {
+        std::string out;
+        out.reserve(path.size() + 16);
+
+        std::size_t i = 0;
+        while (i < path.size())
+        {
+            char c = path[i];
+            if (c == '\\')
+            {
+                std::size_t run = 0;
+                while (i + run < path.size() && path[i + run] == '\\')
+                    ++run;
+
+                char next = (i + run < path.size()) ? path[i + run] : '\0';
+                if (next == ' ' || next == '\t' || next == '#')
+                    out.append(2 * run, '\\');
+                else if (next == ':')
+                    out.append(2 * run, '\\');
+                else if (is_target && next == '%')
+                    out.append(2 * run, '\\');
+                else if (next == '\0')
+                    out.append((is_target || !at_line_end) ? 2 * run : run, '\\');
+                else
+                    out.append(run, '\\');
+
+                i += run;
+                continue;
+            }
+
+            switch (c)
+            {
+                case '$':
+                    out += "$$";
+                    break;
+                case '#':
+                    out += "\\#";
+                    break;
+                case ' ':
+                    out += "\\ ";
+                    break;
+                case '\t':
+                    out += "\\\t";
+                    break;
+                case ':':
+                    out += "\\:";
+                    break;
+                case '%':
+                    out += is_target ? "\\%" : "%";
+                    break;
+                default:
+                    out += c;
+                    break;
+            }
+            ++i;
+        }
+
+        return out;
+    }
+
+    [[nodiscard]] std::optional<std::string> serialize_depfile_rule(std::filesystem::path const& target, std::span<std::filesystem::path const> deps)
+    {
+        auto bad_path = [](std::filesystem::path const& p) {
+            auto s = p.string();
+            return s.find('\n') != std::string::npos || s.find('\r') != std::string::npos || s.find('\t') != std::string::npos;
+        };
+
+        if (bad_path(target))
+            return std::nullopt;
+
+        std::string rule = escape_make_path(target.string(), true, true);
+        rule += ':';
+
+        for (std::size_t i = 0; i < deps.size(); ++i)
+        {
+            if (bad_path(deps[i]))
+                return std::nullopt;
+
+            rule += ' ';
+            rule += escape_make_path(deps[i].string(), false, i + 1 == deps.size());
+        }
+
+        if (!deps.empty() && !deps.back().string().empty() && deps.back().string().back() == '\\')
+            rule += ' ';
+
+        rule += '\n';
+        return rule;
+    }
+
+    [[nodiscard]] bool same_file_path(std::filesystem::path const& a, std::filesystem::path const& b)
+    {
+        std::error_code ec_a;
+        std::error_code ec_b;
+        auto ca = std::filesystem::weakly_canonical(a, ec_a);
+        auto cb = std::filesystem::weakly_canonical(b, ec_b);
+        return !ec_a && !ec_b && ca == cb;
+    }
+
+    bool write_depfile_atomic(std::filesystem::path const& dest, std::string_view content)
+    {
+        auto parent = dest.parent_path();
+        static std::atomic<int> s_temp_seq{0};
+
+#ifndef _WIN32
+        for (int attempt = 0; attempt < 128; ++attempt)
+        {
+            auto tmp_path = parent / (dest.filename().string() + ".tmp." + std::to_string(::getpid()) + "." + std::to_string(++s_temp_seq));
+
+            int fd = ::open(tmp_path.c_str(), O_WRONLY | O_CREAT | O_EXCL, 0666);
+            if (fd < 0)
+            {
+                if (errno == EEXIST)
+                    continue;
+
+                return false;
+            }
+
+            std::size_t off = 0;
+            while (off < content.size())
+            {
+                auto n = ::write(fd, content.data() + off, content.size() - off);
+                if (n <= 0)
+                {
+                    if (n < 0 && errno == EINTR)
+                        continue;
+
+                    ::close(fd);
+                    std::error_code rm_ec;
+                    std::filesystem::remove(tmp_path, rm_ec);
+                    return false;
+                }
+                off += static_cast<std::size_t>(n);
+            }
+
+            if (::close(fd) != 0)
+            {
+                std::error_code rm_ec;
+                std::filesystem::remove(tmp_path, rm_ec);
+                return false;
+            }
+
+            std::error_code ec;
+            std::filesystem::rename(tmp_path, dest, ec);
+            if (ec)
+            {
+                std::error_code rm_ec;
+                std::filesystem::remove(tmp_path, rm_ec);
+                return false;
+            }
+
+            return true;
+        }
+        return false;
+#else
+        for (int attempt = 0; attempt < 128; ++attempt)
+        {
+            auto tmp_path = parent / (dest.filename().string() + ".tmp." + std::to_string(::GetCurrentProcessId()) + "." + std::to_string(++s_temp_seq));
+
+            HANDLE h = ::CreateFileW(tmp_path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (h == INVALID_HANDLE_VALUE)
+            {
+                DWORD err = ::GetLastError();
+                if (err == ERROR_FILE_EXISTS || err == ERROR_ALREADY_EXISTS)
+                    continue;
+                return false;
+            }
+
+            std::size_t total = 0;
+            bool ok = true;
+            while (total < content.size())
+            {
+                DWORD chunk = static_cast<DWORD>(std::min<std::size_t>(content.size() - total, static_cast<std::size_t>(0xFFFFFFFFu)));
+                DWORD written = 0;
+                if (!::WriteFile(h, content.data() + total, chunk, &written, nullptr) || written == 0)
+                {
+                    ok = false;
+                    break;
+                }
+                total += written;
+            }
+
+            if (!ok)
+            {
+                ::CloseHandle(h);
+                std::error_code rm_ec;
+                std::filesystem::remove(tmp_path, rm_ec);
+                return false;
+            }
+
+            if (!::CloseHandle(h))
+            {
+                std::error_code rm_ec;
+                std::filesystem::remove(tmp_path, rm_ec);
+                return false;
+            }
+
+            if (!::MoveFileExW(tmp_path.c_str(), dest.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+            {
+                std::error_code rm_ec;
+                std::filesystem::remove(tmp_path, rm_ec);
+                return false;
+            }
+
+            return true;
+        }
+        return false;
+#endif
+    }
+
+    bool emit_depfile(std::filesystem::path const& depfile_path, std::filesystem::path const& target_path, dcc::sema::ModuleInfo const* root,
+                      dcc::sema::ModuleGraph const& graph, dcc::sm::SourceManager const& sm)
+    {
+        if (target_path.empty())
+        {
+            std::println(std::cerr, "dcc: error: --depfile requires a filesystem output artifact");
+            return false;
+        }
+
+        auto deps = collect_depfile_dependencies(root, graph, sm);
+
+        if (same_file_path(depfile_path, target_path))
+        {
+            std::println(std::cerr, "dcc: error: --depfile destination '{}' is the same as the output artifact", depfile_path.string());
+            return false;
+        }
+
+        for (auto const& dep : deps)
+        {
+            if (same_file_path(depfile_path, dep))
+            {
+                std::println(std::cerr, "dcc: error: --depfile destination '{}' is the same as an input source file '{}'", depfile_path.string(), dep.string());
+                return false;
+            }
+        }
+
+        auto rule = serialize_depfile_rule(target_path, deps);
+        if (!rule)
+        {
+            std::println(std::cerr, "dcc: error: cannot write dependency file '{}': a path contains a newline, carriage-return, or tab character",
+                         depfile_path.string());
+            return false;
+        }
+
+        if (!write_depfile_atomic(depfile_path, *rule))
+        {
+            std::println(std::cerr, "dcc: error: cannot write dependency file '{}'", depfile_path.string());
+            return false;
+        }
+
+        return true;
+    }
+
     [[nodiscard]] std::set<dcc::backend::ArtifactKind> desired_artifacts(Options const& opts)
     {
         std::set<dcc::backend::ArtifactKind> kinds;
@@ -927,6 +1314,20 @@ namespace
         return !opts.dump_ir;
     }
 
+    [[nodiscard]] bool writes_output_artifact(Options const& opts)
+    {
+        if (!backend_needed(opts))
+            return false;
+
+        if (opts.compile_only || opts.emit_asm_only)
+            return true;
+
+        if (opts.dump_llvm || opts.dump_mir)
+            return !opts.output_file.empty();
+
+        return true;
+    }
+
 } // anonymous namespace
 
 auto main(int argc, char** argv) -> int
@@ -960,12 +1361,43 @@ auto main(int argc, char** argv) -> int
         }
     }
 
+    if (opts.depfile && !writes_output_artifact(opts))
+    {
+        std::println(std::cerr, "dcc: error: --depfile requires a filesystem output artifact");
+        return 1;
+    }
+
     std::error_code ec;
     auto input_path = std::filesystem::canonical(opts.input_file, ec);
     if (ec)
     {
         std::println(std::cerr, "dcc: error: cannot find input file '{}'", opts.input_file.string());
         return 1;
+    }
+
+    if (opts.depfile)
+    {
+        if (same_file_path(*opts.depfile, input_path))
+        {
+            std::println(std::cerr, "dcc: error: --depfile destination '{}' is the same as an input source file '{}'", opts.depfile->string(),
+                         input_path.string());
+            return 1;
+        }
+
+        dcc::target::TargetConfig dep_target = dcc::target::TargetConfig::host_default();
+        if (!opts.target_triple.empty())
+        {
+            auto parsed = dcc::target::TargetConfig::parse_triple(opts.target_triple);
+            if (parsed)
+                dep_target = *parsed;
+        }
+
+        auto dep_target_path = primary_output_path(opts, input_path, dep_target);
+        if (dep_target_path && same_file_path(*opts.depfile, *dep_target_path))
+        {
+            std::println(std::cerr, "dcc: error: --depfile destination '{}' is the same as the output artifact", opts.depfile->string());
+            return 1;
+        }
     }
 
     dcc::session::CompilerSession session;
@@ -1171,7 +1603,11 @@ auto main(int argc, char** argv) -> int
                     artifact.object_bytes.reset();
                 }
 
-                if (!write_artifacts(artifact, opts, input_path, target))
+                std::filesystem::path primary_output;
+                if (!write_artifacts(artifact, opts, input_path, target, &primary_output))
+                    return 1;
+
+                if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager()))
                     return 1;
 #else
                 std::println(std::cerr, "dcc: error: LLVM support not compiled into this build of dcc");
@@ -1197,7 +1633,11 @@ auto main(int argc, char** argv) -> int
                     return 1;
                 }
 
-                if (!write_artifacts(artifact, opts, input_path, target))
+                std::filesystem::path primary_output;
+                if (!write_artifacts(artifact, opts, input_path, target, &primary_output))
+                    return 1;
+
+                if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager()))
                     return 1;
             }
             else
