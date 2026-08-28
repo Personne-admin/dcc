@@ -10,7 +10,7 @@ public i32 local_mutate() {
 === EXPECT-LLVM ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i32 @_DC0F1.4.test12.local_mutate0i32s() {
 entry:

@@ -22,6 +22,10 @@ u8 test_assign() {
     return val;
 }
 
+=== EXPECT-ERRORS ===
+main.dc:7: initializer for global `low` is not a constant expression
+main.dc:9: initializer for global `larger` is not a constant expression
+
 === EXPECT-BODY ===
 Module m
   Func max diverging=false

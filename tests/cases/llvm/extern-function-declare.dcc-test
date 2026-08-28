@@ -7,6 +7,6 @@ extern void my_extern_func(i32 x);
 === EXPECT-LLVM FLAGS: -verify ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 declare void @my_extern_func(i32)

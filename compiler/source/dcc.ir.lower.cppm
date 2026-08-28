@@ -6,6 +6,7 @@ import dcc.ast;
 import dcc.lex.tokens;
 import dcc.types;
 import dcc.comptime;
+import dcc.const_eval;
 import dcc.ir;
 import dcc.ir.mangle;
 import dcc.sema.scope;
@@ -317,9 +318,8 @@ export namespace dcc::ir::lower
             if (is_template_func(decl))
                 return;
 
-            auto module_path =
-                module_path_override ? *module_path_override
-                                     : (is_definition_here ? std::span<std::string_view const>{m_module_path} : module_path_for_decl(decl));
+            auto module_path = module_path_override ? *module_path_override
+                                                    : (is_definition_here ? std::span<std::string_view const>{m_module_path} : module_path_for_decl(decl));
 
             auto* ret_canonical = get_canonical_type(decl->return_type);
             std::vector<dcc::types::TypePtr> param_canonical;
@@ -486,7 +486,7 @@ export namespace dcc::ir::lower
             auto mangled = dcc::ir::mangle::mangle_global(module_path, *vd, get_canonical_type(vd->type), {}, m_nominal_resolver);
             m_name_pool.push_back(std::move(mangled));
             auto name_sv = std::string_view{m_name_pool.back()};
-            auto* ir_global = m_ctx.global(name_sv, ir_type, nullptr, false);
+            auto* ir_global = m_ctx.global(name_sv, ir_type, nullptr, vd->sema.is_immutable);
             ir_global->linkage = Linkage::External;
             ir_global->is_dll_import = vd->sema.is_dll_import;
             ir_global->is_dll_export = vd->sema.is_dll_export;
@@ -497,6 +497,32 @@ export namespace dcc::ir::lower
             m_global_map[vd] = ir_global;
             m_module->globals.push_back(ir_global);
             return ir_global;
+        }
+
+        IrValue* lower_const_global_value(ast::VarDecl* vd, dcc::types::TypePtr target_type = nullptr)
+        {
+            if (!vd || !vd->init)
+                return nullptr;
+
+            if (!vd->sema.is_immutable)
+                return nullptr;
+
+            auto* global = get_or_create_global_ref(vd);
+            if (!global)
+                return nullptr;
+
+            if (vd->init->sema.const_value)
+                return materialize_comptime(*vd->init->sema.const_value, target_type ? target_type : get_canonical_type(vd->type));
+
+            if (m_const_expanding.contains(vd))
+                return nullptr;
+
+            m_const_expanding.insert(vd);
+            m_const_expand_stack.push_back(vd);
+            auto* val = lower_constant_expr(vd->init, target_type ? target_type : get_canonical_type(vd->type));
+            m_const_expand_stack.pop_back();
+            m_const_expanding.erase(vd);
+            return val;
         }
 
         static dcc::ir::mangle::TemplateArg canonical_to_template_arg(sema::CanonicalArg const& ca)
@@ -689,8 +715,7 @@ export namespace dcc::ir::lower
                     {
                         auto* ret_sema_type = get_canonical_type(decl->return_type);
                         auto* val_sema_type = get_sema_resolved_type(decl->body->tail);
-                        if (ret_sema_type && ret_sema_type->kind == types::TypeKind::Slice && val_sema_type &&
-                            val_sema_type->kind == types::TypeKind::Array)
+                        if (ret_sema_type && ret_sema_type->kind == types::TypeKind::Slice && val_sema_type && val_sema_type->kind == types::TypeKind::Array)
                             tail_val = coerce_array_to_slice(tail_val, val_sema_type, ret_sema_type);
                     }
 
@@ -5407,6 +5432,8 @@ export namespace dcc::ir::lower
         IrGlobalRef* m_assert_func_ref{};
 
         std::unordered_map<ast::VarDecl const*, IrGlobal*> m_global_map;
+        std::unordered_set<ast::VarDecl const*> m_const_expanding;
+        std::vector<ast::VarDecl const*> m_const_expand_stack;
         std::vector<ast::VarDecl const*> m_global_order;
 
         void lower_globals(sema::ModuleInfo const& mod)
@@ -5420,7 +5447,7 @@ export namespace dcc::ir::lower
             for (auto* vd : m_global_order)
             {
                 auto* ir_type = lower_type(get_canonical_type(vd->type));
-                bool is_const = has_const_qual(vd->type);
+                bool is_const = vd->sema.is_immutable;
 
                 auto mangled = dcc::ir::mangle::mangle_global(m_module_path, *vd, get_canonical_type(vd->type), {}, m_nominal_resolver);
                 m_name_pool.push_back(std::move(mangled));
@@ -5460,10 +5487,81 @@ export namespace dcc::ir::lower
                 if (vd->init && storage != ast::StorageClass::Extern)
                 {
                     auto* init_val = lower_constant_expr(vd->init, get_canonical_type(vd->type));
+                    if (!check_global_initializer_compatible(vd, init_val, ir_global->type))
+                        lower_panic(vd, std::format("initializer for global `{}` is not type-compatible with its declared type", vd->name));
                     ir_global->init = init_val;
                 }
 
                 m_module->globals.push_back(ir_global);
+            }
+        }
+
+        static bool check_init_tree_compatible(IrValue const* v, IrType const* storage)
+        {
+            if (!v || !storage)
+                return false;
+
+            switch (v->kind)
+            {
+                case IrNodeKind::GlobalRef:
+                    return storage->kind == IrTypeKind::Pointer && storage->byte_size >= v->type->byte_size;
+                case IrNodeKind::Aggregate: {
+                    auto* agg = static_cast<IrAggregateInst const*>(v);
+                    if (storage->kind == IrTypeKind::Aggregate)
+                    {
+                        auto* at = static_cast<IrAggregateType const*>(storage);
+                        auto n = std::min(agg->values.size(), at->members.size());
+                        for (std::size_t i = 0; i < n; ++i)
+                            if (agg->values[i] && !check_init_tree_compatible(agg->values[i], at->members[i]))
+                                return false;
+                        return true;
+                    }
+                    if (storage->kind == IrTypeKind::Array)
+                    {
+                        auto* at = static_cast<IrArrayType const*>(storage);
+                        auto n = std::min<std::uint64_t>(agg->values.size(), at->count);
+                        for (std::uint64_t i = 0; i < n; ++i)
+                            if (agg->values[static_cast<std::size_t>(i)] &&
+                                !check_init_tree_compatible(agg->values[static_cast<std::size_t>(i)], at->element))
+                                return false;
+                        return true;
+                    }
+                    if (storage->kind == IrTypeKind::Slice)
+                    {
+                        if (ir::slice_data_index < agg->values.size() && agg->values[ir::slice_data_index])
+                        {
+                            auto const* dv = agg->values[ir::slice_data_index];
+                            if (!check_init_tree_compatible(dv, dv->type))
+                                return false;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+                default:
+                    return true;
+            }
+        }
+
+        static bool check_global_initializer_compatible([[maybe_unused]] ast::VarDecl const* vd, IrValue const* init, IrType const* storage)
+        {
+            if (!init || !storage)
+                return false;
+
+            switch (init->kind)
+            {
+                case IrNodeKind::GlobalRef:
+                    if (storage->kind != IrTypeKind::Pointer)
+                        return false;
+                    if (init->type && init->type->byte_size > storage->byte_size)
+                        return false;
+                    return true;
+                case IrNodeKind::Aggregate:
+                    if (storage->kind != IrTypeKind::Aggregate && storage->kind != IrTypeKind::Array && storage->kind != IrTypeKind::Slice)
+                        return false;
+                    return check_init_tree_compatible(init, storage);
+                default:
+                    return true;
             }
         }
 
@@ -5490,17 +5588,6 @@ export namespace dcc::ir::lower
             };
 
             add_from_tu(mod);
-        }
-
-        static bool has_const_qual(ast::TypeExpr const* type)
-        {
-            if (!type)
-                return false;
-
-            if (auto* qt = ast::node_cast<ast::QualifiedType>(type))
-                return ast::has_qual(qt->quals, ast::Qual::Const);
-
-            return false;
         }
 
         std::unordered_map<std::string, std::string> m_string_globals;
@@ -5584,10 +5671,126 @@ export namespace dcc::ir::lower
             return ir_global;
         }
 
+        [[nodiscard]] static dcc::types::ArrayType const* as_sema_array(dcc::types::TypePtr ty)
+        {
+            while (ty)
+            {
+                if (auto* at = types::type_cast<types::ArrayType>(ty))
+                    return at;
+                if (auto* nt = types::type_cast<types::NominalType>(ty))
+                {
+                    ty = nt->underlying;
+                    continue;
+                }
+                return nullptr;
+            }
+            return nullptr;
+        }
+
+        IrValue* lower_global_array_decay(ast::Expr const* expr, dcc::types::TypePtr target_type)
+        {
+            ast::VarDecl const* vd = nullptr;
+            if (expr->kind == ast::ExprKind::Ident)
+                vd = ast::node_cast<ast::VarDecl>(static_cast<ast::IdentExpr const*>(expr)->sema.resolved_decl);
+            else if (expr->kind == ast::ExprKind::PathExpr)
+                vd = ast::node_cast<ast::VarDecl>(static_cast<ast::PathExpr const*>(expr)->sema.resolved_decl);
+
+            if (!vd)
+                return nullptr;
+
+            auto* global = get_or_create_global_ref(vd);
+            if (!global)
+                return nullptr;
+
+            auto* ptr_ty = types::type_cast<types::PointerType>(target_type);
+            if (!ptr_ty)
+                return nullptr;
+
+            auto* array_ty = as_sema_array(get_sema_resolved_type(expr));
+            if (!array_ty || array_ty->element != ptr_ty->pointee)
+                return nullptr;
+
+            auto* ir_ptr_type = lower_type(target_type);
+            return m_ctx.global_ref(global, ir_ptr_type);
+        }
+
+        IrValue* lower_global_address_of(ast::Expr const* operand, dcc::types::TypePtr ptr_type = nullptr)
+        {
+            if (!operand)
+                return nullptr;
+
+            ast::VarDecl const* root_vd = nullptr;
+            std::int64_t addend = 0;
+            ast::Expr const* cur = operand;
+
+            while (cur)
+            {
+                switch (cur->kind)
+                {
+                    case ast::ExprKind::Ident: {
+                        auto const* id = static_cast<ast::IdentExpr const*>(cur);
+                        root_vd = ast::node_cast<ast::VarDecl>(id->sema.resolved_decl);
+                        cur = nullptr;
+                        break;
+                    }
+                    case ast::ExprKind::PathExpr: {
+                        auto const* pe = static_cast<ast::PathExpr const*>(cur);
+                        root_vd = ast::node_cast<ast::VarDecl>(pe->sema.resolved_decl);
+                        cur = nullptr;
+                        break;
+                    }
+                    case ast::ExprKind::FieldAccess: {
+                        auto const* fa = static_cast<ast::FieldAccessExpr const*>(cur);
+                        auto const* field_decl = find_decl_field(fa);
+                        if (!field_decl)
+                            return nullptr;
+                        addend += static_cast<std::int64_t>(field_decl->byte_offset);
+                        cur = fa->object;
+                        break;
+                    }
+                    case ast::ExprKind::Index: {
+                        auto const* ix = static_cast<ast::IndexExpr const*>(cur);
+                        if (!ix->index)
+                            return nullptr;
+                        auto* idx_val = lower_constant_expr(ix->index, get_sema_resolved_type(ix->index));
+                        auto* ic = ir_cast<IrIntConstant>(idx_val);
+                        if (!ic || ic->value < 0)
+                            return nullptr;
+
+                        auto* obj_ty = get_sema_resolved_type(ix->object);
+                        auto const* array_ty = as_sema_array(obj_ty);
+                        if (!array_ty || !array_ty->element)
+                            return nullptr;
+                        addend += static_cast<std::int64_t>(ic->value) * static_cast<std::int64_t>(array_ty->element->byte_size);
+                        cur = ix->object;
+                        break;
+                    }
+                    default:
+                        return nullptr;
+                }
+            }
+
+            if (!root_vd)
+                return nullptr;
+
+            auto* global = get_or_create_global_ref(root_vd);
+            if (!global)
+                return nullptr;
+
+            auto* ir_ptr_type = ptr_type ? lower_type(ptr_type) : m_ctx.pointer_to(global->type);
+            return m_ctx.global_ref(global, ir_ptr_type, addend);
+        }
+
         IrValue* lower_constant_expr(ast::Expr const* expr, dcc::types::TypePtr target_type)
         {
             if (!expr)
                 lower_panic("null expression in constant context");
+
+            if (target_type && target_type->kind == dcc::types::TypeKind::Pointer)
+            {
+                if (auto* decayed = lower_global_array_decay(expr, target_type))
+                    return decayed;
+            }
 
             if (expr->sema.const_value)
                 return materialize_comptime(*expr->sema.const_value, target_type);
@@ -5656,6 +5859,12 @@ export namespace dcc::ir::lower
 
                     if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
                     {
+                        if (auto* val = lower_const_global_value(const_cast<ast::VarDecl*>(vd)))
+                            return val;
+
+                        if (vd->init)
+                            lower_panic(expr, std::format("constant value of `{}` could not be resolved", vd->name));
+
                         auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
                         if (global)
                         {
@@ -5678,6 +5887,12 @@ export namespace dcc::ir::lower
                     auto* resolved = pe->sema.resolved_decl;
                     if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
                     {
+                        if (auto* val = lower_const_global_value(const_cast<ast::VarDecl*>(vd)))
+                            return val;
+
+                        if (vd->init)
+                            lower_panic(expr, std::format("constant value of `{}` could not be resolved", vd->name));
+
                         auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
                         if (global)
                         {
@@ -5698,18 +5913,12 @@ export namespace dcc::ir::lower
                     auto* u = static_cast<ast::UnaryExpr const*>(expr);
                     if (u->op == dcc::lex::TokenKind::Amp)
                     {
+                        if (auto* addr = lower_global_address_of(u->operand, get_sema_resolved_type(u)))
+                            return addr;
+
                         if (u->operand->kind == ast::ExprKind::Ident)
                         {
                             auto* resolved = static_cast<ast::IdentExpr const*>(u->operand)->sema.resolved_decl;
-                            if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
-                            {
-                                auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
-                                if (global)
-                                {
-                                    auto* ptr_type = m_ctx.pointer_to(global->type);
-                                    return m_ctx.global_ref(global, ptr_type);
-                                }
-                            }
                             if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
                             {
                                 auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
@@ -5720,15 +5929,6 @@ export namespace dcc::ir::lower
                         else if (u->operand->kind == ast::ExprKind::PathExpr)
                         {
                             auto* resolved = static_cast<ast::PathExpr const*>(u->operand)->sema.resolved_decl;
-                            if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
-                            {
-                                auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
-                                if (global)
-                                {
-                                    auto* ptr_type = m_ctx.pointer_to(global->type);
-                                    return m_ctx.global_ref(global, ptr_type);
-                                }
-                            }
                             if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
                             {
                                 auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
@@ -5737,26 +5937,127 @@ export namespace dcc::ir::lower
                             }
                         }
                     }
+                    else
+                    {
+                        auto* operand_val = lower_constant_expr(u->operand, get_sema_resolved_type(u->operand));
+                        if (auto* ic = ir_cast<IrIntConstant>(operand_val))
+                        {
+                            if (auto mapped = dcc::const_eval::token_to_unary_op(u->op))
+                            {
+                                auto* out_type = get_sema_resolved_type(u);
+                                auto cv = dcc::comptime::Value::make_int(ic->value, out_type);
+                                auto folded = cv.fold_unary(*mapped, out_type);
+                                if (folded && folded->kind() == dcc::comptime::Value::Kind::Int)
+                                    return m_ctx.int_const(lower_type(out_type), folded->get_int());
+                            }
+                        }
+                    }
+                    lower_panic(expr, std::format("expression kind {} cannot be lowered as constant", static_cast<int>(expr->kind)));
+                }
+                case ast::ExprKind::Binary: {
+                    auto* b = static_cast<ast::BinaryExpr const*>(expr);
+                    auto* lhs_val = lower_constant_expr(b->lhs, get_sema_resolved_type(b->lhs));
+                    auto* rhs_val = lower_constant_expr(b->rhs, get_sema_resolved_type(b->rhs));
+
+                    if (auto* lc = ir_cast<IrIntConstant>(lhs_val))
+                        if (auto* rc = ir_cast<IrIntConstant>(rhs_val))
+                        {
+                            if (auto mapped = dcc::const_eval::token_to_arith_binop(b->op))
+                            {
+                                auto* out_type = get_sema_resolved_type(b);
+                                auto folded = dcc::comptime::Value::fold_int_binary(*mapped, lc->value, rc->value, out_type);
+                                if (folded)
+                                    return m_ctx.int_const(lower_type(out_type), folded->get_int());
+                            }
+                        }
                     lower_panic(expr, std::format("expression kind {} cannot be lowered as constant", static_cast<int>(expr->kind)));
                 }
                 case ast::ExprKind::Cast: {
                     auto* c = static_cast<ast::CastExpr const*>(expr);
                     auto* operand_val = lower_constant_expr(c->operand, get_sema_resolved_type(c->operand));
+                    auto* dst_ir_ty = lower_type(target_type);
 
                     if (auto* ic = ir_cast<IrIntConstant>(operand_val))
                     {
-                        auto* dst_ir_ty = lower_type(target_type);
                         return m_ctx.int_const(dst_ir_ty, ic->value);
+                    }
+
+                    if (auto* fc = ir_cast<IrFloatConstant>(operand_val))
+                    {
+                        auto* dst_ir_ty_float = lower_type(target_type);
+                        if (dst_ir_ty_float && dst_ir_ty_float->kind == IrTypeKind::Float)
+                        {
+                            auto bits = static_cast<IrFloatType const*>(dst_ir_ty_float)->bits;
+                            if (bits == 32)
+                                return m_ctx.float_const(dst_ir_ty_float, static_cast<float>(fc->value));
+                            return m_ctx.float_const(dst_ir_ty_float, fc->value);
+                        }
+                        lower_panic(expr, "unrepresentable float constant cast (out-of-range or non-float destination) in static initializer");
                     }
 
                     if (ir_cast<IrNullConstant>(operand_val))
                     {
-                        auto* dst_ir_ty = lower_type(target_type);
-                        if (dst_ir_ty->kind == IrTypeKind::Pointer)
+                        if (dst_ir_ty && dst_ir_ty->kind == IrTypeKind::Pointer)
                             return m_ctx.null_const(dst_ir_ty);
-                        return operand_val;
+                        if (dst_ir_ty && (dst_ir_ty->kind == IrTypeKind::Int || dst_ir_ty->kind == IrTypeKind::Bool))
+                            return m_ctx.int_const(dst_ir_ty, 0);
+                        lower_panic(expr, "null cast to a non-pointer, non-integer type is not supported in static initializers");
                     }
+
+                    if (auto* gr = ir_cast<IrGlobalRef>(operand_val))
+                    {
+                        if (dst_ir_ty && dst_ir_ty->kind == IrTypeKind::Pointer)
+                        {
+                            if (gr->global)
+                                return m_ctx.global_ref(gr->global, dst_ir_ty, gr->addend);
+                            if (gr->function)
+                                return m_ctx.func_ref(gr->function, gr->addend);
+                            return m_ctx.symbol_ref(gr->name, dst_ir_ty, gr->addend);
+                        }
+
+                        lower_panic(expr, "pointer-to-integer constant cast is not supported in static initializers");
+                    }
+
                     lower_panic(expr, "non-scalar constant cast not supported");
+                }
+                case ast::ExprKind::FieldAccess: {
+                    auto* fa = static_cast<ast::FieldAccessExpr const*>(expr);
+                    auto* obj_val = lower_constant_expr(fa->object, get_sema_resolved_type(fa->object));
+                    auto* agg = ir_cast<IrAggregateInst>(obj_val);
+                    if (!agg)
+                        lower_panic(fa, "field access on a non-aggregate constant is not supported");
+
+                    auto const* obj_sema_type = get_sema_resolved_type(fa->object);
+                    if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Slice)
+                    {
+                        std::uint32_t field_idx = (fa->field == "ptr") ? 0 : (fa->field == "len") ? 1 : std::numeric_limits<std::uint32_t>::max();
+                        if (field_idx > 1 || field_idx >= agg->values.size())
+                            lower_panic(fa, "unknown slice field in constant aggregate");
+                        return agg->values[field_idx];
+                    }
+
+                    auto const* field_decl = find_decl_field(fa);
+                    if (!field_decl)
+                        lower_panic(fa, "cannot resolve field in constant aggregate");
+                    if (field_decl->index >= agg->values.size())
+                        lower_panic(fa, "field index out of range in constant aggregate");
+                    return agg->values[field_decl->index];
+                }
+                case ast::ExprKind::Index: {
+                    auto* ix = static_cast<ast::IndexExpr const*>(expr);
+                    auto* obj_val = lower_constant_expr(ix->object, get_sema_resolved_type(ix->object));
+                    auto* idx_val = lower_constant_expr(ix->index, get_sema_resolved_type(ix->index));
+                    auto* ic = ir_cast<IrIntConstant>(idx_val);
+                    if (!ic || ic->value < 0)
+                        lower_panic(ix, "constant index must be a non-negative integer");
+
+                    auto* agg = ir_cast<IrAggregateInst>(obj_val);
+                    if (!agg)
+                        lower_panic(ix, "index on a non-aggregate constant is not supported");
+                    auto index = static_cast<std::size_t>(ic->value);
+                    if (index >= agg->values.size())
+                        lower_panic(ix, "constant index out of range");
+                    return agg->values[index];
                 }
                 default:
                     lower_panic(expr, std::format("expression kind {} cannot be lowered as constant", static_cast<int>(expr->kind)));
@@ -5834,11 +6135,52 @@ export namespace dcc::ir::lower
             return agg;
         }
 
+        IrValue* lower_string_literal_into_array(ast::Expr const* expr, dcc::types::TypePtr array_type, std::span<std::uint8_t const> raw,
+                                                 std::size_t elem_size)
+        {
+            auto const* at = types::type_cast<types::ArrayType>(array_type);
+            if (!at)
+                lower_panic(expr, "string literal into a non-array target type");
+
+            auto* ir_ty = lower_type(array_type);
+            auto* elem_ir_ty = lower_type(at->element);
+            auto* agg = m_ctx.aggregate(ir_ty);
+            agg->values.reserve(static_cast<std::size_t>(at->count));
+
+            std::size_t bytes_per_elem = elem_size ? elem_size : 1;
+            std::size_t src_elems = raw.size() / bytes_per_elem;
+            for (std::uint64_t i = 0; i < at->count; ++i)
+            {
+                if (i < src_elems)
+                {
+                    if (bytes_per_elem == 2)
+                    {
+                        std::uint16_t u16;
+                        std::memcpy(&u16, raw.data() + i * 2, 2);
+                        agg->values.push_back(m_ctx.int_const(elem_ir_ty, static_cast<std::int64_t>(u16)));
+                    }
+                    else
+                    {
+                        agg->values.push_back(m_ctx.int_const(elem_ir_ty, static_cast<std::int64_t>(raw[i])));
+                    }
+                }
+                else
+                {
+                    agg->values.push_back(zero_value(elem_ir_ty));
+                }
+            }
+            return agg;
+        }
+
         IrValue* lower_string_literal_value(ast::StringLiteralExpr const* sl, dcc::types::TypePtr target_type)
         {
             auto& content = sl->value;
             if (!target_type)
                 target_type = get_sema_resolved_type(sl);
+
+            if (target_type && target_type->kind == dcc::types::TypeKind::Array)
+                return lower_string_literal_into_array(sl, target_type,
+                                                       std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(content.data()), content.size()}, 1);
 
             bool needs_null = false;
             bool is_slice_target = false;
@@ -5879,6 +6221,11 @@ export namespace dcc::ir::lower
             auto& content = sl->value;
             if (!target_type)
                 target_type = get_sema_resolved_type(sl);
+
+            if (target_type && target_type->kind == dcc::types::TypeKind::Array)
+                return lower_string_literal_into_array(
+                    sl, target_type, std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(content.data()), content.size() * sizeof(char16_t)},
+                    2);
 
             bool needs_null = false;
             bool is_slice_target = false;
@@ -5932,6 +6279,16 @@ export namespace dcc::ir::lower
                     if (!target_type)
                         target_type = cv.type;
 
+                    if (target_type && target_type->kind == dcc::types::TypeKind::Array)
+                    {
+                        bool u16_arr = false;
+                        if (auto const* at = types::type_cast<types::ArrayType>(target_type))
+                            if (auto* it = types::type_cast<types::IntType>(at->element))
+                                u16_arr = (it->bits == 16 && !it->is_signed);
+                        return lower_string_literal_into_array(
+                            nullptr, target_type, std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(s.data()), s.size()}, u16_arr ? 2 : 1);
+                    }
+
                     bool is_u16 = false;
                     if (target_type)
                     {
@@ -5966,11 +6323,13 @@ export namespace dcc::ir::lower
                             agg->values.push_back(len_val);
                             return agg;
                         }
-                        else
+                        else if (target_type && target_type->kind == dcc::types::TypeKind::Pointer)
                         {
                             auto* ptr_type = m_ctx.pointer_to(u16_ir);
                             return m_ctx.global_ref(str_global, ptr_type);
                         }
+
+                        lower_panic("string constant used as a non-string, non-pointer value");
                     }
                     else
                     {
@@ -5988,11 +6347,13 @@ export namespace dcc::ir::lower
                             agg->values.push_back(len_val);
                             return agg;
                         }
-                        else
+                        else if (target_type && target_type->kind == dcc::types::TypeKind::Pointer)
                         {
                             auto* ptr_type = m_ctx.pointer_to(m_ctx.int_t(8, false));
                             return m_ctx.global_ref(str_global, ptr_type);
                         }
+
+                        lower_panic("string constant used as a non-string, non-pointer value");
                     }
                 }
                 case dcc::comptime::Value::Kind::Aggregate: {

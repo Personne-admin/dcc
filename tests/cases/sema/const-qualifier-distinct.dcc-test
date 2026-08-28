@@ -1,0 +1,23 @@
+=== FILE: main.dc ===
+module test;
+
+u8 v = 7;
+const u8* p = null;
+u8* const cp = null;
+const u8* const cpc = null;
+const []u8 cs = "abc";
+[]u8 s = "def";
+
+public i32 dcc_main() {
+    p = &v;
+    cp = &v;
+    cpc = &v;
+    cs = "xyz";
+    s = "xyz";
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:12: assignment target is not assignable
+main.dc:13: assignment target is not assignable
+main.dc:14: assignment target is not assignable

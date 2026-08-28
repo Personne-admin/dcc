@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module test;
+
+const char[4] s = "abc";
+const char[3] s_exact = "xyz";
+const []u8 slice = "abc";
+const u16[3] ws = u"ab";
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test1.sA4c : [4 x u8] = aggregate [4 x u8], #97, #98, #99, #0
+
+const global @_DC0G1.4.test7.s_exactA3c : [3 x u8] = aggregate [3 x u8], #120, #121, #122
+
+const global @.str.0 : [3 x u8] = aggregate [3 x u8], #97, #98, #99
+
+const global @_DC0G1.4.test5.sliceSqi8u : []u8 = aggregate []u8, @.str.0, #3
+
+const global @_DC0G1.4.test2.wsA3i16u : [3 x u16] = aggregate [3 x u16], #97, #98, #0
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test1.sA4c = internal constant [4 x i8] c"abc\00"
+@_DC0G1.4.test7.s_exactA3c = internal constant [3 x i8] c"xyz"
+@.str.0 = internal constant [3 x i8] c"abc"
+@_DC0G1.4.test5.sliceSqi8u = internal constant { ptr, i64 } { ptr @.str.0, i64 3 }
+@_DC0G1.4.test2.wsA3i16u = internal constant [3 x i16] [i16 97, i16 98, i16 0]

@@ -159,7 +159,7 @@ namespace dcc::backend::em64t
                             mov.num_ops = 2;
                             mov.num_defs = 1;
                             mov.ops[0] = MOp::from_reg(v);
-                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                             append_instr(mov);
                         }
                         else
@@ -169,7 +169,7 @@ namespace dcc::backend::em64t
                             lea.num_ops = 2;
                             lea.num_defs = 1;
                             lea.ops[0] = MOp::from_reg(v);
-                            lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                            lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                             append_instr(lea);
                         }
                     }
@@ -1577,7 +1577,7 @@ namespace dcc::backend::em64t
                             mov.num_ops = 2;
                             mov.num_defs = 1;
                             mov.ops[0] = MOp::from_reg(v);
-                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                             ctx.append_instr(mov);
                         }
                         else
@@ -1587,7 +1587,7 @@ namespace dcc::backend::em64t
                             lea.num_ops = 2;
                             lea.num_defs = 1;
                             lea.ops[0] = MOp::from_reg(v);
-                            lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                            lea.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                             ctx.append_instr(lea);
                         }
                         ctx.set_vreg(inst, v);
@@ -1675,7 +1675,7 @@ namespace dcc::backend::em64t
                             mov.num_ops = 2;
                             mov.num_defs = 1;
                             mov.ops[0] = MOp::from_reg(addr);
-                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                            mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                             ctx.append_instr(mov);
 
                             VReg result = emit_load(ctx, load_type, addr);
@@ -1688,7 +1688,7 @@ namespace dcc::backend::em64t
                             mi.num_ops = 2;
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(dst);
-                            mi.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                            mi.ops[1] = MOp::from_mem(MMem::make_sym_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
 
                             if (ctx.is_float_type(load_type))
                             {
@@ -1823,7 +1823,7 @@ namespace dcc::backend::em64t
                                 mov.num_ops = 2;
                                 mov.num_defs = 1;
                                 mov.ops[0] = MOp::from_reg(addr);
-                                mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name));
+                                mov.ops[1] = MOp::from_mem(MMem::make_got_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                                 ctx.append_instr(mov);
 
                                 auto store_type = val_val ? val_val->type : nullptr;
@@ -1834,7 +1834,7 @@ namespace dcc::backend::em64t
                                 MInstr mi;
                                 mi.num_ops = 2;
                                 mi.num_defs = 0;
-                                mi.ops[0] = MOp::from_mem(MMem::make_sym_reloc(gr->name));
+                                mi.ops[0] = MOp::from_mem(MMem::make_sym_reloc(gr->name, static_cast<std::int32_t>(gr->addend)));
                                 mi.ops[1] = MOp::from_reg(val);
 
                                 auto store_type = val_val ? val_val->type : nullptr;

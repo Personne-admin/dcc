@@ -9,7 +9,7 @@ public bool load_bool(bool* p, i64 idx) {
 === EXPECT-LLVM FLAGS: -verify ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i1 @load_bool(ptr %p, i64 %idx) {
 entry:

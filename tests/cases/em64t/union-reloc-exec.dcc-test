@@ -1,0 +1,85 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+i64 x = 7;
+@nomangle
+i64 y = 9;
+@nomangle
+i64 z = 11;
+struct Inner2 { u8* a; u8* b; }
+struct Inner1 { u8* c; }
+union U1 { i64 v; u8* p; }
+union U2 { i64 v; Inner2 s; }
+union U3 { Inner2 s; Inner1 t; }
+@nomangle
+U1 g1 = U1{v = 0, p = &x as u8*};
+@nomangle
+U2 g2 = U2{v = 0, s = Inner2{a = &x as u8*, b = &y as u8*}};
+@nomangle
+U3 g3 = U3{s = Inner2{a = &x as u8*, b = &y as u8*}, t = Inner1{c = &z as u8*}};
+@nomangle
+const i32 dummy_ro = 0;
+@nomangle
+i32 dummy_data = 0;
+@nomangle
+i32 dummy_bss;
+@nomangle
+public i32 dcc_main() {
+    return (*g1.p + *g2.s.a + *g2.s.b + *g3.s.b + *g3.t.c) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 43
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 x 0
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 y 0
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 z 0
+REQUIRE-SECTION-READONLY: .rodata
+REQUIRE-SECTION-WRITABLE: .data
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: section .rodata
+CONTAINS: section .data
+CONTAINS: section .bss
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { ptr, ptr }
+%1 = type { ptr }
+
+@x = internal global i64 7
+@y = internal global i64 9
+@z = internal global i64 11
+@"0" = internal global <{ ptr }> <{ ptr @x }>, align 8
+@"3" = internal global <{ ptr, ptr }> <{ ptr @x, ptr @y }>, align 8
+@"13" = internal global <{ ptr, ptr }> <{ ptr @z, ptr @y }>, align 8
+@dummy_ro = internal constant i32 0
+@dummy_data = internal global i32 0
+@dummy_bss = internal global i32 0
+
+define i32 @dcc_main() {
+entry:
+  %"1" = load ptr, ptr @"0", align 8
+  %"2" = load i8, ptr %"1", align 1
+  %"4" = load %0, ptr @"3", align 8
+  %"5" = extractvalue %0 %"4", 0
+  %"6" = load i8, ptr %"5", align 1
+  %"7" = add i8 %"2", %"6"
+  %"9" = load %0, ptr @"3", align 8
+  %"10" = extractvalue %0 %"9", 1
+  %"11" = load i8, ptr %"10", align 1
+  %"12" = add i8 %"7", %"11"
+  %"14" = load %0, ptr @"13", align 8
+  %"15" = extractvalue %0 %"14", 1
+  %"16" = load i8, ptr %"15", align 1
+  %"17" = add i8 %"12", %"16"
+  %"19" = load %1, ptr @"13", align 8
+  %"20" = extractvalue %1 %"19", 0
+  %"21" = load i8, ptr %"20", align 1
+  %"22" = add i8 %"17", %"21"
+  %"23" = zext i8 %"22" to i32
+  ret i32 %"23"
+}

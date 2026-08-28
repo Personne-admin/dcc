@@ -1,0 +1,9 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pair { u64 a; u64 b; }
+const Pair A = {a = B.b, b = 1};
+const Pair B = {a = 2, b = A.a};
+
+=== EXPECT-ERRORS ===
+test.dc:4: circular constant initializer for `A`

@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pair { u64 a; u64 b; }
+@nomangle
+Pair pair = {a = 10, b = 20};
+@nomangle
+u64[4] arr = {1, 2, 3, 4};
+@nomangle
+u64* pb = &pair.b;
+@nomangle
+u64* p1 = &arr[1];
+@nomangle
+u64* p3 = &arr[3];
+@nomangle
+public i32 dcc_main() {
+    return (*pb + *p1 + *p3) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+CONTAINS: pb
+CONTAINS: p1
+CONTAINS: p3
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 pair 8
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 arr 8
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 arr 24

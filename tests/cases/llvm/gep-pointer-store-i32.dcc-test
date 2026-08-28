@@ -9,7 +9,7 @@ public void store_idx(i32* p, i64 idx, i32 val) {
 === EXPECT-LLVM FLAGS: -verify ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define void @store_idx(ptr %p, i64 %idx, i32 %val) {
 entry:

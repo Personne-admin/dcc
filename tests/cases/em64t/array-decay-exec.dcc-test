@@ -1,0 +1,68 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const u64[2] c_arr = {1, 2};
+@nomangle
+u64[2] m_arr = {3, 4};
+@nomangle
+const u64* cp = c_arr;
+@nomangle
+u64* mp = m_arr;
+@nomangle
+const u64[2] copy = c_arr;
+@nomangle
+i32 dummy_data = 0;
+@nomangle
+i32 dummy_bss;
+@nomangle
+public i32 dcc_main() {
+    return (cp[0] + cp[1] + mp[0] + copy[0]) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 7
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 c_arr 0
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 m_arr 0
+REQUIRE-SECTION-READONLY: .rodata
+REQUIRE-SECTION-WRITABLE: .data
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: section .rodata
+CONTAINS: dq c_arr
+CONTAINS: dq m_arr
+CONTAINS: section .data
+CONTAINS: section .bss
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@c_arr = internal constant [2 x i64] [i64 1, i64 2]
+@m_arr = internal global [2 x i64] [i64 3, i64 4]
+@cp = internal global ptr @c_arr
+@mp = internal global ptr @m_arr
+@copy = internal constant [2 x i64] [i64 1, i64 2]
+@dummy_data = internal global i32 0
+@dummy_bss = internal global i32 0
+
+define i32 @dcc_main() {
+entry:
+  %"0" = load ptr, ptr @cp, align 8
+  %"1" = getelementptr i64, ptr %"0", i64 0
+  %"2" = load i64, ptr %"1", align 4
+  %"3" = load ptr, ptr @cp, align 8
+  %"4" = getelementptr i64, ptr %"3", i64 1
+  %"5" = load i64, ptr %"4", align 4
+  %"6" = add i64 %"2", %"5"
+  %"7" = load ptr, ptr @mp, align 8
+  %"8" = getelementptr i64, ptr %"7", i64 0
+  %"9" = load i64, ptr %"8", align 4
+  %"10" = add i64 %"6", %"9"
+  %"11" = load [2 x i64], ptr @copy, align 4
+  %"12" = extractvalue [2 x i64] %"11", 0
+  %"13" = add i64 %"10", %"12"
+  %"14" = trunc i64 %"13" to i32
+  ret i32 %"14"
+}

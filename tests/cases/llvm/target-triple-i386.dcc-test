@@ -6,7 +6,7 @@ public i32 add(i32 a, i32 b) { return a + b; }
 === EXPECT-LLVM FLAGS: -target x86-elf ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "i386-unknown-linux-gnu"
+target triple = "i386-elf"
 
 define i32 @_DC0F1.4.test3.add2i32si32si32s(i32 %a, i32 %b) {
 entry:

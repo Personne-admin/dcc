@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+
+i64 value = 42;
+const u64 big = 300;
+const u8 small = big as u8;
+const i32 narrowed = big as i32;
+const i64 neg = -5;
+const u64 uneg = neg as u64;
+u8* const pp = &value as u8*;
+
+=== EXPECT-IR ===
+module "test"
+
+global @_DC0G1.4.test5.valuei64s : i64 = #42
+
+const global @_DC0G1.4.test3.bigi64u : u64 = #300
+
+const global @_DC0G1.4.test5.smalli8u : u8 = #300
+
+const global @_DC0G1.4.test8.narrowedi32s : i32 = #300
+
+const global @_DC0G1.4.test3.negi64s : i64 = #-5
+
+const global @_DC0G1.4.test4.unegi64u : u64 = #18446744073709551611
+
+const global @_DC0G1.4.test2.ppPqi8u : ptr<u8> = @_DC0G1.4.test5.valuei64s
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test5.valuei64s = internal global i64 42
+@_DC0G1.4.test3.bigi64u = internal constant i64 300
+@_DC0G1.4.test5.smalli8u = internal constant i8 44
+@_DC0G1.4.test8.narrowedi32s = internal constant i32 300
+@_DC0G1.4.test3.negi64s = internal constant i64 -5
+@_DC0G1.4.test4.unegi64u = internal constant i64 -5
+@_DC0G1.4.test2.ppPqi8u = internal constant ptr @_DC0G1.4.test5.valuei64s

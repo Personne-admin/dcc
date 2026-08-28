@@ -1,0 +1,66 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pair { u64 a; u64 b; }
+@nomangle
+Pair pair = {a = 10, b = 20};
+@nomangle
+u64[4] arr = {1, 2, 3, 4};
+@nomangle
+u8* pb = &pair.b as u8*;
+@nomangle
+u8* p1 = &arr[1] as u8*;
+@nomangle
+u8* p3 = &arr[3] as u8*;
+@nomangle
+const i32 dummy_ro = 0;
+@nomangle
+i32 dummy_bss;
+@nomangle
+public i32 dcc_main() {
+    return (*pb + *p1 + *p3) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 26
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 pair 8
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 arr 8
+REQUIRE-RELA-ADDEND: .data R_X86_64_64 arr 24
+REQUIRE-SECTION-READONLY: .rodata
+REQUIRE-SECTION-WRITABLE: .data
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: dq pair + 8
+CONTAINS: dq arr + 8
+CONTAINS: dq arr + 24
+CONTAINS: section .data
+CONTAINS: section .bss
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i64, i64 }
+
+@pair = internal global %0 { i64 10, i64 20 }
+@arr = internal global [4 x i64] [i64 1, i64 2, i64 3, i64 4]
+@pb = internal global ptr getelementptr (i8, ptr @pair, i64 8)
+@p1 = internal global ptr getelementptr (i8, ptr @arr, i64 8)
+@p3 = internal global ptr getelementptr (i8, ptr @arr, i64 24)
+@dummy_ro = internal constant i32 0
+@dummy_bss = internal global i32 0
+
+define i32 @dcc_main() {
+entry:
+  %"0" = load ptr, ptr @pb, align 8
+  %"1" = load i8, ptr %"0", align 1
+  %"2" = load ptr, ptr @p1, align 8
+  %"3" = load i8, ptr %"2", align 1
+  %"4" = add i8 %"1", %"3"
+  %"5" = load ptr, ptr @p3, align 8
+  %"6" = load i8, ptr %"5", align 1
+  %"7" = add i8 %"4", %"6"
+  %"8" = zext i8 %"7" to i32
+  ret i32 %"8"
+}

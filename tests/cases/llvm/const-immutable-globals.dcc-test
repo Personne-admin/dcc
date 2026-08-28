@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+const u64 c_scalar = 7;
+const u64[2] c_arr = {1, 2};
+
+struct Pair { u64 a; u64 b; }
+const Pair c_struct = {a = 1, b = 2};
+
+u64 m_scalar = 7;
+u64[2] m_arr = {1, 2};
+Pair m_struct = {a = 1, b = 2};
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i64, i64 }
+
+@_DC0G1.4.test8.c_scalari64u = internal constant i64 7
+@_DC0G1.4.test5.c_arrA2i64u = internal constant [2 x i64] [i64 1, i64 2]
+@_DC0G1.4.test8.c_structD1.4.test4.Pair0. = internal constant %0 { i64 1, i64 2 }
+@_DC0G1.4.test8.m_scalari64u = internal global i64 7
+@_DC0G1.4.test5.m_arrA2i64u = internal global [2 x i64] [i64 1, i64 2]
+@_DC0G1.4.test8.m_structD1.4.test4.Pair0. = internal global %0 { i64 1, i64 2 }

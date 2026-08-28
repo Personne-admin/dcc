@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+i64 x = 7;
+@nomangle
+i64 y = 9;
+@nomangle
+i64 z = 11;
+struct Inner2 { u8* a; u8* b; }
+struct Inner1 { u8* c; }
+union U1 { i64 v; u8* p; }
+union U2 { i64 v; Inner2 s; }
+union U3 { Inner2 s; Inner1 t; }
+@nomangle
+U1 g1 = U1{v = 0, p = &x as u8*};
+@nomangle
+U2 g2 = U2{v = 0, s = Inner2{a = &x as u8*, b = &y as u8*}};
+@nomangle
+U3 g3 = U3{s = Inner2{a = &x as u8*, b = &y as u8*}, t = Inner1{c = &z as u8*}};
+
+=== EXPECT-IR ===
+module "test"
+
+global @x : i64 = #7
+
+global @y : i64 = #9
+
+global @z : i64 = #11
+
+global @g1 : {@0 i64, @0 ptr<u8>} = aggregate {@0 i64, @0 ptr<u8>}, #0, @x
+
+global @g2 : {@0 i64, @0 {@0 ptr<u8>, @8 ptr<u8>}} = aggregate {@0 i64, @0 {@0 ptr<u8>, @8 ptr<u8>}}, #0, aggregate {@0 ptr<u8>, @8 ptr<u8>}, @x, @y
+
+global @g3 : {@0 {@0 ptr<u8>, @8 ptr<u8>}, @0 {@0 ptr<u8>}} = aggregate {@0 {@0 ptr<u8>, @8 ptr<u8>}, @0 {@0 ptr<u8>}}, aggregate {@0 ptr<u8>, @8 ptr<u8>}, @x, @y, aggregate {@0 ptr<u8>}, @z

@@ -1,0 +1,50 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const char[4] s = "abc";
+@nomangle
+const char[3] exact = "xyz";
+@nomangle
+const u64 a = s[0] as u64;
+@nomangle
+const u64 b = exact[2] as u64;
+@nomangle
+const u64 c = s[3] as u64;
+@nomangle
+i32 dummy_data = 0;
+@nomangle
+i32 dummy_bss;
+@nomangle
+public i32 dcc_main() {
+    return (a + b + c) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 219
+REQUIRE-SECTION-READONLY: .rodata
+FORBID-RELA: .rodata R_X86_64_64
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@s = internal constant [4 x i8] c"abc\00"
+@exact = internal constant [3 x i8] c"xyz"
+@a = internal constant i64 97
+@b = internal constant i64 122
+@c = internal constant i64 0
+@dummy_data = internal global i32 0
+@dummy_bss = internal global i32 0
+
+define i32 @dcc_main() {
+entry:
+  %"0" = load i64, ptr @a, align 4
+  %"1" = load i64, ptr @b, align 4
+  %"2" = add i64 %"0", %"1"
+  %"3" = load i64, ptr @c, align 4
+  %"4" = add i64 %"2", %"3"
+  %"5" = trunc i64 %"4" to i32
+  ret i32 %"5"
+}

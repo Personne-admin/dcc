@@ -62,6 +62,12 @@ namespace dcc::backend
                 if (opts.opt_level > dcc::ir::pass::OptLevel::O0)
                     input_module = dcc::ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
 
+                if (auto mismatch = find_bad_global_initializer(*input_module))
+                {
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("em64t backend: malformed initializer for global `{}`", *mismatch)});
+                    return artifact;
+                }
+
                 std::vector<em64t::MFunction> mfuncs;
                 mfuncs.reserve(input_module->functions.size());
 
@@ -194,6 +200,65 @@ namespace dcc::backend
             }
 
         private:
+            [[nodiscard]] static bool ir_init_compatible(ir::IrValue const* v, ir::IrType const* storage)
+            {
+                if (!v || !storage)
+                    return false;
+
+                switch (v->kind)
+                {
+                    case ir::IrNodeKind::GlobalRef:
+                        return storage->kind == ir::IrTypeKind::Pointer && storage->byte_size >= v->type->byte_size;
+                    case ir::IrNodeKind::Aggregate: {
+                        auto* agg = static_cast<ir::IrAggregateInst const*>(v);
+                        if (storage->kind == ir::IrTypeKind::Aggregate)
+                        {
+                            auto* at = static_cast<ir::IrAggregateType const*>(storage);
+                            auto n = std::min(agg->values.size(), at->members.size());
+                            for (std::size_t i = 0; i < n; ++i)
+                                if (agg->values[i] && !ir_init_compatible(agg->values[i], at->members[i]))
+                                    return false;
+                            return true;
+                        }
+                        if (storage->kind == ir::IrTypeKind::Array)
+                        {
+                            auto* at = static_cast<ir::IrArrayType const*>(storage);
+                            auto n = std::min<std::uint64_t>(agg->values.size(), at->count);
+                            for (std::uint64_t i = 0; i < n; ++i)
+                                if (agg->values[static_cast<std::size_t>(i)] &&
+                                    !ir_init_compatible(agg->values[static_cast<std::size_t>(i)], at->element))
+                                    return false;
+                            return true;
+                        }
+                        if (storage->kind == ir::IrTypeKind::Slice)
+                        {
+                            if (ir::slice_data_index < agg->values.size() && agg->values[ir::slice_data_index])
+                            {
+                                auto const* dv = agg->values[ir::slice_data_index];
+                                if (!ir_init_compatible(dv, dv->type))
+                                    return false;
+                            }
+                            return true;
+                        }
+                        return false;
+                    }
+                    default:
+                        return true;
+                }
+            }
+
+            [[nodiscard]] static std::optional<std::string> find_bad_global_initializer(ir::IrModule const& module)
+            {
+                for (auto* g : module.globals)
+                {
+                    if (!g || !g->init)
+                        continue;
+                    if (!ir_init_compatible(g->init, g->type))
+                        return std::string{g->name};
+                }
+                return std::nullopt;
+            }
+
             [[nodiscard]] static std::string print_function(em64t::MFunction const& mfunc)
             {
                 std::string out;

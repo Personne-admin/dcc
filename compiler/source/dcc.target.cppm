@@ -115,7 +115,7 @@ export namespace dcc::target
             TargetConfig cfg;
             cfg.triple = "x86_64-elf";
             cfg.arch = Arch::X86_64;
-            cfg.os = Os::Linux;
+            cfg.os = Os::Freestanding;
             cfg.object_format = ObjectFormat::Elf;
             cfg.pointer_bits = 64;
             cfg.pointer_align = 8;
@@ -131,7 +131,7 @@ export namespace dcc::target
             if (triple == "x86_64-elf")
             {
                 cfg.arch = Arch::X86_64;
-                cfg.os = Os::Linux;
+                cfg.os = Os::Freestanding;
                 cfg.object_format = ObjectFormat::Elf;
                 cfg.pointer_bits = 64;
                 cfg.pointer_align = 8;
@@ -142,7 +142,7 @@ export namespace dcc::target
             if (triple == "x86-elf")
             {
                 cfg.arch = Arch::X86;
-                cfg.os = Os::Linux;
+                cfg.os = Os::Freestanding;
                 cfg.object_format = ObjectFormat::Elf;
                 cfg.pointer_bits = 32;
                 cfg.pointer_align = 4;

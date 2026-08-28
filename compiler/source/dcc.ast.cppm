@@ -286,6 +286,7 @@ export namespace dcc::ast
 
         bool exported : 1 {};
         bool spilled : 1 {};
+        bool is_immutable : 1 {};
 
         std::string_view section;
         std::string_view calling_conv;

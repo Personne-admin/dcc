@@ -1,0 +1,36 @@
+=== FILE: test.dc ===
+module test;
+
+const u64 A = 10;
+const u64 B = A;
+const u64 C = A + 5;
+const u64 D = (A * 4) + B;
+const i64 E = -5;
+const u64 F = 1 << 12;
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test1.Ai64u : u64 = #10
+
+const global @_DC0G1.4.test1.Bi64u : u64 = #10
+
+const global @_DC0G1.4.test1.Ci64u : u64 = #15
+
+const global @_DC0G1.4.test1.Di64u : u64 = #50
+
+const global @_DC0G1.4.test1.Ei64s : i64 = #-5
+
+const global @_DC0G1.4.test1.Fi64u : u64 = #4096
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test1.Ai64u = internal constant i64 10
+@_DC0G1.4.test1.Bi64u = internal constant i64 10
+@_DC0G1.4.test1.Ci64u = internal constant i64 15
+@_DC0G1.4.test1.Di64u = internal constant i64 50
+@_DC0G1.4.test1.Ei64s = internal constant i64 -5
+@_DC0G1.4.test1.Fi64u = internal constant i64 4096
