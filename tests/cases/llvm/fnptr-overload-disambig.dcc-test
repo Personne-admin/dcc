@@ -23,7 +23,7 @@ public i32 main() {
 === EXPECT-LLVM FLAGS: -verify ===
 ; ModuleID = 'main'
 source_filename = "main"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i32 @main() {
 entry:

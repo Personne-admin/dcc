@@ -1,0 +1,25 @@
+=== FILE: main.dc ===
+module test;
+
+using ConstU64 = const u64;
+const u64 c = 7;
+const u64[2] carr = {1, 2};
+const []u8 cslice = "abc";
+const ConstU64 c_alias = 5;
+u8* const cptr = null;
+
+public i32 dcc_main() {
+    c = 9;
+    carr[0] = 9;
+    cslice[0] = 9;
+    c_alias = 9;
+    cptr = &c as u8*;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:11: assignment target is not assignable
+main.dc:12: assignment target is not assignable
+main.dc:13: assignment target is not assignable
+main.dc:14: assignment target is not assignable
+main.dc:15: assignment target is not assignable

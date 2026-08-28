@@ -1,0 +1,39 @@
+=== FILE: math.dc ===
+module math;
+
+public const u64 IMPORTED = 42;
+public const u64 IMPORTED2 = IMPORTED + 1;
+public const i64 LOCAL_PUB = 7;
+const i64 PRIVATE_CONST = 11;
+
+=== FILE: main.dc ===
+module main;
+import math;
+
+const u64 J = math::IMPORTED;
+const u64 K = math::IMPORTED2;
+const u64 L = J + K;
+const i64 M = math::LOCAL_PUB;
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-IR ===
+module "main"
+
+const global @_DC0G1.4.main1.Ji64u : u64 = #42
+
+const global @_DC0G1.4.main1.Ki64u : u64 = #43
+
+const global @_DC0G1.4.main1.Li64u : u64 = #85
+
+const global @_DC0G1.4.main1.Mi64s : i64 = #7
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'main'
+source_filename = "main"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.main1.Ji64u = internal constant i64 42
+@_DC0G1.4.main1.Ki64u = internal constant i64 43
+@_DC0G1.4.main1.Li64u = internal constant i64 85
+@_DC0G1.4.main1.Mi64s = internal constant i64 7

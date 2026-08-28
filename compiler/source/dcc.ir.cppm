@@ -1202,20 +1202,21 @@ export namespace dcc::ir
 
         IrGlobal const* global{};
         IrFunction const* function{};
+        std::int64_t addend{};
 
-        explicit IrGlobalRef(IrGlobal const* g, IrType const* t) : IrValue(Kind), global(g)
+        explicit IrGlobalRef(IrGlobal const* g, IrType const* t, std::int64_t a = 0) : IrValue(Kind), global(g), addend(a)
         {
             type = t;
             name = g->name;
         }
 
-        explicit IrGlobalRef(IrFunction const* f, IrType const* t) : IrValue(Kind), function(f)
+        explicit IrGlobalRef(IrFunction const* f, IrType const* t, std::int64_t a = 0) : IrValue(Kind), function(f), addend(a)
         {
             type = t;
             name = f->name;
         }
 
-        explicit IrGlobalRef(std::string_view n, IrType const* t) : IrValue(Kind)
+        explicit IrGlobalRef(std::string_view n, IrType const* t, std::int64_t a = 0) : IrValue(Kind), addend(a)
         {
             name = n;
             type = t;
@@ -1366,9 +1367,9 @@ export namespace dcc::ir
 
         [[nodiscard]] IrLocal* local(std::string_view name, std::uint32_t id, IrType const* t = nullptr) { return make<IrLocal>(name, id, t); }
 
-        [[nodiscard]] IrGlobalRef* global_ref(IrGlobal const* g, IrType const* t) { return make<IrGlobalRef>(g, t); }
-        [[nodiscard]] IrGlobalRef* func_ref(IrFunction const* f) { return make<IrGlobalRef>(f, pointer_to(f->func_type)); }
-        [[nodiscard]] IrGlobalRef* symbol_ref(std::string_view name, IrType const* t) { return make<IrGlobalRef>(name, t); }
+        [[nodiscard]] IrGlobalRef* global_ref(IrGlobal const* g, IrType const* t, std::int64_t addend = 0) { return make<IrGlobalRef>(g, t, addend); }
+        [[nodiscard]] IrGlobalRef* func_ref(IrFunction const* f, std::int64_t addend = 0) { return make<IrGlobalRef>(f, pointer_to(f->func_type), addend); }
+        [[nodiscard]] IrGlobalRef* symbol_ref(std::string_view name, IrType const* t, std::int64_t addend = 0) { return make<IrGlobalRef>(name, t, addend); }
 
         [[nodiscard]] IrAddInst* add(IrType const* t, IrValue* l, IrValue* r) { return make<IrAddInst>(t, l, r); }
         [[nodiscard]] IrSubInst* sub(IrType const* t, IrValue* l, IrValue* r) { return make<IrSubInst>(t, l, r); }
@@ -1799,6 +1800,8 @@ export namespace dcc::ir
                 case IrNodeKind::GlobalRef: {
                     auto* g = static_cast<IrGlobalRef const*>(v);
                     std::format_to(std::back_inserter(m_out), "@{}", g->name);
+                    if (g->addend != 0)
+                        std::format_to(std::back_inserter(m_out), " + {}", g->addend);
                     break;
                 }
                 case IrNodeKind::BasicBlock: {

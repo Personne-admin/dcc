@@ -9,7 +9,7 @@ public bool sc_or(bool a, bool b) {
 === EXPECT-LLVM FLAGS: -verify ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i1 @sc_or(i1 %a, i1 %b) {
 entry:

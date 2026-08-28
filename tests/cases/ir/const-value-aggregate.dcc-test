@@ -1,0 +1,39 @@
+=== FILE: test.dc ===
+module test;
+
+const u64 A = 10;
+const u64 B = A;
+const u64[2] arr = {A, B};
+
+struct Pair { u64 a; u64 b; }
+const Pair pr = {a = A, b = B};
+
+struct Outer { Pair inner; u64[2] items; }
+const Outer outer = {inner = {a = A, b = B}, items = {A, B}};
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test1.Ai64u : u64 = #10
+
+const global @_DC0G1.4.test1.Bi64u : u64 = #10
+
+const global @_DC0G1.4.test3.arrA2i64u : [2 x u64] = aggregate [2 x u64], #10, #10
+
+const global @_DC0G1.4.test2.prD1.4.test4.Pair0. : {@0 u64, @8 u64} = aggregate {@0 u64, @8 u64}, #10, #10
+
+const global @_DC0G1.4.test5.outerD1.4.test5.Outer0. : {@0 {@0 u64, @8 u64}, @16 [2 x u64]} = aggregate {@0 {@0 u64, @8 u64}, @16 [2 x u64]}, aggregate {@0 u64, @8 u64}, #10, #10, aggregate [2 x u64], #10, #10
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i64, i64 }
+%1 = type { %0, [2 x i64] }
+
+@_DC0G1.4.test1.Ai64u = internal constant i64 10
+@_DC0G1.4.test1.Bi64u = internal constant i64 10
+@_DC0G1.4.test3.arrA2i64u = internal constant [2 x i64] [i64 10, i64 10]
+@_DC0G1.4.test2.prD1.4.test4.Pair0. = internal constant %0 { i64 10, i64 10 }
+@_DC0G1.4.test5.outerD1.4.test5.Outer0. = internal constant %1 { %0 { i64 10, i64 10 }, [2 x i64] [i64 10, i64 10] }

@@ -866,6 +866,19 @@ export namespace dcc::sema
         {
             for (auto const& m : m_modules)
             {
+                if (!m->tu || !m->own_scope)
+                    continue;
+
+                for (auto* d : m->tu->decls)
+                {
+                    auto* v = ast::node_cast<ast::VarDecl>(d);
+                    if (v && v->type)
+                        v->sema.is_immutable = decl_type_is_immutable(*m, m->own_scope, v->type);
+                }
+            }
+
+            for (auto const& m : m_modules)
+            {
                 if (!m->tu)
                     continue;
 
@@ -874,6 +887,7 @@ export namespace dcc::sema
             }
 
             flush_pending_lambdas();
+            resolve_global_const_values();
         }
 
         void analyze_single_function(ModuleInfo& mod, ast::FuncDecl& fn)
@@ -1175,6 +1189,11 @@ export namespace dcc::sema
             ConstEnv(ConstEnv const* p, std::pmr::polymorphic_allocator<> a) : parent(p), values(a) {}
         };
 
+        std::pmr::unordered_map<ModuleInfo const*, ConstEnv*> m_module_const_envs{};
+        ConstEnv* m_current_module_env{};
+        ModuleInfo* m_current_module{};
+        std::unordered_map<ast::VarDecl const*, comptime::Value const*> m_global_const_vals;
+
         template <typename... A> void error(sm::SourceRange range, std::format_string<A...> fmt, A&&... args)
         {
             if (!m_suppress_errors)
@@ -1293,6 +1312,25 @@ export namespace dcc::sema
                 auto it = e->values.find(name);
                 if (it != e->values.end())
                     return it->second;
+            }
+
+            if (m_current_module && m_current_module->own_scope)
+            {
+                auto syms = m_current_module->own_scope->lookup_values(name);
+                if (!syms.empty())
+                {
+                    auto const* sym = &syms.front();
+                    if (sym->kind == SymbolKind::Variable)
+                    {
+                        auto const* vd = ast::node_cast<ast::VarDecl>(sym->decl);
+                        if (vd && vd->sema.is_immutable && vd->init)
+                        {
+                            auto it = m_global_const_vals.find(vd);
+                            if (it != m_global_const_vals.end())
+                                return it->second;
+                        }
+                    }
+                }
             }
 
             return nullptr;
@@ -4224,25 +4262,98 @@ export namespace dcc::sema
             }
         }
 
-        [[nodiscard]] static bool decl_is_top_level_const(ast::Decl const& d) noexcept
+        [[nodiscard]] static bool immutable_type_shape(ast::TypeExpr const* type) noexcept
         {
-            auto const* ty = [&]() -> ast::TypeExpr const* {
-                switch (d.kind)
-                {
-                    case ast::DeclKind::Var:
-                        return static_cast<ast::VarDecl const&>(d).type;
-                    case ast::DeclKind::Func:
-                        return nullptr;
-                    default:
-                        return nullptr;
+            if (!type)
+                return false;
+
+            switch (type->kind)
+            {
+                case ast::TypeKind::Array:
+                    return immutable_type_shape(static_cast<ast::ArrayType const*>(type)->element);
+                case ast::TypeKind::Qualified:
+                    return ast::has_qual(static_cast<ast::QualifiedType const*>(type)->quals, ast::Qual::Const);
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] ModuleInfo const* module_owning_decl(ast::Decl const* d) const
+        {
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+                for (auto* decl : m->tu->decls)
+                    if (decl == d)
+                        return m.get();
+            }
+            return nullptr;
+        }
+
+        [[nodiscard]] bool decl_type_is_immutable(ModuleInfo const& mod, Scope const* scope, ast::TypeExpr const* type,
+                                                  std::unordered_set<ast::UsingDecl const*>& visited, std::uint32_t depth = 0) const
+        {
+            if (!type || depth > 64)
+                return false;
+
+            switch (type->kind)
+            {
+                case ast::TypeKind::Array:
+                    return decl_type_is_immutable(mod, scope, static_cast<ast::ArrayType const*>(type)->element, visited, depth + 1);
+                case ast::TypeKind::Qualified: {
+                    auto const* qt = static_cast<ast::QualifiedType const*>(type);
+                    if (ast::has_qual(qt->quals, ast::Qual::Const))
+                        return true;
+                    return decl_type_is_immutable(mod, scope, qt->inner, visited, depth + 1);
                 }
-            }();
+                case ast::TypeKind::Pointer:
+                case ast::TypeKind::Slice:
+                    return false;
+                case ast::TypeKind::Named: {
+                    auto const* nt = static_cast<ast::NamedType const*>(type);
+                    if (!nt->template_args.empty() || !scope)
+                        return false;
 
-            while (ty && ty->kind == ast::TypeKind::Array)
-                ty = static_cast<ast::ArrayType const*>(ty)->element;
+                    auto const* sym = resolve_type_path(*scope, nt->path);
+                    if (sym && sym->kind == SymbolKind::TypeAlias)
+                    {
+                        auto const* u = ast::node_cast<ast::UsingDecl>(sym->decl);
+                        if (u && u->using_kind == ast::UsingKind::Alias && u->target_type)
+                        {
+                            if (!visited.insert(u).second)
+                                return false;
 
-            auto const* q = ast::node_cast<ast::QualifiedType>(ty);
-            return q && ast::has_qual(q->quals, ast::Qual::Const);
+                            auto const* owning_mod = module_owning_decl(u);
+                            auto const* alias_scope = owning_mod && owning_mod->own_scope ? owning_mod->own_scope : scope;
+                            bool result = decl_type_is_immutable(mod, alias_scope, u->target_type, visited, depth + 1);
+                            visited.erase(u);
+                            return result;
+                        }
+                    }
+                    return false;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool decl_type_is_immutable(ModuleInfo const& mod, Scope const* scope, ast::TypeExpr const* type) const
+        {
+            std::unordered_set<ast::UsingDecl const*> visited;
+            return decl_type_is_immutable(mod, scope, type, visited);
+        }
+
+        [[nodiscard]] static bool decl_has_immutable_storage(ast::Decl const& d) noexcept
+        {
+            auto const* v = ast::node_cast<ast::VarDecl>(&d);
+            if (!v)
+                return false;
+
+            if (v->sema.is_immutable)
+                return true;
+
+            return immutable_type_shape(v->type);
         }
 
         [[nodiscard]] static CallRank rank_for_exact_arg(ast::Expr const& arg, detail::ExprResult const& analyzed, types::TypePtr param)
@@ -4351,7 +4462,7 @@ export namespace dcc::sema
 
                 if (analyzed.is_lvalue && (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee)))
                 {
-                    bool receiver_has_const = analyzed.resolved_decl && decl_is_top_level_const(*analyzed.resolved_decl);
+                    bool receiver_has_const = analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl);
                     bool param_wants_const = types::has_qual(param_ptr->pointee_quals, types::Qual::Const);
 
                     if (param_wants_const)
@@ -6004,6 +6115,11 @@ export namespace dcc::sema
 
         void analyze_module(ModuleInfo& mod)
         {
+            auto* module_env = make_const_env(nullptr);
+            m_module_const_envs[&mod] = module_env;
+            m_current_module_env = module_env;
+            m_current_module = &mod;
+
             for (auto* d : mod.tu->decls)
                 if (auto* f = ast::node_cast<ast::FuncDecl>(d))
                     analyze_function(mod, *f);
@@ -6015,6 +6131,481 @@ export namespace dcc::sema
                     analyze_union_fields(mod, *ud);
                 else if (auto* ed = ast::node_cast<ast::EnumDecl>(d))
                     analyze_enum_fields(mod, *ed);
+
+            m_current_module_env = nullptr;
+            m_current_module = nullptr;
+        }
+
+        void resolve_global_const_values()
+        {
+            struct Candidate
+            {
+                ModuleInfo* mod;
+                ast::VarDecl* vd;
+            };
+            std::vector<Candidate> candidates;
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+                for (auto* d : m->tu->decls)
+                {
+                    auto* vd = ast::node_cast<ast::VarDecl>(d);
+                    if (vd && vd->sema.is_immutable && vd->init && vd->type)
+                        candidates.push_back({m.get(), vd});
+                }
+            }
+
+            auto store_value = [&](ModuleInfo* mod, ast::VarDecl* vd, comptime::Value const* value) {
+                m_global_const_vals[vd] = value;
+                if (auto it = m_module_const_envs.find(mod); it != m_module_const_envs.end())
+                    define_constant(*it->second, vd->name, value);
+            };
+
+            auto const max_iters = candidates.size() + 2;
+            for (std::size_t iter = 0; iter < max_iters; ++iter)
+            {
+                bool progress = false;
+                for (auto& [mod, vd] : candidates)
+                {
+                    if (m_global_const_vals.contains(vd))
+                        continue;
+
+                    if (vd->init->sema.const_value)
+                    {
+                        store_value(mod, vd, vd->init->sema.const_value);
+                        progress = true;
+                        continue;
+                    }
+
+                    auto* env = m_module_const_envs[mod];
+                    m_current_module_env = env;
+                    m_current_module = mod;
+                    {
+                        ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                        auto* var_type = vd->type->sema.canonical ? get_canonical(vd->type->sema) : nullptr;
+                        std::ignore = analyze_expr(*mod, nullptr, *mod->own_scope, *vd->init, 0, dummy_offset(), var_type, env);
+                    }
+                    m_current_module_env = nullptr;
+                    m_current_module = nullptr;
+
+                    if (vd->init->sema.const_value)
+                    {
+                        store_value(mod, vd, vd->init->sema.const_value);
+                        progress = true;
+                    }
+                }
+                if (!progress)
+                    break;
+            }
+
+            {
+                std::unordered_map<ast::VarDecl const*, std::uint8_t> state;
+                for (auto& [mod, vd] : candidates)
+                    if (!m_global_const_vals.contains(vd))
+                        detect_global_const_cycle(vd, state);
+            }
+
+            validate_global_initializers();
+        }
+
+        [[nodiscard]] bool global_value_source_supported(ast::VarDecl const* vd, std::unordered_set<ast::VarDecl const*>& visiting) const
+        {
+            if (!vd || !vd->sema.is_immutable || !vd->init)
+                return false;
+
+            if (!visiting.insert(vd).second)
+                return true;
+
+            bool ok = is_constant_initializer_expr(vd->init, visiting);
+            visiting.erase(vd);
+            return ok;
+        }
+
+        [[nodiscard]] bool expr_is_address_bearing(ast::Expr const* expr) const
+        {
+            if (!expr)
+                return false;
+
+            if (expr->sema.const_value)
+                return false;
+
+            switch (expr->kind)
+            {
+                case ast::ExprKind::Ident: {
+                    auto* d = static_cast<ast::IdentExpr const*>(expr)->sema.resolved_decl;
+                    if (!d)
+                        return false;
+                    if (d->kind == ast::DeclKind::Func)
+                        return true;
+                    if (d->kind == ast::DeclKind::Var)
+                    {
+                        auto* ty = get_resolved_type(expr->sema);
+                        return ty && (ty->kind == types::TypeKind::Pointer || ty->kind == types::TypeKind::FuncPtr || ty->kind == types::TypeKind::Lambda);
+                    }
+                    return false;
+                }
+                case ast::ExprKind::PathExpr: {
+                    auto* d = static_cast<ast::PathExpr const*>(expr)->sema.resolved_decl;
+                    if (!d)
+                        return false;
+                    if (d->kind == ast::DeclKind::Func)
+                        return true;
+                    if (d->kind == ast::DeclKind::Var)
+                    {
+                        auto* ty = get_resolved_type(expr->sema);
+                        return ty && (ty->kind == types::TypeKind::Pointer || ty->kind == types::TypeKind::FuncPtr || ty->kind == types::TypeKind::Lambda);
+                    }
+                    return false;
+                }
+                case ast::ExprKind::Unary:
+                    return static_cast<ast::UnaryExpr const*>(expr)->op == lex::TokenKind::Amp;
+                case ast::ExprKind::Cast:
+                    return expr_is_address_bearing(static_cast<ast::CastExpr const*>(expr)->operand);
+                case ast::ExprKind::FieldAccess:
+                case ast::ExprKind::Index: {
+                    auto* ty = get_resolved_type(expr->sema);
+                    return ty && (ty->kind == types::TypeKind::Pointer || ty->kind == types::TypeKind::FuncPtr || ty->kind == types::TypeKind::Lambda);
+                }
+                case ast::ExprKind::StringLiteral:
+                case ast::ExprKind::U16StringLiteral:
+                case ast::ExprKind::Lambda:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool is_constant_address_operand(ast::Expr const* expr, std::unordered_set<ast::VarDecl const*>& visiting) const
+        {
+            if (!expr)
+                return false;
+
+            switch (expr->kind)
+            {
+                case ast::ExprKind::Ident:
+                case ast::ExprKind::PathExpr: {
+                    ast::Decl const* resolved = nullptr;
+                    if (expr->kind == ast::ExprKind::Ident)
+                        resolved = static_cast<ast::IdentExpr const*>(expr)->sema.resolved_decl;
+                    else
+                        resolved = static_cast<ast::PathExpr const*>(expr)->sema.resolved_decl;
+
+                    if (!resolved)
+                        return false;
+                    if (resolved->kind == ast::DeclKind::Func)
+                        return true;
+                    if (auto const* vd = ast::node_cast<ast::VarDecl>(resolved))
+                    {
+                        auto storage = vd->sema.storage;
+                        return storage == ast::StorageClass::ModuleGlobal || storage == ast::StorageClass::Static || storage == ast::StorageClass::Extern;
+                    }
+                    return false;
+                }
+                case ast::ExprKind::FieldAccess:
+                    return is_constant_address_operand(static_cast<ast::FieldAccessExpr const*>(expr)->object, visiting);
+                case ast::ExprKind::Index: {
+                    auto const* ix = static_cast<ast::IndexExpr const*>(expr);
+                    if (!is_constant_address_operand(ix->object, visiting))
+                        return false;
+                    if (!ix->index)
+                        return false;
+                    return is_constant_initializer_expr(ix->index, visiting);
+                }
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] static bool expr_decays_to_pointer(ast::Expr const* expr, types::TypePtr pointee)
+        {
+            if (!expr || !pointee)
+                return false;
+
+            auto* ty = get_resolved_type(expr->sema);
+            while (ty)
+            {
+                if (auto* at = types::type_cast<types::ArrayType>(ty))
+                    return at->element == pointee;
+                if (auto* nt = types::type_cast<types::NominalType>(ty))
+                {
+                    ty = nt->underlying;
+                    continue;
+                }
+                return false;
+            }
+            return false;
+        }
+
+        [[nodiscard]] bool is_constant_initializer_expr(ast::Expr const* expr, std::unordered_set<ast::VarDecl const*>& visiting,
+                                                        types::TypePtr expected_type = nullptr) const
+        {
+            if (!expr)
+                return true;
+
+            if (expr->sema.const_value)
+                return true;
+
+            switch (expr->kind)
+            {
+                case ast::ExprKind::NullLiteral:
+                case ast::ExprKind::StringLiteral:
+                case ast::ExprKind::U16StringLiteral:
+                case ast::ExprKind::Lambda:
+                    return true;
+                case ast::ExprKind::Ident: {
+                    auto const* id = static_cast<ast::IdentExpr const*>(expr);
+                    if (ast::node_cast<ast::FuncDecl>(id->sema.resolved_decl))
+                        return true;
+                    auto const* vd = ast::node_cast<ast::VarDecl>(id->sema.resolved_decl);
+                    if (!vd)
+                        return false;
+
+                    if (auto const* ptr_ty = types::type_cast<types::PointerType>(expected_type))
+                        if (expr_decays_to_pointer(expr, ptr_ty->pointee))
+                            return true;
+
+                    return global_value_source_supported(vd, visiting);
+                }
+                case ast::ExprKind::PathExpr: {
+                    auto const* pe = static_cast<ast::PathExpr const*>(expr);
+                    if (ast::node_cast<ast::FuncDecl>(pe->sema.resolved_decl))
+                        return true;
+                    auto const* vd = ast::node_cast<ast::VarDecl>(pe->sema.resolved_decl);
+                    if (!vd)
+                        return false;
+
+                    if (auto const* ptr_ty = types::type_cast<types::PointerType>(expected_type))
+                        if (expr_decays_to_pointer(expr, ptr_ty->pointee))
+                            return true;
+
+                    return global_value_source_supported(vd, visiting);
+                }
+                case ast::ExprKind::Unary: {
+                    auto const* u = static_cast<ast::UnaryExpr const*>(expr);
+                    if (u->op == lex::TokenKind::Amp)
+                        return is_constant_address_operand(u->operand, visiting);
+                    return false;
+                }
+                case ast::ExprKind::Binary:
+                    return false;
+                case ast::ExprKind::Call:
+                    return false;
+                case ast::ExprKind::Cast: {
+                    auto const* c = static_cast<ast::CastExpr const*>(expr);
+                    if (!is_constant_initializer_expr(c->operand, visiting))
+                        return false;
+
+                    if (expr_is_address_bearing(c->operand))
+                    {
+                        auto const* dst = c->target ? get_canonical(c->target->sema) : nullptr;
+                        if (!dst || (!types::type_cast<types::PointerType>(dst) && !types::type_cast<types::FuncPtrType>(dst) &&
+                                     !types::type_cast<types::LambdaType>(dst)))
+                            return false;
+                        return true;
+                    }
+
+                    if (c->operand->kind == ast::ExprKind::NullLiteral)
+                        return true;
+
+                    if (c->operand->sema.const_value)
+                        return expr->sema.const_value != nullptr;
+
+                    return true;
+                }
+                case ast::ExprKind::FieldAccess:
+                    return is_constant_initializer_expr(static_cast<ast::FieldAccessExpr const*>(expr)->object, visiting);
+                case ast::ExprKind::Index: {
+                    auto const* ix = static_cast<ast::IndexExpr const*>(expr);
+                    if (!is_constant_initializer_expr(ix->object, visiting))
+                        return false;
+                    if (ix->index)
+                        return is_constant_initializer_expr(ix->index, visiting);
+                    return true;
+                }
+                case ast::ExprKind::StructLiteral: {
+                    auto const* sl = static_cast<ast::StructLiteralExpr const*>(expr);
+                    for (auto const& f : sl->fields)
+                        if (!is_constant_initializer_expr(f.value, visiting))
+                            return false;
+                    return true;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool expr_has_error(ast::Expr const* expr) const
+        {
+            if (!expr)
+                return false;
+
+            auto* resolved = expr->sema.resolved_decl;
+            if (resolved && resolved->kind == ast::DeclKind::Func)
+                return false;
+
+            if (has_error(get_resolved_type(expr->sema)))
+                return true;
+
+            switch (expr->kind)
+            {
+                case ast::ExprKind::Unary:
+                    return expr_has_error(static_cast<ast::UnaryExpr const*>(expr)->operand);
+                case ast::ExprKind::Binary: {
+                    auto const* b = static_cast<ast::BinaryExpr const*>(expr);
+                    return expr_has_error(b->lhs) || expr_has_error(b->rhs);
+                }
+                case ast::ExprKind::Call: {
+                    auto const* c = static_cast<ast::CallExpr const*>(expr);
+                    if (expr_has_error(c->callee))
+                        return true;
+                    for (auto* arg : c->args)
+                        if (expr_has_error(arg))
+                            return true;
+                    return false;
+                }
+                case ast::ExprKind::FieldAccess:
+                    return expr_has_error(static_cast<ast::FieldAccessExpr const*>(expr)->object);
+                case ast::ExprKind::Index: {
+                    auto const* ix = static_cast<ast::IndexExpr const*>(expr);
+                    return expr_has_error(ix->object) || expr_has_error(ix->index);
+                }
+                case ast::ExprKind::PackAccess: {
+                    auto const* pa = static_cast<ast::PackAccessExpr const*>(expr);
+                    return expr_has_error(pa->object) || expr_has_error(pa->index);
+                }
+                case ast::ExprKind::Cast:
+                    return expr_has_error(static_cast<ast::CastExpr const*>(expr)->operand);
+                case ast::ExprKind::Match: {
+                    auto const* m = static_cast<ast::MatchExpr const*>(expr);
+                    if (expr_has_error(m->operand))
+                        return true;
+                    for (auto const& arm : m->arms)
+                    {
+                        if (expr_has_error(arm.guard))
+                            return true;
+                        if (expr_has_error(arm.body))
+                            return true;
+                    }
+                    return false;
+                }
+                case ast::ExprKind::StructLiteral: {
+                    auto const* sl = static_cast<ast::StructLiteralExpr const*>(expr);
+                    for (auto const& f : sl->fields)
+                        if (expr_has_error(f.value))
+                            return true;
+                    return false;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        void validate_global_initializers()
+        {
+            std::unordered_set<ast::VarDecl const*> visiting;
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+                for (auto* d : m->tu->decls)
+                {
+                    auto* vd = ast::node_cast<ast::VarDecl>(d);
+                    if (!vd || !vd->init)
+                        continue;
+                    if (!vd->init || vd->init->sema.const_value)
+                        continue;
+                    if (expr_has_error(vd->init))
+                        continue;
+                    auto expected = vd->type && vd->type->sema.canonical ? get_canonical(vd->type->sema) : nullptr;
+                    if (!is_constant_initializer_expr(vd->init, visiting, expected))
+                        error(vd->init->range, "initializer for global `{}` is not a constant expression", vd->name);
+                }
+            }
+        }
+
+        void collect_global_const_value_deps(ast::Expr const* expr, std::vector<ast::VarDecl const*>& out) const
+        {
+            if (!expr)
+                return;
+
+            switch (expr->kind)
+            {
+                case ast::ExprKind::Ident: {
+                    auto const* id = static_cast<ast::IdentExpr const*>(expr);
+                    if (auto* vd = ast::node_cast<ast::VarDecl>(id->sema.resolved_decl))
+                        out.push_back(vd);
+                    return;
+                }
+                case ast::ExprKind::PathExpr: {
+                    auto const* pe = static_cast<ast::PathExpr const*>(expr);
+                    if (auto* vd = ast::node_cast<ast::VarDecl>(pe->sema.resolved_decl))
+                        out.push_back(vd);
+                    return;
+                }
+                case ast::ExprKind::Unary: {
+                    auto const* u = static_cast<ast::UnaryExpr const*>(expr);
+                    if (u->op == lex::TokenKind::Amp)
+                        return;
+                    collect_global_const_value_deps(u->operand, out);
+                    return;
+                }
+                case ast::ExprKind::Cast:
+                    collect_global_const_value_deps(static_cast<ast::CastExpr const*>(expr)->operand, out);
+                    return;
+                case ast::ExprKind::Binary: {
+                    auto const* b = static_cast<ast::BinaryExpr const*>(expr);
+                    collect_global_const_value_deps(b->lhs, out);
+                    collect_global_const_value_deps(b->rhs, out);
+                    return;
+                }
+                case ast::ExprKind::FieldAccess: {
+                    auto const* fa = static_cast<ast::FieldAccessExpr const*>(expr);
+                    collect_global_const_value_deps(fa->object, out);
+                    return;
+                }
+                case ast::ExprKind::Index: {
+                    auto const* ix = static_cast<ast::IndexExpr const*>(expr);
+                    collect_global_const_value_deps(ix->object, out);
+                    collect_global_const_value_deps(ix->index, out);
+                    return;
+                }
+                case ast::ExprKind::StructLiteral: {
+                    auto const* sl = static_cast<ast::StructLiteralExpr const*>(expr);
+                    for (auto const& f : sl->fields)
+                        collect_global_const_value_deps(f.value, out);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        void detect_global_const_cycle(ast::VarDecl const* vd, std::unordered_map<ast::VarDecl const*, std::uint8_t>& state)
+        {
+            auto& st = state[vd];
+            if (st == 2)
+                return;
+            if (st == 1)
+            {
+                error(vd->range, "circular constant initializer for `{}`", vd->name);
+                return;
+            }
+
+            st = 1;
+            if (vd->init)
+            {
+                std::vector<ast::VarDecl const*> deps;
+                collect_global_const_value_deps(vd->init, deps);
+                for (auto* dep : deps)
+                {
+                    if (!dep || !dep->sema.is_immutable || !dep->init || m_global_const_vals.contains(dep))
+                        continue;
+
+                    detect_global_const_cycle(dep, state);
+                }
+            }
+            st = 2;
         }
 
         [[nodiscard]] static bool is_template_specialization_body(ast::FuncDecl const& fn)
@@ -6083,6 +6674,9 @@ export namespace dcc::sema
                     check_type_constraints_in_type(mod, *mod.own_scope, type, p.range);
                 p.sema.frame_offset = allocate_frame_slot(frame_off, type);
                 auto* synthetic = make_param_decl(p);
+
+                if (synthetic && p.type && mod.own_scope)
+                    synthetic->sema.is_immutable = decl_type_is_immutable(mod, mod.own_scope, p.type);
 
                 if (i == 0 || fn.params[i - 1].name != p.name)
                     define_local(*root, synthetic);
@@ -6270,6 +6864,10 @@ export namespace dcc::sema
                     check_type_constraints_in_type(mod, *mod.own_scope, type, p.range);
                 p.sema.frame_offset = allocate_frame_slot(frame_off, type);
                 auto* synthetic = make_param_decl(p);
+
+                if (synthetic && p.type && mod.own_scope)
+                    synthetic->sema.is_immutable = decl_type_is_immutable(mod, mod.own_scope, p.type);
+
                 if (i == 0 || fd->params[i - 1].name != p.name)
                     define_local(*root, synthetic);
             }
@@ -6466,7 +7064,7 @@ export namespace dcc::sema
                 check_type_constraints_in_type(mod, *mod.own_scope, var_type, var.range);
 
             if (var.init && mod.own_scope)
-                std::ignore = analyze_expr(mod, nullptr, *mod.own_scope, *var.init, 0, dummy_offset(), var_type, nullptr);
+                std::ignore = analyze_expr(mod, nullptr, *mod.own_scope, *var.init, 0, dummy_offset(), var_type, m_current_module_env);
         }
 
         void analyze_struct_fields(ModuleInfo& mod, ast::StructDecl& sd)
@@ -6539,6 +7137,7 @@ export namespace dcc::sema
             v->sema.storage = ast::StorageClass::Param;
             v->sema.param_index = p.sema.param_index;
             v->sema.frame_offset = p.sema.frame_offset;
+            v->sema.is_immutable = immutable_type_shape(p.type);
             p.synthetic_decl = v;
             return v;
         }
@@ -6550,6 +7149,7 @@ export namespace dcc::sema
             v->type = type_node;
             v->sema.storage = storage;
             v->sema.frame_offset = frame_off;
+            v->sema.is_immutable = immutable_type_shape(type_node);
             return v;
         }
 
@@ -7733,7 +8333,7 @@ export namespace dcc::sema
                     out.resolved_decl = sym->decl;
                     track_decl_read(sym->decl);
                     out.is_lvalue = (sym->kind == SymbolKind::Variable);
-                    out.is_writable = out.is_lvalue && !decl_is_top_level_const(*sym->decl);
+                    out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
                 }
 
                 out.type = get_resolved_type(expr.sema);
@@ -8153,7 +8753,7 @@ export namespace dcc::sema
             out.type = decl_type(*sym->decl);
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
-            out.is_writable = out.is_lvalue && !decl_is_top_level_const(*sym->decl);
+            out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
             if (out.is_lvalue)
             {
                 if (auto const* c = const_eval::lookup_identifier(name, [&](std::string_view n) { return lookup_constant(const_env, n); }))
@@ -8368,7 +8968,21 @@ export namespace dcc::sema
             out.type = decl_type(*sym->decl);
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
-            out.is_writable = out.is_lvalue && !decl_is_top_level_const(*sym->decl);
+            out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
+
+            if (sym->kind == SymbolKind::Variable)
+            {
+                if (auto const* vd = ast::node_cast<ast::VarDecl>(sym->decl))
+                    if (vd->sema.is_immutable && vd->init)
+                    {
+                        auto it = m_global_const_vals.find(vd);
+                        if (it != m_global_const_vals.end())
+                        {
+                            out.constant = it->second;
+                            out.is_constant = true;
+                        }
+                    }
+            }
 
             if (sym->kind == SymbolKind::EnumVariant && sym->decl && sym->decl->kind == ast::DeclKind::Enum)
             {
@@ -8945,6 +9559,8 @@ export namespace dcc::sema
 
             if (auto const* slice = types::type_cast<types::SliceType>(obj.type))
             {
+                out.constant = nullptr;
+                out.is_constant = false;
                 if (f.field == "ptr")
                 {
                     auto quals = slice->element_quals;
@@ -9225,6 +9841,8 @@ export namespace dcc::sema
             }
             out.is_lvalue = true;
 
+            out.constant = nullptr;
+            out.is_constant = false;
             if (obj.constant && index_result.constant &&
                 (obj.constant->kind() == comptime::Value::Kind::Aggregate || obj.constant->kind() == comptime::Value::Kind::Slice))
             {
@@ -12531,6 +13149,9 @@ export namespace dcc::sema
                 {
                     auto* canon = get_canonical(v->type->sema);
                     v->sema.frame_offset = allocate_frame_slot(next_off, canon);
+
+                    if (mod.own_scope)
+                        v->sema.is_immutable = decl_type_is_immutable(mod, mod.own_scope, v->type);
 
                     if (types::type_cast<types::RuntimeArrayType>(canon))
                         if (!fn)

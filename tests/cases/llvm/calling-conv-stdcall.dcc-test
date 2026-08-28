@@ -15,7 +15,7 @@ public i32 call_std_func(i32 x) {
 === EXPECT-LLVM FLAGS: -target x86-elf -verify ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "i386-unknown-linux-gnu"
+target triple = "i386-elf"
 
 define x86_stdcallcc i32 @std_func(i32 %x) {
 entry:

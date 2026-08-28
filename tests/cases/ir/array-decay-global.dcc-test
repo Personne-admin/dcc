@@ -1,0 +1,37 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const u64[2] c_arr = {1, 2};
+@nomangle
+u64[2] m_arr = {3, 4};
+@nomangle
+const u64* cp = c_arr;
+@nomangle
+u64* mp = m_arr;
+@nomangle
+const u64[2] copy = c_arr;
+
+=== EXPECT-IR ===
+module "test"
+
+const global @c_arr : [2 x u64] = aggregate [2 x u64], #1, #2
+
+global @m_arr : [2 x u64] = aggregate [2 x u64], #3, #4
+
+global @cp : ptr<u64> = @c_arr
+
+global @mp : ptr<u64> = @m_arr
+
+const global @copy : [2 x u64] = aggregate [2 x u64], #1, #2
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@c_arr = internal constant [2 x i64] [i64 1, i64 2]
+@m_arr = internal global [2 x i64] [i64 3, i64 4]
+@cp = internal global ptr @c_arr
+@mp = internal global ptr @m_arr
+@copy = internal constant [2 x i64] [i64 1, i64 2]

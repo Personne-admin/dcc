@@ -18,7 +18,7 @@ public i32 test_volatile_load_plain(volatile i32* ptr) {
 === EXPECT-LLVM ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i32 @_DC0F1.4.test29.test_atomic_load_not_volatile1PVqi32si32s(ptr %ptr) {
 entry:

@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+i64 value = 42;
+u8* const p = &value as u8*;
+u8* const q = p;
+
+using FnPtr = i64(*)(i64);
+public i64 triple(i64 x) { return x * 3; }
+const FnPtr g_fn = triple;
+const FnPtr g_fn2 = g_fn;
+
+=== EXPECT-IR ===
+module "test"
+
+global @_DC0G1.4.test5.valuei64s : i64 = #42
+
+const global @_DC0G1.4.test1.pPqi8u : ptr<u8> = @_DC0G1.4.test5.valuei64s
+
+const global @_DC0G1.4.test1.qPqi8u : ptr<u8> = @_DC0G1.4.test5.valuei64s
+
+const global @_DC0G1.4.test4.g_fnpi64s1i64s : ptr<fn(i64) -> i64> = @_DC0F1.4.test6.triple1i64si64s
+
+const global @_DC0G1.4.test5.g_fn2pi64s1i64s : ptr<fn(i64) -> i64> = @_DC0F1.4.test6.triple1i64si64s
+
+
+i64@_DC0F1.4.test6.triple1i64si64s(i64) {
+%entry(i64 %x):
+  %0 = mul i64 %x, i64 #3
+  ret i64 %0
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test5.valuei64s = internal global i64 42
+@_DC0G1.4.test1.pPqi8u = internal constant ptr @_DC0G1.4.test5.valuei64s
+@_DC0G1.4.test1.qPqi8u = internal constant ptr @_DC0G1.4.test5.valuei64s
+@_DC0G1.4.test4.g_fnpi64s1i64s = internal constant ptr @_DC0F1.4.test6.triple1i64si64s
+@_DC0G1.4.test5.g_fn2pi64s1i64s = internal constant ptr @_DC0F1.4.test6.triple1i64si64s
+
+define i64 @_DC0F1.4.test6.triple1i64si64s(i64 %x) {
+entry:
+  %"0" = mul i64 %x, 3
+  ret i64 %"0"
+}

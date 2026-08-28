@@ -1599,6 +1599,7 @@ namespace
         std::uint64_t offset{};
         std::uint64_t size{};
         std::string name;
+        std::int64_t addend{};
     };
 
     [[nodiscard]] std::uint64_t asm_init_type_size(ir::IrType const* type)
@@ -1632,8 +1633,7 @@ namespace
         std::erase_if(relocs, [&](AsmInitReloc const& reloc) { return reloc.offset < end && offset < reloc.offset + reloc.size; });
     }
 
-    void write_asm_init_bytes(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, std::uint64_t offset,
-                              std::span<std::uint8_t const> bytes)
+    void write_asm_init_bytes(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, std::uint64_t offset, std::span<std::uint8_t const> bytes)
     {
         if (offset >= data.size() || bytes.empty())
             return;
@@ -1651,8 +1651,8 @@ namespace
         std::fill_n(data.begin() + static_cast<std::ptrdiff_t>(offset), size, 0);
     }
 
-    void serialize_asm_init(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, ir::IrValue const* val,
-                            ir::IrType const* expected_type, std::uint64_t offset)
+    void serialize_asm_init(std::vector<std::uint8_t>& data, std::vector<AsmInitReloc>& relocs, ir::IrValue const* val, ir::IrType const* expected_type,
+                            std::uint64_t offset)
     {
         if (!val || !expected_type)
             return;
@@ -1720,8 +1720,14 @@ namespace
                 auto* gr = static_cast<IrGlobalRef const*>(val);
                 auto size = expected_type->byte_size;
                 zero_asm_init_bytes(data, relocs, offset, size);
+                if (size < 8)
+                {
+                    std::println(std::cerr, "em64t asm emitter: address relocation into a {}-byte field (symbol `{}`); refusing to emit malformed asm", size,
+                                 gr->name);
+                    std::abort();
+                }
                 if (offset <= data.size() && size <= data.size() - offset)
-                    relocs.push_back({offset, size, std::string{gr->name}});
+                    relocs.push_back({offset, size, std::string{gr->name}, gr->addend});
                 break;
             }
             case IrNodeKind::Aggregate: {
@@ -1791,6 +1797,25 @@ namespace
         }
     }
 
+    [[nodiscard]] bool asm_init_has_global_ref(ir::IrValue const* v)
+    {
+        if (!v)
+            return false;
+
+        if (v->kind == ir::IrNodeKind::GlobalRef)
+            return true;
+
+        if (v->kind == ir::IrNodeKind::Aggregate)
+        {
+            const auto* agg = static_cast<ir::IrAggregateInst const*>(v);
+            for (auto* fv : agg->values)
+                if (asm_init_has_global_ref(fv))
+                    return true;
+        }
+
+        return false;
+    }
+
     void emit_init_value(std::string& out, ir::IrValue const* val, ir::IrType const* expected_type, std::uint64_t byte_size)
     {
         std::vector<std::uint8_t> data(byte_size, 0);
@@ -1802,16 +1827,27 @@ namespace
         {
             emit_asm_init_bytes(out, std::span<std::uint8_t const>{data}.subspan(offset, reloc.offset - offset));
             auto directive = reloc.size == 1 ? "db" : reloc.size == 2 ? "dw" : reloc.size == 4 ? "dd" : "dq";
-            out += "    " + std::string{directive} + " " + reloc.name + "\n";
+            out += "    " + std::string{directive} + " " + reloc.name;
+            if (reloc.addend != 0)
+            {
+                if (reloc.addend > 0)
+                    out += " + " + std::to_string(reloc.addend);
+                else
+                    out += " - " + std::to_string(-reloc.addend);
+            }
+            out += '\n';
             offset = reloc.offset + reloc.size;
         }
         emit_asm_init_bytes(out, std::span<std::uint8_t const>{data}.subspan(offset));
     }
 
-    [[nodiscard]] std::string emit_globals(ir::IrModule const& ir_mod, std::unordered_set<std::string>& defined_syms,
-                                           dcc::target::TargetConfig const& target)
+    [[nodiscard]] std::string emit_globals(ir::IrModule const& ir_mod, std::unordered_set<std::string>& defined_syms, dcc::target::TargetConfig const& target)
     {
         std::string out;
+
+        for (auto* g : ir_mod.globals)
+            if (g && g->init)
+                defined_syms.insert(std::string{g->name});
 
         std::vector<std::string> externs;
         for (auto* func : ir_mod.functions)
@@ -1879,7 +1915,7 @@ namespace
             std::string name;
             std::uint64_t size;
         };
-        std::vector<Gl> rodata, data, bss;
+        std::vector<Gl> rodata, rodata_relro, data, bss;
 
         for (auto* g : ir_mod.globals)
         {
@@ -1896,7 +1932,12 @@ namespace
             if (sz == 0 && g->init && g->init->type)
                 sz = asm_init_type_size(g->init->type);
             if (g->is_constant && g->init)
-                rodata.push_back({g, true, true, name, sz});
+            {
+                if (asm_init_has_global_ref(g->init))
+                    rodata_relro.push_back({g, true, true, name, sz});
+                else
+                    rodata.push_back({g, true, true, name, sz});
+            }
             else if (g->init)
                 data.push_back({g, false, true, name, sz});
             else
@@ -1907,6 +1948,19 @@ namespace
         {
             out += "section .rodata\n";
             for (auto const& gl : rodata)
+            {
+                if (gl.g->linkage != ir::Linkage::Internal)
+                    out += "global " + gl.name + "\n";
+                out += gl.name + ":\n";
+                emit_init_value(out, gl.g->init, gl.g->type, gl.size);
+                out += '\n';
+            }
+        }
+
+        if (!rodata_relro.empty())
+        {
+            out += "section .data.rel.ro\n";
+            for (auto const& gl : rodata_relro)
             {
                 if (gl.g->linkage != ir::Linkage::Internal)
                     out += "global " + gl.name + "\n";

@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+enum Color : u16 { Red, Green = 40, Blue }
+const Color c1 = Color::Red;
+const Color c2 = Color::Green;
+const Color c3 = Color::Blue;
+const u16 disc = Color::Blue as u16;
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test2.c1D1.4.test5.Color0. : u16 = #0
+
+const global @_DC0G1.4.test2.c2D1.4.test5.Color0. : u16 = #40
+
+const global @_DC0G1.4.test2.c3D1.4.test5.Color0. : u16 = #41
+
+const global @_DC0G1.4.test4.disci16u : u16 = #41
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test2.c1D1.4.test5.Color0. = internal constant i16 0
+@_DC0G1.4.test2.c2D1.4.test5.Color0. = internal constant i16 40
+@_DC0G1.4.test2.c3D1.4.test5.Color0. = internal constant i16 41
+@_DC0G1.4.test4.disci16u = internal constant i16 41

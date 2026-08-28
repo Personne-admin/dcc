@@ -312,6 +312,7 @@ namespace dcc::backend::em64t
             std::uint64_t offset{};
             std::uint64_t size{};
             std::string name;
+            std::int64_t addend{};
         };
 
         [[nodiscard]] std::uint64_t init_type_size(ir::IrType const* type)
@@ -361,6 +362,17 @@ namespace dcc::backend::em64t
             size = std::min<std::uint64_t>(size, data.size() - offset);
             erase_init_relocs(relocs, offset, size);
             std::fill_n(data.begin() + static_cast<std::ptrdiff_t>(offset), size, 0);
+        }
+
+        void write_addend_field(std::vector<std::uint8_t>& data, std::vector<InitReloc>& relocs, std::uint64_t offset, std::uint64_t size, std::int64_t addend)
+        {
+            if (offset >= data.size() || size == 0)
+                return;
+            size = std::min<std::uint64_t>(size, data.size() - offset);
+            erase_init_relocs(relocs, offset, size);
+            std::uint64_t uv = static_cast<std::uint64_t>(addend);
+            for (std::uint64_t i = 0; i < size; ++i)
+                data[static_cast<std::size_t>(offset + i)] = into_u8(uv >> (i * 8));
         }
 
         void serialize_init_memory(std::vector<std::uint8_t>& data, std::vector<InitReloc>& relocs, ir::IrValue const* val, ir::IrType const* expected_type,
@@ -483,8 +495,17 @@ namespace dcc::backend::em64t
                     auto* gr = static_cast<ir::IrGlobalRef const*>(val);
                     auto sz = expected_type ? expected_type->byte_size : 8;
                     zero_init_bytes(data, relocs, offset, sz);
+                    if (sz < 8)
+                    {
+                        std::println(std::cerr, "em64t objwriter: address relocation into a {}-byte field (symbol `{}`); refusing to emit malformed object", sz,
+                                     gr->name);
+                        std::abort();
+                    }
+
+                    if (gr->addend != 0 && sz <= data.size() - offset)
+                        write_addend_field(data, relocs, offset, sz, gr->addend);
                     if (offset <= data.size() && sz <= data.size() - offset)
-                        relocs.push_back({offset, sz, std::string{gr->name}});
+                        relocs.push_back({offset, sz, std::string{gr->name}, gr->addend});
                     break;
                 }
                 default:
@@ -513,7 +534,7 @@ namespace dcc::backend::em64t
                     continue;
                 Elf64_Rela rela{};
                 rela.r_offset = base_offset + init_reloc.offset;
-                rela.r_addend = 0;
+                rela.r_addend = init_reloc.addend;
                 rela.r_info = elf_r_info(it->second, R_X86_64_64);
                 relas.push_back(rela);
             }
@@ -1715,6 +1736,7 @@ export namespace dcc::backend::em64t
             std::uint32_t virt_addr;
             std::uint32_t sym_idx;
             std::uint16_t type;
+            std::uint32_t addend{};
         };
 
         struct CoffCustomSection
@@ -1797,7 +1819,8 @@ export namespace dcc::backend::em64t
         std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
 
         auto text_sec_str = add_str(".text");
-        coff_syms.push_back({.name = ".text", .str_off = text_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = 1, .value = 0, .size = 0});
+        coff_syms.push_back(
+            {.name = ".text", .str_off = text_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = 1, .value = 0, .size = 0});
 
         std::uint32_t sec_rdata = 0, sec_data = 0, sec_bss = 0;
         bool has_coff_jt = false;
@@ -1816,20 +1839,28 @@ export namespace dcc::backend::em64t
         {
             rdata_sec_str = add_str(".rdata");
             sec_rdata = 2;
-            coff_syms.push_back(
-                {.name = ".rdata", .str_off = rdata_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_rdata, .value = 0, .size = 0});
+            coff_syms.push_back({.name = ".rdata",
+                                 .str_off = rdata_sec_str,
+                                 .is_func = false,
+                                 .is_object = false,
+                                 .is_sec = true,
+                                 .sec_idx = sec_rdata,
+                                 .value = 0,
+                                 .size = 0});
         }
         if (has_data_sec)
         {
             data_sec_str = add_str(".data");
             sec_data = has_rdata ? 3 : 2;
-            coff_syms.push_back({.name = ".data", .str_off = data_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_data, .value = 0, .size = 0});
+            coff_syms.push_back(
+                {.name = ".data", .str_off = data_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_data, .value = 0, .size = 0});
         }
         if (has_bss_sec)
         {
             bss_sec_str = add_str(".bss");
             sec_bss = (has_rdata ? 1 : 0) + (has_data_sec ? 1 : 0) + 2;
-            coff_syms.push_back({.name = ".bss", .str_off = bss_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_bss, .value = 0, .size = 0});
+            coff_syms.push_back(
+                {.name = ".bss", .str_off = bss_sec_str, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = sec_bss, .value = 0, .size = 0});
         }
 
         std::uint32_t num_std_sec = 1 + (has_rdata ? 1U : 0U) + (has_data_sec ? 1U : 0U) + (has_bss_sec ? 1U : 0U);
@@ -1838,7 +1869,14 @@ export namespace dcc::backend::em64t
         {
             cs.section_index = next_sec++;
             cs.str_off = add_str(cs.name);
-            coff_syms.push_back({.name = cs.name, .str_off = cs.str_off, .is_func = false, .is_object = false, .is_sec = true, .sec_idx = cs.section_index, .value = 0, .size = 0});
+            coff_syms.push_back({.name = cs.name,
+                                 .str_off = cs.str_off,
+                                 .is_func = false,
+                                 .is_object = false,
+                                 .is_sec = true,
+                                 .sec_idx = cs.section_index,
+                                 .value = 0,
+                                 .size = 0});
         }
 
         for (auto& gl : globals)
@@ -1877,7 +1915,13 @@ export namespace dcc::backend::em64t
         for (std::size_t i = 0; i < func_names.size(); ++i)
         {
             auto so = add_str(func_names[i]);
-            coff_syms.push_back({.name=func_names[i], .str_off=so, .is_func=true, .is_object=false, .sec_idx=1, .value=func_starts[i], .size=func_codes[i].size()});
+            coff_syms.push_back({.name = func_names[i],
+                                 .str_off = so,
+                                 .is_func = true,
+                                 .is_object = false,
+                                 .sec_idx = 1,
+                                 .value = func_starts[i],
+                                 .size = func_codes[i].size()});
             sym_name_to_idx[func_names[i]] = static_cast<std::uint32_t>(coff_syms.size() - 1);
         }
 
@@ -1892,7 +1936,13 @@ export namespace dcc::backend::em64t
         for (auto& gl : globals)
         {
             auto so = add_str(gl.name_str);
-            coff_syms.push_back({.name=gl.name_str, .str_off=so, .is_func=false, .is_object=true, .sec_idx=gl.section_index, .value=gl.offset, .size=gl.g->type ? gl.g->type->byte_size : 0});
+            coff_syms.push_back({.name = gl.name_str,
+                                 .str_off = so,
+                                 .is_func = false,
+                                 .is_object = true,
+                                 .sec_idx = gl.section_index,
+                                 .value = gl.offset,
+                                 .size = gl.g->type ? gl.g->type->byte_size : 0});
             sym_name_to_idx[std::string{gl.g->name}] = static_cast<std::uint32_t>(coff_syms.size() - 1);
         }
 
@@ -1916,7 +1966,8 @@ export namespace dcc::backend::em64t
 
                     std::uint64_t block_offset = func_starts[fi] + it->second;
                     auto so = add_str(sym_name);
-                    coff_syms.push_back({.name=sym_name, .str_off=so, .is_func=false, .is_object=false, .sec_idx=1, .value=block_offset, .size=0});
+                    coff_syms.push_back(
+                        {.name = sym_name, .str_off = so, .is_func = false, .is_object = false, .sec_idx = 1, .value = block_offset, .size = 0});
                     sym_name_to_idx[sym_name] = static_cast<std::uint32_t>(coff_syms.size() - 1);
                 }
             }
@@ -1968,6 +2019,7 @@ export namespace dcc::backend::em64t
                         rel.virt_addr = static_cast<std::uint32_t>(glp->offset + init_reloc.offset);
                         rel.sym_idx = it->second;
                         rel.type = IMAGE_REL_AMD64_ADDR64;
+                        rel.addend = static_cast<std::uint32_t>(static_cast<std::int32_t>(init_reloc.addend));
                         rels.push_back(rel);
                     }
                 }
@@ -2047,6 +2099,7 @@ export namespace dcc::backend::em64t
                         rel.virt_addr = static_cast<std::uint32_t>(glp->offset + init_reloc.offset);
                         rel.sym_idx = it->second;
                         rel.type = IMAGE_REL_AMD64_ADDR64;
+                        rel.addend = static_cast<std::uint32_t>(static_cast<std::int32_t>(init_reloc.addend));
                         cs.rels.push_back(rel);
                     }
                 }

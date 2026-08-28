@@ -15,7 +15,7 @@ public i32 while_mutate(i32 n) {
 === EXPECT-LLVM ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i32 @_DC0F1.4.test12.while_mutate1i32si32s(i32 %n) {
 entry:

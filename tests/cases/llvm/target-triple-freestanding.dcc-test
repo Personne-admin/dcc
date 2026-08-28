@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+public i64 add(i64 a, i64 b) { return a + b; }
+
+=== EXPECT-LLVM FLAGS: -target x86_64-elf -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i64 @_DC0F1.4.test3.add2i64si64si64s(i64 %a, i64 %b) {
+entry:
+  %"0" = add i64 %a, %b
+  ret i64 %"0"
+}
+
+=== EXPECT-LLVM FLAGS: -target x86-elf -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "i386-elf"
+
+define i64 @_DC0F1.4.test3.add2i64si64si64s(i64 %a, i64 %b) {
+entry:
+  %"0" = add i64 %a, %b
+  ret i64 %"0"
+}

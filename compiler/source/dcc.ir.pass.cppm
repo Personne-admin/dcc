@@ -276,15 +276,16 @@ namespace dcc::ir::pass
                     if (gr->global)
                     {
                         auto it2 = cctx.global_map.find(gr->global);
-                        result = it2 != cctx.global_map.end() ? dst.global_ref(it2->second, cloned_type) : dst.symbol_ref(gr->name, cloned_type);
+                        result = it2 != cctx.global_map.end() ? dst.global_ref(it2->second, cloned_type, gr->addend)
+                                                              : dst.symbol_ref(gr->name, cloned_type, gr->addend);
                     }
                     else if (gr->function)
                     {
                         auto it2 = cctx.func_map.find(gr->function);
-                        result = it2 != cctx.func_map.end() ? dst.func_ref(it2->second) : dst.symbol_ref(gr->name, cloned_type);
+                        result = it2 != cctx.func_map.end() ? dst.func_ref(it2->second, gr->addend) : dst.symbol_ref(gr->name, cloned_type, gr->addend);
                     }
                     else
-                        result = dst.symbol_ref(gr->name, cloned_type);
+                        result = dst.symbol_ref(gr->name, cloned_type, gr->addend);
 
                     break;
                 }

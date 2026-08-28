@@ -1,0 +1,36 @@
+=== FILE: test.dc ===
+module test;
+
+using ConstU64 = const u64;
+using ConstU64Arr = const u64[2];
+using U64Arr = u64[2];
+
+const ConstU64 a = 5;
+const ConstU64Arr arr = {1, 2};
+ConstU64Arr arr2 = {3, 4};
+U64Arr mutarr = {5, 6};
+const ConstU64 b = a + 1;
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test1.ai64u : u64 = #5
+
+const global @_DC0G1.4.test3.arrA2i64u : [2 x u64] = aggregate [2 x u64], #1, #2
+
+const global @_DC0G1.4.test4.arr2A2i64u : [2 x u64] = aggregate [2 x u64], #3, #4
+
+global @_DC0G1.4.test6.mutarrA2i64u : [2 x u64] = aggregate [2 x u64], #5, #6
+
+const global @_DC0G1.4.test1.bi64u : u64 = #6
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test1.ai64u = internal constant i64 5
+@_DC0G1.4.test3.arrA2i64u = internal constant [2 x i64] [i64 1, i64 2]
+@_DC0G1.4.test4.arr2A2i64u = internal constant [2 x i64] [i64 3, i64 4]
+@_DC0G1.4.test6.mutarrA2i64u = internal global [2 x i64] [i64 5, i64 6]
+@_DC0G1.4.test1.bi64u = internal constant i64 6

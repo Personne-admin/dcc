@@ -132,11 +132,33 @@ namespace
         std::uint32_t rel_type;
     };
 
+    struct ForbiddenRela
+    {
+        std::string section;
+        std::uint32_t rel_type;
+    };
+
+    struct SectionWritability
+    {
+        std::string section;
+        bool writable;
+    };
+
     struct RequiredCoffReloc
     {
         std::string section;
         std::uint16_t rel_type{};
         std::string symbol;
+        bool has_addend{false};
+        std::int64_t addend{};
+    };
+
+    struct RequiredRelaAddend
+    {
+        std::string section;
+        std::uint32_t rel_type{};
+        std::string symbol;
+        std::int64_t addend{};
     };
 
     struct RequiredSectionAlign
@@ -155,6 +177,9 @@ namespace
         bool shared_link{false};
         std::string target_triple;
         std::vector<RequiredRela> required_relas;
+        std::vector<RequiredRelaAddend> required_rela_addends;
+        std::vector<ForbiddenRela> forbidden_relas;
+        std::vector<SectionWritability> section_writability;
         std::vector<RequiredCoffReloc> required_coff_relocs;
         std::vector<RequiredSectionAlign> required_section_aligns;
         std::vector<std::string> required_coff_undefined;
@@ -585,6 +610,121 @@ namespace
                                 e.required_relas.push_back(rr);
                             }
                         }
+                        else if (starts_with(tl, "REQUIRE-RELA-ADDEND:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(20));
+
+                            auto sp = val_str.find(' ');
+                            if (sp != std::string::npos)
+                            {
+                                RequiredRelaAddend ra;
+                                ra.section = trim(val_str.substr(0, sp));
+                                auto rest = trim(val_str.substr(sp + 1));
+                                auto sp2 = rest.find(' ');
+                                if (sp2 != std::string::npos)
+                                {
+                                    auto type_str = trim(rest.substr(0, sp2));
+                                    auto rest2 = trim(rest.substr(sp2 + 1));
+                                    auto sp3 = rest2.find(' ');
+                                    if (sp3 != std::string::npos)
+                                    {
+                                        ra.symbol = trim(rest2.substr(0, sp3));
+                                        auto addend_str = trim(rest2.substr(sp3 + 1));
+                                        try
+                                        {
+                                            ra.addend = static_cast<std::int64_t>(std::stoll(std::string{addend_str}));
+                                        }
+                                        catch (...)
+                                        {
+                                        }
+
+                                        static constexpr struct
+                                        {
+                                            std::string_view name;
+                                            std::uint32_t value;
+                                        } kRelaNames[] = {
+                                            {"R_X86_64_64", 1},       {"R_X86_64_PC32", 2},       {"R_X86_64_PLT32", 4},
+                                            {"R_X86_64_GOTPCREL", 9}, {"R_X86_64_GOTPCRELX", 41}, {"R_X86_64_REX_GOTPCRELX", 42},
+                                        };
+                                        bool found_name = false;
+                                        for (auto const& rn : kRelaNames)
+                                        {
+                                            if (type_str == rn.name)
+                                            {
+                                                ra.rel_type = rn.value;
+                                                found_name = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!found_name)
+                                        {
+                                            try
+                                            {
+                                                ra.rel_type = static_cast<std::uint32_t>(std::stoul(type_str));
+                                            }
+                                            catch (...)
+                                            {
+                                            }
+                                        }
+                                        e.required_rela_addends.push_back(std::move(ra));
+                                    }
+                                }
+                            }
+                        }
+                        else if (starts_with(tl, "FORBID-RELA:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(12));
+
+                            auto sp = val_str.find(' ');
+                            if (sp != std::string::npos)
+                            {
+                                ForbiddenRela fr;
+                                fr.section = trim(val_str.substr(0, sp));
+                                auto type_str = trim(val_str.substr(sp + 1));
+
+                                static constexpr struct
+                                {
+                                    std::string_view name;
+                                    std::uint32_t value;
+                                } kRelaNames[] = {
+                                    {"R_X86_64_64", 1},       {"R_X86_64_PC32", 2},       {"R_X86_64_PLT32", 4},
+                                    {"R_X86_64_GOTPCREL", 9}, {"R_X86_64_GOTPCRELX", 41}, {"R_X86_64_REX_GOTPCRELX", 42},
+                                };
+                                bool found_name = false;
+                                for (auto const& rn : kRelaNames)
+                                {
+                                    if (type_str == rn.name)
+                                    {
+                                        fr.rel_type = rn.value;
+                                        found_name = true;
+                                        break;
+                                    }
+                                }
+                                if (!found_name)
+                                {
+                                    try
+                                    {
+                                        fr.rel_type = static_cast<std::uint32_t>(std::stoul(type_str));
+                                    }
+                                    catch (...)
+                                    {
+                                    }
+                                }
+                                e.forbidden_relas.push_back(fr);
+                            }
+                        }
+                        else if (starts_with(tl, "REQUIRE-SECTION-READONLY:"))
+                        {
+                            auto sec_name_str = trim(std::string_view{tl}.substr(25));
+                            if (!sec_name_str.empty())
+                                e.section_writability.push_back({std::string{sec_name_str}, false});
+                        }
+                        else if (starts_with(tl, "REQUIRE-SECTION-WRITABLE:"))
+                        {
+                            auto sec_name_str = trim(std::string_view{tl}.substr(25));
+                            if (!sec_name_str.empty())
+                                e.section_writability.push_back({std::string{sec_name_str}, true});
+                        }
                         else if (starts_with(tl, "REQUIRE-SECTION-ALIGN:"))
                         {
                             auto val_str = trim(std::string_view{tl}.substr(22));
@@ -611,6 +751,7 @@ namespace
                             std::istringstream fields{value};
                             RequiredCoffReloc required;
                             std::string type;
+                            std::string addend_str;
                             if (fields >> required.section >> type >> required.symbol)
                             {
                                 if (type == "IMAGE_REL_AMD64_REL32")
@@ -622,6 +763,17 @@ namespace
                                     try
                                     {
                                         required.rel_type = static_cast<std::uint16_t>(std::stoul(type, nullptr, 0));
+                                    }
+                                    catch (...)
+                                    {
+                                    }
+                                }
+                                if (fields >> addend_str)
+                                {
+                                    try
+                                    {
+                                        required.addend = static_cast<std::int64_t>(std::stoll(addend_str));
+                                        required.has_addend = true;
                                     }
                                     catch (...)
                                     {
@@ -1128,9 +1280,8 @@ namespace
 
         bool ok = true;
 
-        auto emitted_error_count = static_cast<std::size_t>(std::ranges::count_if(diag.diagnostics(), [](dcc::diag::Diagnostic const& d) {
-            return d.severity() == dcc::diag::Severity::Error;
-        }));
+        auto emitted_error_count = static_cast<std::size_t>(
+            std::ranges::count_if(diag.diagnostics(), [](dcc::diag::Diagnostic const& d) { return d.severity() == dcc::diag::Severity::Error; }));
         if (fx.expected_error_count && emitted_error_count != *fx.expected_error_count)
         {
             ok = false;
@@ -1153,7 +1304,8 @@ namespace
                     auto const& got = *got_it;
                     auto leaf = fs::path{got.file}.lexically_relative(sb->root).string();
                     auto message_matches = fx.exact_errors ? got.message == want.substring : got.message.find(want.substring) != std::string::npos;
-                    if ((leaf == want.file || got.file == want.file) && got.line == want.line && (!want.column || got.column == *want.column) && message_matches)
+                    if ((leaf == want.file || got.file == want.file) && got.line == want.line && (!want.column || got.column == *want.column) &&
+                        message_matches)
                     {
                         if (fx.exact_errors)
                             exact_matches[got_index] = true;
@@ -1174,7 +1326,8 @@ namespace
             if (fx.exact_errors && emitted_error_count != fx.errors.size())
             {
                 ok = false;
-                std::println(std::cerr, "    FAIL  exact error set has {} entries, got {} errors  ({}:1)", fx.errors.size(), emitted_error_count, path.string());
+                std::println(std::cerr, "    FAIL  exact error set has {} entries, got {} errors  ({}:1)", fx.errors.size(), emitted_error_count,
+                             path.string());
             }
         }
 
@@ -2228,6 +2381,7 @@ namespace
                             }
                             auto reloc_ptr = static_cast<std::uint32_t>(rd_coff(section_off + 24, 4));
                             auto reloc_count = static_cast<std::uint16_t>(rd_coff(section_off + 32, 2));
+                            auto raw_data_ptr = static_cast<std::uint32_t>(rd_coff(section_off + 20, 4));
                             for (std::uint16_t ri = 0; ri < reloc_count; ++ri)
                             {
                                 auto reloc_off = static_cast<std::size_t>(reloc_ptr) + static_cast<std::size_t>(ri) * 10;
@@ -2236,16 +2390,30 @@ namespace
                                 auto symbol_index = static_cast<std::uint32_t>(rd_coff(reloc_off + 4, 4));
                                 auto type = static_cast<std::uint16_t>(rd_coff(reloc_off + 8, 2));
                                 auto symbol = symbols.find(symbol_index);
-                                found = type == required.rel_type && symbol != symbols.end() && symbol->second.name == required.symbol;
-                                if (found)
+                                if (type != required.rel_type || symbol == symbols.end() || symbol->second.name != required.symbol)
+                                    continue;
+                                if (!required.has_addend)
+                                {
+                                    found = true;
                                     break;
+                                }
+                                auto target_va = static_cast<std::uint32_t>(rd_coff(reloc_off, 4));
+                                auto in_place = static_cast<std::size_t>(raw_data_ptr) + static_cast<std::size_t>(target_va);
+                                if (in_place + 8 <= obj.size() &&
+                                    static_cast<std::int64_t>(rd_coff(in_place, 8)) == required.addend)
+                                {
+                                    found = true;
+                                    break;
+                                }
                             }
                         }
                         if (!found)
                         {
                             elf_valid = false;
-                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: COFF relocation {} type {:#x} -> '{}' not found  ({}:{})", required.section,
-                                         required.rel_type, required.symbol, path.string(), exp.base_line);
+                            std::println(std::cerr,
+                                         "    FAIL  EXPECT-EM64T-OBJECT: COFF relocation {} type {:#x} -> '{}' with in-place addend {} not found  ({}:{})",
+                                         required.section, required.rel_type, required.symbol, required.has_addend ? required.addend : 0, path.string(),
+                                         exp.base_line);
                         }
                     }
                 }
@@ -2371,7 +2539,8 @@ namespace
                                     {
                                         elf_valid = false;
                                         std::println(std::cerr,
-                                                     "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-SECTION-ALIGN: section '{}' sh_addralign {} is less than required {}  ({}:{})",
+                                                     "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-SECTION-ALIGN: section '{}' sh_addralign {} is less than required "
+                                                     "{}  ({}:{})",
                                                      rsa.section, sh_addralign, rsa.align, path.string(), exp.base_line);
                                     }
                                     break;
@@ -2382,6 +2551,168 @@ namespace
                                     elf_valid = false;
                                     std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-SECTION-ALIGN: section '{}' not found  ({}:{})",
                                                  rsa.section, path.string(), exp.base_line);
+                                }
+                            }
+
+                            auto sec_flags = [&](std::uint64_t sec_idx) -> std::uint64_t {
+                                if (sec_idx >= e_shnum)
+                                    return 0;
+                                std::uint64_t sdoff = e_shoff + sec_idx * shdr_size;
+                                return rd_elf64(static_cast<std::size_t>(sdoff + 8), 8);
+                            };
+                            auto find_sec_by_name = [&](std::string const& name) -> std::uint64_t {
+                                for (std::uint64_t si = 0; si < e_shnum; ++si)
+                                    if (get_sec_name(si) == name)
+                                        return si;
+                                return std::numeric_limits<std::uint64_t>::max();
+                            };
+
+                            for (auto const& sw : exp.section_writability)
+                            {
+                                auto si = find_sec_by_name(sw.section);
+                                if (si == std::numeric_limits<std::uint64_t>::max())
+                                {
+                                    elf_valid = false;
+                                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: section '{}' not found for writability check  ({}:{})", sw.section,
+                                                 path.string(), exp.base_line);
+                                    continue;
+                                }
+                                constexpr std::uint64_t SHF_WRITE = 0x1;
+                                bool is_writable = (sec_flags(si) & SHF_WRITE) != 0;
+                                if (is_writable != sw.writable)
+                                {
+                                    elf_valid = false;
+                                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: section '{}' is {} but expected {}  ({}:{})", sw.section,
+                                                 is_writable ? "writable" : "read-only", sw.writable ? "writable" : "read-only", path.string(), exp.base_line);
+                                }
+                            }
+
+                            auto collect_section_rela_types = [&](std::string const& sec_name) -> std::vector<std::uint32_t> {
+                                std::vector<std::uint32_t> types;
+                                auto target_idx = find_sec_by_name(sec_name);
+                                if (target_idx == std::numeric_limits<std::uint64_t>::max())
+                                    return types;
+                                for (std::uint64_t si = 0; si < e_shnum; ++si)
+                                {
+                                    std::uint64_t sdoff = e_shoff + si * shdr_size;
+                                    if (rd_elf64(static_cast<std::size_t>(sdoff + 4), 4) != 4)
+                                        continue;
+                                    if (rd_elf64(static_cast<std::size_t>(sdoff + 44), 4) != target_idx)
+                                        continue;
+                                    std::uint64_t rela_off = rd_elf64(static_cast<std::size_t>(sdoff + 24), 8);
+                                    std::uint64_t rela_size = rd_elf64(static_cast<std::size_t>(sdoff + 32), 8);
+                                    std::uint64_t num_relas = rela_size / 24;
+                                    for (std::uint64_t ri = 0; ri < num_relas; ++ri)
+                                    {
+                                        std::uint64_t roff = rela_off + ri * 24;
+                                        if (roff + 24 > obj.size())
+                                            break;
+                                        std::uint64_t r_info = rd_elf64(static_cast<std::size_t>(roff + 8), 8);
+                                        types.push_back(static_cast<std::uint32_t>(r_info & 0xFFFFFFFF));
+                                    }
+                                }
+                                return types;
+                            };
+
+                            // Resolve ELF symbol table + string table for relocation symbol names.
+                            struct RelaEntryInfo
+                            {
+                                std::uint32_t type;
+                                std::string symbol;
+                                std::int64_t addend;
+                            };
+                            auto collect_section_rela_entries = [&](std::string const& sec_name) -> std::vector<RelaEntryInfo> {
+                                std::vector<RelaEntryInfo> entries;
+                                auto target_idx = find_sec_by_name(sec_name);
+                                if (target_idx == std::numeric_limits<std::uint64_t>::max())
+                                    return entries;
+
+                                std::unordered_map<std::uint64_t, std::string> sym_names;
+                                for (std::uint64_t si = 0; si < e_shnum; ++si)
+                                {
+                                    std::uint64_t sdoff = e_shoff + si * shdr_size;
+                                    if (rd_elf64(static_cast<std::size_t>(sdoff + 4), 4) != 2)
+                                        continue;
+                                    std::uint64_t sym_off = rd_elf64(static_cast<std::size_t>(sdoff + 24), 8);
+                                    std::uint64_t sym_size = rd_elf64(static_cast<std::size_t>(sdoff + 32), 8);
+                                    auto str_idx = rd_elf64(static_cast<std::size_t>(sdoff + 40), 4);
+                                    if (str_idx >= e_shnum)
+                                        continue;
+                                    std::uint64_t strdoff = e_shoff + str_idx * shdr_size;
+                                    std::uint64_t str_off = rd_elf64(static_cast<std::size_t>(strdoff + 24), 8);
+                                    std::uint64_t str_size = rd_elf64(static_cast<std::size_t>(strdoff + 32), 8);
+                                    std::uint64_t num_syms = sym_size / 24;
+                                    for (std::uint64_t si2 = 0; si2 < num_syms; ++si2)
+                                    {
+                                        std::uint64_t soff = sym_off + si2 * 24;
+                                        if (soff + 24 > obj.size())
+                                            break;
+                                        std::uint64_t name_off = rd_elf64(static_cast<std::size_t>(soff), 4);
+                                        if (name_off >= str_size || str_off + name_off >= obj.size())
+                                            continue;
+                                        std::string name;
+                                        for (std::uint64_t p = str_off + name_off; p < str_off + str_size && p < obj.size() &&
+                                                                                    static_cast<unsigned char>(obj[static_cast<std::size_t>(p)]) != 0;
+                                             ++p)
+                                            name += static_cast<char>(obj[static_cast<std::size_t>(p)]);
+                                        sym_names[si2] = std::move(name);
+                                    }
+                                }
+
+                                for (std::uint64_t si = 0; si < e_shnum; ++si)
+                                {
+                                    std::uint64_t sdoff = e_shoff + si * shdr_size;
+                                    if (rd_elf64(static_cast<std::size_t>(sdoff + 4), 4) != 4)
+                                        continue;
+                                    if (rd_elf64(static_cast<std::size_t>(sdoff + 44), 4) != target_idx)
+                                        continue;
+                                    std::uint64_t rela_off = rd_elf64(static_cast<std::size_t>(sdoff + 24), 8);
+                                    std::uint64_t rela_size = rd_elf64(static_cast<std::size_t>(sdoff + 32), 8);
+                                    std::uint64_t num_relas = rela_size / 24;
+                                    for (std::uint64_t ri = 0; ri < num_relas; ++ri)
+                                    {
+                                        std::uint64_t roff = rela_off + ri * 24;
+                                        if (roff + 24 > obj.size())
+                                            break;
+                                        std::uint64_t r_info = rd_elf64(static_cast<std::size_t>(roff + 8), 8);
+                                        std::uint64_t r_sym = r_info >> 32;
+                                        std::int64_t r_addend = static_cast<std::int64_t>(rd_elf64(static_cast<std::size_t>(roff + 16), 8));
+                                        auto it = sym_names.find(r_sym);
+                                        entries.push_back({static_cast<std::uint32_t>(r_info & 0xFFFFFFFF),
+                                                           it != sym_names.end() ? it->second : std::string{},
+                                                           r_addend});
+                                    }
+                                }
+                                return entries;
+                            };
+
+                            for (auto const& fr : exp.forbidden_relas)
+                            {
+                                auto types = collect_section_rela_types(fr.section);
+                                if (std::ranges::find(types, fr.rel_type) != types.end())
+                                {
+                                    elf_valid = false;
+                                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: FORBID-RELA: forbidden relocation type {} found in {}  ({}:{})",
+                                                 fr.rel_type, fr.section, path.string(), exp.base_line);
+                                }
+                            }
+
+                            for (auto const& ra : exp.required_rela_addends)
+                            {
+                                auto entries = collect_section_rela_entries(ra.section);
+                                bool found = false;
+                                for (auto const& e : entries)
+                                    if (e.type == ra.rel_type && e.symbol == ra.symbol && e.addend == ra.addend)
+                                    {
+                                        found = true;
+                                        break;
+                                    }
+                                if (!found)
+                                {
+                                    elf_valid = false;
+                                    std::println(std::cerr,
+                                                 "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-RELA-ADDEND: {} {} {} + {} not found  ({}:{})", ra.section,
+                                                 ra.rel_type, ra.symbol, ra.addend, path.string(), exp.base_line);
                                 }
                             }
                         }

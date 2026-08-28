@@ -1,0 +1,32 @@
+=== FILE: test.dc ===
+module test;
+
+const u64[2] arr = {10, 20};
+const u64 X = arr[0];
+
+struct Pair { u64 a; u64 b; }
+const Pair pr = {a = 1, b = 2};
+const u64 Y = pr.a;
+
+=== EXPECT-IR ===
+module "test"
+
+const global @_DC0G1.4.test3.arrA2i64u : [2 x u64] = aggregate [2 x u64], #10, #20
+
+const global @_DC0G1.4.test1.Xi64u : u64 = #10
+
+const global @_DC0G1.4.test2.prD1.4.test4.Pair0. : {@0 u64, @8 u64} = aggregate {@0 u64, @8 u64}, #1, #2
+
+const global @_DC0G1.4.test1.Yi64u : u64 = #1
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i64, i64 }
+
+@_DC0G1.4.test3.arrA2i64u = internal constant [2 x i64] [i64 10, i64 20]
+@_DC0G1.4.test1.Xi64u = internal constant i64 10
+@_DC0G1.4.test2.prD1.4.test4.Pair0. = internal constant %0 { i64 1, i64 2 }
+@_DC0G1.4.test1.Yi64u = internal constant i64 1

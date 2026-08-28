@@ -123,10 +123,10 @@ namespace dcc::backend
         {
             auto const& t = cfg.triple;
             if (t == "x86_64-elf")
-                return "x86_64-unknown-linux-gnu";
+                return "x86_64-elf";
 
             if (t == "x86-elf")
-                return "i386-unknown-linux-gnu";
+                return "i386-elf";
 
             if (t == "x86_64-coff")
             {
@@ -672,6 +672,202 @@ namespace dcc::backend
             }
         }
 
+        struct InitLeaf
+        {
+            std::uint64_t offset{};
+            std::uint64_t size{};
+            IrValue const* value{};
+            IrType const* mem_type{};
+            bool is_reloc{};
+        };
+
+        [[nodiscard]] bool has_global_ref(IrValue const* v)
+        {
+            if (!v)
+                return false;
+            if (v->kind == IrNodeKind::GlobalRef)
+                return true;
+            if (v->kind == IrNodeKind::Aggregate)
+            {
+                auto* agg = static_cast<IrAggregateInst const*>(v);
+                return std::ranges::any_of(agg->values, [](IrValue const* mv) { return has_global_ref(mv); });
+            }
+            return false;
+        }
+
+        void collect_init_leaves(IrValue const* v, IrType const* ty, std::uint64_t base, std::vector<InitLeaf>& leaves)
+        {
+            if (!v || !ty || ty->byte_size == 0)
+                return;
+
+            if (v->kind == IrNodeKind::GlobalRef)
+            {
+                leaves.push_back({base, ty->byte_size, v, ty, true});
+                return;
+            }
+
+            if (v->kind == IrNodeKind::Aggregate)
+            {
+                auto* agg = static_cast<IrAggregateInst const*>(v);
+                switch (ty->kind)
+                {
+                    case IrTypeKind::Aggregate: {
+                        auto* at = static_cast<IrAggregateType const*>(ty);
+                        auto n = std::min(agg->values.size(), at->members.size());
+                        for (std::size_t i = 0; i < n; ++i)
+                        {
+                            if (!agg->values[i])
+                                continue;
+                            auto off = i < at->member_offsets.size() ? at->member_offsets[i] : 0;
+                            collect_init_leaves(agg->values[i], at->members[i], base + off, leaves);
+                        }
+                        return;
+                    }
+                    case IrTypeKind::Array: {
+                        auto* at = static_cast<IrArrayType const*>(ty);
+                        auto n = std::min<std::uint64_t>(agg->values.size(), at->count);
+                        auto elem_size = at->element ? at->element->byte_size : 1;
+                        for (std::uint64_t i = 0; i < n; ++i)
+                        {
+                            if (!agg->values[static_cast<std::size_t>(i)])
+                                continue;
+                            collect_init_leaves(agg->values[static_cast<std::size_t>(i)], at->element, base + i * elem_size, leaves);
+                        }
+                        return;
+                    }
+                    case IrTypeKind::Slice: {
+                        if (ir::slice_data_index < agg->values.size() && agg->values[ir::slice_data_index])
+                            collect_init_leaves(agg->values[ir::slice_data_index], agg->values[ir::slice_data_index]->type, base, leaves);
+                        return;
+                    }
+                    default:
+                        return;
+                }
+            }
+
+            leaves.push_back({base, ty->byte_size, v, ty, false});
+        }
+
+        bool resolve_init_layout(IrValue const* init, IrType const* semantic, std::vector<InitLeaf>& slots, std::vector<std::uint8_t>& bytes,
+                                 bool little_endian, std::string* error)
+        {
+            std::vector<InitLeaf> leaves;
+            collect_init_leaves(init, semantic, 0, leaves);
+
+            bytes.assign(semantic->byte_size, 0);
+            auto overlap = [](InitLeaf const& a, InitLeaf const& b) { return a.offset < b.offset + b.size && b.offset < a.offset + a.size; };
+
+            for (auto const& leaf : leaves)
+            {
+                if (leaf.offset + leaf.size > semantic->byte_size)
+                {
+                    set_constant_error(error, "LLVM backend: aggregate initializer leaf exceeds its storage");
+                    return false;
+                }
+
+                std::erase_if(slots, [&](InitLeaf const& s) { return overlap(s, leaf); });
+
+                if (leaf.is_reloc)
+                {
+                    slots.push_back(leaf);
+                    auto* gr = static_cast<IrGlobalRef const*>(leaf.value);
+                    if (gr->addend != 0)
+                    {
+                        std::uint64_t uv = static_cast<std::uint64_t>(gr->addend);
+                        for (std::uint64_t i = 0; i < leaf.size; ++i)
+                            bytes[static_cast<std::size_t>(leaf.offset + i)] = static_cast<std::uint8_t>(uv >> (i * 8));
+                    }
+                }
+                else
+                {
+                    std::vector<std::uint8_t> region(leaf.size, 0);
+                    if (!serialize_constant_memory(leaf.value, leaf.mem_type, region, little_endian, error))
+                        return false;
+                    std::ranges::copy(region, bytes.begin() + static_cast<std::ptrdiff_t>(leaf.offset));
+                }
+            }
+            return true;
+        }
+
+        [[nodiscard]] LLVMValueRef c_api_constant(IrValue const* v, LLVMContextRef ctx, TypeCache& tc,
+                                                  std::unordered_map<IrValue const*, LLVMValueRef>& val_map, LLVMTypeRef expected_mem_type,
+                                                  std::string* constant_error);
+
+        LLVMTypeRef build_union_storage_type(LLVMContextRef ctx, IrType const* semantic, std::vector<InitLeaf> const& slots_in, bool& ok)
+        {
+            ok = true;
+            std::vector<LLVMTypeRef> elems;
+            std::uint64_t cursor = 0;
+
+            auto slots = slots_in;
+            std::ranges::sort(slots, {}, &InitLeaf::offset);
+            for (auto const& s : slots)
+            {
+                if (s.offset > cursor)
+                    elems.push_back(LLVMArrayType2(LLVMInt8TypeInContext(ctx), static_cast<unsigned>(s.offset - cursor)));
+                elems.push_back(LLVMPointerTypeInContext(ctx, 0));
+                cursor = s.offset + s.size;
+            }
+            if (cursor < semantic->byte_size)
+                elems.push_back(LLVMArrayType2(LLVMInt8TypeInContext(ctx), static_cast<unsigned>(semantic->byte_size - cursor)));
+            if (elems.empty())
+                elems.push_back(LLVMArrayType2(LLVMInt8TypeInContext(ctx), static_cast<unsigned>(semantic->byte_size)));
+
+            return LLVMStructTypeInContext(ctx, elems.data(), static_cast<unsigned>(elems.size()), 1);
+        }
+
+        LLVMValueRef build_union_storage_init(LLVMContextRef ctx, TypeCache& tc, IrType const* semantic, std::vector<InitLeaf> const& slots_in,
+                                              std::vector<std::uint8_t> const& bytes, std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
+                                              std::string* error)
+        {
+            auto slots = slots_in;
+            std::ranges::sort(slots, {}, &InitLeaf::offset);
+
+            bool ok = false;
+            auto* storage_ty = build_union_storage_type(ctx, semantic, slots, ok);
+            if (!ok || !storage_ty)
+            {
+                set_constant_error(error, "LLVM backend: overlapping aggregate layout cannot be represented");
+                return nullptr;
+            }
+
+            auto field_count = LLVMCountStructElementTypes(storage_ty);
+            std::vector<LLVMValueRef> fields;
+            fields.reserve(field_count);
+
+            std::uint64_t cursor = 0;
+            std::size_t slot_idx = 0;
+            for (unsigned i = 0; i < field_count; ++i)
+            {
+                auto* field_ty = LLVMStructGetTypeAtIndex(storage_ty, i);
+                if (slot_idx < slots.size() && cursor == slots[slot_idx].offset)
+                {
+                    auto* slot_const = c_api_constant(slots[slot_idx].value, ctx, tc, val_map, LLVMPointerTypeInContext(ctx, 0), error);
+                    if (!slot_const)
+                        return nullptr;
+                    fields.push_back(slot_const);
+                    cursor = slots[slot_idx].offset + slots[slot_idx].size;
+                    ++slot_idx;
+                }
+                else
+                {
+                    auto pad_size = LLVMGetArrayLength2(field_ty);
+                    if (pad_size > 0 && cursor + pad_size <= bytes.size())
+                    {
+                        auto const* ptr = reinterpret_cast<char const*>(bytes.data() + static_cast<std::size_t>(cursor));
+                        fields.push_back(LLVMConstStringInContext(ctx, ptr, static_cast<unsigned>(pad_size), 1));
+                    }
+                    else
+                    {
+                        fields.push_back(LLVMConstNull(field_ty));
+                    }
+                    cursor += pad_size;
+                }
+            }
+
+            return LLVMConstNamedStruct(storage_ty, fields.data(), static_cast<unsigned>(fields.size()));
+        }
+
         [[nodiscard]] LLVMValueRef c_api_constant(IrValue const* v, LLVMContextRef ctx, TypeCache& tc,
                                                    std::unordered_map<IrValue const*, LLVMValueRef>& val_map, LLVMTypeRef expected_mem_type = nullptr,
                                                    std::string* constant_error = nullptr)
@@ -684,8 +880,9 @@ namespace dcc::backend
                 auto* storage_ty = c_api_type_cached(tc, v->type, true);
                 auto byte_count = LLVMGetArrayLength2(storage_ty);
                 std::vector<std::uint8_t> bytes(byte_count, 0);
-                if (serialize_constant_memory(v, v->type, bytes, tc.little_endian, constant_error))
-                    return LLVMConstStringInContext(ctx, reinterpret_cast<char const*>(bytes.data()), static_cast<unsigned>(bytes.size()), 1);
+                if (!serialize_constant_memory(v, v->type, bytes, tc.little_endian, constant_error))
+                    return nullptr;
+                return LLVMConstStringInContext(ctx, reinterpret_cast<char const*>(bytes.data()), static_cast<unsigned>(bytes.size()), 1);
             }
 
             if (is_llvm_byte_array_type(expected_mem_type))
@@ -763,6 +960,12 @@ namespace dcc::backend
                             };
                             result = LLVMConstGEP2(gv_value_type, result, indices, 2);
                         }
+                    }
+
+                    if (g->addend != 0)
+                    {
+                        LLVMValueRef addend_const = LLVMConstInt(LLVMInt64TypeInContext(ctx), static_cast<unsigned long long>(g->addend), 1);
+                        result = LLVMConstGEP2(LLVMInt8TypeInContext(ctx), result, &addend_const, 1);
                     }
 
                     return result;
@@ -1490,6 +1693,19 @@ namespace dcc::backend
                 if (!mem_ty)
                     return nullptr;
 
+                std::vector<InitLeaf> slots;
+                std::vector<std::uint8_t> bytes;
+                std::string layout_error;
+                bool is_reloc_union = g->init && g->init->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(g->type) &&
+                                      has_global_ref(g->init);
+                if (is_reloc_union && resolve_init_layout(g->init, g->type, slots, bytes, tc.little_endian, &layout_error))
+                {
+                    bool ok = false;
+                    auto* storage_ty = build_union_storage_type(tc.ctx, g->type, slots, ok);
+                    if (ok && storage_ty)
+                        mem_ty = storage_ty;
+                }
+
                 auto* gv = LLVMAddGlobal(mod, mem_ty, std::string{g->name}.c_str());
                 apply_linkage_and_comdat(gv, g->linkage, mod, g->name);
                 if (g->is_dll_import)
@@ -1511,7 +1727,21 @@ namespace dcc::backend
                 if (g->init)
                 {
                     std::string constant_error;
-                    init_val = c_api_constant(g->init, ctx, tc, val_map, mem_ty, &constant_error);
+
+                    if (g->init->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(g->type) && has_global_ref(g->init))
+                    {
+                        std::vector<InitLeaf> slots;
+                        std::vector<std::uint8_t> bytes;
+                        if (resolve_init_layout(g->init, g->type, slots, bytes, tc.little_endian, &constant_error))
+                        {
+                            init_val = build_union_storage_init(ctx, tc, g->type, slots, bytes, val_map, &constant_error);
+                        }
+                        else
+                            init_val = nullptr;
+                    }
+
+                    if (!init_val)
+                        init_val = c_api_constant(g->init, ctx, tc, val_map, mem_ty, &constant_error);
                     if (!init_val)
                     {
                         add_diag(diags, g->range, constant_error.empty() ? "LLVM backend: unsupported global initializer" : std::move(constant_error));
@@ -1530,6 +1760,8 @@ namespace dcc::backend
 
                 if (g->alignment > 0)
                     LLVMSetAlignment(gv, g->alignment);
+                else if (g->type && tc.uses_byte_storage(g->type) && g->init && g->init->kind == IrNodeKind::Aggregate && has_global_ref(g->init))
+                    LLVMSetAlignment(gv, static_cast<unsigned>(g->type->byte_align));
 
                 return true;
             }

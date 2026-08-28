@@ -9,7 +9,7 @@ public bool if_expr_bool(bool cond) {
 === EXPECT-LLVM FLAGS: -verify ===
 ; ModuleID = 'test'
 source_filename = "test"
-target triple = "x86_64-unknown-linux-gnu"
+target triple = "x86_64-elf"
 
 define i1 @if_expr_bool(i1 %cond) {
 entry:

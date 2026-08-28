@@ -34,3 +34,6 @@ TranslationUnit
           Ident x
         Field name=y
           Ident y
+
+=== EXPECT-ERRORS ===
+main.dc:5: initializer for global `p` is not a constant expression

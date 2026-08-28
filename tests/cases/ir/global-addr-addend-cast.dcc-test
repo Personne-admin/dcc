@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pair { u64 a; u64 b; }
+@nomangle
+Pair pair = {a = 10, b = 20};
+@nomangle
+u64[4] arr = {1, 2, 3, 4};
+@nomangle
+u8* pb = &pair.b as u8*;
+@nomangle
+u8* p1 = &arr[1] as u8*;
+@nomangle
+u8* p3 = &arr[3] as u8*;
+
+=== EXPECT-IR ===
+module "test"
+
+global @pair : {@0 u64, @8 u64} = aggregate {@0 u64, @8 u64}, #10, #20
+
+global @arr : [4 x u64] = aggregate [4 x u64], #1, #2, #3, #4
+
+global @pb : ptr<u8> = @pair + 8
+
+global @p1 : ptr<u8> = @arr + 8
+
+global @p3 : ptr<u8> = @arr + 24
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i64, i64 }
+
+@pair = internal global %0 { i64 10, i64 20 }
+@arr = internal global [4 x i64] [i64 1, i64 2, i64 3, i64 4]
+@pb = internal global ptr getelementptr (i8, ptr @pair, i64 8)
+@p1 = internal global ptr getelementptr (i8, ptr @arr, i64 8)
+@p3 = internal global ptr getelementptr (i8, ptr @arr, i64 24)
