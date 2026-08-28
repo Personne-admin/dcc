@@ -18,7 +18,7 @@ ALL_TEST_OBJS := $(call objs-from-srcs,$(TEST_SRCS))
 ALL_TEST_BINS := $(patsubst $(TOPLEVEL)/tests/source/%.cc,$(BUILD_DIR)/bin/tests/%,$(TEST_SRCS))
 ALL_DEPS := $(ALL_TEST_OBJS:.o=.d)
 
-COMPILER_PCMS := $(wildcard $(PCM_DIR)/compiler/source/*.pcm)
+COMPILER_PCMS := $(wildcard $(PCM_DIR)/dcc.*.pcm)
 DCCD_PCMS := $(wildcard $(PCM_DIR)/dccd.*.pcm)
 
 TEST_LDFLAGS := $(LLVM_LDFLAGS)
@@ -79,22 +79,22 @@ $(BUILD_DIR)/bin/tests/test_lsp: $(OBJ_DIR)/tests/source/test_lsp.cc.o $(DCCD_SE
 $(BUILD_DIR)/bin/tests/%: $(OBJ_DIR)/tests/source/%.cc.o $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
-$(OBJ_DIR)/tests/source/test_format.cc.o: $(TOPLEVEL)/tests/source/test_format.cc | $(COMPILER_PCMS) $(DCCD_PCMS)
+$(OBJ_DIR)/tests/source/test_format.cc.o: $(TOPLEVEL)/tests/source/test_format.cc $(COMPILER_PCMS) $(DCCD_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(OBJ_DIR)/tests/source/test_protocol.cc.o: $(TOPLEVEL)/tests/source/test_protocol.cc | $(COMPILER_PCMS) $(DCCD_PCMS)
+$(OBJ_DIR)/tests/source/test_protocol.cc.o: $(TOPLEVEL)/tests/source/test_protocol.cc $(COMPILER_PCMS) $(DCCD_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(OBJ_DIR)/tests/source/test_workspace_index.cc.o: $(TOPLEVEL)/tests/source/test_workspace_index.cc | $(COMPILER_PCMS) $(DCCD_PCMS)
+$(OBJ_DIR)/tests/source/test_workspace_index.cc.o: $(TOPLEVEL)/tests/source/test_workspace_index.cc $(COMPILER_PCMS) $(DCCD_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(OBJ_DIR)/tests/source/test_transport.cc.o: $(TOPLEVEL)/tests/source/test_transport.cc | $(COMPILER_PCMS) $(DCCD_PCMS)
+$(OBJ_DIR)/tests/source/test_transport.cc.o: $(TOPLEVEL)/tests/source/test_transport.cc $(COMPILER_PCMS) $(DCCD_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(OBJ_DIR)/tests/source/test_lsp.cc.o: $(TOPLEVEL)/tests/source/test_lsp.cc | $(COMPILER_PCMS) $(DCCD_PCMS)
+$(OBJ_DIR)/tests/source/test_lsp.cc.o: $(TOPLEVEL)/tests/source/test_lsp.cc $(COMPILER_PCMS) $(DCCD_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% | $(COMPILER_PCMS)
+$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:
