@@ -1,0 +1,45 @@
+=== FILE: test.dc ===
+module test;
+
+using u64[4] Values = { 10, 20, 30, 40 };
+
+@nomangle
+public u64 get(u64 i) {
+    return Values[i];
+}
+
+@nomangle
+public i32 dcc_main() {
+    return get(3) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 40
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+TARGET: x86_64-coff
+CONTAINS: dcc_main
+CONTAINS: get
+FORBID-COFF-DEFINED: _DC0G1.4.test6.ValuesA4i64u
+
+=== EXPECT-IR ===
+module "test"
+@nomangle
+u64@get(u64) {
+%entry(u64 %i):
+  %0 = alloca [4 x u64]
+  store [4 x u64] aggregate [4 x u64], #10, #20, #30, #40, ptr<[4 x u64]> %0
+  %1 = gep ptr<[4 x u64]> %0, %i
+  %2 = load u64, ptr<u64> %1
+  ret u64 %2
+}
+
+@nomangle
+i32@dcc_main() {
+%entry:
+  %0 = call fn(@get)(u64 #3) -> u64
+  %1 = trunc u64 %0 to i32
+  ret i32 %1
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

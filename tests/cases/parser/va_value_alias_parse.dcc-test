@@ -1,0 +1,108 @@
+=== FILE: main.dc ===
+module main;
+
+using u64 A = 1;
+using u64[4] B = { 1, 2, 3, 4 };
+using f32 F = 2.5;
+using bool G = true;
+using char H = 'x';
+using i32* P = null;
+
+public using u64 R = 7;
+using public u64 S = 8;
+
+struct Foo { u64 v; }
+using Foo* Q = null;
+using Foo*[2] T = { null, null };
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module main
+  Using kind=value_alias
+    alias=A
+    TargetType
+      Primitive u64
+    TargetExpr
+      IntLiteral 1
+  Using kind=value_alias
+    alias=B
+    TargetType
+      Array
+        Element
+          Primitive u64
+        Size
+          IntLiteral 4
+    TargetExpr
+      StructLiteral
+        Field name=
+          IntLiteral 1
+        Field name=
+          IntLiteral 2
+        Field name=
+          IntLiteral 3
+        Field name=
+          IntLiteral 4
+  Using kind=value_alias
+    alias=F
+    TargetType
+      Primitive f32
+    TargetExpr
+      FloatLiteral 2.5
+  Using kind=value_alias
+    alias=G
+    TargetType
+      Primitive bool
+    TargetExpr
+      BoolLiteral true
+  Using kind=value_alias
+    alias=H
+    TargetType
+      Primitive char
+    TargetExpr
+      CharLiteral 120
+  Using kind=value_alias
+    alias=P
+    TargetType
+      Pointer
+        Primitive i32
+    TargetExpr
+      NullLiteral
+  Using kind=value_alias
+    public
+    alias=R
+    TargetType
+      Primitive u64
+    TargetExpr
+      IntLiteral 7
+  Using kind=value_alias spill
+    public
+    alias=S
+    TargetType
+      Primitive u64
+    TargetExpr
+      IntLiteral 8
+  Struct name=Foo
+    Field name=v
+      Primitive u64
+  Using kind=value_alias
+    alias=Q
+    TargetType
+      Pointer
+        Named Foo
+    TargetExpr
+      NullLiteral
+  Using kind=value_alias
+    alias=T
+    TargetType
+      Array
+        Element
+          Pointer
+            Named Foo
+        Size
+          IntLiteral 2
+    TargetExpr
+      StructLiteral
+        Field name=
+          NullLiteral
+        Field name=
+          NullLiteral

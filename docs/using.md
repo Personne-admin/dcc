@@ -16,6 +16,46 @@ using Vec3 = f32[3];
 using Callback = void(*)(i32, i32);
 ```
 
+## Value aliases
+
+```dc
+using Type Name = expression;
+```
+
+Binds a name to a compile-time constant value of the given type. The type comes
+first, then the binding name, then an `=` initializer. The initializer must be a
+compile-time constant and is checked and converted against the declared type.
+
+```dc
+using u64 A = 1;
+using u64[4] B = { 1, 2, 3, 4 };
+using Foo* P = null;
+using ns::Foo X = constant_expression;
+```
+
+Value aliases may reference other value aliases and compile-time constants, and
+may be used from normal runtime expressions, where they evaluate to their
+constant value. Aggregate value aliases (arrays and structs) embed the values of
+their elements.
+
+A value alias is not an object: it has no storage and no address. `&A` is an
+error, and assignment or increment/decrement of a value alias is an error.
+Declaring a value alias never emits a global, a `.rodata`/`.data` entry, or an
+object symbol. To create an actual object holding the value, use a `const`
+object instead:
+
+```dc
+using u64[4] Values = { 1, 2, 3, 4 };
+const u64[4] stored = Values;
+```
+
+Visibility forms work as for type aliases:
+
+```dc
+public using u64 A = 1;    // importers see module_name::A
+using public u64 B = 2;    // importers see B unqualified
+```
+
 ## Concepts
 
 ```dc

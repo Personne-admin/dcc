@@ -169,6 +169,9 @@ export namespace dcc::sema
                 case ast::UsingKind::Alias:
                     line_fmt("Alias: {}", type_str(d.target_type ? d.target_type->sema.canonical : nullptr));
                     break;
+                case ast::UsingKind::ValueAlias:
+                    line_fmt("ValueAlias: {}", type_str(d.target_type ? d.target_type->sema.canonical : nullptr));
+                    break;
                 case ast::UsingKind::Concept:
                     if (auto* c = ast::node_cast<ast::CompilesExpr>(d.target_expr))
                         for (auto const& p : c->params)

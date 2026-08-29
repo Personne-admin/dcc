@@ -220,6 +220,8 @@ export namespace dcc::sema
             return b.has_namespace && b.namespace_sym.is_spilled;
         }
 
+        static bool is_variable_like(SymbolKind k) noexcept { return k == SymbolKind::Variable || k == SymbolKind::ValueAlias; }
+
         static bool install_binding_in_scope(NameBinding const& src, std::string_view target_name, Scope& dst, bool is_exported)
         {
             bool added = false;
@@ -243,7 +245,7 @@ export namespace dcc::sema
                 s.is_exported = is_exported;
                 auto* binding = dst.find_binding_local(target_name);
 
-                if (vs.kind == SymbolKind::Variable)
+                if (is_variable_like(vs.kind))
                 {
                     if (binding)
                     {
@@ -309,6 +311,8 @@ export namespace dcc::sema
             {
                 case ast::UsingKind::Alias:
                     return resolve_alias(mod, u);
+                case ast::UsingKind::ValueAlias:
+                    return resolve_value_alias(mod, u);
                 case ast::UsingKind::BareImport:
                     return resolve_bare(mod, u);
                 case ast::UsingKind::Wildcard:
@@ -405,6 +409,48 @@ export namespace dcc::sema
                 write(*mod.export_scope, u.is_spill);
 
             record_resolved(u, u.alias_path.segments.back().name, &u);
+            return true;
+        }
+
+        bool resolve_value_alias(ModuleInfo& mod, ast::UsingDecl& u)
+        {
+            if (u.alias_path.is_empty())
+            {
+                m_diag.error(u.range, "value alias missing name");
+                m_resolved.insert(&u);
+                return true;
+            }
+
+            std::string_view name = u.alias_path.segments.back().name;
+
+            auto write = [&](Scope& root, bool spill) -> bool {
+                Scope* cur = walk_alias_prefix(root, u.alias_path, u, spill);
+                Symbol s{};
+                s.name = name;
+                s.kind = SymbolKind::ValueAlias;
+                s.decl = &u;
+                s.via_using = &u;
+                s.is_exported = u.is_public;
+                s.is_spilled = spill;
+                s.definition_range = u.name_range.valid() ? u.name_range : u.range;
+                Symbol const* existing = nullptr;
+                auto r = cur->define_variable(s, &existing);
+                if (r == DefineResult::Conflict)
+                {
+                    auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::format("redefinition of `{}`", name)}.primary(
+                        u.name_range.valid() ? u.name_range : u.range);
+                    if (existing && existing->definition_range.valid())
+                        std::move(diag_obj).secondary(existing->definition_range, "previous definition was here");
+                    m_diag.emit(std::move(diag_obj));
+                }
+                return r == DefineResult::Ok;
+            };
+
+            write(*mod.own_scope, u.is_spill);
+            if (u.is_public || u.is_spill)
+                write(*mod.export_scope, u.is_spill);
+
+            record_resolved(u, name, &u);
             return true;
         }
 
@@ -709,7 +755,7 @@ export namespace dcc::sema
                 apply_using_flags(s);
                 auto* binding = dst.find_binding_local(target_name);
 
-                if (vs.kind == SymbolKind::Variable)
+                if (is_variable_like(vs.kind))
                 {
                     if (binding)
                     {
@@ -795,7 +841,7 @@ export namespace dcc::sema
                 s.name = name;
                 auto* binding = dst.find_binding_local(name);
 
-                if (vs.kind == SymbolKind::Variable)
+                if (is_variable_like(vs.kind))
                 {
                     if (binding)
                     {

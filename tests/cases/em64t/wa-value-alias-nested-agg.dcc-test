@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+
+using u64 A = 1;
+using u64 B = 2;
+using u64[2] Pair = { A, B };
+using u64 Sum = Pair[0] + Pair[1];
+
+@nomangle
+public i32 dcc_main() {
+    return Sum as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 3

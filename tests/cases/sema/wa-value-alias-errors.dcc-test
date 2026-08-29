@@ -1,0 +1,85 @@
+=== FILE: test.dc ===
+module test;
+
+using u64 A = 4;
+using u64 B = 2;
+
+u64 g_mut = 0;
+
+using u64 Bad = g_mut;
+
+struct Point { u64 x; u64 y; }
+using Point Origin = { x = 3, y = 4 };
+using u64[2] Pair = { 10, 20 };
+
+public void take_addr() {
+    u64* p = &A;
+}
+
+public void assign() {
+    A = 5;
+}
+
+public void incr() {
+    A++;
+}
+
+public void decr() {
+    A--;
+}
+
+public void pre_incr() {
+    ++A;
+}
+
+public void compound() {
+    A += B;
+}
+
+public void take_addr_field() {
+    u64* p = &Origin.x;
+}
+
+public void take_addr_elem() {
+    u64* p = &Pair[0];
+}
+
+public void take_addr_runtime(u64 i) {
+    u64* p = &Pair[i];
+}
+
+public void mutate_field() {
+    Origin.x = 5;
+}
+
+public void mutate_elem() {
+    Pair[0] = 5;
+}
+
+public void incr_field() {
+    Origin.x++;
+}
+
+public void slice_alias() {
+    Pair[0..2];
+}
+
+public u64 read_proj() {
+    return Origin.x + Pair[1];
+}
+
+=== EXPECT-ERRORS ===
+test.dc:8: initializer for value alias `Bad` is not a compile-time constant
+test.dc:15: value alias `A` has no storage or address
+test.dc:19: value alias `A` is not assignable
+test.dc:23: value alias `A` is not assignable
+test.dc:27: value alias `A` is not assignable
+test.dc:31: value alias `A` is not assignable
+test.dc:35: value alias `A` is not assignable
+test.dc:39: value alias `Origin` has no storage or address
+test.dc:43: value alias `Pair` has no storage or address
+test.dc:47: value alias `Pair` has no storage or address
+test.dc:51: value alias `Origin` is not assignable
+test.dc:55: value alias `Pair` is not assignable
+test.dc:59: value alias `Origin` is not assignable
+test.dc:63: value alias `Pair` has no storage or address; range slicing is not allowed

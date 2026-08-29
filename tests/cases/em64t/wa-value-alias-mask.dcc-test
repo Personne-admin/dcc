@@ -1,0 +1,54 @@
+=== FILE: test.dc ===
+module test;
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+
+using u64 MASK = 0xFF;
+using u64 SHIFT = 8;
+
+@nomangle
+public u64 apply_mask(u64 x) {
+    return (x & MASK) >> SHIFT;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u64 r = apply_mask(0x1234);
+    return r as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@dummy_ro = internal constant i32 0
+@dummy_data = internal global i32 0
+@dummy_bss = internal global i32 0
+
+define i64 @apply_mask(i64 %x) {
+entry:
+  %"0" = and i64 %x, 255
+  %"1" = lshr i64 %"0", 8
+  ret i64 %"1"
+}
+
+define i32 @dcc_main() {
+entry:
+  %"0" = alloca i64, align 8
+  %"1" = call i64 @apply_mask(i64 4660)
+  store i64 %"1", ptr %"0", align 4
+  %"2" = load i64, ptr %"0", align 4
+  %"3" = trunc i64 %"2" to i32
+  ret i32 %"3"
+}

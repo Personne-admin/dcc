@@ -201,6 +201,49 @@ The distinction:
 | `public using X = Y;`     | Alias is importable: importers see `ourmod::X`    |
 | `using public X = Y;`     | Direct injection: importers see `X` unqualified   |
 
+### 6.5 Value alias
+
+A value alias binds a name to a compile-time constant value:
+
+```dc
+using u64 A = 1;
+using u64[4] B = { 1, 2, 3, 4 };
+using Foo* P = null;
+using ns::Foo X = some_constant_expression;
+```
+
+The declared type comes first, followed by the binding name and an `=`
+initializer. The initializer must be a compile-time constant expression and is
+checked and converted against the declared type, in the same way as a `const`
+object initializer. Value aliases may reference other value aliases (including
+aggregate elements) and compile-time constants, and they may be referenced from
+normal runtime expressions, where they evaluate to their constant value.
+
+A value alias is not an object. It has no storage, no address, and no
+writable identity:
+
+- `&A` is an error: the value alias has no storage or address.
+- Assignment and increment/decrement of a value alias are errors.
+- A value alias declaration never creates a global, a `.rodata`/`.data`
+  entry, or any object symbol on its own.
+
+To materialize an actual object holding the value, declare a `const` object:
+
+```dc
+using u64[4] Values = { 1, 2, 3, 4 };
+const u64[4] stored = Values;   // `stored` is a real object
+```
+
+This is the same distinction as between a type alias and the type it names:
+a value alias is a name for a value, whereas `const` declares a named object
+that happens to be immutable. Visibility forms work as for type aliases:
+
+| Syntax                          | Effect                                         |
+|---------------------------------|------------------------------------------------|
+| `using u64 A = 1;`              | Private value alias, local scope only          |
+| `public using u64 A = 1;`       | Importable: importers see `ourmod::A`          |
+| `using public u64 A = 1;`       | Direct injection: importers see `A` unqualified |
+
 ---
 
 ## 7. Module System

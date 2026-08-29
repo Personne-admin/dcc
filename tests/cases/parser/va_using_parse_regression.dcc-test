@@ -1,0 +1,122 @@
+=== FILE: main.dc ===
+module main;
+import math;
+
+using V3 = f32[3];
+using FnPtr = void(*)(i32, i32);
+using Addable(T) = compiles(T a) { a + a; };
+using Numeric(T) = compiles(T a) { a + a; };
+using math::sin;
+using math::cos;
+using lib = math;
+using { math::sin, math::cos };
+using group = { math::sin, math::cos };
+using math::*;
+using math_group = math::*;
+using V = math::Vec3;
+public using W = math::Vec3;
+using public X = math::Vec3;
+using Pair::make = math::sin;
+using math::{ sin, cos };
+
+=== FILE: math.dc ===
+module math;
+public struct Vec3 { f32 x; f32 y; f32 z; }
+public f32 sin(f32 x) { return 0.0; }
+public f32 cos(f32 x) { return 0.0; }
+public using V = Vec3;
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module main
+  Import math
+  Using kind=alias
+    alias=V3
+    TargetType
+      Array
+        Element
+          Primitive f32
+        Size
+          IntLiteral 3
+  Using kind=alias
+    alias=FnPtr
+    TargetType
+      FuncPtr
+        Return
+          Primitive void
+        Params
+          Primitive i32
+          Primitive i32
+  Using kind=concept
+    alias=Addable
+    TemplateParams
+      Param name=T
+    TargetExpr
+      Compiles
+        Params
+          Param name=a
+            Named T
+        Body
+          ExprStmt
+            Binary op=+
+              Ident a
+              Ident a
+  Using kind=concept
+    alias=Numeric
+    TemplateParams
+      Param name=T
+    TargetExpr
+      Compiles
+        Params
+          Param name=a
+            Named T
+        Body
+          ExprStmt
+            Binary op=+
+              Ident a
+              Ident a
+  Using kind=bare
+    target_path=math::sin
+  Using kind=bare
+    target_path=math::cos
+  Using kind=alias
+    alias=lib
+    TargetType
+      Named math
+  Using kind=list
+    Targets
+      math::sin
+      math::cos
+  Using kind=list
+    alias=group
+    Targets
+      math::sin
+      math::cos
+  Using kind=wildcard
+    target_path=math
+  Using kind=wildcard
+    alias=math_group
+    target_path=math
+  Using kind=alias
+    alias=V
+    TargetType
+      Named math::Vec3
+  Using kind=alias
+    public
+    alias=W
+    TargetType
+      Named math::Vec3
+  Using kind=alias spill
+    public
+    alias=X
+    TargetType
+      Named math::Vec3
+  Using kind=alias
+    alias=Pair::make
+    TargetType
+      Named math::sin
+  Using kind=list
+    target_path=math
+    Targets
+      sin
+      cos

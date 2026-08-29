@@ -1,0 +1,37 @@
+=== FILE: test.dc ===
+module test;
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+
+using u64 A = 4;
+using u64 B = A;
+using u64 C = A + B;
+
+@nomangle
+public i32 dcc_main() {
+    return C as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 8
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@dummy_ro = internal constant i32 0
+@dummy_data = internal global i32 0
+@dummy_bss = internal global i32 0
+
+define i32 @dcc_main() {
+entry:
+  ret i32 8
+}

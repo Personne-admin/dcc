@@ -1,0 +1,46 @@
+=== FILE: test.dc ===
+module test;
+
+struct Foo { u64 v; }
+using u64[4] Values = { 1, 2, 3, 4 };
+using Foo* P = null;
+
+u64* gp = Values;
+[]u64 gs = Values;
+
+public void take_ptr(u64* p) {}
+public void take_slice([]u64 s) {}
+public u64* make_ptr() { return Values; }
+public []u64 make_slice() { return Values; }
+public u64 head([]u64 self) { return self[0]; }
+
+public void f1() {
+    u64* p = Values;
+    []u64 s = Values;
+    u64* q;
+    q = Values;
+    []u64 s2;
+    s2 = Values;
+    take_ptr(Values);
+    take_slice(Values);
+    Values.head();
+}
+
+public void f2() {
+    u64[4] c = Values;
+    Foo* fp = P;
+    u64 x = Values[1] + Values[2];
+}
+
+=== EXPECT-ERRORS ===
+test.dc:7: value alias `Values` has no storage or address
+test.dc:8: value alias `Values` has no storage or address
+test.dc:12: value alias `Values` has no storage or address
+test.dc:13: value alias `Values` has no storage or address
+test.dc:17: value alias `Values` has no storage or address
+test.dc:18: value alias `Values` has no storage or address
+test.dc:20: value alias `Values` has no storage or address
+test.dc:22: value alias `Values` has no storage or address
+test.dc:23: value alias `Values` has no storage or address
+test.dc:24: value alias `Values` has no storage or address
+test.dc:25: value alias `Values` has no storage or address
