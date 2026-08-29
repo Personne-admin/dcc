@@ -1,0 +1,2 @@
+- [ ] early-evaluation problem affecting module-level static if and type-level array extents
+- [ ] mixed alias/const cycle diagnostics improvements
