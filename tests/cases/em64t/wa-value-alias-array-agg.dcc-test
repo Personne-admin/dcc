@@ -1,0 +1,50 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+using u64[4] Vals = { 10, 20, 30, 40 };
+const u64[4] stored = Vals;
+
+@nomangle
+public u64 get_elem(u64 idx) {
+    return stored[idx];
+}
+
+@nomangle
+public i32 dcc_main() {
+    return get_elem(2) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 30
+REQUIRE-SECTION-READONLY: .rodata
+FORBID-RELA: .rodata R_X86_64_64
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@dummy_data = internal global i32 0
+@dummy_bss = internal global i32 0
+@_DC0G1.4.test6.storedA4i64u = internal constant [4 x i64] [i64 10, i64 20, i64 30, i64 40]
+
+define i64 @get_elem(i64 %idx) {
+entry:
+  %"0" = load [4 x i64], ptr @_DC0G1.4.test6.storedA4i64u, align 4
+  %"1" = getelementptr [4 x i64], ptr @_DC0G1.4.test6.storedA4i64u, i32 0, i64 %idx
+  %"2" = load i64, ptr %"1", align 4
+  ret i64 %"2"
+}
+
+define i32 @dcc_main() {
+entry:
+  %"0" = call i64 @get_elem(i64 2)
+  %"1" = trunc i64 %"0" to i32
+  ret i32 %"1"
+}

@@ -1651,6 +1651,24 @@ namespace dcc::backend::em64t
                     else if (auto* lv = ir_cast<IrLoadVolatileInst>(inst))
                         ptr_val = lv->pointer;
 
+                    if (is_memory_type(load_type))
+                    {
+                        auto alloca_it = ctx.alloca_to_slot.find(ptr_val);
+                        ctx.memory_addr_values.insert(inst);
+                        if (alloca_it != ctx.alloca_to_slot.end())
+                        {
+                            ctx.aggregate_to_slot[inst] = alloca_it->second;
+                            ctx.set_vreg(inst, emit_slot_addr(ctx, alloca_it->second));
+                        }
+                        else
+                        {
+                            VReg addr = ctx.try_materialize(ptr_val);
+                            if (addr.is_valid())
+                                ctx.set_vreg(inst, addr);
+                        }
+                        break;
+                    }
+
                     if (auto* gr = ir_cast<IrGlobalRef>(ptr_val))
                     {
                         if (is_dllimport_coff(ctx.target, gr))
@@ -1717,23 +1735,6 @@ namespace dcc::backend::em64t
                     else
                     {
                         auto alloca_it = ctx.alloca_to_slot.find(ptr_val);
-
-                        if (is_memory_type(load_type))
-                        {
-                            ctx.memory_addr_values.insert(inst);
-                            if (alloca_it != ctx.alloca_to_slot.end())
-                            {
-                                ctx.aggregate_to_slot[inst] = alloca_it->second;
-                                ctx.set_vreg(inst, emit_slot_addr(ctx, alloca_it->second));
-                            }
-                            else
-                            {
-                                VReg addr = ctx.try_materialize(ptr_val);
-                                if (addr.is_valid())
-                                    ctx.set_vreg(inst, addr);
-                            }
-                            break;
-                        }
 
                         if (alloca_it != ctx.alloca_to_slot.end())
                         {

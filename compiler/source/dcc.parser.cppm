@@ -774,6 +774,28 @@ export namespace dcc::parser
                 return d;
             }
 
+            {
+                Speculation spec(*this);
+                auto* alias_type = parse_type();
+                if (alias_type && !spec.had_suppressed_errors() && check(TK::Identifier) && check_at(1, TK::Eq))
+                {
+                    spec.commit();
+                    auto binding = advance();
+                    advance();
+                    d->using_kind = ast::UsingKind::ValueAlias;
+                    d->target_type = alias_type;
+                    ast::Path alias{m_ctx.allocator()};
+                    alias.segments.push_back({binding.interned, binding.range});
+                    alias.range = binding.range;
+                    d->alias_path = std::move(alias);
+                    d->name_range = binding.range;
+                    d->target_expr = parse_expr();
+                    expect(TK::Semicolon, "after using declaration");
+                    d->range = range_from(start);
+                    return d;
+                }
+            }
+
             auto lhs = parse_path();
 
             if (check(TK::ColonColon) && check_at(1, TK::LBrace))

@@ -2889,6 +2889,9 @@ export namespace dcc::ir::lower
             if (!resolved)
                 lower_panic(pe, "PathExpr missing resolved_decl");
 
+            if (pe->sema.const_value)
+                return materialize_comptime(*pe->sema.const_value, get_sema_resolved_type(pe));
+
             if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
             {
                 auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
@@ -7505,6 +7508,7 @@ export namespace dcc::ir::lower
             auto* obj_sema_type = get_sema_resolved_type(idx_expr->object);
 
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array &&
+                idx_expr->object->sema.is_lvalue &&
                 (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess))
             {
                 auto* base_ptr = lower_addr_of(idx_expr->object);
@@ -7618,6 +7622,43 @@ export namespace dcc::ir::lower
                 }
             }
 
+            if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array)
+            {
+                if (auto* base_ptr = lower_global_address_of(idx_expr->object))
+                {
+                    if (m_bounds_check)
+                    {
+                        auto const* at = types::type_cast<types::ArrayType>(obj_sema_type);
+                        if (at)
+                        {
+                            bool skip_check = false;
+                            if (auto* iconst = ir_cast<IrIntConstant>(index_val))
+                                if (iconst->value >= 0 && static_cast<std::uint64_t>(iconst->value) < at->count)
+                                    skip_check = true;
+
+                            if (!skip_check)
+                            {
+                                auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(at->count));
+                                emit_bounds_check(nullptr, len_val, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Array);
+                            }
+                        }
+                    }
+
+                    auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                    gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
+                    auto gep_name = ident_name();
+                    gep->name = m_name_pool.back();
+                    append_inst(gep);
+
+                    auto* loaded = m_ctx.load(ir_resolved_type, gep);
+                    auto load_name = ident_name();
+                    loaded->name = m_name_pool.back();
+                    append_inst(loaded);
+                    return loaded;
+                }
+            }
+
             if (auto* gr = ir_cast<IrGlobalRef>(obj_val))
             {
                 if (gr->global)
@@ -7666,6 +7707,38 @@ export namespace dcc::ir::lower
                     extracted->name = m_name_pool.back();
                     append_inst(extracted);
                     return extracted;
+                }
+
+                if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array)
+                {
+                    if (m_bounds_check)
+                    {
+                        if (auto const* at = types::type_cast<types::ArrayType>(obj_sema_type))
+                        {
+                            auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(at->count));
+                            emit_bounds_check(nullptr, len_val, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Array);
+                        }
+                    }
+
+                    auto* array_ptr_type = m_ctx.pointer_to(obj_val->type);
+                    auto* temp = m_ctx.alloca(array_ptr_type, obj_val->type);
+                    auto temp_name = ident_name();
+                    temp->name = m_name_pool.back();
+                    append_inst(temp);
+                    append_inst(m_ctx.store(obj_val, temp));
+
+                    auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                    auto* gep = m_ctx.gep(elem_ptr_type, temp);
+                    gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
+                    auto gep_name = ident_name();
+                    gep->name = m_name_pool.back();
+                    append_inst(gep);
+
+                    auto* loaded = m_ctx.load(ir_resolved_type, gep);
+                    auto load_name = ident_name();
+                    loaded->name = m_name_pool.back();
+                    append_inst(loaded);
+                    return loaded;
                 }
             }
 

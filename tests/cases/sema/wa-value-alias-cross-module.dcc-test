@@ -1,0 +1,40 @@
+=== FILE: m1.dc ===
+module m1;
+public using u64 A = 4;
+using public u64 B = 8;
+public using u64 C = A + B;
+
+=== FILE: main.dc ===
+module main;
+import m1;
+using u64 R = m1::A + m1::C + B;
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-SCOPE FOR: main ===
+Module main
+  OwnScope
+    Binding B
+      Value: value_alias exported spilled via-using
+    Binding R
+      Value: value_alias via-using
+    Binding m1
+      Namespace: module
+        (foreign-scope)
+  ExportScope
+=== EXPECT-SCOPE FOR: m1 ===
+Module m1
+  OwnScope
+    Binding A
+      Value: value_alias exported via-using
+    Binding B
+      Value: value_alias exported spilled via-using
+    Binding C
+      Value: value_alias exported via-using
+  ExportScope
+    Binding A
+      Value: value_alias exported via-using
+    Binding B
+      Value: value_alias exported spilled via-using
+    Binding C
+      Value: value_alias exported via-using

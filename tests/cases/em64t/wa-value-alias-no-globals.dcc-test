@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+using u64 A = 4;
+using u64 B = A;
+using u64[4] Vals = { 1, 2, 3, 4 };
+@nomangle
+public i32 dcc_main() {
+    return (A + B + Vals[0]) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+CONTAINS: dcc_main
+FORBID-COFF-DEFINED: _DC0G1.4.test1.Ai64u
+FORBID-COFF-DEFINED: _DC0G1.4.test1.Bi64u
+FORBID-COFF-DEFINED: _DC0G1.4.test4.ValsA4i64u

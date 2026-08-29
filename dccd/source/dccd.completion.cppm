@@ -49,6 +49,8 @@ namespace dccd::completion
                     return protocol::CompletionItemKind::Function;
                 case SymbolKind::Variable:
                     return protocol::CompletionItemKind::Variable;
+                case SymbolKind::ValueAlias:
+                    return protocol::CompletionItemKind::Constant;
                 case SymbolKind::EnumVariant:
                     return protocol::CompletionItemKind::EnumMember;
                 case SymbolKind::Module:

@@ -64,6 +64,8 @@ export namespace dcc::sema
                     return "variable";
                 case SymbolKind::EnumVariant:
                     return "variant";
+                case SymbolKind::ValueAlias:
+                    return "value_alias";
                 case SymbolKind::Module:
                     return "module";
                 case SymbolKind::UsingGroup:

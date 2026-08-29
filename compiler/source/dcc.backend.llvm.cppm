@@ -2297,7 +2297,7 @@ namespace dcc::backend
                     return true;
 
                 auto set_name = [&](LLVMValueRef v) {
-                    if (!inst->name.empty())
+                    if (!inst->name.empty() && v && !LLVMIsConstant(v))
                         LLVMSetValueName2(v, std::string{inst->name}.c_str(), inst->name.size());
                 };
 

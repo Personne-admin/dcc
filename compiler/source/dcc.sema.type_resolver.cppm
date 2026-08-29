@@ -405,6 +405,10 @@ export namespace dcc::sema
                         }
                     }
                     break;
+                case ast::UsingKind::ValueAlias:
+                    if (d.target_type)
+                        std::ignore = resolve_type_expr(d.target_type, mod, env);
+                    break;
                 case ast::UsingKind::Concept:
                     resolve_concept_target_expr(d.target_expr, mod, env);
                     break;

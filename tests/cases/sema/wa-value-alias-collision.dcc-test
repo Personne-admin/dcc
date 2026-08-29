@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+using u64 A = 4;
+const u64 A = 9;
+
+using u64 B = 1;
+u64 B = 2;
+
+using u64 C = 3;
+public u64 C() { return 0; }
+
+u64 D = 5;
+using u64 D = 6;
+
+const u64 E = 7;
+using u64 E = 8;
+
+using u64 Ok = 1;
+const u64 Ok2 = Ok;
+
+=== EXPECT-ERRORS ===
+test.dc:3: redefinition of `A`
+test.dc:6: redefinition of `B`
+test.dc:9: redefinition of `C`
+test.dc:13: redefinition of `D`
+test.dc:16: redefinition of `E`

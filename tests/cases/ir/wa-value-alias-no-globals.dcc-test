@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+using u64 A = 4;
+using u64 B = A;
+using u64 C = A + B;
+public i32 dcc_main() {
+    return (A + B + C) as i32;
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test8.dcc_main0i32s() {
+%entry:
+  ret i32 #16
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i32 @_DC0F1.4.test8.dcc_main0i32s() {
+entry:
+  ret i32 16
+}

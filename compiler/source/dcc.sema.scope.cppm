@@ -131,6 +131,7 @@ export namespace dcc::sema
         Function,
         Variable,
         EnumVariant,
+        ValueAlias,
 
         Module,
         UsingGroup,
@@ -149,6 +150,7 @@ export namespace dcc::sema
             case SymbolKind::Function:
             case SymbolKind::Variable:
             case SymbolKind::EnumVariant:
+            case SymbolKind::ValueAlias:
                 return NameSpace::Value;
             case SymbolKind::Module:
             case SymbolKind::UsingGroup:

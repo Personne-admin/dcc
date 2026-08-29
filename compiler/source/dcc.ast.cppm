@@ -198,6 +198,7 @@ export namespace dcc::ast
         Wildcard,
         List,
         Concept,
+        ValueAlias,
     };
 
     struct UsingItem
@@ -1128,6 +1129,8 @@ export namespace dcc::ast
         std::pmr::vector<Path> target_list;
         std::pmr::vector<UsingItem*> target_items;
         ExprPtr target_expr{};
+
+        dcc::comptime::Value const* value{};
 
         struct ResolvedBinding
         {

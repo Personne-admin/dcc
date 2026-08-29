@@ -800,6 +800,7 @@ export namespace dcc::sema
             types::TypePtr type{};
             comptime::Value const* constant{};
             ast::Decl const* resolved_decl{};
+            ast::UsingDecl const* value_alias_origin{};
             CommittedSpecialization spec_commit{};
             ast::Decl const* ufcs_callee{};
             ConstructionKind construction_kind{ConstructionKind::None};
@@ -877,17 +878,30 @@ export namespace dcc::sema
                 }
             }
 
+            analyze_value_alias_initializers();
+            resolve_value_alias_values();
+
             for (auto const& m : m_modules)
             {
                 if (!m->tu)
                     continue;
 
-                analyze_module(*m);
+                analyze_module_decls(*m);
+            }
+
+            resolve_global_const_values();
+
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+
+                analyze_module_functions(*m);
                 m->state = std::max(m->state, ModuleState::BodiesAnalyzed);
             }
 
             flush_pending_lambdas();
-            resolve_global_const_values();
+            validate_value_aliases();
         }
 
         void analyze_single_function(ModuleInfo& mod, ast::FuncDecl& fn)
@@ -1320,6 +1334,12 @@ export namespace dcc::sema
                 if (!syms.empty())
                 {
                     auto const* sym = &syms.front();
+                    if (sym->kind == SymbolKind::ValueAlias)
+                    {
+                        auto const* ud = ast::node_cast<ast::UsingDecl>(sym->decl);
+                        if (ud && ud->value)
+                            return ud->value;
+                    }
                     if (sym->kind == SymbolKind::Variable)
                     {
                         auto const* vd = ast::node_cast<ast::VarDecl>(sym->decl);
@@ -4723,6 +4743,22 @@ export namespace dcc::sema
 
                     return std::nullopt;
                 }
+                if (value_alias_implicit_decay(r, param_ty))
+                {
+                    if (had_suppressed_errors)
+                        *had_suppressed_errors = true;
+
+                    if (had_non_constraint_failure)
+                        *had_non_constraint_failure = true;
+
+                    if (rejection_reason)
+                        *rejection_reason =
+                            std::format("value alias `{}` has no storage or address", value_alias_name(r.value_alias_origin));
+
+                    record_rejection(rejection_info, CallRejectionKind::ArgTypeMismatch, func_arg_start + i);
+
+                    return std::nullopt;
+                }
                 args.push_back(r);
             }
 
@@ -5412,6 +5448,11 @@ export namespace dcc::sema
                                     .primary(object.range.valid() ? object.range : range);
                 std::move(diag_obj).secondary(func_decl_range(f), "declared here");
                 m_diag.emit(std::move(diag_obj));
+                return std::nullopt;
+            }
+            if (value_alias_implicit_decay(receiver, param0))
+            {
+                reject_value_alias_decay(object.range.valid() ? object.range : range, receiver);
                 return std::nullopt;
             }
 
@@ -6113,17 +6154,24 @@ export namespace dcc::sema
             return {};
         }
 
-        void analyze_module(ModuleInfo& mod)
+        ConstEnv* ensure_module_env(ModuleInfo const& mod)
         {
-            auto* module_env = make_const_env(nullptr);
-            m_module_const_envs[&mod] = module_env;
+            if (auto it = m_module_const_envs.find(&mod); it != m_module_const_envs.end())
+                return it->second;
+
+            auto* env = make_const_env(nullptr);
+            m_module_const_envs[&mod] = env;
+            return env;
+        }
+
+        void analyze_module_decls(ModuleInfo& mod)
+        {
+            auto* module_env = ensure_module_env(mod);
             m_current_module_env = module_env;
             m_current_module = &mod;
 
             for (auto* d : mod.tu->decls)
-                if (auto* f = ast::node_cast<ast::FuncDecl>(d))
-                    analyze_function(mod, *f);
-                else if (auto* v = ast::node_cast<ast::VarDecl>(d))
+                if (auto* v = ast::node_cast<ast::VarDecl>(d))
                     analyze_var(mod, *v);
                 else if (auto* sd = ast::node_cast<ast::StructDecl>(d))
                     analyze_struct_fields(mod, *sd);
@@ -6136,12 +6184,206 @@ export namespace dcc::sema
             m_current_module = nullptr;
         }
 
+        void analyze_module_functions(ModuleInfo& mod)
+        {
+            auto* module_env = ensure_module_env(mod);
+            m_current_module_env = module_env;
+            m_current_module = &mod;
+
+            for (auto* d : mod.tu->decls)
+                if (auto* f = ast::node_cast<ast::FuncDecl>(d))
+                    analyze_function(mod, *f);
+
+            m_current_module_env = nullptr;
+            m_current_module = nullptr;
+        }
+
+        void analyze_value_alias(ModuleInfo& mod, ast::UsingDecl& u)
+        {
+            auto* expected = u.target_type && u.target_type->sema.canonical ? get_canonical(u.target_type->sema) : nullptr;
+            if (!expected || has_error(expected))
+                return;
+
+            check_type_valid_for_value(u.range, expected, "value alias type");
+            if (types::type_cast<types::RuntimeArrayType>(expected))
+            {
+                error(u.range, "runtime-sized array type is not allowed for a value alias");
+                return;
+            }
+
+            if (expected && mod.own_scope)
+                check_type_constraints_in_type(mod, *mod.own_scope, expected, u.range);
+
+            if (!u.target_expr)
+            {
+                error(u.range, "value alias requires an initializer");
+                return;
+            }
+
+            std::ignore = analyze_expr(mod, nullptr, *mod.own_scope, *u.target_expr, 0, dummy_offset(), expected, m_current_module_env);
+            store_value_alias(mod, u);
+        }
+
+        [[nodiscard]] bool value_alias_installed(ModuleInfo const& mod, ast::UsingDecl const& u) const
+        {
+            auto name = !u.alias_path.segments.empty() ? u.alias_path.segments.back().name : std::string_view{};
+            if (name.empty() || !mod.own_scope)
+                return false;
+
+            auto syms = mod.own_scope->lookup_values(name);
+            if (syms.empty() || syms.front().kind != SymbolKind::ValueAlias)
+                return false;
+
+            return syms.front().decl == &u;
+        }
+
+        [[nodiscard]] static std::string_view value_alias_name(ast::UsingDecl const* u) noexcept
+        {
+            return u && !u->alias_path.segments.empty() ? u->alias_path.segments.back().name : std::string_view{"<anon>"};
+        }
+
+        [[nodiscard]] bool value_alias_implicit_decay(detail::ExprResult const& res, types::TypePtr expected) const
+        {
+            if (!res.value_alias_origin || !res.type || !expected)
+                return false;
+
+            if (auto const* ep = types::type_cast<types::PointerType>(expected))
+            {
+                if (auto const* ga = types::type_cast<types::ArrayType>(res.type))
+                    return ep->pointee == ga->element;
+                if (auto const* gra = types::type_cast<types::RuntimeArrayType>(res.type))
+                    return ep->pointee == gra->element;
+                return false;
+            }
+
+            if (auto const* es = types::type_cast<types::SliceType>(expected))
+            {
+                if (auto const* ga = types::type_cast<types::ArrayType>(res.type))
+                    return es->element == ga->element;
+                return false;
+            }
+
+            return false;
+        }
+
+        void reject_value_alias_decay(sm::SourceRange range, detail::ExprResult const& res)
+        {
+            error(range, "value alias `{}` has no storage or address", value_alias_name(res.value_alias_origin));
+        }
+
+        void store_value_alias(ModuleInfo& mod, ast::UsingDecl& u)
+        {
+            if (u.value || !u.target_expr || !u.target_expr->sema.const_value)
+                return;
+
+            auto const* value = u.target_expr->sema.const_value;
+            u.value = value;
+
+            if (!value_alias_installed(mod, u))
+                return;
+
+            if (auto it = m_module_const_envs.find(&mod); it != m_module_const_envs.end())
+            {
+                auto name = !u.alias_path.segments.empty() ? u.alias_path.segments.back().name : std::string_view{};
+                if (!name.empty())
+                    define_constant(*it->second, name, value);
+            }
+        }
+
+        void analyze_value_alias_initializers()
+        {
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu || !m->own_scope)
+                    continue;
+
+                m_current_module_env = ensure_module_env(*m);
+                m_current_module = m.get();
+                for (auto* d : m->tu->decls)
+                    if (auto* u = ast::node_cast<ast::UsingDecl>(d); u && u->using_kind == ast::UsingKind::ValueAlias)
+                        analyze_value_alias(*m, *u);
+                m_current_module_env = nullptr;
+                m_current_module = nullptr;
+            }
+        }
+
+        void resolve_value_alias_values()
+        {
+            std::vector<ast::UsingDecl*> pending;
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+                for (auto* d : m->tu->decls)
+                    if (auto* u = ast::node_cast<ast::UsingDecl>(d); u && u->using_kind == ast::UsingKind::ValueAlias && !u->value)
+                        pending.push_back(u);
+            }
+
+            auto const max_iters = pending.size() + 2;
+            for (std::size_t iter = 0; iter < max_iters; ++iter)
+            {
+                bool progress = false;
+                for (auto* u : pending)
+                {
+                    if (u->value)
+                        continue;
+                    if (!u->target_expr)
+                        continue;
+                    if (u->target_expr->sema.const_value)
+                    {
+                        auto* mod = owning_module_of(u);
+                        if (mod)
+                            store_value_alias(*mod, *u);
+                        progress = true;
+                        continue;
+                    }
+
+                    auto* mod = owning_module_of(u);
+                    if (!mod)
+                        continue;
+
+                    auto* expected = u->target_type && u->target_type->sema.canonical ? get_canonical(u->target_type->sema) : nullptr;
+                    if (!expected || has_error(expected))
+                        continue;
+
+                    m_current_module_env = m_module_const_envs[mod];
+                    m_current_module = mod;
+                    {
+                        ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                        std::ignore = analyze_expr(*mod, nullptr, *mod->own_scope, *u->target_expr, 0, dummy_offset(), expected, m_current_module_env);
+                    }
+                    m_current_module_env = nullptr;
+                    m_current_module = nullptr;
+
+                    if (u->target_expr->sema.const_value)
+                    {
+                        store_value_alias(*mod, *u);
+                        progress = true;
+                    }
+                }
+                if (!progress)
+                    break;
+            }
+        }
+
+        [[nodiscard]] ModuleInfo* owning_module_of(ast::UsingDecl const* u) const
+        {
+            for (auto const& m : m_modules)
+                if (m->tu)
+                    for (auto* d : m->tu->decls)
+                        if (d == u)
+                            return m.get();
+
+            return nullptr;
+        }
+
         void resolve_global_const_values()
         {
             struct Candidate
             {
                 ModuleInfo* mod;
                 ast::VarDecl* vd;
+                ast::UsingDecl* ud;
             };
             std::vector<Candidate> candidates;
             for (auto const& m : m_modules)
@@ -6152,28 +6394,43 @@ export namespace dcc::sema
                 {
                     auto* vd = ast::node_cast<ast::VarDecl>(d);
                     if (vd && vd->sema.is_immutable && vd->init && vd->type)
-                        candidates.push_back({m.get(), vd});
+                        candidates.push_back({m.get(), vd, nullptr});
+
+                    auto* ud = ast::node_cast<ast::UsingDecl>(d);
+                    if (ud && ud->using_kind == ast::UsingKind::ValueAlias && !ud->value && ud->target_expr && ud->target_type)
+                        candidates.push_back({m.get(), nullptr, ud});
                 }
             }
 
-            auto store_value = [&](ModuleInfo* mod, ast::VarDecl* vd, comptime::Value const* value) {
-                m_global_const_vals[vd] = value;
-                if (auto it = m_module_const_envs.find(mod); it != m_module_const_envs.end())
-                    define_constant(*it->second, vd->name, value);
+            auto store_value = [&](ModuleInfo* mod, ast::VarDecl* vd, ast::UsingDecl* ud, comptime::Value const* value) {
+                if (vd)
+                {
+                    m_global_const_vals[vd] = value;
+                    if (auto it = m_module_const_envs.find(mod); it != m_module_const_envs.end())
+                        define_constant(*it->second, vd->name, value);
+                }
+                else if (ud)
+                    store_value_alias(*mod, *ud);
             };
 
             auto const max_iters = candidates.size() + 2;
             for (std::size_t iter = 0; iter < max_iters; ++iter)
             {
                 bool progress = false;
-                for (auto& [mod, vd] : candidates)
+                for (auto& [mod, vd, ud] : candidates)
                 {
-                    if (m_global_const_vals.contains(vd))
+                    if (vd && m_global_const_vals.contains(vd))
+                        continue;
+                    if (ud && ud->value)
                         continue;
 
-                    if (vd->init->sema.const_value)
+                    ast::Expr* init = vd ? vd->init : (ud ? ud->target_expr : nullptr);
+                    if (!init)
+                        continue;
+
+                    if (init->sema.const_value)
                     {
-                        store_value(mod, vd, vd->init->sema.const_value);
+                        store_value(mod, vd, ud, init->sema.const_value);
                         progress = true;
                         continue;
                     }
@@ -6183,15 +6440,25 @@ export namespace dcc::sema
                     m_current_module = mod;
                     {
                         ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
-                        auto* var_type = vd->type->sema.canonical ? get_canonical(vd->type->sema) : nullptr;
-                        std::ignore = analyze_expr(*mod, nullptr, *mod->own_scope, *vd->init, 0, dummy_offset(), var_type, env);
+                        if (vd)
+                        {
+                            auto* var_type = vd->type->sema.canonical ? get_canonical(vd->type->sema) : nullptr;
+                            std::ignore = analyze_expr(*mod, nullptr, *mod->own_scope, *vd->init, 0, dummy_offset(), var_type, env);
+                        }
+                        else
+                        {
+                            auto* expected = ud->target_type->sema.canonical ? get_canonical(ud->target_type->sema) : nullptr;
+                            if (has_error(expected))
+                                continue;
+                            std::ignore = analyze_expr(*mod, nullptr, *mod->own_scope, *ud->target_expr, 0, dummy_offset(), expected, env);
+                        }
                     }
                     m_current_module_env = nullptr;
                     m_current_module = nullptr;
 
-                    if (vd->init->sema.const_value)
+                    if (init->sema.const_value)
                     {
-                        store_value(mod, vd, vd->init->sema.const_value);
+                        store_value(mod, vd, ud, init->sema.const_value);
                         progress = true;
                     }
                 }
@@ -6201,9 +6468,11 @@ export namespace dcc::sema
 
             {
                 std::unordered_map<ast::VarDecl const*, std::uint8_t> state;
-                for (auto& [mod, vd] : candidates)
-                    if (!m_global_const_vals.contains(vd))
+                for (auto& [mod, vd, ud] : candidates)
+                {
+                    if (vd && !m_global_const_vals.contains(vd))
                         detect_global_const_cycle(vd, state);
+                }
             }
 
             validate_global_initializers();
@@ -6606,6 +6875,138 @@ export namespace dcc::sema
                 }
             }
             st = 2;
+        }
+
+        void collect_value_alias_deps(ast::Expr const* expr, std::vector<ast::UsingDecl const*>& out) const
+        {
+            if (!expr)
+                return;
+
+            switch (expr->kind)
+            {
+                case ast::ExprKind::Ident: {
+                    auto const* id = static_cast<ast::IdentExpr const*>(expr);
+                    if (auto const* u = ast::node_cast<ast::UsingDecl>(id->sema.resolved_decl); u && u->using_kind == ast::UsingKind::ValueAlias)
+                        out.push_back(u);
+                    return;
+                }
+                case ast::ExprKind::PathExpr: {
+                    auto const* pe = static_cast<ast::PathExpr const*>(expr);
+                    if (auto const* u = ast::node_cast<ast::UsingDecl>(pe->sema.resolved_decl); u && u->using_kind == ast::UsingKind::ValueAlias)
+                        out.push_back(u);
+                    return;
+                }
+                case ast::ExprKind::Unary: {
+                    auto const* u = static_cast<ast::UnaryExpr const*>(expr);
+                    if (u->op == lex::TokenKind::Amp)
+                        return;
+                    collect_value_alias_deps(u->operand, out);
+                    return;
+                }
+                case ast::ExprKind::Cast:
+                    collect_value_alias_deps(static_cast<ast::CastExpr const*>(expr)->operand, out);
+                    return;
+                case ast::ExprKind::Binary: {
+                    auto const* b = static_cast<ast::BinaryExpr const*>(expr);
+                    collect_value_alias_deps(b->lhs, out);
+                    collect_value_alias_deps(b->rhs, out);
+                    return;
+                }
+                case ast::ExprKind::FieldAccess:
+                    collect_value_alias_deps(static_cast<ast::FieldAccessExpr const*>(expr)->object, out);
+                    return;
+                case ast::ExprKind::Index: {
+                    auto const* ix = static_cast<ast::IndexExpr const*>(expr);
+                    collect_value_alias_deps(ix->object, out);
+                    collect_value_alias_deps(ix->index, out);
+                    return;
+                }
+                case ast::ExprKind::StructLiteral: {
+                    auto const* sl = static_cast<ast::StructLiteralExpr const*>(expr);
+                    for (auto const& f : sl->fields)
+                        collect_value_alias_deps(f.value, out);
+                    return;
+                }
+                default:
+                    return;
+            }
+        }
+
+        void detect_value_alias_cycle(ast::UsingDecl const* ud, std::unordered_map<ast::UsingDecl const*, std::uint8_t>& state,
+                                      std::vector<ast::UsingDecl const*>& stack, std::unordered_set<ast::UsingDecl const*>& in_cycle)
+        {
+            auto& st = state[ud];
+            if (st == 2)
+                return;
+            if (st == 1)
+            {
+                for (auto it = stack.rbegin(); it != stack.rend(); ++it)
+                {
+                    in_cycle.insert(*it);
+                    if (*it == ud)
+                        break;
+                }
+                auto name = !ud->alias_path.segments.empty() ? ud->alias_path.segments.back().name : std::string_view{"<anon>"};
+                error(ud->range, "circular constant initializer for `{}`", name);
+                return;
+            }
+
+            st = 1;
+            stack.push_back(ud);
+            if (ud->target_expr)
+            {
+                std::vector<ast::UsingDecl const*> deps;
+                collect_value_alias_deps(ud->target_expr, deps);
+                for (auto* dep : deps)
+                    if (dep && !dep->value)
+                        detect_value_alias_cycle(dep, state, stack, in_cycle);
+            }
+            stack.pop_back();
+            st = 2;
+        }
+
+        void validate_value_aliases()
+        {
+            std::unordered_map<ast::UsingDecl const*, std::uint8_t> state;
+            std::unordered_set<ast::UsingDecl const*> in_cycle;
+
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+                for (auto* d : m->tu->decls)
+                {
+                    auto* u = ast::node_cast<ast::UsingDecl>(d);
+                    if (!u || u->using_kind != ast::UsingKind::ValueAlias || u->value)
+                        continue;
+
+                    std::vector<ast::UsingDecl const*> stack;
+                    detect_value_alias_cycle(u, state, stack, in_cycle);
+                }
+            }
+
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu)
+                    continue;
+                for (auto* d : m->tu->decls)
+                {
+                    auto* u = ast::node_cast<ast::UsingDecl>(d);
+                    if (!u || u->using_kind != ast::UsingKind::ValueAlias || u->value)
+                        continue;
+                    if (!u->target_expr || expr_has_error(u->target_expr))
+                        continue;
+                    if (in_cycle.contains(u))
+                        continue;
+
+                    auto* expected = u->target_type && u->target_type->sema.canonical ? get_canonical(u->target_type->sema) : nullptr;
+                    if (!expected || has_error(expected))
+                        continue;
+
+                    auto name = !u->alias_path.segments.empty() ? u->alias_path.segments.back().name : std::string_view{"<anon>"};
+                    error(u->target_expr->range, "initializer for value alias `{}` is not a compile-time constant", name);
+                }
+            }
         }
 
         [[nodiscard]] static bool is_template_specialization_body(ast::FuncDecl const& fn)
@@ -7064,7 +7465,14 @@ export namespace dcc::sema
                 check_type_constraints_in_type(mod, *mod.own_scope, var_type, var.range);
 
             if (var.init && mod.own_scope)
-                std::ignore = analyze_expr(mod, nullptr, *mod.own_scope, *var.init, 0, dummy_offset(), var_type, m_current_module_env);
+            {
+                auto init = analyze_expr(mod, nullptr, *mod.own_scope, *var.init, 0, dummy_offset(), var_type, m_current_module_env);
+                if (value_alias_implicit_decay(init, var_type))
+                {
+                    reject_value_alias_decay(var.init->range, init);
+                    set_resolved_type(var.init->sema, m_types.m_errort());
+                }
+            }
         }
 
         void analyze_struct_fields(ModuleInfo& mod, ast::StructDecl& sd)
@@ -8754,7 +9162,22 @@ export namespace dcc::sema
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
             out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
-            if (out.is_lvalue)
+            if (sym->kind == SymbolKind::ValueAlias)
+            {
+                if (auto const* ud = ast::node_cast<ast::UsingDecl>(sym->decl))
+                {
+                    out.value_alias_origin = ud;
+                    if (ud->target_type && ud->target_type->sema.canonical)
+                        out.type = get_canonical(ud->target_type->sema);
+                    if (ud->value)
+                    {
+                        out.constant = ud->value;
+                        out.is_constant = true;
+                        out.type = ud->value->type ? ud->value->type : out.type;
+                    }
+                }
+            }
+            else if (out.is_lvalue)
             {
                 if (auto const* c = const_eval::lookup_identifier(name, [&](std::string_view n) { return lookup_constant(const_env, n); }))
                 {
@@ -8970,7 +9393,22 @@ export namespace dcc::sema
             out.is_lvalue = sym->kind == SymbolKind::Variable;
             out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
 
-            if (sym->kind == SymbolKind::Variable)
+            if (sym->kind == SymbolKind::ValueAlias)
+            {
+                if (auto const* ud = ast::node_cast<ast::UsingDecl>(sym->decl))
+                {
+                    out.value_alias_origin = ud;
+                    if (ud->target_type && ud->target_type->sema.canonical)
+                        out.type = get_canonical(ud->target_type->sema);
+                    if (ud->value)
+                    {
+                        out.constant = ud->value;
+                        out.is_constant = true;
+                        out.type = ud->value->type ? ud->value->type : out.type;
+                    }
+                }
+            }
+            else if (sym->kind == SymbolKind::Variable)
             {
                 if (auto const* vd = ast::node_cast<ast::VarDecl>(sym->decl))
                     if (vd->sema.is_immutable && vd->init)
@@ -9102,6 +9540,14 @@ export namespace dcc::sema
                         out.constant = nullptr;
                         break;
                     }
+                    if (op.value_alias_origin)
+                    {
+                        out.type = m_types.m_errort();
+                        error(u.range, "value alias `{}` has no storage or address",
+                              !op.value_alias_origin->alias_path.segments.empty() ? op.value_alias_origin->alias_path.segments.back().name
+                                                                                   : std::string_view{"<anon>"});
+                        break;
+                    }
                     if (!op.is_lvalue)
                     {
                         out.type = m_types.m_errort();
@@ -9115,6 +9561,7 @@ export namespace dcc::sema
                     {
                         out.type = p->pointee;
                         out.is_lvalue = true;
+                        out.value_alias_origin = nullptr;
                     }
                     else
                     {
@@ -9124,6 +9571,14 @@ export namespace dcc::sema
                     break;
                 case lex::TokenKind::Increment:
                 case lex::TokenKind::Decrement: {
+                    if (op.value_alias_origin)
+                    {
+                        out.type = m_types.m_errort();
+                        error(u.range, "value alias `{}` is not assignable",
+                              !op.value_alias_origin->alias_path.segments.empty() ? op.value_alias_origin->alias_path.segments.back().name
+                                                                                   : std::string_view{"<anon>"});
+                        return out;
+                    }
                     if (!op.is_lvalue || !op.is_writable)
                     {
                         out.type = m_types.m_errort();
@@ -9172,6 +9627,14 @@ export namespace dcc::sema
             {
                 case lex::TokenKind::Increment:
                 case lex::TokenKind::Decrement: {
+                    if (op.value_alias_origin)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "value alias `{}` is not assignable",
+                              !op.value_alias_origin->alias_path.segments.empty() ? op.value_alias_origin->alias_path.segments.back().name
+                                                                                   : std::string_view{"<anon>"});
+                        return out;
+                    }
                     if (!op.is_lvalue || !op.is_writable)
                     {
                         out.type = m_types.m_errort();
@@ -9342,6 +9805,14 @@ export namespace dcc::sema
                 case lex::TokenKind::CaretEq:
                 case lex::TokenKind::LtLtEq:
                 case lex::TokenKind::GtGtEq: {
+                    if (lhs.value_alias_origin)
+                    {
+                        out.type = m_types.m_errort();
+                        error(b.lhs->range, "value alias `{}` is not assignable",
+                              !lhs.value_alias_origin->alias_path.segments.empty() ? lhs.value_alias_origin->alias_path.segments.back().name
+                                                                                    : std::string_view{"<anon>"});
+                        return out;
+                    }
                     if (!lhs.is_lvalue || !lhs.is_writable)
                     {
                         out.type = m_types.m_errort();
@@ -9358,6 +9829,12 @@ export namespace dcc::sema
 
                     ast::EnumVariant const* implicit_enum_var = nullptr;
                     bool ok = b.op == lex::TokenKind::Eq ? can_assign_return(lhs_type, rhs.type) : (lhs_type == rhs.type);
+                    if (ok && b.op == lex::TokenKind::Eq && value_alias_implicit_decay(rhs, lhs_type))
+                    {
+                        out.type = m_types.m_errort();
+                        reject_value_alias_decay(b.rhs->range, rhs);
+                        return out;
+                    }
                     if (!ok && b.op == lex::TokenKind::Eq)
                     {
                         auto* conv = try_implicit_enum_conversion(lhs_type, rhs.type, mod, scope, &implicit_enum_var);
@@ -9618,7 +10095,7 @@ export namespace dcc::sema
                 out.type = m_types.m_errort();
 
             out.resolved_decl = nominal;
-            out.is_lvalue = true;
+            out.is_lvalue = obj.value_alias_origin == nullptr;
 
             if (obj.constant && obj.constant->kind() == comptime::Value::Kind::Aggregate)
             {
@@ -9776,6 +10253,14 @@ export namespace dcc::sema
                 note_range_slice_index_sema(r, common);
 
                 detail::ExprResult slice_out{};
+                if (obj.value_alias_origin)
+                {
+                    slice_out.type = m_types.m_errort();
+                    error(i.range, "value alias `{}` has no storage or address; range slicing is not allowed",
+                          !obj.value_alias_origin->alias_path.segments.empty() ? obj.value_alias_origin->alias_path.segments.back().name
+                                                                               : std::string_view{"<anon>"});
+                    return slice_out;
+                }
                 if (auto const* a = types::type_cast<types::ArrayType>(obj.type))
                 {
                     validate_range_bounds_for_array(r, a->count, i.range);
@@ -9839,7 +10324,7 @@ export namespace dcc::sema
                 out.type = m_types.m_errort();
                 error(i.range, "indexing non-indexable type");
             }
-            out.is_lvalue = true;
+            out.is_lvalue = obj.value_alias_origin == nullptr;
 
             out.constant = nullptr;
             out.is_constant = false;
@@ -11727,6 +12212,12 @@ export namespace dcc::sema
             {
                 auto param_ty = b.substitute(params[i]);
                 auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env);
+                if (value_alias_implicit_decay(r, param_ty))
+                {
+                    if (!quiet)
+                        reject_value_alias_decay(arg_exprs[func_arg_start + i]->range, r);
+                    return {m_types.m_errort()};
+                }
                 if (!has_error(r.type) && r.type != param_ty)
                 {
                     ast::EnumVariant const* implicit_enum_var = nullptr;
@@ -12001,6 +12492,12 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < effective_args.size(); ++i)
             {
                 auto r = analyze_expr(mod, nullptr, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env);
+                if (value_alias_implicit_decay(r, fp->params[i]))
+                {
+                    if (!quiet)
+                        reject_value_alias_decay(effective_args[i]->range, r);
+                    return {m_types.m_errort()};
+                }
                 if (!has_error(r.type) && r.type != fp->params[i])
                 {
                     ast::EnumVariant const* implicit_enum_var = nullptr;
@@ -12315,20 +12812,28 @@ export namespace dcc::sema
                                                "void function cannot return a value");
                             else
                             {
-                                ast::EnumVariant const* implicit_enum_var = nullptr;
-                                if (!can_assign_return(expected, got.type))
+                                if (value_alias_implicit_decay(got, expected))
                                 {
-                                    auto* conv = try_implicit_enum_conversion(expected, got.type, mod, scope, &implicit_enum_var);
-                                    if (!conv)
-                                        error(s.range, "return type mismatch");
-                                    else if (has_error(conv))
-                                        error(s.range, "ambiguous implicit enum construction");
+                                    reject_value_alias_decay(r.value->range, got);
+                                    set_resolved_type(r.value->sema, m_types.m_errort());
                                 }
-                                if (implicit_enum_var && r.value)
+                                else
                                 {
-                                    r.value->sema.construction_kind = ConstructionKind::Enum;
-                                    r.value->sema.constructed_variant = implicit_enum_var;
-                                    set_resolved_type(r.value->sema, expected);
+                                    ast::EnumVariant const* implicit_enum_var = nullptr;
+                                    if (!can_assign_return(expected, got.type))
+                                    {
+                                        auto* conv = try_implicit_enum_conversion(expected, got.type, mod, scope, &implicit_enum_var);
+                                        if (!conv)
+                                            error(s.range, "return type mismatch");
+                                        else if (has_error(conv))
+                                            error(s.range, "ambiguous implicit enum construction");
+                                    }
+                                    if (implicit_enum_var && r.value)
+                                    {
+                                        r.value->sema.construction_kind = ConstructionKind::Enum;
+                                        r.value->sema.constructed_variant = implicit_enum_var;
+                                        set_resolved_type(r.value->sema, expected);
+                                    }
                                 }
                             }
                         }
@@ -13181,6 +13686,12 @@ export namespace dcc::sema
                     track_decl_write(v);
                     auto expected = v->type && v->type->sema.canonical ? get_canonical(v->type->sema) : nullptr;
                     auto init = analyze_expr(mod, fn, scope, *v->init, loop_depth, next_off, expected, const_env);
+                    if (value_alias_implicit_decay(init, expected))
+                    {
+                        reject_value_alias_decay(v->init->range, init);
+                        set_resolved_type(v->init->sema, m_types.m_errort());
+                        init.type = m_types.m_errort();
+                    }
                     if (expected && !has_error(init.type) && init.type != expected)
                     {
                         bool implicit_decay_ok = false;

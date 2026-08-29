@@ -834,6 +834,9 @@ export namespace dcc::ast
                 case UsingKind::Concept:
                     k = "concept";
                     break;
+                case UsingKind::ValueAlias:
+                    k = "value_alias";
+                    break;
             }
             line_fmt("Using kind={}{}", k, d->is_spill ? " spill" : "");
             IndentScope is(m_indent_level);
