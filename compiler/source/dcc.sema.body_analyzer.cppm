@@ -1700,6 +1700,14 @@ export namespace dcc::sema
             return static_cast<std::uint64_t>(value) <= max;
         }
 
+        [[nodiscard]] static types::TypePtr erase_refinement(types::TypePtr t) noexcept
+        {
+            if (auto const* rt = types::type_cast<types::RestrictedType>(t))
+                return rt->underlying;
+
+            return t;
+        }
+
         [[nodiscard]] static bool is_radix_literal(std::string_view spelling) noexcept
         {
             if (spelling.size() < 2 || spelling[0] != '0')
@@ -4508,7 +4516,8 @@ export namespace dcc::sema
                                         target_type = resolve_type_node(mod, scope, rhs_type_ast->type_node);
                                 }
 
-                                bool types_match = target_type && (concrete == target_type || concrete->kind == target_type->kind);
+                                bool types_match = target_type && (concrete == target_type ||
+                                                                   (concrete->kind == target_type->kind && concrete->kind != types::TypeKind::Restricted));
                                 si->taken_branch = types_match ? 0 : 1;
                             }
                         }
@@ -6327,6 +6336,12 @@ export namespace dcc::sema
                 return true;
             if (expected == got)
                 return true;
+
+            if (expected->kind == types::TypeKind::Int && got->kind == types::TypeKind::Restricted)
+                return can_assign_return(expected, static_cast<types::RestrictedType const*>(got)->underlying);
+
+            if (expected->kind == types::TypeKind::Restricted && got->kind == types::TypeKind::Restricted)
+                return int_domain::domain_contains(*static_cast<types::RestrictedType const*>(expected), *static_cast<types::RestrictedType const*>(got));
 
             if (expected->kind == types::TypeKind::Float && got->kind == types::TypeKind::Float)
                 return true;
@@ -9032,6 +9047,21 @@ export namespace dcc::sema
                     case ast::ExprKind::IntLiteral: {
                         auto& e = static_cast<ast::IntLiteralExpr&>(expr);
 
+                        if (auto const* rt = types::type_cast<types::RestrictedType>(expected_type))
+                        {
+                            if (!m_in_explicit_conversion)
+                            {
+                                if (!fits_int_type(e.value, *rt->underlying))
+                                    error(e.range, "integer literal {} does not fit in type {}", e.value, format_type_str(expected_type));
+                                else if (!int_domain::contains(*rt, e.value))
+                                    error(e.range, "integer literal {} is not a member of type {}", e.value, format_type_str(expected_type));
+                            }
+                            out.type = expected_type;
+                            out.constant = make_int_const(e.value, rt->underlying);
+                            out.is_constant = true;
+                            break;
+                        }
+
                         if (auto const* it = types::type_cast<types::IntType>(expected_type))
                         {
                             bool fits = fits_int_type(e.value, *it);
@@ -10206,6 +10236,8 @@ export namespace dcc::sema
                 case lex::TokenKind::Caret:
                 case lex::TokenKind::LtLt:
                 case lex::TokenKind::GtGt:
+                    lhs.type = erase_refinement(lhs.type);
+                    rhs.type = erase_refinement(rhs.type);
                     if (lhs.type && lhs.type->kind != types::TypeKind::Error && rhs.type && rhs.type->kind != types::TypeKind::Error && lhs.type != rhs.type)
                     {
                         if ((b.lhs->kind == ast::ExprKind::IntLiteral || b.lhs->kind == ast::ExprKind::FloatLiteral ||
@@ -13053,7 +13085,8 @@ export namespace dcc::sema
             bool scrutinee_unresolved =
                 !scrutinee_type || scrutinee_type->kind == types::TypeKind::TemplateParam || scrutinee_type->kind == types::TypeKind::Error;
             bool types_match =
-                !scrutinee_unresolved && target_type && scrutinee_type && (target_type == scrutinee_type || target_type->kind == scrutinee_type->kind);
+                !scrutinee_unresolved && target_type && scrutinee_type &&
+                (target_type == scrutinee_type || (target_type->kind == scrutinee_type->kind && target_type->kind != types::TypeKind::Restricted));
             bool take_then = scrutinee_unresolved || types_match;
 
             si.taken_branch = take_then ? 0 : 1;
@@ -14747,7 +14780,46 @@ export namespace dcc::sema
                 }
                 case ast::TypeKind::Restricted: {
                     auto canonical = get_canonical(t->sema);
-                    return {.type = canonical ? canonical : m_types.m_errort()};
+                    if (canonical)
+                        return {.type = canonical};
+
+                    auto const* rt = static_cast<ast::RestrictedType const*>(t);
+                    auto underlying = resolve_type_node(mod, scope, rt->underlying, fn, next_off_ptr, const_env);
+                    auto const* int_ty = types::type_cast<types::IntType>(underlying);
+                    if (!int_ty)
+                        return {.type = m_types.m_errort()};
+
+                    std::vector<types::RestrictionInterval> intervals;
+                    intervals.reserve(rt->elements.size());
+                    for (auto const* element : rt->elements)
+                    {
+                        std::int64_t lo_raw{};
+                        std::int64_t hi_raw{};
+                        if (auto const* range = ast::node_cast<ast::RangeExpr>(element))
+                        {
+                            auto lo = try_eval_const_size_expr(mod, scope, range->start);
+                            auto hi = try_eval_const_size_expr(mod, scope, range->end);
+                            if (lo.tag != ConstSizeResult::Tag::Folded || hi.tag != ConstSizeResult::Tag::Folded)
+                                return {.type = m_types.m_errort()};
+                            lo_raw = lo.value;
+                            hi_raw = hi.value;
+                        }
+                        else
+                        {
+                            auto value = try_eval_const_size_expr(mod, scope, element);
+                            if (value.tag != ConstSizeResult::Tag::Folded)
+                                return {.type = m_types.m_errort()};
+                            lo_raw = value.value;
+                            hi_raw = value.value;
+                        }
+
+                        if (lo_raw > hi_raw || !fits_int_type(lo_raw, *int_ty) || !fits_int_type(hi_raw, *int_ty))
+                            return {.type = m_types.m_errort()};
+
+                        intervals.push_back({int_domain::to_ordinal(lo_raw, *int_ty), int_domain::to_ordinal(hi_raw, *int_ty)});
+                    }
+
+                    return {.type = m_types.restricted_t(int_ty, intervals)};
                 }
                 case ast::TypeKind::PackIndex: {
                     auto const* pi = static_cast<ast::PackIndexType const*>(t);

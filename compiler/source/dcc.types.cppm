@@ -477,9 +477,7 @@ export namespace dcc::types
         [[nodiscard]] TypePtr restricted_t(IntType const* underlying, std::span<RestrictionInterval const> intervals)
         {
             std::vector<RestrictionInterval> normalized(intervals.begin(), intervals.end());
-            std::sort(normalized.begin(), normalized.end(), [](auto const& a, auto const& b) {
-                return a.lo < b.lo || (a.lo == b.lo && a.hi < b.hi);
-            });
+            std::sort(normalized.begin(), normalized.end(), [](auto const& a, auto const& b) { return a.lo < b.lo || (a.lo == b.lo && a.hi < b.hi); });
 
             std::vector<RestrictionInterval> merged;
             merged.reserve(normalized.size());
@@ -807,6 +805,41 @@ export namespace dcc::int_domain
             val |= ~mask;
 
         return static_cast<std::int64_t>(val);
+    }
+
+    [[nodiscard]] constexpr bool contains(types::RestrictedType const& rt, std::uint64_t ordinal) noexcept
+    {
+        for (auto const& interval : rt.intervals)
+            if (ordinal >= interval.lo && ordinal <= interval.hi)
+                return true;
+
+        return false;
+    }
+
+    [[nodiscard]] constexpr bool contains(types::RestrictedType const& rt, std::int64_t raw_value) noexcept
+    {
+        return contains(rt, to_ordinal(raw_value, *rt.underlying));
+    }
+
+    [[nodiscard]] constexpr bool domain_contains(types::RestrictedType const& outer, types::RestrictedType const& inner) noexcept
+    {
+        if (outer.underlying != inner.underlying)
+            return false;
+
+        for (auto const& inner_interval : inner.intervals)
+        {
+            bool covered = false;
+            for (auto const& outer_interval : outer.intervals)
+                if (inner_interval.lo >= outer_interval.lo && inner_interval.hi <= outer_interval.hi)
+                {
+                    covered = true;
+                    break;
+                }
+
+            if (!covered)
+                return false;
+        }
+        return true;
     }
 
 } // namespace dcc::int_domain

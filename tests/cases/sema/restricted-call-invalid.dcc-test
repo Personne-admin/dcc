@@ -1,0 +1,8 @@
+=== FILE: main.dc ===
+module m;
+
+i32 pass(u8{32, 64} v) { return v; }
+i32 test() { return pass(16); }
+
+=== EXPECT-ERRORS ===
+main.dc:4: integer literal 16 is not a member of type u8{32, 64}

@@ -1,0 +1,23 @@
+=== FILE: main.dc ===
+module m;
+
+using Width = u8{32, 64};
+using Percent = u8{0..100};
+
+const Width a = 32;
+const Width b = 64;
+const Percent c = 0;
+const Percent d = 100;
+const Percent e = 75;
+
+=== EXPECT-TYPES FOR: m ===
+Module m
+  Using Width
+    Alias: u8{32, 64}
+  Using Percent
+    Alias: u8{0..100}
+  Var a: u8{32, 64}
+  Var b: u8{32, 64}
+  Var c: u8{0..100}
+  Var d: u8{0..100}
+  Var e: u8{0..100}

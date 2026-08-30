@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+i32 test(u8 v) {
+    u8{32, 64} a = v;
+    return a;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: initializer type mismatch

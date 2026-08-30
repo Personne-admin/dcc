@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+i32 test() {
+    u8{0..10} x = 4;
+    u8 y = x + 1;
+    return y;
+}
+
+=== EXPECT-TYPES FOR: m ===
+Module m
+  Func test
+    Return: i32

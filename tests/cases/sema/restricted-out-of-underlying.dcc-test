@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module m;
+
+u8{32, 64} a = 256;
+
+=== EXPECT-ERRORS ===
+main.dc:3: integer literal 256 does not fit in type u8{32, 64}

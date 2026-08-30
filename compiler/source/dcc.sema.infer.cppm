@@ -454,10 +454,13 @@ export namespace dcc::infer
                     auto const* t = static_cast<types::TypePackType const*>(type);
                     return contains_param(t->element, target);
                 }
+                case types::TypeKind::Restricted: {
+                    auto const* t = static_cast<types::RestrictedType const*>(type);
+                    return contains_param(t->underlying, target);
+                }
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:
-                case types::TypeKind::Restricted:
                 case types::TypeKind::Float:
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:
@@ -546,8 +549,14 @@ export namespace dcc::infer
                                : fail(DeductionError::Conflict, "integer type mismatch");
                 }
 
-                case types::TypeKind::Restricted:
+                case types::TypeKind::Restricted: {
+                    auto const* a = static_cast<types::RestrictedType const*>(lhs);
+                    auto const* b = static_cast<types::RestrictedType const*>(rhs);
+                    if (a->underlying == b->underlying && a->intervals.size() == b->intervals.size() &&
+                        std::equal(a->intervals.begin(), a->intervals.end(), b->intervals.begin()))
+                        return ok();
                     return fail(DeductionError::Conflict, "restricted type mismatch");
+                }
 
                 case types::TypeKind::Float: {
                     auto const* a = static_cast<types::FloatType const*>(lhs);
@@ -686,10 +695,16 @@ export namespace dcc::infer
 
             switch (type->kind)
             {
+                case types::TypeKind::Restricted: {
+                    auto const* t = static_cast<types::RestrictedType const*>(type);
+                    auto underlying = substitute_impl(t->underlying, memo);
+                    if (underlying != t->underlying && underlying->kind == types::TypeKind::Int)
+                        out = m_types.restricted_t(static_cast<types::IntType const*>(underlying), t->intervals);
+                    break;
+                }
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:
-                case types::TypeKind::Restricted:
                 case types::TypeKind::Float:
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:

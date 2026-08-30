@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module m;
+
+u8{32..64} a = 31;
+
+=== EXPECT-ERRORS ===
+main.dc:3: integer literal 31 is not a member of type u8{32..64}
