@@ -611,7 +611,8 @@ namespace dcc::backend
                                 set_constant_error(error, "LLVM backend: opaque aggregate payload has an invalid field layout");
                                 return false;
                             }
-                            if (!serialize_constant_memory(aggregate->values[i], member_type, output.subspan(offset, member_type->byte_size), little_endian, error))
+                            if (!serialize_constant_memory(aggregate->values[i], member_type, output.subspan(offset, member_type->byte_size), little_endian,
+                                                           error))
                                 return false;
                         }
                         return true;
@@ -635,8 +636,8 @@ namespace dcc::backend
                                 set_constant_error(error, "LLVM backend: opaque array payload has an invalid element layout");
                                 return false;
                             }
-                            if (!serialize_constant_memory(aggregate->values[i], array_type->element,
-                                                           output.subspan(offset, array_type->element->byte_size), little_endian, error))
+                            if (!serialize_constant_memory(aggregate->values[i], array_type->element, output.subspan(offset, array_type->element->byte_size),
+                                                           little_endian, error))
                                 return false;
                         }
                         return true;
@@ -869,8 +870,8 @@ namespace dcc::backend
         }
 
         [[nodiscard]] LLVMValueRef c_api_constant(IrValue const* v, LLVMContextRef ctx, TypeCache& tc,
-                                                   std::unordered_map<IrValue const*, LLVMValueRef>& val_map, LLVMTypeRef expected_mem_type = nullptr,
-                                                   std::string* constant_error = nullptr)
+                                                  std::unordered_map<IrValue const*, LLVMValueRef>& val_map, LLVMTypeRef expected_mem_type = nullptr,
+                                                  std::string* constant_error = nullptr)
         {
             if (!v)
                 return nullptr;
@@ -1696,8 +1697,7 @@ namespace dcc::backend
                 std::vector<InitLeaf> slots;
                 std::vector<std::uint8_t> bytes;
                 std::string layout_error;
-                bool is_reloc_union = g->init && g->init->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(g->type) &&
-                                      has_global_ref(g->init);
+                bool is_reloc_union = g->init && g->init->kind == IrNodeKind::Aggregate && tc.uses_byte_storage(g->type) && has_global_ref(g->init);
                 if (is_reloc_union && resolve_init_layout(g->init, g->type, slots, bytes, tc.little_endian, &layout_error))
                 {
                     bool ok = false;
@@ -1718,8 +1718,7 @@ namespace dcc::backend
             }
 
             [[nodiscard]] static bool init_global(IrGlobal const* g, LLVMValueRef gv, LLVMContextRef ctx, TypeCache& tc,
-                                                  std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
-                                                  std::vector<BackendDiagnostic>& diags)
+                                                  std::unordered_map<IrValue const*, LLVMValueRef>& val_map, std::vector<BackendDiagnostic>& diags)
             {
                 auto* mem_ty = LLVMGlobalGetValueType(gv);
 
@@ -3468,6 +3467,9 @@ namespace dcc::backend
                                 if (!mv)
                                     return false;
 
+                                if (is_bool_type(agg->values[i]->type))
+                                    mv = LLVMBuildZExt(builder, mv, LLVMInt8TypeInContext(ctx), "");
+
                                 unsigned llvm_idx = tc.get_llvm_field_index(ir_agg_type, static_cast<unsigned>(i));
                                 result = LLVMBuildInsertValue(builder, result, mv, llvm_idx, "");
                             }
@@ -3479,6 +3481,8 @@ namespace dcc::backend
                                 auto* mv = lookup(agg->values[i]);
                                 if (!mv)
                                     return false;
+                                if (is_bool_type(agg->values[i]->type))
+                                    mv = LLVMBuildZExt(builder, mv, LLVMInt8TypeInContext(ctx), "");
                                 result = LLVMBuildInsertValue(builder, result, mv, static_cast<unsigned>(i), "");
                             }
                         }
@@ -3528,6 +3532,8 @@ namespace dcc::backend
                             llvm_field_idx = tc.get_llvm_field_index(static_cast<IrAggregateType const*>(e->aggregate->type), e->field_index);
 
                         auto* result = LLVMBuildExtractValue(builder, agg_val, llvm_field_idx, "");
+                        if (is_bool_type(e->type))
+                            result = LLVMBuildTrunc(builder, result, LLVMInt1TypeInContext(ctx), "");
                         set_name(result);
                         val_map[inst] = result;
                         break;
@@ -3567,6 +3573,9 @@ namespace dcc::backend
                         unsigned llvm_field_idx = ins->field_index;
                         if (ins->aggregate && ins->aggregate->type && ins->aggregate->type->kind == IrTypeKind::Aggregate)
                             llvm_field_idx = tc.get_llvm_field_index(static_cast<IrAggregateType const*>(ins->aggregate->type), ins->field_index);
+
+                        if (is_bool_type(ins->value->type))
+                            val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
 
                         auto* result = LLVMBuildInsertValue(builder, agg_val, val, llvm_field_idx, "");
                         set_name(result);
