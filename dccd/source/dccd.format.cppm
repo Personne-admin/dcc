@@ -126,23 +126,27 @@ namespace dccd::format
             std::unordered_map<std::size_t, std::size_t> paren_context;
             std::unordered_set<std::size_t> reanchor_starts;
             std::unordered_set<std::size_t> for_header_parens;
+            std::unordered_set<std::size_t> for_header_semicolons;
             int tab_size{4};
             std::unordered_map<std::size_t, DelimitedGroup> groups;
         };
 
-            [[nodiscard]] bool space_before_token(std::vector<dcc::lex::Token> const& tokens, std::size_t i, StructuralInfo const& info) noexcept
-            {
-                if (i == 0)
+        [[nodiscard]] bool space_before_token(std::vector<dcc::lex::Token> const& tokens, std::size_t i, StructuralInfo const& info) noexcept
+        {
+            if (i == 0)
+                return false;
+
+            auto const cur = tokens[i].kind;
+            auto const prev = tokens[i - 1].kind;
+
+            if (prev == TokenKind::KwFor)
+                return true;
+
+            if (info.lambda_pipe.count(i - 1) > 0)
+                if (cur != TokenKind::Arrow)
                     return false;
 
-                auto const cur = tokens[i].kind;
-                auto const prev = tokens[i - 1].kind;
-
-                if (info.lambda_pipe.count(i - 1) > 0)
-                    if (cur != TokenKind::Arrow)
-                        return false;
-
-                bool const is_binary_operator = i < info.binary_operator.size() && info.binary_operator[i];
+            bool const is_binary_operator = i < info.binary_operator.size() && info.binary_operator[i];
 
             bool const prev_is_unary_operator = i - 1 < info.unary_operator.size() && info.unary_operator[i - 1];
             if (prev_is_unary_operator)
@@ -1212,6 +1216,50 @@ namespace dccd::format
             return positions;
         }
 
+        [[nodiscard]] std::unordered_set<std::size_t> collect_for_header_semicolons(std::vector<dcc::lex::Token> const& tokens)
+        {
+            std::unordered_set<std::size_t> result;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+            {
+                if (tokens[i].kind != TokenKind::KwFor)
+                    continue;
+
+                if (i + 1 < tokens.size() && tokens[i + 1].kind == TokenKind::LParen)
+                    continue;
+
+                int depth = 0;
+                std::size_t marked = 0;
+                for (std::size_t j = i + 1; j < tokens.size(); ++j)
+                {
+                    auto const k = tokens[j].kind;
+                    if (k == TokenKind::LParen || k == TokenKind::LBracket || k == TokenKind::LBrace)
+                    {
+                        ++depth;
+                        continue;
+                    }
+                    if (k == TokenKind::RParen || k == TokenKind::RBracket || k == TokenKind::RBrace)
+                    {
+                        if (depth > 0)
+                            --depth;
+                        continue;
+                    }
+                    if (depth != 0)
+                        continue;
+
+                    if (k == TokenKind::KwIn)
+                        break;
+
+                    if (k == TokenKind::Semicolon)
+                    {
+                        result.insert(j);
+                        if (++marked == 2)
+                            break;
+                    }
+                }
+            }
+            return result;
+        }
+
         [[nodiscard]] StructuralInfo analyze_structure(std::vector<dcc::lex::Token> const& tokens, dcc::si::string_interner& interner,
                                                        std::string_view src_text, protocol::FormattingOptions const& options, Trivia const& trivia,
                                                        FormatAnalysisStats& stats)
@@ -1232,6 +1280,7 @@ namespace dccd::format
             auto const paren_match = build_paren_match(tokens);
             auto const paren_positions = collect_positions(tokens, TokenKind::LParen);
             auto const brace_positions = collect_positions(tokens, TokenKind::LBrace);
+            info.for_header_semicolons = collect_for_header_semicolons(tokens);
 
             try
             {
@@ -1272,6 +1321,7 @@ namespace dccd::format
                                       .paren_context = {},
                                       .reanchor_starts = {},
                                       .for_header_parens = {},
+                                      .for_header_semicolons = {},
                                       .tab_size = static_cast<int>(options.tabSize),
                                       .groups = {}};
             }
@@ -1654,7 +1704,8 @@ namespace dccd::format
                         next_kind != TokenKind::RParen && next_kind != TokenKind::RBracket)
                         pending_break = true;
                 }
-                else if (tok.kind == TokenKind::Semicolon && paren_depth <= 0 && bracket_depth <= 0 && compact_count == 0)
+                else if (tok.kind == TokenKind::Semicolon && paren_depth <= 0 && bracket_depth <= 0 && compact_count == 0 &&
+                         !info.for_header_semicolons.contains(i))
                 {
                     pending_break = true;
                 }

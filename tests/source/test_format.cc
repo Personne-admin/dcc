@@ -144,6 +144,82 @@ namespace
 
 SECTION("format: regressions");
 
+TEST_CASE("for-header clauses stay on one line")
+{
+    check_format("for ;; {}", "for ;; {}\n");
+
+    check_format("for usize i = 0; i < data.len; i++ {\n"
+                 "    uart.write_byte(data[i]);\n"
+                 "}",
+                 "for usize i = 0; i < data.len; i++ {\n"
+                 "    uart.write_byte(data[i]);\n"
+                 "}\n");
+}
+
+TEST_CASE("for-header clauses with omitted init, condition, or update stay on one line")
+{
+    check_format("module m;\n"
+                 "void f() {\n"
+                 "    for ;; {}\n"
+                 "}\n",
+                 "module m;\n"
+                 "void f() {\n"
+                 "    for ;; {}\n"
+                 "}\n");
+
+    check_format("module m;\n"
+                 "void f() {\n"
+                 "    for usize i = 0; i < data.len; i++ {\n"
+                 "        uart.write_byte(data[i]);\n"
+                 "    }\n"
+                 "}\n",
+                 "module m;\n"
+                 "void f() {\n"
+                 "    for usize i = 0; i < data.len; i++ {\n"
+                 "        uart.write_byte(data[i]);\n"
+                 "    }\n"
+                 "}\n");
+
+    check_format("module m;\n"
+                 "void f() {\n"
+                 "    for ; i < n; i++ {\n"
+                 "        work(i);\n"
+                 "    }\n"
+                 "}\n",
+                 "module m;\n"
+                 "void f() {\n"
+                 "    for ; i < n; i++ {\n"
+                 "        work(i);\n"
+                 "    }\n"
+                 "}\n");
+
+    check_format("module m;\n"
+                 "void f() {\n"
+                 "    for i = 0;; i++ {\n"
+                 "        work(i);\n"
+                 "    }\n"
+                 "}\n",
+                 "module m;\n"
+                 "void f() {\n"
+                 "    for i = 0;; i++ {\n"
+                 "        work(i);\n"
+                 "    }\n"
+                 "}\n");
+
+    check_format("module m;\n"
+                 "void f() {\n"
+                 "    for i = 0; i < n; {\n"
+                 "        work(i);\n"
+                 "    }\n"
+                 "}\n",
+                 "module m;\n"
+                 "void f() {\n"
+                 "    for i = 0; i < n; {\n"
+                 "        work(i);\n"
+                 "    }\n"
+                 "}\n");
+}
+
 TEST_CASE("multiline call keeps grouped first arg stable")
 {
     check_format("module m;\n"
