@@ -1131,6 +1131,9 @@ export namespace dcc::ir::lower
             if (auto* nt = dcc::types::type_cast<dcc::types::NominalType>(type))
                 return lower_type(nt->underlying);
 
+            if (auto* rt = dcc::types::type_cast<dcc::types::RestrictedType>(type))
+                return lower_type(rt->underlying);
+
             if (auto* it = dcc::types::type_cast<dcc::types::IntType>(type))
                 return m_ctx.int_t(it->bits, it->is_signed, it->is_pointer_sized);
 

@@ -1,0 +1,46 @@
+=== FILE: test.dc ===
+module test;
+
+struct Box { u8{32, 64} tag; }
+
+u8{32, 64} bump(u8{32, 64} v) {
+    u8{32, 64}[2] arr;
+    arr[0] = v;
+    arr[1] = 64;
+    return arr[1];
+}
+
+public i64 test() {
+    Box b;
+    b.tag = 32;
+    u8{32, 64} x = bump(64);
+    return x as i64;
+}
+
+=== EXPECT-IR ===
+module "test"
+u8@_DC0F1.4.test4.bump1Gi8u2.32-32.64-64Gi8u2.32-32.64-64(u8) {
+%entry(u8 %v):
+  %0 = alloca [2 x u8]
+  %1 = gep ptr<[2 x u8]> %0, #0
+  store u8 %v, ptr<u8> %1
+  %2 = gep ptr<[2 x u8]> %0, #1
+  store u8 #64, ptr<u8> %2
+  %3 = load [2 x u8], ptr<[2 x u8]> %0
+  %4 = gep ptr<[2 x u8]> %0, #1
+  %5 = load u8, ptr<u8> %4
+  ret u8 %5
+}
+
+i64@_DC0F1.4.test4.test0i64s() {
+%entry:
+  %0 = alloca {@0 u8}
+  %1 = gep ptr<{@0 u8}> %0, field #0
+  store u8 #32, ptr<u8> %1
+  %2 = alloca u8
+  %3 = call fn(@_DC0F1.4.test4.bump1Gi8u2.32-32.64-64Gi8u2.32-32.64-64)(u8 #64) -> u8
+  store u8 %3, ptr<u8> %2
+  %4 = load u8, ptr<u8> %2
+  %5 = zext u8 %4 to i64
+  ret i64 %5
+}

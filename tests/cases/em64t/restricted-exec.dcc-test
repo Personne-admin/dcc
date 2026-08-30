@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+struct Box { u8{32, 64} tag; }
+
+u8{32, 64} pick(u8{32, 64} a, u8{32, 64} b) {
+    u8{32, 64}[2] arr;
+    arr[0] = a;
+    arr[1] = b;
+    return arr[1];
+}
+
+@nomangle
+public i32 dcc_main() {
+    Box b;
+    b.tag = 32;
+    u8{32, 64} x = pick(64, 32);
+    return b.tag as i32 + x as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 64
