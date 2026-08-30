@@ -174,6 +174,23 @@ export namespace dcc::ast
             visitTypeExpr(t->inner);
         }
 
+        void visitRestrictedType(RestrictedType const* t) override
+        {
+            line("Restricted");
+            IndentScope is(m_indent_level);
+            line("Underlying");
+            {
+                IndentScope is2(m_indent_level);
+                visitTypeExpr(t->underlying);
+            }
+            line("Elements");
+            {
+                IndentScope is2(m_indent_level);
+                for (auto const* element : t->elements)
+                    visitExpr(element);
+            }
+        }
+
         void visitPackIndexType(PackIndexType const* t) override
         {
             line("PackIndex");

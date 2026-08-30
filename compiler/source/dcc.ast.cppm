@@ -107,6 +107,7 @@ export namespace dcc::ast
         Fam,
         FuncPtr,
         Qualified,
+        Restricted,
         PackIndex,
     };
 
@@ -523,6 +524,14 @@ export namespace dcc::ast
         Qual quals;
         TypePtr inner;
         QualifiedType(sm::SourceRange r, Qual q, TypePtr t) : TypeExpr(Kind, r), quals(q), inner(t) {}
+    };
+
+    struct RestrictedType : TypeExpr
+    {
+        static constexpr auto Kind = TypeKind::Restricted;
+        TypePtr underlying;
+        std::pmr::vector<ExprPtr> elements;
+        RestrictedType(sm::SourceRange r, TypePtr u, Allocator a) : TypeExpr(Kind, r), underlying(u), elements(a) {}
     };
 
     struct PackIndexType : TypeExpr

@@ -510,6 +510,9 @@ export namespace dcc::sema
                     out.quals = detail::qual_or(out.quals, ast_to_type_qual(t->quals));
                     break;
                 }
+                case ast::TypeKind::Restricted:
+                    out = resolve_restricted(static_cast<ast::RestrictedType*>(node), mod, env, quiet_unknown);
+                    break;
                 case ast::TypeKind::PackIndex: {
                     auto* pi = static_cast<ast::PackIndexType*>(node);
                     auto base = resolve_type_expr(pi->base, mod, env, quiet_unknown);
@@ -1633,6 +1636,88 @@ export namespace dcc::sema
                     m_diag.error(expr->range, "expression is not a valid enum discriminant");
                     return std::nullopt;
             }
+        }
+
+        [[nodiscard]] std::optional<std::uint64_t>
+        evaluate_restriction_endpoint(ast::Expr* expr, ast::RestrictedType const* owner, ModuleInfo const& mod,
+                                      si::InternedHashMap<DiscriminantValue>& no_variants,
+                                      std::unordered_set<ast::VarDecl const*>& evaluating_consts, types::IntType const& int_ty)
+        {
+            auto value = evaluate_enum_discriminant(expr, mod, no_variants, evaluating_consts);
+            if (!value)
+            {
+                m_diag.error(expr ? expr->range : owner->range, "restriction element must be an integer compile-time constant");
+                return std::nullopt;
+            }
+            if (!fits_enum_backing(*value, int_ty.bits, int_ty.is_signed))
+            {
+                m_diag.error(expr->range, "restriction value {} does not fit in underlying type", disc_value_str(*value));
+                return std::nullopt;
+            }
+
+            std::int64_t raw{};
+            if (value->is_negative)
+            {
+                auto converted = disc_to_int64(*value);
+                if (!converted)
+                    return std::nullopt;
+                raw = *converted;
+            }
+            else
+                raw = static_cast<std::int64_t>(value->bits);
+            return int_domain::to_ordinal(raw, int_ty);
+        }
+
+        [[nodiscard]] detail::ResolvedType resolve_restricted(ast::RestrictedType* node, ModuleInfo const& mod, detail::TemplateEnv const& env,
+                                                                       bool quiet_unknown)
+        {
+            auto underlying = resolve_type_expr(node->underlying, mod, env, quiet_unknown);
+            auto const* int_ty = types::type_cast<types::IntType>(underlying.type);
+            if (!int_ty)
+            {
+                m_diag.error(node->underlying->range, "value restrictions require an integer scalar type");
+                return {m_types.m_errort(), underlying.quals};
+            }
+
+            si::InternedHashMap<DiscriminantValue> no_variants;
+            std::unordered_set<ast::VarDecl const*> evaluating_consts;
+            std::vector<types::RestrictionInterval> intervals;
+
+            bool valid = true;
+            for (auto* element : node->elements)
+            {
+                if (auto* range = ast::node_cast<ast::RangeExpr>(element))
+                {
+                    if (!range->start || !range->end)
+                    {
+                        m_diag.error(range->range, "restriction ranges require both endpoints");
+                        valid = false;
+                        continue;
+                    }
+                    auto lo = evaluate_restriction_endpoint(range->start, node, mod, no_variants, evaluating_consts, *int_ty);
+                    auto hi = evaluate_restriction_endpoint(range->end, node, mod, no_variants, evaluating_consts, *int_ty);
+                    if (!lo || !hi)
+                    {
+                        valid = false;
+                        continue;
+                    }
+                    if (*lo > *hi)
+                    {
+                        m_diag.error(range->range, "restriction range start must not exceed its end");
+                        valid = false;
+                        continue;
+                    }
+                    intervals.push_back({*lo, *hi});
+                }
+                else if (auto value = evaluate_restriction_endpoint(element, node, mod, no_variants, evaluating_consts, *int_ty))
+                    intervals.push_back({*value, *value});
+                else
+                    valid = false;
+            }
+
+            if (!valid || intervals.empty())
+                return {m_types.m_errort(), underlying.quals};
+            return {m_types.restricted_t(int_ty, intervals), underlying.quals};
         }
 
         [[nodiscard]] static bool fits_enum_backing(DiscriminantValue const& dv, std::uint8_t bits, bool is_signed) noexcept

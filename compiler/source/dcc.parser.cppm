@@ -776,7 +776,7 @@ export namespace dcc::parser
 
             {
                 Speculation spec(*this);
-                auto* alias_type = parse_type();
+                auto* alias_type = parse_type(true);
                 if (alias_type && !spec.had_suppressed_errors() && check(TK::Identifier) && check_at(1, TK::Eq))
                 {
                     spec.commit();
@@ -910,7 +910,7 @@ export namespace dcc::parser
 
                 {
                     Speculation spec(*this);
-                    auto* alias_type = parse_type();
+                    auto* alias_type = parse_type(true);
                     if (alias_type && !spec.had_suppressed_errors() && check(TK::Semicolon))
                     {
                         spec.commit();
@@ -946,20 +946,20 @@ export namespace dcc::parser
             return d;
         }
 
-        ast::TypeExpr* parse_type()
+        ast::TypeExpr* parse_type(bool allow_restricted = false)
         {
             auto start = loc();
             auto first_error = m_recovery_errors.size();
-            auto* result = parse_type_impl();
+            auto* result = parse_type_impl(allow_restricted);
             return mark_recovered(result, first_error, range_from(start));
         }
 
-        ast::TypeExpr* parse_type_impl()
+        ast::TypeExpr* parse_type_impl(bool allow_restricted)
         {
             auto start = loc();
             auto prefix_quals = parse_qualifiers();
 
-            auto* base = parse_type_atom();
+            auto* base = parse_type_atom(allow_restricted);
             if (!base)
                 return nullptr;
 
@@ -969,7 +969,7 @@ export namespace dcc::parser
                 base = m_ctx.make<ast::QualifiedType>(range, prefix_quals, base);
             }
 
-            base = parse_type_suffix(base);
+            base = parse_type_suffix(base, allow_restricted);
 
             return base;
         }
@@ -993,7 +993,7 @@ export namespace dcc::parser
             return q;
         }
 
-        ast::TypeExpr* parse_type_atom()
+        ast::TypeExpr* parse_type_atom(bool allow_restricted)
         {
             auto start = loc();
 
@@ -1001,7 +1001,7 @@ export namespace dcc::parser
             {
                 advance();
                 advance();
-                auto* el = parse_type();
+                auto* el = parse_type(allow_restricted);
                 if (!el)
                     return nullptr;
 
@@ -1016,7 +1016,7 @@ export namespace dcc::parser
 
             if (match(TK::LParen))
             {
-                auto* inner = parse_type();
+                auto* inner = parse_type(allow_restricted);
                 expect(TK::RParen, "after grouped type");
                 return inner;
             }
@@ -1045,9 +1045,26 @@ export namespace dcc::parser
             return nullptr;
         }
 
-        ast::TypeExpr* parse_type_suffix(ast::TypeExpr* base)
+        ast::TypeExpr* parse_type_suffix(ast::TypeExpr* base, bool allow_restricted)
         {
             auto start = base->range.begin;
+
+            if (allow_restricted && check(TK::LBrace))
+            {
+                advance();
+                auto* restricted = m_ctx.make<ast::RestrictedType>(sm::SourceRange{}, base, m_ctx.allocator());
+                if (check(TK::RBrace))
+                    error_at(single_range(), "expected restriction element");
+                else
+                    do
+                    {
+                        restricted->elements.push_back(parse_expr());
+                    } while (match(TK::Comma) && !check(TK::RBrace));
+
+                expect(TK::RBrace, "to close type restriction");
+                restricted->range = range_from(start);
+                base = restricted;
+            }
 
             for (;;)
             {
@@ -1093,7 +1110,7 @@ export namespace dcc::parser
                         do
                         {
                             auto param_start = loc();
-                            auto* pt = parse_type();
+                            auto* pt = parse_type(true);
 
                             ast::FuncPtrParam param;
                             param.type = pt;
@@ -1137,7 +1154,34 @@ export namespace dcc::parser
             auto start = loc();
             ast::TemplateArg arg;
 
-            if (ast::is_type_start(peek().kind))
+            if (ast::is_primitive_type(peek().kind) && check_at(1, TK::LBrace))
+            {
+                auto brace_range = peek(1).range;
+                if (silent())
+                    m_deferred_restriction_error = brace_range;
+                else
+                    error_at(brace_range, "value restrictions are only allowed in declaration type positions");
+                auto* type = parse_type(false);
+                std::ignore = type;
+                if (check(TK::LBrace))
+                {
+                    advance();
+                    int depth = 1;
+                    while (depth > 0 && !eof())
+                    {
+                        if (check(TK::LBrace))
+                            ++depth;
+                        else if (check(TK::RBrace))
+                            --depth;
+                        advance();
+                    }
+                }
+                arg.type = nullptr;
+                arg.range = range_from(start);
+                return arg;
+            }
+
+            if (ast::is_type_start(peek().kind) && !(check(TK::Identifier) && check_at(1, TK::LBrace)))
             {
                 Speculation spec(*this);
                 auto* type = parse_type();
@@ -1220,7 +1264,7 @@ export namespace dcc::parser
                 return nullptr;
             }
 
-            auto* type = parse_type();
+            auto* type = parse_type(true);
             if (!type)
                 return nullptr;
 
@@ -1383,7 +1427,7 @@ export namespace dcc::parser
                 }
                 else
                 {
-                    shape.type = parse_type();
+                    shape.type = parse_type(true);
                     auto name = expect(TK::Identifier, "in parameter declaration");
                     if (name.kind == TK::Identifier)
                     {
@@ -1476,7 +1520,7 @@ export namespace dcc::parser
             ast::FieldDecl f;
 
             auto saved_pos = m_pos;
-            f.type = parse_type();
+            f.type = parse_type(true);
             auto name = expect(TK::Identifier, "in field declaration");
             if (name.kind == TK::Identifier)
             {
@@ -2167,7 +2211,7 @@ export namespace dcc::parser
 
         ast::Decl* speculate_var_decl(sm::Location start)
         {
-            auto* type = parse_type();
+            auto* type = parse_type(true);
             if (!type)
                 return nullptr;
 
@@ -2369,7 +2413,7 @@ export namespace dcc::parser
             if (ast::is_type_start(peek().kind))
             {
                 Speculation spec(*this);
-                auto* type = parse_type();
+                auto* type = parse_type(true);
 
                 bool type_ref = match(TK::Amp);
                 if (type && !spec.had_suppressed_errors() && check(TK::Identifier) && check_at(1, TK::KwIn))
@@ -2834,8 +2878,17 @@ export namespace dcc::parser
 
                 if (op == TK::KwAs)
                 {
-                    auto* type = parse_type();
+                    auto* type = parse_type(false);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
+                    if (check(TK::LBrace) && !no_struct_lit)
+                    {
+                        error_at(single_range(), "value restrictions are only allowed in declaration type positions");
+                        advance();
+                        while (!check(TK::RBrace) && !eof())
+                            advance();
+                        if (check(TK::RBrace))
+                            advance();
+                    }
                     left = m_ctx.make<ast::CastExpr>(range, left, type);
                     continue;
                 }
@@ -3032,6 +3085,11 @@ export namespace dcc::parser
                         }
 
                         spec.commit();
+                        if (m_deferred_restriction_error)
+                        {
+                            error_at(*m_deferred_restriction_error, "value restrictions are only allowed in declaration type positions");
+                            m_deferred_restriction_error.reset();
+                        }
 
                         inst->range = range_from(start);
                         expr = inst;
@@ -3110,7 +3168,7 @@ export namespace dcc::parser
                     }
                     else
                     {
-                        fp.type = parse_type();
+                        fp.type = parse_type(true);
                         auto name = expect(TK::Identifier, "in lambda parameter declaration");
                         if (name.kind == TK::Identifier)
                         {
@@ -3657,7 +3715,7 @@ export namespace dcc::parser
                 return false;
 
             Speculation spec(*this);
-            auto* type = parse_type();
+            auto* type = parse_type(true);
             if (!type)
                 return false;
 
@@ -3792,7 +3850,7 @@ export namespace dcc::parser
                     {
                         auto pstart = loc();
                         ast::CompilesParam param;
-                        param.type = parse_type();
+                        param.type = parse_type(true);
                         auto name = expect(TK::Identifier, "in compiles parameter");
                         if (name.kind == TK::Identifier)
                         {
@@ -3984,6 +4042,7 @@ export namespace dcc::parser
         std::uint32_t m_silent_depth{};
         std::uint32_t m_suppressed_error_count{};
         std::optional<sm::SourceRange> m_last_error_range;
+        std::optional<sm::SourceRange> m_deferred_restriction_error;
         ParseMode m_mode{ParseMode::Batch};
         std::vector<ast::Decl*> m_extra_imports;
         std::vector<bool> m_recovery_errors;

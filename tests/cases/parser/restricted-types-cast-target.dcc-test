@@ -1,0 +1,9 @@
+=== FILE: main.dc ===
+module m;
+
+i32 test(i32 x) {
+    return x as u8{1, 2};
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: value restrictions are only allowed in declaration type positions

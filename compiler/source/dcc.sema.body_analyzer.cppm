@@ -2712,6 +2712,13 @@ export namespace dcc::sema
                                 visit_type(ta.type);
                             break;
                         }
+                        case ast::TypeKind::Restricted: {
+                            auto* rt = static_cast<ast::RestrictedType*>(t);
+                            visit_type(rt->underlying);
+                            for (auto* element : rt->elements)
+                                visit_expr(element);
+                            break;
+                        }
                         case ast::TypeKind::PackIndex:
                             break;
                         case ast::TypeKind::Primitive:
@@ -6110,6 +6117,7 @@ export namespace dcc::sema
                     return Layout{0, 1};
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:
+                case types::TypeKind::Restricted:
                 case types::TypeKind::Float:
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:
@@ -14736,6 +14744,10 @@ export namespace dcc::sema
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::QualifiedType const*>(t)->inner, fn, next_off_ptr, const_env);
                     inner.quals = qual_or(inner.quals, ast_to_type_qual(static_cast<ast::QualifiedType const*>(t)->quals));
                     return inner;
+                }
+                case ast::TypeKind::Restricted: {
+                    auto canonical = get_canonical(t->sema);
+                    return {.type = canonical ? canonical : m_types.m_errort()};
                 }
                 case ast::TypeKind::PackIndex: {
                     auto const* pi = static_cast<ast::PackIndexType const*>(t);

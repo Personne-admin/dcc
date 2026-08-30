@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+struct Point { i32 x; i32 y; }
+i32 add(Point P)(i32 v) { return v + P.x; }
+
+i32 test() {
+    return add!(u8{1, 2})(0);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:7: value restrictions are only allowed in declaration type positions

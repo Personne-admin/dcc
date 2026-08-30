@@ -104,6 +104,15 @@ namespace dcc::sema
                     n->sema = e->sema;
                     return n;
                 }
+                case ast::TypeKind::Restricted: {
+                    auto* e = static_cast<ast::RestrictedType const*>(t);
+                    auto* n = m_ctx.make<ast::RestrictedType>(e->range, clone_type(e->underlying), m_alloc);
+                    n->elements.reserve(e->elements.size());
+                    for (auto const* element : e->elements)
+                        n->elements.push_back(clone_expr(element));
+                    n->sema = e->sema;
+                    return n;
+                }
                 case ast::TypeKind::PackIndex: {
                     auto* e = static_cast<ast::PackIndexType const*>(t);
                     auto* n = m_ctx.make<ast::PackIndexType>(e->range, clone_type(e->base), e->index ? clone_expr(e->index) : nullptr);
@@ -988,6 +997,13 @@ namespace dcc::sema
                 }
                 case ast::TypeKind::Primitive:
                     break;
+                case ast::TypeKind::Restricted: {
+                    auto* rt = static_cast<ast::RestrictedType*>(t);
+                    substitute_in_type(rt->underlying);
+                    for (auto* element : rt->elements)
+                        substitute_in_expr(element);
+                    break;
+                }
                 case ast::TypeKind::PackIndex: {
                     auto* pi = static_cast<ast::PackIndexType*>(t);
                     substitute_in_type(pi->base);
@@ -2326,6 +2342,13 @@ export namespace dcc::sema
                     case ast::TypeKind::Qualified:
                         replace_in_type(static_cast<ast::QualifiedType*>(t)->inner);
                         break;
+                    case ast::TypeKind::Restricted: {
+                        auto* rt = static_cast<ast::RestrictedType*>(t);
+                        replace_in_type(rt->underlying);
+                        for (auto* element : rt->elements)
+                            replace_in_expr(element);
+                        break;
+                    }
                     case ast::TypeKind::PackIndex: {
                         auto* pi = static_cast<ast::PackIndexType*>(t);
                         replace_in_type(pi->base);

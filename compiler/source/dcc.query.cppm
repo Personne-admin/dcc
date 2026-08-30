@@ -554,6 +554,15 @@ namespace dcc::query
                         walk_type_expr(t->inner, result, target, opts);
                     break;
                 }
+                case ast::TypeKind::Restricted: {
+                    auto* t = static_cast<ast::RestrictedType const*>(type_expr);
+                    if (t->underlying && range_contains_or_touches_end(t->underlying->range, target))
+                        walk_type_expr(t->underlying, result, target, opts);
+                    for (auto const* element : t->elements)
+                        if (element && range_contains_or_touches_end(element->range, target))
+                            walk_expr(element, result, target, opts);
+                    break;
+                }
                 case ast::TypeKind::PackIndex: {
                     auto* t = static_cast<ast::PackIndexType const*>(type_expr);
                     if (t->base && range_contains_or_touches_end(t->base->range, target))

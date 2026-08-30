@@ -457,6 +457,7 @@ export namespace dcc::infer
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:
+                case types::TypeKind::Restricted:
                 case types::TypeKind::Float:
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:
@@ -544,6 +545,9 @@ export namespace dcc::infer
                                ? ok()
                                : fail(DeductionError::Conflict, "integer type mismatch");
                 }
+
+                case types::TypeKind::Restricted:
+                    return fail(DeductionError::Conflict, "restricted type mismatch");
 
                 case types::TypeKind::Float: {
                     auto const* a = static_cast<types::FloatType const*>(lhs);
@@ -685,6 +689,7 @@ export namespace dcc::infer
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:
+                case types::TypeKind::Restricted:
                 case types::TypeKind::Float:
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:

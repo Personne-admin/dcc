@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+const u8 ThirtyTwo = 32;
+using Width = u8{64, ThirtyTwo, 32};
+using Span = u8{40..50, 45..48, 51};
+using Signed = i8{-1, 0, 1};
+
+=== EXPECT-TYPES FOR: m ===
+Module m
+  Var ThirtyTwo: u8
+  Using Width
+    Alias: u8{32, 64}
+  Using Span
+    Alias: u8{40..50, 51}
+  Using Signed
+    Alias: i8{-1, 0, 1}

@@ -2902,6 +2902,27 @@ export namespace dccd
                     auto const* it = static_cast<dcc::types::IntType const*>(ty);
                     return std::format("{}{}", it->is_signed ? 'i' : 'u', static_cast<unsigned>(it->bits));
                 }
+                case dcc::types::TypeKind::Restricted: {
+                    auto const* rt = static_cast<dcc::types::RestrictedType const*>(ty);
+                    auto format_ordinal = [&](std::uint64_t ordinal) {
+                        auto raw = dcc::int_domain::ordinal_to_raw_bits(ordinal, *rt->underlying);
+                        if (rt->underlying->is_signed)
+                            return std::to_string(raw);
+                        return std::to_string(static_cast<std::uint64_t>(raw) & dcc::int_domain::mask_for_bits(rt->underlying->bits));
+                    };
+                    auto out = format_dcc_type(rt->underlying);
+                    out += '{';
+                    for (std::size_t i = 0; i < rt->intervals.size(); ++i)
+                    {
+                        if (i)
+                            out += ", ";
+                        out += format_ordinal(rt->intervals[i].lo);
+                        if (rt->intervals[i].lo != rt->intervals[i].hi)
+                            out += ".." + format_ordinal(rt->intervals[i].hi);
+                    }
+                    out += '}';
+                    return out;
+                }
                 case dcc::types::TypeKind::Float: {
                     auto const* ft = static_cast<dcc::types::FloatType const*>(ty);
                     return std::format("f{}", static_cast<unsigned>(ft->bits));

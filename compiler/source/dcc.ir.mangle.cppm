@@ -35,6 +35,7 @@ export namespace dcc::ir::mangle
             Void,
             Bool,
             Int,
+            Restricted,
             Float,
             Char,
             NullT,
@@ -64,6 +65,8 @@ export namespace dcc::ir::mangle
         std::string quals;
         std::shared_ptr<DemangledType> pointee;
         std::shared_ptr<DemangledType> element;
+        std::shared_ptr<DemangledType> underlying;
+        std::vector<dcc::types::RestrictionInterval> restriction_intervals;
         std::uint64_t count{};
         std::shared_ptr<DemangledType> return_type_fp;
         std::uint32_t param_index{};
@@ -476,6 +479,22 @@ namespace dcc::ir::mangle
                         out += 'i';
                         out += to_dec(it->bits);
                         out += (it->is_signed ? 's' : 'u');
+                    }
+                    return;
+                }
+                case dcc::types::TypeKind::Restricted: {
+                    auto const* rt = static_cast<dcc::types::RestrictedType const*>(type);
+                    out += 'G';
+                    encode_type(out, rt->underlying, resolver);
+                    out += to_dec(rt->intervals.size());
+                    out += '.';
+                    for (std::size_t i = 0; i < rt->intervals.size(); ++i)
+                    {
+                        if (i)
+                            out += '.';
+                        out += to_dec(rt->intervals[i].lo);
+                        out += '-';
+                        out += to_dec(rt->intervals[i].hi);
                     }
                     return;
                 }
@@ -905,6 +924,35 @@ namespace dcc::ir::mangle
                     }
 
                     dt.tag = DemangledType::Tag::Struct;
+                    return true;
+                }
+                case 'G': {
+                    auto underlying = std::make_shared<DemangledType>();
+                    if (!demangle_type_into(*underlying, sv, pos))
+                        return false;
+
+                    std::uint64_t count = 0;
+                    if (!parse_dec(sv, pos, count) || count == 0 || pos >= sv.size() || sv[pos++] != '.')
+                        return false;
+
+                    std::vector<dcc::types::RestrictionInterval> intervals;
+                    intervals.reserve(static_cast<std::size_t>(count));
+                    for (std::uint64_t i = 0; i < count; ++i)
+                    {
+                        std::uint64_t lo = 0;
+                        std::uint64_t hi = 0;
+                        if (!parse_dec(sv, pos, lo) || pos >= sv.size() || sv[pos++] != '-' || !parse_dec(sv, pos, hi) || lo > hi)
+                            return false;
+                        if (!intervals.empty() && lo <= intervals.back().hi)
+                            return false;
+                        intervals.push_back({lo, hi});
+                        if (i + 1 < count && (pos >= sv.size() || sv[pos++] != '.'))
+                            return false;
+                    }
+
+                    dt.tag = DemangledType::Tag::Restricted;
+                    dt.underlying = std::move(underlying);
+                    dt.restriction_intervals = std::move(intervals);
                     return true;
                 }
                 case 'N': {

@@ -4,6 +4,7 @@ import dcc.comptime;
 import dcc.ast;
 import dcc.sm;
 import dcc.ir.mangle;
+import dcc.sema.type_helpers;
 import dcc.target;
 
 #include "harness.hh"
@@ -884,6 +885,84 @@ TEST_CASE("demangle nominal alias Fd round-trip")
     CHECK_EQ(d.type_only.module_path[0], "m");
 }
 
+SECTION("mangle_type: restricted");
+
+TEST_CASE("restricted types normalize, print, and intern")
+{
+    types::TypeContext ctx;
+    auto* u8t = static_cast<types::IntType const*>(ctx.int_t(8, false));
+    std::array a{types::RestrictionInterval{64, 64}, types::RestrictionInterval{32, 32}, types::RestrictionInterval{32, 32}};
+    std::array b{types::RestrictionInterval{32, 32}, types::RestrictionInterval{64, 64}};
+    auto t1 = ctx.restricted_t(u8t, a);
+    auto t2 = ctx.restricted_t(u8t, b);
+    CHECK_EQ(t1, t2);
+    CHECK_EQ(dcc::sema::format_dcc_type(t1), "u8{32, 64}");
+}
+
+TEST_CASE("restricted normalization merges overlap but not adjacency")
+{
+    types::TypeContext ctx;
+    auto* u8t = static_cast<types::IntType const*>(ctx.int_t(8, false));
+    std::array intervals{types::RestrictionInterval{40, 50}, types::RestrictionInterval{32, 45}, types::RestrictionInterval{51, 51}};
+    auto t = ctx.restricted_t(u8t, intervals);
+    auto const* rt = types::type_cast<types::RestrictedType>(t);
+    REQUIRE(rt != nullptr);
+    CHECK_EQ(rt->intervals.size(), 2u);
+    CHECK_EQ(dcc::sema::format_dcc_type(t), "u8{32..50, 51}");
+}
+
+TEST_CASE("restricted signed printing uses underlying values")
+{
+    types::TypeContext ctx;
+    auto* i8t = static_cast<types::IntType const*>(ctx.int_t(8, true));
+    std::array intervals{types::RestrictionInterval{127, 127}, types::RestrictionInterval{128, 128}, types::RestrictionInterval{129, 129}};
+    auto t = ctx.restricted_t(i8t, intervals);
+    CHECK_EQ(dcc::sema::format_dcc_type(t), "i8{-1, 0, 1}");
+}
+
+TEST_CASE("restricted types mangle distinctly and round-trip")
+{
+    types::TypeContext ctx;
+    auto* u64t = static_cast<types::IntType const*>(ctx.int_t(64, false));
+    std::array first{types::RestrictionInterval{1, 5}, types::RestrictionInterval{10, 20}};
+    std::array second{types::RestrictionInterval{1, 6}, types::RestrictionInterval{10, 20}};
+    auto t1 = ctx.restricted_t(u64t, first);
+    auto t2 = ctx.restricted_t(u64t, second);
+    auto s1 = mangle::mangle_type(t1);
+    auto s2 = mangle::mangle_type(t2);
+    CHECK_EQ(s1, "_DC0TGi64u2.1-5.10-20");
+    CHECK_NE(s1, s2);
+
+    auto d = mangle::demangle(s1);
+    REQUIRE(d.has_value());
+    CHECK_EQ(d->type_only.tag, mangle::DemangledType::Tag::Restricted);
+    REQUIRE(d->type_only.underlying != nullptr);
+    CHECK_EQ(d->type_only.underlying->tag, mangle::DemangledType::Tag::Int);
+    CHECK_EQ(d->type_only.restriction_intervals.size(), 2u);
+    CHECK_EQ(d->type_only.restriction_intervals[0], (types::RestrictionInterval{1, 5}));
+    CHECK_EQ(d->type_only.restriction_intervals[1], (types::RestrictionInterval{10, 20}));
+}
+
+TEST_CASE("restricted signed ordinals have stable mangling")
+{
+    types::TypeContext ctx;
+    auto* i8t = static_cast<types::IntType const*>(ctx.int_t(8, true));
+    std::array intervals{types::RestrictionInterval{118, 138}};
+    auto t = ctx.restricted_t(i8t, intervals);
+    CHECK_EQ(mangle::mangle_type(t), "_DC0TGi8s1.118-138");
+    CHECK(demangle_check("_DC0TGi8s1.118-138"));
+}
+
+TEST_CASE("demangle rejects malformed restricted types")
+{
+    CHECK(!demangle_check("_DC0TG"));
+    CHECK(!demangle_check("_DC0TGi64u0."));
+    CHECK(!demangle_check("_DC0TGi64u1.1"));
+    CHECK(!demangle_check("_DC0TGi64u1.1-"));
+    CHECK(!demangle_check("_DC0TGi64u1.5-1"));
+    CHECK(!demangle_check("_DC0TGi64u2.1-5.4-8"));
+}
+
 SECTION("UTF-8 encoding");
 
 TEST_CASE("UTF-8 struct name")
@@ -1217,8 +1296,8 @@ TEST_CASE("mangle_lambda_function uses distinct _DC0L path and source identity")
 {
     types::TypeContext ctx;
     ast::AstContext actx;
-    auto* l = actx.make<ast::LambdaExpr>(
-        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 512}, dcc::sm::Location{dcc::sm::FileId{3}, 520}}, actx.allocator());
+    auto* l = actx.make<ast::LambdaExpr>(dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 512}, dcc::sm::Location{dcc::sm::FileId{3}, 520}},
+                                         actx.allocator());
     auto* fd = actx.make<ast::FuncDecl>(l->range, "__lambda_0", l->range);
     fd->synthesized_lambda = true;
     fd->lambda_source = l;
@@ -1237,8 +1316,8 @@ TEST_CASE("mangle_lambda_function distinct from same-named source function")
 {
     types::TypeContext ctx;
     ast::AstContext actx;
-    auto* l = actx.make<ast::LambdaExpr>(
-        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 512}, dcc::sm::Location{dcc::sm::FileId{3}, 520}}, actx.allocator());
+    auto* l = actx.make<ast::LambdaExpr>(dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 512}, dcc::sm::Location{dcc::sm::FileId{3}, 520}},
+                                         actx.allocator());
     auto* fd = actx.make<ast::FuncDecl>(l->range, "__lambda_0", l->range);
     fd->synthesized_lambda = true;
     fd->lambda_source = l;
@@ -1257,13 +1336,13 @@ TEST_CASE("mangle_lambda_function same-signature lambdas differ")
 {
     types::TypeContext ctx;
     ast::AstContext actx;
-    auto* l1 = actx.make<ast::LambdaExpr>(
-        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 100}, dcc::sm::Location{dcc::sm::FileId{3}, 108}}, actx.allocator());
+    auto* l1 = actx.make<ast::LambdaExpr>(dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 100}, dcc::sm::Location{dcc::sm::FileId{3}, 108}},
+                                          actx.allocator());
     auto* fd1 = actx.make<ast::FuncDecl>(l1->range, "__lambda_0", l1->range);
     fd1->synthesized_lambda = true;
     fd1->lambda_source = l1;
-    auto* l2 = actx.make<ast::LambdaExpr>(
-        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 300}, dcc::sm::Location{dcc::sm::FileId{3}, 308}}, actx.allocator());
+    auto* l2 = actx.make<ast::LambdaExpr>(dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{3}, 300}, dcc::sm::Location{dcc::sm::FileId{3}, 308}},
+                                          actx.allocator());
     auto* fd2 = actx.make<ast::FuncDecl>(l2->range, "__lambda_1", l2->range);
     fd2->synthesized_lambda = true;
     fd2->lambda_source = l2;
@@ -1281,8 +1360,8 @@ TEST_CASE("mangle_type Lambda encodes stable source identity")
 {
     types::TypeContext ctx;
     ast::AstContext actx;
-    auto* l = actx.make<ast::LambdaExpr>(
-        dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{2}, 77}, dcc::sm::Location{dcc::sm::FileId{2}, 85}}, actx.allocator());
+    auto* l = actx.make<ast::LambdaExpr>(dcc::sm::SourceRange{dcc::sm::Location{dcc::sm::FileId{2}, 77}, dcc::sm::Location{dcc::sm::FileId{2}, 85}},
+                                         actx.allocator());
     auto lt = ctx.lambda_t(l);
     auto s = mangle::mangle_type(lt);
     CHECK_EQ(s, "_DC0TL1.22.77");
