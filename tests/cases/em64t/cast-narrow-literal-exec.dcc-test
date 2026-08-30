@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i32 dcc_main() {
+    u8 x = 300 as u8;
+    if (x != 44) {
+        return 1;
+    }
+    u16 y = 70000 as u16;
+    if (y != 4464) {
+        return 2;
+    }
+    i8 z = -129 as i8;
+    if (z != 127) {
+        return 3;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

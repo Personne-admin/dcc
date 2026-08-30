@@ -1,2 +1,3 @@
 - [ ] early-evaluation problem affecting module-level static if and type-level array extents
 - [ ] mixed alias/const cycle diagnostics improvements
+- [ ] constant binary arithmetic isn't range-checked against the destination, `u8 x = 200 + 100` is accepted.

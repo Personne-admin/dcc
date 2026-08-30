@@ -1,0 +1,41 @@
+=== FILE: main.dc ===
+module m;
+
+u8 make_u8() { return 300; }
+
+void take_u8(u8 x) {}
+
+void test_var_init() {
+    u8 x = 300;
+}
+
+void test_var_init_i8() {
+    i8 a = 128;
+    i8 b = -129;
+}
+
+void test_call_arg() {
+    take_u8(300);
+}
+
+void test_u16_overflow() {
+    u16 c = 70000;
+}
+
+void test_ok() {
+    u8 ok = 255;
+    u8 ok2 = 0;
+    i8 ok3 = -128;
+    i8 ok4 = 127;
+    u64 big = 0xFFFFFFFFFFFFFFFF;
+    u64 big2 = 0x8000000000000000;
+    i64 full = 0x8000000000000000;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: integer literal 300 does not fit in type u8
+main.dc:8: integer literal 300 does not fit in type u8
+main.dc:12: integer literal 128 does not fit in type i8
+main.dc:13: integer literal -129 does not fit in type i8
+main.dc:17: integer literal 300 does not fit in type u8
+main.dc:21: integer literal 70000 does not fit in type u16
