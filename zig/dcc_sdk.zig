@@ -223,7 +223,7 @@ pub fn compile(b: *std.Build, options: CompileOptions) DccArtifact {
     if (terminal_dump) {
         return .{
             .step = run,
-            .output_file = run.captureStdOut(),
+            .output_file = run.captureStdOut(.{}),
             .depfile = null,
         };
     }
