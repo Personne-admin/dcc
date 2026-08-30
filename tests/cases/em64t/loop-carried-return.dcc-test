@@ -1,0 +1,82 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+i32 failures = 0;
+
+@nomangle
+i32 g_uninit;
+
+i64 lfind_while([] const char str, char ch) {
+    usize i = 0;
+    while i < str.len {
+        if str[i] == ch {
+            return i as i64;
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+i64 lfind_for([] const char str, char ch) {
+    for usize i = 0; i < str.len; i++ {
+        if str[i] == ch {
+            return i as i64;
+        }
+    }
+    return -1;
+}
+
+i64 find_sub([] const char haystack, [] const char needle) {
+    if needle.len == 0 {
+        return 0;
+    }
+    if needle.len > haystack.len {
+        return -1;
+    }
+    for usize i = 0; i + needle.len <= haystack.len; i++ {
+        bool matched = true;
+        for usize j = 0; j < needle.len; j++ {
+            if haystack[i + j] != needle[j] {
+                matched = false;
+                break;
+            }
+        }
+        if matched {
+            return i as i64;
+        }
+    }
+    return -1;
+}
+
+i64 accumulate_until(usize n) {
+    usize i = 0;
+    usize acc = 0;
+    while i < n {
+        acc += i;
+        if acc > 10 {
+            return i as i64;
+        }
+        i += 1;
+    }
+    return -1;
+}
+
+@nomangle
+public i32 dcc_main() {
+    failures = 0;
+
+    if lfind_while("hello", 'l') != 2 { failures += 1; }
+    if lfind_while("hello", 'z') != -1 as i64 { failures += 2; }
+    if lfind_for("hello", 'l') != 2 { failures += 4; }
+    if lfind_for("hello", 'h') != 0 { failures += 8; }
+    if find_sub("hello world", "world") != 6 { failures += 16; }
+    if find_sub("hello world", "hello world!") != -1 as i64 { failures += 32; }
+    if find_sub("aaa", "aa") != 0 { failures += 64; }
+    if accumulate_until(100) != 5 { failures += 128; }
+
+    return failures;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
