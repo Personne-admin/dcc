@@ -1,0 +1,8 @@
+=== FILE: main.dc ===
+module m;
+
+u8 runtime_value() { return 1; }
+using Bad = u8{runtime_value()};
+
+=== EXPECT-ERRORS ===
+main.dc:4: restriction element must be an integer compile-time constant

@@ -290,6 +290,9 @@ export namespace dcc::sema
                 case ast::TypeKind::Qualified:
                     validate_type(mod, static_cast<ast::QualifiedType const*>(node)->inner);
                     return;
+                case ast::TypeKind::Restricted:
+                    validate_type(mod, static_cast<ast::RestrictedType const*>(node)->underlying);
+                    return;
                 case ast::TypeKind::PackIndex: {
                     auto const* pi = static_cast<ast::PackIndexType const*>(node);
                     validate_type(mod, pi->base);
@@ -335,6 +338,7 @@ export namespace dcc::sema
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:
+                case types::TypeKind::Restricted:
                 case types::TypeKind::Float:
                 case types::TypeKind::Char:
                 case types::TypeKind::NullT:

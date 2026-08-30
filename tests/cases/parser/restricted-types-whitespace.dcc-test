@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module m;
+
+using Tight = u8{32, 64};
+using Spaced = u8 {32, 64};
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Using kind=alias
+    alias=Tight
+    TargetType
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          IntLiteral 32
+          IntLiteral 64
+  Using kind=alias
+    alias=Spaced
+    TargetType
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          IntLiteral 32
+          IntLiteral 64

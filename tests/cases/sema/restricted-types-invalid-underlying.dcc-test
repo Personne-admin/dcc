@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+using BadFloat = f32{1};
+struct S { i32 x; }
+using BadStruct = S{1};
+
+=== EXPECT-ERRORS ===
+main.dc:3: value restrictions require an integer scalar type
+main.dc:5: value restrictions require an integer scalar type

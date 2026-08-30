@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module m;
+
+void bad_pointer(i32*{1, 2} value) {}
+
+=== EXPECT-ERRORS ===
+main.dc:3: expected 'identifier' in parameter declaration, found '{'

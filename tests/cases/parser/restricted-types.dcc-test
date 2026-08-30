@@ -1,0 +1,41 @@
+=== FILE: main.dc ===
+module m;
+
+using Width = u8{32, 64};
+using Percent = u8{0..100};
+using WidthPtr = u8{32, 64}*;
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Using kind=alias
+    alias=Width
+    TargetType
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          IntLiteral 32
+          IntLiteral 64
+  Using kind=alias
+    alias=Percent
+    TargetType
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          Range inclusive=false
+            Start
+              IntLiteral 0
+            End
+              IntLiteral 100
+  Using kind=alias
+    alias=WidthPtr
+    TargetType
+      Pointer
+        Restricted
+          Underlying
+            Primitive u8
+          Elements
+            IntLiteral 32
+            IntLiteral 64

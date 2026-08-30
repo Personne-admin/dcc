@@ -35,6 +35,7 @@ export namespace dcc::ast
         virtual void visitFamType(FamType const*) {}
         virtual void visitFuncPtrType(FuncPtrType const*) {}
         virtual void visitQualifiedType(QualifiedType const*) {}
+        virtual void visitRestrictedType(RestrictedType const*) {}
         virtual void visitPackIndexType(PackIndexType const*) {}
 
         virtual void visitIntLiteralExpr(IntLiteralExpr const*) {}
@@ -130,6 +131,7 @@ export namespace dcc::ast
         void visitFamType(FamType const*) override;
         void visitFuncPtrType(FuncPtrType const*) override;
         void visitQualifiedType(QualifiedType const*) override;
+        void visitRestrictedType(RestrictedType const*) override;
         void visitPackIndexType(PackIndexType const*) override;
 
         void visitIntLiteralExpr(IntLiteralExpr const*) override {}
@@ -382,6 +384,9 @@ namespace dcc::ast
             case TypeKind::Qualified:
                 visitQualifiedType(node_cast<QualifiedType>(type_expr));
                 break;
+            case TypeKind::Restricted:
+                visitRestrictedType(node_cast<RestrictedType>(type_expr));
+                break;
             case TypeKind::PackIndex:
                 visitPackIndexType(node_cast<PackIndexType>(type_expr));
                 break;
@@ -432,6 +437,13 @@ namespace dcc::ast
     {
         if (t->inner)
             visitTypeExpr(t->inner);
+    }
+
+    void RecursiveAstVisitor::visitRestrictedType(RestrictedType const* t)
+    {
+        visitTypeExpr(t->underlying);
+        for (auto const* element : t->elements)
+            visitExpr(element);
     }
 
     void RecursiveAstVisitor::visitPackIndexType(PackIndexType const* t)

@@ -43,6 +43,32 @@ export namespace dcc::sema
                     return std::string(it->is_signed ? "isize" : "usize");
                 return std::format("{}{}", it->is_signed ? 'i' : 'u', unsigned(it->bits));
             }
+            case types::TypeKind::Restricted: {
+                auto const* rt = static_cast<types::RestrictedType const*>(ty);
+                auto format_ordinal = [&](std::uint64_t ordinal) {
+                    auto raw = int_domain::ordinal_to_raw_bits(ordinal, *rt->underlying);
+                    if (rt->underlying->is_signed)
+                        return std::to_string(raw);
+                    return std::to_string(static_cast<std::uint64_t>(raw) & int_domain::mask_for_bits(rt->underlying->bits));
+                };
+
+                auto out = format_dcc_type(rt->underlying);
+                out += '{';
+                for (std::size_t i = 0; i < rt->intervals.size(); ++i)
+                {
+                    if (i)
+                        out += ", ";
+                    auto const& interval = rt->intervals[i];
+                    out += format_ordinal(interval.lo);
+                    if (interval.lo != interval.hi)
+                    {
+                        out += "..";
+                        out += format_ordinal(interval.hi);
+                    }
+                }
+                out += '}';
+                return out;
+            }
             case types::TypeKind::Float: {
                 auto const* ft = static_cast<types::FloatType const*>(ty);
                 return std::format("f{}", unsigned(ft->bits));

@@ -17,6 +17,7 @@ export namespace dcc::types
         Void,
         Bool,
         Int,
+        Restricted,
         Float,
         Char,
         NullT,
@@ -101,6 +102,32 @@ export namespace dcc::types
         {
             byte_size = b / 8;
             byte_align = std::uint32_t(byte_size);
+        }
+    };
+
+    struct RestrictionInterval
+    {
+        std::uint64_t lo{};
+        std::uint64_t hi{};
+
+        friend bool operator==(RestrictionInterval const&, RestrictionInterval const&) = default;
+    };
+
+    struct RestrictedType : Type
+    {
+        static constexpr auto Kind = TypeKind::Restricted;
+
+        IntType const* underlying;
+        std::pmr::vector<RestrictionInterval> intervals;
+
+        RestrictedType(IntType const* u, std::span<RestrictionInterval const> rs, std::pmr::polymorphic_allocator<> alloc)
+            : Type(Kind), underlying(u), intervals(rs.begin(), rs.end(), alloc)
+        {
+            byte_size = u->byte_size;
+            byte_align = u->byte_align;
+            is_complete = u->is_complete;
+            is_zero_sized = u->is_zero_sized;
+            layout_is_default = u->layout_is_default;
         }
     };
 
@@ -447,6 +474,32 @@ export namespace dcc::types
             return t;
         }
 
+        [[nodiscard]] TypePtr restricted_t(IntType const* underlying, std::span<RestrictionInterval const> intervals)
+        {
+            std::vector<RestrictionInterval> normalized(intervals.begin(), intervals.end());
+            std::sort(normalized.begin(), normalized.end(), [](auto const& a, auto const& b) {
+                return a.lo < b.lo || (a.lo == b.lo && a.hi < b.hi);
+            });
+
+            std::vector<RestrictionInterval> merged;
+            merged.reserve(normalized.size());
+            for (auto interval : normalized)
+            {
+                if (!merged.empty() && interval.lo <= merged.back().hi)
+                    merged.back().hi = std::max(merged.back().hi, interval.hi);
+                else
+                    merged.push_back(interval);
+            }
+
+            for (auto const* t : m_restricted)
+                if (t->underlying == underlying && same_span(t->intervals, merged))
+                    return t;
+
+            auto* t = make<RestrictedType>(underlying, std::span<RestrictionInterval const>{merged}, allocator());
+            m_restricted.push_back(t);
+            return t;
+        }
+
         [[nodiscard]] TypePtr usize_t() { return int_t(m_pointer_bits, false, true); }
         [[nodiscard]] TypePtr isize_t() { return int_t(m_pointer_bits, true, true); }
 
@@ -670,6 +723,7 @@ export namespace dcc::types
         std::uint8_t m_pointer_align{8};
 
         std::vector<IntType const*> m_ints;
+        std::vector<RestrictedType const*> m_restricted;
         std::vector<FloatType const*> m_floats;
         std::vector<PointerType const*> m_pointers;
         std::vector<ArrayType const*> m_arrays;
