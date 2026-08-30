@@ -1,6 +1,6 @@
-CXX ?= clang++
-CC ?= clang
-AR ?= ar
+CXX := clang++
+CC := clang
+AR := ar
 INSTALL ?= install
 
 SCAN_DEPS ?= $(shell which clang-scan-deps 2>/dev/null)
