@@ -954,6 +954,7 @@ export namespace dcc::sema
         bool m_suppress_errors{};
 
         std::uint32_t m_suppressed_error_count{};
+        bool m_in_explicit_conversion{};
         bool m_allow_implicit_enum{true};
         bool m_disallow_nested_implicit_enum{};
         bool m_analyzing_call_callee{};
@@ -1697,6 +1698,14 @@ export namespace dcc::sema
                 return true;
             auto const max = (std::uint64_t(1) << bits) - 1;
             return static_cast<std::uint64_t>(value) <= max;
+        }
+
+        [[nodiscard]] static bool is_radix_literal(std::string_view spelling) noexcept
+        {
+            if (spelling.size() < 2 || spelling[0] != '0')
+                return false;
+            auto const c = static_cast<char>(static_cast<unsigned char>(spelling[1]) | 0x20);
+            return c == 'x' || c == 'b' || c == 'o';
         }
 
         [[nodiscard]] types::TypePtr default_int_type(std::int64_t value, types::TypePtr expected) const noexcept
@@ -9015,8 +9024,15 @@ export namespace dcc::sema
                     case ast::ExprKind::IntLiteral: {
                         auto& e = static_cast<ast::IntLiteralExpr&>(expr);
 
-                        if (expected_type && types::type_cast<types::IntType>(expected_type))
+                        if (auto const* it = types::type_cast<types::IntType>(expected_type))
+                        {
+                            bool fits = fits_int_type(e.value, *it);
+                            if (!fits && e.value < 0 && is_radix_literal(e.spelling))
+                                fits = !it->is_signed && it->bits >= 64;
+                            if (!m_in_explicit_conversion && !fits)
+                                error(e.range, "integer literal {} does not fit in type {}", e.value, format_type_str(expected_type));
                             out.type = expected_type;
+                        }
                         else if (e.sema.const_value)
                             out.type = e.sema.const_value->type;
                         else
@@ -9746,7 +9762,11 @@ export namespace dcc::sema
         detail::ExprResult analyze_unary(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::UnaryExpr& u, int loop_depth, std::uint32_t& next_off,
                                          types::TypePtr expected_type, ConstEnv const* const_env)
         {
+            bool const suppress_literal_fit = u.op == lex::TokenKind::Minus;
+            auto const saved_suppress_literal_fit = m_in_explicit_conversion;
+            m_in_explicit_conversion = suppress_literal_fit;
             auto op = analyze_expr_or_error(mod, fn, scope, u.operand, loop_depth, next_off, expected_type, const_env);
+            m_in_explicit_conversion = saved_suppress_literal_fit;
             detail::ExprResult out = op;
             if (has_error(op.type))
                 return out;
@@ -9867,6 +9887,13 @@ export namespace dcc::sema
             }
             if (op.constant && out.type && out.type->kind != types::TypeKind::Error)
                 out.constant = fold_unary_constant(u.op, *op.constant, out.type);
+
+            if (u.op == lex::TokenKind::Minus && !m_in_explicit_conversion && out.constant && out.type && out.type->kind == types::TypeKind::Int)
+            {
+                auto const* it = static_cast<types::IntType const*>(out.type);
+                if (out.constant->kind() == comptime::Value::Kind::Int && !fits_int_type(out.constant->get_int(), *it))
+                    error(u.range, "integer literal {} does not fit in type {}", out.constant->get_int(), format_type_str(out.type));
+            }
 
             out.is_constant = out.constant != nullptr;
             return out;
@@ -10627,7 +10654,10 @@ export namespace dcc::sema
         detail::ExprResult analyze_cast(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CastExpr& c, int loop_depth, std::uint32_t& next_off,
                                         types::TypePtr expected_type, ConstEnv const* const_env)
         {
+            auto const saved_suppress_literal_fit = m_in_explicit_conversion;
+            m_in_explicit_conversion = true;
             auto op = analyze_expr_or_error(mod, fn, scope, c.operand, loop_depth, next_off, expected_type, const_env);
+            m_in_explicit_conversion = saved_suppress_literal_fit;
             detail::ExprResult out = op;
             if (c.target)
             {
