@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module test;
+
+using Width = u8{32, 64};
+
+@nomangle
+public i32 dcc_main() {
+    u8 raw = 64;
+    u8{32, 64} a = raw as Width;
+    u8{32, 64} b = raw as (u8{32, 64});
+    u8{32, 64} c = raw as u8{32, 64};
+    u8{32, 64} d = 32 as u8{32, 64};
+    return a as i32 + b as i32 + c as i32 + d as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 224

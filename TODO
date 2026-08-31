@@ -1,3 +1,8 @@
 - [ ] early-evaluation problem affecting module-level static if and type-level array extents
 - [ ] mixed alias/const cycle diagnostics improvements
 - [ ] constant binary arithmetic isn't range-checked against the destination, `u8 x = 200 + 100` is accepted.
+- [ ] no exec test covers the signed sign-bit-xor ordinal path
+- [ ] nominal aliases wrapping a restricted type do not propagate membership checking; `CpuBits cb = 16` gives a generic mismatch rather than a membership diagnostic
+- [ ] restriction endpoints are evaluated by two different constant evaluators (module scope vs body scope); they may accept different expression forms
+- [ ] int_domain::Domain is a single contiguous range; generalizing it to disjoint intervals would let match exhaustiveness use restricted domains
+- [ ] no exec test of -fbounds-check or -frestricted-check failure paths, because the em64t harness cannot link __assert

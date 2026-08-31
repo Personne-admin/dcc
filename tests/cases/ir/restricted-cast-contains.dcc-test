@@ -1,0 +1,55 @@
+=== FILE: test.dc ===
+module test;
+
+public i64 test(u8 v) {
+    u8{32, 64} n = v as u8{32, 64};
+    u8 u = n as u8;
+    u8{0..100} w = n as u8{0..100};
+    return n as i64 + u as i64 + w as i64;
+}
+
+=== EXPECT-IR FLAGS: -frestricted-check ===
+module "test"
+
+const global @.str.0 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
+
+const global @.str.1 : [4 x u8] = aggregate [4 x u8], #116, #101, #115, #116
+
+const global @.str.2 : [38 x u8] = aggregate [38 x u8], #118, #97, #108, #117, #101, #32, #111, #117, #116, #32, #111, #102, #32, #114, #97, #110, #103, #101, #32, #102, #111, #114, #32, #114, #101, #115, #116, #114, #105, #99, #116, #101, #100, #32, #116, #121, #112, #101
+
+
+i64@_DC0F1.4.test4.test1i8ui64s(u8) {
+%entry(u8 %v):
+  %0 = alloca u8
+  %1 = cmp.uge u8 %v, #32
+  %2 = cmp.ule u8 %v, #32
+  %3 = and bool %1, bool %2
+  %4 = cmp.uge u8 %v, #64
+  %5 = cmp.ule u8 %v, #64
+  %6 = and bool %4, bool %5
+  %7 = or bool %3, bool %6
+  br.cond %7, label %restricted.ok1, label %restricted.fail2
+%restricted.ok1:
+  store u8 %v, ptr<u8> %0
+  %8 = alloca u8
+  %9 = load u8, ptr<u8> %0
+  store u8 %9, ptr<u8> %8
+  %10 = alloca u8
+  %11 = load u8, ptr<u8> %0
+  store u8 %11, ptr<u8> %10
+  %12 = load u8, ptr<u8> %0
+  %13 = zext u8 %12 to i64
+  %14 = load u8, ptr<u8> %8
+  %15 = zext u8 %14 to i64
+  %16 = add i64 %13, i64 %15
+  %17 = load u8, ptr<u8> %10
+  %18 = zext u8 %17 to i64
+  %19 = add i64 %16, i64 %18
+  ret i64 %19
+%restricted.fail2:
+  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #4, []u8 aggregate []u8, @.str.1, #4, []u8 aggregate []u8, @.str.2, #38)
+  unreachable
+}
+
+import void@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv([]u8, i32, []u8, []u8) {
+}

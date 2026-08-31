@@ -1,9 +1,33 @@
 === FILE: main.dc ===
 module m;
 
-i32 test(i32 x) {
-    return x as u8{1, 2};
+u8{32, 64} test(u8 x) {
+    return x as u8{32, 64};
 }
 
-=== EXPECT-ERRORS ===
-main.dc:4: value restrictions are only allowed in declaration type positions
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=test
+    Return
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          IntLiteral 32
+          IntLiteral 64
+    Params
+      Param name=x
+        Primitive u8
+    Body
+      Return
+        Cast
+          Target
+            Restricted
+              Underlying
+                Primitive u8
+              Elements
+                IntLiteral 32
+                IntLiteral 64
+          Operand
+            Ident x

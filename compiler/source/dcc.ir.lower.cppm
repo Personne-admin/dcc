@@ -19,9 +19,10 @@ export namespace dcc::ir::lower
     {
     public:
         explicit Lowerer(IrContext& ctx, sema::SpecializationRegistry const* spec_reg = nullptr, sema::ModuleGraph const* module_graph = nullptr,
-                         bool bounds_check = false, sm::SourceManager const* source_manager = nullptr, dcc::types::TypeContext* type_ctx = nullptr)
+                         bool bounds_check = false, sm::SourceManager const* source_manager = nullptr, dcc::types::TypeContext* type_ctx = nullptr,
+                         bool restricted_check = false)
             : m_ctx(ctx), m_spec_reg(spec_reg), m_module_graph(module_graph), m_type_ctx(type_ctx), m_bounds_check(bounds_check),
-              m_source_manager(source_manager)
+              m_restricted_check(restricted_check), m_source_manager(source_manager)
         {
         }
 
@@ -1834,6 +1835,113 @@ export namespace dcc::ir::lower
             }
 
             emit_assert_call(file, line, func, expr_str);
+            emit_unreachable();
+
+            set_current_block(ok_bb);
+        }
+
+        void emit_restricted_check(IrValue* value, types::RestrictedType const& rt, sm::SourceRange range)
+        {
+            if (!m_restricted_check)
+                return;
+            if (rt.intervals.empty())
+                return;
+
+            auto* value_type = value->type;
+            if (!value_type || value_type->kind != IrTypeKind::Int)
+                return;
+
+            auto const* int_ty = static_cast<IrIntType const*>(value_type);
+
+            IrValue* ord = value;
+            IrType const* ord_type = value_type;
+            if (int_ty->is_signed)
+            {
+                auto* u_ty = m_ctx.int_t(int_ty->bits, false);
+
+                auto* uval = m_ctx.bitcast(u_ty, value);
+                auto name = ident_name();
+                uval->name = m_name_pool.back();
+                append_inst(uval);
+
+                auto* sign_bit = m_ctx.int_const(u_ty, static_cast<std::int64_t>(std::uint64_t{1} << (int_ty->bits - 1)));
+                auto* x = m_ctx.xor_(u_ty, uval, sign_bit);
+                name = ident_name();
+                x->name = m_name_pool.back();
+                append_inst(x);
+
+                ord = x;
+                ord_type = u_ty;
+            }
+
+            IrValue* predicate = nullptr;
+            for (auto const& interval : rt.intervals)
+            {
+                auto* lo_c = m_ctx.int_const(ord_type, static_cast<std::int64_t>(interval.lo));
+                auto* hi_c = m_ctx.int_const(ord_type, static_cast<std::int64_t>(interval.hi));
+
+                auto* ge = m_ctx.cmp_uge(ord, lo_c);
+                auto name = ident_name();
+                ge->name = m_name_pool.back();
+                append_inst(ge);
+
+                auto* le = m_ctx.cmp_ule(ord, hi_c);
+                name = ident_name();
+                le->name = m_name_pool.back();
+                append_inst(le);
+
+                auto* in_interval = m_ctx.and_(ge->type, ge, le);
+                name = ident_name();
+                in_interval->name = m_name_pool.back();
+                append_inst(in_interval);
+
+                if (!predicate)
+                    predicate = in_interval;
+                else
+                {
+                    auto* orr = m_ctx.or_(in_interval->type, predicate, in_interval);
+                    name = ident_name();
+                    orr->name = m_name_pool.back();
+                    append_inst(orr);
+                    predicate = orr;
+                }
+            }
+
+            if (!predicate)
+                return;
+
+            auto* ok_bb = create_block("restricted.ok");
+            auto* fail_bb = create_block("restricted.fail");
+
+            emit_br_cond(predicate, ok_bb, fail_bb);
+
+            set_current_block(fail_bb);
+
+            std::string file = "<unknown>";
+            int line = 0;
+            std::string func = "<unknown>";
+
+            if (m_current_func_decl && !m_current_func_decl->name.empty())
+                func = std::string(m_current_func_decl->name);
+            else if (m_current_func && !m_current_func->name.empty())
+                func = std::string(m_current_func->name);
+
+            sm::SourceRange resolved_range = range;
+            if (!resolved_range.valid() && m_current_func_decl)
+                resolved_range = m_current_func_decl->range;
+
+            auto* sm_ptr = get_source_manager();
+            if (sm_ptr && resolved_range.valid())
+            {
+                auto const* f = sm_ptr->get(resolved_range.begin.fileId);
+                if (f)
+                    file = f->path().filename().string();
+                auto lc = sm_ptr->line_col(resolved_range.begin);
+                if (lc)
+                    line = static_cast<int>(lc->line);
+            }
+
+            emit_assert_call(file, line, func, "value out of range for restricted type");
             emit_unreachable();
 
             set_current_block(ok_bb);
@@ -3826,10 +3934,25 @@ export namespace dcc::ir::lower
             auto* dst_ir_ty = lower_type(dst_sema_ty);
             auto* src_ir_ty = lower_type(src_sema_ty);
 
-            if (src_ir_ty == dst_ir_ty)
-                return lower_expr(c->operand);
+            bool need_restricted_check = false;
+            types::RestrictedType const* dst_rt = nullptr;
+            if (m_restricted_check && dst_sema_ty)
+            {
+                dst_rt = types::type_cast<types::RestrictedType>(dst_sema_ty);
+                if (dst_rt)
+                {
+                    auto const* src_rt = src_sema_ty ? types::type_cast<types::RestrictedType>(src_sema_ty) : nullptr;
+                    need_restricted_check = !src_rt || !dcc::int_domain::domain_contains(*dst_rt, *src_rt);
+                }
+            }
 
             auto* operand = lower_expr(c->operand);
+
+            if (need_restricted_check)
+                emit_restricted_check(operand, *dst_rt, c->range);
+
+            if (src_ir_ty == dst_ir_ty)
+                return operand;
 
             if (dst_sema_ty && dst_sema_ty->kind == dcc::types::TypeKind::Bool)
             {
@@ -5429,6 +5552,7 @@ export namespace dcc::ir::lower
         std::pmr::vector<LoopFrame> m_loop_stack;
 
         bool m_bounds_check{false};
+        bool m_restricted_check{false};
         sm::SourceManager const* m_source_manager{};
 
         sm::SourceRange m_active_range{};

@@ -1016,7 +1016,7 @@ export namespace dcc::parser
 
             if (match(TK::LParen))
             {
-                auto* inner = parse_type(allow_restricted);
+                auto* inner = parse_type(true);
                 expect(TK::RParen, "after grouped type");
                 return inner;
             }
@@ -2878,17 +2878,8 @@ export namespace dcc::parser
 
                 if (op == TK::KwAs)
                 {
-                    auto* type = parse_type(false);
+                    auto* type = parse_type(!no_struct_lit);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
-                    if (check(TK::LBrace) && !no_struct_lit)
-                    {
-                        error_at(single_range(), "value restrictions are only allowed in declaration type positions");
-                        advance();
-                        while (!check(TK::RBrace) && !eof())
-                            advance();
-                        if (check(TK::RBrace))
-                            advance();
-                    }
                     left = m_ctx.make<ast::CastExpr>(range, left, type);
                     continue;
                 }

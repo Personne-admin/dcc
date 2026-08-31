@@ -1,0 +1,83 @@
+=== FILE: main.dc ===
+module m;
+
+using Width = u8{32, 64};
+
+u8 f(u8 v) {
+    if v as (u8{32, 64}) { return 1; }
+    while v as (u8{32, 64}) { return 2; }
+    match v as (u8{32, 64}) { _ => { return 3; } }
+    return 0;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Using kind=alias
+    alias=Width
+    TargetType
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          IntLiteral 32
+          IntLiteral 64
+  Func name=f
+    Return
+      Primitive u8
+    Params
+      Param name=v
+        Primitive u8
+    Body
+      ExprStmt
+        If
+          Cond
+            Cast
+              Target
+                Restricted
+                  Underlying
+                    Primitive u8
+                  Elements
+                    IntLiteral 32
+                    IntLiteral 64
+              Operand
+                Ident v
+          Then
+            Return
+              IntLiteral 1
+      While
+        Cond
+          Cast
+            Target
+              Restricted
+                Underlying
+                  Primitive u8
+                Elements
+                  IntLiteral 32
+                  IntLiteral 64
+            Operand
+              Ident v
+        Body
+          Return
+            IntLiteral 2
+      ExprStmt
+        Match
+          Operand
+            Cast
+              Target
+                Restricted
+                  Underlying
+                    Primitive u8
+                  Elements
+                    IntLiteral 32
+                    IntLiteral 64
+              Operand
+                Ident v
+          Arm
+            WildcardPattern
+            Body
+              Block
+                Return
+                  IntLiteral 3
+      Return
+        IntLiteral 0
