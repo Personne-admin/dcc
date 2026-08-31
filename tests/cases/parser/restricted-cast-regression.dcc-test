@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+struct Point { i32 x; i32 y; }
+
+i32 add(Point P)(i32 v) { return v + P.x; }
+
+u8 f(u8 x) {
+    if x as char { }
+    return add!(Point{1, 2})(x as i32) as u8;
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

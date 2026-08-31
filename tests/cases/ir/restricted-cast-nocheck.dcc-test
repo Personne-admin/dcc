@@ -1,0 +1,18 @@
+=== FILE: test.dc ===
+module test;
+
+public i64 test(u8 v) {
+    u8{32, 64} a = v as u8{32, 64};
+    return a as i64;
+}
+
+=== EXPECT-IR ===
+module "test"
+i64@_DC0F1.4.test4.test1i8ui64s(u8) {
+%entry(u8 %v):
+  %0 = alloca u8
+  store u8 %v, ptr<u8> %0
+  %1 = load u8, ptr<u8> %0
+  %2 = zext u8 %1 to i64
+  ret i64 %2
+}

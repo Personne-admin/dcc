@@ -13,6 +13,100 @@
 | `void`                    | 0          | Unit / absence of value                              |
 | `null_t`                  | ptr        | Type of `null`, inhabits all pointer/optional types  |
 
+### 1.1 Restricted Integer Types
+
+An integer scalar type can be restricted to a subset of its domain by
+appending a `{...}` suffix that enumerates a finite set of values and/or
+inclusive ranges:
+
+```dc
+using Width   = u8{32, 64};              // finite set
+using Percent = u8{0..100};              // inclusive range
+using Mixed   = u16{0..10, 100, 200..300}; // set and ranges, mixed
+```
+
+Only integer scalar types accept a restriction (`i8`..`i64`, `u8`..`u64`,
+`usize`, `isize`). Restricting any other type is an error.
+
+**Where restrictions are legal.** A restriction may appear in any
+declaration type position — variable, parameter, return type, struct field,
+array element type, and type alias — and as the target of an `as` cast in
+three forms:
+
+```dc
+using Width = u8{32, 64};
+
+u8{32, 64} a = v as Width;          // 1. named alias
+u8{32, 64} b = v as (u8{32, 64});   // 2. parenthesized
+u8{32, 64} c = v as u8{32, 64};     // 3. bare (unambiguous position)
+```
+
+The bare form is accepted only where the `{` cannot begin a following
+block. In `if`/`while`/`match` heads the brace binds to the body block, so
+the bare form is unavailable there; the alias or parenthesized form is
+required:
+
+```dc
+if v as (u8{32, 64}) { ... }   // parenthesized: the {..} is the restriction
+if v as u8 { ... }             // the {..} is the block, not a restriction
+```
+
+**Normalization.** A restriction is canonicalized before it is interned:
+intervals are sorted by lower bound, duplicates collapse, and overlapping
+intervals — including those that share an endpoint — are merged. Disjoint
+intervals remain separate. Two restrictions that normalize to the same
+interval set are the *same type* (pointer-identical after interning), so
+`u8{32, 64}` and `u8{64, 32}` name one type.
+
+Each endpoint must be an integer compile-time constant expression; a
+non-constant endpoint is an error.
+
+**Representation.** A restricted type has the same size, alignment, and ABI
+as its underlying integer. The refinement survives only in the type system
+and in mangled names (so overloads and specializations distinguish distinct
+restrictions); it never changes storage or code generation.
+
+**Conversions.** There is no implicit conversion into a restricted type
+except the contextual typing of an integer literal, which is checked at
+compile time:
+
+```dc
+u8{32, 64} ok  = 32;   // ok: 32 is a member
+u8{32, 64} bad = 16;   // error: 16 is not a member of u8{32, 64}
+```
+
+Producing a restricted value from any other integer expression requires an
+explicit `as` cast. Converting *out* of a restricted type is implicit in
+the widening direction: a restricted type converts to its underlying
+integer (and to wider integers), and to a wider restriction that contains
+it:
+
+```dc
+u8{32, 64} w = ...;
+u8         raw  = w;   // restricted -> underlying integer
+u32        wide = w;   // restricted -> wider integer
+u8{0..100} pct  = w;   // restricted -> wider restriction (contains it)
+u8{16, 64} nope = w;   // error: not a superset
+```
+
+Arithmetic erases the refinement: `+`, `-`, `*`, `/`, `%`, `&`, `|`, `^`,
+`<<`, `>>` on restricted operands produce the underlying integer type, not
+a restricted type.
+
+**Casting in is unsafe.** `value as u8{32, 64}` asserts that `value` is a
+member. An out-of-domain value is undefined behavior unless
+`-frestricted-check` is given, in which case the compiler emits a runtime
+membership check that traps through the same `__assert` runtime as
+`-fbounds-check`. Constant operands are always checked at compile time,
+regardless of the flag.
+
+**Known limitations.** A `@nominal` alias wrapping a restricted type does
+not propagate membership checking: `@nominal using CpuBits = u8{0..255};
+CpuBits cb = 16;` reports a generic type mismatch rather than a membership
+diagnostic. `match` exhaustiveness checks the underlying integer domain,
+not the restricted domain, so a `match` over a restricted value is not
+flagged as incomplete when it covers only the restricted values.
+
 ---
 
 ## 2. Composite Types

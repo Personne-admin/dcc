@@ -79,6 +79,7 @@ namespace
         std::string body;
         std::size_t base_line{};
         bool bounds_check{false};
+        bool restricted_check{false};
     };
 
     struct ExpectLlvm
@@ -97,6 +98,7 @@ namespace
         std::optional<dcc::target::CodeModel> code_model;
         bool omit_frame_pointer{true};
         bool bounds_check{false};
+        bool restricted_check{false};
     };
 
     struct ExpectRegistry
@@ -173,6 +175,7 @@ namespace
         bool verify_sections{true};
         std::optional<int> run_exit_code;
         int opt_level{0};
+        bool restricted_check{false};
         bool pic{false};
         bool shared_link{false};
         std::string target_triple;
@@ -389,6 +392,8 @@ namespace
                     auto flags_str = trim(std::string_view{h}.substr(flags_start + 6));
                     if (flags_str.find("-fbounds-check") != std::string::npos)
                         e.bounds_check = true;
+                    if (flags_str.find("-frestricted-check") != std::string::npos)
+                        e.restricted_check = true;
                 }
                 fx.ir_blocks.push_back(std::move(e));
             }
@@ -445,6 +450,8 @@ namespace
                     }
                     if (flags_str.find("-fbounds-check") != std::string::npos)
                         e.bounds_check = true;
+                    if (flags_str.find("-frestricted-check") != std::string::npos)
+                        e.restricted_check = true;
                     if (flags_str.find("-fno-red-zone") != std::string::npos)
                         e.no_red_zone = true;
                     if (flags_str.find("-fno-simd") != std::string::npos)
@@ -528,6 +535,8 @@ namespace
                         e.verify_sections = false;
                     if (flags_str.find("-O1") != std::string::npos || flags_str.find("OPT-LEVEL: 1") != std::string::npos)
                         e.opt_level = 1;
+                    if (flags_str.find("-frestricted-check") != std::string::npos)
+                        e.restricted_check = true;
                 }
 
                 if (!sec.body.empty())
@@ -1905,7 +1914,8 @@ namespace
             }
 
             dcc::ir::IrContext ir_ctx;
-            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types());
+            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
+                                                              exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
             auto actual = dcc::ir::IrSerializer::dump(ir_mod);
             auto a = normalize(actual);
@@ -1945,7 +1955,8 @@ namespace
                 target = dcc::target::TargetConfig::host_default();
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
-            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types());
+            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
+                                                              exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             target.no_red_zone = exp.no_red_zone;
@@ -2206,7 +2217,8 @@ namespace
                 target = dcc::target::TargetConfig::host_default();
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
-            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types(),
+                                                              exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             if (exp.pic)
@@ -2614,7 +2626,6 @@ namespace
                                 return types;
                             };
 
-                            // Resolve ELF symbol table + string table for relocation symbol names.
                             struct RelaEntryInfo
                             {
                                 std::uint32_t type;

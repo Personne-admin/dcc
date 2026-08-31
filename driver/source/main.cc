@@ -123,6 +123,7 @@ namespace
         bool emit_asm_only{false};
         bool shared_library{false};
         bool bounds_check{false};
+        bool restricted_check{false};
         bool emit_debug_info{false};
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
         bool help{false};
@@ -230,6 +231,13 @@ namespace
             if (arg == "-fbounds-check")
             {
                 opts.bounds_check = true;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-frestricted-check")
+            {
+                opts.restricted_check = true;
                 ++i;
                 continue;
             }
@@ -523,6 +531,7 @@ namespace
                        {"-fdump-mir", "dump em64t MIR"},
                        {"-flibdcext", "link with libdcext"},
                        {"-fbounds-check", "enable bounds checking"},
+                       {"-frestricted-check", "enable restricted-value cast checks"},
                        {"-fbackend <name>", "select backend (llvm, em64t)"},
                        {"-O0|-O1|-O2|-Os", "optimization level"},
                        {"-g, -g0, -g3", "debug info level"},
@@ -1461,7 +1470,7 @@ auto main(int argc, char** argv) -> int
 
         dcc::ir::IrContext ir_ctx{256 * 1024, &compile_opts.target};
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
-                                                                 &sema->types());
+                                                                 &sema->types(), opts.restricted_check);
         auto* ir_mod = lowerer->lower_module(*module);
 
         if (opts.dump_ir)

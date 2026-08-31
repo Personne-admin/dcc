@@ -10712,6 +10712,18 @@ export namespace dcc::sema
             if (!out.type)
                 out.type = m_types.m_errort();
 
+            if (auto const* rt = types::type_cast<types::RestrictedType>(out.type))
+            {
+                if (op.constant && op.constant->kind() == comptime::Value::Kind::Int)
+                {
+                    auto raw = op.constant->get_int();
+                    if (!fits_int_type(raw, *rt->underlying))
+                        error(c.range, "value {} does not fit in type {}", raw, format_type_str(out.type));
+                    else if (!int_domain::contains(*rt, raw))
+                        error(c.range, "value {} is not a member of type {}", raw, format_type_str(out.type));
+                }
+            }
+
             if (op.type && out.type && op.type != out.type && !has_error(op.type) && !has_error(out.type))
             {
                 if (op.type->kind == types::TypeKind::Pointer && out.type->kind == types::TypeKind::Pointer)

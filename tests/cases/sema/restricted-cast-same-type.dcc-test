@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+using Width = u8{32, 64};
+
+i64 f(u8 x) {
+    u8{32, 64} a = x as Width;
+    u8{32, 64} b = x as (u8{32, 64});
+    u8{32, 64} c = x as u8{32, 64};
+    return a as i64 + b as i64 + c as i64;
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

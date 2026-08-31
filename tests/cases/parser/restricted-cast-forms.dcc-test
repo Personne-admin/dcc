@@ -1,0 +1,82 @@
+=== FILE: main.dc ===
+module m;
+
+using Width = u8{32, 64};
+
+void f(u8 x) {
+    u8{32, 64} a = x as Width;
+    u8{32, 64} b = x as (u8{32, 64});
+    u8{32, 64} c = x as u8{32, 64};
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Using kind=alias
+    alias=Width
+    TargetType
+      Restricted
+        Underlying
+          Primitive u8
+        Elements
+          IntLiteral 32
+          IntLiteral 64
+  Func name=f
+    Return
+      Primitive void
+    Params
+      Param name=x
+        Primitive u8
+    Body
+      Var name=a
+        Type
+          Restricted
+            Underlying
+              Primitive u8
+            Elements
+              IntLiteral 32
+              IntLiteral 64
+        Init
+          Cast
+            Target
+              Named Width
+            Operand
+              Ident x
+      Var name=b
+        Type
+          Restricted
+            Underlying
+              Primitive u8
+            Elements
+              IntLiteral 32
+              IntLiteral 64
+        Init
+          Cast
+            Target
+              Restricted
+                Underlying
+                  Primitive u8
+                Elements
+                  IntLiteral 32
+                  IntLiteral 64
+            Operand
+              Ident x
+      Var name=c
+        Type
+          Restricted
+            Underlying
+              Primitive u8
+            Elements
+              IntLiteral 32
+              IntLiteral 64
+        Init
+          Cast
+            Target
+              Restricted
+                Underlying
+                  Primitive u8
+                Elements
+                  IntLiteral 32
+                  IntLiteral 64
+            Operand
+              Ident x
