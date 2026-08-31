@@ -3302,13 +3302,16 @@ TEST_CASE("initialized sends exactly one client/registerCapability request when 
     REQUIRE(reg_opts != nullptr);
     auto const* watchers = reg_opts->get_array("watchers");
     REQUIRE(watchers != nullptr);
-    REQUIRE(watchers->array_size() == 2);
+    REQUIRE(watchers->array_size() == 3);
     auto w0 = watchers->as_array()[0].get_string("globPattern");
     REQUIRE(w0.has_value());
     CHECK_EQ(*w0, "**/*.dc");
     auto w1 = watchers->as_array()[1].get_string("globPattern");
     REQUIRE(w1.has_value());
     CHECK_EQ(*w1, "**/dcc.json");
+    auto w2 = watchers->as_array()[2].get_string("globPattern");
+    REQUIRE(w2.has_value());
+    CHECK_EQ(*w2, "**/compile_commands.json");
 
     std::ignore = server.handle_message(*initialized);
     std::ignore = server.handle_message(*initialized);
@@ -5862,4 +5865,106 @@ TEST_CASE("dcc-core didOpen remains rejected and publishes nothing")
 
     auto def = request_definition(server, sink, uri, 0u, 0u);
     CHECK(!def.has_value());
+}
+
+SECTION("lsp: compilation database");
+
+TEST_CASE("compilation database injects declarations for module-scope static if")
+{
+    TempDir td;
+    auto main_path = td.path / "main.dc";
+    auto main_uri = dcc::sm::SourceManager::to_file_uri(main_path);
+
+    {
+        std::ofstream out{td.path / "compile_commands.json"};
+        out << "[{"
+            << "\"directory\":\"" << td.path.string() << "\","
+            << "\"file\":\"main.dc\","
+            << "\"arguments\":[\"dcc\",\"-target\",\"x86-elf\",\"-I\",\".\","
+            << "\"-Jusing bool FEATURE = true;\","
+            << "\"-Jusing u8 LEVEL = 2;\","
+            << "\"-c\",\"main.dc\",\"-o\",\"main.o\"]"
+            << "}]";
+    }
+
+    auto text = "module main;\n\nstatic if FEATURE {\n    public using u8 ACTIVE_LEVEL = LEVEL;\n}\n";
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, td.path);
+
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(main_uri, 1, text));
+    for (auto const& publish : publishes)
+        for (auto const& diag : publish.diagnostics)
+            CHECK(diag.message.find("unknown name") == std::string::npos);
+}
+
+TEST_CASE("compilation database reloads on watched file change")
+{
+    TempDir td;
+    auto main_path = td.path / "main.dc";
+    auto main_uri = dcc::sm::SourceManager::to_file_uri(main_path);
+    auto db_path = td.path / "compile_commands.json";
+    auto db_uri = dcc::sm::SourceManager::to_file_uri(db_path);
+
+    auto write_db = [&](bool feature) {
+        std::ofstream out{db_path};
+        out << "[{"
+            << "\"directory\":\"" << td.path.string() << "\","
+            << "\"file\":\"main.dc\","
+            << "\"arguments\":[\"dcc\",\"-Jusing bool FEATURE = " << (feature ? "true" : "false") << ";\","
+            << "\"-c\",\"main.dc\",\"-o\",\"main.o\"]"
+            << "}]";
+    };
+
+    auto text = "module main;\n\nstatic if FEATURE {\n    i32 x = unknown_name;\n}\n";
+
+    write_db(false);
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, td.path);
+
+    {
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(main_uri, 1, text));
+        for (auto const& publish : publishes)
+            for (auto const& diag : publish.diagnostics)
+                CHECK(diag.message.find("unknown name") == std::string::npos);
+    }
+
+    write_db(true);
+
+    auto changes = dccd::protocol::JsonValue::empty_array();
+    auto ev = dccd::protocol::JsonValue::empty_object();
+    ev.set("uri", dccd::protocol::JsonValue::string_val(db_uri));
+    ev.set("type", dccd::protocol::JsonValue::integer(1));
+    changes.push_back(std::move(ev));
+
+    auto params = dccd::protocol::JsonValue::empty_object();
+    params.set("changes", std::move(changes));
+
+    auto notif = dccd::protocol::build_notification("workspace/didChangeWatchedFiles", std::move(params));
+    auto parsed = dccd::protocol::parse_rpc(notif);
+    REQUIRE(parsed.has_value());
+    std::ignore = server.handle_message(*parsed);
+
+    auto frames = parse_lsp_stream(sink.drain());
+    bool saw_unknown_name = false;
+    for (auto& frame : frames)
+    {
+        auto method = frame.get_string("method");
+        if (!method || *method != "textDocument/publishDiagnostics")
+            continue;
+
+        auto const* params_val = frame.find_member("params");
+        if (!params_val)
+            continue;
+
+        auto publish = dccd::protocol::PublishDiagnosticsParams::from_json(*params_val);
+        for (auto const& diag : publish.diagnostics)
+            if (diag.message.find("unknown name") != std::string::npos)
+                saw_unknown_name = true;
+    }
+
+    CHECK(saw_unknown_name);
 }

@@ -33,6 +33,7 @@ DCCD_TRANSPORT_OBJS := \
 	$(OBJ_DIR)/dccd.transport.pcm.o
 DCCD_SERVER_OBJS := \
 	$(OBJ_DIR)/dccd.protocol.pcm.o \
+	$(OBJ_DIR)/dccd.compilation_database.pcm.o \
 	$(OBJ_DIR)/dccd.completion.pcm.o \
 	$(OBJ_DIR)/dccd.inlay_hints.pcm.o \
 	$(OBJ_DIR)/dccd.semantic_tokens.pcm.o \
@@ -40,6 +41,9 @@ DCCD_SERVER_OBJS := \
 	$(OBJ_DIR)/dccd.format.pcm.o \
 	$(OBJ_DIR)/dccd.transport.pcm.o \
 	$(OBJ_DIR)/dccd.server.pcm.o
+DCCD_COMPDB_OBJS := \
+	$(OBJ_DIR)/dccd.protocol.pcm.o \
+	$(OBJ_DIR)/dccd.compilation_database.pcm.o
 
 all: test
 
@@ -76,6 +80,9 @@ $(BUILD_DIR)/bin/tests/test_transport: $(OBJ_DIR)/tests/source/test_transport.cc
 $(BUILD_DIR)/bin/tests/test_lsp: $(OBJ_DIR)/tests/source/test_lsp.cc.o $(DCCD_SERVER_OBJS) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
+$(BUILD_DIR)/bin/tests/test_compilation_database: $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(DCCD_COMPDB_OBJS) $(COMPILER_LIB)
+	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
+
 $(BUILD_DIR)/bin/tests/%: $(OBJ_DIR)/tests/source/%.cc.o $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
@@ -94,7 +101,10 @@ $(OBJ_DIR)/tests/source/test_transport.cc.o: $(TOPLEVEL)/tests/source/test_trans
 $(OBJ_DIR)/tests/source/test_lsp.cc.o: $(TOPLEVEL)/tests/source/test_lsp.cc $(COMPILER_PCMS) $(DCCD_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
+$(OBJ_DIR)/tests/source/test_compilation_database.cc.o: $(TOPLEVEL)/tests/source/test_compilation_database.cc $(COMPILER_PCMS) $(DCCD_PCMS)
+	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
+
+$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:

@@ -11,6 +11,7 @@ import dccd.completion;
 import dccd.inlay_hints;
 import dccd.workspace_index;
 import dccd.format;
+import dccd.compilation_database;
 import dcc.query;
 import dcc.lex;
 import dcc.ast;
@@ -196,6 +197,17 @@ export namespace dccd
         std::vector<std::filesystem::path> m_lsp_include_paths;
         std::vector<std::filesystem::path> m_project_include_paths;
         std::vector<std::filesystem::path> m_global_include_paths;
+        std::optional<std::string> m_lsp_compilation_database;
+        std::map<std::string, std::string, std::less<>> m_project_compilation_database;
+
+        struct WorkspaceCompilationDatabase
+        {
+            std::filesystem::path workspace_root;
+            std::filesystem::path database_path;
+            dccd::CompilationDatabase database;
+        };
+        std::vector<WorkspaceCompilationDatabase> m_workspace_databases;
+
         std::string m_active_entry_uri;
         dccd::workspace_index::WorkspaceIndex m_workspace_index;
         bool m_did_change_watched_files_supported{false};
@@ -424,6 +436,9 @@ export namespace dccd
                 std::ranges::sort(m_workspace_roots);
                 auto [first, last] = std::ranges::unique(m_workspace_roots);
                 m_workspace_roots.erase(first, last);
+
+                for (auto& root : m_workspace_roots)
+                    root = normalize_path(std::move(root));
             }
 
             std::println(m_log, "[dccd] initialize: {} workspace root(s)", m_workspace_roots.size());
@@ -437,9 +452,11 @@ export namespace dccd
                 {
                     protocol::DidChangeConfigurationParams cfg;
                     cfg.settings = *init_opts;
-                    parse_lsp_include_paths(cfg);
+                    parse_lsp_configuration(cfg);
                 }
             }
+
+            load_compilation_databases();
 
             return protocol::build_response(rpc.id.value(), protocol::make_initialize_result(dcc::sm::to_string(selected)));
         }
@@ -2257,7 +2274,32 @@ export namespace dccd
             dcc::session::CompileOptions opts;
             opts.arena_initial_size = 256 * 1024;
 
-            auto roots = compute_import_roots();
+            std::vector<std::filesystem::path> roots;
+
+            if (auto const* command = find_compile_command(*path))
+            {
+                std::println(m_log, "[dccd] compile command found for: {}", path->string());
+                if (auto analysis = project_analysis_command(*command, m_log))
+                {
+                    if (analysis->target)
+                        opts.target = *analysis->target;
+
+                    opts.injected_decls = std::move(analysis->injected_decls);
+                    opts.inject_libdcext_prelude = analysis->inject_libdcext_prelude;
+                    roots = std::move(analysis->import_roots);
+
+                    std::println(m_log, "[dccd] compile command: {} import roots, {} injected declarations, target={}", roots.size(),
+                                 opts.injected_decls.size(), analysis->target ? analysis->target->triple : std::string{"(default)"});
+                }
+            }
+            else
+            {
+                std::println(m_log, "[dccd] no compile command for \"{}\"; using fallback analysis configuration", path->string());
+            }
+
+            auto manual_roots = compute_import_roots();
+            for (auto& r : manual_roots)
+                roots.push_back(std::move(r));
 
             if (path->has_parent_path())
                 roots.push_back(path->parent_path());
@@ -2376,7 +2418,8 @@ export namespace dccd
             return paths;
         }
 
-        void load_config_file(std::filesystem::path const& config_path, std::filesystem::path const& base_dir, std::vector<std::filesystem::path>& out_paths)
+        void load_config_file(std::filesystem::path const& config_path, std::filesystem::path const& base_dir, std::vector<std::filesystem::path>& out_paths,
+                              std::optional<std::string>* out_compilation_database = nullptr)
         {
             std::error_code ec;
             if (!std::filesystem::is_regular_file(config_path, ec) || ec)
@@ -2393,6 +2436,10 @@ export namespace dccd
                 std::println(m_log, "[dccd] invalid JSON in config file: {}", config_path.string());
                 return;
             }
+
+            if (out_compilation_database)
+                if (auto db = json->get_string("compilationDatabase"))
+                    *out_compilation_database = std::move(*db);
 
             auto raw_paths = parse_include_paths_from_json(*json);
             for (auto& raw : raw_paths)
@@ -2442,11 +2489,15 @@ export namespace dccd
         void read_project_configs()
         {
             m_project_include_paths.clear();
+            m_project_compilation_database.clear();
             for (auto const& root : m_workspace_roots)
             {
                 auto config_path = project_config_path(root);
                 std::println(m_log, "[dccd] reading project config: {}", config_path.string());
-                load_config_file(config_path, root, m_project_include_paths);
+                std::optional<std::string> compilation_database;
+                load_config_file(config_path, root, m_project_include_paths, &compilation_database);
+                if (compilation_database)
+                    m_project_compilation_database[root.string()] = std::move(*compilation_database);
             }
 
             std::println(m_log, "[dccd] project configs: {} include paths", m_project_include_paths.size());
@@ -2478,15 +2529,22 @@ export namespace dccd
             return path;
         }
 
-        void parse_lsp_include_paths(protocol::DidChangeConfigurationParams const& params)
+        void parse_lsp_configuration(protocol::DidChangeConfigurationParams const& params)
         {
             m_lsp_include_paths.clear();
+            m_lsp_compilation_database.reset();
             if (!params.settings.has_value())
                 return;
 
             auto const* dcc_obj = params.settings->get_object("dcc");
             if (!dcc_obj)
                 return;
+
+            if (auto db = dcc_obj->get_string("compilationDatabase"))
+            {
+                if (!db->empty())
+                    m_lsp_compilation_database = std::move(*db);
+            }
 
             auto raw_paths = parse_include_paths_from_json(*dcc_obj);
             if (raw_paths.empty())
@@ -2561,6 +2619,122 @@ export namespace dccd
                          m_inlay_hint_options.parameterHints, m_inlay_hint_options.suppressParameterNameMatches);
         }
 
+        [[nodiscard]] static std::filesystem::path normalize_path(std::filesystem::path p)
+        {
+            std::error_code ec;
+            auto canonical = std::filesystem::weakly_canonical(p, ec);
+            if (ec)
+                canonical = p.lexically_normal();
+            return canonical;
+        }
+
+        [[nodiscard]] static std::filesystem::path resolve_database_path(std::string const& raw, std::filesystem::path const& workspace_root)
+        {
+            std::filesystem::path p{raw};
+            if (!p.is_absolute())
+                p = workspace_root / p;
+
+            std::error_code ec;
+            auto canonical = std::filesystem::weakly_canonical(p, ec);
+            if (ec)
+                canonical = p.lexically_normal();
+            return canonical;
+        }
+
+        void load_compilation_databases()
+        {
+            m_workspace_databases.clear();
+
+            for (auto const& root : m_workspace_roots)
+            {
+                WorkspaceCompilationDatabase wcd;
+                wcd.workspace_root = root;
+
+                std::filesystem::path database_path;
+                bool explicitly_configured = false;
+                bool have_path = false;
+
+                if (m_lsp_compilation_database && !m_lsp_compilation_database->empty())
+                {
+                    database_path = resolve_database_path(*m_lsp_compilation_database, root);
+                    explicitly_configured = true;
+                    have_path = true;
+                }
+                else if (auto it = m_project_compilation_database.find(root.string()); it != m_project_compilation_database.end() && !it->second.empty())
+                {
+                    database_path = resolve_database_path(it->second, root);
+                    explicitly_configured = true;
+                    have_path = true;
+                }
+                else
+                {
+                    database_path = root / "compile_commands.json";
+                    have_path = true;
+                }
+
+                if (have_path)
+                {
+                    wcd.database_path = database_path;
+
+                    std::error_code ec;
+                    bool exists = std::filesystem::is_regular_file(database_path, ec) && !ec;
+                    if (exists)
+                    {
+                        std::println(m_log, "[dccd] loading compilation database: {}", database_path.string());
+                        std::ignore = wcd.database.load(database_path, m_log);
+                    }
+                    else if (explicitly_configured)
+                    {
+                        std::println(m_log, "[dccd] explicitly configured compilation database not found, falling back to no database: {}",
+                                     database_path.string());
+                    }
+                }
+
+                m_workspace_databases.push_back(std::move(wcd));
+            }
+        }
+
+        [[nodiscard]] WorkspaceCompilationDatabase const* find_workspace_database_for(std::filesystem::path const& file) const
+        {
+            auto norm = normalize_path(file);
+            WorkspaceCompilationDatabase const* best = nullptr;
+            std::size_t best_len = 0;
+
+            for (auto const& wcd : m_workspace_databases)
+            {
+                auto const& root = wcd.workspace_root;
+                auto rel = norm.lexically_relative(root);
+
+                bool under = true;
+                if (!rel.empty())
+                {
+                    auto first = *rel.begin();
+                    if (first == "..")
+                        under = false;
+                }
+
+                if (!under)
+                    continue;
+
+                std::size_t len = root.string().size();
+                if (len > best_len)
+                {
+                    best = &wcd;
+                    best_len = len;
+                }
+            }
+
+            return best;
+        }
+
+        [[nodiscard]] dccd::CompileCommand const* find_compile_command(std::filesystem::path const& file) const
+        {
+            auto const* wcd = find_workspace_database_for(file);
+            if (!wcd || wcd->database.empty())
+                return nullptr;
+            return wcd->database.command_for(file);
+        }
+
         [[nodiscard]] std::vector<std::filesystem::path> compute_import_roots() const
         {
             std::vector<std::filesystem::path> roots;
@@ -2588,6 +2762,7 @@ export namespace dccd
         {
             read_global_config();
             read_project_configs();
+            load_compilation_databases();
 
             std::vector<std::string> uris;
             m_session->source_manager().for_each_file([&](dcc::sm::SourceFile const& sf) {
@@ -2621,12 +2796,14 @@ export namespace dccd
             auto params = protocol::DidChangeConfigurationParams::from_json(rpc.params.value());
 
             auto old_lsp_include_paths = m_lsp_include_paths;
-            parse_lsp_include_paths(params);
+            auto old_lsp_compilation_database = m_lsp_compilation_database;
+            parse_lsp_configuration(params);
             bool include_paths_changed = (old_lsp_include_paths != m_lsp_include_paths);
+            bool compilation_database_changed = (old_lsp_compilation_database != m_lsp_compilation_database);
 
             parse_inlay_hint_options(params);
 
-            if (include_paths_changed)
+            if (include_paths_changed || compilation_database_changed)
                 reconfigure_and_recompile();
         }
 
@@ -2674,6 +2851,22 @@ export namespace dccd
                     reload = true;
                     break;
                 }
+
+                for (auto const& wcd : m_workspace_databases)
+                {
+                    if (wcd.database_path.empty())
+                        continue;
+
+                    auto database_canonical = std::filesystem::weakly_canonical(wcd.database_path, ec);
+                    if (canonical == database_canonical)
+                    {
+                        std::println(m_log, "[dccd] compilation database changed, reloading: {}", canonical.string());
+                        reload = true;
+                        break;
+                    }
+                }
+                if (reload)
+                    break;
 
                 std::ignore = m_session->source_manager().refresh_disk_file(*path);
                 m_workspace_index.invalidate_unlinked(canonical.string());
