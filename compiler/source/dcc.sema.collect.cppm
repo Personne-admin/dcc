@@ -23,12 +23,29 @@ export namespace dcc::sema
                 m_vars.insert_or_assign(v->name, v);
         }
 
+        void register_value_alias(ast::UsingDecl const* u)
+        {
+            if (u && u->using_kind == ast::UsingKind::ValueAlias && !u->alias_path.segments.empty())
+                m_value_aliases.insert_or_assign(u->alias_path.segments.back().name, u);
+        }
+
+        void register_enum(ast::EnumDecl const* e)
+        {
+            if (e && !e->name.empty())
+                m_enums.insert_or_assign(e->name, e);
+        }
+
         std::optional<comptime::Value> eval_condition(ast::Expr const* e) { return eval(e); }
 
     private:
         types::TypeContext& m_types;
         diag::DiagnosticEngine& m_diag;
         std::unordered_map<std::string_view, ast::VarDecl const*> m_vars;
+        std::unordered_map<std::string_view, ast::UsingDecl const*> m_value_aliases;
+        std::unordered_map<std::string_view, ast::EnumDecl const*> m_enums;
+        std::unordered_map<ast::EnumDecl const*, types::TypePtr> m_enum_backing;
+        std::unordered_map<ast::EnumDecl const*, std::vector<std::int64_t>> m_enum_discriminants;
+        std::unordered_set<ast::EnumDecl const*> m_enum_in_progress;
         std::unordered_map<std::string_view, comptime::Value> m_cache;
         std::unordered_set<std::string_view> m_in_progress;
 
@@ -101,36 +118,274 @@ export namespace dcc::sema
             if (auto it = m_cache.find(id->name); it != m_cache.end())
                 return it->second;
 
-            auto vit = m_vars.find(id->name);
-            if (vit == m_vars.end())
-            {
-                m_diag.error(id->range, "unknown identifier `{}` in `static if` condition", id->name);
-                return std::nullopt;
-            }
-
-            auto const* v = vit->second;
-            if (!is_const_var(v))
-            {
-                m_diag.error(id->range, "`{}` is not a compile-time constant", id->name);
-                return std::nullopt;
-            }
-            if (!v->init)
-            {
-                m_diag.error(id->range, "`{}` has no initializer to evaluate", id->name);
-                return std::nullopt;
-            }
             if (m_in_progress.contains(id->name))
             {
                 m_diag.error(id->range, "`{}` has a cyclic compile-time initializer", id->name);
                 return std::nullopt;
             }
 
-            m_in_progress.insert(id->name);
-            auto val = eval(v->init);
-            m_in_progress.erase(id->name);
-            if (val)
-                m_cache.insert_or_assign(id->name, *val);
-            return val;
+            if (auto vit = m_vars.find(id->name); vit != m_vars.end())
+            {
+                auto const* v = vit->second;
+                if (!is_const_var(v))
+                {
+                    m_diag.error(id->range, "`{}` is not a compile-time constant", id->name);
+                    return std::nullopt;
+                }
+                if (!v->init)
+                {
+                    m_diag.error(id->range, "`{}` has no initializer to evaluate", id->name);
+                    return std::nullopt;
+                }
+
+                m_in_progress.insert(id->name);
+                auto val = eval(v->init);
+                m_in_progress.erase(id->name);
+                if (val)
+                    m_cache.insert_or_assign(id->name, *val);
+                return val;
+            }
+
+            if (auto ait = m_value_aliases.find(id->name); ait != m_value_aliases.end())
+            {
+                auto const* u = ait->second;
+                if (!u->target_expr)
+                {
+                    m_diag.error(id->range, "`{}` has no initializer to evaluate", id->name);
+                    return std::nullopt;
+                }
+
+                m_in_progress.insert(id->name);
+                auto val = eval(u->target_expr);
+                m_in_progress.erase(id->name);
+                if (val)
+                    m_cache.insert_or_assign(id->name, *val);
+                return val;
+            }
+
+            m_diag.error(id->range, "unknown identifier `{}` in `static if` condition", id->name);
+            return std::nullopt;
+        }
+
+        [[nodiscard]] types::TypePtr primitive_type(lex::TokenKind kind) const
+        {
+            switch (kind)
+            {
+                case lex::TokenKind::KwVoid:
+                    return m_types.m_voidt();
+                case lex::TokenKind::KwBool:
+                    return m_types.m_boolt();
+                case lex::TokenKind::Kwi8:
+                    return m_types.int_t(8, true);
+                case lex::TokenKind::Kwi16:
+                    return m_types.int_t(16, true);
+                case lex::TokenKind::Kwi32:
+                    return m_types.int_t(32, true);
+                case lex::TokenKind::Kwi64:
+                    return m_types.int_t(64, true);
+                case lex::TokenKind::Kwu8:
+                    return m_types.int_t(8, false);
+                case lex::TokenKind::Kwu16:
+                    return m_types.int_t(16, false);
+                case lex::TokenKind::Kwu32:
+                    return m_types.int_t(32, false);
+                case lex::TokenKind::Kwu64:
+                    return m_types.int_t(64, false);
+                case lex::TokenKind::Kwf32:
+                    return m_types.float_t(32);
+                case lex::TokenKind::Kwf64:
+                    return m_types.float_t(64);
+                case lex::TokenKind::KwChar:
+                    return m_types.m_chart();
+                case lex::TokenKind::KwUsize:
+                    return m_types.usize_t();
+                case lex::TokenKind::KwIsize:
+                    return m_types.isize_t();
+                default:
+                    return nullptr;
+            }
+        }
+
+        [[nodiscard]] std::optional<std::int64_t> variant_discriminant(ast::EnumDecl const* e, std::size_t index)
+        {
+            if (auto it = m_enum_discriminants.find(e); it != m_enum_discriminants.end())
+            {
+                if (index < it->second.size())
+                    return it->second[index];
+                return std::nullopt;
+            }
+
+            if (m_enum_in_progress.contains(e))
+                return std::nullopt;
+
+            m_enum_in_progress.insert(e);
+            std::vector<std::int64_t> discs;
+            discs.reserve(e->variants.size());
+            for (auto const& v : e->variants)
+            {
+                if (v.explicit_value)
+                {
+                    auto val = eval(v.explicit_value);
+                    if (!val || val->kind() != comptime::Value::Kind::Int)
+                    {
+                        m_enum_in_progress.erase(e);
+                        return std::nullopt;
+                    }
+                    discs.push_back(val->get_int());
+                }
+                else
+                {
+                    discs.push_back(discs.empty() ? 0 : discs.back() + 1);
+                }
+            }
+            m_enum_in_progress.erase(e);
+            m_enum_discriminants.insert_or_assign(e, std::move(discs));
+
+            auto const& cached = m_enum_discriminants[e];
+            if (index < cached.size())
+                return cached[index];
+            return std::nullopt;
+        }
+
+        [[nodiscard]] types::TypePtr enum_backing_type(ast::EnumDecl const* e)
+        {
+            if (!e)
+                return nullptr;
+
+            if (auto it = m_enum_backing.find(e); it != m_enum_backing.end())
+                return it->second;
+
+            types::TypePtr backing = nullptr;
+            if (e->backing_type)
+            {
+                if (auto const* pt = ast::node_cast<ast::PrimitiveType>(e->backing_type))
+                {
+                    auto const* int_ty = types::type_cast<types::IntType>(primitive_type(pt->which));
+                    if (int_ty)
+                        backing = int_ty;
+                }
+            }
+
+            if (!backing)
+            {
+                bool has_negative = false;
+                std::uint64_t max_pos = 0;
+                std::uint64_t max_neg_mag = 0;
+                for (std::size_t i = 0; i < e->variants.size(); ++i)
+                {
+                    auto d = variant_discriminant(e, i);
+                    if (!d)
+                        return nullptr;
+
+                    if (*d < 0)
+                    {
+                        has_negative = true;
+                        auto mag = (*d == std::numeric_limits<std::int64_t>::min())
+                                       ? (std::uint64_t{1} << 63)
+                                       : static_cast<std::uint64_t>(-*d);
+                        max_neg_mag = std::max(max_neg_mag, mag);
+                    }
+                    else
+                    {
+                        max_pos = std::max(max_pos, static_cast<std::uint64_t>(*d));
+                    }
+                }
+
+                std::uint8_t bits = 8;
+                if (has_negative)
+                {
+                    while (bits < 64)
+                    {
+                        auto max_mag = std::uint64_t{1} << (bits - 1);
+                        if (max_pos <= max_mag - 1 && max_neg_mag <= max_mag)
+                            break;
+                        bits *= 2;
+                    }
+                    backing = m_types.int_t(bits, true);
+                }
+                else
+                {
+                    while (bits < 64)
+                    {
+                        if (max_pos <= (std::uint64_t{1} << bits) - 1)
+                            break;
+                        bits *= 2;
+                    }
+                    backing = m_types.int_t(bits, false);
+                }
+            }
+
+            if (backing && types::type_cast<types::IntType>(backing))
+                m_enum_backing.insert_or_assign(e, backing);
+            return backing;
+        }
+
+        [[nodiscard]] types::TypePtr resolve_cast_target_type(ast::TypeExpr const* t)
+        {
+            if (!t)
+                return nullptr;
+
+            switch (t->kind)
+            {
+                case ast::TypeKind::Primitive:
+                    return primitive_type(static_cast<ast::PrimitiveType const*>(t)->which);
+                case ast::TypeKind::Named: {
+                    auto const* nt = static_cast<ast::NamedType const*>(t);
+                    if (nt->path.is_simple())
+                    {
+                        if (auto eit = m_enums.find(nt->path.simple_name()); eit != m_enums.end())
+                            return enum_backing_type(eit->second);
+                    }
+                    return nullptr;
+                }
+                default:
+                    return nullptr;
+            }
+        }
+
+        std::optional<comptime::Value> eval_path(ast::PathExpr const* pe)
+        {
+            if (pe->path.segments.size() != 2)
+            {
+                m_diag.error(pe->range, "unsupported path in `static if` condition");
+                return std::nullopt;
+            }
+
+            auto enum_name = pe->path.segments[0].name;
+            auto variant_name = pe->path.segments[1].name;
+
+            auto eit = m_enums.find(enum_name);
+            if (eit == m_enums.end())
+            {
+                m_diag.error(pe->range, "unknown identifier `{}` in `static if` condition", enum_name);
+                return std::nullopt;
+            }
+
+            auto const* e = eit->second;
+            for (std::size_t i = 0; i < e->variants.size(); ++i)
+            {
+                if (e->variants[i].name != variant_name)
+                    continue;
+
+                auto disc = variant_discriminant(e, i);
+                if (!disc)
+                {
+                    m_diag.error(pe->range, "cannot evaluate enum variant `{}::{}` in `static if` condition", enum_name, variant_name);
+                    return std::nullopt;
+                }
+
+                auto backing = enum_backing_type(e);
+                if (!backing)
+                {
+                    m_diag.error(pe->range, "cannot determine backing type of enum `{}` in `static if` condition", enum_name);
+                    return std::nullopt;
+                }
+
+                return comptime::Value::make_int(*disc, backing);
+            }
+
+            m_diag.error(pe->range, "unknown enum variant `{}::{}`", enum_name, variant_name);
+            return std::nullopt;
         }
 
         std::optional<comptime::Value> eval(ast::Expr const* e)
@@ -147,6 +402,26 @@ export namespace dcc::sema
                     return comptime::Value::make_char(static_cast<ast::CharLiteralExpr const*>(e)->codepoint, m_types.m_chart());
                 case ast::ExprKind::Ident:
                     return eval_ident(static_cast<ast::IdentExpr const*>(e));
+                case ast::ExprKind::PathExpr:
+                    return eval_path(static_cast<ast::PathExpr const*>(e));
+                case ast::ExprKind::Cast: {
+                    auto const* c = static_cast<ast::CastExpr const*>(e);
+                    auto operand = eval(c->operand);
+                    if (!operand)
+                        return std::nullopt;
+
+                    auto dst = resolve_cast_target_type(c->target);
+                    if (!dst)
+                    {
+                        m_diag.error(e->range, "unsupported cast target in `static if` condition");
+                        return std::nullopt;
+                    }
+
+                    auto r = const_eval::fold_cast(*operand, dst);
+                    if (!r)
+                        m_diag.error(e->range, "`static if` condition is not a compile-time constant expression");
+                    return r;
+                }
                 case ast::ExprKind::Unary: {
                     auto const* u = static_cast<ast::UnaryExpr const*>(e);
                     auto operand = eval(u->operand);
@@ -228,8 +503,14 @@ export namespace dcc::sema
             m_mod.ufcs_scope = make_scope(ScopeKind::Module, nullptr);
 
             for (auto* d : m_mod.tu->decls)
+            {
                 if (auto* v = ast::node_cast<ast::VarDecl>(d))
                     m_eval.register_var(v);
+                else if (auto* u = ast::node_cast<ast::UsingDecl>(d))
+                    m_eval.register_value_alias(u);
+                else if (auto* e = ast::node_cast<ast::EnumDecl>(d))
+                    m_eval.register_enum(e);
+            }
 
             std::vector<ast::Decl*> flat;
             for (auto* d : m_mod.tu->decls)
@@ -321,8 +602,14 @@ export namespace dcc::sema
         void collect_branch(ast::StaticIfGroup* branch, std::vector<ast::Decl*>& flat)
         {
             for (auto* inner : branch->then_decls)
+            {
                 if (auto* v = ast::node_cast<ast::VarDecl>(inner))
                     m_eval.register_var(v);
+                else if (auto* u = ast::node_cast<ast::UsingDecl>(inner))
+                    m_eval.register_value_alias(u);
+                else if (auto* e = ast::node_cast<ast::EnumDecl>(inner))
+                    m_eval.register_enum(e);
+            }
 
             for (auto* inner : branch->then_decls)
                 collect_top_level(inner, flat);

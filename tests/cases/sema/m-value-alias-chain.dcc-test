@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+using u8 A = 1;
+using u8 B = A;
+
+enum E : u8 { ZERO = 0, ONE = 1 }
+using E X = 1 as E;
+using E Y = A as E;
+
+static if B == 1 { public i32 v1() { return 1; } }
+static if X == E::ONE { public i32 v2() { return 2; } }
+static if Y == E::ONE { public i32 v3() { return 3; } }
+
+public i32 use_it() { return v1() + v2() + v3(); }
+
+=== ENTRY: main.dc ===
