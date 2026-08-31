@@ -748,6 +748,19 @@ export namespace dcc::comptime
                 return std::nullopt;
             }
 
+            if (auto const* et = types::type_cast<types::EnumType>(dst))
+            {
+                if (!et->is_tagged)
+                {
+                    if (auto const* backing = types::type_cast<types::IntType>(et->backing))
+                    {
+                        if (auto v = const_to_int())
+                            return make_int(*v, backing);
+                    }
+                }
+                return std::nullopt;
+            }
+
             return std::nullopt;
         }
     };

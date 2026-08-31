@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+enum Mode : u8 { A = 0, B = 1 }
+using Mode OUT = 99 as Mode;
+
+const u8 RAW = OUT as u8;
+
+static if RAW == 99 {
+    public i32 value() { return 1; }
+} else {
+    public i32 value() { return dead_undeclared; }
+}
+
+public i32 use_it() { return value(); }
+
+=== ENTRY: main.dc ===

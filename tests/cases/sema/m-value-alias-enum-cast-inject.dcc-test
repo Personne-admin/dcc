@@ -1,0 +1,18 @@
+=== INJECT: using u8 RAW = 1; ===
+=== FILE: main.dc ===
+module m;
+
+enum Mode : u8 { A = 0, B = 1 }
+using Mode MODE = RAW as Mode;
+
+const Mode C = MODE;
+
+static if C == Mode::B {
+    public i32 value() { return 1; }
+} else {
+    public i32 value() { return dead_undeclared; }
+}
+
+public i32 use_it() { return value(); }
+
+=== ENTRY: main.dc ===

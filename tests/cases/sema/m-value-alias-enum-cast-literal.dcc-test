@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+enum Level : u8 { TRACE = 0, DEBUG = 1, INFO = 2 }
+using Level LEVEL = 2 as Level;
+
+const Level C = LEVEL;
+
+static if C == Level::INFO {
+    public i32 value() { return 1; }
+} else {
+    public i32 value() { return dead_undeclared; }
+}
+
+public i32 use_it() { return value(); }
+
+=== ENTRY: main.dc ===

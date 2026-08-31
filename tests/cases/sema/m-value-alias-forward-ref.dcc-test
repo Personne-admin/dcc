@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+static if LATER == 5 {
+    public i32 value() { return 1; }
+} else {
+    public i32 value() { return dead_undeclared; }
+}
+
+using u8 LATER = 5;
+
+public i32 use_it() { return value(); }
+
+=== ENTRY: main.dc ===
