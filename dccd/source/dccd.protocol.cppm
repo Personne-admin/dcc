@@ -1529,10 +1529,13 @@ export namespace dccd::protocol
         watcher_dc.set("globPattern", JsonValue::string_val("**/*.dc"));
         auto watcher_json = JsonValue::empty_object();
         watcher_json.set("globPattern", JsonValue::string_val("**/dcc.json"));
+        auto watcher_compdb = JsonValue::empty_object();
+        watcher_compdb.set("globPattern", JsonValue::string_val("**/compile_commands.json"));
 
         auto watchers = JsonValue::empty_array();
         watchers.push_back(std::move(watcher_dc));
         watchers.push_back(std::move(watcher_json));
+        watchers.push_back(std::move(watcher_compdb));
 
         auto register_options = JsonValue::empty_object();
         register_options.set("watchers", std::move(watchers));

@@ -105,6 +105,11 @@
                     "default": [],
                     "description": "Additional include/import paths used to resolve modules. Relative paths are resolved from the first workspace folder."
                 },
+                "dcc.compilationDatabase": {
+                    "type": "string",
+                    "default": "",
+                    "description": "Path to compile_commands.json. Relative paths are resolved from the workspace folder. Empty uses automatic discovery."
+                },
                 "dcc.inlayHints.typeHints": {
                     "type": "boolean",
                     "default": true,

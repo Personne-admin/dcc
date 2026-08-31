@@ -269,6 +269,7 @@ pub const CompilationDatabase = struct {
 
         const self: *CompilationDatabase = @fieldParentPtr("step", step);
         const b = step.owner;
+        const io = b.graph.io;
         const arena = b.allocator;
 
         step.clearWatchInputs();
@@ -346,7 +347,8 @@ pub const CompilationDatabase = struct {
             &.{ "o", &digest, "compile_commands.json" },
         );
 
-        var cache_dir = b.cache_root.handle.makeOpenPath(
+        var cache_dir = b.cache_root.handle.createDirPathOpen(
+            io,
             cache_path,
             .{},
         ) catch |err| {
@@ -359,9 +361,9 @@ pub const CompilationDatabase = struct {
                 },
             );
         };
-        defer cache_dir.close();
+        defer cache_dir.close(io);
 
-        cache_dir.writeFile(.{
+        cache_dir.writeFile(io, .{
             .sub_path = "compile_commands.json",
             .data = json,
         }) catch |err| {

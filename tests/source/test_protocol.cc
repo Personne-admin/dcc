@@ -837,7 +837,7 @@ TEST_CASE("build_register_capability_request emits the exact LSP RegistrationPar
     REQUIRE(reg_opts != nullptr);
     auto const* watchers = reg_opts->get_array("watchers");
     REQUIRE(watchers != nullptr);
-    REQUIRE(watchers->array_size() == 2);
+    REQUIRE(watchers->array_size() == 3);
 
     auto w0 = watchers->as_array()[0].get_string("globPattern");
     REQUIRE(w0.has_value());
@@ -845,6 +845,9 @@ TEST_CASE("build_register_capability_request emits the exact LSP RegistrationPar
     auto w1 = watchers->as_array()[1].get_string("globPattern");
     REQUIRE(w1.has_value());
     CHECK_EQ(*w1, "**/dcc.json");
+    auto w2 = watchers->as_array()[2].get_string("globPattern");
+    REQUIRE(w2.has_value());
+    CHECK_EQ(*w2, "**/compile_commands.json");
 
     auto parsed = JsonValue::parse(req.serialize());
     REQUIRE(parsed.has_value());

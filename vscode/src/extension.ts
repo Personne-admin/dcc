@@ -40,12 +40,19 @@ export function activate(context: vscode.ExtensionContext): void {
         debug,
     };
 
+    const watchers: vscode.FileSystemWatcher[] = [
+        vscode.workspace.createFileSystemWatcher('**/dcc.json'),
+        vscode.workspace.createFileSystemWatcher('**/compile_commands.json'),
+    ];
+    context.subscriptions.push(...watchers);
+
     const clientOptions: LanguageClientOptions = {
         documentSelector: [
             { scheme: 'file', language: 'dc' },
         ],
         synchronize: {
             configurationSection: 'dcc',
+            fileEvents: watchers,
         },
         middleware: {
             handleDiagnostics: (uri, diagnostics, next) => {
