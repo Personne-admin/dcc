@@ -120,6 +120,7 @@ pub const CompileOptions = struct {
     code_model: ?CodeModel = null,
 
     bounds_check: ?bool = null,
+    restricted_check: ?bool = null,
     emit_debug_info: ?bool = null,
     debug_format: ?DebugFormat = null,
     omit_frame_pointer: ?bool = null,
@@ -528,6 +529,8 @@ fn buildArguments(
 
     const do_bounds_check = options.bounds_check orelse
         (is_debug or options.optimize == .ReleaseSafe);
+    const do_restricted_check = options.restricted_check orelse
+        (is_debug or options.optimize == .ReleaseSafe);
 
     const do_emit_debug = options.emit_debug_info orelse
         is_debug;
@@ -537,6 +540,9 @@ fn buildArguments(
 
     if (do_bounds_check) {
         addLiteral(b, &args, "-fbounds-check");
+    }
+    if (do_restricted_check) {
+        addLiteral(b, &args, "-frestricted-check");
     }
 
     addLiteral(
