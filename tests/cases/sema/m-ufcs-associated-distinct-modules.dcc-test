@@ -1,0 +1,34 @@
+=== FILE: left.dc ===
+module left;
+
+public struct Writer {}
+public void write(Writer* self, []const char data) {}
+
+=== FILE: right.dc ===
+module right;
+
+public struct Writer {}
+public void write(Writer* self, []const char data) {}
+
+=== FILE: fmt.dc ===
+module fmt;
+
+public void format(W)(W* out) {
+    out.write("hello");
+}
+
+=== FILE: main.dc ===
+module main;
+
+import left;
+import right;
+import fmt;
+
+void test() {
+    left::Writer l = {};
+    right::Writer r = {};
+    fmt::format(&l);
+    fmt::format(&r);
+}
+
+=== ENTRY: main.dc ===

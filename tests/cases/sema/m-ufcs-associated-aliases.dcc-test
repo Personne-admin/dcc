@@ -1,0 +1,41 @@
+=== FILE: sink.dc ===
+module sink;
+
+public struct Writer {}
+public void write(Writer* self) {}
+
+=== FILE: bridge.dc ===
+module bridge;
+
+import sink;
+
+public using WriterAlias = sink::Writer;
+
+@nominal public using Handle = u32;
+public void close(Handle* self) {}
+
+=== FILE: fmt.dc ===
+module fmt;
+
+public void use_writer(W)(W* out) {
+    out.write();
+}
+
+public void use_handle(H)(H* handle) {
+    handle.close();
+}
+
+=== FILE: main.dc ===
+module main;
+
+import bridge;
+import fmt;
+
+void test() {
+    bridge::WriterAlias writer = {};
+    bridge::Handle handle = 0 as bridge::Handle;
+    fmt::use_writer(&writer);
+    fmt::use_handle(&handle);
+}
+
+=== ENTRY: main.dc ===

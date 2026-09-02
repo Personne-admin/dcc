@@ -813,11 +813,25 @@ const Point p = Point { x = 3.0, y = 4.0 };
 f64 len = p.length(); // error
 ```
 
-**Resolution order:**
+UFCS candidate lookup considers lexical and current-module functions, functions
+made visible by legal imports, and public functions from modules associated
+with the receiver's canonical type. The associated module of a struct, union,
+enum, or nominal alias is the module defining that declaration. Pointer, slice,
+and array receivers inherit associations from their element or pointee type;
+structural aliases inherit the associations of their canonical target.
 
-1. Struct field access
-2. Functions in the current module
-3. Functions in imported modules
+During generic specialization, direct declarations from both the definition
+and instantiation contexts remain eligible, while imported candidates come
+from the definition context. Associated-module lookup then adds the receiver
+type's public functions. This is not caller-site import lookup: unrelated
+imports and sibling modules do not contribute candidates. Private associated
+functions remain available within their own module but are not exposed across
+module boundaries.
+
+Duplicate declarations found through more than one lookup source are merged
+before overload ranking. Associated lookup changes candidate visibility only;
+the normal exact, auto-reference, auto-dereference, qualification, and template
+ranking rules still apply.
 
 ---
 
