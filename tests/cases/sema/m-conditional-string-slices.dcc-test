@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+void test(bool uppercase) {
+    []const char digits = if uppercase {
+        "0123456789ABCDEF"
+    } else {
+        "0123456789abcdef"
+    };
+}
+
+=== ENTRY: main.dc ===

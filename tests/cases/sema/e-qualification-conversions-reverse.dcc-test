@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+void test([]const u8 const_bytes, const u8* const_ptr) {
+    []u8 bytes = const_bytes;
+    u8* ptr = const_ptr;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: initializer type mismatch
+main.dc:5: initializer type mismatch
+
+=== ENTRY: main.dc ===

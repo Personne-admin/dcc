@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+void consume(W)(W* out, []const char data) {}
+
+void test(u32* out, []char data) {
+    consume(out, data);
+}
+
+=== ENTRY: main.dc ===
