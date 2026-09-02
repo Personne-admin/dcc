@@ -171,6 +171,72 @@ TEST_CASE("single source produces a one-rule depfile")
     CHECK_EQ(read_file(dep), obj.string() + ": " + src.string() + "\n");
 }
 
+TEST_CASE("empty and template-only modules produce object files and depfiles")
+{
+    TempDir td;
+    td.write_file("empty.dc", "module empty;\n");
+    td.write_file("generic.dc", "module generic;\npublic T identity(T)(T x) { return x; }\n");
+
+    for (auto stem : {std::string_view{"empty"}, std::string_view{"generic"}})
+    {
+        auto src = td.file(std::string{stem} + ".dc");
+        auto obj = td.file(std::string{stem} + ".o");
+        auto dep = td.file(std::string{stem} + ".d");
+        auto r = run_dcc("-c -target x86_64-elf -o " + shell_quote(obj) + " --depfile " + shell_quote(dep) + " " + shell_quote(src));
+
+        CHECK_EQ(r.rc, 0);
+        CHECK(file_exists(obj));
+        CHECK(!read_file(obj).empty());
+        CHECK_EQ(target_of(read_file(dep)), obj.string());
+    }
+}
+
+TEST_CASE("laomb-shaped x86 flags produce an object before the depfile")
+{
+    TempDir td;
+    td.write_file("main.dc", "module main;\npublic i32 value() { return 42; }\n");
+    auto obj = td.file("main.o");
+    auto dep = td.file("main.d");
+    auto r = run_dcc("-target x86-elf -O0 -fbounds-check -frestricted-check -fno-omit-frame-pointer -gdwarf -fno-red-zone -fno-simd -fno-x87 "
+                     "-fno-stack-protector -fno-stack-probe -mcmodel small -c -o " +
+                     shell_quote(obj) + " --depfile " + shell_quote(dep) + " " + shell_quote(td.file("main.dc")));
+
+    CHECK_EQ(r.rc, 0);
+    CHECK(file_exists(obj));
+    CHECK(!read_file(obj).empty());
+    CHECK_EQ(target_of(read_file(dep)), obj.string());
+}
+
+TEST_CASE("relative dot-dot object and depfile paths are preserved")
+{
+    TempDir td;
+    td.write_file("src/main.dc", "module main;\npublic i32 value() { return 42; }\n");
+    std::filesystem::create_directories(td.file("work"));
+
+    auto cmd = "cd " + shell_quote(td.file("work")) + " && " + shell_quote(dcc_path()) +
+               " -c -target x86_64-elf -o ./../main.o --depfile ./../main.d ./../src/main.dc 2>&1";
+    auto r = run_shell(cmd);
+
+    CHECK_EQ(r.rc, 0);
+    CHECK(file_exists(td.file("main.o")));
+    CHECK_EQ(target_of(read_file(td.file("main.d"))), "./../main.o");
+}
+
+TEST_CASE("cross-module generic instantiation produces an object and depfile")
+{
+    TempDir td;
+    td.write_file("math.dc", "module math;\npublic T identity(T)(T x) { return x; }\n");
+    td.write_file("main.dc", "module main;\nimport math;\npublic i32 value() { return math::identity(42); }\n");
+    auto obj = td.file("main.o");
+    auto dep = td.file("main.d");
+    auto r = run_dcc("-c -target x86_64-elf -I " + shell_quote(td.path) + " -o " + shell_quote(obj) + " --depfile " + shell_quote(dep) + " " +
+                     shell_quote(td.file("main.dc")));
+
+    CHECK_EQ(r.rc, 0);
+    CHECK(file_exists(obj));
+    CHECK_EQ(deps_of(read_file(dep)).size(), 2uz);
+}
+
 TEST_CASE("direct import is listed after the root")
 {
     TempDir td;
