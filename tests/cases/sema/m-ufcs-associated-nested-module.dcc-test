@@ -1,0 +1,25 @@
+=== FILE: foo/sink.dc ===
+module foo::sink;
+
+public struct Writer {}
+public void write(Writer* self, []const char data) {}
+
+=== FILE: fmt.dc ===
+module fmt;
+
+public void format(W)(W* out) {
+    out.write("hello");
+}
+
+=== FILE: main.dc ===
+module main;
+
+import foo::sink;
+import fmt;
+
+void test() {
+    foo::sink::Writer out = {};
+    fmt::format(&out);
+}
+
+=== ENTRY: main.dc ===

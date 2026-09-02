@@ -8871,6 +8871,50 @@ export namespace dcc::sema
             }
         }
 
+        void collect_associated_modules(types::TypePtr ty, std::unordered_set<ModuleInfo const*>& out) const
+        {
+            if (!ty)
+                return;
+
+            ast::Decl const* decl = nullptr;
+            switch (ty->kind)
+            {
+                case types::TypeKind::Struct:
+                    decl = reinterpret_cast<ast::Decl const*>(static_cast<types::StructType const*>(ty)->decl);
+                    break;
+                case types::TypeKind::Union:
+                    decl = reinterpret_cast<ast::Decl const*>(static_cast<types::UnionType const*>(ty)->decl);
+                    break;
+                case types::TypeKind::Enum:
+                    decl = reinterpret_cast<ast::Decl const*>(static_cast<types::EnumType const*>(ty)->decl);
+                    break;
+                case types::TypeKind::Nominal:
+                    decl = static_cast<ast::Decl const*>(static_cast<types::NominalType const*>(ty)->decl);
+                    break;
+                case types::TypeKind::Pointer:
+                    collect_associated_modules(static_cast<types::PointerType const*>(ty)->pointee, out);
+                    return;
+                case types::TypeKind::Slice:
+                    collect_associated_modules(static_cast<types::SliceType const*>(ty)->element, out);
+                    return;
+                case types::TypeKind::Array:
+                    collect_associated_modules(static_cast<types::ArrayType const*>(ty)->element, out);
+                    return;
+                case types::TypeKind::RuntimeArray:
+                    collect_associated_modules(static_cast<types::RuntimeArrayType const*>(ty)->element, out);
+                    return;
+                case types::TypeKind::Fam:
+                    collect_associated_modules(static_cast<types::FamType const*>(ty)->element, out);
+                    return;
+                default:
+                    return;
+            }
+
+            if (decl)
+                if (auto const* associated = module_owning_decl(decl))
+                    out.insert(associated);
+        }
+
         ast::FieldDecl* find_field(ast::Decl const& d, std::string_view name)
         {
             if (auto const* sd = ast::node_cast<ast::StructDecl>(&d))
@@ -12338,10 +12382,18 @@ export namespace dcc::sema
                                         int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, types::TypePtr expected_type = nullptr,
                                         detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false)
         {
-            std::ignore = fn;
             bool saw_probe_error = false;
             bool saw_constraint_failure = false;
             bool saw_non_constraint_failure = false;
+
+            detail::ExprResult lookup_receiver;
+            if (!preanalyzed_receiver)
+            {
+                lookup_receiver = analyze_expr(mod, fn, scope, *f.object, loop_depth, next_off, nullptr, const_env);
+                if (!lookup_receiver.type || has_error(lookup_receiver.type))
+                    return {m_types.m_errort()};
+            }
+            auto const* association_receiver = preanalyzed_receiver ? preanalyzed_receiver : &lookup_receiver;
 
             auto collect_unique = [&](Scope const* s, std::pmr::vector<Symbol const*>& out) {
                 if (!s)
@@ -12400,6 +12452,12 @@ export namespace dcc::sema
                 if (imp.target && imp.target->export_scope)
                     collect_unique(imp.target->export_scope, all_syms);
             }
+
+            std::unordered_set<ModuleInfo const*> associated_modules;
+            collect_associated_modules(association_receiver->type, associated_modules);
+            for (auto const* associated : associated_modules)
+                if (associated && associated->export_scope)
+                    collect_unique(associated->export_scope, all_syms);
 
             if (all_syms.empty())
             {

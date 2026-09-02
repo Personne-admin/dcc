@@ -7,17 +7,20 @@ public void write(Writer* self, []const char data) {}
 === FILE: formatter.dc ===
 module formatter;
 
-import sink;
+import helper;
 
 using Writer(W) = compiles(W* out, []const char data) {
     out.write(data);
 };
 
-public using WriterType = sink::Writer;
-
 public void format(W)(W* out) if Writer(W) {
     out.write("hello");
 }
+
+=== FILE: helper.dc ===
+module helper;
+
+public void write() {}
 
 === FILE: log.dc ===
 module log;
@@ -28,10 +31,11 @@ public void write() {}
 module entry;
 
 import formatter;
+import sink;
 import log;
 
 void test() {
-    formatter::WriterType out = {};
+    sink::Writer out = {};
     formatter::format(&out);
 }
 

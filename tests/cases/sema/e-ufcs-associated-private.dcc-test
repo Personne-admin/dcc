@@ -1,0 +1,28 @@
+=== FILE: sink.dc ===
+module sink;
+
+public struct Writer {}
+void secret(Writer* self) {}
+
+=== FILE: fmt.dc ===
+module fmt;
+
+public void inspect(W)(W* out) {
+    out.secret();
+}
+
+=== FILE: main.dc ===
+module main;
+
+import sink;
+import fmt;
+
+void test() {
+    sink::Writer out = {};
+    fmt::inspect(&out);
+}
+
+=== EXPECT-ERRORS ===
+fmt.dc:4: no visible UFCS function named `secret` in scope
+
+=== ENTRY: main.dc ===
