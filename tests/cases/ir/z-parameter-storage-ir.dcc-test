@@ -1,0 +1,172 @@
+=== FILE: test.dc ===
+module test;
+
+public u64 readonly(u64 x) { return x; }
+public u64 plain(u64 x) { x = 10; return x; }
+public u64 arithmetic(u64 x) {
+    x += 1; x -= 1; x *= 2; x /= 2; x %= 3;
+    x &= 15; x |= 16; x ^= 3; x <<= 1; x >>= 1;
+    return x;
+}
+public u64 incdec(u64 x) { ++x; x++; --x; x--; return x; }
+public u64 address(u64 x) { u64* p = &x; *p = 7; return x; }
+public u64 through(u64* p) { *p = 7; return *p; }
+public u64* rebind(u64* p, u64* q) { p = q; return p; }
+public u64 control(u64 x, bool b) { u64 before = x; if b { x += 1; } return before + x; }
+public u64 loop(u64 x) { while x != 0 { x /= 10; } return x; }
+
+public struct Pair { u64 a; u64 b; }
+public Pair aggregate(Pair p) { p.a = 1; return p; }
+
+=== EXPECT-IR ===
+module "test"
+u64@_DC0F1.4.test8.readonly1i64ui64u(u64) {
+%entry(u64 %x):
+  ret u64 %x
+}
+
+u64@_DC0F1.4.test5.plain1i64ui64u(u64) {
+%entry(u64 %x):
+  %0 = alloca u64
+  store u64 %x, ptr<u64> %0
+  store u64 #10, ptr<u64> %0
+  %1 = load u64, ptr<u64> %0
+  ret u64 %1
+}
+
+u64@_DC0F1.4.test10.arithmetic1i64ui64u(u64) {
+%entry(u64 %x):
+  %0 = alloca u64
+  store u64 %x, ptr<u64> %0
+  %1 = load u64, ptr<u64> %0
+  %2 = add u64 %1, u64 #1
+  store u64 %2, ptr<u64> %0
+  %3 = load u64, ptr<u64> %0
+  %4 = sub u64 %3, u64 #1
+  store u64 %4, ptr<u64> %0
+  %5 = load u64, ptr<u64> %0
+  %6 = mul u64 %5, u64 #2
+  store u64 %6, ptr<u64> %0
+  %7 = load u64, ptr<u64> %0
+  %8 = udiv u64 %7, u64 #2
+  store u64 %8, ptr<u64> %0
+  %9 = load u64, ptr<u64> %0
+  %10 = urem u64 %9, u64 #3
+  store u64 %10, ptr<u64> %0
+  %11 = load u64, ptr<u64> %0
+  %12 = and u64 %11, u64 #15
+  store u64 %12, ptr<u64> %0
+  %13 = load u64, ptr<u64> %0
+  %14 = or u64 %13, u64 #16
+  store u64 %14, ptr<u64> %0
+  %15 = load u64, ptr<u64> %0
+  %16 = xor u64 %15, u64 #3
+  store u64 %16, ptr<u64> %0
+  %17 = load u64, ptr<u64> %0
+  %18 = shl u64 %17, u64 #1
+  store u64 %18, ptr<u64> %0
+  %19 = load u64, ptr<u64> %0
+  %20 = lshr u64 %19, u64 #1
+  store u64 %20, ptr<u64> %0
+  %21 = load u64, ptr<u64> %0
+  ret u64 %21
+}
+
+u64@_DC0F1.4.test6.incdec1i64ui64u(u64) {
+%entry(u64 %x):
+  %0 = alloca u64
+  store u64 %x, ptr<u64> %0
+  %1 = load u64, ptr<u64> %0
+  %2 = add u64 %1, u64 #1
+  store u64 %2, ptr<u64> %0
+  %3 = load u64, ptr<u64> %0
+  %4 = add u64 %3, u64 #1
+  store u64 %4, ptr<u64> %0
+  %5 = load u64, ptr<u64> %0
+  %6 = sub u64 %5, u64 #1
+  store u64 %6, ptr<u64> %0
+  %7 = load u64, ptr<u64> %0
+  %8 = sub u64 %7, u64 #1
+  store u64 %8, ptr<u64> %0
+  %9 = load u64, ptr<u64> %0
+  ret u64 %9
+}
+
+u64@_DC0F1.4.test7.address1i64ui64u(u64) {
+%entry(u64 %x):
+  %0 = alloca u64
+  store u64 %x, ptr<u64> %0
+  %1 = alloca ptr<u64>
+  store ptr<u64> %0, ptr<ptr<u64>> %1
+  %2 = load ptr<u64>, ptr<ptr<u64>> %1
+  store u64 #7, ptr<u64> %2
+  %3 = load u64, ptr<u64> %0
+  ret u64 %3
+}
+
+u64@_DC0F1.4.test7.through1Pqi64ui64u(ptr<u64>) {
+%entry(ptr<u64> %p):
+  store u64 #7, ptr<u64> %p
+  %0 = load u64, ptr<u64> %p
+  ret u64 %0
+}
+
+ptr<u64>@_DC0F1.4.test6.rebind2Pqi64uPqi64uPqi64u(ptr<u64>, ptr<u64>) {
+%entry(ptr<u64> %p, ptr<u64> %q):
+  %0 = alloca ptr<u64>
+  store ptr<u64> %p, ptr<ptr<u64>> %0
+  store ptr<u64> %q, ptr<ptr<u64>> %0
+  %1 = load ptr<u64>, ptr<ptr<u64>> %0
+  ret ptr<u64> %1
+}
+
+u64@_DC0F1.4.test7.control2i64ubi64u(u64, bool) {
+%entry(u64 %x, bool %b):
+  %0 = alloca u64
+  store u64 %x, ptr<u64> %0
+  %1 = alloca u64
+  %2 = load u64, ptr<u64> %0
+  store u64 %2, ptr<u64> %1
+  br.cond %b, label %if.then1, label %if.else2
+%if.then1:
+  %3 = load u64, ptr<u64> %0
+  %4 = add u64 %3, u64 #1
+  store u64 %4, ptr<u64> %0
+  br label %if.merge3
+%if.else2:
+  br label %if.merge3
+%if.merge3:
+  %5 = load u64, ptr<u64> %1
+  %6 = load u64, ptr<u64> %0
+  %7 = add u64 %5, u64 %6
+  ret u64 %7
+}
+
+u64@_DC0F1.4.test4.loop1i64ui64u(u64) {
+%entry(u64 %x):
+  %0 = alloca u64
+  store u64 %x, ptr<u64> %0
+  br label %while.cond1
+%while.cond1:
+  %1 = load u64, ptr<u64> %0
+  %2 = cmp.ne u64 %1, #0
+  br.cond %2, label %while.body2, label %while.exit3
+%while.body2:
+  %3 = load u64, ptr<u64> %0
+  %4 = udiv u64 %3, u64 #10
+  store u64 %4, ptr<u64> %0
+  br label %while.cond1
+%while.exit3:
+  %5 = load u64, ptr<u64> %0
+  ret u64 %5
+}
+
+{@0 u64, @8 u64}@_DC0F1.4.test9.aggregate1D1.4.test4.Pair0.D1.4.test4.Pair0.({@0 u64, @8 u64}) {
+%entry({@0 u64, @8 u64} %p):
+  %0 = alloca {@0 u64, @8 u64}
+  store {@0 u64, @8 u64} %p, ptr<{@0 u64, @8 u64}> %0
+  %1 = gep ptr<{@0 u64, @8 u64}> %0, field #0
+  store u64 #1, ptr<u64> %1
+  %2 = load {@0 u64, @8 u64}, ptr<{@0 u64, @8 u64}> %0
+  ret {@0 u64, @8 u64} %2
+}

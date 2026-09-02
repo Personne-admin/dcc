@@ -1314,6 +1314,17 @@ export namespace dcc::sema
                 ++m_decl_writes[decl];
         }
 
+        void require_binding_storage(ast::Expr const* expr)
+        {
+            if (!expr || expr->kind != ast::ExprKind::Ident)
+                return;
+
+            auto const* id = static_cast<ast::IdentExpr const*>(expr);
+            auto* v = const_cast<ast::VarDecl*>(ast::node_cast<ast::VarDecl>(id->sema.resolved_decl));
+            if (v && v->sema.storage == ast::StorageClass::Param)
+                v->sema.spilled = true;
+        }
+
         ConstEnv* make_const_env(ConstEnv const* parent)
         {
             auto* p = m_alloc.allocate_object<ConstEnv>();
@@ -9937,6 +9948,7 @@ export namespace dcc::sema
                         error(u.range, "unary operand type mismatch");
                         break;
                     }
+                    require_binding_storage(u.operand);
                     out.type = m_types.pointer_to(op.type, types::Qual::None);
                     break;
                 case lex::TokenKind::Star:
@@ -9982,6 +9994,11 @@ export namespace dcc::sema
                     out.is_lvalue = true;
                     out.constant = nullptr;
                     out.is_constant = false;
+                    require_binding_storage(u.operand);
+                    track_decl_write(op.resolved_decl);
+                    if (const_env)
+                        if (auto const* lv = ast::node_cast<ast::VarDecl>(op.resolved_decl))
+                            invalidate_constant(const_env, lv->name);
                     return out;
                 }
                 default:
@@ -10045,6 +10062,8 @@ export namespace dcc::sema
                     out.is_lvalue = false;
                     out.constant = nullptr;
                     out.is_constant = false;
+                    require_binding_storage(p.operand);
+                    track_decl_write(op.resolved_decl);
                     if (const_env)
                         if (auto const* lv = ast::node_cast<ast::VarDecl>(op.resolved_decl))
                             invalidate_constant(const_env, lv->name);
@@ -10285,6 +10304,7 @@ export namespace dcc::sema
                     }
 
                     track_decl_write(lhs.resolved_decl);
+                    require_binding_storage(b.lhs);
                     if (const_env)
                         if (auto const* lv = ast::node_cast<ast::VarDecl>(lhs.resolved_decl))
                             invalidate_constant(const_env, lv->name);

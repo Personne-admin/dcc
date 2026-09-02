@@ -662,7 +662,7 @@ export namespace dcc::ir::lower
                             is_aggregate = true;
                     }
 
-                    if (is_aggregate)
+                    if (is_aggregate || syn_decl->sema.spilled)
                     {
                         auto* ptr_type = m_ctx.pointer_to(ir_param_types[ir_param_idx], ir::Segment::None);
                         auto* alloca = m_ctx.alloca(ptr_type, ir_param_types[ir_param_idx]);
@@ -3587,7 +3587,11 @@ export namespace dcc::ir::lower
             {
                 auto& entry = *lv.entry;
                 if (!entry.is_storage)
-                    lower_panic(bin, "assignment to non-storage");
+                {
+                    auto const* vd = ast::node_cast<ast::VarDecl>(bin->lhs->sema.resolved_decl);
+                    lower_panic(bin->lhs, std::format("assignment to non-storage LHS; declaration storage={} storage-required={}",
+                                                      vd ? static_cast<int>(vd->sema.storage) : -1, vd && vd->sema.spilled));
+                }
 
                 if (entry.is_volatile)
                     append_inst(m_ctx.store_volatile(rhs_val, entry.value));
@@ -3618,7 +3622,11 @@ export namespace dcc::ir::lower
             {
                 auto& entry = *lv.entry;
                 if (!entry.is_storage)
-                    lower_panic(bin, "compound assignment to non-storage");
+                {
+                    auto const* vd = ast::node_cast<ast::VarDecl>(bin->lhs->sema.resolved_decl);
+                    lower_panic(bin->lhs, std::format("compound assignment to non-storage LHS; declaration storage={} storage-required={}",
+                                                      vd ? static_cast<int>(vd->sema.storage) : -1, vd && vd->sema.spilled));
+                }
                 ptr = entry.value;
                 is_volatile = entry.is_volatile;
             }
