@@ -121,6 +121,8 @@ namespace dccd::format
             std::unordered_set<std::size_t> ast_compact_braces;
             std::unordered_set<std::size_t> ast_block_braces;
             std::unordered_set<std::size_t> ast_struct_braces;
+            std::unordered_set<std::size_t> ast_restricted_braces;
+            std::unordered_set<std::size_t> ast_restricted_tokens;
             std::unordered_set<std::size_t> lambda_pipe;
             std::unordered_set<std::size_t> width_eligible_parens;
             std::unordered_map<std::size_t, std::size_t> paren_context;
@@ -138,6 +140,11 @@ namespace dccd::format
 
             auto const cur = tokens[i].kind;
             auto const prev = tokens[i - 1].kind;
+
+            if (cur == TokenKind::LBrace && info.ast_restricted_braces.contains(i))
+                return false;
+            if (prev == TokenKind::DotDot && info.ast_restricted_tokens.contains(i))
+                return false;
 
             if (prev == TokenKind::KwFor)
                 return true;
@@ -751,6 +758,7 @@ namespace dccd::format
                     bool const empty_brace = g.matched && g.open_tok + 1 == g.close_tok;
                     bool const ast_compact = info.parsed && info.ast_compact_braces.contains(g.open_tok);
                     bool const ast_struct = info.parsed && info.ast_struct_braces.contains(g.open_tok);
+                    bool const ast_restricted = info.parsed && info.ast_restricted_braces.contains(g.open_tok);
                     bool const ast_block = info.parsed && info.ast_block_braces.contains(g.open_tok);
                     bool const block_context = brace_is_block_context(tokens, g.open_tok);
 
@@ -763,7 +771,7 @@ namespace dccd::format
                         if (!block_context && content_width <= kMaxLineWidth)
                             want_compact = true;
                     }
-                    if (want_compact && g.has_direct_newline)
+                    if (want_compact && g.has_direct_newline && !ast_restricted)
                         want_compact = false;
                     if (want_compact && has_inner_block(g.open_tok, content_end(g)))
                         want_compact = false;
@@ -771,7 +779,7 @@ namespace dccd::format
                     if (want_compact)
                     {
                         g.compact = true;
-                        g.tight = ast_struct;
+                        g.tight = ast_struct || ast_restricted;
                     }
                     else if (ast_block || block_context)
                         g.block = true;
@@ -984,6 +992,27 @@ namespace dccd::format
                         info.pointer_star[idx] = true;
                 }
                 dcc::ast::RecursiveAstVisitor::visitPointerType(t);
+            }
+
+            void visitRestrictedType(dcc::ast::RestrictedType const* t) override
+            {
+                if (t && t->underlying && t->underlying->range.valid() && t->range.valid())
+                {
+                    auto const lo = token_index_at_or_after(t->underlying->range.end.offset);
+                    auto const hi = token_index_at_or_after(t->range.end.offset);
+                    if (lo != kNoTokenIndex && hi != kNoTokenIndex)
+                    {
+                        auto const bit = std::lower_bound(brace_positions.begin(), brace_positions.end(), lo);
+                        if (bit != brace_positions.end() && *bit < hi)
+                        {
+                            info.ast_compact_braces.insert(*bit);
+                            info.ast_restricted_braces.insert(*bit);
+                            for (auto idx = *bit; idx < hi; ++idx)
+                                info.ast_restricted_tokens.insert(idx);
+                        }
+                    }
+                }
+                dcc::ast::RecursiveAstVisitor::visitRestrictedType(t);
             }
 
             void visitFuncPtrType(dcc::ast::FuncPtrType const* t) override
@@ -1316,6 +1345,8 @@ namespace dccd::format
                                       .ast_compact_braces = {},
                                       .ast_block_braces = {},
                                       .ast_struct_braces = {},
+                                      .ast_restricted_braces = {},
+                                      .ast_restricted_tokens = {},
                                       .lambda_pipe = {},
                                       .width_eligible_parens = {},
                                       .paren_context = {},
@@ -1365,6 +1396,7 @@ namespace dccd::format
                 bool block{false};
                 bool tight{false};
                 bool has_comment_inside{false};
+                bool restricted{false};
                 int item_indent{};
                 int close_indent{};
             };
@@ -1373,6 +1405,7 @@ namespace dccd::format
             std::vector<std::size_t> wrap_positions;
             std::size_t wrap_nesting = 0;
             std::size_t compact_count = 0;
+            std::size_t restricted_count = 0;
 
             int indent = 0;
             int paren_depth = 0;
@@ -1384,6 +1417,8 @@ namespace dccd::format
                 auto const& g = active.back();
                 if (g.compact && compact_count > 0)
                     --compact_count;
+                if (g.restricted && restricted_count > 0)
+                    --restricted_count;
                 if (g.wrap)
                 {
                     if (g.kind != TokenKind::LBrace && wrap_nesting > 0)
@@ -1477,7 +1512,7 @@ namespace dccd::format
                 int need_newlines = 0;
                 if (i > 0)
                 {
-                    int const src_nl = gap_newline_count(trivia, i);
+                    int const src_nl = restricted_count > 0 ? 0 : gap_newline_count(trivia, i);
                     int base = pending_break ? 1 : 0;
 
                     bool const closing_wrap = closes_here && active.back().wrap;
@@ -1681,7 +1716,8 @@ namespace dccd::format
                                                      .compact = opening->compact,
                                                      .block = opening->block,
                                                      .tight = opening->tight,
-                                                     .has_comment_inside = opening->has_comment_inside});
+                                                     .has_comment_inside = opening->has_comment_inside,
+                                                     .restricted = info.ast_restricted_braces.contains(i)});
                         if (opening->block)
                             pending_break = true;
                         else if (opening->compact && !opening->tight && next_kind != TokenKind::RBrace && next_kind != TokenKind::Eof &&
@@ -1689,6 +1725,8 @@ namespace dccd::format
                             result += ' ';
                         if (opening->compact)
                             ++compact_count;
+                        if (info.ast_restricted_braces.contains(i))
+                            ++restricted_count;
                     }
                 }
 
