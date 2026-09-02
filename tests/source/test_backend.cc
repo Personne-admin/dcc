@@ -226,6 +226,24 @@ TEST_CASE("llvm-executable-non-x86-64-elf-rejected")
     CHECK(!artifact.executable_bytes.has_value());
 }
 
+TEST_CASE("requested backend artifacts are validated at the backend boundary")
+{
+    BackendOptions opts;
+    opts.requested_artifacts = {ArtifactKind::LlvmIrText,  ArtifactKind::MirText,         ArtifactKind::AsmText,
+                                ArtifactKind::ObjectBytes, ArtifactKind::ExecutableBytes, ArtifactKind::SharedLibraryBytes,
+                                ArtifactKind::ArchiveBytes};
+    BackendArtifact artifact;
+
+    CHECK(!validate_requested_artifacts(opts.requested_artifacts, artifact));
+    CHECK_EQ(artifact.diagnostics.size(), opts.requested_artifacts.size());
+
+    bool found_object = false;
+    for (auto const& diagnostic : artifact.diagnostics)
+        if (diagnostic.message == "backend did not produce requested object artifact")
+            found_object = true;
+    CHECK(found_object);
+}
+
 TEST_CASE("llvm-codegen-flags-no-red-zone")
 {
     IrContext ir_ctx;

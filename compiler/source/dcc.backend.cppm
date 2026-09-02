@@ -60,6 +60,61 @@ export namespace dcc::backend
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
     };
 
+    [[nodiscard]] inline std::string_view artifact_kind_name(ArtifactKind kind)
+    {
+        switch (kind)
+        {
+            case ArtifactKind::LlvmIrText:
+                return "LLVM IR";
+            case ArtifactKind::MirText:
+                return "MIR";
+            case ArtifactKind::AsmText:
+                return "assembly";
+            case ArtifactKind::ObjectBytes:
+                return "object";
+            case ArtifactKind::ExecutableBytes:
+                return "executable";
+            case ArtifactKind::SharedLibraryBytes:
+                return "shared library";
+            case ArtifactKind::ArchiveBytes:
+                return "archive";
+        }
+        return "unknown";
+    }
+
+    [[nodiscard]] inline bool validate_requested_artifacts(std::set<ArtifactKind> const& requested, BackendArtifact& artifact)
+    {
+        if (!artifact.diagnostics.empty())
+            return false;
+
+        auto present = [&](ArtifactKind kind) {
+            switch (kind)
+            {
+                case ArtifactKind::LlvmIrText:
+                    return artifact.llvm_ir_text.has_value();
+                case ArtifactKind::MirText:
+                    return artifact.mir_text.has_value();
+                case ArtifactKind::AsmText:
+                    return artifact.asm_text.has_value();
+                case ArtifactKind::ObjectBytes:
+                    return artifact.object_bytes.has_value();
+                case ArtifactKind::ExecutableBytes:
+                    return artifact.executable_bytes.has_value();
+                case ArtifactKind::SharedLibraryBytes:
+                    return artifact.shared_library_bytes.has_value();
+                case ArtifactKind::ArchiveBytes:
+                    return artifact.archive_bytes.has_value();
+            }
+            return false;
+        };
+
+        for (auto kind : requested)
+            if (!present(kind))
+                artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("backend did not produce requested {} artifact", artifact_kind_name(kind))});
+
+        return artifact.diagnostics.empty();
+    }
+
     class Backend
     {
     public:

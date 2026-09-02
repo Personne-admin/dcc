@@ -1575,6 +1575,7 @@ auto main(int argc, char** argv) -> int
 
                 auto backend = dcc::backend::make_llvm_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
+                std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);
 
                 if (!artifact.diagnostics.empty())
                 {
@@ -1633,6 +1634,7 @@ auto main(int argc, char** argv) -> int
 
                 auto backend = dcc::backend::make_em64t_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
+                std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);
 
                 if (!artifact.diagnostics.empty())
                 {
