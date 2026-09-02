@@ -1,0 +1,38 @@
+=== FILE: sink.dc ===
+module sink;
+
+public struct Writer {}
+public void write(Writer* self, []const char data) {}
+
+=== FILE: formatter.dc ===
+module formatter;
+
+import sink;
+
+using Writer(W) = compiles(W* out, []const char data) {
+    out.write(data);
+};
+
+public using WriterType = sink::Writer;
+
+public void format(W)(W* out) if Writer(W) {
+    out.write("hello");
+}
+
+=== FILE: log.dc ===
+module log;
+
+public void write() {}
+
+=== FILE: entry.dc ===
+module entry;
+
+import formatter;
+import log;
+
+void test() {
+    formatter::WriterType out = {};
+    formatter::format(&out);
+}
+
+=== ENTRY: entry.dc ===

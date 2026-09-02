@@ -1,0 +1,22 @@
+=== FILE: sink.dc ===
+module sink;
+
+public struct A {}
+public struct B {}
+
+public void write(A* self, []const char data) {}
+public void write(B* self, []const char data) {}
+
+=== FILE: main.dc ===
+module main;
+
+import sink;
+
+void test() {
+    sink::A a = {};
+    sink::B b = {};
+    a.write("a");
+    b.write("b");
+}
+
+=== ENTRY: main.dc ===

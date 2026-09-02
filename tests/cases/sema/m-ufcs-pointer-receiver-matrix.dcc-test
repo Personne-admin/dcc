@@ -1,0 +1,13 @@
+=== FILE: local.dc ===
+module local;
+
+struct Writer {}
+
+void write(Writer* self, []const char data) {}
+
+void test() {
+    Writer w = {};
+    w.write("hello");
+}
+
+=== ENTRY: local.dc ===
