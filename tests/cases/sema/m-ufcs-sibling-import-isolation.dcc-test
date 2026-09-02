@@ -1,0 +1,30 @@
+=== FILE: debug/sink.dc ===
+module debug::sink;
+
+public struct Writer {}
+public void flush(Writer* self) {}
+
+=== FILE: debug/log.dc ===
+module debug::log;
+
+public void flush() {}
+
+=== FILE: debug/panic.dc ===
+module debug::panic;
+
+import debug::sink;
+
+public void test() {
+    sink::Writer w = {};
+    w.flush();
+}
+
+=== FILE: entry.dc ===
+module entry;
+
+import debug::log;
+import debug::panic;
+
+void run() { debug::panic::test(); }
+
+=== ENTRY: entry.dc ===

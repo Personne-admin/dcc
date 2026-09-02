@@ -12385,7 +12385,7 @@ export namespace dcc::sema
             if (mod.own_scope)
                 collect_unique(mod.own_scope, all_syms);
 
-            if (m_specialization_defining_module)
+            if (m_specialization_defining_module && m_specialization_defining_module != &mod)
             {
                 if (m_specialization_defining_module->ufcs_scope)
                     collect_unique(m_specialization_defining_module->ufcs_scope, all_syms);
@@ -12394,7 +12394,8 @@ export namespace dcc::sema
             }
 
             collect_unique(&scope, all_syms);
-            for (auto const& imp : mod.imports)
+            auto const& import_visibility_mod = m_specialization_defining_module ? *m_specialization_defining_module : mod;
+            for (auto const& imp : import_visibility_mod.imports)
             {
                 if (imp.target && imp.target->export_scope)
                     collect_unique(imp.target->export_scope, all_syms);

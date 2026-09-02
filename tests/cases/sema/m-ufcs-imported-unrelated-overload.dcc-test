@@ -1,0 +1,27 @@
+=== FILE: sink.dc ===
+module sink;
+
+public struct Writer {}
+
+public void write(Writer* self, []const char data) {}
+public void flush(Writer* self) {}
+
+=== FILE: unrelated.dc ===
+module unrelated;
+
+public void write() {}
+public void flush() {}
+
+=== FILE: main.dc ===
+module main;
+
+import sink;
+import unrelated;
+
+void test() {
+    sink::Writer w = {};
+    w.write("hello");
+    w.flush();
+}
+
+=== ENTRY: main.dc ===

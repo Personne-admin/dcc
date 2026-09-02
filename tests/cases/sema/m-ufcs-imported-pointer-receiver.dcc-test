@@ -1,0 +1,22 @@
+=== FILE: sink.dc ===
+module sink;
+
+public struct Writer {}
+
+public void write(Writer* self, []const char data) {}
+
+=== FILE: main.dc ===
+module main;
+
+import sink;
+
+void test_value() {
+    sink::Writer w = {};
+    w.write("hello");
+}
+
+void test_pointer(sink::Writer* w) {
+    w.write("hello");
+}
+
+=== ENTRY: main.dc ===
