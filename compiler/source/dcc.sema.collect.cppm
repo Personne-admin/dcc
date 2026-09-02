@@ -40,16 +40,6 @@ export namespace dcc::sema
 
         std::optional<comptime::Value> eval_condition(ast::Expr const* e) { return eval(e); }
 
-        std::optional<comptime::Value> eval_exported(std::string_view name, sm::SourceRange range)
-        {
-            if (auto vit = m_vars.find(name); vit != m_vars.end() && vit->second->is_public)
-                return eval_var(vit->second, name, range);
-            if (auto ait = m_value_aliases.find(name); ait != m_value_aliases.end() && ait->second->is_public)
-                return eval_alias(ait->second, name, range);
-            m_diag.error(range, "module `{}` has no public compile-time value `{}`", m_mod ? m_mod->canonical_path.str() : "<unknown>", name);
-            return std::nullopt;
-        }
-
     private:
         types::TypeContext& m_types;
         diag::DiagnosticEngine& m_diag;
@@ -62,6 +52,22 @@ export namespace dcc::sema
         std::unordered_set<ast::EnumDecl const*> m_enum_in_progress;
         std::unordered_map<std::string_view, comptime::Value> m_cache;
         std::unordered_set<std::string_view> m_in_progress;
+
+        void register_module_decls()
+        {
+            if (!m_mod || !m_mod->tu)
+                return;
+
+            for (auto* d : m_mod->tu->decls)
+            {
+                if (auto* v = ast::node_cast<ast::VarDecl>(d))
+                    register_var(v);
+                else if (auto* u = ast::node_cast<ast::UsingDecl>(d))
+                    register_value_alias(u);
+                else if (auto* e = ast::node_cast<ast::EnumDecl>(d))
+                    register_enum(e);
+            }
+        }
 
         static bool is_const_var(ast::VarDecl const* v)
         {
@@ -357,47 +363,21 @@ export namespace dcc::sema
             }
         }
 
-        std::optional<comptime::Value> eval_path(ast::PathExpr const* pe)
+        [[nodiscard]] static bool path_starts_with(std::span<ast::PathSegment const> path, ModulePath const& prefix)
         {
-            if (pe->path.segments.size() != 2)
-            {
-                m_diag.error(pe->range, "unsupported path in `static if` condition");
-                return std::nullopt;
-            }
+            auto prefix_segments = prefix.segments();
+            if (prefix_segments.empty() || prefix_segments.size() > path.size())
+                return false;
 
-            auto enum_name = pe->path.segments[0].name;
-            auto variant_name = pe->path.segments[1].name;
+            for (std::size_t i = 0; i < prefix_segments.size(); ++i)
+                if (path[i].name != prefix_segments[i])
+                    return false;
+            return true;
+        }
 
-            if (m_mod)
-            {
-                for (auto const& binding : m_mod->imports)
-                {
-                    auto segments = binding.target->canonical_path.segments();
-                    if (segments.empty() || segments.back() != enum_name || !binding.target->tu)
-                        continue;
-
-                    ModuleConstEvaluator imported{m_types, m_diag, binding.target};
-                    for (auto* d : binding.target->tu->decls)
-                    {
-                        if (auto* v = ast::node_cast<ast::VarDecl>(d))
-                            imported.register_var(v);
-                        else if (auto* u = ast::node_cast<ast::UsingDecl>(d))
-                            imported.register_value_alias(u);
-                        else if (auto* e = ast::node_cast<ast::EnumDecl>(d))
-                            imported.register_enum(e);
-                    }
-                    return imported.eval_exported(variant_name, pe->range);
-                }
-            }
-
-            auto eit = m_enums.find(enum_name);
-            if (eit == m_enums.end())
-            {
-                m_diag.error(pe->range, "unknown identifier `{}` in `static if` condition", enum_name);
-                return std::nullopt;
-            }
-
-            auto const* e = eit->second;
+        std::optional<comptime::Value> eval_enum_variant(ast::EnumDecl const* e, std::string_view enum_name, std::string_view variant_name,
+                                                         sm::SourceRange range)
+        {
             for (std::size_t i = 0; i < e->variants.size(); ++i)
             {
                 if (e->variants[i].name != variant_name)
@@ -406,23 +386,82 @@ export namespace dcc::sema
                 auto disc = variant_discriminant(e, i);
                 if (!disc)
                 {
-                    m_diag.error(pe->range, "cannot evaluate enum variant `{}::{}` in `static if` condition", enum_name, variant_name);
+                    m_diag.error(range, "cannot evaluate enum variant `{}::{}` in `static if` condition", enum_name, variant_name);
                     return std::nullopt;
                 }
 
                 auto backing = enum_backing_type(e);
                 if (!backing)
                 {
-                    m_diag.error(pe->range, "cannot determine backing type of enum `{}` in `static if` condition", enum_name);
+                    m_diag.error(range, "cannot determine backing type of enum `{}` in `static if` condition", enum_name);
                     return std::nullopt;
                 }
 
                 return comptime::Value::make_int(*disc, backing);
             }
 
-            m_diag.error(pe->range, "unknown enum variant `{}::{}`", enum_name, variant_name);
+            m_diag.error(range, "unknown enum variant `{}::{}`", enum_name, variant_name);
             return std::nullopt;
         }
+
+        std::optional<comptime::Value> eval_path_segments(std::span<ast::PathSegment const> segments, sm::SourceRange range, bool exported_only)
+        {
+            if (m_mod)
+            {
+                ModuleInfo::ImportBinding const* best = nullptr;
+                for (auto const& binding : m_mod->imports)
+                {
+                    if (!binding.target || !binding.target->tu || !path_starts_with(segments, binding.alias_prefix))
+                        continue;
+
+                    if (!best || binding.alias_prefix.segments().size() > best->alias_prefix.segments().size())
+                        best = &binding;
+                }
+
+                if (best)
+                {
+                    auto prefix_size = best->alias_prefix.segments().size();
+                    auto remainder = segments.subspan(prefix_size);
+                    if (remainder.empty())
+                    {
+                        m_diag.error(range, "module path does not name a compile-time value");
+                        return std::nullopt;
+                    }
+
+                    ModuleConstEvaluator imported{m_types, m_diag, best->target};
+                    imported.register_module_decls();
+                    return imported.eval_path_segments(remainder, range, true);
+                }
+            }
+
+            if (segments.size() == 1)
+            {
+                auto name = segments.front().name;
+                if (auto vit = m_vars.find(name); vit != m_vars.end() && (!exported_only || vit->second->is_public))
+                    return eval_var(vit->second, name, range);
+                if (auto ait = m_value_aliases.find(name); ait != m_value_aliases.end() && (!exported_only || ait->second->is_public))
+                    return eval_alias(ait->second, name, range);
+
+                if (exported_only)
+                    m_diag.error(range, "module `{}` has no public compile-time value `{}`", m_mod ? m_mod->canonical_path.str() : "<unknown>", name);
+                else
+                    m_diag.error(range, "unknown identifier `{}` in `static if` condition", name);
+                return std::nullopt;
+            }
+
+            if (segments.size() == 2)
+            {
+                auto enum_name = segments[0].name;
+                auto variant_name = segments[1].name;
+                if (auto eit = m_enums.find(enum_name); eit != m_enums.end() && (!exported_only || eit->second->is_public))
+                    return eval_enum_variant(eit->second, enum_name, variant_name, range);
+            }
+
+            m_diag.error(range, "unknown qualified path in `static if` condition");
+            return std::nullopt;
+        }
+
+        std::optional<comptime::Value> eval_path(ast::PathExpr const* pe) { return eval_path_segments(pe->path.segments, pe->range, false); }
 
         std::optional<comptime::Value> eval(ast::Expr const* e)
         {

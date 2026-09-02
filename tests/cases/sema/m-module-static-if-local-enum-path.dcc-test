@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+enum Mode : u8 { A, B }
+using Mode MODE = Mode::A;
+
+static if MODE == Mode::A {
+    public i32 selected() { return 1; }
+}
+
+void test() { selected(); }
+
+=== ENTRY: main.dc ===

@@ -1,0 +1,19 @@
+=== FILE: config.dc ===
+module config;
+
+enum PrivateMode : u8 { A, B }
+using PrivateMode PRIVATE_MODE = PrivateMode::A;
+
+=== FILE: main.dc ===
+module main;
+
+import config;
+
+static if config::PRIVATE_MODE == config::PrivateMode::A {
+    public i32 selected() { return 1; }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: module `config` has no public compile-time value `PRIVATE_MODE`
+
+=== ENTRY: main.dc ===
