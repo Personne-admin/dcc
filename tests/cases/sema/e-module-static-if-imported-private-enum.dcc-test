@@ -1,0 +1,18 @@
+=== FILE: config.dc ===
+module config;
+
+enum PrivateMode : u8 { A, B }
+
+=== FILE: main.dc ===
+module main;
+
+import config;
+
+static if config::PrivateMode::A == config::PrivateMode::A {
+    public i32 selected() { return 1; }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: unknown qualified path in `static if` condition
+
+=== ENTRY: main.dc ===

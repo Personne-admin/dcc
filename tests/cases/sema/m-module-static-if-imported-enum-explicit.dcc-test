@@ -1,0 +1,21 @@
+=== FILE: config.dc ===
+module config;
+
+public enum Port : u8 {
+    COM1 = 10,
+    COM2 = 20,
+}
+public using Port SERIAL_PORT = Port::COM1;
+
+=== FILE: main.dc ===
+module main;
+
+import config;
+
+static if config::SERIAL_PORT == config::Port::COM1 {
+    public i32 selected() { return 1; }
+}
+
+void test() { selected(); }
+
+=== ENTRY: main.dc ===

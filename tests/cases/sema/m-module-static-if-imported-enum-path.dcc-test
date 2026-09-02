@@ -1,0 +1,18 @@
+=== FILE: config.dc ===
+module config;
+
+public enum Mode : u8 { A, B }
+public using Mode MODE = Mode::A;
+
+=== FILE: main.dc ===
+module main;
+
+import config;
+
+static if config::MODE == config::Mode::A {
+    public i32 selected() { return 1; }
+}
+
+void test() { selected(); }
+
+=== ENTRY: main.dc ===
