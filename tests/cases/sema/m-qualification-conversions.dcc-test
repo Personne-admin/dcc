@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+void take_u8([]const u8 x) {}
+void take_chars([]const char x) {}
+void take_ptr(const u8* x) {}
+
+void test([]u8 bytes, []char chars, u8* ptr) {
+    []const u8 const_bytes = bytes;
+    []const char const_chars = chars;
+    const u8* const_ptr = ptr;
+    take_u8(bytes);
+    take_chars(chars);
+    take_ptr(ptr);
+}
+
+=== ENTRY: main.dc ===

@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+void consume([]const char data) {}
+
+void test() {
+    char[32] buffer;
+    consume(buffer[3..20]);
+}
+
+=== ENTRY: main.dc ===

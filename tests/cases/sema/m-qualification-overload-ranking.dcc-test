@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+i32 choose([]u8 x) { return 1; }
+i64 choose([]const u8 x) { return 2; }
+
+i32 only_const([]const u8 x) { return 1; }
+
+i32 exact_wins([]u8 x) {
+    return choose(x);
+}
+
+i32 const_is_usable([]u8 x) {
+    return only_const(x);
+}
+
+=== ENTRY: main.dc ===

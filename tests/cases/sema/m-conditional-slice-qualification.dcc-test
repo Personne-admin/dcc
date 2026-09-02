@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+void test(bool pick_mutable, []u8 mutable_data, []const u8 const_data) {
+    []const u8 selected = if pick_mutable {
+        mutable_data
+    } else {
+        const_data
+    };
+}
+
+=== ENTRY: main.dc ===

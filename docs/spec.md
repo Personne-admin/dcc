@@ -197,6 +197,12 @@ volatile u8*  // pointer to volatile u8
 i32* const    // const pointer to mutable i32
 ```
 
+Const qualification may be added implicitly to a pointer's pointee or a
+slice's element type. Thus `T*` converts to `const T*`, and `[]T` converts to
+`[]const T`, when `T` is otherwise identical. Removing `const` is never an
+implicit conversion. An exact unqualified match is preferred over a conversion
+that adds `const` during overload resolution.
+
 ---
 
 ## 5. Arrays, Slices & Flexible Array Members

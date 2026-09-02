@@ -1879,6 +1879,7 @@ export namespace dcc::sema
             EnumContextualExact = 23,
             LiteralContextualExact = 24,
             TemplateExact = 25,
+            QualificationConversion = 26,
         };
 
         using UfcsReceiverMatch = ast::UfcsReceiverAdjust;
@@ -4745,6 +4746,22 @@ export namespace dcc::sema
             if (actual && param && actual->kind == types::TypeKind::Array && param->kind == types::TypeKind::Slice)
                 return CallRank::ArrayToSliceExact;
 
+            if (actual && param && actual->kind == param->kind)
+            {
+                if (auto const* actual_ptr = types::type_cast<types::PointerType>(actual))
+                {
+                    auto const* param_ptr = types::type_cast<types::PointerType>(param);
+                    if (param_ptr && actual_ptr->pointee == param_ptr->pointee && actual_ptr->pointee_quals != param_ptr->pointee_quals)
+                        return CallRank::QualificationConversion;
+                }
+                if (auto const* actual_slice = types::type_cast<types::SliceType>(actual))
+                {
+                    auto const* param_slice = types::type_cast<types::SliceType>(param);
+                    if (param_slice && actual_slice->element == param_slice->element && actual_slice->element_quals != param_slice->element_quals)
+                        return CallRank::QualificationConversion;
+                }
+            }
+
             return CallRank::ConcreteExact;
         }
 
@@ -6316,11 +6333,8 @@ export namespace dcc::sema
             return nullptr;
         }
 
-        [[nodiscard]] static bool pointer_quals_assignable(types::Qual got_quals, types::Qual expected_quals, types::TypePtr pointee) noexcept
+        [[nodiscard]] static bool qualification_conversion_allowed(types::Qual got_quals, types::Qual expected_quals) noexcept
         {
-            if (pointee && pointee->kind == types::TypeKind::Pointer)
-                return false;
-
             auto gq = std::to_underlying(got_quals);
             auto eq = std::to_underlying(expected_quals);
             if ((gq & eq) != gq)
@@ -6367,14 +6381,15 @@ export namespace dcc::sema
                 auto const* ep = static_cast<types::PointerType const*>(expected);
                 auto const* gp = static_cast<types::PointerType const*>(got);
                 return ep->pointee == gp->pointee &&
-                       (ep->pointee_quals == gp->pointee_quals || pointer_quals_assignable(gp->pointee_quals, ep->pointee_quals, ep->pointee));
+                       (ep->pointee_quals == gp->pointee_quals || qualification_conversion_allowed(gp->pointee_quals, ep->pointee_quals));
             }
 
             if (expected->kind == types::TypeKind::Slice && got->kind == types::TypeKind::Slice)
             {
                 auto const* es = static_cast<types::SliceType const*>(expected);
                 auto const* gs = static_cast<types::SliceType const*>(got);
-                return es->element == gs->element && es->element_quals == gs->element_quals;
+                return es->element == gs->element &&
+                       (es->element_quals == gs->element_quals || qualification_conversion_allowed(gs->element_quals, es->element_quals));
             }
 
             if (expected->kind == types::TypeKind::Slice && got->kind == types::TypeKind::Array)
@@ -6425,11 +6440,15 @@ export namespace dcc::sema
                 auto param = bindings.substitute(call_param_at(params, i));
                 auto const* expected_ptr = types::type_cast<types::PointerType>(param);
                 auto const* actual_ptr = types::type_cast<types::PointerType>(actuals[i]);
-                if (!expected_ptr || !actual_ptr || expected_ptr->pointee_quals == actual_ptr->pointee_quals)
-                    continue;
-
-                if (pointer_quals_assignable(actual_ptr->pointee_quals, expected_ptr->pointee_quals, actual_ptr->pointee))
+                if (expected_ptr && actual_ptr && expected_ptr->pointee_quals != actual_ptr->pointee_quals &&
+                    qualification_conversion_allowed(actual_ptr->pointee_quals, expected_ptr->pointee_quals))
                     deduction_actuals[i] = m_types.pointer_to(actual_ptr->pointee, expected_ptr->pointee_quals);
+
+                auto const* expected_slice = types::type_cast<types::SliceType>(param);
+                auto const* actual_slice = types::type_cast<types::SliceType>(actuals[i]);
+                if (expected_slice && actual_slice && expected_slice->element_quals != actual_slice->element_quals &&
+                    qualification_conversion_allowed(actual_slice->element_quals, expected_slice->element_quals))
+                    deduction_actuals[i] = m_types.slice_t(actual_slice->element, expected_slice->element_quals);
             }
 
             auto result = bindings.deduce_function(params, deduction_actuals);
@@ -6439,8 +6458,10 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < actuals.size(); ++i)
             {
                 auto param = bindings.substitute(call_param_at(params, i));
-                if (types::type_cast<types::PointerType>(param) && types::type_cast<types::PointerType>(actuals[i]) && !can_assign_return(param, actuals[i]))
-                    return {infer::DeductionError::Conflict, "pointer argument qualifier mismatch"};
+                bool pointer_pair = types::type_cast<types::PointerType>(param) && types::type_cast<types::PointerType>(actuals[i]);
+                bool slice_pair = types::type_cast<types::SliceType>(param) && types::type_cast<types::SliceType>(actuals[i]);
+                if ((pointer_pair || slice_pair) && !can_assign_return(param, actuals[i]))
+                    return {infer::DeductionError::Conflict, pointer_pair ? "pointer argument qualifier mismatch" : "slice argument qualifier mismatch"};
             }
 
             return {};
@@ -10792,7 +10813,24 @@ export namespace dcc::sema
             auto then_res = analyze_block(mod, fn, *then_scope, i.then_block, loop_depth, next_off, expected_type, then_consts);
             detail::ExprResult else_res{};
             if (i.else_branch)
-                else_res = analyze_expr(mod, fn, scope, *i.else_branch, loop_depth, next_off, expected_type, const_env);
+            {
+                if (auto* else_block = ast::node_cast<ast::BlockExpr>(i.else_branch))
+                {
+                    auto* else_scope = make_scope(ScopeKind::Block, &scope);
+                    auto* else_consts = make_const_env(const_env);
+                    auto else_stmt = analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts);
+                    else_res.type = else_block->body.tail ? get_resolved_type(else_block->body.tail->sema) : m_types.m_voidt();
+                    else_res.is_diverging = !else_stmt.falls_through;
+                    else_res.constant = else_block->body.tail ? else_block->body.tail->sema.const_value : nullptr;
+                    else_res.is_constant = else_res.constant != nullptr;
+                    set_resolved_type(else_block->sema, else_res.type);
+                    else_block->sema.const_value = else_res.constant;
+                    else_block->sema.is_constant = else_res.is_constant;
+                    else_block->sema.is_diverging = else_res.is_diverging;
+                }
+                else
+                    else_res = analyze_expr(mod, fn, scope, *i.else_branch, loop_depth, next_off, expected_type, const_env);
+            }
 
             detail::ExprResult out{};
             auto const* then_const = i.then_block.tail ? i.then_block.tail->sema.const_value : nullptr;
@@ -10827,7 +10865,23 @@ export namespace dcc::sema
             auto then_type = i.then_block.tail ? get_resolved_type(i.then_block.tail->sema) : m_types.m_voidt();
             if (i.else_branch)
             {
-                out.type = then_type ? then_type : else_res.type;
+                if (then_res.diverges && !else_res.is_diverging)
+                    out.type = else_res.type;
+                else if (else_res.is_diverging && !then_res.diverges)
+                    out.type = then_type;
+                else if (then_type == else_res.type)
+                    out.type = then_type;
+                else if (expected_type && can_assign_return(expected_type, then_type) && can_assign_return(expected_type, else_res.type))
+                    out.type = expected_type;
+                else if (can_assign_return(then_type, else_res.type))
+                    out.type = then_type;
+                else if (can_assign_return(else_res.type, then_type))
+                    out.type = else_res.type;
+                else
+                {
+                    out.type = m_types.m_errort();
+                    error(i.range, "conditional expression result type mismatch: `{}` and `{}`", format_type_str(then_type), format_type_str(else_res.type));
+                }
                 out.is_diverging = then_res.diverges && else_res.is_diverging;
                 if (then_const && else_const && constant_equal(*then_const, *else_const))
                 {
