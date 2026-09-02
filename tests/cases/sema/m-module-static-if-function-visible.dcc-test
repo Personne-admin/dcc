@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+using bool ENABLED = true;
+
+static if ENABLED {
+    void helper() {}
+}
+
+void caller() {
+    helper();
+}
+
+=== ENTRY: main.dc ===

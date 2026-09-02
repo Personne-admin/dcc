@@ -250,7 +250,8 @@ export namespace dcc::sema
         }
     };
 
-    void load_transitively(Importer& imp, ModuleInfo& root)
+    void load_transitively(Importer& imp, ModuleInfo& root, std::function<void(ModuleInfo&)> const& prepare_module = {},
+                           std::function<bool(ast::ImportDecl const&)> const& is_prelude_import = {})
     {
         std::vector<ModuleInfo*> stack{&root};
         std::unordered_set<ModuleInfo const*> seen{&root};
@@ -259,6 +260,9 @@ export namespace dcc::sema
         {
             auto* m = stack.back();
             stack.pop_back();
+
+            if (prepare_module)
+                prepare_module(*m);
 
             for (auto* import_decl : m->tu->imports)
             {
@@ -275,6 +279,9 @@ export namespace dcc::sema
 
                 if (target == m)
                 {
+                    if (is_prelude_import && is_prelude_import(*imp_node))
+                        continue;
+
                     m->has_errors = true;
                     imp.diag().error(imp_node->module_path.range, "module cannot import itself");
                     continue;

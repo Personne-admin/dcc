@@ -1,0 +1,19 @@
+=== INJECT: import support; ===
+=== FILE: support.dc ===
+module support;
+
+public i32 value() { return 42; }
+
+=== FILE: consumer.dc ===
+module consumer;
+
+public i32 consume() { return support::value(); }
+
+=== FILE: main.dc ===
+module main;
+
+import consumer;
+
+void run() { consumer::consume(); }
+
+=== ENTRY: main.dc ===

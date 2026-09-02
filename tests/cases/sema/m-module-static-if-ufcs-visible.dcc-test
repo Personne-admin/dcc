@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module sink;
+
+using bool ENABLED = true;
+
+public struct writer {}
+
+static if ENABLED {
+    public void write(writer* out, [] const char data) {}
+}
+
+void test() {
+    writer out = {};
+    out.write("hello");
+}
+
+=== ENTRY: main.dc ===

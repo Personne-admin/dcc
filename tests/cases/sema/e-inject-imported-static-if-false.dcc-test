@@ -1,0 +1,28 @@
+=== INJECT: using bool INJECTED_ENABLED = false; ===
+=== FILE: config.dc ===
+module config;
+
+public using bool ENABLED = INJECTED_ENABLED;
+
+=== FILE: feature.dc ===
+module feature;
+
+import config;
+
+static if config::ENABLED {
+    public void feature() {}
+}
+
+=== FILE: main.dc ===
+module main;
+
+import feature;
+
+void run() {
+    feature::feature();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: unknown path `feature::feature`
+
+=== ENTRY: main.dc ===
