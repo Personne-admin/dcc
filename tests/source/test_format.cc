@@ -144,6 +144,34 @@ namespace
 
 SECTION("format: regressions");
 
+TEST_CASE("restricted integer type braces stay inline and tight")
+{
+    check_format("u8{1,2,4..8} value;", "u8{1, 2, 4..8} value;\n");
+
+    check_format("i32 test(u8{1,2,3..10} x) {\n"
+                 "    return x;\n"
+                 "}",
+                 "i32 test(u8{1, 2, 3..10} x) {\n"
+                 "    return x;\n"
+                 "}\n");
+
+    check_format("i8{-1, 0, 1} value;\n"
+                 "u8{32..50, 51} other;\n",
+                 "i8{-1, 0, 1} value;\n"
+                 "u8{32..50, 51} other;\n");
+}
+
+TEST_CASE("restricted integer types are not expanded or kept multiline")
+{
+    check_format("u8{1, 2, 4..8} value;", "u8{1, 2, 4..8} value;\n");
+    check_format("u8 {\n"
+                 "    1,\n"
+                 "    2,\n"
+                 "    4 .. 8\n"
+                 "} value;",
+                 "u8{1, 2, 4..8} value;\n");
+}
+
 TEST_CASE("for-header clauses stay on one line")
 {
     check_format("for ;; {}", "for ;; {}\n");
