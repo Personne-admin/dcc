@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+using bool ENABLED = false;
+
+static if ENABLED {
+    void helper() {}
+}
+
+void caller() {
+    helper();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:10: unknown name `helper`
+
+=== ENTRY: main.dc ===

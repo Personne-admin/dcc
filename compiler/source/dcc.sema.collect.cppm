@@ -15,7 +15,10 @@ export namespace dcc::sema
     class ModuleConstEvaluator
     {
     public:
-        ModuleConstEvaluator(types::TypeContext& types, diag::DiagnosticEngine& diag) : m_types{types}, m_diag{diag} {}
+        ModuleConstEvaluator(types::TypeContext& types, diag::DiagnosticEngine& diag, ModuleInfo const* mod = nullptr)
+            : m_types{types}, m_diag{diag}, m_mod{mod}
+        {
+        }
 
         void register_var(ast::VarDecl const* v)
         {
@@ -37,9 +40,20 @@ export namespace dcc::sema
 
         std::optional<comptime::Value> eval_condition(ast::Expr const* e) { return eval(e); }
 
+        std::optional<comptime::Value> eval_exported(std::string_view name, sm::SourceRange range)
+        {
+            if (auto vit = m_vars.find(name); vit != m_vars.end() && vit->second->is_public)
+                return eval_var(vit->second, name, range);
+            if (auto ait = m_value_aliases.find(name); ait != m_value_aliases.end() && ait->second->is_public)
+                return eval_alias(ait->second, name, range);
+            m_diag.error(range, "module `{}` has no public compile-time value `{}`", m_mod ? m_mod->canonical_path.str() : "<unknown>", name);
+            return std::nullopt;
+        }
+
     private:
         types::TypeContext& m_types;
         diag::DiagnosticEngine& m_diag;
+        ModuleInfo const* m_mod;
         std::unordered_map<std::string_view, ast::VarDecl const*> m_vars;
         std::unordered_map<std::string_view, ast::UsingDecl const*> m_value_aliases;
         std::unordered_map<std::string_view, ast::EnumDecl const*> m_enums;
@@ -113,6 +127,41 @@ export namespace dcc::sema
             }
         }
 
+        std::optional<comptime::Value> eval_var(ast::VarDecl const* v, std::string_view name, sm::SourceRange range)
+        {
+            if (!is_const_var(v))
+            {
+                m_diag.error(range, "`{}` is not a compile-time constant", name);
+                return std::nullopt;
+            }
+            if (!v->init)
+            {
+                m_diag.error(range, "`{}` has no initializer to evaluate", name);
+                return std::nullopt;
+            }
+            m_in_progress.insert(name);
+            auto val = eval(v->init);
+            m_in_progress.erase(name);
+            if (val)
+                m_cache.insert_or_assign(name, *val);
+            return val;
+        }
+
+        std::optional<comptime::Value> eval_alias(ast::UsingDecl const* u, std::string_view name, sm::SourceRange range)
+        {
+            if (!u->target_expr)
+            {
+                m_diag.error(range, "`{}` has no initializer to evaluate", name);
+                return std::nullopt;
+            }
+            m_in_progress.insert(name);
+            auto val = eval(u->target_expr);
+            m_in_progress.erase(name);
+            if (val)
+                m_cache.insert_or_assign(name, *val);
+            return val;
+        }
+
         std::optional<comptime::Value> eval_ident(ast::IdentExpr const* id)
         {
             if (auto it = m_cache.find(id->name); it != m_cache.end())
@@ -125,43 +174,10 @@ export namespace dcc::sema
             }
 
             if (auto vit = m_vars.find(id->name); vit != m_vars.end())
-            {
-                auto const* v = vit->second;
-                if (!is_const_var(v))
-                {
-                    m_diag.error(id->range, "`{}` is not a compile-time constant", id->name);
-                    return std::nullopt;
-                }
-                if (!v->init)
-                {
-                    m_diag.error(id->range, "`{}` has no initializer to evaluate", id->name);
-                    return std::nullopt;
-                }
-
-                m_in_progress.insert(id->name);
-                auto val = eval(v->init);
-                m_in_progress.erase(id->name);
-                if (val)
-                    m_cache.insert_or_assign(id->name, *val);
-                return val;
-            }
+                return eval_var(vit->second, id->name, id->range);
 
             if (auto ait = m_value_aliases.find(id->name); ait != m_value_aliases.end())
-            {
-                auto const* u = ait->second;
-                if (!u->target_expr)
-                {
-                    m_diag.error(id->range, "`{}` has no initializer to evaluate", id->name);
-                    return std::nullopt;
-                }
-
-                m_in_progress.insert(id->name);
-                auto val = eval(u->target_expr);
-                m_in_progress.erase(id->name);
-                if (val)
-                    m_cache.insert_or_assign(id->name, *val);
-                return val;
-            }
+                return eval_alias(ait->second, id->name, id->range);
 
             m_diag.error(id->range, "unknown identifier `{}` in `static if` condition", id->name);
             return std::nullopt;
@@ -280,9 +296,7 @@ export namespace dcc::sema
                     if (*d < 0)
                     {
                         has_negative = true;
-                        auto mag = (*d == std::numeric_limits<std::int64_t>::min())
-                                       ? (std::uint64_t{1} << 63)
-                                       : static_cast<std::uint64_t>(-*d);
+                        auto mag = (*d == std::numeric_limits<std::int64_t>::min()) ? (std::uint64_t{1} << 63) : static_cast<std::uint64_t>(-*d);
                         max_neg_mag = std::max(max_neg_mag, mag);
                     }
                     else
@@ -353,6 +367,28 @@ export namespace dcc::sema
 
             auto enum_name = pe->path.segments[0].name;
             auto variant_name = pe->path.segments[1].name;
+
+            if (m_mod)
+            {
+                for (auto const& binding : m_mod->imports)
+                {
+                    auto segments = binding.target->canonical_path.segments();
+                    if (segments.empty() || segments.back() != enum_name || !binding.target->tu)
+                        continue;
+
+                    ModuleConstEvaluator imported{m_types, m_diag, binding.target};
+                    for (auto* d : binding.target->tu->decls)
+                    {
+                        if (auto* v = ast::node_cast<ast::VarDecl>(d))
+                            imported.register_var(v);
+                        else if (auto* u = ast::node_cast<ast::UsingDecl>(d))
+                            imported.register_value_alias(u);
+                        else if (auto* e = ast::node_cast<ast::EnumDecl>(d))
+                            imported.register_enum(e);
+                    }
+                    return imported.eval_exported(variant_name, pe->range);
+                }
+            }
 
             auto eit = m_enums.find(enum_name);
             if (eit == m_enums.end())
@@ -489,7 +525,7 @@ export namespace dcc::sema
     {
     public:
         DeclCollector(ModuleInfo& mod, diag::DiagnosticEngine& diag, types::TypeContext& types, std::pmr::polymorphic_allocator<> a)
-            : m_mod{mod}, m_diag{diag}, m_alloc{a}, m_eval{types, diag}
+            : m_mod{mod}, m_diag{diag}, m_alloc{a}, m_eval{types, diag, &mod}
         {
         }
 
@@ -789,13 +825,21 @@ export namespace dcc::sema
     void collect_all(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, types::TypeContext& types,
                      std::pmr::polymorphic_allocator<> alloc)
     {
-        for (auto const& m : modules)
-        {
-            if (!m->tu || m->state >= ModuleState::Collected)
-                continue;
+        std::unordered_set<ModuleInfo*> active;
+        std::function<void(ModuleInfo&)> collect = [&](ModuleInfo& m) {
+            if (!m.tu || m.state >= ModuleState::Collected || !active.insert(&m).second)
+                return;
 
-            DeclCollector{*m, diag, types, alloc}.run();
-        }
+            for (auto const& binding : m.imports)
+                if (binding.target)
+                    collect(*const_cast<ModuleInfo*>(binding.target));
+
+            active.erase(&m);
+            DeclCollector{m, diag, types, alloc}.run();
+        };
+
+        for (auto const& m : modules)
+            collect(*m);
     }
 
 } // namespace dcc::sema

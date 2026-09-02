@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module sink;
+
+using bool ENABLED = false;
+
+public struct writer {}
+
+static if ENABLED {
+    public void write(writer* out, [] const char data) {}
+}
+
+void test() {
+    writer out = {};
+    out.write("hello");
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: no visible UFCS function named `write` in scope
+
+=== ENTRY: main.dc ===

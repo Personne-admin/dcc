@@ -1,0 +1,30 @@
+=== INJECT: using bool TRANSITIVE_ENABLED = true; ===
+=== FILE: c.dc ===
+module c;
+
+public using bool ENABLED = TRANSITIVE_ENABLED;
+
+=== FILE: b.dc ===
+module b;
+
+import c;
+
+public using bool ENABLED = c::ENABLED;
+
+=== FILE: a.dc ===
+module a;
+
+import b;
+
+static if b::ENABLED {
+    public void enabled() {}
+}
+
+=== FILE: main.dc ===
+module main;
+
+import a;
+
+void run() { a::enabled(); }
+
+=== ENTRY: main.dc ===

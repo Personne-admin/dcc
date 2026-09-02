@@ -55,9 +55,10 @@ export namespace dcc::sema
             if (!root)
                 return nullptr;
 
-            inject_decls(*root);
-
-            load_transitively(m_importer, *root);
+            prepare_injected_sources();
+            load_transitively(
+                m_importer, *root, [this](ModuleInfo& module) { inject_decls(module); },
+                [this](ast::ImportDecl const& decl) { return m_injected_imports.contains(&decl); });
 
             std::vector<sm::SourceRange> parser_recovery_ranges;
             for (auto const& module : m_graph.all())
@@ -81,30 +82,45 @@ export namespace dcc::sema
         }
 
     private:
-        void inject_decls(ModuleInfo& root)
+        void prepare_injected_sources()
         {
-            if (m_opts.injected_decls.empty() || !root.tu)
+            if (m_injected_sources_prepared)
                 return;
+            m_injected_sources_prepared = true;
 
-            std::vector<ast::Decl*> prepend;
             int idx = 1;
             for (auto const& snippet : m_opts.injected_decls)
             {
                 auto src_name = std::format("<command-line -J #{}>", idx++);
-                auto fid = m_sm.add_synthetic(std::move(src_name), snippet + "\n");
+                m_injected_sources.push_back(m_sm.add_synthetic(std::move(src_name), snippet + "\n"));
+            }
+        }
+
+        void inject_decls(ModuleInfo& module)
+        {
+            if (m_injected_sources.empty() || !module.tu || !m_injected_modules.insert(&module).second)
+                return;
+
+            std::vector<ast::Decl*> prepend;
+            for (auto fid : m_injected_sources)
+            {
                 auto* tu = m_importer.parse_source(fid);
                 if (!tu)
                     continue;
 
                 for (auto* imp : tu->imports)
-                    root.tu->imports.push_back(imp);
+                {
+                    module.tu->imports.push_back(imp);
+                    if (auto const* import_decl = ast::node_cast<ast::ImportDecl>(imp))
+                        m_injected_imports.insert(import_decl);
+                }
                 for (auto* d : tu->decls)
                     prepend.push_back(d);
-                root.tu->parser_recovery_ranges.insert(root.tu->parser_recovery_ranges.end(), tu->parser_recovery_ranges.begin(),
-                                                       tu->parser_recovery_ranges.end());
+                module.tu->parser_recovery_ranges.insert(module.tu->parser_recovery_ranges.end(), tu->parser_recovery_ranges.begin(),
+                                                         tu->parser_recovery_ranges.end());
             }
 
-            root.tu->decls.insert(root.tu->decls.begin(), prepend.begin(), prepend.end());
+            module.tu->decls.insert(module.tu->decls.begin(), prepend.begin(), prepend.end());
         }
 
         sm::SourceManager& m_sm;
@@ -119,6 +135,10 @@ export namespace dcc::sema
         ModuleGraph m_graph;
         Importer m_importer;
         SpecializationRegistry m_spec_registry;
+        std::vector<sm::FileId> m_injected_sources;
+        bool m_injected_sources_prepared{};
+        std::unordered_set<ModuleInfo const*> m_injected_modules;
+        std::unordered_set<ast::ImportDecl const*> m_injected_imports;
     };
 
 } // namespace dcc::sema
