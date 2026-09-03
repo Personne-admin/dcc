@@ -2937,6 +2937,9 @@ export namespace dcc::parser
         {
             for (;;)
             {
+                if (is_block_like_expr(expr) && check(TK::LBracket) && check_at(1, TK::RBracket))
+                    return expr;
+
                 auto start = expr->range.begin;
                 switch (peek().kind)
                 {

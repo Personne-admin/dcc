@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module m;
+
+void do_something();
+
+void test([] const char format) {
+    if true {
+        do_something();
+    }
+
+    [] const char spec = format[0.. 0];
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=do_something
+    Return
+      Primitive void
+  Func name=test
+    Return
+      Primitive void
+    Params
+      Param name=format
+        Slice
+          Qualified const
+            Primitive char
+    Body
+      ExprStmt
+        If
+          Cond
+            BoolLiteral true
+          Then
+            ExprStmt
+              Call
+                Callee
+                  Ident do_something
+      Var name=spec
+        Type
+          Slice
+            Qualified const
+              Primitive char
+        Init
+          Index
+            Object
+              Ident format
+            Subscript
+              Range inclusive=false
+                Start
+                  IntLiteral 0
+                End
+                  IntLiteral 0
