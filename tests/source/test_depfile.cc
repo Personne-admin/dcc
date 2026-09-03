@@ -250,7 +250,12 @@ TEST_CASE("private module state is linkable from caller-emitted specializations"
     TempDir td;
     td.write_file("state.dc", R"(module state;
 
+public struct Box(T) {
+    T value;
+}
+
 u64 counter = 0;
+Box(bool) aggregate_state = { value = false };
 
 void private_helper() {
     counter += 1;
@@ -258,6 +263,9 @@ void private_helper() {
 
 public T use_state(T)(T value) {
     counter += 1;
+    if aggregate_state.value {
+        return value;
+    }
     private_helper();
     return value;
 }
@@ -287,6 +295,8 @@ public i32 second() { return state::use_state(7); }
     REQUIRE(symbols.rc == 0);
     CHECK(symbols.output.find(" B _DC0G1.5.state7.counteri64u") != std::string::npos);
     CHECK(symbols.output.find(" U _DC0G1.5.state7.counteri64u") != std::string::npos);
+    CHECK(symbols.output.find(" B _DC0G1.5.state15.aggregate_stateD1.5.state3.Box1.b") != std::string::npos);
+    CHECK(symbols.output.find(" U _DC0G1.5.state15.aggregate_stateD1.5.state3.Box1.b") != std::string::npos);
 
     auto linked = td.file("linked.so");
     auto link = run_shell("ld.lld --shared --no-undefined -o " + shell_quote(linked) + " " + shell_quote(state_obj) + " " + shell_quote(first_obj) +
@@ -307,11 +317,33 @@ public i32 second() { return state::use_state(7); }
     REQUIRE(coff_symbols.rc == 0);
     CHECK(coff_symbols.output.find(" B _DC0G1.5.state7.counteri64u") != std::string::npos);
     CHECK(coff_symbols.output.find(" U _DC0G1.5.state7.counteri64u") != std::string::npos);
+    CHECK(coff_symbols.output.find(" B _DC0G1.5.state15.aggregate_stateD1.5.state3.Box1.b") != std::string::npos);
+    CHECK(coff_symbols.output.find(" U _DC0G1.5.state15.aggregate_stateD1.5.state3.Box1.b") != std::string::npos);
 
     auto dll = td.file("linked.dll");
     auto coff_link = run_shell("lld-link /dll /noentry /out:" + shell_quote(dll) + " " + shell_quote(state_coff) + " " + shell_quote(first_coff) + " 2>&1");
     CHECK_EQ(coff_link.rc, 0);
     CHECK(file_exists(dll));
+
+    auto state_em64t = td.file("state-em64t.o");
+    auto first_em64t = td.file("first-em64t.o");
+    auto compile_em64t = [&](std::string_view source, std::filesystem::path const& output) {
+        return run_dcc("-fbackend em64t -c -target x86_64-elf -I " + shell_quote(td.path) + " -o " + shell_quote(output) + " " +
+                       shell_quote(td.file(source)));
+    };
+    REQUIRE(compile_em64t("state.dc", state_em64t).rc == 0);
+    REQUIRE(compile_em64t("first.dc", first_em64t).rc == 0);
+
+    auto em64t_symbols = run_shell("llvm-nm " + shell_quote(state_em64t) + " " + shell_quote(first_em64t) + " 2>&1");
+    REQUIRE(em64t_symbols.rc == 0);
+    CHECK(em64t_symbols.output.find(" D _DC0G1.5.state15.aggregate_stateD1.5.state3.Box1.b") != std::string::npos);
+    CHECK(em64t_symbols.output.find(" U _DC0G1.5.state15.aggregate_stateD1.5.state3.Box1.b") != std::string::npos);
+
+    auto em64t_linked = td.file("linked-em64t");
+    auto em64t_link = run_shell("ld.lld --no-undefined -e 0 -o " + shell_quote(em64t_linked) + " " + shell_quote(state_em64t) + " " +
+                                shell_quote(first_em64t) + " 2>&1");
+    CHECK_EQ(em64t_link.rc, 0);
+    CHECK(file_exists(em64t_linked));
 }
 
 TEST_CASE("relative dot-dot object and depfile paths are preserved")
