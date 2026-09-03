@@ -50,15 +50,15 @@ target triple = "x86_64-elf"
 %0 = type { ptr, ptr }
 %1 = type { ptr }
 
-@x = internal global i64 7
-@y = internal global i64 9
-@z = internal global i64 11
-@g1 = internal global <{ ptr }> <{ ptr @x }>, align 8
-@g2 = internal global <{ ptr, ptr }> <{ ptr @x, ptr @y }>, align 8
-@g3 = internal global <{ ptr, ptr }> <{ ptr @z, ptr @y }>, align 8
-@dummy_ro = internal constant i32 0
-@dummy_data = internal global i32 0
-@dummy_bss = internal global i32 0
+@x = global i64 7
+@y = global i64 9
+@z = global i64 11
+@g1 = global <{ ptr }> <{ ptr @x }>, align 8
+@g2 = global <{ ptr, ptr }> <{ ptr @x, ptr @y }>, align 8
+@g3 = global <{ ptr, ptr }> <{ ptr @z, ptr @y }>, align 8
+@dummy_ro = constant i32 0
+@dummy_data = global i32 0
+@dummy_bss = global i32 0
 
 define i32 @dcc_main() {
 entry:

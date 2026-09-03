@@ -1846,7 +1846,7 @@ namespace
         std::string out;
 
         for (auto* g : ir_mod.globals)
-            if (g && g->init)
+            if (g && !g->is_declaration && !g->is_dll_import)
                 defined_syms.insert(std::string{g->name});
 
         std::vector<std::string> externs;
@@ -1865,7 +1865,7 @@ namespace
                 continue;
 
             std::string name{g->name};
-            bool is_declaration = !g->init && (g->linkage == ir::Linkage::External || g->is_dll_import);
+            bool is_declaration = g->is_declaration || g->is_dll_import;
             if (is_declaration && !defined_syms.contains(name))
                 externs.push_back(target.object_format == dcc::target::ObjectFormat::Coff && g->is_dll_import ? "__imp_" + name : name);
         }
@@ -1923,7 +1923,7 @@ namespace
                 continue;
 
             std::string name{g->name};
-            bool is_declaration = !g->init && (g->linkage == ir::Linkage::External || g->is_dll_import);
+            bool is_declaration = g->is_declaration || g->is_dll_import;
             if (is_declaration)
                 if (!defined_syms.contains(name))
                     continue;

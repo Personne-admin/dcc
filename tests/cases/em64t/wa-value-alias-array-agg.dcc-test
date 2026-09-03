@@ -30,9 +30,9 @@ FORBID-RELA: .rodata R_X86_64_64
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@dummy_data = internal global i32 0
-@dummy_bss = internal global i32 0
-@_DC0G1.4.test6.storedA4i64u = internal constant [4 x i64] [i64 10, i64 20, i64 30, i64 40]
+@dummy_data = global i32 0
+@dummy_bss = global i32 0
+@_DC0G1.4.test6.storedA4i64u = constant [4 x i64] [i64 10, i64 20, i64 30, i64 40]
 
 define i64 @get_elem(i64 %idx) {
 entry:

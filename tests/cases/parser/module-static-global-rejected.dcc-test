@@ -1,0 +1,7 @@
+=== FILE: test.dc ===
+module test;
+
+static u64 local_state = 0;
+
+=== EXPECT-ERRORS ===
+test.dc:3: only `static if` is allowed at module scope

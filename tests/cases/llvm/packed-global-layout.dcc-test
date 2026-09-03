@@ -38,7 +38,7 @@ target triple = "x86_64-elf"
 
 %0 = type <{ i8, i8, i8, i8, i8, i8, i8, i8, i8, i32 }>
 
-@g_hdr = internal global %0 zeroinitializer
+@g_hdr = global %0 zeroinitializer
 
 define i32 @dcc_main() {
 entry:

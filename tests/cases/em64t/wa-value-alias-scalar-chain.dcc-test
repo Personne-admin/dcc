@@ -27,9 +27,9 @@ RUN-EXIT: 8
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@dummy_ro = internal constant i32 0
-@dummy_data = internal global i32 0
-@dummy_bss = internal global i32 0
+@dummy_ro = constant i32 0
+@dummy_data = global i32 0
+@dummy_bss = global i32 0
 
 define i32 @dcc_main() {
 entry:

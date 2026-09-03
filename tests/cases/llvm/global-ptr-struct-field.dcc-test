@@ -19,7 +19,7 @@ target triple = "x86_64-elf"
 
 %0 = type { i64, i64 }
 
-@gpp = internal global ptr null
+@gpp = global ptr null
 
 define i64 @read_gpp() {
 entry:

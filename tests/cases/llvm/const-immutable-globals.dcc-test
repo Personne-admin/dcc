@@ -18,9 +18,9 @@ target triple = "x86_64-elf"
 
 %0 = type { i64, i64 }
 
-@_DC0G1.4.test8.c_scalari64u = internal constant i64 7
-@_DC0G1.4.test5.c_arrA2i64u = internal constant [2 x i64] [i64 1, i64 2]
-@_DC0G1.4.test8.c_structD1.4.test4.Pair0. = internal constant %0 { i64 1, i64 2 }
-@_DC0G1.4.test8.m_scalari64u = internal global i64 7
-@_DC0G1.4.test5.m_arrA2i64u = internal global [2 x i64] [i64 1, i64 2]
-@_DC0G1.4.test8.m_structD1.4.test4.Pair0. = internal global %0 { i64 1, i64 2 }
+@_DC0G1.4.test8.c_scalari64u = constant i64 7
+@_DC0G1.4.test5.c_arrA2i64u = constant [2 x i64] [i64 1, i64 2]
+@_DC0G1.4.test8.c_structD1.4.test4.Pair0. = constant %0 { i64 1, i64 2 }
+@_DC0G1.4.test8.m_scalari64u = global i64 7
+@_DC0G1.4.test5.m_arrA2i64u = global [2 x i64] [i64 1, i64 2]
+@_DC0G1.4.test8.m_structD1.4.test4.Pair0. = global %0 { i64 1, i64 2 }

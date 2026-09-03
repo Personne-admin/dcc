@@ -22,7 +22,7 @@ target triple = "x86_64-elf"
 
 %0 = type { i8, [3 x i8], [4 x i8] }
 
-@g = internal global %0 { i8 0, [3 x i8] zeroinitializer, [4 x i8] c"*\00\00\00" }
+@g = global %0 { i8 0, [3 x i8] zeroinitializer, [4 x i8] c"*\00\00\00" }
 
 define i32 @dcc_main() {
 entry:

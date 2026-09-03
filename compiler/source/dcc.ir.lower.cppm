@@ -489,6 +489,7 @@ export namespace dcc::ir::lower
             auto name_sv = std::string_view{m_name_pool.back()};
             auto* ir_global = m_ctx.global(name_sv, ir_type, nullptr, vd->sema.is_immutable);
             ir_global->linkage = Linkage::External;
+            ir_global->is_declaration = true;
             ir_global->is_dll_import = vd->sema.is_dll_import;
             ir_global->is_dll_export = vd->sema.is_dll_export;
             ir_global->alignment = vd->sema.alignment;
@@ -2398,6 +2399,8 @@ export namespace dcc::ir::lower
                 }
 
                 case ast::ExprKind::Block: {
+                    if (expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Struct && expr->sema.const_value)
+                        return materialize_comptime(*expr->sema.const_value, get_sema_resolved_type(expr));
                     return lower_block_expr(static_cast<ast::BlockExpr const*>(expr));
                 }
 
@@ -5504,12 +5507,13 @@ export namespace dcc::ir::lower
 
             set_current_block(rhs_bb);
             auto* rhs_val = lower_expr(bin->rhs);
+            auto* rhs_exit_bb = m_current_block;
             emit_br(merge_bb);
 
             set_current_block(merge_bb);
             auto* phi = emit_phi(ir_ty);
             add_phi_incoming(phi, m_ctx.bool_const(false), entry_bb);
-            add_phi_incoming(phi, rhs_val ? rhs_val : m_ctx.bool_const(false), rhs_bb);
+            add_phi_incoming(phi, rhs_val ? rhs_val : m_ctx.bool_const(false), rhs_exit_bb);
             return phi;
         }
 
@@ -5526,12 +5530,13 @@ export namespace dcc::ir::lower
 
             set_current_block(rhs_bb);
             auto* rhs_val = lower_expr(bin->rhs);
+            auto* rhs_exit_bb = m_current_block;
             emit_br(merge_bb);
 
             set_current_block(merge_bb);
             auto* phi = emit_phi(ir_ty);
             add_phi_incoming(phi, m_ctx.bool_const(true), entry_bb);
-            add_phi_incoming(phi, rhs_val ? rhs_val : m_ctx.bool_const(false), rhs_bb);
+            add_phi_incoming(phi, rhs_val ? rhs_val : m_ctx.bool_const(false), rhs_exit_bb);
             return phi;
         }
 
@@ -5595,19 +5600,16 @@ export namespace dcc::ir::lower
 
                 auto storage = vd->sema.storage;
                 if (storage == ast::StorageClass::Static)
-                {
                     ir_global->linkage = Linkage::Internal;
-                }
                 else if (storage == ast::StorageClass::Extern)
-                {
                     ir_global->linkage = Linkage::External;
-                }
                 else
-                {
-                    ir_global->linkage = vd->is_public ? Linkage::External : Linkage::Internal;
-                }
+                    ir_global->linkage = Linkage::External;
+
                 if (vd->sema.is_dll_export)
                     ir_global->linkage = Linkage::External;
+
+                ir_global->is_declaration = storage == ast::StorageClass::Extern;
 
                 ir_global->is_dll_import = vd->sema.is_dll_import;
                 ir_global->is_dll_export = vd->sema.is_dll_export;

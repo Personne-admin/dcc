@@ -16,4 +16,4 @@ target triple = "x86_64-elf"
 
 %0 = type { i64, i64 }
 
-@origin = internal global %0 zeroinitializer
+@origin = global %0 zeroinitializer

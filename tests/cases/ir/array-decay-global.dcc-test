@@ -30,8 +30,8 @@ const global @copy : [2 x u64] = aggregate [2 x u64], #1, #2
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@c_arr = internal constant [2 x i64] [i64 1, i64 2]
-@m_arr = internal global [2 x i64] [i64 3, i64 4]
-@cp = internal global ptr @c_arr
-@mp = internal global ptr @m_arr
-@copy = internal constant [2 x i64] [i64 1, i64 2]
+@c_arr = constant [2 x i64] [i64 1, i64 2]
+@m_arr = global [2 x i64] [i64 3, i64 4]
+@cp = global ptr @c_arr
+@mp = global ptr @m_arr
+@copy = constant [2 x i64] [i64 1, i64 2]

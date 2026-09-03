@@ -12,7 +12,7 @@ public i32 get_val() { return in_custom_section; }
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test17.in_custom_sectioni32s = internal global i32 42, section ".data.custom", align 16
+@_DC0G1.4.test17.in_custom_sectioni32s = global i32 42, section ".data.custom", align 16
 
 define i32 @_DC0F1.4.test7.get_val0i32s() {
 entry:

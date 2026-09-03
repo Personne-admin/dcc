@@ -26,7 +26,7 @@ source_filename = "test"
 target triple = "x86_64-elf"
 
 @_DC0G1.4.test3.PUBi64u = constant i64 100
-@_DC0G1.4.test4.PRIVi64u = internal constant i64 101
-@_DC0G1.4.test4.ZEROi64u = internal constant i64 0
-@_DC0G1.4.test2.NPPCqi8u = internal constant ptr null
-@_DC0G1.4.test5.BTRUEb = internal constant i8 1
+@_DC0G1.4.test4.PRIVi64u = constant i64 101
+@_DC0G1.4.test4.ZEROi64u = constant i64 0
+@_DC0G1.4.test2.NPPCqi8u = constant ptr null
+@_DC0G1.4.test5.BTRUEb = constant i8 1

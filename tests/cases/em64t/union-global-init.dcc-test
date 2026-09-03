@@ -19,7 +19,7 @@ public i32 dcc_main() {
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@g_data = internal global [1 x i8] c"\22"
+@g_data = global [1 x i8] c"\22"
 
 define i32 @dcc_main() {
 entry:

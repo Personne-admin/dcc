@@ -12,7 +12,7 @@ public i64 get_const() { return MY_CONST; }
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@MY_CONST = internal constant i64 100
+@MY_CONST = constant i64 100
 
 define i64 @get_const() {
 entry:

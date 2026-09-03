@@ -24,9 +24,9 @@ U3 g3 = U3{s = Inner2{a = &x as u8*, b = &y as u8*}, t = Inner1{c = &z as u8*}};
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@x = internal global i64 7
-@y = internal global i64 9
-@z = internal global i64 11
-@g1 = internal global <{ ptr }> <{ ptr @x }>, align 8
-@g2 = internal global <{ ptr, ptr }> <{ ptr @x, ptr @y }>, align 8
-@g3 = internal global <{ ptr, ptr }> <{ ptr @z, ptr @y }>, align 8
+@x = global i64 7
+@y = global i64 9
+@z = global i64 11
+@g1 = global <{ ptr }> <{ ptr @x }>, align 8
+@g2 = global <{ ptr, ptr }> <{ ptr @x, ptr @y }>, align 8
+@g3 = global <{ ptr, ptr }> <{ ptr @z, ptr @y }>, align 8

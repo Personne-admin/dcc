@@ -35,11 +35,11 @@ i64@_DC0F1.4.test6.triple1i64si64s(i64) {
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test5.valuei64s = internal global i64 42
-@_DC0G1.4.test1.pPqi8u = internal constant ptr @_DC0G1.4.test5.valuei64s
-@_DC0G1.4.test1.qPqi8u = internal constant ptr @_DC0G1.4.test5.valuei64s
-@_DC0G1.4.test4.g_fnpi64s1i64s = internal constant ptr @_DC0F1.4.test6.triple1i64si64s
-@_DC0G1.4.test5.g_fn2pi64s1i64s = internal constant ptr @_DC0F1.4.test6.triple1i64si64s
+@_DC0G1.4.test5.valuei64s = global i64 42
+@_DC0G1.4.test1.pPqi8u = constant ptr @_DC0G1.4.test5.valuei64s
+@_DC0G1.4.test1.qPqi8u = constant ptr @_DC0G1.4.test5.valuei64s
+@_DC0G1.4.test4.g_fnpi64s1i64s = constant ptr @_DC0F1.4.test6.triple1i64si64s
+@_DC0G1.4.test5.g_fn2pi64s1i64s = constant ptr @_DC0F1.4.test6.triple1i64si64s
 
 define i64 @_DC0F1.4.test6.triple1i64si64s(i64 %x) {
 entry:

@@ -26,7 +26,7 @@ target triple = "x86_64-elf"
 
 %0 = type { i64, i64 }
 
-@_DC0G1.4.test3.arrA2i64u = internal constant [2 x i64] [i64 10, i64 20]
-@_DC0G1.4.test1.Xi64u = internal constant i64 10
-@_DC0G1.4.test2.prD1.4.test4.Pair0. = internal constant %0 { i64 1, i64 2 }
-@_DC0G1.4.test1.Yi64u = internal constant i64 1
+@_DC0G1.4.test3.arrA2i64u = constant [2 x i64] [i64 10, i64 20]
+@_DC0G1.4.test1.Xi64u = constant i64 10
+@_DC0G1.4.test2.prD1.4.test4.Pair0. = constant %0 { i64 1, i64 2 }
+@_DC0G1.4.test1.Yi64u = constant i64 1
