@@ -33,7 +33,7 @@ target triple = "x86_64-elf"
 %0 = type { ptr, %1, [2 x ptr] }
 %1 = type { i64, ptr }
 
-@table = internal constant %0 { ptr @_DC0F1.4.test3.add2i64si64si64s, %1 { i64 5, ptr @_DC0F1.4.test3.sub2i64si64si64s }, [2 x ptr] [ptr @_DC0F1.4.test3.add2i64si64si64s, ptr @_DC0F1.4.test3.sub2i64si64si64s] }
+@table = constant %0 { ptr @_DC0F1.4.test3.add2i64si64si64s, %1 { i64 5, ptr @_DC0F1.4.test3.sub2i64si64si64s }, [2 x ptr] [ptr @_DC0F1.4.test3.add2i64si64si64s, ptr @_DC0F1.4.test3.sub2i64si64si64s] }
 
 define i64 @_DC0F1.4.test3.add2i64si64si64s(i64 %a, i64 %b) {
 entry:

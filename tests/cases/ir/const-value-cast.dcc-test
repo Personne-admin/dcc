@@ -31,10 +31,10 @@ const global @_DC0G1.4.test2.ppPqi8u : ptr<u8> = @_DC0G1.4.test5.valuei64s
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test5.valuei64s = internal global i64 42
-@_DC0G1.4.test3.bigi64u = internal constant i64 300
-@_DC0G1.4.test5.smalli8u = internal constant i8 44
-@_DC0G1.4.test8.narrowedi32s = internal constant i32 300
-@_DC0G1.4.test3.negi64s = internal constant i64 -5
-@_DC0G1.4.test4.unegi64u = internal constant i64 -5
-@_DC0G1.4.test2.ppPqi8u = internal constant ptr @_DC0G1.4.test5.valuei64s
+@_DC0G1.4.test5.valuei64s = global i64 42
+@_DC0G1.4.test3.bigi64u = constant i64 300
+@_DC0G1.4.test5.smalli8u = constant i8 44
+@_DC0G1.4.test8.narrowedi32s = constant i32 300
+@_DC0G1.4.test3.negi64s = constant i64 -5
+@_DC0G1.4.test4.unegi64u = constant i64 -5
+@_DC0G1.4.test2.ppPqi8u = constant ptr @_DC0G1.4.test5.valuei64s

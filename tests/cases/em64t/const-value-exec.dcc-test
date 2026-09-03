@@ -28,12 +28,12 @@ FORBID-RELA: .rodata R_X86_64_64
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@A = internal constant i64 10
-@B = internal constant i64 10
-@C = internal constant i64 15
-@arr = internal constant [2 x i64] [i64 10, i64 10]
-@dummy_data = internal global i32 0
-@dummy_bss = internal global i32 0
+@A = constant i64 10
+@B = constant i64 10
+@C = constant i64 15
+@arr = constant [2 x i64] [i64 10, i64 10]
+@dummy_data = global i32 0
+@dummy_bss = global i32 0
 
 define i32 @dcc_main() {
 entry:

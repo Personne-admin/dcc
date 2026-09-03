@@ -1130,7 +1130,11 @@ namespace dcc::backend
 
                 bool has_unsupported = precheck_module(*input_module, diags);
                 if (has_unsupported && !opts.requested_artifacts.empty())
+                {
+                    if (diags.empty())
+                        add_diag(diags, {}, "LLVM backend precheck rejected the IR module without a diagnostic");
                     return artifact;
+                }
 
                 auto* ctx = LLVMContextCreate();
                 LlvmCtxGuard ctx_guard{ctx};
@@ -1235,8 +1239,13 @@ namespace dcc::backend
                     if (!func)
                         continue;
 
+                    auto const diag_count = diags.size();
                     if (!create_function_decl(func, llvm_mod, ctx, type_cache, val_map, opts, diags, debug_ptr))
+                    {
+                        if (diags.size() == diag_count)
+                            add_diag(diags, func->range, std::format("LLVM backend failed to declare function '{}'", func->name));
                         has_unsupported = true;
+                    }
                 }
 
                 for (auto* g : input_module->globals)
@@ -1265,8 +1274,13 @@ namespace dcc::backend
                     if (!func)
                         continue;
 
+                    auto const diag_count = diags.size();
                     if (!emit_function_body(func, ctx, type_cache, val_map, opts.target, diags, debug_ptr))
+                    {
+                        if (diags.size() == diag_count)
+                            add_diag(diags, func->range, std::format("LLVM backend failed to lower function '{}'", func->name));
                         has_unsupported = true;
+                    }
                 }
 
                 debug.finalize();
@@ -1668,13 +1682,32 @@ namespace dcc::backend
                 return has_unsupported;
             }
 
-            [[nodiscard]] static bool precheck_instruction(IrValue const* inst, [[maybe_unused]] std::vector<BackendDiagnostic>& diags)
+            [[nodiscard]] static bool precheck_instruction(IrValue const* inst, std::vector<BackendDiagnostic>& diags)
             {
                 if (!inst)
                     return false;
 
                 switch (inst->kind)
                 {
+                    case IrNodeKind::Load:
+                        if (!static_cast<IrLoadInst const*>(inst)->pointer)
+                        {
+                            add_diag(diags, inst->range, "LLVM backend: load has no pointer operand");
+                            return true;
+                        }
+                        break;
+                    case IrNodeKind::Store: {
+                        auto const* store = static_cast<IrStoreInst const*>(inst);
+                        if (!store->pointer || !store->value)
+                        {
+                            add_diag(diags, inst->range,
+                                     std::format("LLVM backend: store has no {} operand", !store->pointer && !store->value ? "pointer or value"
+                                                                                          : !store->pointer                ? "pointer"
+                                                                                                                           : "value"));
+                            return true;
+                        }
+                        break;
+                    }
                     default:
                         break;
                 }
@@ -1748,7 +1781,7 @@ namespace dcc::backend
                     }
                     LLVMSetInitializer(gv, init_val);
                 }
-                else if (g->linkage != Linkage::External)
+                else if (!g->is_declaration)
                 {
                     auto* null_val = LLVMConstNull(mem_ty);
                     LLVMSetInitializer(gv, null_val);
@@ -2167,8 +2200,15 @@ namespace dcc::backend
                     for (auto* inst : bb->instructions)
                     {
                         apply_debug_loc(builder, LocKey{bb->id, instruction_index, false});
+                        auto const diag_count = diags.size();
                         if (!emit_instruction(inst, builder, ctx, tc, val_map, bb_map, target, diags))
+                        {
+                            if (diags.size() == diag_count)
+                                add_diag(diags, inst ? inst->range : func->range,
+                                         std::format("LLVM backend failed to lower IR instruction kind {} in function '{}' block {} at instruction {}",
+                                                     inst ? static_cast<int>(inst->kind) : -1, func->name, bb->id, instruction_index));
                             return false;
+                        }
 
                         ++instruction_index;
                     }
@@ -2176,8 +2216,15 @@ namespace dcc::backend
                     if (bb->terminator)
                     {
                         apply_debug_loc(builder, LocKey{bb->id, instruction_index, true});
+                        auto const diag_count = diags.size();
                         if (!emit_terminator(bb->terminator, builder, ctx, tc, val_map, bb_map, diags, llvm_func))
+                        {
+                            if (diags.size() == diag_count)
+                                add_diag(diags, bb->terminator->range,
+                                         std::format("LLVM backend failed to lower IR terminator kind {} in function '{}' block {}",
+                                                     static_cast<int>(bb->terminator->kind), func->name, bb->id));
                             return false;
+                        }
                     }
                     else
                     {
@@ -2349,7 +2396,12 @@ namespace dcc::backend
                         auto* l = static_cast<IrLoadInst const*>(inst);
                         auto* ptr = lookup(l->pointer);
                         if (!ptr)
+                        {
+                            add_diag(
+                                diags, inst->range,
+                                std::format("LLVM backend cannot resolve load pointer (IR kind {})", l->pointer ? static_cast<int>(l->pointer->kind) : -1));
                             return false;
+                        }
 
                         LLVMValueRef result = nullptr;
                         if (is_bool_type(l->type))
@@ -2361,7 +2413,10 @@ namespace dcc::backend
                         {
                             auto* lt = llvm_type_cached(tc, l->type);
                             if (!lt)
+                            {
+                                add_diag(diags, inst->range, "LLVM backend cannot lower load result type");
                                 return false;
+                            }
 
                             result = LLVMBuildLoad2(builder, lt, ptr, "");
                         }
@@ -2375,7 +2430,16 @@ namespace dcc::backend
                         auto* ptr = lookup(s->pointer);
                         auto* val = lookup(s->value);
                         if (!ptr || !val)
+                        {
+                            add_diag(diags, inst->range,
+                                     std::format("LLVM backend cannot resolve store {} (pointer kind {}, value kind {}, source file {}, offset {})",
+                                                 !ptr && !val ? "pointer or value"
+                                                 : !ptr       ? "pointer"
+                                                              : "value",
+                                                 s->pointer ? static_cast<int>(s->pointer->kind) : -1, s->value ? static_cast<int>(s->value->kind) : -1,
+                                                 static_cast<std::uint32_t>(inst->range.begin.fileId), inst->range.begin.offset));
                             return false;
+                        }
 
                         if (is_bool_type(s->value->type))
                         {
@@ -2441,14 +2505,16 @@ namespace dcc::backend
                         if (!ptr)
                             return false;
 
-                        auto* lt = llvm_type_cached(tc, al->type);
+                        bool const is_bool = is_bool_type(al->type);
+                        auto* lt = is_bool ? LLVMInt8TypeInContext(ctx) : llvm_type_cached(tc, al->type);
                         if (!lt)
                             return false;
 
                         auto* load_inst = LLVMBuildLoad2(builder, lt, ptr, "");
                         LLVMSetOrdering(load_inst, to_llvm_ordering(al->ordering));
-                        set_name(load_inst);
-                        val_map[inst] = load_inst;
+                        auto* result = is_bool ? LLVMBuildTrunc(builder, load_inst, LLVMInt1TypeInContext(ctx), "") : load_inst;
+                        set_name(result);
+                        val_map[inst] = result;
                         break;
                     }
                     case IrNodeKind::AtomicStore: {
@@ -2458,6 +2524,8 @@ namespace dcc::backend
                         if (!ptr || !val)
                             return false;
 
+                        if (is_bool_type(as->value->type))
+                            val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
                         auto* store_inst = LLVMBuildStore(builder, val, ptr);
                         LLVMSetOrdering(store_inst, to_llvm_ordering(as->ordering));
                         break;
@@ -2469,9 +2537,13 @@ namespace dcc::backend
                         if (!ptr || !val)
                             return false;
 
+                        bool const is_bool = is_bool_type(ar->type);
+                        if (is_bool)
+                            val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
                         auto* rmw_inst = LLVMBuildAtomicRMW(builder, to_llvm_rmw_op(ar->op), ptr, val, to_llvm_ordering(ar->ordering), false);
-                        set_name(rmw_inst);
-                        val_map[inst] = rmw_inst;
+                        auto* result = is_bool ? LLVMBuildTrunc(builder, rmw_inst, LLVMInt1TypeInContext(ctx), "") : rmw_inst;
+                        set_name(result);
+                        val_map[inst] = result;
                         break;
                     }
                     case IrNodeKind::Fence: {

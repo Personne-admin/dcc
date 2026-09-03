@@ -244,6 +244,32 @@ TEST_CASE("requested backend artifacts are validated at the backend boundary")
     CHECK(found_object);
 }
 
+TEST_CASE("LLVM precheck returns a diagnostic for a malformed store")
+{
+    IrContext ir_ctx;
+    auto* mod = ir_ctx.module("bad_store");
+    auto* i32t = ir_ctx.int_t(32, true);
+    auto* fn_type = ir_type_cast<IrFuncType>(ir_ctx.func_t(ir_ctx.void_t(), {}));
+    auto* fn = ir_ctx.function("bad_store", fn_type);
+    auto* entry = ir_ctx.basic_block("entry", 0);
+    fn->entry_block = entry;
+    fn->blocks.push_back(entry);
+    auto* slot = ir_ctx.alloca(ir_ctx.pointer_to(i32t), i32t);
+    entry->instructions.push_back(slot);
+    entry->instructions.push_back(ir_ctx.store(nullptr, slot));
+    entry->terminator = ir_ctx.ret();
+    mod->functions.push_back(fn);
+
+    BackendOptions opts;
+    opts.target = TargetConfig::host_default();
+    opts.requested_artifacts = {ArtifactKind::ObjectBytes};
+    auto artifact = make_llvm_backend()->emit(*mod, opts);
+
+    CHECK(!artifact.object_bytes.has_value());
+    REQUIRE(!artifact.diagnostics.empty());
+    CHECK(artifact.diagnostics.front().message.find("store has no value operand") != std::string::npos);
+}
+
 TEST_CASE("llvm-codegen-flags-no-red-zone")
 {
     IrContext ir_ctx;

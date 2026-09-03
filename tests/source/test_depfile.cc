@@ -207,6 +207,113 @@ TEST_CASE("laomb-shaped x86 flags produce an object before the depfile")
     CHECK_EQ(target_of(read_file(dep)), obj.string());
 }
 
+TEST_CASE("LLVM emits laomb formatter constructs for 32-bit and 64-bit ELF")
+{
+    TempDir td;
+    td.write_file("main.dc", R"(module main;
+import core::atomic;
+
+struct Empty {}
+Empty make_empty() { Empty value = {}; return value; }
+
+bool scan([]const char data, usize i) {
+    return i < data.len && data[i] == 'x';
+}
+
+core::atomic::Atomic(volatile bool) flag = { value = false };
+bool exchange() {
+    return core::atomic::atomic_exchange(&flag, true, core::atomic::MemoryOrder::AcqRel);
+}
+)");
+
+    for (auto target : {std::string_view{"x86_64-elf"}, std::string_view{"x86-elf"}})
+    {
+        auto stem = std::string{target};
+        auto obj = td.file(stem + ".o");
+        auto dep = td.file(stem + ".d");
+        auto r = run_dcc("-fbackend llvm -target " + stem + " -fbounds-check -gdwarf -fno-simd -fno-x87 -mcmodel small -c -o " + shell_quote(obj) +
+                         " --depfile " + shell_quote(dep) + " " + shell_quote(td.file("main.dc")));
+
+        CHECK_EQ(r.rc, 0);
+        CHECK(file_exists(obj));
+        auto bytes = read_file(obj);
+        REQUIRE(bytes.size() >= 20);
+        auto const elf_magic = std::string_view{"\x7f" "ELF", 4};
+        CHECK_EQ(std::string_view{bytes}.substr(0, 4), elf_magic);
+        CHECK_EQ(static_cast<unsigned char>(bytes[4]), target == "x86-elf" ? 1 : 2);
+        CHECK_EQ(target_of(read_file(dep)), obj.string());
+    }
+}
+
+TEST_CASE("private module state is linkable from caller-emitted specializations")
+{
+    TempDir td;
+    td.write_file("state.dc", R"(module state;
+
+u64 counter = 0;
+
+void private_helper() {
+    counter += 1;
+}
+
+public T use_state(T)(T value) {
+    counter += 1;
+    private_helper();
+    return value;
+}
+)");
+    td.write_file("first.dc", R"(module first;
+import state;
+public u64 first() { return state::use_state(42); }
+)");
+    td.write_file("second.dc", R"(module second;
+import state;
+public i32 second() { return state::use_state(7); }
+)");
+
+    auto state_obj = td.file("state.o");
+    auto first_obj = td.file("first.o");
+    auto second_obj = td.file("second.o");
+    auto compile = [&](std::string_view source, std::filesystem::path const& output) {
+        return run_dcc("-fbackend llvm -c -target x86_64-elf -I " + shell_quote(td.path) + " -o " + shell_quote(output) + " " +
+                       shell_quote(td.file(source)));
+    };
+
+    REQUIRE(compile("state.dc", state_obj).rc == 0);
+    REQUIRE(compile("first.dc", first_obj).rc == 0);
+    REQUIRE(compile("second.dc", second_obj).rc == 0);
+
+    auto symbols = run_shell("llvm-nm " + shell_quote(state_obj) + " " + shell_quote(first_obj) + " " + shell_quote(second_obj) + " 2>&1");
+    REQUIRE(symbols.rc == 0);
+    CHECK(symbols.output.find(" B _DC0G1.5.state7.counteri64u") != std::string::npos);
+    CHECK(symbols.output.find(" U _DC0G1.5.state7.counteri64u") != std::string::npos);
+
+    auto linked = td.file("linked.so");
+    auto link = run_shell("ld.lld --shared --no-undefined -o " + shell_quote(linked) + " " + shell_quote(state_obj) + " " + shell_quote(first_obj) +
+                          " " + shell_quote(second_obj) + " 2>&1");
+    CHECK_EQ(link.rc, 0);
+    CHECK(file_exists(linked));
+
+    auto state_coff = td.file("state.obj");
+    auto first_coff = td.file("first.obj");
+    auto compile_coff = [&](std::string_view source, std::filesystem::path const& output) {
+        return run_dcc("-fbackend llvm -c -target x86_64-coff -I " + shell_quote(td.path) + " -o " + shell_quote(output) + " " +
+                       shell_quote(td.file(source)));
+    };
+    REQUIRE(compile_coff("state.dc", state_coff).rc == 0);
+    REQUIRE(compile_coff("first.dc", first_coff).rc == 0);
+
+    auto coff_symbols = run_shell("llvm-nm " + shell_quote(state_coff) + " " + shell_quote(first_coff) + " 2>&1");
+    REQUIRE(coff_symbols.rc == 0);
+    CHECK(coff_symbols.output.find(" B _DC0G1.5.state7.counteri64u") != std::string::npos);
+    CHECK(coff_symbols.output.find(" U _DC0G1.5.state7.counteri64u") != std::string::npos);
+
+    auto dll = td.file("linked.dll");
+    auto coff_link = run_shell("lld-link /dll /noentry /out:" + shell_quote(dll) + " " + shell_quote(state_coff) + " " + shell_quote(first_coff) + " 2>&1");
+    CHECK_EQ(coff_link.rc, 0);
+    CHECK(file_exists(dll));
+}
+
 TEST_CASE("relative dot-dot object and depfile paths are preserved")
 {
     TempDir td;

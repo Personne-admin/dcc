@@ -12,7 +12,7 @@ public i32* get_null() { return null_ptr; }
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@null_ptr = internal global ptr null
+@null_ptr = global ptr null
 
 define ptr @get_null() {
 entry:

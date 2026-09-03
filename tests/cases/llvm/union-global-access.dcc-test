@@ -20,7 +20,7 @@ public i32 dcc_main() {
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@g_data = internal global [4 x i8] zeroinitializer
+@g_data = global [4 x i8] zeroinitializer
 
 define i32 @dcc_main() {
 entry:

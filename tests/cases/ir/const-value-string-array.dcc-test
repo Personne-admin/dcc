@@ -24,8 +24,8 @@ const global @_DC0G1.4.test2.wsA3i16u : [3 x u16] = aggregate [3 x u16], #97, #9
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test1.sA4c = internal constant [4 x i8] c"abc\00"
-@_DC0G1.4.test7.s_exactA3c = internal constant [3 x i8] c"xyz"
+@_DC0G1.4.test1.sA4c = constant [4 x i8] c"abc\00"
+@_DC0G1.4.test7.s_exactA3c = constant [3 x i8] c"xyz"
 @.str.0 = internal constant [3 x i8] c"abc"
-@_DC0G1.4.test5.sliceSqi8u = internal constant { ptr, i64 } { ptr @.str.0, i64 3 }
-@_DC0G1.4.test2.wsA3i16u = internal constant [3 x i16] [i16 97, i16 98, i16 0]
+@_DC0G1.4.test5.sliceSqi8u = constant { ptr, i64 } { ptr @.str.0, i64 3 }
+@_DC0G1.4.test2.wsA3i16u = constant [3 x i16] [i16 97, i16 98, i16 0]

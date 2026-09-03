@@ -12,7 +12,7 @@ public bool get_flag() { return flag; }
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@flag = internal global i8 1
+@flag = global i8 1
 
 define i1 @get_flag() {
 entry:

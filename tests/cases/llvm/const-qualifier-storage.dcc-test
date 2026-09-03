@@ -12,10 +12,10 @@ const []u8 cs = "abc";
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test1.vi8u = internal global i8 7
-@_DC0G1.4.test1.pPCqi8u = internal global ptr null
-@_DC0G1.4.test2.cpPqi8u = internal constant ptr null
+@_DC0G1.4.test1.vi8u = global i8 7
+@_DC0G1.4.test1.pPCqi8u = global ptr null
+@_DC0G1.4.test2.cpPqi8u = constant ptr null
 @.str.0 = internal constant [3 x i8] c"abc"
-@_DC0G1.4.test2.csSqi8u = internal constant { ptr, i64 } { ptr @.str.0, i64 3 }
+@_DC0G1.4.test2.csSqi8u = constant { ptr, i64 } { ptr @.str.0, i64 3 }
 @.str.1 = internal constant [3 x i8] c"def"
-@_DC0G1.4.test1.sSqi8u = internal global { ptr, i64 } { ptr @.str.1, i64 3 }
+@_DC0G1.4.test1.sSqi8u = global { ptr, i64 } { ptr @.str.1, i64 3 }

@@ -29,8 +29,8 @@ const global @_DC0G1.4.test1.bi64u : u64 = #6
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test1.ai64u = internal constant i64 5
-@_DC0G1.4.test3.arrA2i64u = internal constant [2 x i64] [i64 1, i64 2]
-@_DC0G1.4.test4.arr2A2i64u = internal constant [2 x i64] [i64 3, i64 4]
-@_DC0G1.4.test6.mutarrA2i64u = internal global [2 x i64] [i64 5, i64 6]
-@_DC0G1.4.test1.bi64u = internal constant i64 6
+@_DC0G1.4.test1.ai64u = constant i64 5
+@_DC0G1.4.test3.arrA2i64u = constant [2 x i64] [i64 1, i64 2]
+@_DC0G1.4.test4.arr2A2i64u = constant [2 x i64] [i64 3, i64 4]
+@_DC0G1.4.test6.mutarrA2i64u = global [2 x i64] [i64 5, i64 6]
+@_DC0G1.4.test1.bi64u = constant i64 6

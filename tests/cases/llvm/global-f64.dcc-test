@@ -12,7 +12,7 @@ public f64 get_pi() { return PI; }
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@PI = internal constant double 3.141590e+00
+@PI = constant double 3.141590e+00
 
 define double @get_pi() {
 entry:

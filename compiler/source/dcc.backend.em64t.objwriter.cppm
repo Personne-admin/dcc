@@ -275,7 +275,7 @@ namespace dcc::backend::em64t
 
         [[nodiscard]] DataSection classify_global(ir::IrGlobal const* g)
         {
-            if (!g->init && (g->linkage == ir::Linkage::External || g->is_dll_import))
+            if (g->is_declaration || g->is_dll_import)
                 return DataSection::None;
             if (g->is_constant && g->init)
             {
@@ -913,7 +913,7 @@ export namespace dcc::backend::em64t
         {
             if (!g)
                 continue;
-            if (g->linkage == ir::Linkage::External && !g->init)
+            if (g->is_declaration)
             {
                 auto ns = std::string{g->name};
                 if (!defined_names.contains(ns) && std::ranges::find(ext_syms, ns) == ext_syms.end())

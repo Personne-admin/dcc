@@ -15,7 +15,7 @@ public i32 inc() {
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@counter = internal global i32 0
+@counter = global i32 0
 
 define i32 @inc() {
 entry:

@@ -23,7 +23,7 @@ const global @_DC0G1.4.test4.disci16u : u16 = #41
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test2.c1D1.4.test5.Color0. = internal constant i16 0
-@_DC0G1.4.test2.c2D1.4.test5.Color0. = internal constant i16 40
-@_DC0G1.4.test2.c3D1.4.test5.Color0. = internal constant i16 41
-@_DC0G1.4.test4.disci16u = internal constant i16 41
+@_DC0G1.4.test2.c1D1.4.test5.Color0. = constant i16 0
+@_DC0G1.4.test2.c2D1.4.test5.Color0. = constant i16 40
+@_DC0G1.4.test2.c3D1.4.test5.Color0. = constant i16 41
+@_DC0G1.4.test4.disci16u = constant i16 41

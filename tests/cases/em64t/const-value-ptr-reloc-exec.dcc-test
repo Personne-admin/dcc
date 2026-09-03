@@ -36,11 +36,11 @@ CONTAINS: section .bss
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@value = internal global i64 42
-@p = internal constant ptr @value
-@q = internal constant ptr @value
-@dummy_ro = internal constant i32 0
-@dummy_bss = internal global i32 0
+@value = global i64 42
+@p = constant ptr @value
+@q = constant ptr @value
+@dummy_ro = constant i32 0
+@dummy_bss = global i32 0
 
 define i32 @dcc_main() {
 entry:

@@ -16,5 +16,5 @@ const global @_DC0G1.4.test1.Bi64u : u64 = #0
 source_filename = "test"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.test1.Ai64u = internal constant i64 0
-@_DC0G1.4.test1.Bi64u = internal constant i64 0
+@_DC0G1.4.test1.Ai64u = constant i64 0
+@_DC0G1.4.test1.Bi64u = constant i64 0

@@ -33,7 +33,7 @@ const global @_DC0G1.4.main1.Mi64s : i64 = #7
 source_filename = "main"
 target triple = "x86_64-elf"
 
-@_DC0G1.4.main1.Ji64u = internal constant i64 42
-@_DC0G1.4.main1.Ki64u = internal constant i64 43
-@_DC0G1.4.main1.Li64u = internal constant i64 85
-@_DC0G1.4.main1.Mi64s = internal constant i64 7
+@_DC0G1.4.main1.Ji64u = constant i64 42
+@_DC0G1.4.main1.Ki64u = constant i64 43
+@_DC0G1.4.main1.Li64u = constant i64 85
+@_DC0G1.4.main1.Mi64s = constant i64 7

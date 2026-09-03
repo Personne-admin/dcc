@@ -1,0 +1,23 @@
+=== FILE: state.dc ===
+module state;
+
+u64 counter = 0;
+
+public T use_state(T)(T value) {
+    counter += 1;
+    return value;
+}
+
+=== FILE: main.dc ===
+module main;
+
+import state;
+
+void illegal_access() {
+    state::counter = 3;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:6: unknown path `state::counter`
