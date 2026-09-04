@@ -4776,6 +4776,17 @@ export namespace dcc::sema
             return CallRank::ConcreteExact;
         }
 
+        [[nodiscard]] static bool qualification_conversion_allowed(types::Qual got_quals, types::Qual expected_quals) noexcept
+        {
+            auto gq = std::to_underlying(got_quals);
+            auto eq = std::to_underlying(expected_quals);
+            if ((gq & eq) != gq)
+                return false;
+
+            auto added = eq & ~gq;
+            return (added & ~std::to_underlying(types::Qual::Const)) == 0;
+        }
+
         [[nodiscard]] std::optional<std::pair<UfcsReceiverMatch, types::TypePtr>> match_ufcs_receiver(detail::ExprResult const& analyzed, types::TypePtr param)
         {
             if (!analyzed.type || !param)
@@ -4789,6 +4800,11 @@ export namespace dcc::sema
             {
                 if (analyzed.type->kind == types::TypeKind::Pointer)
                 {
+                    auto const* receiver_ptr = types::type_cast<types::PointerType>(analyzed.type);
+                    if (receiver_ptr && receiver_ptr->pointee == param_ptr->pointee &&
+                        qualification_conversion_allowed(receiver_ptr->pointee_quals, param_ptr->pointee_quals))
+                        return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
+
                     infer::TemplateBindings probe_b{m_types};
                     if (probe_b.deduce(param, analyzed.type))
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
@@ -4836,6 +4852,14 @@ export namespace dcc::sema
                 auto const* param_slice = types::type_cast<types::SliceType>(param);
                 if (recv_arr && param_slice && recv_arr->element == param_slice->element)
                     return std::pair{UfcsReceiverMatch::ArrayToSlice, analyzed.type};
+            }
+
+            if (auto const* receiver_slice = types::type_cast<types::SliceType>(analyzed.type))
+            {
+                auto const* param_slice = types::type_cast<types::SliceType>(param);
+                if (param_slice && receiver_slice->element == param_slice->element &&
+                    qualification_conversion_allowed(receiver_slice->element_quals, param_slice->element_quals))
+                    return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
             }
 
             if (contains_template_param(param))
@@ -6342,17 +6366,6 @@ export namespace dcc::sema
                 return make_value(std::move(*result));
 
             return nullptr;
-        }
-
-        [[nodiscard]] static bool qualification_conversion_allowed(types::Qual got_quals, types::Qual expected_quals) noexcept
-        {
-            auto gq = std::to_underlying(got_quals);
-            auto eq = std::to_underlying(expected_quals);
-            if ((gq & eq) != gq)
-                return false;
-
-            auto added = eq & ~gq;
-            return (added & ~std::to_underlying(types::Qual::Const)) == 0;
         }
 
         [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got) noexcept

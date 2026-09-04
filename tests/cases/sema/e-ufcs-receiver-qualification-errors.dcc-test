@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module main;
+
+struct Context {}
+
+void mutable_only(Context* context) {}
+void mutable_slice_only([]Context contexts) {}
+
+void bad_pointer(const Context* context) {
+    context.mutable_only();
+}
+
+void bad_slice([]const Context contexts) {
+    contexts.mutable_slice_only();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:9: no matching UFCS function for `mutable_only` on receiver type `const Context*`
+main.dc:13: no matching UFCS function for `mutable_slice_only` on receiver type `[]const Context`

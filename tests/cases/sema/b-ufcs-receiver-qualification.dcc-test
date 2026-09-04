@@ -1,0 +1,59 @@
+=== FILE: library.dc ===
+module library;
+
+public struct Header {
+    u32 type;
+}
+
+public struct Context {
+    u32 count;
+}
+
+public void inspect(const Context* context) {}
+public void inspect_slice([]const Context contexts) {}
+
+public bool for_each(const Context* context, bool(*)(const Header*) callback) {
+    return true;
+}
+
+public u32 select(Context* context) { return 1; }
+public u32 select(const Context* context) { return 2; }
+
+public u32 const_only(const Context* context) { return 3; }
+
+=== FILE: main.dc ===
+module main;
+
+import library;
+
+void ordinary(library::Context* context) {
+    library::inspect(context);
+}
+
+void ufcs(library::Context* context) {
+    context.inspect();
+}
+
+void slice_ufcs([]library::Context contexts) {
+    contexts.inspect_slice();
+}
+
+u32 mutable_case(library::Context* context) {
+    return context.select();
+}
+
+u32 const_case(const library::Context* context) {
+    return context.select();
+}
+
+u32 only_qualification(library::Context* context) {
+    return context.const_only();
+}
+
+bool callback_shape(library::Context* context) {
+    return context.for_each(|header -> true);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERROR-COUNT: 0 ===
