@@ -40,12 +40,18 @@ export namespace dcc::ctfe
         std::function<bool(ast::FuncDecl const&)> prepare_function;
     };
 
+    struct Call
+    {
+        ast::FuncDecl const* function{};
+        sm::SourceRange call_site{};
+    };
+
     struct Result
     {
         Flow flow{Flow::Normal};
         std::optional<comptime::Value> value;
         std::string message;
-        std::vector<ast::FuncDecl const*> calls;
+        std::vector<Call> calls;
 
         [[nodiscard]] bool failed() const { return flow == Flow::NotEvaluatable || flow == Flow::Error; }
     };
@@ -56,8 +62,7 @@ export namespace dcc::ctfe
 
         struct Frame
         {
-            ast::FuncDecl const* function{};
-            sm::SourceRange call_site{};
+            Call call;
             std::unordered_map<ast::Decl const*, comptime::ValuePtr> locals;
             std::vector<std::size_t> allocations;
         };
@@ -67,14 +72,15 @@ export namespace dcc::ctfe
         std::size_t m_steps{};
         std::size_t m_cells{};
         std::vector<Frame> m_frames;
+        std::unordered_map<comptime::Value const*, comptime::ValuePtr> m_constants;
         Heap m_heap;
 
         Result failure(std::string message, bool hard = false)
         {
             Result r{hard ? Flow::Error : Flow::NotEvaluatable, {}, std::move(message), {}};
             for (auto const& frame : m_frames)
-                if (frame.function)
-                    r.calls.push_back(frame.function);
+                if (frame.call.function)
+                    r.calls.push_back(frame.call);
             return r;
         }
 
@@ -185,7 +191,48 @@ export namespace dcc::ctfe
             return it == m_frames.back().locals.end() ? nullptr : &it->second;
         }
 
-        Result bind(ast::Decl const* decl, comptime::Value object, types::TypePtr type)
+        static comptime::Value const* constant_of(ast::Decl const* decl, ast::Expr const& expr)
+        {
+            if (expr.sema.const_value)
+                return expr.sema.const_value;
+            auto* var = ast::node_cast<ast::VarDecl>(decl);
+            if (var && var->sema.is_immutable && var->init)
+                return var->init->sema.const_value;
+            return nullptr;
+        }
+
+        Result named_place(ast::Expr const& expr, comptime::ValuePtr& out)
+        {
+            auto* decl = expr.sema.resolved_decl;
+            if (volatile_decl(decl))
+                return failure("volatile access");
+            if (auto const* slot = local(decl))
+            {
+                out = *slot;
+                return {};
+            }
+
+            auto const* constant = constant_of(decl, expr);
+            if (!constant)
+                return failure("read of non-constant storage");
+            if (auto it = m_constants.find(constant); it != m_constants.end())
+            {
+                out = it->second;
+                return {};
+            }
+
+            auto value = attach(*constant);
+            if (value.flow != Flow::Normal || !value.value)
+                return value;
+            if (m_cells++ >= m_context.memory_limit)
+                return failure("memory limit exceeded", true);
+
+            out = m_heap.allocate(std::move(*value.value), false);
+            m_constants.emplace(constant, out);
+            return {};
+        }
+
+        Result bind(ast::Decl const* decl, comptime::Value object)
         {
             if (m_cells++ >= m_context.memory_limit)
                 return failure("memory limit exceeded", true);
@@ -200,7 +247,7 @@ export namespace dcc::ctfe
                 }
             }
 
-            auto ptr = m_heap.allocate(std::move(object), type, true);
+            auto ptr = m_heap.allocate(std::move(object), true);
             frame.allocations.push_back(ptr.allocation);
             frame.locals.insert_or_assign(decl, std::move(ptr));
             return {};
@@ -323,13 +370,11 @@ export namespace dcc::ctfe
 
             if (r.value->kind() == Kind::Slice)
             {
-                if (!r.value->slice_is_ref())
-                    return failure("index has no compile-time storage");
                 if (static_cast<std::size_t>(index) >= r.value->slice_length())
                     return failure("index out of bounds", true);
                 auto element = m_heap.offset(r.value->slice_base(), index);
                 if (!element)
-                    return failure("index out of bounds", true);
+                    return failure("index has no compile-time storage");
                 out = std::move(*element);
                 return {};
             }
@@ -353,17 +398,8 @@ export namespace dcc::ctfe
             switch (expr.kind)
             {
                 case ast::ExprKind::Ident:
-                case ast::ExprKind::PathExpr: {
-                    auto* decl = expr.sema.resolved_decl;
-                    if (volatile_decl(decl))
-                        return failure("volatile access");
-                    if (auto const* slot = local(decl))
-                    {
-                        out = *slot;
-                        return {};
-                    }
-                    return failure("read of non-constant storage");
-                }
+                case ast::ExprKind::PathExpr:
+                    return named_place(expr, out);
                 case ast::ExprKind::Unary: {
                     auto const& e = static_cast<ast::UnaryExpr const&>(expr);
                     if (e.op != lex::TokenKind::Star)
@@ -439,7 +475,7 @@ export namespace dcc::ctfe
 
             auto array = m_context.types->array_t(element, units + 1);
             auto key = std::format("{}:{}", static_cast<void const*>(array), bytes);
-            auto base = m_heap.intern(key, comptime::Value::make_aggregate(std::move(elements), array), array);
+            auto base = m_heap.intern(key, comptime::Value::make_aggregate(std::move(elements), array));
             auto first = m_heap.subobject(base, 0);
             if (!first)
                 return failure("string has no compile-time storage");
@@ -447,35 +483,64 @@ export namespace dcc::ctfe
             return {};
         }
 
-        Result attach(comptime::Value value)
+        Result attach(comptime::Value const& value)
         {
-            if (value.kind() != Kind::String)
-                return folded(std::move(value));
-
             auto type = value.type;
             auto element = element_of(type);
-            if (auto const* array = types::type_cast<types::ArrayType>(type))
+
+            if (value.kind() == Kind::String)
             {
-                std::vector<comptime::Value> elements;
-                elements.reserve(static_cast<std::size_t>(array->count));
-                for (std::uint64_t i = 0; i < array->count; ++i)
-                    elements.push_back(unit_value(value.get_string(), static_cast<std::size_t>(i), element));
-                return folded(comptime::Value::make_aggregate(std::move(elements), type));
+                if (auto const* array = types::type_cast<types::ArrayType>(type))
+                {
+                    std::vector<comptime::Value> elements;
+                    elements.reserve(static_cast<std::size_t>(array->count));
+                    for (std::uint64_t i = 0; i < array->count; ++i)
+                        elements.push_back(unit_value(value.get_string(), static_cast<std::size_t>(i), element));
+                    return folded(comptime::Value::make_aggregate(std::move(elements), type));
+                }
+
+                bool to_pointer = types::type_cast<types::PointerType>(type) != nullptr;
+                if (!to_pointer && !types::type_cast<types::SliceType>(type))
+                    return folded(value);
+
+                comptime::ValuePtr base;
+                auto r = intern_string(value.get_string(), element, base);
+                if (r.flow != Flow::Normal)
+                    return r;
+                if (to_pointer)
+                    return folded(comptime::Value::make_pointer_to(std::move(base), type));
+
+                auto units = is_wide(element) ? value.get_string().size() / sizeof(char16_t) : value.get_string().size();
+                return folded(comptime::Value::make_slice_ref(std::move(base), units, type));
             }
 
-            bool to_pointer = types::type_cast<types::PointerType>(type) != nullptr;
-            if (!to_pointer && !types::type_cast<types::SliceType>(type))
-                return folded(std::move(value));
+            if (value.kind() != Kind::Aggregate && value.kind() != Kind::Slice)
+                return folded(value);
+            if (value.kind() == Kind::Slice && value.slice_is_ref())
+                return folded(value);
 
-            comptime::ValuePtr base;
-            auto r = intern_string(value.get_string(), element, base);
-            if (r.flow != Flow::Normal)
-                return r;
-            if (to_pointer)
-                return folded(comptime::Value::make_pointer_to(std::move(base), type));
+            std::vector<comptime::Value> elements;
+            elements.reserve(value.size());
+            for (std::size_t i = 0; i < value.size(); ++i)
+            {
+                auto r = attach(value.at(i));
+                if (r.flow != Flow::Normal || !r.value)
+                    return r;
+                elements.push_back(std::move(*r.value));
+            }
 
-            auto units = is_wide(element) ? value.get_string().size() / sizeof(char16_t) : value.get_string().size();
-            return folded(comptime::Value::make_slice_ref(std::move(base), units, type));
+            if (value.kind() == Kind::Aggregate)
+                return folded(comptime::Value::make_aggregate(std::move(elements), type));
+            if (elements.empty() || !element || !m_context.types)
+                return folded(comptime::Value::make_slice(std::move(elements), type));
+
+            auto count = elements.size();
+            auto array = m_context.types->array_t(element, count);
+            auto base = m_heap.intern(std::format("{}", static_cast<void const*>(&value)), comptime::Value::make_aggregate(std::move(elements), array));
+            auto first = m_heap.subobject(base, 0);
+            if (!first)
+                return failure("slice has no compile-time storage");
+            return folded(comptime::Value::make_slice_ref(std::move(*first), count, type));
         }
 
         Result slice_bounds(ast::RangeExpr const& range, std::size_t length, std::size_t& start, std::size_t& end)
@@ -513,22 +578,25 @@ export namespace dcc::ctfe
             std::size_t length = 0;
             if (auto const* array = types::type_cast<types::ArrayType>(type))
             {
-                comptime::ValuePtr object;
-                auto r = place(*expr.object, object);
-                if (r.flow != Flow::Normal)
-                    return r;
-                auto first = m_heap.subobject(object, 0);
-                if (!first)
-                    return failure("slice has no compile-time storage");
-                base = std::move(*first);
                 length = static_cast<std::size_t>(array->count);
+                if (length != 0)
+                {
+                    comptime::ValuePtr object;
+                    auto r = place(*expr.object, object);
+                    if (r.flow != Flow::Normal)
+                        return r;
+                    auto first = m_heap.subobject(object, 0);
+                    if (!first)
+                        return failure("slice has no compile-time storage");
+                    base = std::move(*first);
+                }
             }
             else
             {
                 auto r = expression(*expr.object);
                 if (r.flow != Flow::Normal || !r.value)
                     return r;
-                if (r.value->kind() != Kind::Slice || !r.value->slice_is_ref())
+                if (r.value->kind() != Kind::Slice)
                     return failure("slice has no compile-time storage");
                 base = r.value->slice_base();
                 length = r.value->slice_length();
@@ -539,6 +607,8 @@ export namespace dcc::ctfe
             auto bounds = slice_bounds(range, length, start, end);
             if (bounds.flow != Flow::Normal)
                 return bounds;
+            if (start == end)
+                return folded(comptime::Value::make_slice({}, type_of(expr)));
 
             auto first = m_heap.offset(base, static_cast<std::int64_t>(start));
             if (!first)
@@ -546,14 +616,16 @@ export namespace dcc::ctfe
             return folded(comptime::Value::make_slice_ref(std::move(*first), end - start, type_of(expr)));
         }
 
-        Result decay(ast::Expr const& expr, types::TypePtr target)
+        Result convert(ast::Expr const& expr, types::TypePtr target)
         {
-            auto source = type_of(expr);
-            auto const* array = types::type_cast<types::ArrayType>(source);
+            auto const* array = types::type_cast<types::ArrayType>(type_of(expr));
             bool to_slice = types::type_cast<types::SliceType>(target) != nullptr;
             bool to_pointer = types::type_cast<types::PointerType>(target) != nullptr;
             if (!array || (!to_slice && !to_pointer))
                 return expression(expr);
+
+            if (array->count == 0 && to_slice)
+                return folded(comptime::Value::make_slice({}, target));
 
             comptime::ValuePtr object;
             auto r = place(expr, object);
@@ -566,13 +638,6 @@ export namespace dcc::ctfe
             if (to_pointer)
                 return folded(comptime::Value::make_pointer_to(std::move(*first), target));
             return folded(comptime::Value::make_slice_ref(std::move(*first), static_cast<std::size_t>(array->count), target));
-        }
-
-        Result convert(ast::Expr const& expr, types::TypePtr target)
-        {
-            if (target && types::type_cast<types::ArrayType>(type_of(expr)))
-                return decay(expr, target);
-            return expression(expr);
         }
 
         Result aggregate_literal(ast::StructLiteralExpr const& expr)
@@ -658,7 +723,7 @@ export namespace dcc::ctfe
             if (m_cells++ >= m_context.memory_limit)
                 return failure("memory limit exceeded", true);
 
-            out = m_heap.allocate(std::move(*r.value), type_of(expr), true);
+            out = m_heap.allocate(std::move(*r.value), true);
             m_frames.back().allocations.push_back(out.allocation);
             return {};
         }
@@ -709,13 +774,13 @@ export namespace dcc::ctfe
                         if (!m_context.types || !matched_type)
                             return failure("pattern binding has not been resolved");
                         auto type = m_context.types->pointer_to(matched_type, types::Qual::None);
-                        return bind(binding.synthetic_decl, comptime::Value::make_pointer_to(subject, type), type);
+                        return bind(binding.synthetic_decl, comptime::Value::make_pointer_to(subject, type));
                     }
 
                     auto value = read(subject);
                     if (value.flow != Flow::Normal || !value.value)
                         return value;
-                    return bind(binding.synthetic_decl, std::move(*value.value), value.value->type);
+                    return bind(binding.synthetic_decl, std::move(*value.value));
                 }
                 case ast::PatternKind::Literal: {
                     auto const* literal = static_cast<ast::LiteralPattern const&>(pattern).value;
@@ -845,36 +910,23 @@ export namespace dcc::ctfe
 
         Result member_value(ast::FieldAccessExpr const& expr)
         {
-            comptime::ValuePtr member;
-            auto r = field_place(expr, member);
-            if (r.flow == Flow::Normal)
-                return read(member);
-            if (r.flow == Flow::Error)
-                return r;
-
-            auto object = expression(*expr.object);
-            if (object.flow != Flow::Normal || !object.value)
-                return object;
-
-            if (object.value->kind() == Kind::Slice)
+            if (types::type_cast<types::SliceType>(type_of(*expr.object)))
             {
+                auto object = expression(*expr.object);
+                if (object.flow != Flow::Normal || !object.value || object.value->kind() != Kind::Slice)
+                    return object;
                 if (expr.field == "len")
                     return folded(comptime::Value::make_int(static_cast<std::int64_t>(object.value->slice_length()), type_of(expr)));
                 if (expr.field == "ptr" && object.value->slice_is_ref())
                     return folded(comptime::Value::make_pointer_to(object.value->slice_base(), type_of(expr)));
-                return r;
+                return failure("slice field has no compile-time value");
             }
 
-            auto fields = record_fields(type_of(*expr.object));
-            if (object.value->kind() == Kind::Aggregate)
-                for (std::size_t i = 0; i < fields.size() && i < object.value->size(); ++i)
-                    if (fields[i].name == expr.field)
-                    {
-                        if (volatile_type(fields[i].type))
-                            return failure("volatile access");
-                        return folded(object.value->at(i));
-                    }
-            return r;
+            comptime::ValuePtr member;
+            auto r = field_place(expr, member);
+            if (r.flow != Flow::Normal)
+                return r;
+            return read(member);
         }
 
         Result element_value(ast::IndexExpr const& expr)
@@ -884,26 +936,27 @@ export namespace dcc::ctfe
 
             comptime::ValuePtr element;
             auto r = element_place(expr, element);
-            if (r.flow == Flow::Normal)
-                return read(element);
-            if (r.flow == Flow::Error)
+            if (r.flow != Flow::Normal)
                 return r;
+            return read(element);
+        }
 
-            auto object = expression(*expr.object);
-            if (object.flow != Flow::Normal || !object.value)
-                return object;
-            if (object.value->kind() != Kind::Aggregate && object.value->kind() != Kind::Slice)
-                return r;
-            if (object.value->kind() == Kind::Slice && object.value->slice_is_ref())
-                return r;
+        Result offset_pointer(comptime::Value const& pointer, std::int64_t delta)
+        {
+            if (pointer.is_null_ptr())
+                return failure("arithmetic on a null pointer", true);
 
-            std::int64_t index{};
-            auto i = index_of(*expr.index, index);
-            if (i.flow != Flow::Normal)
-                return i;
-            if (index < 0 || static_cast<std::size_t>(index) >= object.value->size())
-                return failure("index out of bounds", true);
-            return folded(object.value->at(static_cast<std::size_t>(index)));
+            auto moved = m_heap.offset(pointer.get_pointer(), delta);
+            if (!moved)
+                return failure("pointer arithmetic leaves the bounds of a compile-time object", true);
+            return folded(comptime::Value::make_pointer_to(std::move(*moved), pointer.type));
+        }
+
+        static bool share_container(comptime::ValuePtr const& a, comptime::ValuePtr const& b)
+        {
+            if (a.is_null || b.is_null || a.allocation != b.allocation || a.path.size() != b.path.size() || a.path.empty())
+                return false;
+            return std::equal(a.path.begin(), a.path.end() - 1, b.path.begin());
         }
 
         Result pointer_binary(lex::TokenKind op, comptime::Value const& lhs, comptime::Value const& rhs, types::TypePtr out_type)
@@ -925,34 +978,20 @@ export namespace dcc::ctfe
                 return folded(comptime::Value::make_bool((lhs.get_pointer() == rhs.get_pointer()) == (op == K::EqEq), out_type));
 
             if (lhs_pointer && rhs.kind() == Kind::Int && (op == K::Plus || op == K::Minus))
-            {
-                if (lhs.is_null_ptr())
-                    return failure("arithmetic on a null pointer", true);
-                auto delta = op == K::Plus ? rhs.get_int() : -rhs.get_int();
-                auto moved = m_heap.offset(lhs.get_pointer(), delta);
-                if (!moved)
-                    return failure("pointer arithmetic leaves the bounds of a compile-time object", true);
-                return folded(comptime::Value::make_pointer_to(std::move(*moved), lhs.type));
-            }
-
-            if (lhs_pointer && rhs_pointer && op == K::Minus)
-            {
-                auto const& a = lhs.get_pointer();
-                auto const& b = rhs.get_pointer();
-                if (a.is_null || b.is_null || a.allocation != b.allocation || a.path.size() != b.path.size())
-                    return failure("difference of unrelated compile-time pointers", true);
-                if (!std::equal(a.path.begin(), a.path.end() - 1, b.path.begin()))
-                    return failure("difference of unrelated compile-time pointers", true);
-                return folded(comptime::Value::make_int(static_cast<std::int64_t>(a.path.back()) - static_cast<std::int64_t>(b.path.back()), out_type));
-            }
+                return offset_pointer(lhs, op == K::Plus ? rhs.get_int() : -rhs.get_int());
 
             if (lhs_pointer && rhs_pointer)
             {
                 auto const& a = lhs.get_pointer();
                 auto const& b = rhs.get_pointer();
-                if (a.is_null || b.is_null || a.allocation != b.allocation || a.path.size() != b.path.size())
-                    return failure("comparison of unrelated compile-time pointers", true);
-                return folded(const_eval::fold_int_cmp(op, static_cast<std::int64_t>(a.path.back()), static_cast<std::int64_t>(b.path.back()), out_type));
+                if (!share_container(a, b))
+                    return failure(op == K::Minus ? "difference of unrelated compile-time pointers" : "comparison of unrelated compile-time pointers", true);
+
+                auto first = static_cast<std::int64_t>(a.path.back());
+                auto second = static_cast<std::int64_t>(b.path.back());
+                if (op == K::Minus)
+                    return folded(comptime::Value::make_int(first - second, out_type));
+                return folded(const_eval::fold_int_cmp(op, first, second, out_type));
             }
             return unsupported();
         }
@@ -968,7 +1007,7 @@ export namespace dcc::ctfe
             if (old.flow != Flow::Normal || !old.value)
                 return old;
 
-            auto delta = increment ? 1 : -1;
+            std::int64_t delta = increment ? 1 : -1;
             std::optional<comptime::Value> next;
             switch (old.value->kind())
             {
@@ -979,15 +1018,13 @@ export namespace dcc::ctfe
                         return failure("integer overflow", true);
                     break;
                 case Kind::Float:
-                    next = comptime::Value::make_float(old.value->get_float() + delta, old.value->type);
+                    next = comptime::Value::make_float(old.value->get_float() + static_cast<double>(delta), old.value->type);
                     break;
                 case Kind::Pointer: {
-                    if (old.value->is_null_ptr())
-                        return failure("arithmetic on a null pointer", true);
-                    auto moved = m_heap.offset(old.value->get_pointer(), delta);
-                    if (!moved)
-                        return failure("pointer arithmetic leaves the bounds of a compile-time object", true);
-                    next = comptime::Value::make_pointer_to(std::move(*moved), old.value->type);
+                    auto moved = offset_pointer(*old.value, delta);
+                    if (moved.flow != Flow::Normal)
+                        return moved;
+                    next = std::move(moved.value);
                     break;
                 }
                 default:
@@ -1184,7 +1221,7 @@ export namespace dcc::ctfe
             if (fn->sema.storage == ast::StorageClass::Unresolved || !fn->template_params.empty() || args.size() != fn->params.size())
                 return failure("call requires a resolved function and materialized arguments");
 
-            m_frames.push_back(Frame{fn, call.range, {}, {}});
+            m_frames.push_back(Frame{Call{fn, call.range}, {}, {}});
             auto result = enter(*fn, std::move(args));
             for (auto allocation : m_frames.back().allocations)
                 m_heap.end_lifetime(allocation);
@@ -1198,7 +1235,7 @@ export namespace dcc::ctfe
             {
                 if (volatile_decl(fn.params[i].synthetic_decl))
                     return failure("volatile access");
-                auto r = bind(fn.params[i].synthetic_decl, std::move(args[i]), type_of(fn.params[i].type));
+                auto r = bind(fn.params[i].synthetic_decl, std::move(args[i]));
                 if (r.flow != Flow::Normal)
                     return r;
             }
@@ -1254,12 +1291,12 @@ export namespace dcc::ctfe
 
             auto type = type_of(var->type);
             if (!var->init)
-                return bind(var, default_object(type), type);
+                return bind(var, default_object(type));
 
             auto r = convert(*var->init, type);
             if (r.flow != Flow::Normal || !r.value)
                 return r;
-            return bind(var, std::move(*r.value), type);
+            return bind(var, std::move(*r.value));
         }
 
         Result statement(ast::Stmt const& stmt)
@@ -1275,7 +1312,7 @@ export namespace dcc::ctfe
                     return declaration(static_cast<ast::DeclStmt const&>(stmt).decl);
                 case ast::StmtKind::Return: {
                     auto* value = static_cast<ast::ReturnStmt const&>(stmt).value;
-                    auto& fn = m_frames.back().function;
+                    auto* fn = m_frames.back().call.function;
                     auto r = value ? convert(*value, fn && fn->return_type ? type_of(fn->return_type) : nullptr) : Result{};
                     if (r.flow == Flow::Normal)
                         r.flow = Flow::Return;
@@ -1337,17 +1374,11 @@ export namespace dcc::ctfe
             {
                 case ast::ExprKind::Ident:
                 case ast::ExprKind::PathExpr: {
-                    auto* decl = expr.sema.resolved_decl;
-                    if (volatile_decl(decl))
-                        return failure("volatile access");
-                    if (auto const* slot = local(decl))
-                        return read(*slot);
-                    if (expr.sema.const_value)
-                        return attach(*expr.sema.const_value);
-                    auto* var = ast::node_cast<ast::VarDecl>(decl);
-                    if (var && var->sema.is_immutable && var->init && var->init->sema.const_value)
-                        return attach(*var->init->sema.const_value);
-                    return failure("read of non-constant storage");
+                    comptime::ValuePtr object;
+                    auto r = named_place(expr, object);
+                    if (r.flow != Flow::Normal)
+                        return r;
+                    return read(object);
                 }
                 case ast::ExprKind::Call:
                     return call(static_cast<ast::CallExpr const&>(expr));
@@ -1524,7 +1555,7 @@ export namespace dcc::ctfe
             m_steps = 0;
             m_cells = 0;
             m_frames.clear();
-            m_frames.push_back(Frame{m_context.function, m_context.call_site, {}, {}});
+            m_frames.push_back(Frame{Call{m_context.function, m_context.call_site}, {}, {}});
 
             auto r = expression(expr);
             if (r.flow == Flow::Normal && r.value)
