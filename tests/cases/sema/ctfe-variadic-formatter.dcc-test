@@ -1,0 +1,150 @@
+=== FILE: main.dc ===
+module test_variadic_formatter;
+
+struct Sink {
+    []u8 buffer;
+    usize pos;
+}
+
+void write(Sink* s, []const u8 bytes) {
+    for (usize i = 0; i < bytes.len; i += 1) {
+        if s.pos < s.buffer.len {
+            s.buffer[s.pos] = bytes[i];
+            s.pos += 1;
+        }
+    }
+}
+
+using WritableInto(W) = compiles(W x, []const u8 bytes) {
+    x.write(bytes);
+};
+
+void format_value(W)(W out, []const u8 s, u8 spec) if WritableInto(W) {
+    out.write(s);
+}
+
+void format_value(W)(W out, u64 val, u8 spec) if WritableInto(W) {
+    u8[20] buf;
+    usize pos = 20;
+    u64 v = val;
+    if spec == ('x' as u8) {
+        if v == 0 {
+            pos -= 1;
+            buf[pos] = '0' as u8;
+        } else {
+            while v > 0 {
+                pos -= 1;
+                u64 d = v % 16;
+                buf[pos] = if d < 10 { ('0' as u8) + d as u8 } else { ('a' as u8) + (d - 10) as u8 };
+                v /= 16;
+            }
+        }
+    } else {
+        if v == 0 {
+            pos -= 1;
+            buf[pos] = '0' as u8;
+        } else {
+            while v > 0 {
+                pos -= 1;
+                buf[pos] = ('0' as u8) + (v % 10) as u8;
+                v /= 10;
+            }
+        }
+    }
+    out.write(buf[pos..20]);
+}
+
+void format_value(W)(W out, i64 val, u8 spec) if WritableInto(W) {
+    if val < 0 {
+        u8[1] neg;
+        neg[0] = '-' as u8;
+        out.write(neg);
+        out.format_value((0 - val as u64), spec);
+    } else {
+        out.format_value(val as u64, spec);
+    }
+}
+
+void format_to(W, T...)(W out, []const u8 fmt, T args) if WritableInto(W) {
+    usize cursor = 0;
+    usize i = 0;
+    static for arg in args {
+        i = cursor;
+        while i < fmt.len && fmt[i] != ('{' as u8) {
+            i += 1;
+        }
+        if i > cursor {
+            out.write(fmt[cursor..i]);
+        }
+        if i < fmt.len && fmt[i] == ('{' as u8) {
+            usize spec_start = i + 1;
+            while i < fmt.len && fmt[i] != ('}' as u8) {
+                i += 1;
+            }
+            u8 spec = 0;
+            if i > spec_start {
+                if fmt[spec_start] == (':' as u8) && i > spec_start + 1 {
+                    spec = fmt[spec_start + 1];
+                } else {
+                    spec = fmt[spec_start];
+                }
+            }
+            if i < fmt.len {
+                i += 1;
+            }
+            cursor = i;
+            out.format_value(arg, spec);
+        } else {
+            cursor = i;
+        }
+    }
+    if cursor < fmt.len {
+        out.write(fmt[cursor..fmt.len]);
+    }
+}
+
+bool same([]const u8 a, []const u8 b) {
+    if a.len != b.len { return false; }
+    for (usize i = 0; i < a.len; i += 1) {
+        if a[i] != b[i] { return false; }
+    }
+    return true;
+}
+
+bool test() {
+    u8[64] storage;
+    Sink sink = { buffer = storage, pos = 0 };
+    Sink* out = &sink;
+    []const u8 name = "disk";
+    out.format_to("{} uses {} bytes (0x{:x})", name, 4096 as u64, 48879 as u64);
+    if sink.pos != 29 {
+        return false;
+    }
+    return same(storage[0..sink.pos], "disk uses 4096 bytes (0xbeef)");
+}
+
+bool test_empty() {
+    u8[16] storage;
+    Sink sink = { buffer = storage, pos = 0 };
+    Sink* out = &sink;
+    out.format_to("hello world");
+    return sink.pos == 11 && same(storage[0..sink.pos], "hello world");
+}
+
+bool test_negative() {
+    u8[32] storage;
+    Sink sink = { buffer = storage, pos = 0 };
+    Sink* out = &sink;
+    out.format_to("temp: {} deg", -42 as i64);
+    return sink.pos == 13 && same(storage[0..sink.pos], "temp: -42 deg");
+}
+
+const bool OK = test();
+const bool OK_EMPTY = test_empty();
+const bool OK_NEG = test_negative();
+
+void verify() {
+    static if !OK || !OK_EMPTY || !OK_NEG { incorrect_ctfe_result(); }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

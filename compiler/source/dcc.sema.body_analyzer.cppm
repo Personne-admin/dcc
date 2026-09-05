@@ -5244,7 +5244,9 @@ export namespace dcc::sema
                     }
                     args.push_back(r);
                     pack_arg_types.push_back(r.type);
-                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                    auto const* raw_arg = arg_exprs[func_arg_start + i];
+                    bool const is_str_lit = raw_arg && (raw_arg->kind == ast::ExprKind::StringLiteral || raw_arg->kind == ast::ExprKind::U16StringLiteral);
+                    if (is_str_lit && r.constant && r.constant->kind() == comptime::Value::Kind::String)
                         pack_arg_values.push_back(*r.constant);
                     else
                         pack_arg_values.push_back(comptime::Value{});
@@ -5654,7 +5656,9 @@ export namespace dcc::sema
                     }
                     args.push_back(r);
                     pack_arg_types.push_back(r.type);
-                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                    auto const* raw_arg = arg_exprs[func_arg_start + i];
+                    bool const is_str_lit = raw_arg && (raw_arg->kind == ast::ExprKind::StringLiteral || raw_arg->kind == ast::ExprKind::U16StringLiteral);
+                    if (is_str_lit && r.constant && r.constant->kind() == comptime::Value::Kind::String)
                         pack_arg_values.push_back(*r.constant);
                     else
                         pack_arg_values.push_back(comptime::Value{});
@@ -6011,7 +6015,9 @@ export namespace dcc::sema
 
                     args.push_back(r);
                     pack_arg_types.push_back(r.type);
-                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                    auto const* raw_arg = arg_exprs[func_arg_start + i];
+                    bool const is_str_lit = raw_arg && (raw_arg->kind == ast::ExprKind::StringLiteral || raw_arg->kind == ast::ExprKind::U16StringLiteral);
+                    if (is_str_lit && r.constant && r.constant->kind() == comptime::Value::Kind::String)
                         pack_arg_values.push_back(*r.constant);
                     else
                         pack_arg_values.push_back(comptime::Value{});
@@ -6023,6 +6029,27 @@ export namespace dcc::sema
             actuals.push_back(match->second);
             for (auto const& a : args)
                 actuals.push_back(a.type);
+
+            for (std::size_t i = 0; i < args.size() && i < non_pack_after_receiver; ++i)
+            {
+                auto subbed_param = b.substitute(params[i + 1]);
+                if (actuals[i + 1] != subbed_param && !has_error(actuals[i + 1]) && !has_error(subbed_param) &&
+                    !types::type_cast<types::TemplateParamType>(subbed_param))
+                {
+                    ast::EnumVariant const* implicit_enum_var = nullptr;
+                    if (auto* conv = try_implicit_enum_conversion(subbed_param, actuals[i + 1], mod, scope, &implicit_enum_var); conv && !has_error(conv))
+                    {
+                        if (implicit_enum_var)
+                        {
+                            arg_exprs[func_arg_start + i]->sema.construction_kind = ConstructionKind::Enum;
+                            arg_exprs[func_arg_start + i]->sema.constructed_variant = implicit_enum_var;
+                            set_resolved_type(arg_exprs[func_arg_start + i]->sema, subbed_param);
+                        }
+                        actuals[i + 1] = subbed_param;
+                        args[i].type = subbed_param;
+                    }
+                }
+            }
 
             std::vector<types::TypePtr> deduce_params;
             deduce_params.reserve(non_pack_func_params + (has_func_pack ? 1 : 0));
@@ -9102,6 +9129,7 @@ export namespace dcc::sema
             auto const* defining = m_specialization_defining_module != &mod ? m_specialization_defining_module : nullptr;
             if (defining && defining->own_scope)
                 append(defining->own_scope->lookup_values(name));
+
             if (mod.own_scope)
                 append(mod.own_scope->lookup_values(name));
             return out;
@@ -10516,8 +10544,8 @@ export namespace dcc::sema
                     }
 
                     ast::EnumVariant const* implicit_enum_var = nullptr;
-                    bool pointer_step = (b.op == lex::TokenKind::PlusEq || b.op == lex::TokenKind::MinusEq) &&
-                                        types::type_cast<types::PointerType>(lhs_type) && types::type_cast<types::IntType>(erase_refinement(rhs.type));
+                    bool pointer_step = (b.op == lex::TokenKind::PlusEq || b.op == lex::TokenKind::MinusEq) && types::type_cast<types::PointerType>(lhs_type) &&
+                                        types::type_cast<types::IntType>(erase_refinement(rhs.type));
                     if (pointer_step && !pointer_arithmetic_operand(lhs_type, b.range))
                     {
                         out.type = m_types.m_errort();
@@ -10876,7 +10904,7 @@ export namespace dcc::sema
         }
 
         std::optional<detail::ExprResult> analyze_pointer_arithmetic(ast::BinaryExpr& b, detail::ExprResult& lhs, detail::ExprResult& rhs,
-                                                                    detail::ExprResult& out)
+                                                                     detail::ExprResult& out)
         {
             bool lhs_pointer = types::type_cast<types::PointerType>(lhs.type) != nullptr;
             bool rhs_pointer = types::type_cast<types::PointerType>(rhs.type) != nullptr;
@@ -13094,7 +13122,9 @@ export namespace dcc::sema
                         expected_ty = b.substitute(pt->element);
                     auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env);
                     pack_arg_types.push_back(r.type);
-                    if (r.constant && r.constant->kind() == comptime::Value::Kind::String)
+                    auto const* raw_arg = arg_exprs[func_arg_start + i];
+                    bool const is_str_lit = raw_arg && (raw_arg->kind == ast::ExprKind::StringLiteral || raw_arg->kind == ast::ExprKind::U16StringLiteral);
+                    if (is_str_lit && r.constant && r.constant->kind() == comptime::Value::Kind::String)
                         pack_arg_values.push_back(*r.constant);
                     else
                         pack_arg_values.push_back(comptime::Value{});
