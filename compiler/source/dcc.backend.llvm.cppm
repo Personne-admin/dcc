@@ -3550,6 +3550,8 @@ namespace dcc::backend
                             auto count = std::min(agg->values.size(), aggregate_type->members.size());
                             for (std::size_t i = 0; i < count; ++i)
                             {
+                                if (!agg->values[i])
+                                    continue;
                                 auto* member = lookup(agg->values[i]);
                                 if (!member)
                                     return false;
@@ -3577,6 +3579,8 @@ namespace dcc::backend
                             auto* ir_agg_type = static_cast<IrAggregateType const*>(agg->type);
                             for (std::size_t i = 0; i < agg->values.size(); ++i)
                             {
+                                if (!agg->values[i])
+                                    continue;
                                 auto* mv = lookup(agg->values[i]);
                                 if (!mv)
                                     return false;
@@ -3592,6 +3596,8 @@ namespace dcc::backend
                         {
                             for (std::size_t i = 0; i < agg->values.size(); ++i)
                             {
+                                if (!agg->values[i])
+                                    continue;
                                 auto* mv = lookup(agg->values[i]);
                                 if (!mv)
                                     return false;

@@ -7227,12 +7227,15 @@ export namespace dcc::ir::lower
                 agg->values[idx] = val;
             }
 
-            for (std::uint32_t i = 0; i < field_count; ++i)
+            if (!ut)
             {
-                if (!agg->values[i])
+                for (std::uint32_t i = 0; i < field_count; ++i)
                 {
-                    auto* ir_field_ty = (i < field_types.size()) ? lower_type(field_types[i]) : nullptr;
-                    agg->values[i] = zero_value(ir_field_ty ? ir_field_ty : ir_ty);
+                    if (!agg->values[i])
+                    {
+                        auto* ir_field_ty = (i < field_types.size()) ? lower_type(field_types[i]) : nullptr;
+                        agg->values[i] = zero_value(ir_field_ty ? ir_field_ty : ir_ty);
+                    }
                 }
             }
 
