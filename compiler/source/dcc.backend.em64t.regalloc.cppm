@@ -400,9 +400,10 @@ namespace dcc::backend::em64t
             bool crosses_call = false;
         };
 
+        constexpr std::uint32_t kBlockStride = 512;
+
         void compute_liveness(MFunction& func, target::TargetConfig const& target, std::vector<LiveRange>& ranges)
         {
-            constexpr std::uint32_t kBlockStride = 512;
 
             struct BlockLiveness
             {
@@ -690,10 +691,26 @@ namespace dcc::backend::em64t
             auto xmms = regs.xmms;
 
             std::unordered_set<VReg> setcc_defs;
+            std::unordered_map<PhysReg, std::vector<std::uint32_t>> clobbers;
             for (auto const& blk : func.blocks)
-                for (auto const& instr : blk.instrs)
+            {
+                std::uint32_t base_pp = blk.id * kBlockStride;
+                for (std::size_t ii = 0; ii < blk.instrs.size(); ++ii)
+                {
+                    auto const& instr = blk.instrs[ii];
                     if (is_setcc(instr.opc) && instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_virtual())
                         setcc_defs.insert(instr.ops[0].reg);
+
+                    auto pp = base_pp + static_cast<std::uint32_t>(ii);
+                    for (std::uint8_t oi = 0; oi < instr.num_defs && oi < instr.num_ops; ++oi)
+                        if (instr.ops[oi].kind == MOpKind::Reg && instr.ops[oi].reg.is_physical())
+                            clobbers[instr.ops[oi].reg.phys_reg()].push_back(pp);
+
+                    for (int pi = 0; pi < static_cast<int>(PhysReg::Count); ++pi)
+                        if (instr.implicit_defs & (1ULL << pi))
+                            clobbers[static_cast<PhysReg>(pi)].push_back(pp);
+                }
+            }
 
             std::vector<LiveRange*> active;
 
@@ -706,7 +723,15 @@ namespace dcc::backend::em64t
                 std::ranges::sort(active, [](LiveRange const* a, LiveRange const* b) { return a->end < b->end; });
 
                 auto const& avail = (range.reg_class == RegClass::XMM) ? xmms : gprs;
-                auto reg_is_allowed = [&](PhysReg reg) { return !setcc_defs.contains(range.vreg) || (reg != PhysReg::RSI && reg != PhysReg::RDI); };
+                auto reg_is_allowed = [&](PhysReg reg) {
+                    if (setcc_defs.contains(range.vreg) && (reg == PhysReg::RSI || reg == PhysReg::RDI))
+                        return false;
+
+                    auto it = clobbers.find(reg);
+                    if (it == clobbers.end())
+                        return true;
+                    return std::ranges::none_of(it->second, [&](std::uint32_t pp) { return pp > range.start && pp < range.end; });
+                };
 
                 std::unordered_set<PhysReg> occupied;
                 for (auto* a : active)
