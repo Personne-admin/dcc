@@ -4912,9 +4912,9 @@ export namespace dcc::sema
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
                 }
 
-                if (analyzed.is_lvalue && (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee)))
+                if (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee))
                 {
-                    bool receiver_has_const = analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl);
+                    bool receiver_has_const = !analyzed.is_lvalue || (analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl));
                     bool param_wants_const = types::has_qual(param_ptr->pointee_quals, types::Qual::Const);
 
                     if (param_wants_const)

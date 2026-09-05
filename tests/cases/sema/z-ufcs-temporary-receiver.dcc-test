@@ -1,0 +1,56 @@
+=== FILE: main.dc ===
+module m;
+
+public enum Optional(T) {
+    Some(T),
+    None,
+}
+
+public bool is_some(T)(const Optional(T)* self) {
+    return match *self {
+        Optional::Some(_) => true,
+        _ => false,
+    };
+}
+
+Optional(usize) make_optional() {
+    return Optional::Some(42 as usize);
+}
+
+void test_optional() {
+    Optional(usize) x = make_optional();
+    bool a = x.is_some();
+    bool b = make_optional().is_some();
+}
+
+public struct S {
+    i32 val;
+}
+
+bool inspect(const S* self) {
+    return true;
+}
+
+S make_s() {
+    return { 10 };
+}
+
+void test_struct() {
+    S s;
+    bool a = s.inspect();
+    bool b = make_s().inspect();
+}
+
+i32 rank_test(S self) {
+    return 1;
+}
+
+i32 rank_test(const S* self) {
+    return 2;
+}
+
+void test_ranking() {
+    S s;
+    i32 r1 = s.rank_test();
+    i32 r2 = make_s().rank_test();
+}

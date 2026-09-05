@@ -4263,6 +4263,12 @@ export namespace dcc::ir::lower
         IrValue* lower_if_expr(ast::IfExpr const* ie)
         {
             auto* sema_ty = get_sema_resolved_type(ie);
+            if (ie->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && ie->sema.constructed_variant)
+            {
+                auto* eff_payload_ty = variant_effective_payload_type_for_lowering(ie->sema.constructed_variant, sema_ty);
+                if (eff_payload_ty)
+                    sema_ty = eff_payload_ty;
+            }
             bool has_result = sema_ty && sema_ty->kind != dcc::types::TypeKind::Void;
             auto* ir_result_ty = has_result ? lower_type(sema_ty) : nullptr;
 
@@ -4497,6 +4503,12 @@ export namespace dcc::ir::lower
         IrValue* lower_match_expr(ast::MatchExpr const* me)
         {
             auto* sema_ty = get_sema_resolved_type(me);
+            if (me->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && me->sema.constructed_variant)
+            {
+                auto* eff_payload_ty = variant_effective_payload_type_for_lowering(me->sema.constructed_variant, sema_ty);
+                if (eff_payload_ty)
+                    sema_ty = eff_payload_ty;
+            }
             bool has_result = sema_ty && sema_ty->kind != dcc::types::TypeKind::Void;
             auto* ir_result_ty = has_result ? lower_type(sema_ty) : nullptr;
             bool is_void = !has_result;
@@ -7290,11 +7302,12 @@ export namespace dcc::ir::lower
                 bool needs_payload_lowering =
                     ast::node_cast<ast::StringLiteralExpr>(expr) || ast::node_cast<ast::U16StringLiteralExpr>(expr) || expr->sema.const_value;
 
+                IrValue* evaluated_fallback = nullptr;
                 if (!needs_payload_lowering)
                 {
-                    auto* fallback_val = fallback_lower();
-                    if (fallback_val && fallback_val->type == ir_enum_ty && fallback_val->kind == IrNodeKind::Aggregate)
-                        return fallback_val;
+                    evaluated_fallback = fallback_lower();
+                    if (evaluated_fallback && evaluated_fallback->type == ir_enum_ty && evaluated_fallback->kind == IrNodeKind::Aggregate)
+                        return evaluated_fallback;
                 }
 
                 std::vector<IrValue*> payload_args;
@@ -7305,7 +7318,7 @@ export namespace dcc::ir::lower
                     if (!payload_canon)
                     {
                         if (!needs_payload_lowering)
-                            payload_args.push_back(fallback_lower());
+                            payload_args.push_back(evaluated_fallback ? evaluated_fallback : fallback_lower());
                         else
                             payload_args.push_back(nullptr);
 
@@ -7337,7 +7350,7 @@ export namespace dcc::ir::lower
                         payload_val = materialize_comptime(*expr->sema.const_value, payload_canon);
 
                     if (!payload_val && !needs_payload_lowering)
-                        payload_val = fallback_lower();
+                        payload_val = evaluated_fallback ? evaluated_fallback : fallback_lower();
 
                     if (payload_val)
                     {

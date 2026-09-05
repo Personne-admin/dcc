@@ -87,10 +87,7 @@ export namespace dcc::ctfe
                 evaluator.m_default_argument_call_site = range;
             }
 
-            ~DefaultArgumentCallSiteGuard()
-            {
-                evaluator.m_default_argument_call_site = previous;
-            }
+            ~DefaultArgumentCallSiteGuard() { evaluator.m_default_argument_call_site = previous; }
         };
 
         Result failure(std::string message, bool hard = false)
@@ -1187,7 +1184,16 @@ export namespace dcc::ctfe
                     comptime::ValuePtr object;
                     receiver = place(*field->object, object);
                     if (receiver.flow != Flow::Normal)
-                        return receiver;
+                    {
+                        auto expr_res = expression(*field->object);
+                        if (expr_res.flow != Flow::Normal || !expr_res.value)
+                            return expr_res;
+                        if (m_cells++ >= m_context.memory_limit)
+                            return failure("memory limit exceeded", true);
+                        object = m_heap.allocate(std::move(*expr_res.value), true);
+                        if (!m_frames.empty())
+                            m_frames.back().allocations.push_back(object.allocation);
+                    }
                     receiver = folded(comptime::Value::make_pointer_to(std::move(object), type_of(fn.params.front().type)));
                 }
                 else if (field->object->sema.implicit_deref)

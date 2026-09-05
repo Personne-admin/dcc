@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module m;
+
+public struct S {
+    i32 val;
+}
+
+void mutate(S* self) {
+    self.val = 1;
+}
+
+S make_s() {
+    return {0};
+}
+
+void test() {
+    make_s().mutate();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:16: no matching UFCS function for `mutate` on receiver type `S`
