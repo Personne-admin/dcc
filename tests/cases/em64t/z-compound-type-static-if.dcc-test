@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+
+bool one(T)(T value) {
+    static if T == u8 { return true; } else { return false; }
+}
+
+bool either(T)(T value) {
+    static if T == u8 || T == u16 { return true; } else { return false; }
+}
+
+bool both(T, U)(T a, U b) {
+    static if T == u8 && U == u16 { return true; } else { return false; }
+}
+
+bool not_u8(T)(T value) {
+    static if T != u8 { return true; } else { return false; }
+}
+
+bool nested(T)(T value) {
+    static if compiles (T t) { t as i64; } {
+        static if T == u8 || T == u16 { return true; } else { return false; }
+    } else { return false; }
+}
+
+bool value_condition() {
+    static if true { return true; } else { return false; }
+}
+
+@nomangle public i32 dcc_main() {
+    if !one(1 as u8) || one(1 as u16) { return 1; }
+    if !either(1 as u8) || !either(1 as u16) || either(1 as u32) { return 2; }
+    if !both(1 as u8, 1 as u16) || both(1 as u8, 1 as u8) { return 3; }
+    if !not_u8(1 as u16) || not_u8(1 as u8) { return 4; }
+    if !nested(1 as u8) || nested(1 as u32) || !value_condition() { return 5; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
