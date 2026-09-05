@@ -1,0 +1,56 @@
+=== FILE: main.dc ===
+module ctfe_lifetime;
+
+void fill([]u8 out, u8 value) {
+    for (usize i = 0; i < out.len; i += 1) {
+        out[i] = value;
+    }
+}
+
+void fill_tail([]u8 out, u8 value) {
+    if out.len > 1 {
+        fill(out[1..out.len], value);
+    }
+}
+
+u64 caller_owned() {
+    u8[4] buf;
+    fill(buf[0..4], 1);
+    fill_tail(buf[0..4], 2);
+
+    u64 total = 0;
+    for (usize i = 0; i < 4; i += 1) {
+        total = total * 10 + buf[i] as u64;
+    }
+    return total;
+}
+
+[]const char borrowed_literal(bool flag) {
+    return if flag { "kept" } else { "also kept" };
+}
+
+u8[4] copied_out() {
+    u8[4] local;
+    for (usize i = 0; i < 4; i += 1) {
+        local[i] = (i * 2) as u8;
+    }
+    return local;
+}
+
+u64 copy_survives() {
+    u8[4] copy = copied_out();
+    return copy[3] as u64;
+}
+
+const u64 A = caller_owned();
+const []const char B = borrowed_literal(true);
+const u8[4] C = copied_out();
+const u64 D = copy_survives();
+
+void verify() {
+    static if A != 1222 || B.len != 4 || C[3] != 6 || D != 6 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

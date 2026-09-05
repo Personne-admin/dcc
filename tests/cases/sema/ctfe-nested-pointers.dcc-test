@@ -1,0 +1,62 @@
+=== FILE: main.dc ===
+module ctfe_nested_pointers;
+
+struct Cell { u64 value; u64 tag; }
+
+struct Row { Cell[3] cells; u64 id; }
+
+struct Grid { Row[2] rows; u64 name; }
+
+u64 deep_field() {
+    Grid g;
+    g.rows[1].cells[2].value = 7;
+    g.rows[1].cells[2].tag = 3;
+    u64* p = &g.rows[1].cells[2].value;
+    *p += 10;
+    return g.rows[1].cells[2].value * 10 + g.rows[1].cells[2].tag;
+}
+
+u64 nested_element_walk() {
+    Grid g;
+    for (usize i = 0; i < 3; i += 1) {
+        g.rows[0].cells[i].value = (i + 1) as u64;
+    }
+
+    Cell* c = &g.rows[0].cells[0];
+    u64 total = 0;
+    for (usize i = 0; i < 3; i += 1) {
+        total += c[i].value;
+    }
+
+    Cell* last = c + 2;
+    return total * 10 + (last - c) as u64 + last.value;
+}
+
+u64 through_slice_of_field() {
+    Grid g;
+    g.rows[1].cells[0].value = 4;
+    g.rows[1].cells[1].value = 5;
+    []Cell view = g.rows[1].cells[0..2];
+    view[0].value += 1;
+    return view[0].value * 10 + view[1].value;
+}
+
+u64 one_past_end() {
+    u64[3] v;
+    u64* first = &v[0];
+    u64* end = first + 3;
+    return (end - first) as u64;
+}
+
+const u64 A = deep_field();
+const u64 B = nested_element_walk();
+const u64 C = through_slice_of_field();
+const u64 D = one_past_end();
+
+void verify() {
+    static if A != 173 || B != 65 || C != 55 || D != 3 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
