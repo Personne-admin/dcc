@@ -1,0 +1,52 @@
+=== FILE: main.dc ===
+module defaults;
+i32 add(i32 a, i32 b = 1) {
+    return a + b;
+}
+T identity(T = i32)(T value) {
+    return value;
+}
+void count(u64 N = 4)() {
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module defaults
+  Func name=add
+    Return
+      Primitive i32
+    Params
+      Param name=a
+        Primitive i32
+      Param name=b
+        Primitive i32
+        DefaultValue
+          IntLiteral 1
+    Body
+      Return
+        Binary op=+
+          Ident a
+          Ident b
+  Func name=identity
+    TemplateParams
+      Param name=T
+        DefaultType
+          Primitive i32
+    Return
+      Named T
+    Params
+      Param name=value
+        Named T
+    Body
+      Return
+        Ident value
+  Func name=count
+    TemplateParams
+      Param name=N
+        ValueType
+          Primitive u64
+        DefaultValue
+          IntLiteral 4
+    Return
+      Primitive void
+    Body

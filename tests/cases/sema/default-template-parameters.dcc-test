@@ -1,0 +1,57 @@
+=== FILE: main.dc ===
+module defaults;
+
+struct Box(T = i32) {
+    T value;
+}
+
+T zero(T = i32)() {
+    return 0;
+}
+
+u64 count(u64 N = 4)() {
+    return N;
+}
+
+U dependent(T = i32, U = T)() {
+    return 0;
+}
+
+Box make_box() {
+    return { 4 as i32 };
+}
+
+i32 use_defaults() {
+    return zero();
+}
+
+u64 use_value_default() {
+    return count();
+}
+
+i32 use_dependent_default() {
+    return dependent();
+}
+
+=== EXPECT-TYPES FOR: defaults ===
+Module defaults
+  Struct Box
+    TemplateParams T
+    Field value: T
+  Func zero
+    TemplateParams T
+    Return: T
+  Func count
+    TemplateParams N: u64
+    Return: u64
+  Func dependent
+    TemplateParams T, U
+    Return: U
+  Func make_box
+    Return: Box(i32)
+  Func use_defaults
+    Return: i32
+  Func use_value_default
+    Return: u64
+  Func use_dependent_default
+    Return: i32

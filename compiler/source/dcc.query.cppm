@@ -421,8 +421,14 @@ namespace dcc::query
         void walk_template_params(std::pmr::vector<ast::TemplateParam> const& params, NodeAtLocation& result, sm::Location target, QueryOptions const& opts)
         {
             for (auto const& tp : params)
+            {
                 if (tp.value_type && range_contains_or_touches_end(tp.value_type->range, target))
                     walk_type_expr(tp.value_type, result, target, opts);
+                if (tp.default_type && range_contains_or_touches_end(tp.default_type->range, target))
+                    walk_type_expr(tp.default_type, result, target, opts);
+                if (tp.default_value && range_contains_or_touches_end(tp.default_value->range, target))
+                    walk_expr(tp.default_value, result, target, opts);
+            }
         }
 
         void walk_attrs(std::pmr::vector<ast::Attribute> const& attrs, NodeAtLocation& result, sm::Location target, QueryOptions const& opts)

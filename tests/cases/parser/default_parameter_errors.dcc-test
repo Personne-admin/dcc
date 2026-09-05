@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module defaults;
+i32 bad(i32 a = 1, i32 b) {
+    return a + b;
+}
+void bad_pack(i32 value... = 1) {
+}
+void bad_template(T = i32, U)() {
+}
+
+=== EXPECT-ERRORS ===
+main.dc:2: required parameter follows a defaulted parameter
+main.dc:5: parameter pack cannot have a default
+main.dc:7: required parameter follows a defaulted parameter

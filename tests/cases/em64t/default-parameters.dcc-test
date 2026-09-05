@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+i32 add(i32 a, i32 b = 1, i32 c = 2) {
+    return a + b + c;
+}
+
+T zero(T = i32)() {
+    return 0;
+}
+
+u64 count(u64 N = 4)() {
+    return N;
+}
+
+i32 twice(i32 value, i32 other = value) {
+    return value + other;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return add(3) + add(3, 4) + add(3, 4, 5) + zero() + count() as i32 + twice(5);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 41

@@ -277,6 +277,10 @@ namespace dccd::semantic_tokens
                     emit_decl_name(name_range, TokenType::TypeParameter);
                 if (tp.value_type)
                     visitTypeExpr(tp.value_type);
+                if (tp.default_type)
+                    visitTypeExpr(tp.default_type);
+                if (tp.default_value)
+                    visitExpr(tp.default_value);
             }
         }
 

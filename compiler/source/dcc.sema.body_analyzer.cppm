@@ -2262,8 +2262,16 @@ export namespace dcc::sema
             info.non_pack_count = param_count;
             info.min_required = param_count;
 
-            if (!func || nttps_already_resolved)
+            if (!func)
                 return info;
+
+            if (nttps_already_resolved && !func->params.empty() && is_func_param_sema_pack(func->params.back(), *func))
+                return info;
+
+            info.min_required = 0;
+            for (auto const& p : func->params)
+                if (!is_func_param_sema_pack(p, *func) && !p.default_value)
+                    ++info.min_required;
 
             if (func->params.empty())
                 return info;
@@ -2274,7 +2282,6 @@ export namespace dcc::sema
             info.has_pack = true;
             info.non_pack_count = param_count - 1;
 
-            info.min_required = info.non_pack_count;
             return info;
         }
 
@@ -4085,7 +4092,7 @@ export namespace dcc::sema
                 bool all_pack = !f.template_params.empty();
                 for (auto const& tp : f.template_params)
                 {
-                    if (!tp.is_pack)
+                    if (!tp.is_pack && !tp.default_type && !tp.default_value)
                     {
                         all_pack = false;
                         break;
@@ -4112,10 +4119,14 @@ export namespace dcc::sema
 
             bool has_pack = !f.template_params.empty() && f.template_params.back().is_pack;
             std::size_t non_pack_count = has_pack ? f.template_params.size() - 1 : f.template_params.size();
+            std::size_t required_count = 0;
+            for (std::size_t pi = 0; pi < non_pack_count; ++pi)
+                if (!f.template_params[pi].default_type && !f.template_params[pi].default_value)
+                    ++required_count;
 
             if (!has_pack)
             {
-                if (f.template_params.size() != template_args.size())
+                if (template_args.size() < required_count || template_args.size() > f.template_params.size())
                 {
                     if (failure)
                         *failure = ExplicitInstFailure::CountMismatch;
@@ -4124,7 +4135,7 @@ export namespace dcc::sema
             }
             else
             {
-                if (template_args.size() < non_pack_count)
+                if (template_args.size() < required_count)
                 {
                     if (template_args.size() < f.template_params.size())
                     {
@@ -4142,7 +4153,7 @@ export namespace dcc::sema
             infer::TemplateBindings bindings{m_types};
             std::size_t i = 0;
 
-            for (; i < non_pack_count; ++i)
+            for (; i < template_args.size() && i < non_pack_count; ++i)
             {
                 auto const& tp = f.template_params[i];
                 auto const& arg = template_args[i];
@@ -4204,6 +4215,42 @@ export namespace dcc::sema
                 }
 
                 if (auto r = bindings.deduce(param_ty, actual); !r)
+                {
+                    if (failure)
+                        *failure = ExplicitInstFailure::CountMismatch;
+                    return std::nullopt;
+                }
+            }
+
+            for (; i < non_pack_count; ++i)
+            {
+                auto const& tp = f.template_params[i];
+                auto param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                if (tp.default_type && tp.default_type->sema.canonical)
+                {
+                    auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    if (!actual || !bindings.deduce(param_ty, actual))
+                    {
+                        if (failure)
+                            *failure = ExplicitInstFailure::CountMismatch;
+                        return std::nullopt;
+                    }
+                }
+                else if (tp.default_value && tp.value_type && tp.value_type->sema.canonical)
+                {
+                    auto expected = bindings.substitute(get_canonical(tp.value_type->sema));
+                    std::uint32_t probe_off = 0;
+                    auto analyzed = analyze_expr(mod, nullptr, scope, *tp.default_value, 0, probe_off, expected, nullptr);
+                    if (has_error(analyzed.type) || !analyzed.constant)
+                    {
+                        error(tp.default_value->range, "default value for template parameter `{}` must be a constant expression", tp.name);
+                        if (failure)
+                            *failure = ExplicitInstFailure::ValueArg;
+                        return std::nullopt;
+                    }
+                    bindings.bind_value(static_cast<types::TemplateParamType const*>(param_ty), *analyzed.constant);
+                }
+                else
                 {
                     if (failure)
                         *failure = ExplicitInstFailure::CountMismatch;
@@ -4900,6 +4947,46 @@ export namespace dcc::sema
             return scan;
         }
 
+        [[nodiscard]] bool fill_template_defaults(ModuleInfo& mod, Scope& scope, ast::FuncDecl const& f, infer::TemplateBindings& bindings)
+        {
+            for (std::size_t i = 0; i < f.template_params.size(); ++i)
+            {
+                auto const& tp = f.template_params[i];
+                if (tp.is_pack)
+                    continue;
+                auto* key = static_cast<types::TemplateParamType const*>(
+                    m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i)));
+                if (tp.value_type)
+                {
+                    if (bindings.lookup_value(key))
+                        continue;
+                    if (!tp.default_value)
+                        continue;
+                    if (!tp.value_type->sema.canonical)
+                        return false;
+                    auto expected = bindings.substitute(get_canonical(tp.value_type->sema));
+                    std::uint32_t off = 0;
+                    auto analyzed = analyze_expr(mod, nullptr, scope, *tp.default_value, 0, off, expected, nullptr);
+                    if (has_error(analyzed.type) || !analyzed.constant)
+                        return false;
+                    bindings.bind_value(key, *analyzed.constant);
+                }
+                else
+                {
+                    if (bindings.lookup(key))
+                        continue;
+                    if (!tp.default_type)
+                        continue;
+                    if (!tp.default_type->sema.canonical)
+                        return false;
+                    auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    if (!actual || !bindings.deduce(key, actual))
+                        return false;
+                }
+            }
+            return true;
+        }
+
         [[nodiscard]] std::optional<RankedCandidate>
         probe_candidate_from_params(ModuleInfo& mod, Scope& scope, Symbol const& sym, std::span<types::TypePtr const> params,
                                     std::span<ast::Expr* const> arg_exprs, std::uint32_t next_off, int loop_depth, ConstEnv const* const_env,
@@ -4915,7 +5002,7 @@ export namespace dcc::sema
             if (!nttps_already_resolved && func)
             {
                 for (auto const& tp : func->template_params)
-                    if (tp.value_type && !tp.is_pack)
+                    if (tp.value_type && !tp.is_pack && !tp.default_value)
                         ++num_value_tparams;
             }
 
@@ -4926,7 +5013,7 @@ export namespace dcc::sema
 
             if (!has_func_pack)
             {
-                if (params.size() + num_value_tparams != arg_exprs.size())
+                if (arg_exprs.size() < min_required + num_value_tparams || arg_exprs.size() > params.size() + num_value_tparams)
                 {
                     if (had_non_constraint_failure)
                         *had_non_constraint_failure = true;
@@ -4990,7 +5077,7 @@ export namespace dcc::sema
                 {
                     std::size_t idx = 0;
                     for (auto const& tp : func->template_params)
-                        if (tp.value_type && !tp.is_pack)
+                        if (tp.value_type && !tp.is_pack && !tp.default_value)
                         {
                             if (idx == vi)
                             {
@@ -5054,13 +5141,14 @@ export namespace dcc::sema
 
             std::size_t func_arg_start = num_value_tparams;
             std::size_t func_arg_count = arg_exprs.size() - num_value_tparams;
+            std::size_t supplied_non_pack = std::min(non_pack_func_params, func_arg_count);
 
             std::vector<detail::ExprResult> args;
             args.reserve(func_arg_count);
             std::vector<types::TypePtr> actual_param_types;
             actual_param_types.reserve(func_arg_count);
 
-            for (std::size_t i = 0; i < non_pack_func_params; ++i)
+            for (std::size_t i = 0; i < supplied_non_pack; ++i)
             {
                 auto param_ty = b.substitute(params[i]);
                 actual_param_types.push_back(param_ty);
@@ -5142,7 +5230,7 @@ export namespace dcc::sema
             for (auto const& a : args)
                 actuals.push_back(a.type);
 
-            for (std::size_t i = 0; i < actuals.size() && i < non_pack_func_params; ++i)
+            for (std::size_t i = 0; i < actuals.size() && i < supplied_non_pack; ++i)
             {
                 auto subbed_param = b.substitute(params[i]);
                 if (actuals[i] != subbed_param && !has_error(actuals[i]) && !has_error(subbed_param) &&
@@ -5154,8 +5242,8 @@ export namespace dcc::sema
             }
 
             std::vector<types::TypePtr> deduce_params;
-            deduce_params.reserve(non_pack_func_params + (has_func_pack ? 1 : 0));
-            for (std::size_t i = 0; i < non_pack_func_params; ++i)
+            deduce_params.reserve(supplied_non_pack + (has_func_pack ? 1 : 0));
+            for (std::size_t i = 0; i < supplied_non_pack; ++i)
                 deduce_params.push_back(params[i]);
 
             if (has_func_pack)
@@ -5229,6 +5317,9 @@ export namespace dcc::sema
                 }
             }
 
+            if (!pre_resolved_bindings && !fill_template_defaults(mod, *probe_scope, *func, b))
+                return std::nullopt;
+
             if (!check_template_constraint(mod, scope, *func, pre_resolved_bindings ? *pre_resolved_bindings : b, false, sym.module))
             {
                 if (had_constraint_failure)
@@ -5249,7 +5340,7 @@ export namespace dcc::sema
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
                 out.ranks.push_back(CallRank::ConcreteExact);
 
-            for (std::size_t i = 0; i < non_pack_func_params; ++i)
+            for (std::size_t i = 0; i < supplied_non_pack; ++i)
             {
                 auto const* param = params[i];
                 if (!param || !args[i].type || args[i].type->kind == types::TypeKind::Error)
@@ -5294,7 +5385,7 @@ export namespace dcc::sema
 
             std::size_t num_value_tparams = 0;
             for (auto const& tp : f.template_params)
-                if (tp.value_type && !tp.is_pack)
+                if (tp.value_type && !tp.is_pack && !tp.default_value)
                     ++num_value_tparams;
 
             auto pack_arity = compute_pack_arity(&f, params.size());
@@ -5402,7 +5493,7 @@ export namespace dcc::sema
                 {
                     std::size_t idx = 0;
                     for (auto const& tp : f.template_params)
-                        if (tp.value_type && !tp.is_pack)
+                        if (tp.value_type && !tp.is_pack && !tp.default_value)
                         {
                             if (idx == vi)
                             {
@@ -5639,6 +5730,10 @@ export namespace dcc::sema
                     std::ignore = b.deduce(return_ty, expected_type);
             }
 
+            if (std::ranges::any_of(f.template_params, [](auto const& tp) { return tp.default_type || tp.default_value; }) &&
+                !fill_template_defaults(mod, *probe_scope, f, b))
+                return std::nullopt;
+
             if (!check_template_constraint(mod, scope, f, b, false, sym.module))
             {
                 if (had_constraint_failure)
@@ -5736,7 +5831,7 @@ export namespace dcc::sema
 
             std::size_t num_value_tparams = 0;
             for (auto const& tp : f.template_params)
-                if (tp.value_type)
+                if (tp.value_type && !tp.default_value)
                     ++num_value_tparams;
 
             auto pack_arity = compute_pack_arity(&f, params.size());
@@ -5805,7 +5900,7 @@ export namespace dcc::sema
                 {
                     std::size_t idx = 0;
                     for (auto const& tp : f.template_params)
-                        if (tp.value_type)
+                        if (tp.value_type && !tp.default_value)
                         {
                             if (idx == vi)
                             {
@@ -6078,6 +6173,18 @@ export namespace dcc::sema
 
             r.resolved_decl = sym.decl;
             return r;
+        }
+
+        void materialize_default_arguments(ast::FuncDecl const& f, std::pmr::vector<ast::Expr*>& args)
+        {
+            std::size_t index = args.size();
+            while (index < f.params.size() && !f.params[index].is_pack)
+            {
+                if (!f.params[index].default_value)
+                    break;
+                args.push_back(clone_default_argument(m_ast_ctx, f.params[index].default_value, f.params, args));
+                ++index;
+            }
         }
 
         [[nodiscard]] std::optional<detail::ExprResult> invoke_explicit_ranked_candidate(ModuleInfo& mod, Scope& scope, Symbol const* sym,
@@ -7415,6 +7522,14 @@ export namespace dcc::sema
 
                 if (synthetic && p.type && mod.own_scope)
                     synthetic->sema.is_immutable = decl_type_is_immutable(mod, mod.own_scope, p.type);
+
+                if (p.default_value && type && !contains_template_param(type))
+                {
+                    auto default_off = frame_off;
+                    auto analyzed = analyze_expr(mod, &fn, *root, *p.default_value, 0, default_off, type, root_consts);
+                    if (has_error(analyzed.type))
+                        error(p.default_value->range, "default argument for parameter `{}` is not convertible to `{}`", p.name, format_type_str(type));
+                }
 
                 if (i == 0 || fn.params[i - 1].name != p.name)
                     define_local(*root, synthetic);
@@ -12019,6 +12134,9 @@ export namespace dcc::sema
                     auto committed_spec = commit_candidate(mod, *winning_cand, t->template_args);
                     record_resolved_specialization(t->sema, &committed_spec);
 
+                    if (chosen.sym->decl && chosen.sym->decl->kind == ast::DeclKind::Func)
+                        materialize_default_arguments(*static_cast<ast::FuncDecl const*>(chosen.sym->decl), c.args);
+
                     auto out = invoke_explicit_ranked_candidate(mod, scope, chosen.sym, chosen.explicit_fp, committed_spec, c.args, c.range, loop_depth,
                                                                 next_off, const_env);
                     if (!out)
@@ -12119,6 +12237,7 @@ export namespace dcc::sema
                 }
 
                 rollback_non_spec_lambdas(probe_lambda_mark);
+                materialize_default_arguments(*static_cast<ast::FuncDecl const*>(ranked[*winner].sym->decl), c.args);
                 return invoke_ranked_candidate(mod, scope, *ranked[*winner].sym, c.args, c.range, loop_depth, next_off, const_env, expected_type);
             };
 
@@ -12600,7 +12719,7 @@ export namespace dcc::sema
 
             std::size_t num_value_tparams = 0;
             for (auto const& tp : f.template_params)
-                if (tp.value_type)
+                if (tp.value_type && !tp.default_value)
                     ++num_value_tparams;
 
             auto pack_arity = compute_pack_arity(&f, params.size());
@@ -12610,7 +12729,7 @@ export namespace dcc::sema
 
             if (!has_func_pack)
             {
-                if (params.size() + num_value_tparams != arg_exprs.size())
+                if (arg_exprs.size() < min_required + num_value_tparams || arg_exprs.size() > params.size() + num_value_tparams)
                 {
                     if (!quiet)
                     {
@@ -12657,7 +12776,7 @@ export namespace dcc::sema
                 {
                     std::size_t idx = 0;
                     for (auto const& tp : f.template_params)
-                        if (tp.value_type)
+                        if (tp.value_type && !tp.default_value)
                         {
                             if (idx == vi)
                             {
@@ -12838,6 +12957,9 @@ export namespace dcc::sema
                     }
                 }
             }
+
+            if (!fill_template_defaults(mod, scope, f, b))
+                return {m_types.m_errort()};
 
             detail::CommittedSpecialization committed_spec = commit_specialization(mod, f, b, range);
 

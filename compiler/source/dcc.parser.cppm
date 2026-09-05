@@ -43,6 +43,8 @@ export namespace dcc::parser
             std::string_view name;
             sm::SourceRange name_range;
             ast::TypeExpr* type{};
+            ast::TypeExpr* default_type{};
+            ast::Expr* default_value{};
             bool is_pack{};
         };
 
@@ -1211,7 +1213,7 @@ export namespace dcc::parser
                 auto start = loc();
                 ast::TemplateParam tp;
 
-                if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::RParen) || check_at(1, TK::Ellipsis)))
+                if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::RParen) || check_at(1, TK::Ellipsis) || check_at(1, TK::Eq)))
                 {
                     auto tok = advance();
                     tp.name = tok.interned;
@@ -1239,10 +1241,21 @@ export namespace dcc::parser
                         }
                     }
                 }
+                if (match(TK::Eq))
+                {
+                    if (tp.is_pack)
+                        error_at(tp.range, "template parameter pack cannot have a default");
+                    if (tp.value_type)
+                        tp.default_value = parse_expr();
+                    else
+                        tp.default_type = parse_type();
+                    tp.range = range_from(start);
+                }
                 params.push_back(std::move(tp));
             } while (match(TK::Comma));
 
             bool seen_pack = false;
+            bool seen_default = false;
             for (auto const& p : params)
             {
                 if (seen_pack && !p.is_pack)
@@ -1250,6 +1263,10 @@ export namespace dcc::parser
 
                 if (p.is_pack) // TODO loosen.
                     seen_pack = true;
+                else if (p.default_type || p.default_value)
+                    seen_default = true;
+                else if (seen_default)
+                    error_at(p.range, "required template parameter follows a defaulted parameter");
             }
 
             expect(TK::RParen, "to close template parameter list");
@@ -1346,6 +1363,8 @@ export namespace dcc::parser
                         tp.name = shape.name;
                         tp.range = shape.range;
                         tp.value_type = shape.type;
+                        tp.default_type = shape.default_type;
+                        tp.default_value = shape.default_value;
                         tp.is_pack = shape.is_pack;
                         func->template_params.push_back(std::move(tp));
                     }
@@ -1362,6 +1381,7 @@ export namespace dcc::parser
                         fp.name = shape.name;
                         fp.range = shape.range;
                         fp.type = shape.type;
+                        fp.default_value = shape.default_value;
                         fp.is_pack = shape.is_pack;
                         func->params.push_back(std::move(fp));
                     }
@@ -1381,6 +1401,7 @@ export namespace dcc::parser
                         fp.name = shape.name;
                         fp.range = shape.range;
                         fp.type = shape.type;
+                        fp.default_value = shape.default_value;
                         fp.is_pack = shape.is_pack;
                         func->params.push_back(std::move(fp));
                     }
@@ -1416,7 +1437,7 @@ export namespace dcc::parser
                 auto start = loc();
                 ParamShape shape;
 
-                if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::RParen) || check_at(1, TK::Ellipsis)))
+                if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::RParen) || check_at(1, TK::Ellipsis) || check_at(1, TK::Eq)))
                 {
                     auto tok = advance();
                     shape.name = tok.interned;
@@ -1439,10 +1460,21 @@ export namespace dcc::parser
 
                     shape.range = range_from(start);
                 }
+                if (match(TK::Eq))
+                {
+                    if (shape.is_pack)
+                        error_at(shape.range, "parameter pack cannot have a default");
+                    if (shape.type)
+                        shape.default_value = parse_expr();
+                    else
+                        shape.default_type = parse_type();
+                    shape.range = range_from(start);
+                }
                 result.push_back(std::move(shape));
             } while (match(TK::Comma));
 
             bool seen_pack = false; // TODO loosen and improve deductions.
+            bool seen_default = false;
             for (auto const& p : result)
             {
                 if (seen_pack && !p.is_pack)
@@ -1450,6 +1482,10 @@ export namespace dcc::parser
 
                 if (p.is_pack)
                     seen_pack = true;
+                else if (p.default_type || p.default_value)
+                    seen_default = true;
+                else if (seen_default)
+                    error_at(p.range, "required parameter follows a defaulted parameter");
             }
 
             expect(TK::RParen, "to close parameter list");

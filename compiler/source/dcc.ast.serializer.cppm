@@ -1140,6 +1140,20 @@ export namespace dcc::ast
                     IndentScope is3(m_indent_level);
                     visitTypeExpr(tp.value_type);
                 }
+                if (tp.default_type)
+                {
+                    IndentScope is2(m_indent_level);
+                    line("DefaultType");
+                    IndentScope is3(m_indent_level);
+                    visitTypeExpr(tp.default_type);
+                }
+                if (tp.default_value)
+                {
+                    IndentScope is2(m_indent_level);
+                    line("DefaultValue");
+                    IndentScope is3(m_indent_level);
+                    visitExpr(tp.default_value);
+                }
             }
         }
 
@@ -1232,6 +1246,13 @@ export namespace dcc::ast
             {
                 IndentScope is(m_indent_level);
                 visitTypeExpr(p.type);
+            }
+            if (p.default_value)
+            {
+                IndentScope is(m_indent_level);
+                line("DefaultValue");
+                IndentScope is2(m_indent_level);
+                visitExpr(p.default_value);
             }
         }
 
