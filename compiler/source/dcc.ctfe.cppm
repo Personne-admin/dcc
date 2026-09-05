@@ -987,7 +987,7 @@ export namespace dcc::ctfe
             {
                 auto const& a = lhs.get_pointer();
                 auto const& b = rhs.get_pointer();
-                if (!share_container(a, b))
+                if (!share_container(a, b) || !m_heap.container_length(a))
                     return failure(op == K::Minus ? "difference of unrelated compile-time pointers" : "comparison of unrelated compile-time pointers", true);
 
                 auto first = static_cast<std::int64_t>(a.path.back());
@@ -1558,6 +1558,8 @@ export namespace dcc::ctfe
             m_steps = 0;
             m_cells = 0;
             m_frames.clear();
+            m_constants.clear();
+            m_heap = Heap{};
             m_frames.push_back(Frame{Call{m_context.function, m_context.call_site}, {}, {}});
 
             auto r = expression(expr);

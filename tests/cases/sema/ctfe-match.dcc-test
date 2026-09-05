@@ -63,6 +63,35 @@ u64 rect(u64 w, u64 h) {
     return area(Shape::Rect(box));
 }
 
+extern u64 runtime_only();
+
+u64 unexecuted_arm(Shape s) {
+    return match s {
+        Shape::Circle(r) => r,
+        Shape::Rect(box) => runtime_only(),
+        Shape::Empty => runtime_only(),
+    };
+}
+
+enum Kind { Small, Large }
+
+u64 nested(Shape s, Kind k) {
+    return match k {
+        Kind::Small => match s {
+            Shape::Circle(r) => r,
+            _ => 0,
+        },
+        Kind::Large => match s {
+            Shape::Circle(r) => r * 100,
+            _ => 1,
+        },
+    };
+}
+
+u64 through_call(u64 radius) {
+    return unexecuted_arm(Shape::Circle(radius));
+}
+
 const u64 A = circle();
 const u64 B = rect(3, 5);
 const u64 C = rank(Color::Green);
@@ -72,9 +101,12 @@ const u64 F = classify(9);
 const u64 G = guarded(14);
 const u64 H = guarded(4);
 const u64 I = widened({ w = 1, h = 2 });
+const u64 J = unexecuted_arm(Shape::Circle(9));
+const u64 K = nested(Shape::Circle(3), Kind::Large);
+const u64 L = through_call(5);
 
 void verify() {
-    static if A != 48 || B != 15 || C != 2 || D != 0 || E != 200 || F != 300 || G != 4 || H != 4 || I != 22 {
+    static if A != 48 || B != 15 || C != 2 || D != 0 || E != 200 || F != 300 || G != 4 || H != 4 || I != 22 || J != 9 || K != 300 || L != 5 {
         incorrect_ctfe_result();
     }
 }

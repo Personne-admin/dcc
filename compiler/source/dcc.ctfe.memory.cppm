@@ -4,6 +4,7 @@ export module dcc.ctfe.memory;
 
 import std;
 import dcc.comptime;
+import dcc.types;
 
 export namespace dcc::ctfe
 {
@@ -100,7 +101,7 @@ export namespace dcc::ctfe
             auto parent = p;
             parent.path.pop_back();
             auto const* value = read(parent);
-            if (!value || !indexable(*value))
+            if (!value || !indexable(*value) || !value->type || value->type->kind != types::TypeKind::Array)
                 return std::nullopt;
             return value->size();
         }

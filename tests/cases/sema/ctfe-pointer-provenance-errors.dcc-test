@@ -1,0 +1,56 @@
+=== FILE: main.dc ===
+module ctfe_pointer_provenance_errors;
+
+struct Pair { u64 a; u64 b; }
+
+struct Rows { u64[2] first; u64[2] second; }
+
+u64 across_fields() {
+    Pair p;
+    p.a = 1;
+    p.b = 2;
+    u64* q = &p.a;
+    return *(q + 1);
+}
+
+u64 across_sub_arrays() {
+    Rows r;
+    r.first[0] = 1;
+    r.first[1] = 2;
+    r.second[0] = 3;
+    u64* q = &r.first[0];
+    return *(q + 2);
+}
+
+isize unrelated_difference() {
+    u64 x = 1;
+    u64 y = 2;
+    return &x - &y;
+}
+
+bool unrelated_order() {
+    u64 x = 1;
+    u64 y = 2;
+    return &x < &y;
+}
+
+u64 past_the_end_read() {
+    u64[2] v;
+    v[0] = 1;
+    v[1] = 2;
+    u64* end = &v[0] + 2;
+    return *end;
+}
+
+const u64 A = across_fields();
+const u64 B = across_sub_arrays();
+const isize C = unrelated_difference();
+const bool D = unrelated_order();
+const u64 E = past_the_end_read();
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:44: initializer for global `A` is not a constant expression: pointer arithmetic leaves the bounds of a compile-time object
+main.dc:45: initializer for global `B` is not a constant expression: access outside the bounds of a compile-time object
+main.dc:46: initializer for global `C` is not a constant expression: difference of unrelated compile-time pointers
+main.dc:47: initializer for global `D` is not a constant expression: comparison of unrelated compile-time pointers
+main.dc:48: initializer for global `E` is not a constant expression: access outside the bounds of a compile-time object

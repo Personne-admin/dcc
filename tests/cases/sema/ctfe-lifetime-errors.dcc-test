@@ -1,0 +1,36 @@
+=== FILE: main.dc ===
+module ctfe_lifetime_errors;
+
+[]const u8 own_buffer() {
+    u8[4] local;
+    local[0] = 1;
+    return local[0..4];
+}
+
+u8* own_element() {
+    u8[4] local;
+    return &local[1];
+}
+
+[]const u8 forwarded() {
+    return own_buffer();
+}
+
+struct Holder { []u8 view; }
+
+Holder wrapped() {
+    u8[4] local;
+    Holder h = { view = local[0..4] };
+    return h;
+}
+
+const []const u8 A = own_buffer();
+const u8* const B = own_element();
+const []const u8 C = forwarded();
+const Holder D = wrapped();
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:26:22: initializer for global `A` is not a constant expression: reference to storage that has gone out of scope
+main.dc:27:21: initializer for global `B` is not a constant expression: reference to storage that has gone out of scope
+main.dc:28:22: initializer for global `C` is not a constant expression: reference to storage that has gone out of scope
+main.dc:29:18: initializer for global `D` is not a constant expression: reference to storage that has gone out of scope
