@@ -1,0 +1,79 @@
+=== FILE: main.dc ===
+module m;
+
+struct S {
+    i32 v;
+}
+
+i32 f() { return 1; }
+i32 g() { return 2; }
+void mfunc(S s) {}
+
+void test() {
+    @runtime f();
+    @[runtime] f();
+    S s;
+    @runtime s.mfunc();
+    i32 x = @runtime f() + g();
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=S
+    Field name=v
+      Primitive i32
+  Func name=f
+    Return
+      Primitive i32
+    Body
+      Return
+        IntLiteral 1
+  Func name=g
+    Return
+      Primitive i32
+    Body
+      Return
+        IntLiteral 2
+  Func name=mfunc
+    Return
+      Primitive void
+    Params
+      Param name=s
+        Named S
+    Body
+  Func name=test
+    Return
+      Primitive void
+    Body
+      ExprStmt
+        @runtime
+        Call
+          Callee
+            Ident f
+      ExprStmt
+        @runtime
+        Call
+          Callee
+            Ident f
+      Var name=s
+        Type
+          Named S
+      ExprStmt
+        @runtime
+        Call
+          Callee
+            FieldAccess field=mfunc
+              Ident s
+      Var name=x
+        Type
+          Primitive i32
+        Init
+          Binary op=+
+            @runtime
+            Call
+              Callee
+                Ident f
+            Call
+              Callee
+                Ident g

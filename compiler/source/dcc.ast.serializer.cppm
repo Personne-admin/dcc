@@ -73,6 +73,8 @@ export namespace dcc::ast
                 line("<null-expr>");
                 return;
             }
+            if (!expr->attrs.empty())
+                print_attrs(expr->attrs);
             RecursiveAstVisitor::visitExpr(expr);
         }
         void visitTypeExpr(TypeExpr const* type) override

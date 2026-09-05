@@ -2,6 +2,7 @@ export module dcc.sema.attribute_validator;
 
 import std;
 import dcc.ast;
+import dcc.ast.visitor;
 import dcc.diag;
 import dcc.sm;
 import dcc.sema.scope;
@@ -86,6 +87,8 @@ namespace
                 d.sema.is_dll_import = true;
             else if (attr.name == "export")
                 d.sema.is_dll_export = true;
+            else if (attr.name == "runtime")
+                d.sema.is_runtime = true;
             else if (attr.name == "section")
                 d.sema.section = get_string_value(attr);
             else if (attr.name == "calling_conv")
@@ -160,6 +163,7 @@ export namespace dcc::sema
         Union = 1 << 5,
         EnumDecl = 1 << 6,
         UsingAlias = 1 << 7,
+        Expression = 1 << 8,
     };
 
     [[nodiscard]] constexpr AttributeTarget operator|(AttributeTarget a, AttributeTarget b) noexcept
@@ -200,6 +204,8 @@ export namespace dcc::sema
             register_attr("inline", AttributeTarget::Function);
             register_attr("noinline", AttributeTarget::Function);
 
+            register_attr("runtime", AttributeTarget::Function | AttributeTarget::Expression);
+
             register_attr("nominal", AttributeTarget::UsingAlias);
 
             register_attr("section", AttributeTarget::Function | AttributeTarget::Variable);
@@ -238,8 +244,9 @@ export namespace dcc::sema
 
     void validate_decl_attrs(AttributeRegistry const& registry, diag::DiagnosticEngine& diag, std::span<ast::Attribute const> attrs, AttributeTarget target)
     {
-        for (auto const& attr : attrs)
+        for (std::size_t i = 0; i < attrs.size(); ++i)
         {
+            auto const& attr = attrs[i];
             if (attr.name.empty())
                 continue;
 
@@ -247,6 +254,15 @@ export namespace dcc::sema
             {
                 diag.emit(diag::Diagnostic{diag::Severity::Error, std::format("unknown attribute `@{}`", attr.name)}.primary(attr.range));
                 continue;
+            }
+
+            for (std::size_t j = 0; j < i; ++j)
+            {
+                if (attrs[j].name == attr.name)
+                {
+                    diag.emit(diag::Diagnostic{diag::Severity::Error, std::format("duplicate attribute `@{}`", attr.name)}.primary(attr.range));
+                    break;
+                }
             }
 
             if (target == AttributeTarget::None || !target_has(registry.allowed_targets(attr.name), target))
@@ -257,10 +273,66 @@ export namespace dcc::sema
         }
     }
 
+    void validate_expr_attrs(AttributeRegistry const& registry, diag::DiagnosticEngine& diag, ast::Expr const& expr)
+    {
+        for (std::size_t i = 0; i < expr.attrs.size(); ++i)
+        {
+            auto const& attr = expr.attrs[i];
+            if (attr.name.empty())
+                continue;
+
+            if (!registry.is_known(attr.name))
+            {
+                diag.emit(diag::Diagnostic{diag::Severity::Error, std::format("unknown attribute `@{}`", attr.name)}.primary(attr.range));
+                continue;
+            }
+
+            for (std::size_t j = 0; j < i; ++j)
+            {
+                if (expr.attrs[j].name == attr.name)
+                {
+                    diag.emit(diag::Diagnostic{diag::Severity::Error, std::format("duplicate attribute `@{}`", attr.name)}.primary(attr.range));
+                    break;
+                }
+            }
+
+            if (!target_has(registry.allowed_targets(attr.name), AttributeTarget::Expression))
+            {
+                diag.emit(diag::Diagnostic{diag::Severity::Error, std::format("attribute `@{}` is not valid on expressions", attr.name)}.primary(attr.range));
+                continue;
+            }
+
+            if (attr.name == "runtime" && expr.kind != ast::ExprKind::Call)
+                diag.emit(diag::Diagnostic{diag::Severity::Error, "attribute `@runtime` is only valid on call expressions"}.primary(attr.range));
+
+            validate_attr_args(attr, diag);
+        }
+    }
+
+    struct ExprAttrVisitor : ast::RecursiveAstVisitor
+    {
+        AttributeRegistry const& registry;
+        diag::DiagnosticEngine& diag;
+
+        ExprAttrVisitor(AttributeRegistry const& r, diag::DiagnosticEngine& d) : registry(r), diag(d) {}
+
+        void visitExpr(ast::Expr const* expr) override
+        {
+            if (!expr)
+                return;
+
+            if (!expr->attrs.empty())
+                validate_expr_attrs(registry, diag, *expr);
+
+            ast::RecursiveAstVisitor::visitExpr(expr);
+        }
+    };
+
     void validate_attributes(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, std::pmr::polymorphic_allocator<> a)
     {
         std::ignore = a;
         AttributeRegistry registry;
+        ExprAttrVisitor expr_visitor{registry, diag};
 
         for (auto const& m : modules)
         {
@@ -269,6 +341,8 @@ export namespace dcc::sema
 
             for (auto* d : m->tu->decls)
             {
+                expr_visitor.visitDecl(d);
+
                 AttributeTarget target = AttributeTarget::None;
                 switch (d->kind)
                 {

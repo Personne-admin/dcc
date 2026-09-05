@@ -581,7 +581,7 @@ export namespace dcc::parser
         {
             return name == "packed" || name == "align" || name == "nominal" || name == "import" || name == "export" || name == "nomangle" || name == "inline" ||
                    name == "noinline" || name == "section" || name == "calling_conv" || name == "deprecated" || name == "implicit_construction" ||
-                   name == "intrinsic";
+                   name == "intrinsic" || name == "runtime";
         }
 
         void validate_attribute(ast::Attribute const& attr)
@@ -2203,26 +2203,8 @@ export namespace dcc::parser
                     error_at(single_range(), "'static' must be followed by 'if', 'match', or 'for'");
                     advance();
                     return nullptr;
-                case TK::At: {
-                    auto attrs = parse_attributes();
-                    if (ast::is_type_start(peek().kind))
-                    {
-                        auto var_start = loc();
-
-                        Speculation spec(*this);
-                        auto* var = speculate_var_decl(var_start);
-                        if (var && !spec.had_suppressed_errors())
-                        {
-                            spec.commit();
-                            var->attrs = std::move(attrs);
-                            var->range = range_from(start);
-                            return m_ctx.make<ast::DeclStmt>(var->range, var);
-                        }
-                    }
-                    error_at(single_range(), "expected variable declaration after attributes");
-                    synchronize_to_stmt();
-                    return nullptr;
-                }
+                case TK::At:
+                    break;
                 default:
                     break;
             }
@@ -2304,7 +2286,7 @@ export namespace dcc::parser
 
         ast::Stmt* try_parse_decl_or_expr_stmt()
         {
-            if (!ast::is_type_start(peek().kind))
+            if (!ast::is_type_start(peek().kind) && !check(TK::At))
                 return nullptr;
 
             auto start = loc();
@@ -2322,11 +2304,19 @@ export namespace dcc::parser
             Attempt da;
             {
                 Speculation spec(*this);
-                decl_alt = speculate_var_decl(start);
-                da.had_suppressed_error = spec.had_suppressed_errors();
-                da.end_pos = m_pos;
-                da.end_prev = m_prev_end;
-                da.ok = decl_alt && !da.had_suppressed_error;
+                std::pmr::vector<ast::Attribute> attrs;
+                if (check(TK::At))
+                    attrs = parse_attributes();
+                if (ast::is_type_start(peek().kind))
+                {
+                    decl_alt = speculate_var_decl(start);
+                    da.had_suppressed_error = spec.had_suppressed_errors();
+                    da.end_pos = m_pos;
+                    da.end_prev = m_prev_end;
+                    da.ok = decl_alt && !da.had_suppressed_error;
+                    if (da.ok)
+                        decl_alt->attrs = std::move(attrs);
+                }
             }
 
             ast::Expr* expr_alt = nullptr;
@@ -2944,6 +2934,22 @@ export namespace dcc::parser
 
         ast::Expr* parse_unary(bool no_struct_lit)
         {
+            if (check(TK::At))
+            {
+                auto start = loc();
+                auto attrs = parse_attributes();
+                auto* expr = parse_unary(no_struct_lit);
+                if (expr)
+                {
+                    if (expr->attrs.empty())
+                        expr->attrs = std::move(attrs);
+                    else
+                        expr->attrs.insert(expr->attrs.begin(), attrs.begin(), attrs.end());
+                    expr->range.begin = start;
+                }
+                return expr;
+            }
+
             auto start = loc();
             switch (peek().kind)
             {
@@ -3731,7 +3737,6 @@ export namespace dcc::parser
                 case TK::KwDefer:
                 case TK::KwAsm:
                 case TK::KwStatic:
-                case TK::At:
                 case TK::Semicolon:
                     return true;
                 default:
@@ -3741,6 +3746,22 @@ export namespace dcc::parser
 
         bool looks_like_decl()
         {
+            if (check(TK::At))
+            {
+                Speculation spec(*this);
+                parse_attributes();
+                if (!ast::is_type_start(peek().kind))
+                    return false;
+                auto* type = parse_type(true);
+                if (!type || spec.had_suppressed_errors())
+                    return false;
+                if (peek().kind != TK::Identifier)
+                    return false;
+                if (peek(1).kind != TK::Eq && peek(1).kind != TK::Semicolon)
+                    return false;
+                return true;
+            }
+
             if (!ast::is_type_start(peek().kind))
                 return false;
 

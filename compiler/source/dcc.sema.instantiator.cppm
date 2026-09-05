@@ -26,6 +26,7 @@ namespace dcc::sema
 
             ast::TypeExpr* clone_type(ast::TypeExpr const* t);
             ast::Expr* clone_expr(ast::Expr const* e);
+            ast::Expr* clone_expr_impl(ast::Expr const* e);
             ast::Stmt* clone_stmt(ast::Stmt const* s);
             ast::Decl* clone_decl(ast::Decl const* d);
             ast::Pattern* clone_pattern(ast::Pattern const* p);
@@ -130,6 +131,29 @@ namespace dcc::sema
         }
 
         ast::Expr* AstCloner::clone_expr(ast::Expr const* e)
+        {
+            if (!e)
+                return nullptr;
+
+            auto* res = clone_expr_impl(e);
+            if (res && !e->attrs.empty())
+            {
+                res->attrs.reserve(res->attrs.size() + e->attrs.size());
+                for (auto const& attr : e->attrs)
+                {
+                    ast::Attribute cloned_attr(m_ctx.allocator());
+                    cloned_attr.name = attr.name;
+                    cloned_attr.range = attr.range;
+                    cloned_attr.args.reserve(attr.args.size());
+                    for (auto* a : attr.args)
+                        cloned_attr.args.push_back(clone_expr(a));
+                    res->attrs.push_back(std::move(cloned_attr));
+                }
+            }
+            return res;
+        }
+
+        ast::Expr* AstCloner::clone_expr_impl(ast::Expr const* e)
         {
             if (!e)
                 return nullptr;
@@ -574,6 +598,7 @@ namespace dcc::sema
                     n->sema = dd->sema;
                     n->is_public = dd->is_public;
                     n->is_extern = dd->is_extern;
+                    n->attrs = dd->attrs;
                     return n;
                 }
                 case ast::DeclKind::Func: {
@@ -591,6 +616,7 @@ namespace dcc::sema
                     n->sema = dd->sema;
                     n->is_public = dd->is_public;
                     n->is_extern = dd->is_extern;
+                    n->attrs = dd->attrs;
                     return n;
                 }
                 default:
@@ -3816,7 +3842,9 @@ export namespace dcc::sema
 
         syn_decl->body = std::move(cloned_body);
 
+        syn_decl->attrs = template_fn.attrs;
         syn_decl->sema.is_intrinsic = template_fn.sema.is_intrinsic;
+        syn_decl->sema.is_runtime = template_fn.sema.is_runtime;
 
         if (diag)
         {
