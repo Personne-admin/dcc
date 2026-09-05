@@ -11476,10 +11476,21 @@ export namespace dcc::sema
                     if (f.value)
                     {
                         auto val = analyze_expr(mod, fn, scope, *f.value, loop_depth, next_off, expected_field, const_env);
+                        if (value_alias_implicit_decay(val, expected_field))
+                        {
+                            reject_value_alias_decay(f.value->range, val);
+                            return std::nullopt;
+                        }
                         if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                         {
-                            error(f.range, "field type mismatch");
-                            return std::nullopt;
+                            auto const* es = types::type_cast<types::SliceType>(expected_field);
+                            auto const* ga = types::type_cast<types::ArrayType>(val.type);
+                            bool const array_to_slice = es && ga && es->element == ga->element;
+                            if (!array_to_slice)
+                            {
+                                error(f.range, "field type mismatch");
+                                return std::nullopt;
+                            }
                         }
                     }
                 }
