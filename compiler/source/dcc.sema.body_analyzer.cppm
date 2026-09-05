@@ -13098,6 +13098,33 @@ export namespace dcc::sema
                     return result;
                 }
 
+                bool arg_has_hard_error = false;
+                for (auto* arg : args)
+                {
+                    if (!arg || is_contextual_construction(*arg))
+                        continue;
+                    auto const probe_mark = pending_lambda_mark();
+                    ErrorSuppressionGuard probe_suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                    auto* probe_scope = make_probe_scope(scope);
+                    auto r = analyze_expr(mod, nullptr, *probe_scope, *arg, loop_depth, next_off, nullptr, const_env);
+                    rollback_non_spec_lambdas(probe_mark);
+                    if (has_error(r.type) && probe_suppress.had_suppressed_errors())
+                    {
+                        arg_has_hard_error = true;
+                        break;
+                    }
+                }
+
+                if (arg_has_hard_error)
+                {
+                    for (auto* arg : args)
+                    {
+                        if (arg && !is_contextual_construction(*arg))
+                            analyze_expr(mod, fn, scope, *arg, loop_depth, next_off, nullptr, const_env);
+                    }
+                    return detail::ExprResult{m_types.m_errort()};
+                }
+
                 if (saw_non_constraint_failure)
                 {
                     if (!rejected.empty())

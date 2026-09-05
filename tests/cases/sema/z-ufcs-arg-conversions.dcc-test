@@ -1,0 +1,30 @@
+=== FILE: main.dc ===
+module m;
+
+struct Writer {}
+
+void consume(const Writer* self, [] const u8 bytes) {}
+void consume_mut(const Writer* self, [] u8 bytes) {}
+
+i32 rank(const Writer* self, [] const u8 bytes) { return 1; }
+i32 rank(const Writer* self, [] u8 bytes) { return 2; }
+
+[] u8 make_mut();
+[] const u8 make_const();
+
+void test_conversions(const Writer* w) {
+    // Exact type
+    consume(w, make_const());
+    w.consume(make_const());
+
+    // Mutable to const slice qualification conversion
+    consume(w, make_mut());
+    w.consume(make_mut());
+
+    // Overload ranking prefers exact match
+    i32 r1 = rank(w, make_mut());
+    i32 r2 = w.rank(make_mut());
+
+    i32 r3 = rank(w, make_const());
+    i32 r4 = w.rank(make_const());
+}
