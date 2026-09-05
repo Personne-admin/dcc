@@ -127,7 +127,7 @@ export namespace dcc::comptime
 
         [[nodiscard]] static Value make_null(types::TypePtr t)
         {
-            assert(t && (t->kind == types::TypeKind::NullT || t->kind == types::TypeKind::Pointer));
+            assert(t && (t->kind == types::TypeKind::NullT || t->kind == types::TypeKind::Pointer || t->kind == types::TypeKind::FuncPtr));
             Value val;
             val.type = t;
             val.m_storage.template emplace<std::monostate>();
@@ -795,7 +795,7 @@ export namespace dcc::comptime
                 return std::nullopt;
             }
 
-            if (types::type_cast<types::PointerType>(dst) || dst->kind == types::TypeKind::NullT)
+            if (types::type_cast<types::PointerType>(dst) || types::type_cast<types::FuncPtrType>(dst) || dst->kind == types::TypeKind::NullT)
             {
                 if (kind() == Kind::Null)
                     return make_null(dst);

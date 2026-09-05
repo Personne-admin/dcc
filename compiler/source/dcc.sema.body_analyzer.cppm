@@ -6580,6 +6580,11 @@ export namespace dcc::sema
             return nullptr;
         }
 
+        [[nodiscard]] static bool type_accepts_null(types::TypePtr ty) noexcept
+        {
+            return ty && (ty->kind == types::TypeKind::Pointer || ty->kind == types::TypeKind::FuncPtr);
+        }
+
         [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got) noexcept
         {
             if (!expected || !got)
@@ -6609,7 +6614,7 @@ export namespace dcc::sema
             if (expected->kind == types::TypeKind::Float && got->kind == types::TypeKind::Int)
                 return true;
 
-            if (expected->kind == types::TypeKind::Pointer && got->kind == types::TypeKind::NullT)
+            if (type_accepts_null(expected) && got->kind == types::TypeKind::NullT)
                 return true;
 
             if (expected->kind == types::TypeKind::Pointer && got->kind == types::TypeKind::Pointer)
@@ -8459,7 +8464,7 @@ export namespace dcc::sema
                     return out;
                 case ast::PatternKind::Binding:
                     out.all = true;
-                    if (matched_type && matched_type->kind == types::TypeKind::Pointer)
+                    if (type_accepts_null(matched_type))
                         out.has_pointer_nonnull = true;
                     return out;
                 case ast::PatternKind::Literal: {
@@ -8625,7 +8630,7 @@ export namespace dcc::sema
                 return std::all_of(decl->variants.begin(), decl->variants.end(), [&](auto const& v) { return coverage.enum_variants.contains(&v); });
             }
 
-            if (matched_type->kind == types::TypeKind::Pointer)
+            if (type_accepts_null(matched_type))
                 return coverage.has_pointer_null && coverage.has_pointer_nonnull;
 
             if (matched_type->kind == types::TypeKind::Int)
@@ -8681,7 +8686,7 @@ export namespace dcc::sema
                 return {};
             }
 
-            if (matched_type->kind == types::TypeKind::Pointer)
+            if (type_accepts_null(matched_type))
             {
                 if (!coverage.has_pointer_null)
                     return "missing case 'null'";
@@ -8755,7 +8760,7 @@ export namespace dcc::sema
                         return false;
                 return true;
             }
-            if (matched_type && matched_type->kind == types::TypeKind::Pointer)
+            if (type_accepts_null(matched_type))
             {
                 if (current.has_pointer_null && !prior.has_pointer_null)
                     return false;
@@ -8839,7 +8844,7 @@ export namespace dcc::sema
             if (matched_type && matched_type->kind == types::TypeKind::Enum)
                 prior.enum_variants.insert(current.enum_variants.begin(), current.enum_variants.end());
 
-            if (matched_type && matched_type->kind == types::TypeKind::Pointer)
+            if (type_accepts_null(matched_type))
             {
                 prior.has_pointer_null = prior.has_pointer_null || current.has_pointer_null;
                 prior.has_pointer_nonnull = prior.has_pointer_nonnull || current.has_pointer_nonnull;
@@ -9628,7 +9633,7 @@ export namespace dcc::sema
                         break;
                     }
                     case ast::ExprKind::NullLiteral:
-                        if (types::type_cast<types::PointerType>(expected_type))
+                        if (type_accepts_null(expected_type))
                             out.type = expected_type;
                         else
                             out.type = m_types.m_nullt();
