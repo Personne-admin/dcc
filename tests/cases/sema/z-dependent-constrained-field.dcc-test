@@ -1,0 +1,33 @@
+=== FILE: main.dc ===
+module m;
+
+using HasMarker(T) = compiles (const T* value) {
+    value.marker();
+};
+
+struct Constrained(T) if HasMarker(T) {
+    T value;
+}
+
+struct Wrapper(T) {
+    Constrained(T)* value;
+}
+
+void use(T)(Constrained(T)* value) {}
+
+struct Good {}
+
+void marker(const Good* value) {}
+
+void positive() {
+    Wrapper(Good) value;
+}
+
+struct Bad {}
+
+void negative() {
+    Constrained(Bad)* value;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:28: template constraint not satisfied for `Constrained`
