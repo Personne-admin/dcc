@@ -1,0 +1,43 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+const u64[4] SOURCE = { 10, 20, 30, 40 };
+
+[]const u64 middle() {
+    return SOURCE[1..3];
+}
+
+[]const char name(bool flag) {
+    return if flag { "yes" } else { "no" };
+}
+
+u64 sum([]const u64 values) {
+    u64 total = 0;
+    for (usize i = 0; i < values.len; i += 1) {
+        total += values[i];
+    }
+    return total;
+}
+
+const []const u64 MIDDLE = middle();
+const []const char NAME = name(true);
+const u64 TOTAL = sum(MIDDLE);
+
+@nomangle
+public i32 dcc_main() {
+    bool folded = TOTAL == 50 && MIDDLE.len == 2 && NAME.len == 3;
+    bool live = MIDDLE[0] == 20 && MIDDLE[1] == 30 && NAME[0] == 'y' && sum(MIDDLE) == 50;
+    return if folded && live { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

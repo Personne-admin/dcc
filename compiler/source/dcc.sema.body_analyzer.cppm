@@ -7547,12 +7547,12 @@ export namespace dcc::sema
                 return;
 
             std::unordered_set<ast::FuncDecl const*> reported;
-            for (auto* fn : std::views::reverse(result.calls))
+            for (auto const& call : std::views::reverse(result.calls))
             {
                 if (reported.size() == 8)
                     break;
-                if (reported.insert(fn).second)
-                    m_diag.note(fn->name_range, "in compile-time call to `{}`", fn->name);
+                if (reported.insert(call.function).second)
+                    m_diag.note(call.function->name_range, "in compile-time call to `{}`", call.function->name);
             }
         }
 

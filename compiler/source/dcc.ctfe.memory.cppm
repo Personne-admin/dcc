@@ -4,14 +4,12 @@ export module dcc.ctfe.memory;
 
 import std;
 import dcc.comptime;
-import dcc.types;
 
 export namespace dcc::ctfe
 {
     struct Allocation
     {
         std::vector<comptime::Value> elements;
-        types::TypePtr type{};
         bool is_mutable{true};
         bool live{true};
     };
@@ -51,19 +49,19 @@ export namespace dcc::ctfe
     public:
         [[nodiscard]] std::size_t size() const noexcept { return m_allocations.size(); }
 
-        [[nodiscard]] comptime::ValuePtr allocate(comptime::Value object, types::TypePtr type, bool is_mutable)
+        [[nodiscard]] comptime::ValuePtr allocate(comptime::Value object, bool is_mutable)
         {
-            m_allocations.push_back(Allocation{{std::move(object)}, type, is_mutable, true});
+            m_allocations.push_back(Allocation{{std::move(object)}, is_mutable, true});
             return comptime::ValuePtr{false, m_allocations.size() - 1, {0}};
         }
 
-        [[nodiscard]] comptime::ValuePtr intern(std::string_view key, comptime::Value object, types::TypePtr type)
+        [[nodiscard]] comptime::ValuePtr intern(std::string_view key, comptime::Value object)
         {
             std::string cache_key{key};
             if (auto it = m_literals.find(cache_key); it != m_literals.end())
                 return comptime::ValuePtr{false, it->second, {0}};
 
-            auto base = allocate(std::move(object), type, false);
+            auto base = allocate(std::move(object), false);
             m_literals.emplace(std::move(cache_key), base.allocation);
             return base;
         }

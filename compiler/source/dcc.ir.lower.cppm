@@ -6581,7 +6581,32 @@ export namespace dcc::ir::lower
                         return agg;
                     }
 
-                    lower_panic("non-string slice comptime materialization not supported");
+                    auto* element = slice_ty ? slice_ty->element : nullptr;
+                    if (!element)
+                        lower_panic("slice comptime materialization without an element type");
+
+                    auto* ir_elem = lower_type(element);
+                    auto* agg = m_ctx.aggregate(ir_ty);
+                    if (cv.size() == 0)
+                    {
+                        agg->values.push_back(m_ctx.null_const(m_ctx.pointer_to(ir_elem)));
+                        agg->values.push_back(m_ctx.int_const(m_ctx.usize_t(), 0));
+                        return agg;
+                    }
+
+                    auto* data_type = m_ctx.array_t(ir_elem, cv.size());
+                    auto* data = m_ctx.aggregate(data_type);
+                    for (std::size_t i = 0; i < cv.size(); ++i)
+                        data->values.push_back(materialize_comptime(cv.at(i), element));
+
+                    auto data_name = std::format(".data.{}", m_next_str_id++);
+                    m_name_pool.push_back(data_name);
+                    auto* data_global = m_ctx.global(std::string_view{m_name_pool.back()}, data_type, data, true);
+                    m_module->globals.push_back(data_global);
+
+                    agg->values.push_back(m_ctx.global_ref(data_global, m_ctx.pointer_to(ir_elem)));
+                    agg->values.push_back(m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(cv.size())));
+                    return agg;
                 }
                 case dcc::comptime::Value::Kind::Pointer: {
                     if (cv.is_null_ptr())
