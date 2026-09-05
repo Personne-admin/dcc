@@ -923,6 +923,8 @@ another integer type.
 
 ## 14. Attributes
 
+### 14.1 Declaration Attributes
+
 ```dc
 @[packed]
 struct Header {
@@ -953,14 +955,51 @@ void c_interop_func(i32 x);
 
 @implicit_construction
 i32 implicit_ctor_target() { ... }
+
+@runtime
+i32 hardware_seed() { ... }
 ```
 
-`[]` can be freely ommitted for one attribute lists. Attributes can also be
+`[]` can be freely omitted for single-attribute lists. Multiple attributes can be
+specified with multiple prefix `@` annotations (e.g. `@nomangle @runtime`) or
+comma-separated inside brackets (e.g. `@[nomangle, runtime]`). Attributes can also be
 attached to individual enum variants (e.g. `@[deprecated("...")] None,`).
 
 `@nominal` (§6.1.1) and `@intrinsic` are two more recognized attributes;
 `@intrinsic` marks a declaration as compiler-implemented and is only valid
 inside the `core` module.
+
+### 14.2 Expression Attributes
+
+Attributes may also be applied to expressions using prefix attribute syntax:
+
+```dc
+@attr expr
+@[attr1, attr2] expr
+@attr1 @attr2 expr
+```
+
+Expression attributes bind with unary prefix operator precedence to the following
+expression. In binary expressions, prefix attributes bind to the immediately following
+unary/postfix operand rather than spanning the entire binary expression:
+
+```dc
+@runtime f() + g(); // parsed as (@runtime f()) + g()
+```
+
+Expression attributes are represented as first-class nodes in the AST and validated by the
+semantic analyzer.
+
+### 14.3 Runtime Evaluation Barrier (`@runtime`)
+
+The built-in `@runtime` attribute acts as an execution barrier that prevents compile-time
+evaluation (CTFE). It is valid on function declarations and call expressions:
+
+- **Function declarations:** Applying `@runtime` to a function declaration designates it as
+  a runtime-only function. All calls to the function are barred from compile-time evaluation.
+- **Call expressions:** Applying `@runtime` to a call expression (`@runtime f()`, `@runtime x.func()`)
+  bars that specific invocation from compile-time evaluation, even if the callee function
+  itself is not marked `@runtime`.
 
 ---
 
