@@ -704,10 +704,11 @@ namespace dcc::backend::em64t
             {
                 MInstr xr;
                 xr.opc = MOpc::XOR64rr;
-                xr.num_ops = 2;
+                xr.num_ops = 3;
                 xr.num_defs = 1;
                 xr.ops[0] = MOp::from_reg(rdx);
                 xr.ops[1] = MOp::from_reg(rdx);
+                xr.ops[2] = MOp::from_reg(rdx);
                 ctx.append_instr(xr);
             }
 

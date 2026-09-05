@@ -1,0 +1,37 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+i64 scaled_difference(i64 a, i64 b) {
+    return (b - a) / 4;
+}
+
+u64 remainder_after_call(u64 a, u64 b) {
+    u64 keep = a * 3;
+    return (a % b) + keep;
+}
+
+i64 nested_divisions(i64 a) {
+    i64 half = a / 2;
+    i64 third = a / 3;
+    return half * 100 + third + a / 7;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if scaled_difference(4, 24) != 5 { return 11; }
+    if remainder_after_call(17, 5) != 53 { return 12; }
+    if nested_divisions(42) != 2120 { return 13; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

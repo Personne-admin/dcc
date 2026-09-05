@@ -1445,30 +1445,18 @@ namespace
                     auto d = resolve_phys_reg(ops[0], wrn, "IMULrr");
                     auto l = resolve_phys_reg(ops[1], wrn, "IMULrr");
                     auto r = resolve_phys_reg(ops[2], wrn, "IMULrr");
-                    if (d == l)
-                    {
-                        emit_rex_if_extended(buf, true, d, r);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, 0xAF);
-                        emit_modrm(buf, 3, reg_low3(d), reg_low3(r));
-                    }
-                    else if (d == r)
-                    {
-                        emit_rex_if_extended(buf, true, l, d);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, 0xAF);
-                        emit_modrm(buf, 3, reg_low3(l), reg_low3(d));
-                    }
-                    else
+                    if (d == r)
+                        std::swap(l, r);
+                    if (d != l)
                     {
                         emit_rex_if_extended(buf, true, l, d);
                         emit_u8(buf, 0x89);
                         emit_modrm(buf, 3, reg_low3(l), reg_low3(d));
-                        emit_rex_if_extended(buf, true, d, r);
-                        emit_u8(buf, 0x0F);
-                        emit_u8(buf, 0xAF);
-                        emit_modrm(buf, 3, reg_low3(d), reg_low3(r));
                     }
+                    emit_rex_if_extended(buf, true, d, r);
+                    emit_u8(buf, 0x0F);
+                    emit_u8(buf, 0xAF);
+                    emit_modrm(buf, 3, reg_low3(d), reg_low3(r));
                 }
                 else
                     goto ud2_lbl;
@@ -2974,6 +2962,8 @@ namespace
                     auto d = resolve_phys_reg(ops[0], wrn, "IMUL32rr");
                     auto l = resolve_phys_reg(ops[1], wrn, "IMUL32rr");
                     auto r = resolve_phys_reg(ops[2], wrn, "IMUL32rr");
+                    if (d == r)
+                        std::swap(l, r);
                     if (d != l)
                     {
                         emit_rex_if_extended(buf, false, l, d);
