@@ -1,0 +1,50 @@
+=== FILE: main.dc ===
+module ctfe_memory_errors;
+
+u64 out_of_bounds(usize index) {
+    u64[2] data;
+    data[0] = 1;
+    data[1] = 2;
+    return data[index];
+}
+
+u64 uninitialized() {
+    u64[2] data;
+    return data[1];
+}
+
+u64 through_null() {
+    u64* p = null;
+    return *p;
+}
+
+usize bad_slice(usize end) {
+    u64[2] data;
+    return data[0..end].len;
+}
+
+[]const char dangling() {
+    char[4] local;
+    local[0] = 'a';
+    return local[0..1];
+}
+
+u64* escaping() {
+    u64 local = 3;
+    return &local;
+}
+
+const u64 A = out_of_bounds(4);
+const u64 B = uninitialized();
+const u64 C = through_null();
+const usize D = bad_slice(9);
+const []const char E = dangling();
+const u64* const F = escaping();
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:36:15: initializer for global `A` is not a constant expression: index out of bounds
+main.dc:37:15: initializer for global `B` is not a constant expression: read of uninitialized storage
+main.dc:38:15: initializer for global `C` is not a constant expression: null pointer dereference
+main.dc:39:17: initializer for global `D` is not a constant expression: slice bounds out of range
+main.dc:40:24: initializer for global `E` is not a constant expression: reference to storage that has gone out of scope
+main.dc:41:22: initializer for global `F` is not a constant expression: reference to storage that has gone out of scope

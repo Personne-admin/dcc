@@ -1,0 +1,83 @@
+=== FILE: main.dc ===
+module ctfe_arrays;
+
+u64 filled(u64 n) {
+    u64[8] values;
+    for (u64 i = 0; i < n; i += 1) {
+        values[i] = i * i;
+    }
+    u64 total = 0;
+    for (u64 i = 0; i < n; i += 1) {
+        total += values[i];
+    }
+    return total;
+}
+
+u64 nested() {
+    u64[2][3] grid;
+    for (u64 row = 0; row < 3; row += 1) {
+        for (u64 col = 0; col < 2; col += 1) {
+            grid[row][col] = row * 2 + col;
+        }
+    }
+    return grid[2][1] * 10 + grid[0][0];
+}
+
+u64 swapped() {
+    u64[3] values;
+    values[0] = 1;
+    values[1] = 2;
+    values[2] = 3;
+    u64 tmp = values[0];
+    values[0] = values[2];
+    values[2] = tmp;
+    return values[0] * 100 + values[1] * 10 + values[2];
+}
+
+u8[4] table(u8 base) {
+    u8[4] out;
+    for (usize i = 0; i < 4; i += 1) {
+        out[i] = (base + i as u8) as u8;
+    }
+    return out;
+}
+
+struct Point { u64 x; u64 y; }
+
+u64 records() {
+    Point[2] points;
+    points[0].x = 1;
+    points[0].y = 2;
+    points[1].x = 3;
+    points[1].y = 4;
+    return points[0].x + points[0].y + points[1].x + points[1].y;
+}
+
+u64 by_value(u64[3] copy) {
+    return copy[0] + copy[1] + copy[2];
+}
+
+u64 copies() {
+    u64[3] values;
+    values[0] = 5;
+    values[1] = 6;
+    values[2] = 7;
+    u64 result = by_value(values);
+    values[0] = 0;
+    return result + values[1];
+}
+
+const u64 A = filled(5);
+const u64 B = nested();
+const u64 C = swapped();
+const u8[4] TABLE = table(3);
+const u64 D = records();
+const u64 E = copies();
+
+void verify() {
+    static if A != 30 || B != 50 || C != 321 || TABLE[0] != 3 || TABLE[3] != 6 || D != 10 || E != 24 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

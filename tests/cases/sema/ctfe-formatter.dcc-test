@@ -1,0 +1,87 @@
+=== FILE: main.dc ===
+module ctfe_formatter;
+
+struct Writer {
+    []char buffer;
+    usize pos;
+}
+
+void put(Writer* w, char c) {
+    if w.pos < w.buffer.len {
+        w.buffer[w.pos] = c;
+        w.pos += 1;
+    }
+}
+
+void write(Writer* w, []const char text) {
+    for (usize i = 0; i < text.len; i += 1) {
+        put(w, text[i]);
+    }
+}
+
+void write_u64(Writer* w, u64 value) {
+    if value >= 10 {
+        write_u64(w, value / 10);
+    }
+    put(w, ('0' as u64 + value % 10) as char);
+}
+
+void write_hex(Writer* w, u64 value) {
+    if value >= 16 {
+        write_hex(w, value >> 4);
+    }
+    u64 nibble = value & 15;
+    put(w, if nibble < 10 { ('0' as u64 + nibble) as char } else { ('a' as u64 + nibble - 10) as char });
+}
+
+[]const char finish(Writer* w) {
+    return w.buffer[0..w.pos];
+}
+
+bool same([]const char a, []const char b) {
+    if a.len != b.len {
+        return false;
+    }
+    for (usize i = 0; i < a.len; i += 1) {
+        if a[i] != b[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool decimal() {
+    char[32] storage;
+    Writer w = { buffer = storage[0..32], pos = 0 };
+    write(&w, "value=");
+    write_u64(&w, 4096);
+    put(&w, '!');
+    return same(finish(&w), "value=4096!");
+}
+
+bool hexadecimal() {
+    char[32] storage;
+    Writer w = { buffer = storage[0..32], pos = 0 };
+    write(&w, "0x");
+    write_hex(&w, 48879);
+    return same(finish(&w), "0xbeef");
+}
+
+bool truncates() {
+    char[4] storage;
+    Writer w = { buffer = storage[0..4], pos = 0 };
+    write(&w, "abcdefgh");
+    return w.pos == 4 && same(finish(&w), "abcd");
+}
+
+const bool A = decimal();
+const bool B = hexadecimal();
+const bool C = truncates();
+
+void verify() {
+    static if !A || !B || !C {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
