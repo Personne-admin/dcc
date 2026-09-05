@@ -1227,6 +1227,20 @@ export namespace dcc::sema
         ModuleInfo* m_current_module{};
         std::unordered_map<ast::VarDecl const*, comptime::Value const*> m_global_const_vals;
 
+        detail::ExprResult analyze_call_arg(ModuleInfo& mod, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
+                                            types::TypePtr expected_type, ConstEnv const* const_env, ast::FuncDecl const* default_owner)
+        {
+            if (default_owner)
+            {
+                if (auto* defining_mod = find_defining_module(*default_owner))
+                {
+                    auto* default_scope = make_scope(ScopeKind::Function, nullptr);
+                    return analyze_expr(*defining_mod, nullptr, *default_scope, expr, loop_depth, next_off, expected_type, const_env);
+                }
+            }
+            return analyze_expr(mod, nullptr, scope, expr, loop_depth, next_off, expected_type, const_env);
+        }
+
         template <typename... A> void error(sm::SourceRange range, std::format_string<A...> fmt, A&&... args)
         {
             if (!m_suppress_errors)
@@ -5963,10 +5977,11 @@ export namespace dcc::sema
                     return std::nullopt;
 
                 auto vt_type = get_canonical(vtparam->value_type->sema);
+                bool is_default_arg = default_arg_start && vi >= *default_arg_start;
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                if (default_arg_start && vi >= *default_arg_start)
+                if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[vi], loop_depth, next_off, vt_type, const_env);
+                auto r = analyze_call_arg(mod, scope, *arg_exprs[vi], loop_depth, next_off, vt_type, const_env, is_default_arg ? &f : nullptr);
                 if (has_error(r.type))
                     return std::nullopt;
 
@@ -5997,7 +6012,9 @@ export namespace dcc::sema
                 if (is_contextual_construction(*arg_exprs[func_arg_start + i]))
                     continue;
 
-                auto r = analyze_expr(mod, nullptr, *seed_scope, *arg_exprs[func_arg_start + i], loop_depth, seed_off, param_ty, const_env);
+                bool is_default_arg = default_arg_start && func_arg_start + i >= *default_arg_start;
+                auto r = analyze_call_arg(mod, *seed_scope, *arg_exprs[func_arg_start + i], loop_depth, seed_off, param_ty, const_env,
+                                          is_default_arg ? &f : nullptr);
                 if (has_error(r.type))
                 {
                     rollback_non_spec_lambdas(seed_lambda_mark);
@@ -6012,10 +6029,11 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
+                bool is_default_arg = default_arg_start && func_arg_start + i >= *default_arg_start;
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env);
+                auto r = analyze_call_arg(mod, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env, is_default_arg ? &f : nullptr);
                 if (has_error(r.type))
                     return std::nullopt;
 
@@ -6033,10 +6051,12 @@ export namespace dcc::sema
                     else if (auto const* tp = types::type_cast<types::TemplateParamType>(pack_param_ty))
                         expected_ty = tp;
 
+                    bool is_default_arg = default_arg_start && func_arg_start + i >= *default_arg_start;
                     std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                    if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                    if (is_default_arg)
                         default_guard.emplace(*this, range);
-                    auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env);
+                    auto r = analyze_call_arg(mod, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env,
+                                              is_default_arg ? &f : nullptr);
                     if (has_error(r.type))
                         return std::nullopt;
 
@@ -6298,7 +6318,8 @@ export namespace dcc::sema
                                                                                          int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env,
                                                                                          std::optional<std::size_t> default_arg_start = std::nullopt)
         {
-            auto r = invoke_funcptr(mod, scope, fp, arg_exprs, range, loop_depth, next_off, const_env, false, default_arg_start);
+            auto const* default_owner = sym->decl && sym->decl->kind == ast::DeclKind::Func ? static_cast<ast::FuncDecl const*>(sym->decl) : nullptr;
+            auto r = invoke_funcptr(mod, scope, fp, arg_exprs, range, loop_depth, next_off, const_env, false, default_arg_start, default_owner);
             if (!r.type || r.type->kind == types::TypeKind::Error)
                 return std::nullopt;
 
@@ -12685,8 +12706,8 @@ export namespace dcc::sema
             if (callee.resolved_decl && callee.resolved_decl->kind == ast::DeclKind::Func)
             {
                 auto default_arg_start = materialize_default_arguments(*static_cast<ast::FuncDecl const*>(callee.resolved_decl), c.args);
-                auto out = invoke_function(mod, scope, *static_cast<ast::FuncDecl const*>(callee.resolved_decl), c.args, c.range, loop_depth, next_off, const_env,
-                                           false, expected_type, default_arg_start);
+                auto out = invoke_function(mod, scope, *static_cast<ast::FuncDecl const*>(callee.resolved_decl), c.args, c.range, loop_depth, next_off,
+                                           const_env, false, expected_type, default_arg_start);
                 out.default_argument_start = default_arg_start;
                 return out;
             }
@@ -13045,9 +13066,9 @@ export namespace dcc::sema
                             materialize_ufcs_default_arguments(*static_cast<ast::FuncDecl const*>(ranked[*winner].sym->decl), *materialized_args);
                         effective_args = std::span<ast::Expr* const>{*materialized_args};
                     }
-                    auto out_opt = invoke_ufcs_candidate(mod, scope, *ranked[*winner].sym, *f.object, effective_args, f.range, loop_depth, next_off, const_env,
-                                                         ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup,
-                                                         default_arg_start);
+                    auto out_opt =
+                        invoke_ufcs_candidate(mod, scope, *ranked[*winner].sym, *f.object, effective_args, f.range, loop_depth, next_off, const_env,
+                                              ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup, default_arg_start);
                     if (!out_opt)
                         return detail::ExprResult{m_types.m_errort()};
 
@@ -13185,10 +13206,11 @@ export namespace dcc::sema
                     return {m_types.m_errort()};
 
                 auto vt_type = get_canonical(vtparam->value_type->sema);
+                bool is_default_arg = default_arg_start && vi >= *default_arg_start;
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                if (default_arg_start && vi >= *default_arg_start)
+                if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[vi], loop_depth, next_off, vt_type, const_env);
+                auto r = analyze_call_arg(mod, scope, *arg_exprs[vi], loop_depth, next_off, vt_type, const_env, is_default_arg ? &f : nullptr);
                 if (has_error(r.type))
                     return {m_types.m_errort()};
 
@@ -13218,10 +13240,11 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < non_pack_func_params; ++i)
             {
                 auto param_ty = b.substitute(params[i]);
+                bool is_default_arg = default_arg_start && func_arg_start + i >= *default_arg_start;
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env);
+                auto r = analyze_call_arg(mod, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env, is_default_arg ? &f : nullptr);
                 if (value_alias_implicit_decay(r, param_ty))
                 {
                     if (!quiet)
@@ -13251,10 +13274,12 @@ export namespace dcc::sema
                     types::TypePtr expected_ty = nullptr;
                     if (auto const* pt = types::type_cast<types::TypePackType>(pack_param_ty))
                         expected_ty = b.substitute(pt->element);
+                    bool is_default_arg = default_arg_start && func_arg_start + i >= *default_arg_start;
                     std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                    if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                    if (is_default_arg)
                         default_guard.emplace(*this, range);
-                    auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env);
+                    auto r = analyze_call_arg(mod, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env,
+                                              is_default_arg ? &f : nullptr);
                     pack_arg_types.push_back(r.type);
                     auto const* raw_arg = arg_exprs[func_arg_start + i];
                     bool const is_str_lit = raw_arg && (raw_arg->kind == ast::ExprKind::StringLiteral || raw_arg->kind == ast::ExprKind::U16StringLiteral);
@@ -13496,7 +13521,7 @@ export namespace dcc::sema
 
         detail::ExprResult invoke_funcptr(ModuleInfo& mod, Scope& scope, types::FuncPtrType const* fp, std::span<ast::Expr* const> arg_exprs,
                                           sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false,
-                                          std::optional<std::size_t> default_arg_start = std::nullopt)
+                                          std::optional<std::size_t> default_arg_start = std::nullopt, ast::FuncDecl const* default_owner = nullptr)
         {
             std::pmr::vector<ast::Expr*> expanded_args{m_alloc};
             auto effective_args = expand_concept_call_args(mod, scope, arg_exprs, expanded_args);
@@ -13516,10 +13541,12 @@ export namespace dcc::sema
             args.reserve(effective_args.size());
             for (std::size_t i = 0; i < effective_args.size(); ++i)
             {
+                bool is_default_arg = default_arg_start && i >= *default_arg_start;
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
-                if (default_arg_start && i >= *default_arg_start)
+                if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_expr(mod, nullptr, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env);
+                auto r =
+                    analyze_call_arg(mod, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env, is_default_arg ? default_owner : nullptr);
                 if (value_alias_implicit_decay(r, fp->params[i]))
                 {
                     if (!quiet)

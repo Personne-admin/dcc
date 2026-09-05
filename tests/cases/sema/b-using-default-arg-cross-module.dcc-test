@@ -1,0 +1,27 @@
+=== FILE: other.dc ===
+module other;
+public struct Loc {
+    u32 line;
+}
+public Loc make_loc() {
+    return Loc {line = 1};
+}
+
+=== FILE: withdef.dc ===
+module withdef;
+public import other;
+using other::make_loc;
+
+public void defaults(other::Loc l = make_loc()) {
+}
+
+=== FILE: main.dc ===
+module main;
+
+import withdef;
+
+public void use_defaults() {
+    withdef::defaults();
+}
+
+=== ENTRY: main.dc ===
