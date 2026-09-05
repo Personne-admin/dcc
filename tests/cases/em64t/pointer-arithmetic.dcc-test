@@ -1,0 +1,82 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 sum_forward() {
+    u64[4] v;
+    v[0] = 1;
+    v[1] = 2;
+    v[2] = 4;
+    v[3] = 8;
+
+    u64* first = &v[0];
+    u64* last = first + 3;
+    u64 total = 0;
+    u64* p = first;
+    while p <= last {
+        total += *p;
+        p = p + 1;
+    }
+    return total;
+}
+
+isize distance() {
+    u32[8] v;
+    u32* a = &v[2];
+    u32* b = &v[7];
+    return b - a;
+}
+
+u64 backwards() {
+    u64[4] v;
+    v[0] = 1;
+    v[1] = 2;
+    v[2] = 4;
+    v[3] = 8;
+
+    u64* p = &v[0] + 4;
+    u64 total = 0;
+    while p > &v[0] {
+        p -= 1;
+        total = total * 10 + *p;
+    }
+    return total;
+}
+
+u64 offset_both_ways(usize n) {
+    u64[4] v;
+    v[0] = 1;
+    v[1] = 2;
+    v[2] = 4;
+    v[3] = 8;
+    return *(&v[0] + n) + *(n + &v[0]);
+}
+
+const u64 A = sum_forward();
+const isize B = distance();
+const u64 C = backwards();
+const u64 D = offset_both_ways(2);
+
+@nomangle
+public i32 dcc_main() {
+    if A != 15 { return 11; }
+    if B != 5 { return 12; }
+    if C != 8421 { return 13; }
+    if D != 8 { return 14; }
+    if sum_forward() != 15 { return 21; }
+    if distance() != 5 { return 22; }
+    if backwards() != 8421 { return 23; }
+    if offset_both_ways(2) != 8 { return 24; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

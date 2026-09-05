@@ -980,6 +980,9 @@ export namespace dcc::ctfe
             if (lhs_pointer && rhs.kind() == Kind::Int && (op == K::Plus || op == K::Minus))
                 return offset_pointer(lhs, op == K::Plus ? rhs.get_int() : -rhs.get_int());
 
+            if (rhs_pointer && lhs.kind() == Kind::Int && op == K::Plus)
+                return offset_pointer(rhs, lhs.get_int());
+
             if (lhs_pointer && rhs_pointer)
             {
                 auto const& a = lhs.get_pointer();
