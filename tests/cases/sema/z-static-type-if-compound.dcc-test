@@ -1,0 +1,45 @@
+=== FILE: main.dc ===
+module m;
+
+i32 test_slice(T)(T x) {
+    static if T == [] const u8 {
+        return 1;
+    } else {
+        dead_branch_error;
+    }
+}
+
+i32 test_ptr(T)(T x) {
+    static if T == const u8* {
+        return 2;
+    } else {
+        dead_branch_error;
+    }
+}
+
+i32 test_swapped(T)(T x) {
+    static if [] const u8 == T {
+        return 3;
+    } else {
+        dead_branch_error;
+    }
+}
+
+i32 test_nonmatch(T)(T x) {
+    static if T == [] const u8 {
+        dead_branch_error;
+    } else {
+        return 4;
+    }
+}
+
+void verify() {
+    [] const u8 slice_val;
+    i32 r1 = test_slice(slice_val);
+    const u8* ptr_val = null;
+    i32 r2 = test_ptr(ptr_val);
+    i32 r3 = test_swapped(slice_val);
+    i32 r4 = test_nonmatch(10);
+}
+
+=== ENTRY: main.dc ===

@@ -4594,13 +4594,22 @@ export namespace dcc::sema
                 if (bin && bin->op == lex::TokenKind::EqEq)
                 {
                     auto const* lhs_ident = ast::node_cast<ast::IdentExpr>(bin->lhs);
-                    if (lhs_ident)
+                    auto const* rhs_ident = ast::node_cast<ast::IdentExpr>(bin->rhs);
+                    auto const* scrutinee_ident = lhs_ident;
+                    auto const* target_expr = bin->rhs;
+                    if (!scrutinee_ident && rhs_ident)
+                    {
+                        scrutinee_ident = rhs_ident;
+                        target_expr = bin->lhs;
+                    }
+
+                    if (scrutinee_ident)
                     {
                         types::TemplateParamType const* param_type = nullptr;
                         std::uint32_t idx = 0;
                         for (auto const& tp : fn.template_params)
                         {
-                            if (tp.name == lhs_ident->name)
+                            if (tp.name == scrutinee_ident->name)
                             {
                                 param_type = static_cast<types::TemplateParamType const*>(
                                     m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, idx));
@@ -4616,18 +4625,18 @@ export namespace dcc::sema
                             {
                                 types::TypePtr target_type = nullptr;
 
-                                if (auto const* rhs_ident = ast::node_cast<ast::IdentExpr>(bin->rhs))
+                                if (auto const* target_ident = ast::node_cast<ast::IdentExpr>(target_expr))
                                 {
                                     ast::Path path(m_ast_ctx.allocator());
-                                    path.segments.push_back({rhs_ident->name, rhs_ident->range});
-                                    path.range = rhs_ident->range;
-                                    auto* type_expr = m_ast_ctx.make<ast::NamedType>(rhs_ident->range, std::move(path));
+                                    path.segments.push_back({target_ident->name, target_ident->range});
+                                    path.range = target_ident->range;
+                                    auto* type_expr = m_ast_ctx.make<ast::NamedType>(target_ident->range, std::move(path));
                                     target_type = resolve_type_node(mod, scope, type_expr);
                                 }
-                                else if (auto const* rhs_type_ast = ast::node_cast<ast::TypeASTExpr>(bin->rhs))
+                                else if (auto const* target_type_ast = ast::node_cast<ast::TypeASTExpr>(target_expr))
                                 {
-                                    if (rhs_type_ast->type_node)
-                                        target_type = resolve_type_node(mod, scope, rhs_type_ast->type_node);
+                                    if (target_type_ast->type_node)
+                                        target_type = resolve_type_node(mod, scope, target_type_ast->type_node);
                                 }
 
                                 bool types_match = target_type && (concrete == target_type ||
@@ -13749,7 +13758,16 @@ export namespace dcc::sema
             }
 
             auto const* lhs_ident = ast::node_cast<ast::IdentExpr>(bin->lhs);
-            if (!lhs_ident)
+            auto const* rhs_ident = ast::node_cast<ast::IdentExpr>(bin->rhs);
+            auto const* scrutinee_ident = lhs_ident;
+            auto const* target_expr = bin->rhs;
+            if (!scrutinee_ident && rhs_ident)
+            {
+                scrutinee_ident = rhs_ident;
+                target_expr = bin->lhs;
+            }
+
+            if (!scrutinee_ident)
             {
                 si.taken_branch = 0;
                 auto* inner = make_scope(ScopeKind::Block, &scope);
@@ -13760,7 +13778,7 @@ export namespace dcc::sema
                 return out;
             }
 
-            std::string_view param_name = lhs_ident->name;
+            std::string_view param_name = scrutinee_ident->name;
             types::TypePtr scrutinee_type = nullptr;
             if (fn)
             {
@@ -13801,15 +13819,19 @@ export namespace dcc::sema
                 return out;
             }
 
-            auto const* rhs_ident = ast::node_cast<ast::IdentExpr>(bin->rhs);
             types::TypePtr target_type = nullptr;
-            if (rhs_ident)
+            if (auto const* target_ident = ast::node_cast<ast::IdentExpr>(target_expr))
             {
                 ast::Path path(m_ast_ctx.allocator());
-                path.segments.push_back({rhs_ident->name, rhs_ident->range});
-                path.range = rhs_ident->range;
-                auto* type_expr = m_ast_ctx.make<ast::NamedType>(rhs_ident->range, std::move(path));
+                path.segments.push_back({target_ident->name, target_ident->range});
+                path.range = target_ident->range;
+                auto* type_expr = m_ast_ctx.make<ast::NamedType>(target_ident->range, std::move(path));
                 target_type = resolve_type_node(mod, scope, type_expr);
+            }
+            else if (auto const* target_type_ast = ast::node_cast<ast::TypeASTExpr>(target_expr))
+            {
+                if (target_type_ast->type_node)
+                    target_type = resolve_type_node(mod, scope, target_type_ast->type_node);
             }
 
             bool scrutinee_unresolved =

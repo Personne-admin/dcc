@@ -1569,7 +1569,11 @@ namespace dcc::sema
             {
                 auto* bin = ast::node_cast<ast::BinaryExpr>(si.condition);
                 auto* lhs_ident = bin ? ast::node_cast<ast::IdentExpr>(bin->lhs) : nullptr;
+                auto* rhs_ident = bin ? ast::node_cast<ast::IdentExpr>(bin->rhs) : nullptr;
                 if (lhs_ident && m_param_type_map.find(lhs_ident->name) != m_param_type_map.end())
+                    si.is_type_if = true;
+                else if (rhs_ident && m_param_type_map.find(rhs_ident->name) != m_param_type_map.end() &&
+                         ast::node_cast<ast::TypeASTExpr>(bin->lhs))
                     si.is_type_if = true;
             }
 
@@ -1578,8 +1582,20 @@ namespace dcc::sema
                 auto* bin = ast::node_cast<ast::BinaryExpr>(si.condition);
                 if (bin && bin->op == lex::TokenKind::EqEq)
                 {
-                    auto* ident = ast::node_cast<ast::IdentExpr>(bin->lhs);
-                    if (ident)
+                    ast::IdentExpr* ident = nullptr;
+                    ast::Expr* other = nullptr;
+                    if (auto* l = ast::node_cast<ast::IdentExpr>(bin->lhs); l && m_param_type_map.find(l->name) != m_param_type_map.end())
+                    {
+                        ident = l;
+                        other = bin->rhs;
+                    }
+                    else if (auto* r = ast::node_cast<ast::IdentExpr>(bin->rhs); r && m_param_type_map.find(r->name) != m_param_type_map.end())
+                    {
+                        ident = r;
+                        other = bin->lhs;
+                    }
+
+                    if (ident && other)
                     {
                         auto it = m_param_type_map.find(ident->name);
                         if (it != m_param_type_map.end())
@@ -1587,16 +1603,20 @@ namespace dcc::sema
                             auto param_concrete = it->second;
                             types::TypePtr rhs_type = nullptr;
 
-                            if (auto* rhs_ident = ast::node_cast<ast::IdentExpr>(bin->rhs))
+                            if (auto* rhs_ident = ast::node_cast<ast::IdentExpr>(other))
                             {
                                 if (rhs_ident->sema.resolved_type)
                                     rhs_type = get_resolved_type(rhs_ident->sema);
                                 else
                                     rhs_type = resolve_primitive_type_name(rhs_ident->name);
                             }
-                            else if (auto* type_ast = ast::node_cast<ast::TypeASTExpr>(bin->rhs))
+                            else if (auto* type_ast = ast::node_cast<ast::TypeASTExpr>(other))
                             {
-                                if (type_ast->type_node)
+                                if (type_ast->sema.resolved_type)
+                                {
+                                    rhs_type = get_resolved_type(type_ast->sema);
+                                }
+                                else if (type_ast->type_node)
                                 {
                                     if (type_ast->type_node->sema.canonical)
                                     {

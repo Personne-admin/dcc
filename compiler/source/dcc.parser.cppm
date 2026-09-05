@@ -2509,13 +2509,15 @@ export namespace dcc::parser
 
         ast::StaticIfStmt* finish_static_if(sm::Location start)
         {
-            auto* cond = parse_expr(0, true);
+            auto* cond = parse_expr(0, true, false, true);
             auto then_block = parse_block();
             auto* s = m_ctx.make<ast::StaticIfStmt>(range_from(start), cond, std::move(then_block));
 
             if (auto* bin = ast::node_cast<ast::BinaryExpr>(cond))
             {
-                if (bin->op == TK::EqEq && ast::node_cast<ast::IdentExpr>(bin->lhs))
+                if (bin->op == TK::EqEq &&
+                    (ast::node_cast<ast::IdentExpr>(bin->lhs) ||
+                     (ast::node_cast<ast::TypeASTExpr>(bin->lhs) && ast::node_cast<ast::IdentExpr>(bin->rhs))))
                     s->is_type_if = true;
             }
 
@@ -2556,7 +2558,7 @@ export namespace dcc::parser
 
         ast::StaticIfGroup* finish_static_if_group(sm::Location start)
         {
-            auto* cond = parse_expr(0, true);
+            auto* cond = parse_expr(0, true, false, true);
             auto* g = m_ctx.make<ast::StaticIfGroup>(range_from(start), cond);
             parse_decl_block(g->then_decls);
 
@@ -2871,17 +2873,17 @@ export namespace dcc::parser
 
         bool is_assignment_op(TK k) noexcept { return k == TK::Eq || (k >= TK::PlusEq && k <= TK::GtGtEq); }
 
-        ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false)
+        ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false)
         {
             auto start = loc();
             auto first_error = m_recovery_errors.size();
-            auto* result = parse_expr_impl(min_prec, no_struct_lit, is_stmt);
+            auto* result = parse_expr_impl(min_prec, no_struct_lit, is_stmt, allow_type);
             return mark_recovered(result, first_error, range_from(start));
         }
 
-        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false)
+        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false)
         {
-            auto* left = parse_unary(no_struct_lit);
+            auto* left = parse_unary(no_struct_lit, allow_type);
             if (!left)
                 return nullptr;
 
@@ -2914,7 +2916,7 @@ export namespace dcc::parser
                 if (op == TK::DotDot)
                 {
                     bool inclusive = match(TK::Eq);
-                    auto* right = parse_expr(prec + 1, no_struct_lit);
+                    auto* right = parse_expr(prec + 1, no_struct_lit, false, allow_type);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
                     left = m_ctx.make<ast::RangeExpr>(range, left, right, inclusive);
                     is_stmt = false;
@@ -2922,7 +2924,7 @@ export namespace dcc::parser
                 }
 
                 int next_prec = is_assignment_op(op) ? prec : prec + 1;
-                auto* right = parse_expr(next_prec, no_struct_lit);
+                auto* right = parse_expr(next_prec, no_struct_lit, false, allow_type);
                 if (!right)
                     return left;
 
@@ -2935,13 +2937,13 @@ export namespace dcc::parser
             return left;
         }
 
-        ast::Expr* parse_unary(bool no_struct_lit)
+        ast::Expr* parse_unary(bool no_struct_lit, bool allow_type = false)
         {
             if (check(TK::At))
             {
                 auto start = loc();
                 auto attrs = parse_attributes();
-                auto* expr = parse_unary(no_struct_lit);
+                auto* expr = parse_unary(no_struct_lit, allow_type);
                 if (expr)
                 {
                     if (expr->attrs.empty())
@@ -2964,14 +2966,14 @@ export namespace dcc::parser
                 case TK::Increment:
                 case TK::Decrement: {
                     auto op = advance().kind;
-                    auto* operand = parse_unary(no_struct_lit);
+                    auto* operand = parse_unary(no_struct_lit, allow_type);
                     return m_ctx.make<ast::UnaryExpr>(range_from(start), op, operand);
                 }
                 default:
                     break;
             }
 
-            auto* primary = parse_primary(no_struct_lit);
+            auto* primary = parse_primary(no_struct_lit, allow_type);
             if (!primary)
                 return nullptr;
 
@@ -3249,7 +3251,7 @@ export namespace dcc::parser
             return lambda;
         }
 
-        ast::Expr* parse_primary(bool no_struct_lit)
+        ast::Expr* parse_primary(bool no_struct_lit, bool allow_type = false)
         {
             auto start = loc();
             switch (peek().kind)
@@ -3320,7 +3322,7 @@ export namespace dcc::parser
 
                 case TK::LParen: {
                     advance();
-                    auto* inner = parse_expr();
+                    auto* inner = parse_expr(0, false, false, allow_type);
                     expect(TK::RParen, "to close grouped expression");
                     return inner;
                 }
@@ -3415,7 +3417,8 @@ export namespace dcc::parser
                 }
 
                 default:
-                    if (ast::is_primitive_type(peek().kind))
+                    if (ast::is_primitive_type(peek().kind) ||
+                        (allow_type && (ast::is_qualifier(peek().kind) || check(TK::LBracket))))
                     {
                         auto* type_node = parse_type();
                         if (!type_node)
