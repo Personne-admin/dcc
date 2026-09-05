@@ -34,6 +34,7 @@ export namespace dcc::ctfe
         sm::SourceRange call_site{};
         ast::FuncDecl const* function{};
         types::TypeContext* types{};
+        sm::SourceManager const* source_manager{};
         std::size_t step_limit{100000};
         std::size_t recursion_limit{128};
         std::size_t memory_limit{1 << 20};
@@ -74,6 +75,23 @@ export namespace dcc::ctfe
         std::vector<Frame> m_frames;
         std::unordered_map<comptime::Value const*, comptime::ValuePtr> m_constants;
         Heap m_heap;
+        std::optional<sm::SourceRange> m_default_argument_call_site;
+
+        struct DefaultArgumentCallSiteGuard
+        {
+            Evaluator& evaluator;
+            std::optional<sm::SourceRange> previous;
+
+            DefaultArgumentCallSiteGuard(Evaluator& e, sm::SourceRange range) : evaluator(e), previous(e.m_default_argument_call_site)
+            {
+                evaluator.m_default_argument_call_site = range;
+            }
+
+            ~DefaultArgumentCallSiteGuard()
+            {
+                evaluator.m_default_argument_call_site = previous;
+            }
+        };
 
         Result failure(std::string message, bool hard = false)
         {
@@ -128,6 +146,34 @@ export namespace dcc::ctfe
                     return d->fields;
             }
             return {};
+        }
+
+        std::optional<comptime::Value> source_location_value(types::TypePtr type, sm::SourceRange range)
+        {
+            if (!type || !range.begin.valid() || !m_context.source_manager)
+                return std::nullopt;
+
+            auto fields = record_fields(type);
+            if (fields.size() != 3)
+                return std::nullopt;
+
+            if (m_default_argument_call_site)
+                range = *m_default_argument_call_site;
+
+            auto const* file = m_context.source_manager->get(range.begin.fileId);
+            if (!file)
+                return std::nullopt;
+
+            auto lc = file->line_col(range.begin.offset);
+            if (!lc)
+                return std::nullopt;
+
+            std::vector<comptime::Value> elements;
+            elements.reserve(3);
+            elements.push_back(comptime::Value::make_string(file->path().string(), type_of(fields[0].type)));
+            elements.push_back(comptime::Value::make_int(lc->line, type_of(fields[1].type)));
+            elements.push_back(comptime::Value::make_int(lc->column, type_of(fields[2].type)));
+            return comptime::Value::make_aggregate(std::move(elements), type);
         }
 
         static bool is_byte_type(types::TypePtr type)
@@ -1164,6 +1210,9 @@ export namespace dcc::ctfe
             {
                 auto index = args.size();
                 auto target = index < fn.params.size() ? type_of(fn.params[index].type) : nullptr;
+                std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                if (call.sema.default_argument_start && i >= *call.sema.default_argument_start)
+                    default_guard.emplace(*this, call.range);
                 auto r = convert(*call.args[i], target);
                 if (r.flow != Flow::Normal)
                     return r;
@@ -1209,6 +1258,9 @@ export namespace dcc::ctfe
 
             if (fn)
             {
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation)
+                    return folded(source_location_value(type_of(call), call.range));
+
                 if (fn->sema.is_runtime)
                     is_runtime = true;
                 for (auto const& a : fn->attrs)
