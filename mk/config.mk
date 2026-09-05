@@ -60,6 +60,6 @@ endif
 STDLIB_FLAGS := -stdlib=libc++
 
 BASE_CXXFLAGS := $(CXXSTD) $(WARNS) $(OPT_FLAGS) $(DEBUG_FLAGS) $(SAN_FLAGS) \
-                 $(LLVM_DEFS) $(STDLIB_FLAGS) --gcc-install-dir=""
+                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) --gcc-install-dir=""
 
-BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS)
+BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) -lc++abi

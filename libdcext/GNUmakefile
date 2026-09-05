@@ -44,7 +44,7 @@ $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
 	$(call MSG,ASM,$<)
-	$(Q)clang -c -target $(TARGET) -x assembler-with-cpp -o $@ $<
+	$(Q)$(CC) -c -target $(TARGET) -x assembler-with-cpp -o $@ $<
 
 install: all
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext.a)
