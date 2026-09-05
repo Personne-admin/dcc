@@ -20,5 +20,5 @@ Module m
         StructLiteral [type=Singleton const=agg(42) constant]
           IntLiteral 42 [type=i32 const=42 constant]
       Return
-        FieldAccess value [type=i32 const=42 constant decl=Singleton]
+        FieldAccess value [type=i32 const=42 lvalue constant decl=Singleton]
           Ident s [type=Singleton const=agg(42) lvalue constant decl=s]

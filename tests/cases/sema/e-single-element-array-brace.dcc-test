@@ -39,7 +39,7 @@ Module m
         StructLiteral [type=i32[1] const=agg(77) constant]
           IntLiteral 77 [type=i32 const=77 constant]
       Return
-        Index [type=i32 const=77 constant decl=arr]
+        Index [type=i32 const=77 lvalue constant decl=arr]
           Ident arr [type=i32[1] const=agg(77) lvalue constant decl=arr]
           IntLiteral 0 [type=usize const=0 constant]
   Func test_single_slice_var diverging=true

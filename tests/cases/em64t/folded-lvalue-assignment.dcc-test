@@ -1,0 +1,66 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+struct Pair { u64 a; u64 b; }
+
+struct Box { Pair inner; }
+
+u64 field_write() {
+    Pair p = { a = 1, b = 2 };
+    p.b = 5;
+    return p.a + p.b;
+}
+
+u64 element_write() {
+    u64[3] v = { 1, 2, 3 };
+    v[1] = 9;
+    return v[0] + v[1] + v[2];
+}
+
+u64 nested_write() {
+    Box b = { inner = { a = 1, b = 2 } };
+    b.inner.a += 3;
+    return b.inner.a * 10 + b.inner.b;
+}
+
+u64 through_address() {
+    u64[3] v = { 1, 2, 3 };
+    u64* q = &v[1];
+    *q = 7;
+    return v[1];
+}
+
+void bump(Pair* p) {
+    p.a += 1;
+}
+
+u64 through_auto_ref() {
+    Pair p = { a = 1, b = 2 };
+    p.bump();
+    return p.a;
+}
+
+const u64 A = field_write();
+const u64 B = element_write();
+const u64 C = nested_write();
+const u64 D = through_address();
+const u64 E = through_auto_ref();
+
+@nomangle
+public i32 dcc_main() {
+    bool folded = A == 6 && B == 13 && C == 42 && D == 7 && E == 2;
+    bool live = field_write() == 6 && element_write() == 13 && nested_write() == 42 && through_address() == 7 && through_auto_ref() == 2;
+    return if folded && live { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

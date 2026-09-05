@@ -1632,6 +1632,17 @@ export namespace dcc::sema
             }
         }
 
+        void invalidate_written_target(ast::Expr const* target, ConstEnv const* env)
+        {
+            if (!env || !target)
+                return;
+
+            std::pmr::vector<std::string_view> written(m_alloc);
+            collect_assign_target_name(target, written);
+            for (auto name : written)
+                invalidate_constant(env, name);
+        }
+
         void invalidate_loop_writes(ast::Stmt const* stmt, ConstEnv const* env)
         {
             std::pmr::vector<std::string_view> written(m_alloc);
@@ -6079,8 +6090,10 @@ export namespace dcc::sema
                     case UfcsReceiverMatch::ArrayToSlice:
                         break;
                     case UfcsReceiverMatch::AutoRef:
-                    case UfcsReceiverMatch::AutoRefConst:
                     case UfcsReceiverMatch::AutoRefQualMismatch:
+                        invalidate_written_target(&object, const_env);
+                        [[fallthrough]];
+                    case UfcsReceiverMatch::AutoRefConst:
                         object.sema.implicit_addr_of = true;
                         break;
                     case UfcsReceiverMatch::AutoDeref:
@@ -10191,6 +10204,7 @@ export namespace dcc::sema
                         break;
                     }
                     require_binding_storage(u.operand);
+                    invalidate_written_target(u.operand, const_env);
                     out.type = m_types.pointer_to(op.type, types::Qual::None);
                     break;
                 case lex::TokenKind::Star:
@@ -10238,9 +10252,7 @@ export namespace dcc::sema
                     out.is_constant = false;
                     require_binding_storage(u.operand);
                     track_decl_write(op.resolved_decl);
-                    if (const_env)
-                        if (auto const* lv = ast::node_cast<ast::VarDecl>(op.resolved_decl))
-                            invalidate_constant(const_env, lv->name);
+                    invalidate_written_target(u.operand, const_env);
                     return out;
                 }
                 default:
@@ -10306,9 +10318,7 @@ export namespace dcc::sema
                     out.is_constant = false;
                     require_binding_storage(p.operand);
                     track_decl_write(op.resolved_decl);
-                    if (const_env)
-                        if (auto const* lv = ast::node_cast<ast::VarDecl>(op.resolved_decl))
-                            invalidate_constant(const_env, lv->name);
+                    invalidate_written_target(p.operand, const_env);
                     return out;
                 }
                 case lex::TokenKind::Question: {
@@ -10547,9 +10557,7 @@ export namespace dcc::sema
 
                     track_decl_write(lhs.resolved_decl);
                     require_binding_storage(b.lhs);
-                    if (const_env)
-                        if (auto const* lv = ast::node_cast<ast::VarDecl>(lhs.resolved_decl))
-                            invalidate_constant(const_env, lv->name);
+                    invalidate_written_target(b.lhs, const_env);
                     out.type = lhs_type;
                     return out;
                 }
@@ -10705,7 +10713,6 @@ export namespace dcc::sema
                     {
                         out.constant = &obj.constant->at(0);
                         out.is_constant = true;
-                        out.is_lvalue = false;
                     }
 
                     return out;
@@ -10719,7 +10726,6 @@ export namespace dcc::sema
                     {
                         out.constant = &obj.constant->at(1);
                         out.is_constant = true;
-                        out.is_lvalue = false;
                     }
 
                     return out;
@@ -10765,7 +10771,6 @@ export namespace dcc::sema
                     {
                         out.constant = &agg.at(i);
                         out.is_constant = true;
-                        out.is_lvalue = false;
                         break;
                     }
                 }
@@ -10993,7 +10998,6 @@ export namespace dcc::sema
                 {
                     out.constant = &obj.constant->at(static_cast<std::size_t>(*idx_opt));
                     out.is_constant = true;
-                    out.is_lvalue = false;
                 }
             }
 
