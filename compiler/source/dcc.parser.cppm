@@ -2781,14 +2781,8 @@ export namespace dcc::parser
             return m_ctx.make<ast::StaticForStmt>(range_from(start), std::move(body));
         }
 
-        ast::Block parse_block()
+        void parse_block_stmts_and_tail(ast::Block& block)
         {
-            auto start = loc();
-            expect(TK::LBrace, "to begin block");
-
-            ast::Block block(m_ctx.allocator());
-            block.range.begin = start;
-
             while (!check(TK::RBrace) && !eof())
             {
                 RecoveryRangeBoundary recovery_boundary{*this};
@@ -2832,10 +2826,23 @@ export namespace dcc::parser
                     synchronize_to_stmt();
                 }
             }
+        }
 
+        ast::Block parse_block_after_brace(sm::Location start)
+        {
+            ast::Block block(m_ctx.allocator());
+            block.range.begin = start;
+            parse_block_stmts_and_tail(block);
             expect(TK::RBrace, "to close block");
             block.range = range_from(start);
             return block;
+        }
+
+        ast::Block parse_block()
+        {
+            auto start = loc();
+            expect(TK::LBrace, "to begin block");
+            return parse_block_after_brace(start);
         }
 
         bool is_block_like_expr(ast::Expr* e)
@@ -3524,95 +3531,9 @@ export namespace dcc::parser
                     return parse_struct_literal_after_brace(nullptr, start);
             }
 
-            if (looks_like_decl())
+            if (looks_like_decl() || is_stmt_keyword_token(peek().kind))
             {
-                ast::Block block(m_ctx.allocator());
-                block.range.begin = start;
-                while (!check(TK::RBrace) && !eof())
-                {
-                    RecoveryRangeBoundary recovery_boundary{*this};
-                    if (auto* s = try_parse_decl_or_expr_stmt())
-                    {
-                        block.stmts.push_back(s);
-                        continue;
-                    }
-
-                    auto stmt_start = loc();
-                    auto* e = parse_expr(0, false, true);
-                    if (!e)
-                    {
-                        synchronize_to_stmt();
-                        continue;
-                    }
-                    if (match(TK::Semicolon))
-                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), e));
-                    else if (check(TK::RBrace))
-                    {
-                        block.tail = e;
-                        break;
-                    }
-                    else if (is_block_like_expr(e))
-                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), e));
-                    else
-                    {
-                        error_at(single_range(), "expected ';' or '}' after expression");
-                        synchronize_to_stmt();
-                    }
-                }
-
-                expect(TK::RBrace, "to close block");
-                block.range = range_from(start);
-                return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));
-            }
-
-            if (is_stmt_keyword_token(peek().kind))
-            {
-                ast::Block block(m_ctx.allocator());
-                block.range.begin = start;
-                while (!check(TK::RBrace) && !eof())
-                {
-                    RecoveryRangeBoundary recovery_boundary{*this};
-                    if (is_stmt_keyword_token(peek().kind))
-                    {
-                        auto* s = parse_stmt();
-                        if (s)
-                            block.stmts.push_back(s);
-                        else
-                            synchronize_to_stmt();
-                        continue;
-                    }
-
-                    if (auto* s = try_parse_decl_or_expr_stmt())
-                    {
-                        block.stmts.push_back(s);
-                        continue;
-                    }
-
-                    auto stmt_start = loc();
-                    auto* e = parse_expr(0, false, true);
-                    if (!e)
-                    {
-                        synchronize_to_stmt();
-                        continue;
-                    }
-                    if (match(TK::Semicolon))
-                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), e));
-                    else if (check(TK::RBrace))
-                    {
-                        block.tail = e;
-                        break;
-                    }
-                    else if (is_block_like_expr(e))
-                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), e));
-                    else
-                    {
-                        error_at(single_range(), "expected ';' or '}' after expression");
-                        synchronize_to_stmt();
-                    }
-                }
-
-                expect(TK::RBrace, "to close block");
-                block.range = range_from(start);
+                auto block = parse_block_after_brace(start);
                 return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));
             }
 
@@ -3682,39 +3603,7 @@ export namespace dcc::parser
                 ast::Block block(m_ctx.allocator());
                 block.range.begin = start;
                 block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(first_start), first));
-                while (!check(TK::RBrace) && !eof())
-                {
-                    RecoveryRangeBoundary recovery_boundary{*this};
-                    if (auto* s = try_parse_decl_or_expr_stmt())
-                    {
-                        block.stmts.push_back(s);
-                        continue;
-                    }
-
-                    auto sstart = loc();
-                    auto* e = parse_expr(0, false, true);
-                    if (!e)
-                    {
-                        synchronize_to_stmt();
-                        continue;
-                    }
-
-                    if (match(TK::Semicolon))
-                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(sstart), e));
-                    else if (check(TK::RBrace))
-                    {
-                        block.tail = e;
-                        break;
-                    }
-                    else if (is_block_like_expr(e))
-                        block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(sstart), e));
-                    else
-                    {
-                        error_at(single_range(), "expected ';' or '}' after expression");
-                        synchronize_to_stmt();
-                    }
-                }
-
+                parse_block_stmts_and_tail(block);
                 expect(TK::RBrace, "to close block");
                 block.range = range_from(start);
                 return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));

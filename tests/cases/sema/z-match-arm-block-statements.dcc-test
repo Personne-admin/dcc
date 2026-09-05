@@ -1,0 +1,48 @@
+=== FILE: main.dc ===
+module m;
+
+enum E {
+    Bad,
+    Other,
+    Ok,
+}
+
+void side_effect() {}
+
+i32 f(E e) {
+    match e {
+        E::Bad => {
+            side_effect();
+            return 7;
+        },
+        E::Other => return 9,
+        _ => {},
+    }
+
+    return 3;
+}
+
+i32 test_block_with_decl_and_return(E e) {
+    match e {
+        E::Bad => {
+            i32 code = 42;
+            return code;
+        },
+        _ => return 0,
+    }
+}
+
+i32 test_block_with_value(E e) {
+    i32 val = match e {
+        E::Bad => {
+            side_effect();
+            return -1;
+        },
+        E::Other => {
+            side_effect();
+            99
+        },
+        E::Ok => 1,
+    };
+    return val;
+}
