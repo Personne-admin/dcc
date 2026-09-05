@@ -2513,13 +2513,21 @@ export namespace dcc::parser
             auto then_block = parse_block();
             auto* s = m_ctx.make<ast::StaticIfStmt>(range_from(start), cond, std::move(then_block));
 
-            if (auto* bin = ast::node_cast<ast::BinaryExpr>(cond))
-            {
-                if (bin->op == TK::EqEq &&
-                    (ast::node_cast<ast::IdentExpr>(bin->lhs) ||
-                     (ast::node_cast<ast::TypeASTExpr>(bin->lhs) && ast::node_cast<ast::IdentExpr>(bin->rhs))))
-                    s->is_type_if = true;
-            }
+            auto is_type_condition = [&](auto&& self, ast::Expr const* expr) -> bool {
+                if (auto const* unary = ast::node_cast<ast::UnaryExpr>(expr))
+                    return unary->op == TK::Bang && self(self, unary->operand);
+
+                auto const* bin = ast::node_cast<ast::BinaryExpr>(expr);
+                if (!bin)
+                    return false;
+                if (bin->op == TK::PipePipe || bin->op == TK::AmpAmp)
+                    return self(self, bin->lhs) && self(self, bin->rhs);
+                if (bin->op != TK::EqEq && bin->op != TK::BangEq)
+                    return false;
+                return ast::node_cast<ast::IdentExpr>(bin->lhs) ||
+                       (ast::node_cast<ast::TypeASTExpr>(bin->lhs) && ast::node_cast<ast::IdentExpr>(bin->rhs));
+            };
+            s->is_type_if = is_type_condition(is_type_condition, cond);
 
             if (match(TK::KwElse))
             {

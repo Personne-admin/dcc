@@ -1565,82 +1565,92 @@ namespace dcc::sema
                 return taken;
             };
 
+            auto is_type_condition = [&](auto&& self, ast::Expr const* expr) -> bool {
+                if (auto const* unary = ast::node_cast<ast::UnaryExpr>(expr))
+                    return unary->op == lex::TokenKind::Bang && self(self, unary->operand);
+
+                auto const* bin = ast::node_cast<ast::BinaryExpr>(expr);
+                if (!bin)
+                    return false;
+                if (bin->op == lex::TokenKind::PipePipe || bin->op == lex::TokenKind::AmpAmp)
+                    return self(self, bin->lhs) && self(self, bin->rhs);
+                if (bin->op != lex::TokenKind::EqEq && bin->op != lex::TokenKind::BangEq)
+                    return false;
+                auto const* lhs = ast::node_cast<ast::IdentExpr>(bin->lhs);
+                auto const* rhs = ast::node_cast<ast::IdentExpr>(bin->rhs);
+                return (lhs && m_param_type_map.contains(lhs->name)) || (rhs && m_param_type_map.contains(rhs->name));
+            };
+
             if (!si.is_type_if)
-            {
-                auto* bin = ast::node_cast<ast::BinaryExpr>(si.condition);
-                auto* lhs_ident = bin ? ast::node_cast<ast::IdentExpr>(bin->lhs) : nullptr;
-                auto* rhs_ident = bin ? ast::node_cast<ast::IdentExpr>(bin->rhs) : nullptr;
-                if (lhs_ident && m_param_type_map.find(lhs_ident->name) != m_param_type_map.end())
-                    si.is_type_if = true;
-                else if (rhs_ident && m_param_type_map.find(rhs_ident->name) != m_param_type_map.end() &&
-                         ast::node_cast<ast::TypeASTExpr>(bin->lhs))
-                    si.is_type_if = true;
-            }
+                si.is_type_if = is_type_condition(is_type_condition, si.condition);
 
-            if (si.is_type_if)
-            {
-                auto* bin = ast::node_cast<ast::BinaryExpr>(si.condition);
-                if (bin && bin->op == lex::TokenKind::EqEq)
+            auto eval_type_condition = [&](auto&& self, ast::Expr* expr) -> std::optional<bool> {
+                if (auto* unary = ast::node_cast<ast::UnaryExpr>(expr))
                 {
-                    ast::IdentExpr* ident = nullptr;
-                    ast::Expr* other = nullptr;
-                    if (auto* l = ast::node_cast<ast::IdentExpr>(bin->lhs); l && m_param_type_map.find(l->name) != m_param_type_map.end())
-                    {
-                        ident = l;
-                        other = bin->rhs;
-                    }
-                    else if (auto* r = ast::node_cast<ast::IdentExpr>(bin->rhs); r && m_param_type_map.find(r->name) != m_param_type_map.end())
-                    {
-                        ident = r;
-                        other = bin->lhs;
-                    }
+                    if (unary->op != lex::TokenKind::Bang)
+                        return std::nullopt;
+                    auto value = self(self, unary->operand);
+                    return value ? std::optional<bool>{!*value} : std::nullopt;
+                }
 
-                    if (ident && other)
+                auto* bin = ast::node_cast<ast::BinaryExpr>(expr);
+                if (!bin)
+                    return std::nullopt;
+                if (bin->op == lex::TokenKind::PipePipe || bin->op == lex::TokenKind::AmpAmp)
+                {
+                    auto lhs = self(self, bin->lhs);
+                    auto rhs = self(self, bin->rhs);
+                    if (!lhs || !rhs)
+                        return std::nullopt;
+                    return bin->op == lex::TokenKind::PipePipe ? (*lhs || *rhs) : (*lhs && *rhs);
+                }
+                if (bin->op != lex::TokenKind::EqEq && bin->op != lex::TokenKind::BangEq)
+                    return std::nullopt;
+
+                auto* lhs = ast::node_cast<ast::IdentExpr>(bin->lhs);
+                auto* rhs = ast::node_cast<ast::IdentExpr>(bin->rhs);
+                auto* param = lhs;
+                auto* other = bin->rhs;
+                if (!param || !m_param_type_map.contains(param->name))
+                {
+                    param = rhs;
+                    other = bin->lhs;
+                }
+                if (!param)
+                    return std::nullopt;
+                auto it = m_param_type_map.find(param->name);
+                if (it == m_param_type_map.end())
+                    return std::nullopt;
+
+                types::TypePtr target_type = nullptr;
+                if (auto* target_ident = ast::node_cast<ast::IdentExpr>(other))
+                {
+                    if (target_ident->sema.resolved_type)
+                        target_type = get_resolved_type(target_ident->sema);
+                    else
+                        target_type = resolve_primitive_type_name(target_ident->name);
+                }
+                else if (auto* target_type_ast = ast::node_cast<ast::TypeASTExpr>(other))
+                {
+                    if (target_type_ast->sema.resolved_type)
+                        target_type = get_resolved_type(target_type_ast->sema);
+                    else if (target_type_ast->type_node)
                     {
-                        auto it = m_param_type_map.find(ident->name);
-                        if (it != m_param_type_map.end())
-                        {
-                            auto param_concrete = it->second;
-                            types::TypePtr rhs_type = nullptr;
-
-                            if (auto* rhs_ident = ast::node_cast<ast::IdentExpr>(other))
-                            {
-                                if (rhs_ident->sema.resolved_type)
-                                    rhs_type = get_resolved_type(rhs_ident->sema);
-                                else
-                                    rhs_type = resolve_primitive_type_name(rhs_ident->name);
-                            }
-                            else if (auto* type_ast = ast::node_cast<ast::TypeASTExpr>(other))
-                            {
-                                if (type_ast->sema.resolved_type)
-                                {
-                                    rhs_type = get_resolved_type(type_ast->sema);
-                                }
-                                else if (type_ast->type_node)
-                                {
-                                    if (type_ast->type_node->sema.canonical)
-                                    {
-                                        rhs_type = get_canonical(type_ast->type_node->sema);
-                                    }
-                                    else if (auto* prim = ast::node_cast<ast::PrimitiveType>(type_ast->type_node))
-                                    {
-                                        auto name = lex::to_string(prim->which);
-                                        rhs_type = resolve_primitive_type_name(name);
-                                    }
-                                }
-                            }
-
-                            if (rhs_type)
-                            {
-                                if (param_concrete == rhs_type)
-                                    return take_then();
-                                else
-                                    return take_else();
-                            }
-                        }
+                        if (target_type_ast->type_node->sema.canonical)
+                            target_type = get_canonical(target_type_ast->type_node->sema);
+                        else if (auto* prim = ast::node_cast<ast::PrimitiveType>(target_type_ast->type_node))
+                            target_type = resolve_primitive_type_name(lex::to_string(prim->which));
                     }
                 }
-            }
+                if (!target_type)
+                    return std::nullopt;
+                bool equal = it->second == target_type;
+                return bin->op == lex::TokenKind::EqEq ? equal : !equal;
+            };
+
+            if (si.is_type_if)
+                if (auto result = eval_type_condition(eval_type_condition, si.condition))
+                    return *result ? take_then() : take_else();
 
             if (si.condition && si.condition->sema.const_value)
             {
@@ -1653,6 +1663,10 @@ namespace dcc::sema
                         return take_else();
                 }
             }
+
+            fold_block(si.then_block);
+            if (si.else_branch)
+                fold_in_stmt(si.else_branch);
 
             std::pmr::vector<ast::StmtPtr> result(alloc);
             result.push_back(&si);
