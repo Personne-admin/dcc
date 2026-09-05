@@ -438,7 +438,8 @@ export namespace dcc::ctfe
                 elements.push_back(unit_value(bytes, i, element));
 
             auto array = m_context.types->array_t(element, units + 1);
-            auto base = m_heap.intern(bytes, comptime::Value::make_aggregate(std::move(elements), array), array);
+            auto key = std::format("{}:{}", static_cast<void const*>(array), bytes);
+            auto base = m_heap.intern(key, comptime::Value::make_aggregate(std::move(elements), array), array);
             auto first = m_heap.subobject(base, 0);
             if (!first)
                 return failure("string has no compile-time storage");

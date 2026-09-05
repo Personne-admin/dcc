@@ -1,0 +1,92 @@
+=== FILE: main.dc ===
+module ctfe_generic_formatter;
+
+struct Sink {
+    []u8 buffer;
+    usize pos;
+}
+
+void write(Sink* s, u8 c) {
+    if s.pos < s.buffer.len {
+        s.buffer[s.pos] = c;
+        s.pos += 1;
+    }
+}
+
+void write(Sink* s, []const u8 bytes) {
+    for (usize i = 0; i < bytes.len; i += 1) {
+        s.write(bytes[i]);
+    }
+}
+
+using WritableInto(T) = compiles(T x) {
+    x.write("H");
+    x.write('H' as u8);
+};
+
+enum Arg {
+    Text([]const u8),
+    Number(u64),
+}
+
+void emit_number(T)(T out, u64 value) if WritableInto(T) {
+    if value >= 10 {
+        out.emit_number(value / 10);
+    }
+    out.write(('0' as u64 + value % 10) as u8);
+}
+
+void emit(T)(T out, Arg arg) if WritableInto(T) {
+    match arg {
+        Arg::Text(text) => out.write(text),
+        Arg::Number(n) => out.emit_number(n),
+    }
+}
+
+void format(T)(T out, []const u8 fmt, []const Arg args) if WritableInto(T) {
+    usize next = 0;
+    usize i = 0;
+    while i < fmt.len {
+        if fmt[i] == ('{' as u8) && i + 1 < fmt.len && fmt[i + 1] == ('}' as u8) {
+            if next < args.len {
+                out.emit(args[next]);
+                next += 1;
+            }
+            i += 2;
+        } else {
+            out.write(fmt[i]);
+            i += 1;
+        }
+    }
+}
+
+bool same([]const u8 a, []const u8 b) {
+    if a.len != b.len {
+        return false;
+    }
+    for (usize i = 0; i < a.len; i += 1) {
+        if a[i] != b[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool rendered() {
+    u8[64] storage;
+    Sink sink = { buffer = storage[0..64], pos = 0 };
+    Sink* out = &sink;
+    Arg[2] args;
+    args[0] = Arg::Text("disk");
+    args[1] = Arg::Number(4096);
+    out.format("{} uses {} bytes", args[0..2]);
+    return same(storage[0..sink.pos], "disk uses 4096 bytes");
+}
+
+const bool OK = rendered();
+
+void verify() {
+    static if !OK { incorrect_ctfe_result(); }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
