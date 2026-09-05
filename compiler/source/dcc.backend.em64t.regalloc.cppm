@@ -835,6 +835,8 @@ namespace dcc::backend::em64t
             VReg scratch_gpr = VReg::phys(PhysReg::R11);
             VReg scratch_xmm = VReg::phys(PhysReg::XMM15);
 
+            std::unordered_map<PhysReg, std::uint32_t> scratch_slots;
+
             for (auto& blk : func.blocks)
             {
                 std::vector<MInstr> new_instrs;
@@ -949,6 +951,66 @@ namespace dcc::backend::em64t
                         }
                     }
 
+                    std::unordered_map<VReg, VReg> memory_scratch;
+                    std::vector<std::pair<PhysReg, std::uint32_t>> saved_scratch;
+                    bool has_memory = false;
+                    std::uint64_t occupied = instr.implicit_defs | instr.implicit_uses;
+                    auto occupy = [&](VReg reg) {
+                        if (reg.is_virtual())
+                        {
+                            auto it = range_map.find(reg);
+                            if (it == range_map.end() || it->second->spilled)
+                                return;
+                            reg = VReg::phys(it->second->assigned);
+                        }
+                        if (reg.is_physical())
+                            occupied |= 1ULL << static_cast<unsigned>(reg.phys_reg());
+                    };
+                    for (unsigned oi = 0; oi < instr.num_ops; ++oi)
+                    {
+                        auto const& op = instr.ops[oi];
+                        if (op.kind == MOpKind::Reg)
+                            occupy(op.reg);
+                        else if (op.kind == MOpKind::Mem)
+                        {
+                            has_memory = true;
+                            occupy(op.mem.base);
+                            occupy(op.mem.index);
+                        }
+                    }
+                    if (has_memory)
+                    {
+                        for (auto const& rl : reloads_needed)
+                        {
+                            auto const* range = range_map.at(rl.spilled_vreg);
+                            if (range->reg_class != RegClass::GPR64 || memory_scratch.contains(rl.spilled_vreg))
+                                continue;
+                            PhysReg chosen = PhysReg::R11;
+                            if (!memory_scratch.empty())
+                            {
+                                for (auto candidate : {PhysReg::R10, PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9, PhysReg::RSI,
+                                                       PhysReg::RDI, PhysReg::RBX, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15})
+                                    if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
+                                    {
+                                        chosen = candidate;
+                                        break;
+                                    }
+                                auto [slot, inserted] = scratch_slots.try_emplace(chosen, 0);
+                                if (inserted)
+                                    slot->second = func.new_frame_slot(8, 8, true);
+                                MInstr save;
+                                save.opc = MOpc::MOV64mr;
+                                save.num_ops = 2;
+                                save.ops[0] = MOp::from_frame_slot(slot->second);
+                                save.ops[1] = MOp::from_reg(VReg::phys(chosen));
+                                new_instrs.push_back(save);
+                                saved_scratch.emplace_back(chosen, slot->second);
+                            }
+                            occupied |= 1ULL << static_cast<unsigned>(chosen);
+                            memory_scratch.emplace(rl.spilled_vreg, VReg::phys(chosen));
+                        }
+                    }
+
                     for (auto const& rl : reloads_needed)
                     {
                         auto rit = range_map.find(rl.spilled_vreg);
@@ -959,7 +1021,9 @@ namespace dcc::backend::em64t
                         if (lr.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
                             continue;
 
-                        VReg scratch = (lr.reg_class == RegClass::XMM) ? scratch_xmm : scratch_gpr;
+                        VReg scratch = (lr.reg_class == RegClass::XMM)            ? scratch_xmm
+                                       : memory_scratch.contains(rl.spilled_vreg) ? memory_scratch.at(rl.spilled_vreg)
+                                                                                  : VReg::phys(use_scratch);
 
                         MInstr reload;
                         if (lr.reg_class == RegClass::XMM)
@@ -1007,7 +1071,7 @@ namespace dcc::backend::em64t
                                     if (it->second->spilled)
                                     {
                                         VReg scratch = (it->second->reg_class == RegClass::XMM) ? scratch_xmm : jt_scratch_gpr;
-                                        op.reg = scratch;
+                                        op.reg = memory_scratch.contains(op.reg) ? memory_scratch.at(op.reg) : scratch;
                                     }
                                     else if (it->second->assigned != PhysReg::None)
                                         op.reg = VReg::phys(it->second->assigned);
@@ -1021,7 +1085,7 @@ namespace dcc::backend::em64t
                                     if (it != range_map.end())
                                     {
                                         if (it->second->spilled)
-                                            op.mem.base = jt_scratch_gpr;
+                                            op.mem.base = memory_scratch.contains(op.mem.base) ? memory_scratch.at(op.mem.base) : jt_scratch_gpr;
                                         else if (it->second->assigned != PhysReg::None)
                                             op.mem.base = VReg::phys(it->second->assigned);
                                     }
@@ -1032,7 +1096,7 @@ namespace dcc::backend::em64t
                                     if (it != range_map.end())
                                     {
                                         if (it->second->spilled)
-                                            op.mem.index = jt_scratch_gpr;
+                                            op.mem.index = memory_scratch.contains(op.mem.index) ? memory_scratch.at(op.mem.index) : jt_scratch_gpr;
                                         else if (it->second->assigned != PhysReg::None)
                                             op.mem.index = VReg::phys(it->second->assigned);
                                     }
@@ -1100,6 +1164,16 @@ namespace dcc::backend::em64t
                             spill.ops[1] = MOp::from_reg(scratch);
                         }
                         new_instrs.push_back(spill);
+                    }
+                    for (auto const& [reg, slot] : saved_scratch)
+                    {
+                        MInstr restore;
+                        restore.opc = MOpc::MOV64rm;
+                        restore.num_ops = 2;
+                        restore.num_defs = 1;
+                        restore.ops[0] = MOp::from_reg(VReg::phys(reg));
+                        restore.ops[1] = MOp::from_frame_slot(slot);
+                        new_instrs.push_back(restore);
                     }
                 }
 
@@ -1501,8 +1575,10 @@ namespace dcc::backend::em64t
                         bool scratch_is_src = false;
                         for (auto const& m : group)
                         {
-                            if (m.dst == group_scratch) scratch_is_dst = true;
-                            if (m.src == group_scratch) scratch_is_src = true;
+                            if (m.dst == group_scratch)
+                                scratch_is_dst = true;
+                            if (m.src == group_scratch)
+                                scratch_is_src = true;
                         }
 
                         if (!scratch_is_dst && !scratch_is_src)
@@ -1582,7 +1658,8 @@ namespace dcc::backend::em64t
                             if (rest.size() >= 2)
                             {
                                 std::unordered_set<VReg> rd;
-                                for (auto const& m : rest) rd.insert(m.dst);
+                                for (auto const& m : rest)
+                                    rd.insert(m.dst);
                                 bool rest_conflict = false;
                                 for (auto const& m : rest)
                                     if (rd.contains(m.src) && m.src != m.dst)
@@ -1609,18 +1686,24 @@ namespace dcc::backend::em64t
                                                 break;
                                             }
                                         }
-                                        if (picked) continue;
+                                        if (picked)
+                                            continue;
                                         auto cycle = remaining.front();
                                         result.push_back({group_scratch, cycle.src});
                                         for (auto& rm : remaining)
                                             if (rm.src == cycle.src)
                                                 rm.src = group_scratch;
                                     }
-                                    if (!remaining.empty()) { ok = false; return group; }
+                                    if (!remaining.empty())
+                                    {
+                                        ok = false;
+                                        return group;
+                                    }
                                 }
                                 else
                                 {
-                                    for (auto const& m : rest) result.push_back(m);
+                                    for (auto const& m : rest)
+                                        result.push_back(m);
                                 }
                             }
                             else if (rest.size() == 1)
@@ -1638,7 +1721,8 @@ namespace dcc::backend::em64t
                             if (rest.size() >= 2)
                             {
                                 std::unordered_set<VReg> rd;
-                                for (auto const& m : rest) rd.insert(m.dst);
+                                for (auto const& m : rest)
+                                    rd.insert(m.dst);
                                 bool rest_conflict = false;
                                 for (auto const& m : rest)
                                     if (rd.contains(m.src) && m.src != m.dst)
@@ -1665,18 +1749,24 @@ namespace dcc::backend::em64t
                                                 break;
                                             }
                                         }
-                                        if (picked) continue;
+                                        if (picked)
+                                            continue;
                                         auto cycle = remaining.front();
                                         result.push_back({group_scratch, cycle.src});
                                         for (auto& rm : remaining)
                                             if (rm.src == cycle.src)
                                                 rm.src = group_scratch;
                                     }
-                                    if (!remaining.empty()) { ok = false; return group; }
+                                    if (!remaining.empty())
+                                    {
+                                        ok = false;
+                                        return group;
+                                    }
                                 }
                                 else
                                 {
-                                    for (auto const& m : rest) result.push_back(m);
+                                    for (auto const& m : rest)
+                                        result.push_back(m);
                                 }
                             }
                             else if (rest.size() == 1)

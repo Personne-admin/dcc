@@ -309,6 +309,183 @@ namespace dcc::backend::em64t
 {
     namespace
     {
+        void fold_addresses(MFunction& func)
+        {
+            std::unordered_map<std::uint32_t, unsigned> definitions;
+            for (auto const& block : func.blocks)
+                for (auto const& inst : block.instrs)
+                    for (unsigned i = 0; i < inst.num_defs; ++i)
+                        if (inst.ops[i].kind == MOpKind::Reg)
+                            ++definitions[inst.ops[i].reg.id];
+
+            std::unordered_set<std::uint32_t> folded;
+            for (auto& block : func.blocks)
+            {
+                std::unordered_map<std::uint32_t, MInstr const*> available;
+                struct Match
+                {
+                    MMem mem;
+                    std::vector<std::uint32_t> folded;
+                };
+                auto offset = [](Match& match, std::int64_t value, unsigned scale) {
+                    if (value < std::numeric_limits<std::int32_t>::min() / static_cast<std::int64_t>(scale) ||
+                        value > std::numeric_limits<std::int32_t>::max() / static_cast<std::int64_t>(scale))
+                        return false;
+                    auto disp = static_cast<std::int64_t>(match.mem.disp) + value * scale;
+                    if (disp < std::numeric_limits<std::int32_t>::min() || disp > std::numeric_limits<std::int32_t>::max())
+                        return false;
+                    match.mem.disp = static_cast<std::int32_t>(disp);
+                    return true;
+                };
+                auto match_reg = [&](auto&& self, Match& match, VReg reg, unsigned scale, unsigned depth) -> bool {
+                    if (!reg.is_valid())
+                        return true;
+                    auto found = available.find(reg.id);
+                    if (depth < 16 && found != available.end())
+                    {
+                        auto const& inst = *found->second;
+                        Match expanded = match;
+                        auto operand = [&](unsigned i, unsigned factor) {
+                            if (inst.ops[i].kind == MOpKind::Reg)
+                                return self(self, expanded, inst.ops[i].reg, factor, depth + 1);
+                            if (inst.ops[i].kind == MOpKind::Imm64)
+                                return offset(expanded, inst.ops[i].imm, factor);
+                            return false;
+                        };
+                        auto constant = [&](unsigned i) -> std::optional<std::int64_t> {
+                            auto const& op = inst.ops[i];
+                            if (op.kind == MOpKind::Imm64)
+                                return op.imm;
+                            if (op.kind != MOpKind::Reg)
+                                return std::nullopt;
+                            auto it = available.find(op.reg.id);
+                            if (it == available.end())
+                                return std::nullopt;
+                            auto const& def = *it->second;
+                            if (def.ops[1].kind != MOpKind::Imm64)
+                                return std::nullopt;
+                            if (def.opc != MOpc::MOV64ri && def.opc != MOpc::MOV64ri32 && def.opc != MOpc::MOV32ri)
+                                return std::nullopt;
+                            expanded.folded.push_back(op.reg.id);
+                            return def.opc == MOpc::MOV32ri ? static_cast<std::uint32_t>(def.ops[1].imm) : def.ops[1].imm;
+                        };
+                        bool ok = false;
+                        switch (inst.opc)
+                        {
+                            case MOpc::MOV64ri:
+                            case MOpc::MOV64ri32:
+                                ok = operand(1, scale);
+                                break;
+                            case MOpc::MOV32ri:
+                                ok = inst.ops[1].kind == MOpKind::Imm64 &&
+                                     offset(expanded, static_cast<std::uint32_t>(inst.ops[1].imm), scale);
+                                break;
+                            case MOpc::ADD64rr:
+                                ok = inst.num_ops == 3 && operand(1, scale) && operand(2, scale);
+                                break;
+                            case MOpc::SUB64rr:
+                                if (inst.num_ops == 3)
+                                    if (auto value = constant(2); value && *value != std::numeric_limits<std::int64_t>::min())
+                                        ok = operand(1, scale) && offset(expanded, -*value, scale);
+                                break;
+                            case MOpc::IMUL64rr:
+                            case MOpc::IMUL64rri:
+                                if (inst.num_ops == 3)
+                                {
+                                    unsigned input = 1;
+                                    auto factor = constant(2);
+                                    if (!factor)
+                                    {
+                                        factor = constant(1);
+                                        input = 2;
+                                    }
+                                    if (factor && (*factor == 1 || *factor == 2 || *factor == 4 || *factor == 8) && *factor * scale <= 8)
+                                        ok = operand(input, static_cast<unsigned>(*factor) * scale);
+                                }
+                                break;
+                            case MOpc::LEA64rm:
+                                if (inst.ops[1].kind == MOpKind::Mem && inst.ops[1].mem.symbol.empty())
+                                {
+                                    auto const& mem = inst.ops[1].mem;
+                                    if (scale * mem.scale <= 8)
+                                        ok = offset(expanded, mem.disp, scale) &&
+                                             self(self, expanded, mem.base, scale, depth + 1) &&
+                                             self(self, expanded, mem.index, scale * mem.scale, depth + 1);
+                                }
+                                break;
+                            default:
+                                break;
+                        }
+                        if (ok)
+                        {
+                            expanded.folded.push_back(reg.id);
+                            match = std::move(expanded);
+                            return true;
+                        }
+                    }
+                    if (!reg.is_virtual())
+                        return false;
+                    if (scale == 1 && !match.mem.base.is_valid())
+                        match.mem.base = reg;
+                    else if (!match.mem.index.is_valid())
+                    {
+                        match.mem.index = reg;
+                        match.mem.scale = static_cast<std::uint8_t>(scale);
+                    }
+                    else
+                        return false;
+                    return true;
+                };
+
+                for (auto& inst : block.instrs)
+                {
+                    for (unsigned i = 0; i < inst.num_ops; ++i)
+                    {
+                        auto& op = inst.ops[i];
+                        if (op.kind != MOpKind::Mem || !op.mem.symbol.empty())
+                            continue;
+                        Match match;
+                        match.mem.disp = op.mem.disp;
+                        if (match_reg(match_reg, match, op.mem.base, 1, 0) &&
+                            match_reg(match_reg, match, op.mem.index, op.mem.scale, 0) &&
+                            (match.mem.base.is_valid() || match.mem.index.is_valid()))
+                        {
+                            op.mem = match.mem;
+                            folded.insert(match.folded.begin(), match.folded.end());
+                        }
+                    }
+                    if (inst.num_defs == 1 && inst.ops[0].kind == MOpKind::Reg && inst.ops[0].reg.is_virtual() &&
+                        definitions[inst.ops[0].reg.id] == 1 && inst.implicit_defs == 0 && inst.implicit_uses == 0)
+                        available[inst.ops[0].reg.id] = &inst;
+                }
+            }
+
+            bool changed;
+            do
+            {
+                std::unordered_set<std::uint32_t> used;
+                for (auto const& block : func.blocks)
+                    for (auto const& inst : block.instrs)
+                        for (unsigned i = inst.num_defs; i < inst.num_ops; ++i)
+                        {
+                            auto const& op = inst.ops[i];
+                            if (op.kind == MOpKind::Reg)
+                                used.insert(op.reg.id);
+                            else if (op.kind == MOpKind::Mem)
+                            {
+                                used.insert(op.mem.base.id);
+                                used.insert(op.mem.index.id);
+                            }
+                        }
+                changed = false;
+                for (auto& block : func.blocks)
+                    changed |= std::erase_if(block.instrs, [&](MInstr const& inst) {
+                        return inst.num_defs == 1 && inst.ops[0].kind == MOpKind::Reg && folded.contains(inst.ops[0].reg.id) &&
+                               !used.contains(inst.ops[0].reg.id);
+                    }) != 0;
+            } while (changed);
+        }
+
         void emit_mov(IselCtx& ctx, VReg dst, VReg src)
         {
             auto mi = make_copy(dst, src);
@@ -3495,6 +3672,7 @@ namespace dcc::backend::em64t
                     succ->preds.push_back(mbb.id);
             }
 
+        fold_addresses(mfunc);
         return mfunc;
     }
 
