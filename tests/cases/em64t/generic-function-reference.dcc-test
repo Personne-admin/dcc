@@ -1,0 +1,24 @@
+=== FILE: main.dc ===
+module main;
+
+i32 compare(T)(const T* a, const T* b) {
+    if *a < *b { return -1; }
+    if *a > *b { return 1; }
+    return 0;
+}
+
+i32 apply(T)(T value, i32(*)(const T*, const T*) callback) {
+    return callback(&value, &value);
+}
+
+i32 wrapper(T)(T value) {
+    return apply(value, compare);
+}
+
+@nomangle
+public i32 dcc_main() {
+    return wrapper(42);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

@@ -2911,7 +2911,7 @@ export namespace dcc::ir::lower
 
         IrValue* lower_ident_expr(ast::IdentExpr const* id)
         {
-            auto* resolved = id->sema.resolved_decl;
+            auto* resolved = id->sema.resolved_specialization ? static_cast<ast::Decl const*>(id->sema.resolved_specialization) : id->sema.resolved_decl;
 
             if (resolved)
             {
@@ -3005,7 +3005,7 @@ export namespace dcc::ir::lower
                 return m_ctx.int_const(ir_ty, static_cast<std::int64_t>(pe->sema.constructed_variant->discriminant));
             }
 
-            auto* resolved = pe->sema.resolved_decl;
+            auto* resolved = pe->sema.resolved_specialization ? static_cast<ast::Decl const*>(pe->sema.resolved_specialization) : pe->sema.resolved_decl;
             if (!resolved)
                 lower_panic(pe, "PathExpr missing resolved_decl");
 
