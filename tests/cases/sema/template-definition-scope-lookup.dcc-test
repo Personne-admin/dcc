@@ -1,0 +1,31 @@
+=== FILE: lib.dc ===
+module lib;
+
+u64 helper(u64 v) {
+    return v + 1;
+}
+
+public u64 apply(T)(T x, u64 v) {
+    return helper(v);
+}
+
+=== FILE: main.dc ===
+module m;
+
+import lib;
+
+struct S {}
+
+u64 helper() {
+    return 0;
+}
+
+void check() {
+    S s;
+    const u64 result = lib::apply(s, 1);
+    static if result != 2 {
+        wrong_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
