@@ -250,6 +250,7 @@ export namespace dcc::ast
         bool implicit_deref : 1 {};
         bool implicit_addr_of : 1 {};
         bool is_from_instantiation : 1 {};
+        bool is_runtime : 1 {};
 
         UfcsReceiverAdjust ufcs_receiver_adjust{UfcsReceiverAdjust::None};
     };
@@ -283,6 +284,7 @@ export namespace dcc::ast
         bool is_noinline : 1 {};
         bool is_dll_import : 1 {};
         bool is_dll_export : 1 {};
+        bool is_runtime : 1 {};
 
         bool layout_resolved : 1 {};
         bool is_diverging : 1 {};
@@ -313,9 +315,10 @@ export namespace dcc::ast
         sm::SourceRange range;
         ExprSema sema;
         bool recovered_from_parse{};
+        std::pmr::vector<Attribute> attrs;
 
     protected:
-        Expr(ExprKind k, sm::SourceRange r) : kind(k), range(r) {}
+        Expr(ExprKind k, sm::SourceRange r, Allocator a = {}) : kind(k), range(r), attrs(a) {}
     };
 
     struct Stmt

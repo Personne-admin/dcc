@@ -465,6 +465,8 @@ namespace dcc::ast
         if (!expr)
             return;
 
+        visitAttrs(expr->attrs);
+
         switch (expr->kind)
         {
             case ExprKind::IntLiteral:
