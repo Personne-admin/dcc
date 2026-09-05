@@ -781,6 +781,13 @@ export namespace dcc::comptime
                 return std::nullopt;
             }
 
+            if (dst->kind == types::TypeKind::Char)
+            {
+                if (auto v = const_to_int())
+                    return make_char(static_cast<std::uint32_t>(*v), dst);
+                return std::nullopt;
+            }
+
             if (types::type_cast<types::FloatType>(dst))
             {
                 if (auto v = const_to_float())

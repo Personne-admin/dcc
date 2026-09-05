@@ -1,0 +1,95 @@
+=== FILE: main.dc ===
+module ctfe_pointers;
+
+struct Point { u64 x; u64 y; }
+
+struct Box { Point origin; u64 tag; }
+
+u64 load(const u64* p) {
+    return *p;
+}
+
+void bump(u64* p, u64 delta) {
+    *p += delta;
+}
+
+u64 indirect() {
+    u64 value = 40;
+    bump(&value, 2);
+    return load(&value);
+}
+
+void move(Point* p) {
+    p.x += 1;
+    p.y += 2;
+}
+
+u64 through_struct() {
+    Box box;
+    box.origin.x = 10;
+    box.origin.y = 20;
+    box.tag = 0;
+    move(&box.origin);
+    return box.origin.x * 100 + box.origin.y;
+}
+
+u64 element(u64* base, usize index) {
+    return base[index];
+}
+
+u64 into_array() {
+    u64[4] data;
+    data[0] = 1;
+    data[1] = 2;
+    data[2] = 3;
+    data[3] = 4;
+    return element(&data[1], 2);
+}
+
+u64 walked() {
+    u64[3] data;
+    data[0] = 1;
+    data[1] = 2;
+    data[2] = 4;
+    u64* cursor = &data[0];
+    u64 total = 0;
+    for (usize i = 0; i < 3; i += 1) {
+        total += *cursor;
+        cursor++;
+    }
+    return total;
+}
+
+bool aliases() {
+    u64 a = 1;
+    u64 b = 1;
+    u64* p = &a;
+    u64* q = &a;
+    u64* r = &b;
+    return p == q && p != r && p != null;
+}
+
+u64 depth(u64** p) {
+    return **p;
+}
+
+u64 double_indirect() {
+    u64 value = 5;
+    u64* p = &value;
+    return depth(&p);
+}
+
+const u64 A = indirect();
+const u64 B = through_struct();
+const u64 C = into_array();
+const u64 D = walked();
+const bool E = aliases();
+const u64 F = double_indirect();
+
+void verify() {
+    static if A != 42 || B != 1122 || C != 4 || D != 7 || !E || F != 5 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

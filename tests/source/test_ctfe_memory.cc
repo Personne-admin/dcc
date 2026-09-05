@@ -29,7 +29,7 @@ namespace
 
     comptime::ValuePtr first_element(ctfe::Heap& heap, comptime::ValuePtr const& object)
     {
-        return heap.field(object, 0).value_or(comptime::ValuePtr{});
+        return heap.subobject(object, 0).value_or(comptime::ValuePtr{});
     }
 
 } // namespace
@@ -114,9 +114,9 @@ TEST_CASE("a path walks into nested aggregates")
     auto type = ctx.array_t(ctx.array_t(i32(ctx), 2), 2);
     auto object = heap.allocate(comptime::Value::make_aggregate(std::move(rows), type), type, true);
 
-    auto row = heap.field(object, 1);
+    auto row = heap.subobject(object, 1);
     REQUIRE(row.has_value());
-    auto cell = heap.field(*row, 1);
+    auto cell = heap.subobject(*row, 1);
     REQUIRE(cell.has_value());
 
     auto const* value = heap.read(*cell);
@@ -135,8 +135,8 @@ TEST_CASE("out-of-range subobjects have no address")
 
     std::int64_t values[] = {1, 2};
     auto object = heap.allocate(array_of(ctx, values), ctx.array_t(i32(ctx), 2), true);
-    CHECK(!heap.field(object, 2).has_value());
-    CHECK(!heap.field(first_element(heap, object), 0).has_value());
+    CHECK(!heap.subobject(object, 2).has_value());
+    CHECK(!heap.subobject(first_element(heap, object), 0).has_value());
 }
 
 SECTION("ctfe memory: pointer arithmetic");

@@ -1,0 +1,70 @@
+=== FILE: main.dc ===
+module ctfe_slices;
+
+u64 sum([]const u64 values) {
+    u64 total = 0;
+    for (usize i = 0; i < values.len; i += 1) {
+        total += values[i];
+    }
+    return total;
+}
+
+void fill([]u64 out, u64 value) {
+    for (usize i = 0; i < out.len; i += 1) {
+        out[i] = value;
+    }
+}
+
+[]u64 tail([]u64 values) {
+    return values[1..values.len];
+}
+
+u64 whole() {
+    u64[4] data;
+    data[0] = 1;
+    data[1] = 2;
+    data[2] = 3;
+    data[3] = 4;
+    return sum(data);
+}
+
+u64 range() {
+    u64[4] data;
+    data[0] = 1;
+    data[1] = 2;
+    data[2] = 3;
+    data[3] = 4;
+    return sum(data[1..3]);
+}
+
+u64 written() {
+    u64[3] data;
+    fill(data, 7);
+    return data[0] + data[1] + data[2];
+}
+
+u64 forwarded() {
+    u64[4] data;
+    fill(data, 1);
+    fill(tail(data[0..4]), 2);
+    return sum(data);
+}
+
+usize empty() {
+    u64[4] data;
+    return data[2..2].len;
+}
+
+const u64 A = whole();
+const u64 B = range();
+const u64 C = written();
+const u64 D = forwarded();
+const usize E = empty();
+
+void verify() {
+    static if A != 10 || B != 5 || C != 21 || D != 7 || E != 0 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

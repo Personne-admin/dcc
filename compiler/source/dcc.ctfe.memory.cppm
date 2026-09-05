@@ -122,7 +122,7 @@ export namespace dcc::ctfe
             return out;
         }
 
-        [[nodiscard]] std::optional<comptime::ValuePtr> field(comptime::ValuePtr const& p, std::uint32_t index) const
+        [[nodiscard]] std::optional<comptime::ValuePtr> subobject(comptime::ValuePtr const& p, std::uint32_t index) const
         {
             auto const* value = read(p);
             if (!value || !indexable(*value) || index >= value->size())

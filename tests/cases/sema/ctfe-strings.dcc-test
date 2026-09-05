@@ -1,0 +1,89 @@
+=== FILE: main.dc ===
+module ctfe_strings;
+
+usize length(const char* s) {
+    usize n = 0;
+    while s[n] != '\0' {
+        n += 1;
+    }
+    return n;
+}
+
+bool equal([]const char a, []const char b) {
+    if a.len != b.len {
+        return false;
+    }
+    for (usize i = 0; i < a.len; i += 1) {
+        if a[i] != b[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+[]const char pick(bool flag) {
+    if flag {
+        return "yes";
+    }
+    return "no";
+}
+
+const char* raw() {
+    return "hello";
+}
+
+char[6] copied() {
+    char[6] out;
+    const char* source = "abcde";
+    for (usize i = 0; i < 6; i += 1) {
+        out[i] = source[i];
+    }
+    return out;
+}
+
+usize digits(u64 value, []char out) {
+    usize n = 0;
+    if value == 0 {
+        out[0] = '0';
+        return 1;
+    }
+    u64 v = value;
+    while v > 0 {
+        out[n] = ('0' as u64 + v % 10) as char;
+        v /= 10;
+        n += 1;
+    }
+    usize i = 0;
+    while i < n / 2 {
+        char tmp = out[i];
+        out[i] = out[n - 1 - i];
+        out[n - 1 - i] = tmp;
+        i += 1;
+    }
+    return n;
+}
+
+bool rendered() {
+    char[8] buffer;
+    usize n = digits(90210, buffer);
+    return equal(buffer[0..n], "90210");
+}
+
+const usize A = length("hello");
+const bool B = equal("abc", "abc");
+const bool C = equal("abc", "abd");
+const []const char D = pick(true);
+const char* const E = raw();
+const char[6] F = copied();
+const bool G = rendered();
+
+void verify() {
+    static if A != 5 || !B || C || D.len != 3 || F[4] != 'e' || !G {
+        incorrect_ctfe_result();
+    }
+    static if length(E) != 5 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

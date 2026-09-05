@@ -80,6 +80,7 @@ export namespace dcc::ctfe
 
         bool step() { return ++m_steps <= m_context.step_limit; }
         Result exhausted() { return failure("step limit exceeded", true); }
+        Result expired() { return failure("reference to storage that has gone out of scope"); }
         Result unsupported() { return failure("operation is unavailable at compile time"); }
 
         Result folded(std::optional<comptime::Value> value)
@@ -209,8 +210,7 @@ export namespace dcc::ctfe
         {
             auto const* value = m_heap.read(ptr);
             if (!value)
-                return m_heap.is_live(ptr) ? failure("access outside the bounds of a compile-time object")
-                                           : failure("access to storage that has gone out of scope");
+                return m_heap.is_live(ptr) ? failure("access outside the bounds of a compile-time object") : expired();
             if (!value->type)
                 return failure("read of uninitialized storage");
             return folded(*value);
@@ -218,6 +218,8 @@ export namespace dcc::ctfe
 
         Result pointer_of(comptime::Value const& value, comptime::ValuePtr& out)
         {
+            if (value.kind() == Kind::Null)
+                return failure("null pointer dereference", true);
             if (value.kind() != Kind::Pointer)
                 return failure("dereference of a value that is not a pointer");
             if (value.is_null_ptr())
@@ -271,7 +273,7 @@ export namespace dcc::ctfe
                 if (volatile_type(fields[i].type))
                     return failure("volatile access");
 
-                auto member = m_heap.field(base, static_cast<std::uint32_t>(i));
+                auto member = m_heap.subobject(base, static_cast<std::uint32_t>(i));
                 if (!member)
                     return failure("member has no compile-time storage");
                 out = std::move(*member);
@@ -308,7 +310,7 @@ export namespace dcc::ctfe
                 r = place(*expr.object, base);
                 if (r.flow != Flow::Normal)
                     return r;
-                auto element = m_heap.field(base, static_cast<std::uint32_t>(index));
+                auto element = m_heap.subobject(base, static_cast<std::uint32_t>(index));
                 if (!element)
                     return failure("index out of bounds", true);
                 out = std::move(*element);
@@ -400,77 +402,79 @@ export namespace dcc::ctfe
             return folded(std::move(value));
         }
 
-        Result literal_place(ast::Expr const& expr, comptime::ValuePtr& out)
+        static bool is_wide(types::TypePtr element)
         {
-            auto const* constant = expr.sema.const_value;
-            if (!constant || constant->kind() != Kind::String || !m_context.types)
-                return failure("string literal has no compile-time storage");
+            auto const* i = types::type_cast<types::IntType>(element);
+            return i && i->bits == 16;
+        }
 
-            auto element = element_of(type_of(expr));
+        static comptime::Value unit_value(std::string const& bytes, std::size_t index, types::TypePtr element)
+        {
+            std::uint32_t unit = 0;
+            if (is_wide(element))
+            {
+                if ((index + 1) * sizeof(char16_t) <= bytes.size())
+                    std::memcpy(&unit, bytes.data() + index * sizeof(char16_t), sizeof(char16_t));
+            }
+            else if (index < bytes.size())
+                unit = static_cast<unsigned char>(bytes[index]);
+
+            if (element->kind == types::TypeKind::Char)
+                return comptime::Value::make_char(unit, element);
+            return comptime::Value::make_int(unit, element);
+        }
+
+        Result intern_string(std::string const& bytes, types::TypePtr element, comptime::ValuePtr& out)
+        {
+            if (!m_context.types)
+                return failure("string has no compile-time storage");
             if (!element)
                 element = m_context.types->m_chart();
 
-            auto const& bytes = constant->get_string();
-            bool wide = expr.kind == ast::ExprKind::U16StringLiteral;
-            auto units = wide ? bytes.size() / sizeof(char16_t) : bytes.size();
-
+            auto units = is_wide(element) ? bytes.size() / sizeof(char16_t) : bytes.size();
             std::vector<comptime::Value> elements;
             elements.reserve(units + 1);
             for (std::size_t i = 0; i <= units; ++i)
-            {
-                std::uint32_t unit = 0;
-                if (i < units)
-                {
-                    if (wide)
-                        std::memcpy(&unit, bytes.data() + i * sizeof(char16_t), sizeof(char16_t));
-                    else
-                        unit = static_cast<unsigned char>(bytes[i]);
-                }
-                elements.push_back(element->kind == types::TypeKind::Char ? comptime::Value::make_char(unit, element)
-                                                                         : comptime::Value::make_int(unit, element));
-            }
+                elements.push_back(unit_value(bytes, i, element));
 
             auto array = m_context.types->array_t(element, units + 1);
             auto base = m_heap.intern(bytes, comptime::Value::make_aggregate(std::move(elements), array), array);
-            auto first = m_heap.field(base, 0);
+            auto first = m_heap.subobject(base, 0);
             if (!first)
-                return failure("string literal has no compile-time storage");
+                return failure("string has no compile-time storage");
             out = std::move(*first);
             return {};
         }
 
-        Result string_value(ast::Expr const& expr)
+        Result attach(comptime::Value value)
         {
-            auto const* constant = expr.sema.const_value;
-            if (!constant)
-                return failure("expression has no resolved compile-time value");
+            if (value.kind() != Kind::String)
+                return folded(std::move(value));
 
-            auto type = type_of(expr);
-            if (types::type_cast<types::ArrayType>(type))
+            auto type = value.type;
+            auto element = element_of(type);
+            if (auto const* array = types::type_cast<types::ArrayType>(type))
             {
-                comptime::ValuePtr base;
-                auto r = literal_place(expr, base);
-                if (r.flow != Flow::Normal)
-                    return r;
-                base.path.pop_back();
-                return read(base);
+                std::vector<comptime::Value> elements;
+                elements.reserve(static_cast<std::size_t>(array->count));
+                for (std::uint64_t i = 0; i < array->count; ++i)
+                    elements.push_back(unit_value(value.get_string(), static_cast<std::size_t>(i), element));
+                return folded(comptime::Value::make_aggregate(std::move(elements), type));
             }
 
-            if (types::type_cast<types::PointerType>(type) || types::type_cast<types::SliceType>(type))
-            {
-                comptime::ValuePtr base;
-                auto r = literal_place(expr, base);
-                if (r.flow != Flow::Normal)
-                    return r;
-                if (types::type_cast<types::PointerType>(type))
-                    return folded(comptime::Value::make_pointer_to(std::move(base), type));
+            bool to_pointer = types::type_cast<types::PointerType>(type) != nullptr;
+            if (!to_pointer && !types::type_cast<types::SliceType>(type))
+                return folded(std::move(value));
 
-                auto length = constant->get_string().size();
-                if (expr.kind == ast::ExprKind::U16StringLiteral)
-                    length /= sizeof(char16_t);
-                return folded(comptime::Value::make_slice_ref(std::move(base), length, type));
-            }
-            return folded(*constant);
+            comptime::ValuePtr base;
+            auto r = intern_string(value.get_string(), element, base);
+            if (r.flow != Flow::Normal)
+                return r;
+            if (to_pointer)
+                return folded(comptime::Value::make_pointer_to(std::move(base), type));
+
+            auto units = is_wide(element) ? value.get_string().size() / sizeof(char16_t) : value.get_string().size();
+            return folded(comptime::Value::make_slice_ref(std::move(base), units, type));
         }
 
         Result slice_bounds(ast::RangeExpr const& range, std::size_t length, std::size_t& start, std::size_t& end)
@@ -512,7 +516,7 @@ export namespace dcc::ctfe
                 auto r = place(*expr.object, object);
                 if (r.flow != Flow::Normal)
                     return r;
-                auto first = m_heap.field(object, 0);
+                auto first = m_heap.subobject(object, 0);
                 if (!first)
                     return failure("slice has no compile-time storage");
                 base = std::move(*first);
@@ -554,7 +558,7 @@ export namespace dcc::ctfe
             auto r = place(expr, object);
             if (r.flow != Flow::Normal)
                 return r;
-            auto first = m_heap.field(object, 0);
+            auto first = m_heap.subobject(object, 0);
             if (!first)
                 return failure("array has no compile-time storage");
 
@@ -1102,6 +1106,8 @@ export namespace dcc::ctfe
         {
             if (!step())
                 return exhausted();
+            if (auto type = type_of(expr); type && type->kind == types::TypeKind::Error)
+                return failure("expression has no resolved type");
 
             switch (expr.kind)
             {
@@ -1113,10 +1119,10 @@ export namespace dcc::ctfe
                     if (auto const* slot = local(decl))
                         return read(*slot);
                     if (expr.sema.const_value)
-                        return folded(*expr.sema.const_value);
+                        return attach(*expr.sema.const_value);
                     auto* var = ast::node_cast<ast::VarDecl>(decl);
                     if (var && var->sema.is_immutable && var->init && var->init->sema.const_value)
-                        return folded(*var->init->sema.const_value);
+                        return attach(*var->init->sema.const_value);
                     return failure("read of non-constant storage");
                 }
                 case ast::ExprKind::Call:
@@ -1181,9 +1187,6 @@ export namespace dcc::ctfe
                     return member_value(static_cast<ast::FieldAccessExpr const&>(expr));
                 case ast::ExprKind::Index:
                     return element_value(static_cast<ast::IndexExpr const&>(expr));
-                case ast::ExprKind::StringLiteral:
-                case ast::ExprKind::U16StringLiteral:
-                    return string_value(expr);
                 case ast::ExprKind::IntLiteral:
                 case ast::ExprKind::FloatLiteral:
                 case ast::ExprKind::BoolLiteral:
@@ -1195,8 +1198,10 @@ export namespace dcc::ctfe
                 case ast::ExprKind::Offsetof:
                 case ast::ExprKind::SizeofPack:
                 case ast::ExprKind::Compiles:
+                case ast::ExprKind::StringLiteral:
+                case ast::ExprKind::U16StringLiteral:
                     if (expr.sema.const_value)
-                        return folded(*expr.sema.const_value);
+                        return attach(*expr.sema.const_value);
                     return failure("expression has no resolved compile-time value");
                 default:
                     return unsupported();
@@ -1231,6 +1236,8 @@ export namespace dcc::ctfe
                 case Kind::Pointer: {
                     if (value.is_null_ptr())
                         return folded(std::move(value));
+                    if (!m_heap.is_live(value.get_pointer()))
+                        return expired();
                     if (!is_byte_type(pointee_of(value.type)))
                         return failure("compile-time pointer cannot be used as a constant");
                     auto text = read_text(value.get_pointer(), std::nullopt);
@@ -1243,6 +1250,8 @@ export namespace dcc::ctfe
                         break;
                     auto length = value.slice_length();
                     auto base = value.slice_base();
+                    if (!m_heap.is_live(base))
+                        return expired();
                     if (is_byte_type(element_of(value.type)))
                     {
                         auto text = read_text(base, length);

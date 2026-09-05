@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+usize digits(u64 value, []char out) {
+    usize n = 0;
+    if value == 0 {
+        out[0] = '0';
+        return 1;
+    }
+    u64 v = value;
+    while v > 0 {
+        out[n] = ('0' as u64 + v % 10) as char;
+        v /= 10;
+        n += 1;
+    }
+    usize i = 0;
+    while i < n / 2 {
+        char tmp = out[i];
+        out[i] = out[n - 1 - i];
+        out[n - 1 - i] = tmp;
+        i += 1;
+    }
+    return n;
+}
+
+u8[4] table(u8 base) {
+    u8[4] out;
+    for (usize i = 0; i < 4; i += 1) {
+        out[i] = (base + i as u8) as u8;
+    }
+    return out;
+}
+
+usize rendered_length() {
+    char[8] buffer;
+    return digits(90210, buffer);
+}
+
+const u8[4] TABLE = table(3);
+const usize LENGTH = rendered_length();
+
+@nomangle
+public i32 dcc_main() {
+    return if TABLE[0] == 3 && TABLE[3] == 6 && LENGTH == 5 { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
