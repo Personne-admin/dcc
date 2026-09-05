@@ -622,6 +622,226 @@ export namespace dcc::ctfe
             return unsupported();
         }
 
+        Result enum_construction(ast::CallExpr const& call)
+        {
+            auto const* variant = call.sema.constructed_variant;
+            auto type = type_of(call);
+            auto const* enum_type = types::type_cast<types::EnumType>(type);
+            if (!variant || !enum_type)
+                return failure("enum construction has not been resolved");
+
+            if (!enum_type->is_tagged || !enum_type->tagged_layout)
+                return folded(comptime::Value::make_int(variant->discriminant, enum_type->backing));
+
+            std::vector<comptime::Value> elements;
+            elements.push_back(comptime::Value::make_int(variant->discriminant, enum_type->tagged_layout->discriminant_type));
+            if (!call.args.empty() && !variant->payload.empty())
+            {
+                auto r = convert(*call.args.front(), type_of(variant->payload.front()));
+                if (r.flow != Flow::Normal || !r.value)
+                    return r;
+                elements.push_back(std::move(*r.value));
+            }
+            return folded(comptime::Value::make_aggregate(std::move(elements), type));
+        }
+
+        Result subject_place(ast::Expr const& expr, comptime::ValuePtr& out)
+        {
+            auto r = place(expr, out);
+            if (r.flow == Flow::Normal || r.flow == Flow::Error)
+                return r;
+
+            r = expression(expr);
+            if (r.flow != Flow::Normal || !r.value)
+                return r;
+            if (m_cells++ >= m_context.memory_limit)
+                return failure("memory limit exceeded", true);
+
+            out = m_heap.allocate(std::move(*r.value), type_of(expr), true);
+            m_frames.back().allocations.push_back(out.allocation);
+            return {};
+        }
+
+        Result discriminant_of(comptime::Value const& value, std::int64_t& out)
+        {
+            auto const* enum_type = types::type_cast<types::EnumType>(value.type);
+            if (enum_type && enum_type->is_tagged)
+            {
+                if (value.kind() != Kind::Aggregate || value.empty())
+                    return failure("enum value has no compile-time discriminant");
+                auto tag = value.at(0).const_to_int();
+                if (!tag)
+                    return failure("enum value has no compile-time discriminant");
+                out = *tag;
+                return {};
+            }
+
+            auto tag = value.const_to_int();
+            if (!tag)
+                return failure("enum value has no compile-time discriminant");
+            out = *tag;
+            return {};
+        }
+
+        Result match_pattern(ast::Pattern const& pattern, comptime::ValuePtr const& subject, bool& matched)
+        {
+            if (!step())
+                return exhausted();
+
+            matched = false;
+            switch (pattern.kind)
+            {
+                case ast::PatternKind::Wildcard:
+                    matched = true;
+                    return {};
+                case ast::PatternKind::Ref:
+                    return match_pattern(*static_cast<ast::RefPattern const&>(pattern).inner, subject, matched);
+                case ast::PatternKind::Binding: {
+                    auto const& binding = static_cast<ast::BindingPattern const&>(pattern);
+                    if (!binding.synthetic_decl)
+                        return failure("pattern binding has not been resolved");
+
+                    matched = true;
+                    if (binding.by_reference)
+                    {
+                        auto matched_type = reinterpret_cast<types::TypePtr>(pattern.matched_type);
+                        if (!m_context.types || !matched_type)
+                            return failure("pattern binding has not been resolved");
+                        auto type = m_context.types->pointer_to(matched_type, types::Qual::None);
+                        return bind(binding.synthetic_decl, comptime::Value::make_pointer_to(subject, type), type);
+                    }
+
+                    auto value = read(subject);
+                    if (value.flow != Flow::Normal || !value.value)
+                        return value;
+                    return bind(binding.synthetic_decl, std::move(*value.value), value.value->type);
+                }
+                case ast::PatternKind::Literal: {
+                    auto const* literal = static_cast<ast::LiteralPattern const&>(pattern).value;
+                    if (!literal || !literal->sema.const_value)
+                        return failure("literal pattern has not been resolved");
+                    auto value = read(subject);
+                    if (value.flow != Flow::Normal || !value.value)
+                        return value;
+                    matched = *value.value == *literal->sema.const_value;
+                    return {};
+                }
+                case ast::PatternKind::Range: {
+                    auto const& range = static_cast<ast::RangePattern const&>(pattern);
+                    auto value = read(subject);
+                    if (value.flow != Flow::Normal || !value.value)
+                        return value;
+                    auto scalar = value.value->const_to_int();
+                    if (!scalar)
+                        return failure("range pattern requires a compile-time integer");
+
+                    std::int64_t low = std::numeric_limits<std::int64_t>::min();
+                    std::int64_t high = std::numeric_limits<std::int64_t>::max();
+                    if (range.start)
+                    {
+                        auto r = index_of(*range.start, low);
+                        if (r.flow != Flow::Normal)
+                            return r;
+                    }
+                    if (range.end)
+                    {
+                        auto r = index_of(*range.end, high);
+                        if (r.flow != Flow::Normal)
+                            return r;
+                        if (!range.inclusive)
+                            --high;
+                    }
+                    matched = *scalar >= low && *scalar <= high;
+                    return {};
+                }
+                case ast::PatternKind::Or: {
+                    for (auto* alternative : static_cast<ast::OrPattern const&>(pattern).alternatives)
+                    {
+                        auto r = match_pattern(*alternative, subject, matched);
+                        if (r.flow != Flow::Normal || matched)
+                            return r;
+                    }
+                    return {};
+                }
+                case ast::PatternKind::EnumDestructure: {
+                    auto const& destructure = static_cast<ast::EnumDestructurePattern const&>(pattern);
+                    if (!destructure.resolved_variant)
+                        return failure("enum pattern has not been resolved");
+
+                    auto value = read(subject);
+                    if (value.flow != Flow::Normal || !value.value)
+                        return value;
+
+                    std::int64_t tag{};
+                    auto r = discriminant_of(*value.value, tag);
+                    if (r.flow != Flow::Normal)
+                        return r;
+                    if (tag != destructure.resolved_variant->discriminant)
+                        return {};
+                    if (destructure.payload.empty())
+                    {
+                        matched = true;
+                        return {};
+                    }
+
+                    auto payload = m_heap.subobject(subject, 1);
+                    if (!payload)
+                        return failure("enum payload has no compile-time storage");
+                    return match_pattern(*destructure.payload.front(), *payload, matched);
+                }
+                case ast::PatternKind::StructDestructure: {
+                    auto const& destructure = static_cast<ast::StructDestructurePattern const&>(pattern);
+                    for (auto const& field : destructure.fields)
+                    {
+                        auto member = m_heap.subobject(subject, field.resolved_field_index);
+                        if (!member)
+                            return failure("member has no compile-time storage");
+                        auto r = match_pattern(*field.pattern, *member, matched);
+                        if (r.flow != Flow::Normal || !matched)
+                            return r;
+                    }
+                    matched = true;
+                    return {};
+                }
+            }
+            return unsupported();
+        }
+
+        Result match_value(ast::MatchExpr const& expr)
+        {
+            comptime::ValuePtr subject;
+            auto r = subject_place(*expr.operand, subject);
+            if (r.flow != Flow::Normal)
+                return r;
+
+            for (auto const& arm : expr.arms)
+            {
+                if (!arm.pattern || !arm.body)
+                    return failure("match arm has not been resolved");
+
+                bool matched = false;
+                r = match_pattern(*arm.pattern, subject, matched);
+                if (r.flow != Flow::Normal)
+                    return r;
+                if (!matched)
+                    continue;
+
+                if (arm.guard)
+                {
+                    auto guard = expression(*arm.guard);
+                    if (guard.flow != Flow::Normal)
+                        return guard;
+                    auto truth = guard.value ? guard.value->const_to_bool() : std::nullopt;
+                    if (!truth)
+                        return failure("match guard has no compile-time value");
+                    if (!*truth)
+                        continue;
+                }
+                return expression(*arm.body);
+            }
+            return failure("no match arm applies", true);
+        }
+
         Result member_value(ast::FieldAccessExpr const& expr)
         {
             comptime::ValuePtr member;
@@ -916,6 +1136,9 @@ export namespace dcc::ctfe
 
         Result call(ast::CallExpr const& call)
         {
+            if (call.sema.construction_kind == ast::ExprSema::ConstructionKind::Enum)
+                return enum_construction(call);
+
             if (call.sema.construction_kind == ast::ExprSema::ConstructionKind::Struct)
             {
                 std::vector<comptime::Value> fields;
@@ -1187,6 +1410,8 @@ export namespace dcc::ctfe
                     return member_value(static_cast<ast::FieldAccessExpr const&>(expr));
                 case ast::ExprKind::Index:
                     return element_value(static_cast<ast::IndexExpr const&>(expr));
+                case ast::ExprKind::Match:
+                    return match_value(static_cast<ast::MatchExpr const&>(expr));
                 case ast::ExprKind::IntLiteral:
                 case ast::ExprKind::FloatLiteral:
                 case ast::ExprKind::BoolLiteral:
