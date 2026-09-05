@@ -1,0 +1,30 @@
+Source: dcc
+Section: devel
+Priority: optional
+Maintainer: personne-admin <personneadmin@protonmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ clang-21,
+ clang-tools-21,
+ llvm-21-dev,
+ llvm,
+ lld-21,
+ lld,
+ libc++-21-dev,
+ libc++abi-21-dev,
+ nasm,
+ python3,
+ make
+Standards-Version: 4.7.0
+Homepage: https://github.com/personne-admin/dcc
+Rules-Requires-Root: no
+
+Package: dcc
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Compiler for the dc systems programming language
+ dc is a small systems language, built with a freestanding-first
+ mindset.
+ .
+ This package contains the dcc compiler, dccd language server and
+ libdcext modules.

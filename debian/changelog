@@ -1,0 +1,5 @@
+dcc (0.1.0-1) unstable; urgency=medium
+
+  * Initial Debian package.
+
+ -- personne-admin <personneadmin@protonmail.com>  Sat, 05 Sep 2026 17:44:00 +0200
