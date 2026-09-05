@@ -10504,7 +10504,14 @@ export namespace dcc::sema
                     }
 
                     ast::EnumVariant const* implicit_enum_var = nullptr;
-                    bool ok = b.op == lex::TokenKind::Eq ? can_assign_return(lhs_type, rhs.type) : (lhs_type == rhs.type);
+                    bool pointer_step = (b.op == lex::TokenKind::PlusEq || b.op == lex::TokenKind::MinusEq) &&
+                                        types::type_cast<types::PointerType>(lhs_type) && types::type_cast<types::IntType>(erase_refinement(rhs.type));
+                    if (pointer_step && !pointer_arithmetic_operand(lhs_type, b.range))
+                    {
+                        out.type = m_types.m_errort();
+                        return out;
+                    }
+                    bool ok = pointer_step || (b.op == lex::TokenKind::Eq ? can_assign_return(lhs_type, rhs.type) : (lhs_type == rhs.type));
                     if (ok && b.op == lex::TokenKind::Eq && value_alias_implicit_decay(rhs, lhs_type))
                     {
                         out.type = m_types.m_errort();
@@ -10544,7 +10551,7 @@ export namespace dcc::sema
                         case lex::TokenKind::StarEq:
                         case lex::TokenKind::SlashEq:
                         case lex::TokenKind::PercentEq:
-                            if (!types::type_cast<types::IntType>(lhs_type) && !types::type_cast<types::FloatType>(lhs_type))
+                            if (!pointer_step && !types::type_cast<types::IntType>(lhs_type) && !types::type_cast<types::FloatType>(lhs_type))
                             {
                                 out.type = m_types.m_errort();
                                 error(b.range, "binary operand type mismatch");
@@ -10585,6 +10592,9 @@ export namespace dcc::sema
                 case lex::TokenKind::GtGt:
                     lhs.type = erase_refinement(lhs.type);
                     rhs.type = erase_refinement(rhs.type);
+                    if (b.op == lex::TokenKind::Plus || b.op == lex::TokenKind::Minus)
+                        if (auto pointer = analyze_pointer_arithmetic(b, lhs, rhs, out))
+                            return *pointer;
                     if (lhs.type && lhs.type->kind != types::TypeKind::Error && rhs.type && rhs.type->kind != types::TypeKind::Error && lhs.type != rhs.type)
                     {
                         if ((b.lhs->kind == ast::ExprKind::IntLiteral || b.lhs->kind == ast::ExprKind::FloatLiteral ||
@@ -10838,6 +10848,77 @@ export namespace dcc::sema
                 if (sv.has_value() && ev.has_value() && *sv > *ev)
                     error(slice_range, "range start index exceeds end index");
             }
+        }
+
+        [[nodiscard]] bool pointer_arithmetic_operand(types::TypePtr type, sm::SourceRange range)
+        {
+            auto const* p = types::type_cast<types::PointerType>(type);
+            if (!p)
+                return false;
+            if (!p->pointee || p->pointee->kind == types::TypeKind::Void || p->pointee->is_zero_sized)
+            {
+                error(range, "pointer arithmetic requires a pointer to a sized type");
+                return false;
+            }
+            return true;
+        }
+
+        std::optional<detail::ExprResult> analyze_pointer_arithmetic(ast::BinaryExpr& b, detail::ExprResult& lhs, detail::ExprResult& rhs,
+                                                                    detail::ExprResult& out)
+        {
+            bool lhs_pointer = types::type_cast<types::PointerType>(lhs.type) != nullptr;
+            bool rhs_pointer = types::type_cast<types::PointerType>(rhs.type) != nullptr;
+            if (!lhs_pointer && !rhs_pointer)
+                return std::nullopt;
+
+            out.constant = nullptr;
+            out.is_constant = false;
+            out.is_lvalue = false;
+
+            if (lhs_pointer && rhs_pointer)
+            {
+                if (b.op != lex::TokenKind::Minus)
+                {
+                    out.type = m_types.m_errort();
+                    error(b.range, "binary operand type mismatch");
+                    return out;
+                }
+                if (lhs.type != rhs.type)
+                {
+                    out.type = m_types.m_errort();
+                    error(b.range, "pointer difference requires pointers to the same type");
+                    return out;
+                }
+                if (!pointer_arithmetic_operand(lhs.type, b.range))
+                {
+                    out.type = m_types.m_errort();
+                    return out;
+                }
+                out.type = m_types.isize_t();
+                return out;
+            }
+
+            auto& pointer = lhs_pointer ? lhs : rhs;
+            auto& offset = lhs_pointer ? rhs : lhs;
+            if (lhs_pointer && rhs.type && rhs.type->kind == types::TypeKind::NullT)
+                return std::nullopt;
+            if (rhs_pointer && b.op == lex::TokenKind::Minus)
+            {
+                out.type = m_types.m_errort();
+                error(b.range, "binary operand type mismatch");
+                return out;
+            }
+            if (!types::type_cast<types::IntType>(erase_refinement(offset.type)))
+                return std::nullopt;
+            if (!pointer_arithmetic_operand(pointer.type, b.range))
+            {
+                out.type = m_types.m_errort();
+                return out;
+            }
+
+            out.type = pointer.type;
+            out.resolved_decl = pointer.resolved_decl;
+            return out;
         }
 
         detail::ExprResult analyze_index(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::IndexExpr& i, int loop_depth, std::uint32_t& next_off,

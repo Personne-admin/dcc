@@ -184,6 +184,22 @@ enum Optional(T) {
 Only raw pointers, no references. No `->`, only `.` with automatic dereference
 through any number of pointer indirections.
 
+Pointers to sized types support element-wise arithmetic:
+
+```dc
+T* q = p + n;    // also n + p
+T* r = p - n;
+isize d = p - q; // element count, both operands the same pointer type
+p += n;
+p -= n;
+p++;
+--p;
+```
+
+`p[n]` is equivalent to `*(p + n)`. Arithmetic on `void*`, on pointers to
+zero-sized types, and differences between pointers of different types are
+errors. Adding two pointers is an error.
+
 ---
 
 ## 4. Qualifiers

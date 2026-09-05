@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+void bad(u64* p, u32* q, void* v, usize n) {
+    u64* a = p + q;
+    isize b = p - q;
+    void* c = v + n;
+    isize d = v - v;
+    u64* e = n - p;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4:14: binary operand type mismatch
+main.dc:5:15: pointer difference requires pointers to the same type
+main.dc:6:15: pointer arithmetic requires a pointer to a sized type
+main.dc:7:15: pointer arithmetic requires a pointer to a sized type
+main.dc:8:14: binary operand type mismatch

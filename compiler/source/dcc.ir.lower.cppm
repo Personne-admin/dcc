@@ -3534,7 +3534,9 @@ export namespace dcc::ir::lower
             auto* rhs_val = lower_expr(rhs);
 
             auto* op_sema_ty = get_sema_resolved_type(bin->lhs);
-            auto* inst = make_binop(ir_ty, lhs_val, rhs_val, bin->op, op_sema_ty);
+            auto* inst = make_pointer_binop(ir_ty, lhs_val, rhs_val, bin->op, op_sema_ty, get_sema_resolved_type(bin->rhs));
+            if (!inst)
+                inst = make_binop(ir_ty, lhs_val, rhs_val, bin->op, op_sema_ty);
             auto name = ident_name();
             inst->name = m_name_pool.back();
             append_inst(inst);
@@ -3651,7 +3653,9 @@ export namespace dcc::ir::lower
             auto* rhs_val = lower_expr(bin->rhs);
 
             auto bin_op = compound_to_binop(bin->op);
-            auto* result = make_binop(ir_ty, loaded, rhs_val, bin_op, sema_ty);
+            auto* result = make_pointer_binop(ir_ty, loaded, rhs_val, bin_op, sema_ty, get_sema_resolved_type(bin->rhs));
+            if (!result)
+                result = make_binop(ir_ty, loaded, rhs_val, bin_op, sema_ty);
             auto result_name = ident_name();
             result->name = m_name_pool.back();
             append_inst(result);
@@ -3734,6 +3738,65 @@ export namespace dcc::ir::lower
             }
 
             return {nullptr, nullptr};
+        }
+
+        IrValue* make_pointer_binop(IrType const* ty, IrValue* lhs, IrValue* rhs, dcc::lex::TokenKind op, dcc::types::TypePtr lhs_ty,
+                                    dcc::types::TypePtr rhs_ty)
+        {
+            auto const* lp = types::type_cast<types::PointerType>(lhs_ty);
+            auto const* rp = types::type_cast<types::PointerType>(rhs_ty);
+            if (!lp && !rp)
+                return nullptr;
+            if (op != dcc::lex::TokenKind::Plus && op != dcc::lex::TokenKind::Minus)
+                return nullptr;
+
+            if (lp && rp)
+            {
+                auto* isize_ty = m_ctx.int_t(m_ctx.pointer_bits(), true);
+                auto* left = m_ctx.ptrtoi(isize_ty, lhs);
+                append_named(left);
+                auto* right = m_ctx.ptrtoi(isize_ty, rhs);
+                append_named(right);
+                auto* bytes = m_ctx.sub(isize_ty, left, right);
+                append_named(bytes);
+
+                auto stride = static_cast<std::int64_t>(lower_type(lp->pointee)->byte_size);
+                if (stride <= 1)
+                    return bytes;
+                return m_ctx.sdiv(isize_ty, bytes, m_ctx.int_const(isize_ty, stride));
+            }
+
+            auto const* pointer_type = lp ? lp : rp;
+            auto* pointer = lp ? lhs : rhs;
+            auto* offset = lp ? rhs : lhs;
+            if (!lp && op == dcc::lex::TokenKind::Minus)
+                return nullptr;
+
+            auto* isize_ty = m_ctx.int_t(m_ctx.pointer_bits(), true);
+            if (offset->type != isize_ty)
+            {
+                auto* widened = m_ctx.sext(isize_ty, offset);
+                append_named(widened);
+                offset = widened;
+            }
+            if (op == dcc::lex::TokenKind::Minus)
+            {
+                auto* negated = m_ctx.neg(isize_ty, offset);
+                append_named(negated);
+                offset = negated;
+            }
+
+            auto* gep = m_ctx.gep(ty, pointer);
+            gep->indices.push_back({IrGepInst::IndexKind::Array, offset, 0});
+            std::ignore = pointer_type;
+            return gep;
+        }
+
+        void append_named(IrValue* inst)
+        {
+            auto name = ident_name();
+            inst->name = m_name_pool.back();
+            append_inst(inst);
         }
 
         IrValue* make_binop(IrType const* ty, IrValue* lhs, IrValue* rhs, dcc::lex::TokenKind op, dcc::types::TypePtr sema_ty)

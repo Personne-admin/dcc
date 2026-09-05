@@ -1,0 +1,48 @@
+=== FILE: test.dc ===
+module test;
+
+public u32 element(u32* base, usize n) {
+    return *(base + n);
+}
+
+public isize gap(u32* a, u32* b) {
+    return b - a;
+}
+
+public u32* back(u32* p) {
+    p -= 2;
+    return p - 1;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i32 @_DC0F1.4.test7.element2Pqi32uIui32u(ptr %base, i64 %"0") {
+entry:
+  %"1" = getelementptr i32, ptr %base, i64 %"0"
+  %"2" = load i32, ptr %"1", align 4
+  ret i32 %"2"
+}
+
+define i64 @_DC0F1.4.test3.gap2Pqi32uPqi32uIs(ptr %a, ptr %b) {
+entry:
+  %"0" = ptrtoint ptr %b to i64
+  %"1" = ptrtoint ptr %a to i64
+  %"2" = sub i64 %"0", %"1"
+  %"3" = sdiv i64 %"2", 4
+  ret i64 %"3"
+}
+
+define ptr @_DC0F1.4.test4.back1Pqi32uPqi32u(ptr %p) {
+entry:
+  %"0" = alloca ptr, align 8
+  store ptr %p, ptr %"0", align 8
+  %"1" = load ptr, ptr %"0", align 8
+  %"4" = getelementptr i32, ptr %"1", i64 -2
+  store ptr %"4", ptr %"0", align 8
+  %"5" = load ptr, ptr %"0", align 8
+  %"8" = getelementptr i32, ptr %"5", i64 -1
+  ret ptr %"8"
+}
