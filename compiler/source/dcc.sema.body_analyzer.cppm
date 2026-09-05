@@ -9880,6 +9880,35 @@ export namespace dcc::sema
             return true;
         }
 
+        [[nodiscard]] std::optional<detail::ExprResult> instantiate_function_reference(ModuleInfo& mod, Scope& scope, ast::FuncDecl const& f,
+                                                                                       types::FuncPtrType const* expected)
+        {
+            if (!expected || contains_template_param(expected) || f.template_params.empty())
+                return std::nullopt;
+
+            auto const* generic = types::type_cast<types::FuncPtrType>(decl_type(f));
+            if (!generic)
+                return std::nullopt;
+
+            infer::TemplateBindings bindings{m_types};
+            if (!bindings.deduce(generic, expected) || !fill_template_defaults(mod, scope, f, bindings))
+                return std::nullopt;
+
+            if (!check_template_constraint(mod, scope, f, bindings, false, find_defining_module(f)))
+                return std::nullopt;
+
+            auto const* specialized = types::type_cast<types::FuncPtrType>(bindings.substitute(generic));
+            if (!specialized || !funcptr_matches(expected, specialized))
+                return std::nullopt;
+
+            auto committed = commit_specialization(mod, f, bindings, f.range);
+            detail::ExprResult out{};
+            out.type = specialized;
+            out.resolved_decl = &f;
+            out.spec_commit = committed;
+            return out;
+        }
+
         detail::ExprResult analyze_name(ModuleInfo& mod, Scope& scope, std::string_view name, sm::SourceRange range, ConstEnv const* const_env,
                                         types::TypePtr expected_type = nullptr)
         {
@@ -9994,6 +10023,10 @@ export namespace dcc::sema
             }
 
             auto const* sym = &syms.front();
+            if (sym->decl && sym->decl->kind == ast::DeclKind::Func)
+                if (auto specialized = instantiate_function_reference(mod, scope, *static_cast<ast::FuncDecl const*>(sym->decl), expected_fp))
+                    return *specialized;
+
             out.resolved_decl = sym->decl;
             out.type = decl_type(*sym->decl);
             track_decl_read(sym->decl);
@@ -10223,6 +10256,10 @@ export namespace dcc::sema
                     }
                 }
             }
+
+            if (sym->decl && sym->decl->kind == ast::DeclKind::Func)
+                if (auto specialized = instantiate_function_reference(mod, scope, *static_cast<ast::FuncDecl const*>(sym->decl), expected_fp))
+                    return *specialized;
 
             out.resolved_decl = sym->decl;
             out.type = decl_type(*sym->decl);
@@ -13442,6 +13479,29 @@ export namespace dcc::sema
 
             if (!fill_template_defaults(mod, scope, f, b))
                 return {m_types.m_errort()};
+
+            for (std::size_t i = 0; i < non_pack_func_params; ++i)
+            {
+                auto* arg = arg_exprs[func_arg_start + i];
+                if (!arg)
+                    continue;
+
+                auto expected = b.substitute(params[i]);
+                if (!types::type_cast<types::FuncPtrType>(expected))
+                    continue;
+
+                if (!ast::node_cast<ast::IdentExpr>(arg) && !ast::node_cast<ast::PathExpr>(arg))
+                    continue;
+
+                auto const* referenced = ast::node_cast<ast::FuncDecl>(arg->sema.resolved_decl);
+                if (!referenced || referenced->template_params.empty())
+                    continue;
+
+                auto r = analyze_call_arg(mod, scope, *arg, loop_depth, next_off, expected, const_env,
+                                          default_arg_start && func_arg_start + i >= *default_arg_start ? &f : nullptr);
+                if (has_error(r.type))
+                    return {m_types.m_errort()};
+            }
 
             detail::CommittedSpecialization committed_spec = commit_specialization(mod, f, b, range);
 
