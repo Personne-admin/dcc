@@ -386,12 +386,34 @@ export namespace dcc::sema
             }
         }
 
+        static bool shares_common_prefix(ModulePath const& a, ModulePath const& b) noexcept
+        {
+            auto const& s1 = a.segments();
+            auto const& s2 = b.segments();
+            return !s1.empty() && !s2.empty() && s1.front() == s2.front();
+        }
+
         [[nodiscard]] bool is_publicly_visible(ModuleInfo const& mod, void const* decl) const
         {
             if (!decl)
                 return false;
 
-            return find_decl(mod, decl);
+            if (find_decl(mod, decl))
+                return true;
+
+            for (auto const& imp : mod.imports)
+            {
+                if (!imp.target || !imp.target->export_scope)
+                    continue;
+
+                if (shares_common_prefix(mod.canonical_path, imp.target->canonical_path))
+                {
+                    if (scope_contains_decl(*imp.target->export_scope, decl))
+                        return true;
+                }
+            }
+
+            return false;
         }
 
         [[nodiscard]] bool find_decl(ModuleInfo const& mod, void const* decl) const
