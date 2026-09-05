@@ -1,0 +1,29 @@
+=== FILE: main.dc ===
+module ctfe_errors;
+
+extern u64 runtime_only();
+
+u64 select(bool compile_path) {
+    if compile_path {
+        return 42;
+    }
+    return runtime_only();
+}
+
+u64 recurse(u64 n) {
+    return recurse(n + 1);
+}
+
+u64 forever() {
+    while true {}
+    return 0;
+}
+
+const u64 runtime = select(false);
+const u64 depth = recurse(0);
+const u64 steps = forever();
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:21:21: initializer for global `runtime` is not a constant expression: external, indirect or runtime-only call
+main.dc:22:19: initializer for global `depth` is not a constant expression: recursion limit exceeded
+main.dc:23:19: initializer for global `steps` is not a constant expression: step limit exceeded

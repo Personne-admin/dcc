@@ -6,8 +6,10 @@ export module dcc.sema.body_analyzer;
 
 import std;
 import dcc.ast;
+import dcc.ast.visitor;
 import dcc.comptime;
 import dcc.const_eval;
+import dcc.ctfe;
 import dcc.diag;
 import dcc.si;
 import dcc.sm;
@@ -803,6 +805,7 @@ export namespace dcc::sema
             ast::UsingDecl const* value_alias_origin{};
             CommittedSpecialization spec_commit{};
             ast::Decl const* ufcs_callee{};
+            std::size_t call_argument_offset{};
             ConstructionKind construction_kind{ConstructionKind::None};
             ast::EnumVariant const* constructed_variant{};
             bool is_lvalue{};
@@ -6115,6 +6118,7 @@ export namespace dcc::sema
             out.type = b.substitute(f.return_type ? get_canonical(f.return_type->sema) : m_types.m_voidt());
             out.resolved_decl = &f;
             out.spec_commit = committed_spec;
+            out.call_argument_offset = func_arg_start;
             return out;
         }
 
@@ -7231,7 +7235,21 @@ export namespace dcc::sema
                     if (expr_has_error(vd->init))
                         continue;
                     auto expected = vd->type && vd->type->sema.canonical ? get_canonical(vd->type->sema) : nullptr;
-                    if (!is_constant_initializer_expr(vd->init, visiting, expected))
+                    if (is_constant_initializer_expr(vd->init, visiting, expected))
+                        continue;
+
+                    auto result = evaluate_constant(*vd->init, ctfe::Mode::Required);
+                    if (result.flow == ctfe::Flow::Normal && result.value)
+                    {
+                        vd->init->sema.const_value = make_value(std::move(*result.value));
+                        vd->init->sema.is_constant = true;
+                    }
+                    else if (contains_call(*vd->init))
+                    {
+                        error(vd->init->range, "initializer for global `{}` is not a constant expression: {}", vd->name, result.message);
+                        note_evaluated_calls(result);
+                    }
+                    else
                         error(vd->init->range, "initializer for global `{}` is not a constant expression", vd->name);
                 }
             }
@@ -7485,10 +7503,93 @@ export namespace dcc::sema
             return false;
         }
 
+        std::unordered_set<ast::FuncDecl const*> m_analyzing_functions;
+
+        static bool contains_call(ast::Expr const& expr)
+        {
+            struct CallVisitor : ast::RecursiveAstVisitor
+            {
+                bool found{};
+                void visitCallExpr(ast::CallExpr const*) override { found = true; }
+            } visitor;
+            visitor.visitExpr(&expr);
+            return visitor.found;
+        }
+
+        void note_evaluated_calls(ctfe::Result const& result)
+        {
+            if (m_suppress_errors)
+                return;
+
+            std::unordered_set<ast::FuncDecl const*> reported;
+            for (auto* fn : std::views::reverse(result.calls))
+            {
+                if (reported.size() == 8)
+                    break;
+                if (reported.insert(fn).second)
+                    m_diag.note(fn->name_range, "in compile-time call to `{}`", fn->name);
+            }
+        }
+
+        bool prepare_ctfe_function(ast::FuncDecl const& fn, std::vector<ast::FuncDecl*>& speculative)
+        {
+            if (m_analyzing_functions.contains(&fn))
+                return false;
+            if (fn.sema.storage != ast::StorageClass::Unresolved)
+                return true;
+
+            auto* mod = find_defining_module(fn);
+            if (!mod)
+                return false;
+            if (m_suppress_errors)
+                speculative.push_back(const_cast<ast::FuncDecl*>(&fn));
+
+            auto saved_errors = m_suppressed_error_count;
+            auto* saved_module = m_current_module;
+            auto* saved_env = m_current_module_env;
+            auto saved_defers = std::exchange(m_active_defers, {});
+            auto saved_defer_depth = std::exchange(m_defer_depth, 0);
+            auto* saved_capture_scope = std::exchange(m_lambda_capture_scope, nullptr);
+            auto* saved_bindings = std::exchange(m_concept_bindings, nullptr);
+            m_current_module = mod;
+            m_current_module_env = ensure_module_env(*mod);
+            analyze_function(*mod, const_cast<ast::FuncDecl&>(fn));
+            m_current_module = saved_module;
+            m_current_module_env = saved_env;
+            m_active_defers = std::move(saved_defers);
+            m_defer_depth = saved_defer_depth;
+            m_lambda_capture_scope = saved_capture_scope;
+            m_concept_bindings = saved_bindings;
+            return m_suppressed_error_count == saved_errors;
+        }
+
+        ctfe::Result evaluate_constant(ast::Expr const& expr, ctfe::Mode mode)
+        {
+            std::vector<ast::FuncDecl*> speculative;
+            ctfe::Context context;
+            context.call_site = expr.range;
+            context.types = &m_types;
+            context.prepare_function = [&](ast::FuncDecl const& fn) { return prepare_ctfe_function(fn, speculative); };
+
+            auto result = ctfe::Evaluator(std::move(context), mode).evaluate(expr);
+            for (auto* fn : speculative)
+                fn->sema.storage = ast::StorageClass::Unresolved;
+            return result;
+        }
+
         void analyze_function(ModuleInfo& mod, ast::FuncDecl& fn)
         {
             if (fn.sema.storage != ast::StorageClass::Unresolved)
                 return;
+            if (!m_analyzing_functions.insert(&fn).second)
+                return;
+
+            struct AnalysisGuard
+            {
+                std::unordered_set<ast::FuncDecl const*>& active;
+                ast::FuncDecl const* fn;
+                ~AnalysisGuard() { active.erase(fn); }
+            } analysis_guard{m_analyzing_functions, &fn};
 
             auto* root = make_scope(ScopeKind::Function, nullptr);
             auto* root_consts = make_const_env(nullptr);
@@ -9542,12 +9643,24 @@ export namespace dcc::sema
             expr.sema.resolved_decl = out.resolved_decl;
             record_resolved_specialization(expr.sema, out.spec_commit ? &out.spec_commit : nullptr);
             expr.sema.ufcs_callee = out.ufcs_callee;
+            expr.sema.call_argument_offset = out.call_argument_offset;
             expr.sema.construction_kind = out.construction_kind;
             expr.sema.constructed_variant = out.constructed_variant;
             expr.sema.is_lvalue = out.is_lvalue;
             expr.sema.is_constant = out.is_constant;
             expr.sema.is_diverging = out.is_diverging;
             expr.sema.is_type_instantiation = out.is_type_instantiation;
+            if (expr.kind == ast::ExprKind::Call && !fn && !out.constant && !has_error(out.type))
+            {
+                auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic);
+                if (result.flow == ctfe::Flow::Normal && result.value)
+                {
+                    out.constant = make_value(std::move(*result.value));
+                    out.is_constant = true;
+                    expr.sema.const_value = out.constant;
+                    expr.sema.is_constant = true;
+                }
+            }
             return out;
         }
 
@@ -12967,6 +13080,7 @@ export namespace dcc::sema
             out.type = b.substitute(f.return_type ? get_canonical(f.return_type->sema) : m_types.m_voidt());
             out.resolved_decl = &f;
             out.spec_commit = committed_spec;
+            out.call_argument_offset = func_arg_start;
             return out;
         }
 
@@ -13625,6 +13739,21 @@ export namespace dcc::sema
                         return analyze_static_type_if(mod, fn, scope, si, loop_depth, next_off, const_env);
 
                     auto cond = analyze_expr_or_error(mod, fn, scope, si.condition, loop_depth, next_off, nullptr, const_env);
+                    if (!cond.constant && si.condition && !has_error(cond.type))
+                    {
+                        auto result = evaluate_constant(*si.condition, ctfe::Mode::Required);
+                        if (result.flow == ctfe::Flow::Normal && result.value)
+                        {
+                            cond.constant = make_value(std::move(*result.value));
+                            si.condition->sema.const_value = cond.constant;
+                            si.condition->sema.is_constant = true;
+                        }
+                        else if (contains_call(*si.condition))
+                        {
+                            error(si.condition->range, "static if condition is not a compile-time constant: {}", result.message);
+                            note_evaluated_calls(result);
+                        }
+                    }
                     bool take_then = !(cond.constant && cond.constant->kind() == comptime::Value::Kind::Bool) || cond.constant->get_bool();
                     si.taken_branch = take_then ? 0 : 1;
                     if (take_then)
@@ -14319,6 +14448,17 @@ export namespace dcc::sema
                     track_decl_write(v);
                     auto expected = v->type && v->type->sema.canonical ? get_canonical(v->type->sema) : nullptr;
                     auto init = analyze_expr(mod, fn, scope, *v->init, loop_depth, next_off, expected, const_env);
+                    if (v->sema.is_immutable && !init.constant && !has_error(init.type))
+                    {
+                        auto result = evaluate_constant(*v->init, ctfe::Mode::Opportunistic);
+                        if (result.flow == ctfe::Flow::Normal && result.value)
+                        {
+                            init.constant = make_value(std::move(*result.value));
+                            init.is_constant = true;
+                            v->init->sema.const_value = init.constant;
+                            v->init->sema.is_constant = true;
+                        }
+                    }
                     if (value_alias_implicit_decay(init, expected))
                     {
                         reject_value_alias_decay(v->init->range, init);
@@ -15034,7 +15174,23 @@ export namespace dcc::sema
                                 auto& scope_ref = const_cast<Scope&>(scope);
                                 std::uint32_t& off_ref = next_off_ptr ? *next_off_ptr : dummy_offset();
                                 auto* expected_ty = m_types.usize_t();
-                                std::ignore = analyze_expr(mod, fn, scope_ref, *size_expr, 0, off_ref, expected_ty, const_env);
+                                auto size_result = analyze_expr(mod, fn, scope_ref, *size_expr, 0, off_ref, expected_ty, const_env);
+                                if (!has_error(size_result.type))
+                                {
+                                    auto evaluated = evaluate_constant(*size_expr, ctfe::Mode::Opportunistic);
+                                    auto size = evaluated.value ? evaluated.value->const_to_int() : std::nullopt;
+                                    if (evaluated.flow == ctfe::Flow::Normal && size)
+                                    {
+                                        if (*size < 0)
+                                        {
+                                            error(size_expr->range, "array size must be non-negative");
+                                            return {.type = m_types.m_errort()};
+                                        }
+                                        size_expr->sema.const_value = make_value(std::move(*evaluated.value));
+                                        size_expr->sema.is_constant = true;
+                                        return {.type = m_types.array_t(materialize_type(inner), static_cast<std::uint64_t>(*size))};
+                                    }
+                                }
                             }
                             else if (arr->size && arr->size->kind == ast::ExprKind::Ident)
                             {

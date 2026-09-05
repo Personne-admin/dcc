@@ -1,7 +1,7 @@
 === FILE: test.dc ===
 module test;
 
-public i32 foo(i32 x) { return x + 1; }
+public extern i32 foo(i32 x);
 i32 g = foo(5);
 
 === EXPECT-ERRORS ===

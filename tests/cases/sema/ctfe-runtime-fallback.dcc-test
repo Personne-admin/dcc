@@ -1,0 +1,26 @@
+=== FILE: main.dc ===
+module fallback;
+
+extern u64 external_call();
+
+u64 forever() {
+    while true {}
+    return 0;
+}
+
+u64 recurse(u64 value) {
+    return recurse(value + 1);
+}
+
+u64 divide(u64 value) {
+    return 1 / value;
+}
+
+u64 runtime(u64 value) {
+    const u64 a = external_call();
+    const u64 b = forever();
+    const u64 c = recurse(0);
+    return a + b + c + divide(value);
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

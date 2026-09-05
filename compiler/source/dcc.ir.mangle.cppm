@@ -98,7 +98,8 @@ export namespace dcc::ir::mangle
         std::string string_val;
         std::vector<DemangledValue> elements;
         bool is_null_ptr{true};
-        std::size_t pointer_index{};
+        std::size_t pointer_allocation{};
+        std::vector<std::uint32_t> pointer_path;
 
         DemangledValue() = default;
         DemangledValue(DemangledValue&&) = default;
@@ -720,8 +721,16 @@ namespace dcc::ir::mangle
                         out += '0';
                     else
                     {
+                        auto const& p = value.get_pointer();
                         out += '1';
-                        out += to_dec(value.pointer_index());
+                        out += to_dec(p.allocation);
+                        out += '.';
+                        out += to_dec(p.path.size());
+                        for (auto index : p.path)
+                        {
+                            out += '.';
+                            out += to_dec(index);
+                        }
                     }
                     return;
             }
@@ -1158,18 +1167,28 @@ namespace dcc::ir::mangle
                     if (n == '0')
                     {
                         dv.is_null_ptr = true;
-                        dv.pointer_index = 0;
                         return true;
                     }
 
                     if (n == '1')
                     {
                         dv.is_null_ptr = false;
-                        std::uint64_t idx;
-                        if (!parse_dec(sv, pos, idx))
+                        std::uint64_t allocation;
+                        std::uint64_t depth;
+                        if (!parse_dec(sv, pos, allocation) || pos >= sv.size() || sv[pos++] != '.')
+                            return false;
+                        if (!parse_dec(sv, pos, depth))
                             return false;
 
-                        dv.pointer_index = static_cast<std::size_t>(idx);
+                        dv.pointer_allocation = static_cast<std::size_t>(allocation);
+                        for (std::uint64_t i = 0; i < depth; ++i)
+                        {
+                            std::uint64_t index;
+                            if (pos >= sv.size() || sv[pos++] != '.' || !parse_dec(sv, pos, index))
+                                return false;
+
+                            dv.pointer_path.push_back(static_cast<std::uint32_t>(index));
+                        }
                         return true;
                     }
 

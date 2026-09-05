@@ -227,6 +227,7 @@ export namespace dcc::ast
         Decl const* resolved_decl{};
         FuncDecl const* resolved_specialization{};
         Decl const* ufcs_callee{};
+        std::size_t call_argument_offset{};
         bool is_type_instantiation{};
         enum class ConstructionKind : std::uint8_t
         {

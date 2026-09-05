@@ -1,0 +1,26 @@
+=== FILE: main.dc ===
+module runtime_errors;
+
+u64 runtime_global = 7;
+
+u64 read_global() {
+    return runtime_global;
+}
+
+u64 read_volatile() {
+    volatile u64 value = 7;
+    return value;
+}
+
+u64 divide(u64 n) {
+    return 1 / n;
+}
+
+const u64 A = read_global();
+const u64 B = read_volatile();
+const u64 C = divide(0) + 1;
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:18:15: initializer for global `A` is not a constant expression: read of non-constant storage
+main.dc:19:15: initializer for global `B` is not a constant expression: volatile access
+main.dc:20:15: initializer for global `C` is not a constant expression: division by zero

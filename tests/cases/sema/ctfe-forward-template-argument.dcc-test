@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module forward;
+
+u64 value_arg(u64 N)() {
+    return N;
+}
+
+const u64 A = value_arg(twice(6));
+
+u64 twice(u64 value) {
+    return value * 2;
+}
+
+void verify() {
+    static if A != 12 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

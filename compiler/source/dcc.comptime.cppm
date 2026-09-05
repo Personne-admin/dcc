@@ -16,15 +16,20 @@ export namespace dcc::comptime
         std::vector<Value> elements;
     };
 
-    struct ValueSlice
-    {
-        std::vector<Value> elements;
-    };
-
     struct ValuePtr
     {
         bool is_null{true};
-        std::size_t element_index{};
+        std::size_t allocation{};
+        std::vector<std::uint32_t> path;
+
+        [[nodiscard]] bool operator==(ValuePtr const&) const noexcept = default;
+    };
+
+    struct ValueSlice
+    {
+        std::vector<Value> elements;
+        ValuePtr base;
+        std::size_t length{};
     };
 
     enum class UnaryOp : std::uint8_t
@@ -152,25 +157,36 @@ export namespace dcc::comptime
             assert(t && t->kind == types::TypeKind::Slice);
             Value val;
             val.type = t;
-            val.m_storage.template emplace<ValueSlice>(ValueSlice{std::move(elems)});
+            auto count = elems.size();
+            val.m_storage.template emplace<ValueSlice>(ValueSlice{std::move(elems), ValuePtr{}, count});
+            return val;
+        }
+
+        [[nodiscard]] static Value make_slice_ref(ValuePtr base, std::size_t length, types::TypePtr t)
+        {
+            assert(t && t->kind == types::TypeKind::Slice);
+            assert(!base.is_null);
+            Value val;
+            val.type = t;
+            val.m_storage.template emplace<ValueSlice>(ValueSlice{{}, std::move(base), length});
             return val;
         }
 
         [[nodiscard]] static Value make_pointer(types::TypePtr t)
         {
-            assert(t && t->kind == types::TypeKind::Pointer);
+            assert(!t || t->kind == types::TypeKind::Pointer);
             Value val;
             val.type = t;
-            val.m_storage.template emplace<ValuePtr>(ValuePtr{true, 0});
+            val.m_storage.template emplace<ValuePtr>(ValuePtr{});
             return val;
         }
 
-        [[nodiscard]] static Value make_pointer_to(std::size_t elem_idx, types::TypePtr t)
+        [[nodiscard]] static Value make_pointer_to(ValuePtr p, types::TypePtr t)
         {
-            assert(t && t->kind == types::TypeKind::Pointer);
+            assert(!t || t->kind == types::TypeKind::Pointer);
             Value val;
             val.type = t;
-            val.m_storage.template emplace<ValuePtr>(ValuePtr{false, elem_idx});
+            val.m_storage.template emplace<ValuePtr>(std::move(p));
             return val;
         }
 
@@ -210,12 +226,28 @@ export namespace dcc::comptime
             return std::get<ValuePtr>(m_storage).is_null;
         }
 
-        [[nodiscard]] std::size_t pointer_index() const
+        [[nodiscard]] ValuePtr const& get_pointer() const
         {
             assert(kind() == Kind::Pointer);
-            auto const& p = std::get<ValuePtr>(m_storage);
-            assert(!p.is_null);
-            return p.element_index;
+            return std::get<ValuePtr>(m_storage);
+        }
+
+        [[nodiscard]] ValuePtr const& slice_base() const
+        {
+            assert(kind() == Kind::Slice);
+            return std::get<ValueSlice>(m_storage).base;
+        }
+
+        [[nodiscard]] std::size_t slice_length() const
+        {
+            assert(kind() == Kind::Slice);
+            return std::get<ValueSlice>(m_storage).length;
+        }
+
+        [[nodiscard]] bool slice_is_ref() const
+        {
+            assert(kind() == Kind::Slice);
+            return !std::get<ValueSlice>(m_storage).base.is_null;
         }
 
         void set_int(std::int64_t v)
@@ -248,12 +280,12 @@ export namespace dcc::comptime
             if (kind() == Kind::Aggregate)
                 return std::get<ValueAgg>(m_storage).elements.size();
 
-            return std::get<ValueSlice>(m_storage).elements.size();
+            return std::get<ValueSlice>(m_storage).length;
         }
 
         [[nodiscard]] Value& at(std::size_t i)
         {
-            assert(kind() == Kind::Aggregate || kind() == Kind::Slice);
+            assert(kind() == Kind::Aggregate || (kind() == Kind::Slice && !slice_is_ref()));
             assert(i < size());
             if (kind() == Kind::Aggregate)
                 return std::get<ValueAgg>(m_storage).elements[i];
@@ -263,7 +295,7 @@ export namespace dcc::comptime
 
         [[nodiscard]] Value const& at(std::size_t i) const
         {
-            assert(kind() == Kind::Aggregate || kind() == Kind::Slice);
+            assert(kind() == Kind::Aggregate || (kind() == Kind::Slice && !slice_is_ref()));
             assert(i < size());
             if (kind() == Kind::Aggregate)
                 return std::get<ValueAgg>(m_storage).elements[i];
@@ -273,32 +305,37 @@ export namespace dcc::comptime
 
         void push_back(Value v)
         {
-            assert(kind() == Kind::Aggregate || kind() == Kind::Slice);
+            assert(kind() == Kind::Aggregate || (kind() == Kind::Slice && !slice_is_ref()));
 
             if (kind() == Kind::Aggregate)
                 std::get<ValueAgg>(m_storage).elements.push_back(std::move(v));
             else
-                std::get<ValueSlice>(m_storage).elements.push_back(std::move(v));
+            {
+                auto& s = std::get<ValueSlice>(m_storage);
+                s.elements.push_back(std::move(v));
+                s.length = s.elements.size();
+            }
         }
 
         void pop_back()
         {
-            assert(kind() == Kind::Aggregate || kind() == Kind::Slice);
+            assert(kind() == Kind::Aggregate || (kind() == Kind::Slice && !slice_is_ref()));
             assert(!empty());
 
             if (kind() == Kind::Aggregate)
                 std::get<ValueAgg>(m_storage).elements.pop_back();
             else
-                std::get<ValueSlice>(m_storage).elements.pop_back();
+            {
+                auto& s = std::get<ValueSlice>(m_storage);
+                s.elements.pop_back();
+                s.length = s.elements.size();
+            }
         }
 
         [[nodiscard]] bool empty() const
         {
             assert(kind() == Kind::Aggregate || kind() == Kind::Slice);
-            if (kind() == Kind::Aggregate)
-                return std::get<ValueAgg>(m_storage).elements.empty();
-
-            return std::get<ValueSlice>(m_storage).elements.empty();
+            return size() == 0;
         }
 
         [[nodiscard]] bool operator==(Value const& other) const noexcept
@@ -322,18 +359,27 @@ export namespace dcc::comptime
                     return get_string() == other.get_string();
                 case Kind::Aggregate:
                     return std::get<ValueAgg>(m_storage).elements == std::get<ValueAgg>(other.m_storage).elements;
-                case Kind::Slice:
-                    return std::get<ValueSlice>(m_storage).elements == std::get<ValueSlice>(other.m_storage).elements;
-                case Kind::Pointer: {
-                    auto const& a = std::get<ValuePtr>(m_storage);
-                    auto const& b = std::get<ValuePtr>(other.m_storage);
-                    return a.is_null == b.is_null && a.element_index == b.element_index;
+                case Kind::Slice: {
+                    auto const& a = std::get<ValueSlice>(m_storage);
+                    auto const& b = std::get<ValueSlice>(other.m_storage);
+                    return a.base == b.base && a.length == b.length && a.elements == b.elements;
                 }
+                case Kind::Pointer:
+                    return std::get<ValuePtr>(m_storage) == std::get<ValuePtr>(other.m_storage);
             }
             return false;
         }
 
         [[nodiscard]] bool operator!=(Value const& other) const noexcept { return !(*this == other); }
+
+        [[nodiscard]] static std::size_t hash_pointer(ValuePtr const& p) noexcept
+        {
+            std::size_t h = std::hash<bool>{}(p.is_null);
+            h ^= std::hash<std::size_t>{}(p.allocation);
+            for (auto index : p.path)
+                h ^= std::hash<std::uint32_t>{}(index) + 0x9e3779b9 + (h << 6) + (h >> 2);
+            return h;
+        }
 
         [[nodiscard]] std::size_t hash() const noexcept
         {
@@ -363,16 +409,17 @@ export namespace dcc::comptime
                     for (auto const& e : std::get<ValueAgg>(m_storage).elements)
                         h ^= e.hash() + 0x9e3779b9 + (h << 6) + (h >> 2);
                     break;
-                case Kind::Slice:
-                    for (auto const& e : std::get<ValueSlice>(m_storage).elements)
+                case Kind::Slice: {
+                    auto const& s = std::get<ValueSlice>(m_storage);
+                    h ^= std::hash<std::size_t>{}(s.length);
+                    h ^= hash_pointer(s.base);
+                    for (auto const& e : s.elements)
                         h ^= e.hash() + 0x9e3779b9 + (h << 6) + (h >> 2);
                     break;
-                case Kind::Pointer: {
-                    auto const& p = std::get<ValuePtr>(m_storage);
-                    h ^= std::hash<bool>{}(p.is_null);
-                    h ^= std::hash<std::size_t>{}(p.element_index);
-                    break;
                 }
+                case Kind::Pointer:
+                    h ^= hash_pointer(std::get<ValuePtr>(m_storage));
+                    break;
             }
             return h;
         }
@@ -745,6 +792,8 @@ export namespace dcc::comptime
             {
                 if (kind() == Kind::Null)
                     return make_null(dst);
+                if (kind() == Kind::Pointer && dst->kind == types::TypeKind::Pointer)
+                    return make_pointer_to(get_pointer(), dst);
                 return std::nullopt;
             }
 

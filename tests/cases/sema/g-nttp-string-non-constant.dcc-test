@@ -2,9 +2,10 @@
 module m;
 
 const char* get_msg() {
-    return "Hello";
+    return runtime_msg();
 }
 
+extern const char* runtime_msg();
 void print(const char* fmt)(i32 out) {}
 
 void test() {
@@ -12,6 +13,6 @@ void test() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:10: no matching call for `print`
+main.dc:11: no matching call for `print`
 
 === EXPECT-REGISTRY ===

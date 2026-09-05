@@ -1,0 +1,59 @@
+=== FILE: main.dc ===
+module contexts;
+
+u64 twice(u64 value) {
+    return value * 2;
+}
+
+using u64 Alias = twice(5);
+
+u64 value_arg(u64 N)() {
+    return N;
+}
+
+struct Pair {
+    u64 first;
+    u64 second;
+}
+
+Pair pair(u64 value) {
+    return { second = value + 1, first = value };
+}
+
+u64 member(u64 value) {
+    Pair p = pair(value);
+    return p.first + p.second;
+}
+
+bool even(u64 n) {
+    if n == 0 {
+        return true;
+    }
+    return odd(n - 1);
+}
+
+bool odd(u64 n) {
+    if n == 0 {
+        return false;
+    }
+    return even(n - 1);
+}
+
+const u64 A = value_arg!((twice(6)))();
+const u64 Direct = value_arg(twice(6));
+const u64 Receiver = (6 as u64).twice();
+const u64 B = member(7);
+const bool C = even(8);
+
+void accept(u8[6] value) {}
+
+void verify() {
+    const u64 local = twice(4);
+    static if Alias != 10 || A != 12 || Direct != 12 || Receiver != 12 || B != 15 || !C || local != 8 {
+        incorrect_ctfe_result();
+    }
+    u8[twice(3)] buffer;
+    accept(buffer);
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
