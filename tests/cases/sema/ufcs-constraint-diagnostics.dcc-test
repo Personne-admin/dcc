@@ -1,0 +1,25 @@
+=== FILE: main.dc ===
+module m;
+
+struct A {}
+
+using Addable(T) = compiles(T a, T b) { a + b; };
+
+using SelfReferential(T) = SelfReferential(T);
+
+void adds(T)(T x) if Addable(T) {}
+
+void loops(T)(T x) if SelfReferential(T) {}
+
+void check() {
+    A a;
+    a.adds();
+    a.loops();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:15: template constraint not satisfied for `adds`
+main.dc:9: = note: required by concept `Addable` with T = A
+main.dc:5: = note: requirement failed: a + b: binary operand type mismatch
+main.dc:16: template constraint not satisfied for `loops`
+main.dc:7: = note: concept `SelfReferential` is defined in terms of itself

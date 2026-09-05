@@ -3205,17 +3205,16 @@ export namespace dcc::sema
                 std::ignore = check_template_constraint(mod, scope, f, bindings, true, find_defining_module(f));
         }
 
-        void diagnose_implicit_constraint_failure(ModuleInfo& mod, Scope& scope, std::span<Symbol const> syms, std::span<ast::Expr* const> arg_exprs,
-                                                  std::uint32_t next_off, int loop_depth, ConstEnv const* const_env, types::TypePtr expected_type)
+        [[nodiscard]] bool diagnose_constraint_failure(ModuleInfo& mod, Scope& scope, Symbol const& sym, std::span<ast::Expr* const> arg_exprs,
+                                                       std::uint32_t next_off, int loop_depth, ConstEnv const* const_env, types::TypePtr expected_type)
         {
-            for (auto const& sym : syms)
             {
                 if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
-                    continue;
+                    return false;
 
                 auto const& f = *static_cast<ast::FuncDecl const*>(sym.decl);
                 if (!f.constraint)
-                    continue;
+                    return false;
 
                 std::vector<types::TypePtr> params;
                 params.reserve(f.params.size());
@@ -3223,7 +3222,7 @@ export namespace dcc::sema
                     params.push_back(p.type ? get_canonical(p.type->sema) : m_types.m_errort());
 
                 if (params.size() != arg_exprs.size())
-                    continue;
+                    return false;
 
                 auto* probe_scope = make_probe_scope(scope);
                 std::uint32_t probe_off = next_off;
@@ -3254,16 +3253,24 @@ export namespace dcc::sema
                 }
 
                 if (!ok)
-                    continue;
+                    return false;
 
                 if (!deduce_call_arguments(b, params, actuals))
-                    continue;
+                    return false;
 
                 std::ignore = check_template_constraint(mod, scope, f, b, true);
                 rollback_non_spec_lambdas(lambda_mark);
 
-                break;
+                return true;
             }
+        }
+
+        void diagnose_implicit_constraint_failure(ModuleInfo& mod, Scope& scope, std::span<Symbol const> syms, std::span<ast::Expr* const> arg_exprs,
+                                                  std::uint32_t next_off, int loop_depth, ConstEnv const* const_env, types::TypePtr expected_type)
+        {
+            for (auto const& sym : syms)
+                if (diagnose_constraint_failure(mod, scope, sym, arg_exprs, next_off, loop_depth, const_env, expected_type))
+                    break;
         }
 
         [[nodiscard]] std::optional<bool> evaluate_concept_expr(ModuleInfo& mod, Scope& scope, ast::FuncDecl const* f,
@@ -3548,7 +3555,12 @@ export namespace dcc::sema
                 return std::nullopt;
 
             if (!m_concept_evaluation_stack.insert(&concept_decl).second)
+            {
+                if (mode == RequirementMode::Diagnostic && !concept_decl.alias_path.is_empty())
+                    m_concept_notes.push_back(std::format("concept `{}` is defined in terms of itself\n  --> {}", concept_decl.alias_path.segments.back().name,
+                                                          format_source_location(concept_decl.range)));
                 return std::nullopt;
+            }
 
             struct StackGuard
             {
@@ -12815,7 +12827,14 @@ export namespace dcc::sema
 
             if (saw_constraint_failure && !saw_non_constraint_failure)
             {
-                error(f.range, "template constraint not satisfied for `{}`", f.field);
+                std::pmr::vector<ast::Expr*> receiver_args(m_alloc);
+                receiver_args.push_back(f.object);
+                receiver_args.insert(receiver_args.end(), args.begin(), args.end());
+                for (auto const* sym : all_syms)
+                    if (sym && diagnose_constraint_failure(mod, scope, *sym, receiver_args, next_off, loop_depth, const_env, expected_type))
+                        break;
+
+                emit_constraint_error(f.range, std::format("template constraint not satisfied for `{}`", f.field));
                 return {m_types.m_errort()};
             }
 
