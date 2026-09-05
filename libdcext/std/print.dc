@@ -1,8 +1,7 @@
 module std::print;
 
-using WritableInto(T) = compiles(T x) {
-    x.print("H");
-    x.print('H');
+public using WritableInto(T) = compiles(T x, []const u8 bytes) {
+    x.write(bytes);
 };
 
 public enum FormatArg {
@@ -12,104 +11,74 @@ public enum FormatArg {
     @implicit_construction Usize(usize),
 }
 
-void print(T)(T out, u8 c) if WritableInto(T) {
-    out.write(c as u8);
+void put(T)(T out, u8 c) if WritableInto(T) {
+    u8[1] one;
+    one[0] = c;
+    out.write(one[0..1]);
 }
 
-void print(T)(T out, []const u8 s) if WritableInto(T) {
-    if s.len > 0 {
-        out.write(s);
+public void newline(T)(T out) if WritableInto(T) {
+    out.put(10 as u8);
+}
+
+usize decimal(u64 value, []u8 buf) {
+    if value == 0 {
+        buf[buf.len - 1] = '0' as u8;
+        return 1;
     }
+
+    usize n = 0;
+    u64 v = value;
+    while v > 0 {
+        n += 1;
+        buf[buf.len - n] = ('0' as u8) + (v % 10) as u8;
+        v /= 10;
+    }
+
+    return n;
 }
 
-public void newline(T)(T out) {
-    out.print(10 as u8);
+usize hexadecimal(u64 value, []u8 buf) {
+    if value == 0 {
+        buf[buf.len - 1] = '0' as u8;
+        return 1;
+    }
+
+    usize n = 0;
+    u64 v = value;
+    while v > 0 {
+        u64 digit = v % 16;
+        n += 1;
+        buf[buf.len - n] = if digit < 10 { ('0' as u8) + digit as u8 } else { ('a' as u8) + (digit - 10) as u8 };
+        v /= 16;
+    }
+
+    return n;
 }
 
-public void print(T)(T out, u64 n_val) if WritableInto(T) {
+public void print(T)(T out, u64 value) if WritableInto(T) {
     u8[20] buf;
-
-    u64 n = n_val;
-    if n == 0 {
-        buf[0] = '0' as u8;
-        out.write(&buf[0] as const void*, 1);
-        return;
-    }
-
-    u64 pos = 0;
-    while n > 0 {
-        u64 d = n % 10;
-        n = n / 10;
-        buf[pos] = ('0' as u8) + d as u8;
-        pos = pos + 1;
-    }
-
-    while pos > 0 {
-        pos = pos - 1;
-        out.write(&buf[pos] as const void*, 1);
-    }
+    usize n = decimal(value, buf[0..20]);
+    out.write(buf[20 - n..20]);
 }
 
-public void print(T)(T out, i64 n_val) {
-    u8[21] buf;
-    u64 pos = 0;
-    i64 n = n_val;
-
-    bool negative = n < 0;
-    if negative {
-        n = -n;
-    }
-
-    if n == 0 {
-        buf[0] = '0' as u8;
-        out.write(&buf[0] as const void*, 1);
-        return;
-    }
-
-    while n > 0 {
-        u64 d = (n % 10) as u64;
-        n = n / 10;
-        buf[pos] = ('0' as u8) + d as u8;
-        pos = pos + 1;
-    }
-
-    if negative {
-        buf[pos] = '-' as u8;
-        pos = pos + 1;
-    }
-
-    while pos > 0 {
-        pos = pos - 1;
-        out.write(&buf[pos] as const void*, 1);
-    }
-}
-
-void print_hex(T)(T out, u64 n_val) if WritableInto(T) {
+public void print_hex(T)(T out, u64 value) if WritableInto(T) {
     u8[16] buf;
-    u64 n = n_val;
+    usize n = hexadecimal(value, buf[0..16]);
+    out.write(buf[16 - n..16]);
+}
 
-    if n == 0 {
-        buf[0] = '0' as u8;
-        out.write(&buf[0] as const void*, 1);
-        return;
+public void print(T)(T out, i64 value) if WritableInto(T) {
+    u64 magnitude = if value < 0 { 0 - value as u64 } else { value as u64 };
+
+    u8[21] buf;
+    usize n = decimal(magnitude, buf[0..21]);
+    if value < 0 {
+        n += 1;
+        buf[21 - n] = '-' as u8;
     }
 
-    u64 pos = 0;
-    while n > 0 {
-        u64 d = n % 16;
-        n = n / 16;
-        if d < 10 {
-            buf[pos] = ('0' as u8) + d as u8;
-        } else {
-            buf[pos] = ('a' as u8) + (d - 10) as u8;
-        }
-        pos = pos + 1;
-    }
-
-    while pos > 0 {
-        pos = pos - 1;
-        out.write(&buf[pos] as const void*, 1);
-    }
+    out.write(buf[21 - n..21]);
 }
 
 void format_one(T)(T out, FormatArg arg, u8 spec_kind) if WritableInto(T) {
@@ -117,44 +86,35 @@ void format_one(T)(T out, FormatArg arg, u8 spec_kind) if WritableInto(T) {
         FormatArg::Str(s) => {
             out.write(s);
         },
-        FormatArg::Int(val) => {
-            i64 n = val;
-            if spec_kind == ('u' as u8) {
-                if n < 0 {
-                    out.write('-' as u8);
-                    n = -n;
+        FormatArg::Int(value) => {
+            if spec_kind == ('x' as u8) {
+                if value < 0 {
+                    out.put('-' as u8);
                 }
 
-                out.print(n as u64);
-            } else if spec_kind == ('x' as u8) {
-                if n < 0 {
-                    out.write('-' as u8);
-                    n = -n;
-                }
-
-                out.print_hex(n as u64);
+                out.print_hex(if value < 0 { 0 - value as u64 } else { value as u64 });
+            } else if spec_kind == ('u' as u8) {
+                out.print(value as u64);
             } else {
-                out.print(n);
+                out.print(value);
             }
         },
-        FormatArg::Uint(val) => {
-            u64 n = val;
-            if spec_kind == ('d' as u8) {
-                out.print(n as i64);
-            } else if spec_kind == ('x' as u8) {
-                out.print_hex(n);
+        FormatArg::Uint(value) => {
+            if spec_kind == ('x' as u8) {
+                out.print_hex(value);
+            } else if spec_kind == ('d' as u8) {
+                out.print(value as i64);
             } else {
-                out.print(n);
+                out.print(value);
             }
         },
-        FormatArg::Usize(val) => {
-            u64 n = val as u64;
-            if spec_kind == ('d' as u8) {
-                out.print(n as i64);
-            } else if spec_kind == ('x' as u8) {
-                out.print_hex(n);
+        FormatArg::Usize(value) => {
+            if spec_kind == ('x' as u8) {
+                out.print_hex(value as u64);
+            } else if spec_kind == ('d' as u8) {
+                out.print(value as i64);
             } else {
-                out.print(n);
+                out.print(value as u64);
             }
         },
     }
@@ -185,7 +145,7 @@ void emit_arg(T)(T out, []const FormatArg args, usize arg_idx, u8 kind) if Writa
     if arg_idx < args.len {
         out.format_one(args[arg_idx], kind);
     } else {
-        out.print("<missing>");
+        out.write("<missing>");
     }
 }
 
@@ -199,7 +159,7 @@ void format_impl(T)(T out, []const u8 fmt, []const FormatArg args) if WritableIn
         if c == ('{' as u8) {
             if i + 1 < fmt.len {
                 if fmt[i + 1] == ('{' as u8) {
-                    out.print(c);
+                    out.put(c);
                     i = i + 2;
                     continue;
                 }
@@ -216,13 +176,8 @@ void format_impl(T)(T out, []const u8 fmt, []const FormatArg args) if WritableIn
             }
 
             if i >= fmt.len {
-                out.print('{' as u8);
-                usize j = spec_start;
-                while j < fmt.len {
-                    out.print(fmt[j]);
-                    j = j + 1;
-                }
-
+                out.put('{' as u8);
+                out.write(fmt[spec_start..fmt.len]);
                 return;
             }
 
@@ -237,16 +192,16 @@ void format_impl(T)(T out, []const u8 fmt, []const FormatArg args) if WritableIn
         } else if c == ('}' as u8) {
             if i + 1 < fmt.len {
                 if fmt[i + 1] == ('}' as u8) {
-                    out.print(c);
+                    out.put(c);
                     i = i + 2;
                     continue;
                 }
             }
 
-            out.print(c);
+            out.put(c);
             i = i + 1;
         } else {
-            out.print(c);
+            out.put(c);
             i = i + 1;
         }
     }

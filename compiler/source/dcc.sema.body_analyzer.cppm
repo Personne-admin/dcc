@@ -9088,26 +9088,36 @@ export namespace dcc::sema
             return s;
         }
 
-        std::span<Symbol const> lookup_candidates(ModuleInfo const& mod, Scope const& local_scope, std::string_view name)
+        std::pmr::vector<Symbol> lookup_candidates(ModuleInfo const& mod, Scope const& local_scope, std::string_view name)
         {
-            if (auto vs = local_scope.lookup_values(name); !vs.empty())
-                return vs;
-            if (!mod.own_scope)
-                return {};
-            auto result = mod.own_scope->lookup_values(name);
-            if (!result.empty())
-                return result;
+            std::pmr::vector<Symbol> out{m_alloc};
+            auto append = [&](std::span<Symbol const> syms) {
+                for (auto const& sym : syms)
+                    if (std::ranges::none_of(out, [&](Symbol const& seen) { return seen.decl == sym.decl; }))
+                        out.push_back(sym);
+            };
 
-            if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
-                return m_specialization_defining_module->own_scope->lookup_values(name);
+            append(local_scope.lookup_values(name));
 
-            return {};
+            auto const* defining = m_specialization_defining_module != &mod ? m_specialization_defining_module : nullptr;
+            if (defining && defining->own_scope)
+                append(defining->own_scope->lookup_values(name));
+            if (mod.own_scope)
+                append(mod.own_scope->lookup_values(name));
+            return out;
         }
 
         Symbol const* lookup_name(ModuleInfo const& mod, Scope const& local_scope, std::string_view name)
         {
-            auto vs = lookup_candidates(mod, local_scope, name);
-            return vs.empty() ? nullptr : &vs.front();
+            if (auto vs = local_scope.lookup_values(name); !vs.empty())
+                return &vs.front();
+            if (mod.own_scope)
+                if (auto vs = mod.own_scope->lookup_values(name); !vs.empty())
+                    return &vs.front();
+            if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
+                if (auto vs = m_specialization_defining_module->own_scope->lookup_values(name); !vs.empty())
+                    return &vs.front();
+            return nullptr;
         }
 
         ast::Decl const* nominal_decl(types::TypePtr ty)
@@ -9744,7 +9754,9 @@ export namespace dcc::sema
 
                 if (match_count == 1 && match)
                 {
-                    syms = std::span<Symbol const>(match, 1);
+                    auto chosen = *match;
+                    syms.clear();
+                    syms.push_back(chosen);
                 }
                 else if (match_count == 0)
                 {
