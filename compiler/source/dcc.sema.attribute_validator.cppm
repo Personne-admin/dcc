@@ -100,6 +100,10 @@ namespace
                     d.sema.alignment = static_cast<std::uint32_t>(val);
             }
         }
+
+        if (d.sema.is_intrinsic)
+            if (auto const* f = dcc::ast::node_cast<dcc::ast::FuncDecl>(&d); f && f->name == "source_location")
+                d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SourceLocation;
     }
 
     void validate_combinations(dcc::ast::Decl const& d, std::span<dcc::ast::Attribute const> attrs, dcc::diag::DiagnosticEngine& diag)

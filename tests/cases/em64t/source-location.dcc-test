@@ -1,0 +1,161 @@
+=== FILE: helper.dc ===
+module helper;
+
+public import core::source_location;
+using core::source_location::*;
+
+public struct Box {
+    i32 value;
+}
+
+public SourceLocation helper_capture(SourceLocation loc = source_location()) {
+    return loc;
+}
+
+public SourceLocation helper_template(T)(T value, SourceLocation loc = source_location()) {
+    return loc;
+}
+
+public SourceLocation mark(Box box, SourceLocation loc = source_location()) {
+    return loc;
+}
+
+public SourceLocation helper_forward(SourceLocation loc) {
+    return loc;
+}
+
+=== FILE: main.dc ===
+module source_location_test;
+
+import core::source_location;
+import helper;
+using core::source_location::*;
+
+SourceLocation capture(SourceLocation loc = source_location()) {
+    return loc;
+}
+
+SourceLocation capture_template(T)(T value, SourceLocation loc = source_location()) {
+    return loc;
+}
+
+SourceLocation nested(SourceLocation loc = source_location()) {
+    return loc;
+}
+
+SourceLocation wrapper(SourceLocation loc = source_location()) {
+    return nested(loc);
+}
+
+SourceLocation forward(SourceLocation loc) {
+    return capture(loc);
+}
+
+SourceLocation direct_body() {
+    return source_location();
+}
+
+@runtime
+void runtime_log(SourceLocation loc = source_location()) {}
+
+@runtime
+SourceLocation runtime_capture(SourceLocation loc = source_location()) {
+    return loc;
+}
+
+const SourceLocation DIRECT_GLOBAL = source_location();
+const SourceLocation DIRECT_BODY = direct_body();
+const SourceLocation DEFAULT_A = capture();
+const SourceLocation DEFAULT_B = capture();
+const SourceLocation TEMPLATE_LOCAL = capture_template(7);
+const SourceLocation TEMPLATE_HELPER = helper::helper_template(8);
+const helper::Box BOX = helper::Box{ value = 1 };
+const SourceLocation UFCS_DEFAULT = BOX.mark();
+const SourceLocation NESTED_DEFAULT = wrapper();
+const SourceLocation FORWARDED = forward(DEFAULT_A);
+const SourceLocation HELPER_DEFAULT = helper::helper_capture();
+
+bool ends_with_main_dc([]const u8 file) {
+    if file.len < 7 {
+        return false;
+    }
+    usize start = file.len - 7;
+    return file[start] == (109 as u8) &&
+           file[start + 1] == (97 as u8) &&
+           file[start + 2] == (105 as u8) &&
+           file[start + 3] == (110 as u8) &&
+           file[start + 4] == (46 as u8) &&
+           file[start + 5] == (100 as u8) &&
+           file[start + 6] == (99 as u8);
+}
+
+bool loc(SourceLocation actual, u32 line, u32 column) {
+    return actual.line == line && actual.column == column && ends_with_main_dc(actual.file);
+}
+
+@nomangle
+public i32 dcc_main() {
+    SourceLocation runtime_body_default = capture();
+    SourceLocation runtime_decl_default = runtime_capture();
+    SourceLocation runtime_expr_default = @runtime runtime_capture();
+    runtime_log();
+    @runtime runtime_log();
+
+    if !loc(DIRECT_GLOBAL, 39, 38) {
+        return 1;
+    }
+    if !loc(DIRECT_BODY, 28, 12) {
+        return 2;
+    }
+    if !loc(DEFAULT_A, 41, 34) {
+        return 3;
+    }
+    if !loc(DEFAULT_B, 42, 34) {
+        return 4;
+    }
+    if DEFAULT_A.line == DEFAULT_B.line {
+        return 5;
+    }
+    if !loc(TEMPLATE_LOCAL, 43, 39) {
+        return 6;
+    }
+    if !loc(TEMPLATE_HELPER, 44, 40) {
+        return 7;
+    }
+    if !loc(UFCS_DEFAULT, 46, 37) {
+        return 8;
+    }
+    if !loc(NESTED_DEFAULT, 47, 39) {
+        return 9;
+    }
+    if !loc(FORWARDED, 41, 34) {
+        return 10;
+    }
+    if !loc(HELPER_DEFAULT, 49, 39) {
+        return 11;
+    }
+    if !loc(runtime_body_default, 71, 43) {
+        return 12;
+    }
+    if !loc(runtime_decl_default, 72, 43) {
+        return 13;
+    }
+    if !loc(runtime_expr_default, 73, 43) {
+        return 14;
+    }
+    return 0;
+}
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
+
+=== ENTRY: main.dc ===

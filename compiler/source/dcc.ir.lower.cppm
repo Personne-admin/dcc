@@ -2662,6 +2662,9 @@ export namespace dcc::ir::lower
                 }
             }
 
+            if (direct_target && direct_target->sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation && call->sema.const_value)
+                return materialize_comptime(*call->sema.const_value, get_sema_resolved_type(call));
+
             if (direct_target && direct_target->sema.is_intrinsic)
                 return lower_intrinsic_call(direct_target, call);
 

@@ -95,6 +95,7 @@ export namespace dcc::vfs
     constexpr std::string_view kCoreSourceText = R"dc(module core;
 
 public import core::atomic;
+public import core::source_location;
 
 )dc";
 
@@ -165,6 +166,19 @@ public void atomic_fence(MemoryOrder order);
 
 )dc";
 
+    constexpr std::string_view kCoreSourceLocationSourceText = R"dc(module core::source_location;
+
+public struct SourceLocation {
+    []const u8 file;
+    u32 line;
+    u32 column;
+}
+
+@intrinsic
+public SourceLocation source_location();
+
+)dc";
+
     constexpr VirtualModuleEntry kCoreModules[] = {
         {
             .module_path = "core",
@@ -175,6 +189,11 @@ public void atomic_fence(MemoryOrder order);
             .module_path = "core::atomic",
             .uri = "dcc-core:/core/atomic.dc",
             .source_text = kCoreAtomicSourceText,
+        },
+        {
+            .module_path = "core::source_location",
+            .uri = "dcc-core:/core/source_location.dc",
+            .source_text = kCoreSourceLocationSourceText,
         },
     };
 

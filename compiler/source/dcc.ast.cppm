@@ -228,6 +228,7 @@ export namespace dcc::ast
         FuncDecl const* resolved_specialization{};
         Decl const* ufcs_callee{};
         std::size_t call_argument_offset{};
+        std::optional<std::size_t> default_argument_start{};
         bool is_type_instantiation{};
         enum class ConstructionKind : std::uint8_t
         {
@@ -266,6 +267,12 @@ export namespace dcc::ast
         bool layout_is_default : 1 {true};
     };
 
+    enum class IntrinsicKind : std::uint8_t
+    {
+        None,
+        SourceLocation,
+    };
+
     struct DeclSema
     {
         std::string_view mangled_name;
@@ -293,6 +300,7 @@ export namespace dcc::ast
         bool spilled : 1 {};
         bool is_immutable : 1 {};
 
+        IntrinsicKind intrinsic_kind{IntrinsicKind::None};
         std::string_view section;
         std::string_view calling_conv;
         std::uint32_t alignment{};

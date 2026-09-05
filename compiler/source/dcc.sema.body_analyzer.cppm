@@ -806,6 +806,7 @@ export namespace dcc::sema
             CommittedSpecialization spec_commit{};
             ast::Decl const* ufcs_callee{};
             std::size_t call_argument_offset{};
+            std::optional<std::size_t> default_argument_start{};
             ConstructionKind construction_kind{ConstructionKind::None};
             ast::EnumVariant const* constructed_variant{};
             bool is_lvalue{};
@@ -996,6 +997,7 @@ export namespace dcc::sema
         std::vector<std::string> m_concept_notes;
         std::vector<diag::Diagnostic>* m_captured_diagnostics{};
         ModuleInfo* m_specialization_defining_module{};
+        std::optional<sm::SourceRange> m_default_argument_call_site;
 
         struct PendingLambda
         {
@@ -1018,6 +1020,19 @@ export namespace dcc::sema
         std::size_t m_spec_analysis_depth{};
 
         [[nodiscard]] LambdaMark pending_lambda_mark() const noexcept { return LambdaMark{m_pending_lambdas.size()}; }
+
+        struct DefaultArgumentCallSiteGuard
+        {
+            BodyAnalyzer& self;
+            std::optional<sm::SourceRange> saved;
+
+            DefaultArgumentCallSiteGuard(BodyAnalyzer& s, std::optional<sm::SourceRange> range) : self{s}, saved{s.m_default_argument_call_site}
+            {
+                self.m_default_argument_call_site = range;
+            }
+
+            ~DefaultArgumentCallSiteGuard() { self.m_default_argument_call_site = saved; }
+        };
 
         void restore_lambda_entries(std::size_t begin, std::size_t end) noexcept
         {
@@ -5424,7 +5439,7 @@ export namespace dcc::sema
             std::size_t actual_count = arg_exprs.size() + 1;
             if (!has_func_pack)
             {
-                if (params.size() + num_value_tparams != actual_count)
+                if (actual_count < min_required + num_value_tparams || actual_count > params.size() + num_value_tparams)
                 {
                     if (had_non_constraint_failure)
                         *had_non_constraint_failure = true;
@@ -5578,8 +5593,9 @@ export namespace dcc::sema
             std::vector<comptime::Value> pack_arg_values;
 
             std::size_t non_pack_after_receiver = non_pack_func_params > 0 ? non_pack_func_params - 1 : 0;
+            std::size_t provided_after_receiver = std::min(non_pack_after_receiver, func_arg_count);
 
-            for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
+            for (std::size_t i = 0; i < provided_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
                 if (is_contextual_construction(*arg_exprs[func_arg_start + i]))
@@ -5605,7 +5621,7 @@ export namespace dcc::sema
                     std::ignore = b.deduce(params[i + 1], r.type);
             }
 
-            for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
+            for (std::size_t i = 0; i < provided_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
                 auto r = analyze_expr(mod, nullptr, *probe_scope, *arg_exprs[func_arg_start + i], loop_depth, probe_off, param_ty, const_env);
@@ -5672,9 +5688,10 @@ export namespace dcc::sema
                 actuals.push_back(a.type);
 
             std::vector<types::TypePtr> deduce_params;
-            deduce_params.reserve(non_pack_func_params + (has_func_pack ? 1 : 0));
-            for (std::size_t i = 0; i < non_pack_func_params; ++i)
-                deduce_params.push_back(params[i]);
+            deduce_params.reserve(1 + provided_after_receiver + (has_func_pack ? 1 : 0));
+            deduce_params.push_back(params[0]);
+            for (std::size_t i = 0; i < provided_after_receiver; ++i)
+                deduce_params.push_back(params[i + 1]);
 
             if (has_func_pack)
             {
@@ -5813,10 +5830,10 @@ export namespace dcc::sema
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
                 out.ranks.push_back(CallRank::ConcreteExact);
 
-            for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
+            for (std::size_t i = 0; i < provided_after_receiver; ++i)
                 out.ranks.push_back(rank_for_exact_arg(*arg_exprs[func_arg_start + i], args[i], params[i + 1]));
 
-            for (std::size_t i = non_pack_after_receiver; i < args.size(); ++i)
+            for (std::size_t i = provided_after_receiver; i < args.size(); ++i)
                 out.ranks.push_back(CallRank::TemplateExact);
 
             if (had_suppressed_errors)
@@ -5848,7 +5865,8 @@ export namespace dcc::sema
         [[nodiscard]] std::optional<detail::ExprResult>
         invoke_ufcs_candidate(ModuleInfo& mod, Scope& scope, Symbol const& sym, ast::Expr& object, std::span<ast::Expr* const> arg_exprs, sm::SourceRange range,
                               int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, UfcsReceiverMatch expected_match,
-                              types::TypePtr expected_type = nullptr, detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false)
+                              types::TypePtr expected_type = nullptr, detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false,
+                              std::optional<std::size_t> default_arg_start = std::nullopt)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -5872,7 +5890,7 @@ export namespace dcc::sema
             std::size_t actual_count = arg_exprs.size() + 1;
             if (!has_func_pack)
             {
-                if (params.size() + num_value_tparams != actual_count)
+                if (actual_count < min_required + num_value_tparams || actual_count > params.size() + num_value_tparams)
                 {
                     auto primary_range = actual_count > params.size() + num_value_tparams
                                              ? narrow_extra_arg_range(range, arg_exprs, params.size() + num_value_tparams, true)
@@ -5945,6 +5963,9 @@ export namespace dcc::sema
                     return std::nullopt;
 
                 auto vt_type = get_canonical(vtparam->value_type->sema);
+                std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                if (default_arg_start && vi >= *default_arg_start)
+                    default_guard.emplace(*this, range);
                 auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[vi], loop_depth, next_off, vt_type, const_env);
                 if (has_error(r.type))
                     return std::nullopt;
@@ -5991,6 +6012,9 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < non_pack_after_receiver; ++i)
             {
                 auto param_ty = b.substitute(params[i + 1]);
+                std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                    default_guard.emplace(*this, range);
                 auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env);
                 if (has_error(r.type))
                     return std::nullopt;
@@ -6009,6 +6033,9 @@ export namespace dcc::sema
                     else if (auto const* tp = types::type_cast<types::TemplateParamType>(pack_param_ty))
                         expected_ty = tp;
 
+                    std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                    if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                        default_guard.emplace(*this, range);
                     auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env);
                     if (has_error(r.type))
                         return std::nullopt;
@@ -6217,13 +6244,14 @@ export namespace dcc::sema
         [[nodiscard]] std::optional<detail::ExprResult> invoke_ranked_candidate(ModuleInfo& mod, Scope& scope, Symbol const& sym,
                                                                                 std::span<ast::Expr* const> arg_exprs, sm::SourceRange range, int loop_depth,
                                                                                 std::uint32_t& next_off, ConstEnv const* const_env,
-                                                                                types::TypePtr expected_type = nullptr)
+                                                                                types::TypePtr expected_type = nullptr,
+                                                                                std::optional<std::size_t> default_arg_start = std::nullopt)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
 
             auto& f = *static_cast<ast::FuncDecl const*>(sym.decl);
-            auto r = invoke_function(mod, scope, f, arg_exprs, range, loop_depth, next_off, const_env, false, expected_type);
+            auto r = invoke_function(mod, scope, f, arg_exprs, range, loop_depth, next_off, const_env, false, expected_type, default_arg_start);
             if (!r.type || r.type->kind == types::TypeKind::Error)
                 return std::nullopt;
 
@@ -6231,25 +6259,46 @@ export namespace dcc::sema
             return r;
         }
 
-        void materialize_default_arguments(ast::FuncDecl const& f, std::pmr::vector<ast::Expr*>& args)
+        std::optional<std::size_t> materialize_default_arguments(ast::FuncDecl const& f, std::pmr::vector<ast::Expr*>& args)
         {
             std::size_t index = args.size();
+            std::optional<std::size_t> first_default;
             while (index < f.params.size() && !f.params[index].is_pack)
             {
                 if (!f.params[index].default_value)
                     break;
+                if (!first_default)
+                    first_default = args.size();
                 args.push_back(clone_default_argument(m_ast_ctx, f.params[index].default_value, f.params, args));
                 ++index;
             }
+            return first_default;
+        }
+
+        std::optional<std::size_t> materialize_ufcs_default_arguments(ast::FuncDecl const& f, std::pmr::vector<ast::Expr*>& args)
+        {
+            std::size_t index = args.size() + 1;
+            std::optional<std::size_t> first_default;
+            while (index < f.params.size() && !f.params[index].is_pack)
+            {
+                if (!f.params[index].default_value)
+                    break;
+                if (!first_default)
+                    first_default = args.size();
+                args.push_back(clone_default_argument(m_ast_ctx, f.params[index].default_value, f.params, args));
+                ++index;
+            }
+            return first_default;
         }
 
         [[nodiscard]] std::optional<detail::ExprResult> invoke_explicit_ranked_candidate(ModuleInfo& mod, Scope& scope, Symbol const* sym,
                                                                                          types::FuncPtrType const* fp,
                                                                                          detail::CommittedSpecialization const& spec,
                                                                                          std::span<ast::Expr* const> arg_exprs, sm::SourceRange range,
-                                                                                         int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env)
+                                                                                         int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env,
+                                                                                         std::optional<std::size_t> default_arg_start = std::nullopt)
         {
-            auto r = invoke_funcptr(mod, scope, fp, arg_exprs, range, loop_depth, next_off, const_env);
+            auto r = invoke_funcptr(mod, scope, fp, arg_exprs, range, loop_depth, next_off, const_env, false, default_arg_start);
             if (!r.type || r.type->kind == types::TypeKind::Error)
                 return std::nullopt;
 
@@ -7621,6 +7670,7 @@ export namespace dcc::sema
             ctfe::Context context;
             context.call_site = expr.range;
             context.types = &m_types;
+            context.source_manager = &m_diag.source_manager();
             context.prepare_function = [&](ast::FuncDecl const& fn) { return prepare_ctfe_function(fn, speculative); };
 
             auto result = ctfe::Evaluator(std::move(context), mode).evaluate(expr);
@@ -9257,6 +9307,32 @@ export namespace dcc::sema
             return make_value(comptime::Value::make_string(std::move(raw), ty));
         }
 
+        comptime::Value const* make_source_location_const(types::TypePtr ty, sm::SourceRange intrinsic_range)
+        {
+            auto range = m_default_argument_call_site.value_or(intrinsic_range);
+            if (!ty || !range.begin.valid())
+                return nullptr;
+
+            auto fields = record_fields(ty, nullptr);
+            if (fields.size() != 3)
+                return nullptr;
+
+            auto const* file = m_diag.source_manager().get(range.begin.fileId);
+            if (!file)
+                return nullptr;
+
+            auto lc = file->line_col(range.begin.offset);
+            if (!lc)
+                return nullptr;
+
+            std::vector<comptime::Value> elements;
+            elements.reserve(3);
+            elements.push_back(comptime::Value::make_string(file->path().string(), fields[0].type));
+            elements.push_back(comptime::Value::make_int(lc->line, fields[1].type));
+            elements.push_back(comptime::Value::make_int(lc->column, fields[2].type));
+            return make_value(comptime::Value::make_aggregate(std::move(elements), ty));
+        }
+
         comptime::Value const* fold_tagged_enum_construction(ast::EnumVariant const* variant, types::TypePtr enum_type,
                                                              std::span<comptime::Value const* const> arg_consts)
         {
@@ -9708,6 +9784,7 @@ export namespace dcc::sema
             record_resolved_specialization(expr.sema, out.spec_commit ? &out.spec_commit : nullptr);
             expr.sema.ufcs_callee = out.ufcs_callee;
             expr.sema.call_argument_offset = out.call_argument_offset;
+            expr.sema.default_argument_start = out.default_argument_start;
             expr.sema.construction_kind = out.construction_kind;
             expr.sema.constructed_variant = out.constructed_variant;
             expr.sema.is_lvalue = out.is_lvalue;
@@ -12292,7 +12369,7 @@ export namespace dcc::sema
                     }
                 }
                 else
-                    return resolve_ufcs(mod, fn, scope, *fa, c.args, loop_depth, next_off, const_env, expected_type);
+                    return resolve_ufcs(mod, fn, scope, *fa, c.args, loop_depth, next_off, const_env, expected_type, nullptr, false, &c.args);
             }
 
             if (auto* t = template_callee)
@@ -12417,13 +12494,15 @@ export namespace dcc::sema
                     auto committed_spec = commit_candidate(mod, *winning_cand, t->template_args);
                     record_resolved_specialization(t->sema, &committed_spec);
 
+                    std::optional<std::size_t> default_arg_start;
                     if (chosen.sym->decl && chosen.sym->decl->kind == ast::DeclKind::Func)
-                        materialize_default_arguments(*static_cast<ast::FuncDecl const*>(chosen.sym->decl), c.args);
+                        default_arg_start = materialize_default_arguments(*static_cast<ast::FuncDecl const*>(chosen.sym->decl), c.args);
 
                     auto out = invoke_explicit_ranked_candidate(mod, scope, chosen.sym, chosen.explicit_fp, committed_spec, c.args, c.range, loop_depth,
-                                                                next_off, const_env);
+                                                                next_off, const_env, default_arg_start);
                     if (!out)
                         return detail::ExprResult{m_types.m_errort()};
+                    out->default_argument_start = default_arg_start;
                     return *out;
                 };
 
@@ -12520,8 +12599,12 @@ export namespace dcc::sema
                 }
 
                 rollback_non_spec_lambdas(probe_lambda_mark);
-                materialize_default_arguments(*static_cast<ast::FuncDecl const*>(ranked[*winner].sym->decl), c.args);
-                return invoke_ranked_candidate(mod, scope, *ranked[*winner].sym, c.args, c.range, loop_depth, next_off, const_env, expected_type);
+                auto default_arg_start = materialize_default_arguments(*static_cast<ast::FuncDecl const*>(ranked[*winner].sym->decl), c.args);
+                auto out = invoke_ranked_candidate(mod, scope, *ranked[*winner].sym, c.args, c.range, loop_depth, next_off, const_env, expected_type,
+                                                   default_arg_start);
+                if (out)
+                    out->default_argument_start = default_arg_start;
+                return out;
             };
 
             if (auto* id = ast::node_cast<ast::IdentExpr>(c.callee))
@@ -12595,8 +12678,13 @@ export namespace dcc::sema
                 return invoke_funcptr(mod, scope, types::type_cast<types::FuncPtrType>(callee.type), c.args, c.range, loop_depth, next_off, const_env);
 
             if (callee.resolved_decl && callee.resolved_decl->kind == ast::DeclKind::Func)
-                return invoke_function(mod, scope, *static_cast<ast::FuncDecl const*>(callee.resolved_decl), c.args, c.range, loop_depth, next_off, const_env,
-                                       false, expected_type);
+            {
+                auto default_arg_start = materialize_default_arguments(*static_cast<ast::FuncDecl const*>(callee.resolved_decl), c.args);
+                auto out = invoke_function(mod, scope, *static_cast<ast::FuncDecl const*>(callee.resolved_decl), c.args, c.range, loop_depth, next_off, const_env,
+                                           false, expected_type, default_arg_start);
+                out.default_argument_start = default_arg_start;
+                return out;
+            }
 
             if (auto* fp = types::type_cast<types::FuncPtrType>(callee.type))
                 return invoke_funcptr(mod, scope, fp, c.args, c.range, loop_depth, next_off, const_env);
@@ -12815,7 +12903,8 @@ export namespace dcc::sema
 
         detail::ExprResult resolve_ufcs(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FieldAccessExpr& f, std::span<ast::Expr* const> args,
                                         int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, types::TypePtr expected_type = nullptr,
-                                        detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false)
+                                        detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false,
+                                        std::pmr::vector<ast::Expr*>* materialized_args = nullptr)
         {
             bool saw_probe_error = false;
             bool saw_constraint_failure = false;
@@ -12943,12 +13032,22 @@ export namespace dcc::sema
                     }
 
                     rollback_non_spec_lambdas(probe_lambda_mark);
-                    auto out_opt = invoke_ufcs_candidate(mod, scope, *ranked[*winner].sym, *f.object, args, f.range, loop_depth, next_off, const_env,
-                                                         ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup);
+                    std::optional<std::size_t> default_arg_start;
+                    auto effective_args = args;
+                    if (materialized_args && ranked[*winner].sym->decl && ranked[*winner].sym->decl->kind == ast::DeclKind::Func)
+                    {
+                        default_arg_start =
+                            materialize_ufcs_default_arguments(*static_cast<ast::FuncDecl const*>(ranked[*winner].sym->decl), *materialized_args);
+                        effective_args = std::span<ast::Expr* const>{*materialized_args};
+                    }
+                    auto out_opt = invoke_ufcs_candidate(mod, scope, *ranked[*winner].sym, *f.object, effective_args, f.range, loop_depth, next_off, const_env,
+                                                         ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup,
+                                                         default_arg_start);
                     if (!out_opt)
                         return detail::ExprResult{m_types.m_errort()};
 
                     auto result = *out_opt;
+                    result.default_argument_start = default_arg_start;
                     result.ufcs_callee = ranked[*winner].sym->decl;
                     f.sema.ufcs_callee = ranked[*winner].sym->decl;
                     f.sema.resolved_decl = ranked[*winner].sym->decl;
@@ -13000,7 +13099,7 @@ export namespace dcc::sema
 
         detail::ExprResult invoke_function(ModuleInfo& mod, Scope& scope, ast::FuncDecl const& f, std::span<ast::Expr* const> arg_exprs, sm::SourceRange range,
                                            int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false,
-                                           types::TypePtr expected_type = nullptr)
+                                           types::TypePtr expected_type = nullptr, std::optional<std::size_t> default_arg_start = std::nullopt)
         {
             std::vector<types::TypePtr> params;
             params.reserve(f.params.size());
@@ -13081,6 +13180,9 @@ export namespace dcc::sema
                     return {m_types.m_errort()};
 
                 auto vt_type = get_canonical(vtparam->value_type->sema);
+                std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                if (default_arg_start && vi >= *default_arg_start)
+                    default_guard.emplace(*this, range);
                 auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[vi], loop_depth, next_off, vt_type, const_env);
                 if (has_error(r.type))
                     return {m_types.m_errort()};
@@ -13111,6 +13213,9 @@ export namespace dcc::sema
             for (std::size_t i = 0; i < non_pack_func_params; ++i)
             {
                 auto param_ty = b.substitute(params[i]);
+                std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                    default_guard.emplace(*this, range);
                 auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env);
                 if (value_alias_implicit_decay(r, param_ty))
                 {
@@ -13141,6 +13246,9 @@ export namespace dcc::sema
                     types::TypePtr expected_ty = nullptr;
                     if (auto const* pt = types::type_cast<types::TypePackType>(pack_param_ty))
                         expected_ty = b.substitute(pt->element);
+                    std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                    if (default_arg_start && func_arg_start + i >= *default_arg_start)
+                        default_guard.emplace(*this, range);
                     auto r = analyze_expr(mod, nullptr, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, expected_ty, const_env);
                     pack_arg_types.push_back(r.type);
                     auto const* raw_arg = arg_exprs[func_arg_start + i];
@@ -13260,6 +13368,11 @@ export namespace dcc::sema
             out.resolved_decl = &f;
             out.spec_commit = committed_spec;
             out.call_argument_offset = func_arg_start;
+            if (f.sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation)
+            {
+                out.constant = make_source_location_const(out.type, range);
+                out.is_constant = out.constant != nullptr;
+            }
             return out;
         }
 
@@ -13377,7 +13490,8 @@ export namespace dcc::sema
         }
 
         detail::ExprResult invoke_funcptr(ModuleInfo& mod, Scope& scope, types::FuncPtrType const* fp, std::span<ast::Expr* const> arg_exprs,
-                                          sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false)
+                                          sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false,
+                                          std::optional<std::size_t> default_arg_start = std::nullopt)
         {
             std::pmr::vector<ast::Expr*> expanded_args{m_alloc};
             auto effective_args = expand_concept_call_args(mod, scope, arg_exprs, expanded_args);
@@ -13397,6 +13511,9 @@ export namespace dcc::sema
             args.reserve(effective_args.size());
             for (std::size_t i = 0; i < effective_args.size(); ++i)
             {
+                std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                if (default_arg_start && i >= *default_arg_start)
+                    default_guard.emplace(*this, range);
                 auto r = analyze_expr(mod, nullptr, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env);
                 if (value_alias_implicit_decay(r, fp->params[i]))
                 {
