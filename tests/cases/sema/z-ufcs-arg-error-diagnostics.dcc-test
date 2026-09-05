@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+struct Writer {}
+
+void write_all(const Writer* self, [] const u8 bytes) {}
+
+void test(const Writer* w) {
+    w.write_all(missing_fn());
+}
+
+=== EXPECT-ERRORS ===
+main.dc:8: unknown name `missing_fn`
