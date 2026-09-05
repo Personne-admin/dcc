@@ -155,3 +155,46 @@ TEST_CASE("spilled memory base index and value use distinct scratch registers")
         }
     CHECK(found);
 }
+
+SECTION("em64t: peepholes");
+
+TEST_CASE("redundant self moves are removed after allocation")
+{
+    MFunction func;
+    auto& block = func.create_block("entry");
+    func.entry_block_id = block.id;
+
+    MInstr self_mov;
+    self_mov.opc = MOpc::MOV64rr;
+    self_mov.num_ops = 2;
+    self_mov.num_defs = 1;
+    self_mov.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+    self_mov.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+    block.instrs.push_back(self_mov);
+
+    MInstr self_copy = make_copy(VReg::phys(PhysReg::RCX), VReg::phys(PhysReg::RCX));
+    block.instrs.push_back(self_copy);
+
+    MInstr real_copy = make_copy(VReg::phys(PhysReg::RDX), VReg::phys(PhysReg::RSI));
+    block.instrs.push_back(real_copy);
+
+    MInstr ret;
+    ret.opc = MOpc::RET;
+    block.instrs.push_back(ret);
+
+    regalloc(func, dcc::target::TargetConfig::host_default());
+
+    bool has_self_mov = false, has_self_copy = false, has_real_copy = false;
+    for (auto const& inst : func.blocks.front().instrs)
+    {
+        if (inst.opc == MOpc::MOV64rr && inst.ops[0].reg == inst.ops[1].reg)
+            has_self_mov = true;
+        if (inst.opc == MOpc::COPY && inst.ops[0].kind == MOpKind::Reg && inst.ops[1].kind == MOpKind::Reg && inst.ops[0].reg == inst.ops[1].reg)
+            has_self_copy = true;
+        if (inst.opc == MOpc::COPY && inst.ops[0].kind == MOpKind::Reg && inst.ops[0].reg == VReg::phys(PhysReg::RDX))
+            has_real_copy = true;
+    }
+    CHECK(!has_self_mov);
+    CHECK(!has_self_copy);
+    CHECK(has_real_copy);
+}

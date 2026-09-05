@@ -1903,6 +1903,22 @@ namespace dcc::backend::em64t
             }
         }
 
+        void remove_redundant_moves(MFunction& func)
+        {
+            auto is_self_move = [](MInstr const& instr) {
+                if (instr.opc != MOpc::COPY && instr.opc != MOpc::MOV64rr)
+                    return false;
+                if (instr.num_ops != 2 || instr.ops[0].kind != MOpKind::Reg || instr.ops[1].kind != MOpKind::Reg)
+                    return false;
+                if (!instr.ops[0].reg.is_physical() || !instr.ops[1].reg.is_physical())
+                    return false;
+                return instr.ops[0].reg == instr.ops[1].reg;
+            };
+
+            for (auto& blk : func.blocks)
+                std::erase_if(blk.instrs, is_self_move);
+        }
+
     } // anonymous namespace
 
 } // namespace dcc::backend::em64t
@@ -1926,6 +1942,8 @@ export namespace dcc::backend::em64t
         insert_callee_saves(func, target, ranges);
 
         post_check_and_fix(func, target);
+
+        remove_redundant_moves(func);
     }
 
 } // namespace dcc::backend::em64t
