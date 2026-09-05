@@ -841,6 +841,7 @@ namespace dccd::format
             std::vector<std::size_t> const& paren_positions;
             std::vector<std::size_t> const& brace_positions;
             FormatAnalysisStats& stats;
+            std::unordered_map<std::string, std::size_t> visible_values;
 
             StructureCollector(std::vector<dcc::lex::Token> const& toks, std::vector<Offset> const& token_begins, std::string_view source,
                                StructuralInfo& structural, std::vector<std::size_t> const& pmatch, std::vector<std::size_t> const& ppos,
@@ -955,7 +956,22 @@ namespace dccd::format
                         }
                     }
                 }
+                for (dcc::ast::FuncParam const& param : d->params)
+                    ++visible_values[std::string{param.name}];
                 dcc::ast::RecursiveAstVisitor::visitFuncDecl(d);
+                for (dcc::ast::FuncParam const& param : d->params)
+                    if (--visible_values[std::string{param.name}] == 0)
+                        visible_values.erase(std::string{param.name});
+            }
+
+            void visitCompilesExpr(dcc::ast::CompilesExpr const* e) override
+            {
+                for (dcc::ast::CompilesParam const& param : e->params)
+                    ++visible_values[std::string{param.name}];
+                dcc::ast::RecursiveAstVisitor::visitCompilesExpr(e);
+                for (dcc::ast::CompilesParam const& param : e->params)
+                    if (--visible_values[std::string{param.name}] == 0)
+                        visible_values.erase(std::string{param.name});
             }
 
             void visitNamedType(dcc::ast::NamedType const* t) override
@@ -974,6 +990,13 @@ namespace dccd::format
                     visitExpr(s->as_expr);
                     return;
                 }
+                if (dcc::ast::BinaryExpr const* binary = dcc::ast::node_cast<dcc::ast::BinaryExpr>(s->as_expr); binary && binary->op == TokenKind::Star)
+                    if (dcc::ast::IdentExpr const* ident = dcc::ast::node_cast<dcc::ast::IdentExpr>(binary->lhs);
+                        ident && visible_values.contains(std::string{ident->name}))
+                    {
+                        visitExpr(s->as_expr);
+                        return;
+                    }
                 if (s->as_decl)
                 {
                     visitDecl(s->as_decl);

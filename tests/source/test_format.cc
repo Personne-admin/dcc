@@ -1350,6 +1350,38 @@ TEST_CASE("multiplication and dereference spacing is independent of pointer decl
                  "}\n");
 }
 
+TEST_CASE("ambiguous multiplication statements use binary spacing")
+{
+    check_format("module m;\n"
+                 "void f(u32 a,u32 b,u32* p) {\n"
+                 "a*b;\n"
+                 "a* b;\n"
+                 "a *b;\n"
+                 "a * b;\n"
+                 "*p=a*b;\n"
+                 "return a*b;\n"
+                 "}\n"
+                 "public using Multipliable(T)=compiles(T a,T b){a*b;};\n"
+                 "T multiply(T)(T a,T b){a*b;return a*b;}\n",
+                 "module m;\n"
+                 "void f(u32 a, u32 b, u32* p) {\n"
+                 "    a * b;\n"
+                 "    a * b;\n"
+                 "    a * b;\n"
+                 "    a * b;\n"
+                 "    *p = a * b;\n"
+                 "    return a * b;\n"
+                 "}\n"
+                 "public using Multipliable(T) = compiles (T a, T b) {\n"
+                 "    a * b;\n"
+                 "};\n"
+                 "\n"
+                 "T multiply(T)(T a, T b) {\n"
+                 "    a * b;\n"
+                 "    return a * b;\n"
+                 "}\n");
+}
+
 TEST_CASE("pointer stars in array types do not disturb multiplication in sizes")
 {
     check_format("module m;\n"
