@@ -2016,6 +2016,28 @@ namespace dcc::backend
                     LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
                 }
 
+                for (auto const& a : func->attrs)
+                {
+                    if (a.kind == IrFuncAttr::Inline)
+                    {
+                        auto kind = LLVMGetEnumAttributeKindForName("alwaysinline", 12);
+                        if (kind != 0)
+                        {
+                            auto* attr = LLVMCreateEnumAttribute(ctx, kind, 0);
+                            LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
+                        }
+                    }
+                    else if (a.kind == IrFuncAttr::NoInline)
+                    {
+                        auto kind = LLVMGetEnumAttributeKindForName("noinline", 8);
+                        if (kind != 0)
+                        {
+                            auto* attr = LLVMCreateEnumAttribute(ctx, kind, 0);
+                            LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
+                        }
+                    }
+                }
+
                 if (func->entry_block)
                 {
                     auto num_params = LLVMCountParams(llvm_func);
@@ -3396,6 +3418,16 @@ namespace dcc::backend
                         if (cc_opt)
                             LLVMSetInstructionCallConv(call_inst, *cc_opt);
 
+                        if (c->is_noinline)
+                        {
+                            auto kind = LLVMGetEnumAttributeKindForName("noinline", 8);
+                            if (kind != 0)
+                            {
+                                auto* attr = LLVMCreateEnumAttribute(ctx, kind, 0);
+                                LLVMAddCallSiteAttribute(call_inst, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
+                            }
+                        }
+
                         set_name(call_inst);
                         val_map[inst] = call_inst;
                         break;
@@ -3476,6 +3508,16 @@ namespace dcc::backend
                             return false;
                         if (cc_opt)
                             LLVMSetInstructionCallConv(call_inst, *cc_opt);
+
+                        if (c->is_noinline)
+                        {
+                            auto kind = LLVMGetEnumAttributeKindForName("noinline", 8);
+                            if (kind != 0)
+                            {
+                                auto* attr = LLVMCreateEnumAttribute(ctx, kind, 0);
+                                LLVMAddCallSiteAttribute(call_inst, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attr);
+                            }
+                        }
 
                         LLVMSetTailCallKind(call_inst, LLVMTailCallKindMustTail);
                         set_name(call_inst);

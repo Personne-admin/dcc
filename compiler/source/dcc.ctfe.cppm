@@ -432,8 +432,7 @@ export namespace dcc::ctfe
 
             auto* slot = m_heap.write_target(ptr);
             if (!slot)
-                return m_heap.is_mutable(ptr) ? failure("write outside the bounds of a compile-time object")
-                                              : failure("write to read-only storage");
+                return m_heap.is_mutable(ptr) ? failure("write outside the bounds of a compile-time object") : failure("write to read-only storage");
             *slot = value;
             return folded(std::move(value));
         }
@@ -1193,19 +1192,37 @@ export namespace dcc::ctfe
                 return folded(comptime::Value::make_aggregate(std::move(fields), type_of(call)));
             }
 
+            bool is_runtime = call.sema.is_runtime;
+            for (auto const& a : call.attrs)
+                if (a.name == "runtime")
+                    is_runtime = true;
+
+            auto* fn = call.sema.resolved_specialization;
+            if (!fn && call.callee)
+                fn = call.callee->sema.resolved_specialization;
+            if (!fn)
+                fn = ast::node_cast<ast::FuncDecl>(call.sema.resolved_decl);
+            if (!fn && call.callee)
+                fn = ast::node_cast<ast::FuncDecl>(call.callee->sema.resolved_decl);
+            if (!fn)
+                fn = ast::node_cast<ast::FuncDecl>(call.sema.ufcs_callee);
+
+            if (fn)
+            {
+                if (fn->sema.is_runtime)
+                    is_runtime = true;
+                for (auto const& a : fn->attrs)
+                    if (a.name == "runtime")
+                        is_runtime = true;
+            }
+
+            if (is_runtime)
+                return failure("call to runtime-only function in constant expression");
+
             if (!call.callee || (call.callee->kind != ast::ExprKind::Ident && call.callee->kind != ast::ExprKind::PathExpr &&
                                  call.callee->kind != ast::ExprKind::TemplateInst && !call.sema.ufcs_callee))
                 return failure("indirect call");
 
-            auto* fn = call.sema.resolved_specialization;
-            if (!fn)
-                fn = call.callee->sema.resolved_specialization;
-            if (!fn)
-                fn = ast::node_cast<ast::FuncDecl>(call.sema.resolved_decl);
-            if (!fn)
-                fn = ast::node_cast<ast::FuncDecl>(call.callee->sema.resolved_decl);
-            if (!fn)
-                fn = ast::node_cast<ast::FuncDecl>(call.sema.ufcs_callee);
             if (!fn || fn->is_extern || fn->sema.is_intrinsic || !fn->body)
                 return failure("external, indirect or runtime-only call");
             if (m_frames.size() > m_context.recursion_limit)
@@ -1570,4 +1587,5 @@ export namespace dcc::ctfe
             return r;
         }
     };
-}
+
+} // namespace dcc::ctfe

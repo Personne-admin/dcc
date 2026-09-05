@@ -9714,7 +9714,28 @@ export namespace dcc::sema
             expr.sema.is_constant = out.is_constant;
             expr.sema.is_diverging = out.is_diverging;
             expr.sema.is_type_instantiation = out.is_type_instantiation;
-            if (expr.kind == ast::ExprKind::Call && !fn && !out.constant && !has_error(out.type))
+            if (expr.kind == ast::ExprKind::Call)
+            {
+                for (auto const& attr : expr.attrs)
+                    if (attr.name == "runtime")
+                        expr.sema.is_runtime = true;
+
+                auto const* callee_decl =
+                    expr.sema.resolved_specialization ? static_cast<ast::Decl const*>(expr.sema.resolved_specialization) : expr.sema.resolved_decl;
+                if (!callee_decl)
+                    callee_decl = expr.sema.ufcs_callee;
+                if (callee_decl && callee_decl->sema.is_runtime)
+                    expr.sema.is_runtime = true;
+
+                if (expr.sema.is_runtime)
+                {
+                    out.constant = nullptr;
+                    out.is_constant = false;
+                    expr.sema.const_value = nullptr;
+                    expr.sema.is_constant = false;
+                }
+            }
+            if (expr.kind == ast::ExprKind::Call && !fn && !out.constant && !has_error(out.type) && !expr.sema.is_runtime)
             {
                 auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic);
                 if (result.flow == ctfe::Flow::Normal && result.value)
@@ -14606,7 +14627,7 @@ export namespace dcc::sema
                     track_decl_write(v);
                     auto expected = v->type && v->type->sema.canonical ? get_canonical(v->type->sema) : nullptr;
                     auto init = analyze_expr(mod, fn, scope, *v->init, loop_depth, next_off, expected, const_env);
-                    if (v->sema.is_immutable && !init.constant && !has_error(init.type))
+                    if (v->sema.is_immutable && !init.constant && !has_error(init.type) && !v->init->sema.is_runtime)
                     {
                         auto result = evaluate_constant(*v->init, ctfe::Mode::Opportunistic);
                         if (result.flow == ctfe::Flow::Normal && result.value)
