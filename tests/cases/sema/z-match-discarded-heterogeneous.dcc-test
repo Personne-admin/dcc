@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+enum E {
+    A,
+    B,
+}
+
+void f(E e) {
+    match e {
+        E::A => 1 as u8,
+        E::B => true,
+    }
+}

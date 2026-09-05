@@ -7788,9 +7788,9 @@ export namespace dcc::sema
 
             if (fn.body)
             {
-                auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, nullptr, root_consts);
+                auto ret_ty = fn.return_type ? get_canonical(fn.return_type->sema) : m_types.m_voidt();
+                auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, nullptr, root_consts, ret_ty == m_types.m_voidt());
                 fn.sema.is_diverging = !res.falls_through;
-                auto ret_ty = fn.return_type ? get_canonical(fn.return_type->sema) : nullptr;
                 if (ret_ty && ret_ty != m_types.m_voidt() && res.falls_through && !fn.body->tail)
                     error(fn.range, "missing return in function `{}`", fn.name);
             }
@@ -9500,7 +9500,7 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
-                                        types::TypePtr expected_type = nullptr, ConstEnv const* const_env = nullptr)
+                                        types::TypePtr expected_type = nullptr, ConstEnv const* const_env = nullptr, bool result_discarded = false)
         {
             detail::ExprResult out{};
 
@@ -9703,13 +9703,16 @@ export namespace dcc::sema
                         out = analyze_cast(mod, fn, scope, static_cast<ast::CastExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::Block:
-                        out = analyze_block_expr(mod, fn, scope, static_cast<ast::BlockExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        out = analyze_block_expr(mod, fn, scope, static_cast<ast::BlockExpr&>(expr), loop_depth, next_off, expected_type, const_env,
+                                                 result_discarded);
                         break;
                     case ast::ExprKind::If:
-                        out = analyze_if_expr(mod, fn, scope, static_cast<ast::IfExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        out = analyze_if_expr(mod, fn, scope, static_cast<ast::IfExpr&>(expr), loop_depth, next_off, expected_type, const_env,
+                                              result_discarded);
                         break;
                     case ast::ExprKind::Match:
-                        out = analyze_match_expr(mod, fn, scope, static_cast<ast::MatchExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        out = analyze_match_expr(mod, fn, scope, static_cast<ast::MatchExpr&>(expr), loop_depth, next_off, expected_type, const_env,
+                                                 result_discarded);
                         break;
                     case ast::ExprKind::StructLiteral:
                         out =
@@ -11342,7 +11345,7 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_block_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::BlockExpr& b, int loop_depth, std::uint32_t& next_off,
-                                              types::TypePtr expected_type, ConstEnv const* const_env)
+                                              types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
             auto expected_kind = expected_type ? construction_kind_for_type(expected_type) : ConstructionKind::None;
             bool has_single_non_struct_tail = b.body.tail && b.body.tail->kind != ast::ExprKind::StructLiteral;
@@ -11360,7 +11363,7 @@ export namespace dcc::sema
 
             auto* inner = make_scope(ScopeKind::Block, &scope);
             auto* inner_consts = make_const_env(const_env);
-            auto res = analyze_block(mod, fn, *inner, b.body, loop_depth, next_off, expected_type, inner_consts);
+            auto res = analyze_block(mod, fn, *inner, b.body, loop_depth, next_off, expected_type, inner_consts, result_discarded);
             detail::ExprResult out{};
             if (b.body.tail)
                 out.type = get_resolved_type(b.body.tail->sema);
@@ -11381,12 +11384,12 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_if_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::IfExpr& i, int loop_depth, std::uint32_t& next_off,
-                                           types::TypePtr expected_type, ConstEnv const* const_env)
+                                           types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
             auto cond = analyze_expr_or_error(mod, fn, scope, i.condition, loop_depth, next_off, nullptr, const_env);
             auto* then_scope = make_scope(ScopeKind::Block, &scope);
             auto* then_consts = make_const_env(const_env);
-            auto then_res = analyze_block(mod, fn, *then_scope, i.then_block, loop_depth, next_off, expected_type, then_consts);
+            auto then_res = analyze_block(mod, fn, *then_scope, i.then_block, loop_depth, next_off, expected_type, then_consts, result_discarded);
             detail::ExprResult else_res{};
             if (i.else_branch)
             {
@@ -11394,7 +11397,8 @@ export namespace dcc::sema
                 {
                     auto* else_scope = make_scope(ScopeKind::Block, &scope);
                     auto* else_consts = make_const_env(const_env);
-                    auto else_stmt = analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts);
+                    auto else_stmt =
+                        analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts, result_discarded);
                     else_res.type = else_block->body.tail ? get_resolved_type(else_block->body.tail->sema) : m_types.m_voidt();
                     else_res.is_diverging = !else_stmt.falls_through;
                     else_res.constant = else_block->body.tail ? else_block->body.tail->sema.const_value : nullptr;
@@ -11405,7 +11409,7 @@ export namespace dcc::sema
                     else_block->sema.is_diverging = else_res.is_diverging;
                 }
                 else
-                    else_res = analyze_expr(mod, fn, scope, *i.else_branch, loop_depth, next_off, expected_type, const_env);
+                    else_res = analyze_expr(mod, fn, scope, *i.else_branch, loop_depth, next_off, expected_type, const_env, result_discarded);
             }
 
             detail::ExprResult out{};
@@ -11474,7 +11478,7 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_match_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::MatchExpr& m, int loop_depth, std::uint32_t& next_off,
-                                              types::TypePtr expected_type, ConstEnv const* const_env)
+                                              types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
             auto operand = analyze_expr_or_error(mod, fn, scope, m.operand, loop_depth, next_off, nullptr, const_env);
             detail::ExprResult out{};
@@ -11515,17 +11519,17 @@ export namespace dcc::sema
                 }
                 if (arm.body)
                 {
-                    auto r = analyze_expr(mod, fn, *arm_scope, *arm.body, loop_depth, next_off, expected_type, arm_consts);
-                    if (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt()))
+                    auto r = analyze_expr(mod, fn, *arm_scope, *arm.body, loop_depth, next_off, expected_type, arm_consts, result_discarded);
+                    if (!result_discarded && (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt())))
                         unified_type = r.type ? r.type : m_types.m_voidt();
-                    else if (r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error && r.type != m_types.m_voidt() &&
+                    else if (!result_discarded && r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error && r.type != m_types.m_voidt() &&
                              unified_type != m_types.m_voidt())
                     {
                         error(arm.body->range, "match arm result type mismatch: expected `{}`, got `{}`", format_type_str(unified_type),
                               format_type_str(r.type));
                     }
 
-                    if (r.type && r.type != m_types.m_voidt())
+                    if (!result_discarded && r.type && r.type != m_types.m_voidt())
                         out.type = r.type;
 
                     if (!selected_constant && operand.constant && arm.pattern && guard_is_true &&
@@ -11544,7 +11548,7 @@ export namespace dcc::sema
                     error(m.range, "match expression not exhaustive");
             }
 
-            if (!out.type)
+            if (result_discarded || !out.type)
                 out.type = m_types.m_voidt();
 
             out.constant = selected_constant;
@@ -13902,7 +13906,7 @@ export namespace dcc::sema
                 case ast::StmtKind::Expr: {
                     auto* expr = static_cast<ast::ExprStmt&>(s).expr;
                     if (expr)
-                        std::ignore = analyze_expr(mod, fn, scope, *expr, loop_depth, next_off, nullptr, const_env);
+                        std::ignore = analyze_expr(mod, fn, scope, *expr, loop_depth, next_off, nullptr, const_env, true);
                     out.foldable = false;
                     return out;
                 }
@@ -13988,7 +13992,7 @@ export namespace dcc::sema
                     auto* inner = make_scope(ScopeKind::Block, &scope);
                     auto* inner_consts = make_const_env(const_env);
                     invalidate_loop_writes(&w, inner_consts);
-                    auto body = analyze_block(mod, fn, *inner, w.body, loop_depth + 1, next_off, nullptr, inner_consts);
+                    auto body = analyze_block(mod, fn, *inner, w.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
                     if (is_const_true(cond) && body.diverges)
                     {
                         out.diverges = true;
@@ -14002,7 +14006,7 @@ export namespace dcc::sema
                     auto* inner = make_scope(ScopeKind::Block, &scope);
                     auto* inner_consts = make_const_env(const_env);
                     invalidate_loop_writes(&w, inner_consts);
-                    auto body = analyze_block(mod, fn, *inner, w.body, loop_depth + 1, next_off, nullptr, inner_consts);
+                    auto body = analyze_block(mod, fn, *inner, w.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
                     std::ignore = analyze_expr_or_error(mod, fn, scope, w.condition, loop_depth, next_off, nullptr, const_env);
                     if (body.diverges)
                     {
@@ -14022,7 +14026,7 @@ export namespace dcc::sema
                     if (f.update)
                         std::ignore = analyze_expr(mod, fn, *inner, *f.update, loop_depth, next_off, nullptr, inner_consts);
                     invalidate_loop_writes(&f, inner_consts);
-                    auto body = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts);
+                    auto body = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
                     if ((!f.cond || is_const_true(cond)) && body.diverges)
                     {
                         out.diverges = true;
@@ -14099,7 +14103,7 @@ export namespace dcc::sema
                         define_local(*inner, v);
                         track_decl_write(v);
                     }
-                    std::ignore = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts);
+                    std::ignore = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
                     out.foldable = false;
                     return out;
                 }
@@ -14915,7 +14919,7 @@ export namespace dcc::sema
         }
 
         detail::StmtResult analyze_block(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Block& block, int loop_depth, std::uint32_t& next_off,
-                                         types::TypePtr expected_type, ConstEnv const* const_env)
+                                         types::TypePtr expected_type, ConstEnv const* const_env, bool tail_result_discarded = false)
         {
             detail::StmtResult out{};
             auto const saved_defer_depth = m_active_defers.size();
@@ -14946,7 +14950,7 @@ export namespace dcc::sema
             }
             if (block.tail)
             {
-                auto tr = analyze_expr(mod, fn, scope, *block.tail, loop_depth, next_off, expected_type, const_env);
+                auto tr = analyze_expr(mod, fn, scope, *block.tail, loop_depth, next_off, expected_type, const_env, tail_result_discarded);
                 out.diverges = out.diverges || tr.is_diverging;
                 out.falls_through = reachable && !tr.is_diverging;
                 out.foldable = out.foldable && tr.is_constant;
