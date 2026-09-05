@@ -1,5 +1,6 @@
 .cache
 .zig-cache
 build
+dist
 compile_commands.json
 __pycache__
