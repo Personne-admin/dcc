@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+union F64Bits { f64 f; u64 u; }
+
+bool is_inf(f64 x) {
+    F64Bits b = {f = x};
+    return (b.u & 0x7FF0000000000000) == 0x7FF0000000000000;
+}
+
+=== ENTRY: main.dc ===

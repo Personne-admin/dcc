@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+union Bits { f64 f; u64 u; }
+
+void test_empty_union_literal() {
+    Bits b = {};
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:6: union literal must initialize at least one field

@@ -11567,8 +11567,11 @@ export namespace dcc::sema
                 check_type_constraints_in_type(mod, *mod.own_scope, target, s.range);
 
             auto analyze_record_fields = [&](types::TypePtr record_ty) -> std::optional<detail::ExprResult> {
-                if (!nominal_decl(record_ty))
+                auto const* record_decl = nominal_decl(record_ty);
+                if (!record_decl)
                     return std::nullopt;
+
+                bool is_union = record_decl->kind == ast::DeclKind::Union;
 
                 auto bindings = make_bindings(record_ty);
                 auto fields = record_fields(record_ty, bindings ? &*bindings : nullptr);
@@ -11647,7 +11650,12 @@ export namespace dcc::sema
                     }
                 }
 
-                if (s.fields.size() != fields.size())
+                if (is_union)
+                {
+                    if (s.fields.empty() && !fields.empty())
+                        error(s.range, "union literal must initialize at least one field");
+                }
+                else if (s.fields.size() != fields.size())
                 {
                     for (std::size_t i = 0; i < used.size(); ++i)
                         if (!used[i] && !types::is_fam_type(fields[i].type))

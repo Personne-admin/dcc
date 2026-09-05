@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+@nomangle
+public i32 dcc_main() {
+    F64Bits a = {f = 1.0};
+    F64Bits b = {u = a.u};
+    if b.f != 1.0 {
+        return 1;
+    }
+
+    F64Bits c = {u = 0x3FF0000000000000};
+    if c.f != 1.0 {
+        return 2;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
