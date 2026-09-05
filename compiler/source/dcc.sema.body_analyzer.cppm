@@ -13735,7 +13735,22 @@ export namespace dcc::sema
                 }
                 case ast::StmtKind::Ambiguous: {
                     auto& a = static_cast<ast::AmbiguousStmt&>(s);
-                    if (a.as_decl)
+                    bool starts_with_value = false;
+                    if (ast::VarDecl* var = ast::node_cast<ast::VarDecl>(a.as_decl))
+                    {
+                        ast::TypeExpr* type = var->type;
+                        while (type && (type->kind == ast::TypeKind::Pointer || type->kind == ast::TypeKind::Qualified))
+                        {
+                            if (ast::PointerType* ptr = ast::node_cast<ast::PointerType>(type))
+                                type = ptr->pointee;
+                            else
+                                type = static_cast<ast::QualifiedType*>(type)->inner;
+                        }
+                        if (ast::NamedType* named = ast::node_cast<ast::NamedType>(type); named && named->path.is_simple())
+                            if (Symbol const* symbol = lookup_name(mod, scope, named->path.simple_name()))
+                                starts_with_value = namespace_of(symbol->kind) == NameSpace::Value;
+                    }
+                    if (a.as_decl && !starts_with_value)
                     {
                         a.resolution = ast::AmbiguousStmt::Resolution::AsDecl;
                         out = analyze_decl_stmt(mod, fn, scope, *a.as_decl, loop_depth, next_off, const_env);

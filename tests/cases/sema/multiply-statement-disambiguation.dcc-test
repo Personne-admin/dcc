@@ -1,0 +1,37 @@
+=== FILE: main.dc ===
+module test;
+
+struct Foo {}
+struct Thing {}
+using FooAlias = Foo;
+
+void ordinary(u32 a, u32 b, u32 c, u32* p) {
+    a*b;
+    a* b;
+    a *b;
+    a * b;
+    a * b * c;
+    *p;
+    u32* primitive_ptr;
+    Foo* struct_ptr;
+    FooAlias* alias_ptr;
+}
+
+void shadowed_type_name(u32 Thing, u32 b) {
+    Thing * b;
+}
+
+u32 returned(u32 a, u32 b) {
+    return a * b;
+}
+
+public using Multipliable(T) = compiles (T a, T b) {
+    a * b;
+};
+
+T generic_multiply(T)(T a, T b) {
+    a * b;
+    return a * b;
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
