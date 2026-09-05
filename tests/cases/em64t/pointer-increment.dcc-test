@@ -1,0 +1,56 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 walk() {
+    u64[4] v;
+    v[0] = 1;
+    v[1] = 2;
+    v[2] = 4;
+    v[3] = 8;
+
+    u64* p = &v[0];
+    u64 total = 0;
+
+    total += *p++;
+    total += *p;
+    ++p;
+    total += *p;
+    total += *p--;
+    --p;
+    total += *p;
+    return total;
+}
+
+bool identities() {
+    u32[3] v;
+    v[0] = 10;
+    v[1] = 20;
+    v[2] = 30;
+
+    u32* p = &v[0];
+    u32* old = p++;
+    bool a = old == &v[0] && p == &v[1];
+    u32* next = ++p;
+    bool b = next == &v[2] && p == &v[2];
+    u32* back = p--;
+    bool c = back == &v[2] && p == &v[1];
+    u32* prev = --p;
+    return a && b && c && prev == &v[0] && p == &v[0];
+}
+
+@nomangle
+public i32 dcc_main() {
+    return if walk() == 12 && identities() { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

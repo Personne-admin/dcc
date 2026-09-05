@@ -3193,6 +3193,23 @@ export namespace dcc::ir::lower
             lower_unimplemented(operand, "address-of unsupported");
         }
 
+        IrValue* incdec_step(IrValue* loaded, IrType const* ir_ty, dcc::types::TypePtr sema_ty, bool is_inc)
+        {
+            auto const* pt = types::type_cast<types::PointerType>(sema_ty);
+            if (!pt)
+            {
+                auto* one = m_ctx.int_const(ir_ty, 1);
+                if (is_inc)
+                    return static_cast<IrValue*>(m_ctx.add(ir_ty, loaded, one));
+                return static_cast<IrValue*>(m_ctx.sub(ir_ty, loaded, one));
+            }
+
+            auto* stride = m_ctx.int_const(m_ctx.int_t(64, true), is_inc ? 1 : -1);
+            auto* gep = m_ctx.gep(m_ctx.pointer_to(lower_type(pt->pointee)), loaded);
+            gep->indices.push_back({IrGepInst::IndexKind::Array, stride, 0});
+            return gep;
+        }
+
         IrValue* lower_pre_incdec(ast::Expr const* operand, IrType const* ir_ty, bool is_inc)
         {
             auto lv = lower_assign_lvalue(operand);
@@ -3216,12 +3233,7 @@ export namespace dcc::ir::lower
             loaded->name = m_name_pool.back();
             append_inst(loaded);
 
-            auto* one = m_ctx.int_const(ir_ty, 1);
-            IrValue* result;
-            if (is_inc)
-                result = m_ctx.add(ir_ty, loaded, one);
-            else
-                result = m_ctx.sub(ir_ty, loaded, one);
+            auto* result = incdec_step(loaded, ir_ty, get_sema_resolved_type(operand), is_inc);
             auto result_name = ident_name();
             result->name = m_name_pool.back();
             append_inst(result);
@@ -3486,12 +3498,7 @@ export namespace dcc::ir::lower
             loaded->name = m_name_pool.back();
             append_inst(loaded);
 
-            auto* one = m_ctx.int_const(ir_ty, 1);
-            IrValue* updated;
-            if (is_inc)
-                updated = m_ctx.add(ir_ty, loaded, one);
-            else
-                updated = m_ctx.sub(ir_ty, loaded, one);
+            auto* updated = incdec_step(loaded, ir_ty, get_sema_resolved_type(operand), is_inc);
 
             auto result_name = ident_name();
             updated->name = m_name_pool.back();

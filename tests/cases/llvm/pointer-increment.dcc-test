@@ -1,0 +1,37 @@
+=== FILE: test.dc ===
+module test;
+
+public u32 advance(u32* p) {
+    u32* q = p;
+    q++;
+    ++q;
+    q--;
+    --q;
+    return *q;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i32 @_DC0F1.4.test7.advance1Pqi32ui32u(ptr %p) {
+entry:
+  %"0" = alloca ptr, align 8
+  store ptr %p, ptr %"0", align 8
+  %"1" = load ptr, ptr %"0", align 8
+  %"2" = getelementptr i32, ptr %"1", i64 1
+  store ptr %"2", ptr %"0", align 8
+  %"3" = load ptr, ptr %"0", align 8
+  %"4" = getelementptr i32, ptr %"3", i64 1
+  store ptr %"4", ptr %"0", align 8
+  %"5" = load ptr, ptr %"0", align 8
+  %"6" = getelementptr i32, ptr %"5", i64 -1
+  store ptr %"6", ptr %"0", align 8
+  %"7" = load ptr, ptr %"0", align 8
+  %"8" = getelementptr i32, ptr %"7", i64 -1
+  store ptr %"8", ptr %"0", align 8
+  %"9" = load ptr, ptr %"0", align 8
+  %"10" = load i32, ptr %"9", align 4
+  ret i32 %"10"
+}
