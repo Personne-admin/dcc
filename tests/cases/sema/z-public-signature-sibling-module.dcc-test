@@ -1,0 +1,37 @@
+=== FILE: std/mem.dc ===
+module std::mem;
+
+public enum AllocError : u8 {
+    OutOfMemory,
+}
+
+public struct Allocator {
+    void* ctx;
+}
+
+=== FILE: std/fmt.dc ===
+module std::fmt;
+
+import std::mem;
+
+public struct Result(T, E) {
+    T val;
+    E err;
+}
+
+public Result(i32, mem::AllocError) format_alloc(const mem::Allocator* alloc) {
+    Result(i32, mem::AllocError) r;
+    return r;
+}
+
+=== ENTRY: std/fmt.dc ===
+
+=== EXPECT-TYPES FOR: std::fmt ===
+Module std::fmt
+  Struct Result
+    TemplateParams T, E
+    Field val: T
+    Field err: E
+  Func format_alloc
+    Return: Result(i32, AllocError)
+    Param alloc: const Allocator*
