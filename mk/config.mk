@@ -4,8 +4,11 @@ AR := ar
 INSTALL ?= install
 
 SCAN_DEPS ?= $(shell which clang-scan-deps 2>/dev/null)
-ifeq ($(SCAN_DEPS),)
-  $(error clang-scan-deps not found)
+ifneq ($(filter clean distclean,$(MAKECMDGOALS)),)
+else
+  ifeq ($(SCAN_DEPS),)
+    $(error clang-scan-deps not found)
+  endif
 endif
 
 PYTHON ?= python3
@@ -47,8 +50,11 @@ endif
 STD_MODULE_SRC := $(shell find /usr -name 'std.cppm' -path '*/libc++/*' 2>/dev/null | head -1)
 STD_COMPAT_SRC := $(shell find /usr -name 'std.compat.cppm' -path '*/libc++/*' 2>/dev/null | head -1)
 
-ifeq ($(STD_MODULE_SRC),)
-  $(error Cannot find std.cppm)
+ifneq ($(filter clean distclean,$(MAKECMDGOALS)),)
+else
+  ifeq ($(STD_MODULE_SRC),)
+    $(error Cannot find std.cppm)
+  endif
 endif
 
 STDLIB_FLAGS := -stdlib=libc++
