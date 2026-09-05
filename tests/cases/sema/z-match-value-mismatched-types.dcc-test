@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module m;
+
+enum E {
+    A,
+    B,
+}
+
+u8 f(E e) {
+    u8 x = match e {
+        E::A => 1 as u8,
+        E::B => true,
+    };
+
+    return x;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:11: match arm result type mismatch

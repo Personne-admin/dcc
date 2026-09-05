@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+enum E {
+    A,
+    B,
+}
+
+u8 f(E e) {
+    u8 x = match e {
+        E::A => 1 as u8,
+        E::B => 2 as u8,
+    };
+
+    return x;
+}
