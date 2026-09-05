@@ -5731,8 +5731,7 @@ export namespace dcc::ir::lower
                         auto* at = static_cast<IrArrayType const*>(storage);
                         auto n = std::min<std::uint64_t>(agg->values.size(), at->count);
                         for (std::uint64_t i = 0; i < n; ++i)
-                            if (agg->values[static_cast<std::size_t>(i)] &&
-                                !check_init_tree_compatible(agg->values[static_cast<std::size_t>(i)], at->element))
+                            if (agg->values[static_cast<std::size_t>(i)] && !check_init_tree_compatible(agg->values[static_cast<std::size_t>(i)], at->element))
                                 return false;
                         return true;
                     }
@@ -5924,6 +5923,80 @@ export namespace dcc::ir::lower
             return m_ctx.global_ref(global, ir_ptr_type);
         }
 
+        IrValue* lower_global_array_slice_decay(ast::Expr const* expr, dcc::types::TypePtr target_type)
+        {
+            ast::VarDecl const* vd = nullptr;
+            if (expr->kind == ast::ExprKind::Ident)
+                vd = ast::node_cast<ast::VarDecl>(static_cast<ast::IdentExpr const*>(expr)->sema.resolved_decl);
+            else if (expr->kind == ast::ExprKind::PathExpr)
+                vd = ast::node_cast<ast::VarDecl>(static_cast<ast::PathExpr const*>(expr)->sema.resolved_decl);
+
+            if (!vd)
+                return nullptr;
+
+            auto* global = get_or_create_global_ref(vd);
+            if (!global)
+                return nullptr;
+
+            auto* slice_ty = types::type_cast<types::SliceType>(target_type);
+            if (!slice_ty)
+                return nullptr;
+
+            auto* array_ty = as_sema_array(get_sema_resolved_type(expr));
+            if (!array_ty || array_ty->element != slice_ty->element)
+                return nullptr;
+
+            auto* ir_slice_type = lower_type(target_type);
+            auto* ir_elem_type = lower_type(slice_ty->element);
+            auto* ptr_val = m_ctx.global_ref(global, m_ctx.pointer_to(ir_elem_type));
+            auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(array_ty->count));
+
+            auto* agg = m_ctx.aggregate(ir_slice_type);
+            agg->values.push_back(ptr_val);
+            agg->values.push_back(len_val);
+            return agg;
+        }
+
+        IrValue* lower_array_lvalue_to_slice(ast::Expr const* expr, dcc::types::TypePtr target_slice_type)
+        {
+            if (!expr || !target_slice_type)
+                return nullptr;
+
+            auto const* slice_ty = types::type_cast<types::SliceType>(target_slice_type);
+            auto const* array_ty = as_sema_array(get_sema_resolved_type(expr));
+            if (!slice_ty || !array_ty || array_ty->element != slice_ty->element)
+                return nullptr;
+
+            if (!expr->sema.is_lvalue)
+                return nullptr;
+
+            auto lv = lower_assign_lvalue(expr);
+            IrValue* base_ptr = nullptr;
+            if (lv.entry && lv.entry->is_storage)
+                base_ptr = lv.entry->value;
+            else if (lv.gep_ptr)
+                base_ptr = lv.gep_ptr;
+
+            if (!base_ptr)
+                return nullptr;
+
+            auto* ir_elem_type = lower_type(slice_ty->element);
+            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), base_ptr);
+            gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.usize_t(), 0), 0});
+            auto gep_name = ident_name();
+            gep->name = m_name_pool.back();
+            append_inst(gep);
+
+            auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(array_ty->count));
+            auto* agg = m_ctx.aggregate(lower_type(target_slice_type));
+            agg->values.push_back(gep);
+            agg->values.push_back(len_val);
+            auto agg_name = ident_name();
+            agg->name = m_name_pool.back();
+            append_inst(agg);
+            return agg;
+        }
+
         IrValue* lower_global_address_of(ast::Expr const* operand, dcc::types::TypePtr ptr_type = nullptr)
         {
             if (!operand)
@@ -5999,6 +6072,12 @@ export namespace dcc::ir::lower
             if (target_type && target_type->kind == dcc::types::TypeKind::Pointer)
             {
                 if (auto* decayed = lower_global_array_decay(expr, target_type))
+                    return decayed;
+            }
+
+            if (target_type && target_type->kind == dcc::types::TypeKind::Slice)
+            {
+                if (auto* decayed = lower_global_array_slice_decay(expr, target_type))
                     return decayed;
             }
 
@@ -7129,7 +7208,16 @@ export namespace dcc::ir::lower
                 if (!f.value)
                     continue;
 
-                auto* val = lower_field_value(f.value);
+                auto* field_target_type = idx < field_types.size() ? field_types[idx] : nullptr;
+                IrValue* val = nullptr;
+                if (field_target_type && field_target_type->kind == types::TypeKind::Slice)
+                    val = lower_array_lvalue_to_slice(f.value, field_target_type);
+                if (!val)
+                {
+                    val = lower_field_value(f.value);
+                    if (val && field_target_type)
+                        val = coerce_array_to_slice(val, get_sema_resolved_type(f.value), field_target_type);
+                }
                 agg->values[idx] = val;
             }
 
@@ -7739,8 +7827,7 @@ export namespace dcc::ir::lower
             auto* ir_resolved_type = lower_type(resolved_type);
             auto* obj_sema_type = get_sema_resolved_type(idx_expr->object);
 
-            if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array &&
-                idx_expr->object->sema.is_lvalue &&
+            if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array && idx_expr->object->sema.is_lvalue &&
                 (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess))
             {
                 auto* base_ptr = lower_addr_of(idx_expr->object);
