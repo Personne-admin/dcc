@@ -1,0 +1,38 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 factorial(u64 value) {
+    if value <= 1 {
+        return 1;
+    }
+    return value * factorial(value - 1);
+}
+
+u64 sum(u64 n) {
+    u64 result = 0;
+    while n > 0 {
+        result += n;
+        n -= 1;
+    }
+    return result;
+}
+
+const u64 FACTORIAL = factorial(6);
+const u64 SUM = sum(10);
+
+@nomangle
+public i32 dcc_main() {
+    return if FACTORIAL == 720 && SUM == 55 && sum(3) == 6 { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

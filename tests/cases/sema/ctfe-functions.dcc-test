@@ -1,0 +1,113 @@
+=== FILE: main.dc ===
+module ctfe;
+
+u64 twice(u64 x) {
+    return x * 2;
+}
+
+u64 combine(u64 a, u64 b, u64 c) {
+    return twice(a) + twice(b) + c;
+}
+
+u64 factorial(u64 n) {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+u64 loop_sum(u64 n) {
+    u64 sum = 0;
+    for (u64 i = 0; i < n; i += 1) {
+        if i == 2 {
+            continue;
+        }
+        if i == 8 {
+            break;
+        }
+        sum += i;
+    }
+    u64 j = 0;
+    while j < 3 {
+        sum = sum + 1;
+        j += 1;
+    }
+    do {
+        sum -= 1;
+    } while false;
+    return sum;
+}
+
+T identity(T)(T value) {
+    return value;
+}
+
+extern u64 runtime_only();
+
+u64 select(bool compile_path) {
+    if compile_path {
+        return 42;
+    }
+    return runtime_only();
+}
+
+u64 defaults(u64 value = twice(6)) {
+    return value;
+}
+
+u64 template_default(u64 N = twice(7))() {
+    return N;
+}
+
+u64 cast_value(i32 value) {
+    return (value as i64 + 1) as u64;
+}
+
+u64 shadow(u64 value) {
+    u64 result;
+    result = value;
+    {
+        u64 value = 9;
+        result += value;
+    }
+    return result + value;
+}
+
+bool short_circuit(bool flag) {
+    return flag || runtime_only() == 0;
+}
+
+u64 static_branch() {
+    const u64 condition = twice(3);
+    static if 6 == condition {
+        return 17;
+    } else {
+        return runtime_only();
+    }
+}
+
+const u64 A = twice(10);
+const u64 B = combine(2, 3, 4);
+const u64 C = factorial(6);
+const u64 D = loop_sum(10);
+const u64 E = identity(19 as u64);
+const u64 F = select(true);
+const u64 G = defaults();
+const u64 H = template_default();
+const u64 I = cast_value(8);
+const u64 J = shadow(4);
+const bool K = short_circuit(true);
+const u64 L = static_branch();
+const u64 M = (3 + 4) * 6;
+
+void verify() {
+    static if A != 20 || B != 14 || C != 720 || D != 28 || E != 19 || F != 42 || G != 12 || H != 14 || I != 9 || J != 17 || !K || L != 17 || M != 42 {
+        incorrect_ctfe_result();
+    }
+}
+
+u64 runtime_call(u64 value) {
+    return twice(value) + select(false);
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

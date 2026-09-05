@@ -119,10 +119,11 @@ TEST_CASE("construct Pointer")
     CHECK_EQ(null_ptr.kind(), comptime::Value::Kind::Pointer);
     CHECK(null_ptr.is_null_ptr());
 
-    auto non_null = comptime::Value::make_pointer_to(3, t);
+    auto non_null = comptime::Value::make_pointer_to(comptime::ValuePtr{false, 7, {3}}, t);
     CHECK_EQ(non_null.kind(), comptime::Value::Kind::Pointer);
     CHECK(!non_null.is_null_ptr());
-    CHECK_EQ(non_null.pointer_index(), 3u);
+    CHECK_EQ(non_null.get_pointer().allocation, 7u);
+    CHECK_EQ(non_null.get_pointer().path, (std::vector<std::uint32_t>{3}));
 }
 
 SECTION("comptime: copy and move");
@@ -297,12 +298,15 @@ TEST_CASE("Pointer equality")
     auto b = comptime::Value::make_pointer(t);
     CHECK_EQ(a, b);
 
-    auto c = comptime::Value::make_pointer_to(0, t);
-    auto d = comptime::Value::make_pointer_to(0, t);
+    auto c = comptime::Value::make_pointer_to(comptime::ValuePtr{false, 1, {0}}, t);
+    auto d = comptime::Value::make_pointer_to(comptime::ValuePtr{false, 1, {0}}, t);
     CHECK_EQ(c, d);
 
-    auto e = comptime::Value::make_pointer_to(1, t);
+    auto e = comptime::Value::make_pointer_to(comptime::ValuePtr{false, 1, {1}}, t);
     CHECK_NE(c, e);
+
+    auto f = comptime::Value::make_pointer_to(comptime::ValuePtr{false, 2, {0}}, t);
+    CHECK_NE(c, f);
     CHECK_NE(a, c);
 }
 

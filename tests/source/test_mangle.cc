@@ -502,15 +502,17 @@ TEST_CASE("mangle_value Pointer null")
     CHECK_EQ(s, "_DC0VPPqi32s0");
 }
 
-TEST_CASE("mangle_value Pointer to index 5")
+TEST_CASE("mangle_value Pointer into allocation")
 {
     types::TypeContext ctx;
-    auto s = mangle::mangle_value(comptime::Value::make_pointer_to(5, ctx.pointer_to(i32(ctx), types::Qual::None)));
-    CHECK_EQ(s, "_DC0VPPqi32s15");
+    auto p = comptime::ValuePtr{false, 2, {5, 1}};
+    auto s = mangle::mangle_value(comptime::Value::make_pointer_to(p, ctx.pointer_to(i32(ctx), types::Qual::None)));
+    CHECK_EQ(s, "_DC0VPPqi32s12.2.5.1");
     mangle::DemangledName d;
     REQUIRE(mangle::demangle(d, s));
     CHECK(!d.value_only.is_null_ptr);
-    CHECK_EQ(d.value_only.pointer_index, 5u);
+    CHECK_EQ(d.value_only.pointer_allocation, 2u);
+    CHECK_EQ(d.value_only.pointer_path, (std::vector<std::uint32_t>{5, 1}));
 }
 
 TEST_CASE("mangle_value Pointer const volatile null")

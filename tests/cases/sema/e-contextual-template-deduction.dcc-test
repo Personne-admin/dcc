@@ -22,9 +22,7 @@ u8 test_assign() {
     return val;
 }
 
-=== EXPECT-ERRORS ===
-main.dc:7: initializer for global `low` is not a constant expression
-main.dc:9: initializer for global `larger` is not a constant expression
+=== EXPECT-ERROR-COUNT: 0 ===
 
 === EXPECT-BODY ===
 Module m
@@ -35,12 +33,12 @@ Module m
       Return
         Ident a [type=<unresolved> const=<none>]
   Var low type=u8 storage=module offset=0
-    Call [type=u8 const=<none> decl=max spec=max]
+    Call [type=u8 const=8 constant decl=max spec=max]
       Ident max [type=<unresolved> const=<none>]
       IntLiteral 8 [type=u8 const=8 constant]
       IntLiteral 3 [type=u8 const=3 constant]
   Var larger type=i32 storage=module offset=0
-    Call [type=i32 const=<none> decl=max spec=max]
+    Call [type=i32 const=23 constant decl=max spec=max]
       Ident max [type=<unresolved> const=<none>]
       IntLiteral 23 [type=i32 const=23 constant]
       IntLiteral 23 [type=i32 const=23 constant]
