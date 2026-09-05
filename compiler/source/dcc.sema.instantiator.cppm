@@ -3493,14 +3493,15 @@ export namespace dcc::sema
 
                             expand_block(cloned_block);
 
-                            for (auto* s : cloned_block.stmts)
-                                result.push_back(s);
-
+                            // Each iteration gets its own lexical block so locals declared in the body do not collide across iterations.
                             if (cloned_block.tail)
                             {
                                 auto* tail_stmt = ast_ctx.make<ast::ExprStmt>(cloned_block.tail->range, cloned_block.tail);
-                                result.push_back(tail_stmt);
+                                cloned_block.stmts.push_back(tail_stmt);
+                                cloned_block.tail = nullptr;
                             }
+                            auto* be = ast_ctx.make<ast::BlockExpr>(sf.range, std::move(cloned_block));
+                            result.push_back(ast_ctx.make<ast::ExprStmt>(sf.range, be));
                         }
 
                         return result;
@@ -3807,14 +3808,14 @@ export namespace dcc::sema
                                                  pack_name, elem_idx, multi_pack};
                         replacer.replace_in_block(cloned_block);
 
-                        for (auto* s : cloned_block.stmts)
-                            result.push_back(s);
-
                         if (cloned_block.tail)
                         {
                             auto* tail_stmt = ast_ctx.make<ast::ExprStmt>(cloned_block.tail->range, cloned_block.tail);
-                            result.push_back(tail_stmt);
+                            cloned_block.stmts.push_back(tail_stmt);
+                            cloned_block.tail = nullptr;
                         }
+                        auto* be = ast_ctx.make<ast::BlockExpr>(sf.range, std::move(cloned_block));
+                        result.push_back(ast_ctx.make<ast::ExprStmt>(sf.range, be));
                     }
 
                     return result;

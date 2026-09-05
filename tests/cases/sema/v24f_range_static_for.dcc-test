@@ -31,4 +31,6 @@ fn=sf_range args=[i32] state=2
 Func sf_range diverging=false
   Param x type=i32 storage=param offset=0 index=0
   Body
-    IntLiteral 0 [type=u64 const=0 constant]
+    Block [type=void const=<none>]
+      Body
+        IntLiteral 0 [type=u64 const=0 constant]

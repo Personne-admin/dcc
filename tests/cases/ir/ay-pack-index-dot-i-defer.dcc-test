@@ -28,7 +28,7 @@ void@_DC0F1.4.test6.caller0v() {
 
 linkonce_odr void@_DC0S1.4.test1.f2i32si32svX2ti32sti32s(i32, i32) {
 %entry(i32 %args_0, i32 %args_1):
-  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %args_1)
   call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %args_0)
+  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %args_1)
   ret void
 }

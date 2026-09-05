@@ -1,0 +1,22 @@
+=== FILE: main.dc ===
+module m;
+
+void handle(i32 x) {}
+
+void f(T...)(T args) {
+    static for arg in args {
+        i32 x = 0;
+        i32 x = 1;
+        handle(x);
+        handle(arg);
+    }
+}
+
+void caller() {
+    f(1, 2);
+}
+
+=== EXPECT-ERROR-COUNT: 2 ===
+
+=== EXPECT-ERRORS ===
+main.dc:8: redefinition of `x`
