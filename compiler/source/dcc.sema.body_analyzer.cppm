@@ -3782,6 +3782,10 @@ export namespace dcc::sema
             if (!constraint)
                 return true;
 
+            for (auto* type_arg : type_args)
+                if (contains_template_param(type_arg))
+                    return true;
+
             if (!m_constraint_checking_set.insert(decl).second)
             {
                 error(use_range, "recursive type constraint on `{}`", decl_name);
@@ -3822,7 +3826,7 @@ export namespace dcc::sema
 
         void check_nominal_type_constraint(ModuleInfo& mod, Scope const& scope, types::TypePtr ty, sm::SourceRange use_range)
         {
-            if (!ty)
+            if (!ty || contains_template_param(ty))
                 return;
 
             ast::Expr const* constraint = nullptr;
