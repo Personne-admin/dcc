@@ -1,0 +1,68 @@
+=== FILE: test.dc ===
+module test;
+
+void handle(i32 x) {}
+void handle(i64 x) {}
+
+void f(T...)(T args) {
+    static for arg in args {
+        i32 step = 1;
+        i64 total = 0;
+        handle(arg);
+        handle(step);
+        handle(total);
+    }
+}
+
+public void caller() {
+    i32 a = 42;
+    i64 b = 100;
+    f(a, b);
+}
+
+=== EXPECT-IR ===
+module "test"
+void@_DC0F1.4.test6.handle1i32sv(i32) {
+%entry(i32 %x):
+  ret void
+}
+
+void@_DC0F1.4.test6.handle1i64sv(i64) {
+%entry(i64 %x):
+  ret void
+}
+
+void@_DC0F1.4.test6.caller0v() {
+%entry:
+  %0 = alloca i32
+  store i32 #42, ptr<i32> %0
+  %1 = alloca i64
+  store i64 #100, ptr<i64> %1
+  %2 = load i32, ptr<i32> %0
+  %3 = load i64, ptr<i64> %1
+  call fn(@_DC0S1.4.test1.f2i32si64svX2ti32sti64s)(i32 %2, i64 %3)
+  ret void
+}
+
+linkonce_odr void@_DC0S1.4.test1.f2i32si64svX2ti32sti64s(i32, i64) {
+%entry(i32 %args_0, i64 %args_1):
+  %0 = alloca i32
+  store i32 #1, ptr<i32> %0
+  %1 = alloca i64
+  store i64 #0, ptr<i64> %1
+  call fn(@_DC0F1.4.test6.handle1i32sv)(i32 %args_0)
+  %2 = load i32, ptr<i32> %0
+  call fn(@_DC0F1.4.test6.handle1i32sv)(i32 %2)
+  %3 = load i64, ptr<i64> %1
+  call fn(@_DC0F1.4.test6.handle1i64sv)(i64 %3)
+  %4 = alloca i32
+  store i32 #1, ptr<i32> %4
+  %5 = alloca i64
+  store i64 #0, ptr<i64> %5
+  call fn(@_DC0F1.4.test6.handle1i64sv)(i64 %args_1)
+  %6 = load i32, ptr<i32> %4
+  call fn(@_DC0F1.4.test6.handle1i32sv)(i32 %6)
+  %7 = load i64, ptr<i64> %5
+  call fn(@_DC0F1.4.test6.handle1i64sv)(i64 %7)
+  ret void
+}

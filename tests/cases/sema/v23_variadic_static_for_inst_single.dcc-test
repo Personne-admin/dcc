@@ -18,4 +18,6 @@ fn=sf_inst args=[i32] state=2
 Func sf_inst diverging=false
   Param x type=i32 storage=param offset=0 index=0
   Body
-    Ident x [type=i32 const=<none> lvalue decl=x]
+    Block [type=void const=<none>]
+      Body
+        Ident x [type=i32 const=<none> lvalue decl=x]
