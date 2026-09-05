@@ -2616,6 +2616,48 @@ export namespace dcc::parser
             expect(TK::RBrace, "to close `static if` branch");
         }
 
+        ast::Expr* parse_match_arm_body()
+        {
+            auto start = loc();
+            if (check(TK::KwReturn))
+            {
+                advance();
+                auto* stmt = m_ctx.make<ast::ReturnStmt>(sm::SourceRange{}, m_ctx.allocator());
+                if (!check(TK::Semicolon) && !check(TK::Comma) && !check(TK::RBrace))
+                    stmt->value = parse_expr();
+                stmt->range = range_from(start);
+
+                ast::Block b(range_from(start), m_ctx.allocator());
+                b.stmts.push_back(stmt);
+                b.range = range_from(start);
+                return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(b));
+            }
+            if (check(TK::KwBreak))
+            {
+                advance();
+                auto* stmt = m_ctx.make<ast::BreakStmt>(range_from(start), m_ctx.allocator());
+                stmt->range = range_from(start);
+
+                ast::Block b(range_from(start), m_ctx.allocator());
+                b.stmts.push_back(stmt);
+                b.range = range_from(start);
+                return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(b));
+            }
+            if (check(TK::KwContinue))
+            {
+                advance();
+                auto* stmt = m_ctx.make<ast::ContinueStmt>(range_from(start), m_ctx.allocator());
+                stmt->range = range_from(start);
+
+                ast::Block b(range_from(start), m_ctx.allocator());
+                b.stmts.push_back(stmt);
+                b.range = range_from(start);
+                return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(b));
+            }
+
+            return parse_expr();
+        }
+
         ast::MatchArm parse_type_match_arm()
         {
             auto start = loc();
@@ -2633,7 +2675,7 @@ export namespace dcc::parser
                 arm.guard = parse_expr(0, true);
 
             expect(TK::FatArrow, "in type match arm");
-            arm.body = parse_expr();
+            arm.body = parse_match_arm_body();
             arm.range = range_from(start);
             return arm;
         }
@@ -2684,7 +2726,7 @@ export namespace dcc::parser
                 else
                     s->arms.push_back(parse_match_arm());
 
-                if (!match(TK::Comma))
+                if (!match(TK::Comma) && !match(TK::Semicolon))
                     break;
             }
 
@@ -3822,7 +3864,7 @@ export namespace dcc::parser
             while (!check(TK::RBrace) && !eof())
             {
                 m->arms.push_back(parse_match_arm());
-                if (!match(TK::Comma))
+                if (!match(TK::Comma) && !match(TK::Semicolon))
                     break;
             }
 
@@ -3841,7 +3883,7 @@ export namespace dcc::parser
                 arm.guard = parse_expr(0, true);
 
             expect(TK::FatArrow, "in match arm");
-            arm.body = parse_expr();
+            arm.body = parse_match_arm_body();
             arm.range = range_from(start);
             return arm;
         }
