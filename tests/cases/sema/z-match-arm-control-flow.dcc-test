@@ -1,0 +1,74 @@
+=== FILE: main.dc ===
+module m;
+
+enum Status {
+    Ok,
+    Err,
+}
+
+enum Opt {
+    None,
+    Some(i32),
+}
+
+i32 test_match_return(Status s) {
+    match s {
+        Status::Err => return -1,
+        Status::Ok => return 1,
+    }
+}
+
+void test_match_return_void(Status s) {
+    match s {
+        Status::Err => return,
+        _ => {},
+    }
+}
+
+i32 test_match_break(Status s) {
+    i32 result = 0;
+    while true {
+        match s {
+            Status::Err => break,
+            Status::Ok => {
+                result = 10;
+            },
+        }
+        break;
+    }
+    return result;
+}
+
+i32 test_match_continue(i32 n) {
+    i32 count = 0;
+    for i in 0..n {
+        match i {
+            2 => continue,
+            _ => count += 1,
+        }
+    }
+    return count;
+}
+
+i32 test_match_value_with_diverging_arm(Opt opt) {
+    i32 val = match opt {
+        Opt::None => return -1,
+        Opt::Some(v) => v,
+    };
+    return val * 2;
+}
+
+i32 test_match_semicolon(Status s) {
+    match s {
+        Status::Err => return -1;
+        Status::Ok => return 1;
+    }
+}
+
+i32 test_static_match_return() {
+    static match 42 {
+        42 => return 100,
+        _ => return 0,
+    }
+    return -1;
+}

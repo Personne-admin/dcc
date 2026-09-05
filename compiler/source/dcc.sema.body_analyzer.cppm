@@ -11516,7 +11516,7 @@ export namespace dcc::sema
                 if (arm.body)
                 {
                     auto r = analyze_expr(mod, fn, *arm_scope, *arm.body, loop_depth, next_off, expected_type, arm_consts);
-                    if (!unified_type)
+                    if (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt()))
                         unified_type = r.type ? r.type : m_types.m_voidt();
                     else if (r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error && r.type != m_types.m_voidt() &&
                              unified_type != m_types.m_voidt())
