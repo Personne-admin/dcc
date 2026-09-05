@@ -911,6 +911,7 @@ export namespace dcc::ast
     {
         static constexpr auto Kind = PatternKind::Binding;
         std::string_view name;
+        VarDecl const* synthetic_decl{};
         bool by_reference{false};
         BindingPattern(sm::SourceRange r, std::string_view n) : Pattern(Kind, r), name(n) {}
     };

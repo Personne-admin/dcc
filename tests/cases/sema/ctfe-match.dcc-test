@@ -1,0 +1,82 @@
+=== FILE: main.dc ===
+module ctfe_match;
+
+enum Color { Red, Green, Blue }
+
+struct Size { u64 w; u64 h; }
+
+enum Shape {
+    Circle(u64),
+    Rect(Size),
+    Empty,
+}
+
+u64 area(Shape s) {
+    return match s {
+        Shape::Circle(r) => r * r * 3,
+        Shape::Rect(box) => box.w * box.h,
+        Shape::Empty => 0,
+    };
+}
+
+u64 rank(Color c) {
+    return match c {
+        Color::Red => 1,
+        Color::Green => 2,
+        Color::Blue => 3,
+    };
+}
+
+u64 classify(u64 n) {
+    return match n {
+        0 => 100,
+        1..5 => 200,
+        _ => 300,
+    };
+}
+
+u64 guarded(u64 n) {
+    return match n {
+        x if x > 10 => x - 10,
+        x => x,
+    };
+}
+
+u64 widened(Size start) {
+    Shape s = Shape::Rect(start);
+    match s {
+        Shape::Rect(&box) => {
+            box.w += 10;
+        },
+        _ => {},
+    }
+    return area(s);
+}
+
+u64 circle() {
+    Shape s = Shape::Circle(4);
+    return area(s);
+}
+
+u64 rect(u64 w, u64 h) {
+    Size box = { w = w, h = h };
+    return area(Shape::Rect(box));
+}
+
+const u64 A = circle();
+const u64 B = rect(3, 5);
+const u64 C = rank(Color::Green);
+const u64 D = area(Shape::Empty);
+const u64 E = classify(3);
+const u64 F = classify(9);
+const u64 G = guarded(14);
+const u64 H = guarded(4);
+const u64 I = widened({ w = 1, h = 2 });
+
+void verify() {
+    static if A != 48 || B != 15 || C != 2 || D != 0 || E != 200 || F != 300 || G != 4 || H != 4 || I != 22 {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

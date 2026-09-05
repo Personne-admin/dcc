@@ -8771,6 +8771,7 @@ export namespace dcc::sema
                 case ast::PatternKind::Binding: {
                     auto& b = static_cast<ast::BindingPattern&>(p);
                     auto* v = make_local_decl(b.name, b.range, nullptr, ast::StorageClass::Local, 0);
+                    b.synthetic_decl = v;
                     if (b.by_reference && matched_type)
                     {
                         types::Qual qual = types::Qual::None;
