@@ -64,6 +64,8 @@ namespace dcc::backend::em64t
             std::unordered_map<dcc::ir::IrValue const*, std::uint32_t> aggregate_to_slot;
             std::unordered_set<dcc::ir::IrValue const*> memory_addr_values;
 
+            std::unordered_map<dcc::ir::IrValue const*, MOpc> branch_comparisons;
+
             std::uint32_t current_block_id = 0;
             bool has_error = false;
             bool uses_sret = false;
@@ -378,6 +380,55 @@ namespace dcc::backend::em64t
             mi.ops[0] = MOp::from_reg(dst);
             ctx.append_instr(mi);
             return dst;
+        }
+
+        [[nodiscard]] std::optional<MOpc> branch_comparison(dcc::ir::IrValue const* value)
+        {
+            using enum dcc::ir::IrNodeKind;
+            if (!value)
+                return std::nullopt;
+
+            MOpc opc;
+            switch (value->kind)
+            {
+                case CmpEq:
+                    opc = MOpc::JE;
+                    break;
+                case CmpNe:
+                    opc = MOpc::JNE;
+                    break;
+                case CmpLt:
+                    opc = MOpc::JL;
+                    break;
+                case CmpLe:
+                    opc = MOpc::JLE;
+                    break;
+                case CmpGt:
+                    opc = MOpc::JG;
+                    break;
+                case CmpGe:
+                    opc = MOpc::JGE;
+                    break;
+                case CmpULt:
+                    opc = MOpc::JB;
+                    break;
+                case CmpULe:
+                    opc = MOpc::JBE;
+                    break;
+                case CmpUGt:
+                    opc = MOpc::JA;
+                    break;
+                case CmpUGe:
+                    opc = MOpc::JAE;
+                    break;
+                default:
+                    return std::nullopt;
+            }
+
+            auto* cmp = static_cast<dcc::ir::IrCmpEqInst const*>(value);
+            if (!cmp->lhs || !cmp->rhs || !cmp->lhs->type || cmp->lhs->type->kind == dcc::ir::IrTypeKind::Float)
+                return std::nullopt;
+            return opc;
         }
 
         void emit_jcc(IselCtx& ctx, MOpc jcc_opc, std::uint32_t target_block)
@@ -2834,6 +2885,17 @@ namespace dcc::backend::em64t
 
                 case IrNodeKind::BrCond: {
                     auto* bc = static_cast<IrBrCondInst const*>(term);
+                    auto fused = ctx.branch_comparisons.find(bc->condition);
+                    if (fused != ctx.branch_comparisons.end())
+                    {
+                        auto* cmp = static_cast<IrCmpEqInst const*>(bc->condition);
+                        VReg lhs = ctx.try_materialize(cmp->lhs);
+                        VReg rhs = ctx.try_materialize(cmp->rhs);
+                        emit_cmp(ctx, lhs, rhs);
+                        emit_jcc(ctx, fused->second, ctx.ir_bb_to_mblock.at(bc->true_target));
+                        emit_jmp(ctx, ctx.ir_bb_to_mblock.at(bc->false_target));
+                        break;
+                    }
                     VReg cond = ctx.try_materialize(bc->condition);
                     auto true_it = ctx.ir_bb_to_mblock.find(bc->true_target);
                     auto false_it = ctx.ir_bb_to_mblock.find(bc->false_target);
@@ -3182,6 +3244,31 @@ namespace dcc::backend::em64t
         mfunc.src_line = static_cast<std::int32_t>(func.decl_line);
 
         IselCtx ctx(mfunc, target);
+        auto use_def = analysis::UseDef::build(func);
+        std::unordered_map<IrValue const*, std::size_t> terminator_uses;
+        for (auto* block : func.blocks)
+        {
+            if (!block || !block->terminator)
+                continue;
+            auto* term = block->terminator;
+            switch (term->kind)
+            {
+                case IrNodeKind::BrCond: ++terminator_uses[static_cast<IrBrCondInst const*>(term)->condition]; break;
+                case IrNodeKind::Ret: ++terminator_uses[static_cast<IrRetInst const*>(term)->value]; break;
+                case IrNodeKind::Switch: ++terminator_uses[static_cast<IrSwitchInst const*>(term)->value]; break;
+                default: break;
+            }
+        }
+        for (auto* block : func.blocks)
+        {
+            if (!block || !block->terminator || block->terminator->kind != IrNodeKind::BrCond)
+                continue;
+            auto* branch = static_cast<IrBrCondInst const*>(block->terminator);
+            auto opc = branch_comparison(branch->condition);
+            if (opc && use_def.use_count(branch->condition) + terminator_uses[branch->condition] == 1 &&
+                std::find(block->instructions.begin(), block->instructions.end(), branch->condition) != block->instructions.end())
+                ctx.branch_comparisons.emplace(branch->condition, *opc);
+        }
 
         for (auto* ir_bb : func.blocks)
         {
@@ -3380,7 +3467,8 @@ namespace dcc::backend::em64t
             {
                 if (!inst)
                     continue;
-                lower_instruction(ctx, inst);
+                if (!ctx.branch_comparisons.contains(inst))
+                    lower_instruction(ctx, inst);
             }
 
             lower_terminator(ctx, ir_bb->terminator);
