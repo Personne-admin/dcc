@@ -1,0 +1,54 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+@runtime
+public i32 rt_func(i32 x) {
+    return x * 2;
+}
+
+@nomangle
+public i32 normal_func(i32 x) {
+    return x * 3;
+}
+
+@nomangle
+public i32 caller() {
+    i32 a = rt_func(5);
+    i32 b = @runtime normal_func(5);
+    return a + b;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+; Function Attrs: noinline
+define i32 @rt_func(i32 %x) #0 {
+entry:
+  %"0" = mul i32 %x, 2
+  ret i32 %"0"
+}
+
+define i32 @normal_func(i32 %x) {
+entry:
+  %"0" = mul i32 %x, 3
+  ret i32 %"0"
+}
+
+define i32 @caller() {
+entry:
+  %"0" = alloca i32, align 4
+  %"1" = call i32 @rt_func(i32 5) #0
+  store i32 %"1", ptr %"0", align 4
+  %"2" = alloca i32, align 4
+  %"3" = call i32 @normal_func(i32 5) #0
+  store i32 %"3", ptr %"2", align 4
+  %"4" = load i32, ptr %"0", align 4
+  %"5" = load i32, ptr %"2", align 4
+  %"6" = add i32 %"4", %"5"
+  ret i32 %"6"
+}
+
+attributes #0 = { noinline }

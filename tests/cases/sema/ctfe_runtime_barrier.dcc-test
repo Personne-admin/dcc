@@ -1,0 +1,51 @@
+=== FILE: main.dc ===
+module m;
+
+struct S {
+    i32 x;
+}
+
+i32 method(S s) {
+    return s.x;
+}
+
+@runtime
+i32 rt_fn() {
+    return 42;
+}
+
+i32 helper() {
+    return rt_fn();
+}
+
+i32 normal_fn() {
+    return 10;
+}
+
+@runtime
+T rt_tmpl(T)(T x) {
+    return x;
+}
+
+i32 def_fn(i32 x = @runtime normal_fn()) {
+    return x;
+}
+
+const i32 C_ok1 = if true { 1 } else { rt_fn() };
+const i32 C_ok2 = if true { 2 } else { @runtime normal_fn() };
+
+const i32 C1 = rt_fn();
+const i32 C2 = helper();
+const i32 C3 = @runtime normal_fn();
+const S s_val = S{ x = 5 };
+const i32 C4 = @runtime s_val.method();
+const i32 C5 = rt_tmpl(10);
+const i32 C6 = def_fn();
+
+=== EXPECT-ERRORS ===
+main.dc:36: initializer for global `C1` is not a constant expression: call to runtime-only function in constant expression
+main.dc:37: initializer for global `C2` is not a constant expression: call to runtime-only function in constant expression
+main.dc:38: initializer for global `C3` is not a constant expression: call to runtime-only function in constant expression
+main.dc:40: initializer for global `C4` is not a constant expression: call to runtime-only function in constant expression
+main.dc:41: initializer for global `C5` is not a constant expression: call to runtime-only function in constant expression
+main.dc:42: initializer for global `C6` is not a constant expression: call to runtime-only function in constant expression

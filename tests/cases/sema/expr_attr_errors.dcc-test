@@ -1,0 +1,34 @@
+=== FILE: main.dc ===
+module m;
+
+@runtime
+struct S {
+    i32 a;
+}
+
+@runtime @runtime
+void dup_fn() {}
+
+void bad_exprs() {
+    i32 a = @runtime 42;
+    i32 b = 1;
+    i32 c = @runtime b;
+}
+
+void dummy() {}
+
+void dup_call() {
+    @runtime @runtime dummy();
+}
+
+void bad_arg() {
+    @runtime(123) dummy();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: attribute `@runtime` is not valid on this declaration
+main.dc:8: duplicate attribute `@runtime`
+main.dc:12: attribute `@runtime` is only valid on call expressions
+main.dc:14: attribute `@runtime` is only valid on call expressions
+main.dc:20: duplicate attribute `@runtime`
+main.dc:24: attribute `@runtime` does not take arguments

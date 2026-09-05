@@ -561,7 +561,7 @@ export namespace dcc::ir::lower
 
             if (sema.is_inline)
                 ir_func->attrs.push_back({IrFuncAttr::Inline, {}});
-            if (sema.is_noinline)
+            if (sema.is_noinline || sema.is_runtime)
                 ir_func->attrs.push_back({IrFuncAttr::NoInline, {}});
 
             if (sema.is_nomangle)
@@ -2681,6 +2681,9 @@ export namespace dcc::ir::lower
             auto* call_inst = m_ctx.call(ir_ret_type, callee_value);
             if (direct_target)
                 call_inst->cc = calling_conv_from_string(direct_target->sema.calling_conv);
+
+            if (call->sema.is_runtime || (direct_target && direct_target->sema.is_runtime))
+                call_inst->is_noinline = true;
 
             bool is_ufcs = (call->sema.ufcs_callee != nullptr);
             if (is_ufcs)
