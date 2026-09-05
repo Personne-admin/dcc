@@ -2212,7 +2212,7 @@ export namespace dcc::parser
             if (auto* stmt = try_parse_decl_or_expr_stmt())
                 return stmt;
 
-            auto* expr = parse_expr();
+            auto* expr = parse_expr(0, false, true);
             if (!expr)
                 return nullptr;
 
@@ -2323,7 +2323,7 @@ export namespace dcc::parser
             Attempt ea;
             {
                 Speculation spec(*this);
-                auto* e = parse_expr();
+                auto* e = parse_expr(0, false, true);
                 if (e && match(TK::Semicolon))
                 {
                     ea.had_suppressed_error = spec.had_suppressed_errors();
@@ -2766,7 +2766,7 @@ export namespace dcc::parser
                 }
 
                 auto stmt_start = loc();
-                auto* expr = parse_expr();
+                auto* expr = parse_expr(0, false, true);
                 if (!expr)
                 {
                     synchronize_to_stmt();
@@ -2871,15 +2871,15 @@ export namespace dcc::parser
 
         bool is_assignment_op(TK k) noexcept { return k == TK::Eq || (k >= TK::PlusEq && k <= TK::GtGtEq); }
 
-        ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false)
+        ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false)
         {
             auto start = loc();
             auto first_error = m_recovery_errors.size();
-            auto* result = parse_expr_impl(min_prec, no_struct_lit);
+            auto* result = parse_expr_impl(min_prec, no_struct_lit, is_stmt);
             return mark_recovered(result, first_error, range_from(start));
         }
 
-        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false)
+        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false)
         {
             auto* left = parse_unary(no_struct_lit);
             if (!left)
@@ -2887,7 +2887,7 @@ export namespace dcc::parser
 
             for (;;)
             {
-                if (is_block_like_expr(left))
+                if (is_stmt && is_block_like_expr(left))
                 {
                     auto op = peek().kind;
                     if (op != TK::KwAs && op != TK::AmpAmp && op != TK::PipePipe && op != TK::DotDot)
@@ -2907,6 +2907,7 @@ export namespace dcc::parser
                     auto* type = parse_type(!no_struct_lit);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
                     left = m_ctx.make<ast::CastExpr>(range, left, type);
+                    is_stmt = false;
                     continue;
                 }
 
@@ -2916,6 +2917,7 @@ export namespace dcc::parser
                     auto* right = parse_expr(prec + 1, no_struct_lit);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
                     left = m_ctx.make<ast::RangeExpr>(range, left, right, inclusive);
+                    is_stmt = false;
                     continue;
                 }
 
@@ -2926,6 +2928,7 @@ export namespace dcc::parser
 
                 auto range = sm::SourceRange{left->range.begin, m_prev_end};
                 left = m_ctx.make<ast::BinaryExpr>(range, left, op, right);
+                is_stmt = false;
                 std::ignore = op_range;
             }
 
@@ -3490,7 +3493,7 @@ export namespace dcc::parser
                     }
 
                     auto stmt_start = loc();
-                    auto* e = parse_expr();
+                    auto* e = parse_expr(0, false, true);
                     if (!e)
                     {
                         synchronize_to_stmt();
@@ -3541,7 +3544,7 @@ export namespace dcc::parser
                     }
 
                     auto stmt_start = loc();
-                    auto* e = parse_expr();
+                    auto* e = parse_expr(0, false, true);
                     if (!e)
                     {
                         synchronize_to_stmt();
@@ -3644,7 +3647,7 @@ export namespace dcc::parser
                     }
 
                     auto sstart = loc();
-                    auto* e = parse_expr();
+                    auto* e = parse_expr(0, false, true);
                     if (!e)
                     {
                         synchronize_to_stmt();

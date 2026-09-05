@@ -1,0 +1,57 @@
+=== FILE: main.dc ===
+module m;
+
+i32 foo(i32 x) {
+    return x;
+}
+
+i32 test_return(bool cond) {
+    return if cond {
+        10
+    } else {
+        20
+    } + 3;
+}
+
+i32 test_grouped(bool cond, u8 value) {
+    return (
+        if cond {
+            'A' as u8
+        } else {
+            'a' as u8
+        } + (value - 10) as u8
+    ) as i32;
+}
+
+i32 test_var_decl(bool cond) {
+    i32 x = if cond {
+        1
+    } else {
+        2
+    } + 3;
+    return x;
+}
+
+i32 test_call_arg(bool cond) {
+    return foo(
+        if cond {
+            1
+        } else {
+            2
+        } + 3
+    );
+}
+
+i32 test_rhs(bool cond) {
+    return 3 + if cond { 10 } else { 20 };
+}
+
+void* test_if_else_deref(bool cond, u64* out_size) {
+    if cond {
+        return null;
+    } else {
+        cond = false;
+    }
+    *out_size = 42;
+    return null;
+}
