@@ -357,6 +357,8 @@ export namespace dcc::ast
         std::string_view name;
         sm::SourceRange range;
         TypePtr value_type{};
+        TypePtr default_type{};
+        ExprPtr default_value{};
         bool is_pack : 1 {};
     };
 
@@ -380,6 +382,7 @@ export namespace dcc::ast
         std::string_view name;
         sm::SourceRange range;
         TypePtr type{};
+        ExprPtr default_value{};
         DeclSema sema;
         VarDecl const* synthetic_decl{};
         bool is_pack : 1 {};

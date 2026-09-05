@@ -19,7 +19,10 @@ namespace dcc::sema
         class AstCloner
         {
         public:
-            explicit AstCloner(ast::AstContext& ctx) : m_ctx(ctx), m_alloc(ctx.allocator()) {}
+            explicit AstCloner(ast::AstContext& ctx, std::span<ast::FuncParam const> params = {}, std::span<ast::Expr* const> args = {})
+                : m_ctx(ctx), m_alloc(ctx.allocator()), m_params(params), m_args(args)
+            {
+            }
 
             ast::TypeExpr* clone_type(ast::TypeExpr const* t);
             ast::Expr* clone_expr(ast::Expr const* e);
@@ -38,6 +41,8 @@ namespace dcc::sema
         private:
             ast::AstContext& m_ctx;
             ast::Allocator m_alloc;
+            std::span<ast::FuncParam const> m_params;
+            std::span<ast::Expr* const> m_args;
         };
 
         ast::TypeExpr* AstCloner::clone_type(ast::TypeExpr const* t)
@@ -181,6 +186,9 @@ namespace dcc::sema
                 }
                 case ast::ExprKind::Ident: {
                     auto* ex = static_cast<ast::IdentExpr const*>(e);
+                    for (std::size_t i = 0; i < m_params.size() && i < m_args.size(); ++i)
+                        if (m_params[i].synthetic_decl && ex->sema.resolved_decl == m_params[i].synthetic_decl)
+                            return clone_expr(m_args[i]);
                     auto* n = m_ctx.make<ast::IdentExpr>(ex->range, ex->name);
                     n->sema = ex->sema;
                     return n;
@@ -726,6 +734,7 @@ namespace dcc::sema
             result.name = p.name;
             result.range = p.range;
             result.type = clone_type(p.type);
+            result.default_value = clone_expr(p.default_value);
             result.sema = p.sema;
             result.is_pack = p.is_pack;
             return result;
@@ -1924,6 +1933,12 @@ export namespace dcc::sema
             default:
                 return nullptr;
         }
+    }
+
+    ast::Expr* clone_default_argument(ast::AstContext& ctx, ast::Expr const* expr, std::span<ast::FuncParam const> params, std::span<ast::Expr* const> args)
+    {
+        AstCloner cloner{ctx, params, args};
+        return cloner.clone_expr(expr);
     }
 
     [[nodiscard]] std::vector<ast::FuncParam> expand_func_params(ast::FuncDecl const& template_fn, infer::TemplateBindings const& bindings,

@@ -13,6 +13,7 @@ import dcc.si;
 import dcc.sm;
 import dcc.types;
 import dcc.sema.scope;
+import dcc.sema.infer;
 import dcc.sema.type_helpers;
 
 export namespace dcc::sema
@@ -207,8 +208,12 @@ export namespace dcc::sema
         {
             auto env = make_env(d.template_params);
             for (auto& tp : d.template_params)
+            {
                 if (tp.value_type)
                     std::ignore = resolve_type_expr(tp.value_type, mod, env);
+                if (tp.default_type)
+                    std::ignore = resolve_type_expr(tp.default_type, mod, env);
+            }
 
             for (auto& f : d.fields)
                 std::ignore = resolve_type_expr(f.type, mod, env);
@@ -229,8 +234,12 @@ export namespace dcc::sema
         {
             auto env = make_env(d.template_params);
             for (auto& tp : d.template_params)
+            {
                 if (tp.value_type)
                     std::ignore = resolve_type_expr(tp.value_type, mod, env);
+                if (tp.default_type)
+                    std::ignore = resolve_type_expr(tp.default_type, mod, env);
+            }
 
             if (d.backing_type)
             {
@@ -265,8 +274,12 @@ export namespace dcc::sema
         {
             auto env = make_env(d.template_params);
             for (auto& tp : d.template_params)
+            {
                 if (tp.value_type)
                     std::ignore = resolve_type_expr(tp.value_type, mod, env);
+                if (tp.default_type)
+                    std::ignore = resolve_type_expr(tp.default_type, mod, env);
+            }
 
             if (d.return_type)
                 std::ignore = resolve_type_expr(d.return_type, mod, env);
@@ -387,8 +400,12 @@ export namespace dcc::sema
         {
             auto env = make_env(d.template_params);
             for (auto& tp : d.template_params)
+            {
                 if (tp.value_type)
                     std::ignore = resolve_type_expr(tp.value_type, mod, env);
+                if (tp.default_type)
+                    std::ignore = resolve_type_expr(tp.default_type, mod, env);
+            }
 
             switch (d.using_kind)
             {
@@ -654,6 +671,18 @@ export namespace dcc::sema
                 }
 
             auto expected = template_param_count(*decl);
+            std::span<ast::TemplateParam const> template_params;
+            if (decl->kind == ast::DeclKind::Struct)
+            {
+                auto const& params = static_cast<ast::StructDecl const*>(decl)->template_params;
+                template_params = {params.data(), params.size()};
+            }
+            else if (decl->kind == ast::DeclKind::Enum)
+            {
+                auto const& params = static_cast<ast::EnumDecl const*>(decl)->template_params;
+                template_params = {params.data(), params.size()};
+            }
+
             if (!resolved_args.empty() && expected == 0)
             {
                 if (!quiet_unknown)
@@ -662,12 +691,42 @@ export namespace dcc::sema
                 return {m_types.m_errort(), types::Qual::None};
             }
 
-            if (expected > 0 && resolved_args.size() != expected)
+            std::size_t required = 0;
+            for (auto const& tp : template_params)
+                if (!tp.default_type && !tp.default_value)
+                    ++required;
+
+            if (expected > 0 && (resolved_args.size() < required || resolved_args.size() > expected))
             {
                 if (!quiet_unknown)
                     m_diag.error(range, "template argument count mismatch for `{}`", detail::decl_name(decl));
 
                 return {m_types.m_errort(), types::Qual::None};
+            }
+
+            if (resolved_args.size() < expected)
+            {
+                infer::TemplateBindings bindings{m_types};
+                for (std::size_t i = 0; i < resolved_args.size(); ++i)
+                {
+                    auto const& tp = template_params[i];
+                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    std::ignore = bindings.deduce(key, resolved_args[i]);
+                }
+                for (std::size_t i = resolved_args.size(); i < expected; ++i)
+                {
+                    auto const& tp = template_params[i];
+                    if (!tp.default_type || !tp.default_type->sema.canonical)
+                    {
+                        if (!quiet_unknown)
+                            m_diag.error(range, "missing required template argument for `{}`", detail::decl_name(decl));
+                        return {m_types.m_errort(), types::Qual::None};
+                    }
+                    auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    resolved_args.push_back(actual);
+                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    std::ignore = bindings.deduce(key, actual);
+                }
             }
 
             if (!resolved_args.empty())
@@ -702,7 +761,11 @@ export namespace dcc::sema
             auto inst_env = env;
             if (!u.template_params.empty() || !args.empty())
             {
-                if (u.template_params.size() != args.size())
+                std::size_t required = 0;
+                for (auto const& tp : u.template_params)
+                    if (!tp.default_type && !tp.default_value)
+                        ++required;
+                if (args.size() < required || args.size() > u.template_params.size())
                 {
                     if (!quiet_unknown)
                         m_diag.error(range, "template argument count mismatch for `{}`", detail::decl_name(&u));
@@ -711,19 +774,30 @@ export namespace dcc::sema
                     return {m_types.m_errort(), types::Qual::None};
                 }
 
-                for (std::size_t i = 0; i < args.size(); ++i)
+                infer::TemplateBindings bindings{m_types};
+                for (std::size_t i = 0; i < u.template_params.size(); ++i)
                 {
                     auto const& tp = u.template_params[i];
-                    auto const& arg = args[i];
-
-                    if (!arg.type)
+                    types::TypePtr actual{};
+                    if (i < args.size())
                     {
-                        if (!quiet_unknown)
-                            m_diag.error(arg.range, "value template arguments are not supported in signature types");
-                        continue;
+                        auto const& arg = args[i];
+                        if (!arg.type)
+                        {
+                            if (!quiet_unknown)
+                                m_diag.error(arg.range, "value template arguments are not supported in signature types");
+                            continue;
+                        }
+                        actual = resolve_type_expr(arg.type, mod, env, quiet_unknown).type;
                     }
+                    else if (tp.default_type && tp.default_type->sema.canonical)
+                        actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                    else
+                        continue;
 
-                    inst_env.types[tp.name] = resolve_type_expr(arg.type, mod, env, quiet_unknown).type;
+                    inst_env.types[tp.name] = actual;
+                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    std::ignore = bindings.deduce(key, actual);
                 }
             }
 

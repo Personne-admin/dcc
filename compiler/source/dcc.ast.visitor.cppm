@@ -249,8 +249,14 @@ namespace dcc::ast
     void RecursiveAstVisitor::visitTemplateParams(std::pmr::vector<TemplateParam> const& params)
     {
         for (auto const& tp : params)
+        {
             if (tp.value_type)
                 visitTypeExpr(tp.value_type);
+            if (tp.default_type)
+                visitTypeExpr(tp.default_type);
+            if (tp.default_value)
+                visitExpr(tp.default_value);
+        }
     }
 
     void RecursiveAstVisitor::visitAttrs(std::pmr::vector<Attribute> const& attrs)
@@ -982,8 +988,12 @@ namespace dcc::ast
             visitTypeExpr(d->return_type);
         visitTemplateParams(d->template_params);
         for (auto const& p : d->params)
+        {
             if (p.type)
                 visitTypeExpr(p.type);
+            if (p.default_value)
+                visitExpr(p.default_value);
+        }
         if (d->constraint)
             visitExpr(d->constraint);
         if (d->body.has_value())
