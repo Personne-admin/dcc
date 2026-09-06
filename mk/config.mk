@@ -47,8 +47,8 @@ else
   DSYM_CMD = @true
 endif
 
-STD_MODULE_SRC := $(shell find /usr -name 'std.cppm' -path '*/libc++/*' 2>/dev/null | head -1)
-STD_COMPAT_SRC := $(shell find /usr -name 'std.compat.cppm' -path '*/libc++/*' 2>/dev/null | head -1)
+STD_MODULE_SRC ?= $(shell find /usr -name 'std.cppm' -path '*/libc++/*' 2>/dev/null | head -1)
+STD_COMPAT_SRC ?= $(shell find /usr -name 'std.compat.cppm' -path '*/libc++/*' 2>/dev/null | head -1)
 
 ifneq ($(filter clean distclean,$(MAKECMDGOALS)),)
 else
