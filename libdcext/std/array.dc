@@ -1,0 +1,337 @@
+module std::array;
+
+import std::math;
+import std::slice;
+public import std::mem;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+using mem::{ Allocator, AllocError };
+
+//!
+//! Growable array
+//!
+
+public struct Array(T) {
+    Allocator alloc;
+    [] T storage;
+    usize count;
+}
+
+using usize MIN_CAPACITY = 8;
+
+//!
+//! Construction
+//!
+
+public Array(T) new_array(T)(Allocator alloc) {
+    return {
+        alloc = alloc,
+        storage = slice::from_raw(null as T*, 0),
+        count = 0,
+    };
+}
+
+public Result(Array(T), AllocError) with_capacity(T)(
+    Allocator alloc,
+    usize capacity
+) {
+    Array(T) self = new_array(alloc);
+    Status(AllocError) cap_st = self.reserve(capacity);
+    if !cap_st.is_ok() {
+        return cap_st.unwrap_err();
+    }
+    return Result::Ok(self);
+}
+
+/// copies `source` into a new array.
+public Result(Array(T), AllocError) from_slice(T)(
+    Allocator alloc,
+    [] const T source
+) {
+    Result(Array(T), AllocError) self_r = with_capacity(alloc, source.len);
+    if self_r.is_err() {
+        return self_r;
+    }
+    Array(T) self = self_r.unwrap();
+    mem::copy(self.storage, source);
+    self.count = source.len;
+    return Result::Ok(self);
+}
+
+/// releases the backing storage.
+public void deinit(T)(Array(T)* self) {
+    Array(T) b = *self;
+    if b.storage.len > 0 {
+        b.alloc.free(b.storage);
+    }
+
+    b.storage = slice::from_raw(null as T*, 0);
+    b.count = 0;
+    *self = b;
+}
+
+//!
+//! Access
+//!
+
+public [] T items(T)(Array(T)* self) {
+    Array(T) b = *self;
+    return b.storage[0.. b.count];
+}
+
+public [] const T items(T)(const Array(T)* self) {
+    Array(T) b = *self;
+    return b.storage[0.. b.count];
+}
+
+public usize len(T)(const Array(T)* self) {
+    Array(T) b = *self;
+    return b.count;
+}
+
+public usize capacity(T)(const Array(T)* self) {
+    Array(T) b = *self;
+    return b.storage.len;
+}
+
+public bool is_empty(T)(const Array(T)* self) {
+    Array(T) b = *self;
+    return b.count == 0;
+}
+
+public Optional(T*) at(T)(Array(T)* self, usize index) {
+    Array(T) b = *self;
+    if index >= b.count {
+        return Optional::None;
+    }
+
+    return Optional::Some(&b.storage[index]);
+}
+
+public Optional(T) last(T)(const Array(T)* self) {
+    Array(T) b = *self;
+    if b.count == 0 {
+        return Optional::None;
+    }
+
+    return Optional::Some(b.storage[b.count - 1]);
+}
+
+//!
+//! Capacity
+//!
+
+public Status(AllocError) reserve(T)(Array(T)* self, usize needed) {
+    Array(T) b = *self;
+    if needed <= b.storage.len {
+        return Status::Ok;
+    }
+
+    usize target = math::max(
+        math::max(needed, MIN_CAPACITY),
+        b.storage.len * 2
+    );
+
+    bool grown_in_place = b.storage.len > 0 && b.alloc.raw_resize(
+        mem::slice_as_bytes(b.storage) as [] u8,
+        target * sizeof (T),
+        alignof (T)
+    );
+    if grown_in_place {
+        b.storage = slice::from_raw(b.storage.ptr, target);
+        *self = b;
+        return Status::Ok;
+    }
+
+    Result([] T, AllocError) grown_r = b.alloc.alloc(target);
+    if grown_r.is_err() {
+        return grown_r.unwrap_err();
+    }
+    [] T grown = grown_r.unwrap();
+    mem::copy(grown, b.storage[0.. b.count]);
+
+    if b.storage.len > 0 {
+        b.alloc.free(b.storage);
+    }
+
+    b.storage = grown;
+    *self = b;
+    return Status::Ok;
+}
+
+/// releases capacity beyond the current length.
+public Status(AllocError) shrink_to_fit(T)(Array(T)* self) {
+    Array(T) b = *self;
+    if b.count == b.storage.len {
+        return Status::Ok;
+    }
+
+    if b.count == 0 {
+        *self = b;
+        self.deinit();
+        return Status::Ok;
+    }
+
+    Result([] T, AllocError) tight_r = b.alloc.alloc(b.count);
+    if tight_r.is_err() {
+        return tight_r.unwrap_err();
+    }
+    [] T tight = tight_r.unwrap();
+    mem::copy(tight, b.storage[0.. b.count]);
+    b.alloc.free(b.storage);
+    b.storage = tight;
+    *self = b;
+    return Status::Ok;
+}
+
+//!
+//! Mutation
+//!
+
+public Status(AllocError) push(T)(Array(T)* self, T value) {
+    Array(T) b = *self;
+    usize n = b.count;
+    *self = b;
+    Status(AllocError) push_st = self.reserve(n + 1);
+    if !push_st.is_ok() {
+        return push_st.unwrap_err();
+    }
+    Array(T) c = *self;
+    c.storage[n] = value;
+    c.count = n + 1;
+    *self = c;
+    return Status::Ok;
+}
+
+public Optional(T) pop(T)(Array(T)* self) {
+    Array(T) b = *self;
+    if b.count == 0 {
+        return Optional::None;
+    }
+
+    b.count--;
+    T value = b.storage[b.count];
+    *self = b;
+    return Optional::Some(value);
+}
+
+public Status(AllocError) append_slice(T)(Array(T)* self, [] const T source) {
+    Array(T) b = *self;
+    usize n = b.count;
+    *self = b;
+    Status(AllocError) app_st = self.reserve(n + source.len);
+    if !app_st.is_ok() {
+        return app_st.unwrap_err();
+    }
+    Array(T) c = *self;
+    mem::copy(
+        c.storage[n.. c.storage.len],
+        source
+    );
+
+    c.count = n + source.len;
+    *self = c;
+    return Status::Ok;
+}
+
+public Status(AllocError) insert(T)(Array(T)* self, usize index, T value) {
+    Array(T) b = *self;
+    usize n = b.count;
+    *self = b;
+    Status(AllocError) ins_st = self.reserve(n + 1);
+    if !ins_st.is_ok() {
+        return ins_st.unwrap_err();
+    }
+    Array(T) c = *self;
+
+    if index < n {
+        mem::move(
+            c.storage[index + 1.. n + 1],
+            c.storage[index.. n]
+        );
+    }
+
+    c.storage[index] = value;
+    c.count = n + 1;
+    *self = c;
+    return Status::Ok;
+}
+
+/// removes the element at `index`, preserving order.
+public Optional(T) remove(T)(Array(T)* self, usize index) {
+    Array(T) b = *self;
+    if index >= b.count {
+        return Optional::None;
+    }
+
+    T value = b.storage[index];
+    mem::move(
+        b.storage[index.. b.count - 1],
+        b.storage[index + 1.. b.count]
+    );
+
+    b.count--;
+    *self = b;
+    return Optional::Some(value);
+}
+
+/// removes the element at `index` in constant time by moving the last
+/// element into the hole.
+public Optional(T) swap_remove(T)(Array(T)* self, usize index) {
+    Array(T) b = *self;
+    if index >= b.count {
+        return Optional::None;
+    }
+
+    T value = b.storage[index];
+    b.count--;
+
+    if index != b.count {
+        b.storage[index] = b.storage[b.count];
+    }
+
+    *self = b;
+    return Optional::Some(value);
+}
+
+/// grows or shrinks the length.
+public Status(AllocError) resize(T)(Array(T)* self, usize new_len) {
+    Array(T) b = *self;
+    if new_len > b.count {
+        usize want = new_len;
+        *self = b;
+        Status(AllocError) rsz_st = self.reserve(want);
+        if !rsz_st.is_ok() {
+            return rsz_st.unwrap_err();
+        }
+        Array(T) c = *self;
+        c.count = want;
+        *self = c;
+        return Status::Ok;
+    }
+
+    b.count = new_len;
+    *self = b;
+    return Status::Ok;
+}
+
+public void clear(T)(Array(T)* self) {
+    Array(T) b = *self;
+    b.count = 0;
+    *self = b;
+}
+
+/// hands the storage to the caller and empties the array.
+public Result([] T, AllocError) to_owned_slice(T)(Array(T)* self) {
+    Status(AllocError) own_st = self.shrink_to_fit();
+    if !own_st.is_ok() {
+        return own_st.unwrap_err();
+    }
+
+    Array(T) b = *self;
+    [] T out = b.storage[0.. b.count];
+    Array(T) empty = new_array(b.alloc);
+    *self = empty;
+    return Result::Ok(out);
+}

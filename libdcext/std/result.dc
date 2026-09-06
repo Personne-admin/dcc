@@ -1,0 +1,134 @@
+module std::result;
+
+import std::debug;
+
+//!
+//! Carrier types
+//!
+
+public enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+public enum Status(E) {
+    Ok,
+    @implicit_construction Err(E),
+}
+
+public enum Optional(T) {
+    Some(T),
+    None,
+}
+
+//!
+//! Result
+//!
+
+public bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+public bool is_err(T, E)(const Result(T, E)* self) {
+    return !self.is_ok();
+}
+
+/// extracts the success payload. panics when the result holds an error.
+public T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(v) => v,
+        _ => {
+            debug::panic("unwrap on an Err result");
+            default_of()
+        },
+    };
+}
+
+/// extracts the error payload. panics when the result holds a success value.
+public E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(e) => e,
+        _ => {
+            debug::panic("unwrap_err on an Ok result");
+            default_of()
+        },
+    };
+}
+
+/// extracts the success payload, substituting `fallback` for an error.
+public T unwrap_or(T, E)(const Result(T, E)* self, T fallback) {
+    return match *self {
+        Result::Ok(v) => v,
+        _ => fallback,
+    };
+}
+
+//!
+//! Status
+//!
+
+public bool is_ok(E)(const Status(E)* self) {
+    return match *self {
+        Status::Ok => true,
+        _ => false,
+    };
+}
+
+public void unwrap(E)(const Status(E)* self) {
+    match *self {
+        Status::Err(_) => debug::panic("unwrap on an Err status"),
+        _ => {},
+    }
+}
+
+public E unwrap_err(E)(const Status(E)* self) {
+    return match *self {
+        Status::Err(e) => e,
+        _ => {
+            debug::panic("unwrap_err on an Ok status");
+            default_of()
+        },
+    };
+}
+
+//!
+//! Optional
+//!
+
+public bool is_some(T)(const Optional(T)* self) {
+    return match *self {
+        Optional::Some(_) => true,
+        _ => false,
+    };
+}
+
+public bool is_none(T)(const Optional(T)* self) {
+    return !self.is_some();
+}
+
+public T unwrap_some(T)(const Optional(T)* self) {
+    return match *self {
+        Optional::Some(v) => v,
+        _ => {
+            debug::panic("unwrap on a None optional");
+            default_of()
+        },
+    };
+}
+
+public T some_or(T)(const Optional(T)* self, T fallback) {
+    return match *self {
+        Optional::Some(v) => v,
+        _ => fallback,
+    };
+}
+
+/// zero value of any type, used only on panicking paths to satisfy the
+/// return type after control flow has already left.
+T default_of(T)() {
+    T zero;
+    return zero;
+}
