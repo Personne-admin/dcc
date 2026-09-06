@@ -4,3 +4,8 @@ build
 dist
 compile_commands.json
 __pycache__
+
+/packaging/arch/dcc
+/packaging/arch/pkg
+/packaging/arch/src
+/packaging/arch/*.zst
