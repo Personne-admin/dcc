@@ -3957,7 +3957,15 @@ export namespace dcc::ir::lower
 
                         if (src_ir_ty != dst_ir_ty)
                         {
-                            if (src_ir_ty->kind == IrTypeKind::Int && dst_ir_ty->kind == IrTypeKind::Int)
+                            if (src_ir_ty->kind == IrTypeKind::Bool && dst_ir_ty->kind == IrTypeKind::Int)
+                            {
+                                auto* inst = m_ctx.zext(dst_ir_ty, operand);
+                                auto name = ident_name();
+                                inst->name = m_name_pool.back();
+                                append_inst(inst);
+                                operand = inst;
+                            }
+                            else if (src_ir_ty->kind == IrTypeKind::Int && dst_ir_ty->kind == IrTypeKind::Int)
                             {
                                 auto* src_int = static_cast<IrIntType const*>(src_ir_ty);
                                 auto* dst_int = static_cast<IrIntType const*>(dst_ir_ty);
@@ -4076,6 +4084,16 @@ export namespace dcc::ir::lower
 
                 auto* zero = m_ctx.int_const(src_ir_ty, 0);
                 auto* inst = m_ctx.cmp_ne(operand, zero);
+                auto name = ident_name();
+                inst->name = m_name_pool.back();
+                append_inst(inst);
+
+                return inst;
+            }
+
+            if (src_ir_ty->kind == IrTypeKind::Bool && dst_ir_ty->kind == IrTypeKind::Int)
+            {
+                auto* inst = m_ctx.zext(dst_ir_ty, operand);
                 auto name = ident_name();
                 inst->name = m_name_pool.back();
                 append_inst(inst);
@@ -6296,6 +6314,12 @@ export namespace dcc::ir::lower
                     if (auto* ic = ir_cast<IrIntConstant>(operand_val))
                     {
                         return m_ctx.int_const(dst_ir_ty, ic->value);
+                    }
+
+                    if (auto* bc = ir_cast<IrBoolConstant>(operand_val))
+                    {
+                        if (dst_ir_ty && dst_ir_ty->kind == IrTypeKind::Int)
+                            return m_ctx.int_const(dst_ir_ty, bc->value ? 1 : 0);
                     }
 
                     if (auto* fc = ir_cast<IrFloatConstant>(operand_val))

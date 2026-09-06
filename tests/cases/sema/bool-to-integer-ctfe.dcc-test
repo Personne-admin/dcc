@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+const i64 A = true as i64;
+const i64 B = false as i64;
+const u8 C = true as u8;
+const i32 D = true as i32;
+const u64 E = true as u64;
+
+public void test() {
+    static if A != 1 || B != 0 || C != (1 as u8) || D != 1 || E != (1 as u64) {
+        incorrect_ctfe_result();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

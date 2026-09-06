@@ -169,3 +169,31 @@ public i32 main() {
 )";
     CHECK_EQ(build_and_run(source), 0);
 }
+
+TEST_CASE("fmt format_buf correctly formats bool, int, float, and string")
+{
+    constexpr std::string_view source = R"(module main;
+import std::fmt;
+
+bool same([] const u8 a, [] const u8 b) {
+    if a.len != b.len { return false; }
+    for usize i = 0; i < a.len; i++ {
+        if a[i] != b[i] { return false; }
+    }
+    return true;
+}
+
+public i32 main() {
+    u8[128] buf;
+    [] u8 r_bool = std::fmt::format_buf(buf[0..128], "{} {}", true, false).unwrap();
+    if !same(r_bool, "true false") { return 1; }
+
+    [] u8 r_mixed = std::fmt::format_buf(buf[0..128], "bool: {} int: {} float: {:.1} str: {}", true, -42 as i32, 1.5 as f64, "hello" as []const u8).unwrap();
+    if !same(r_mixed, "bool: true int: -42 float: 1.5 str: hello") { return 2; }
+
+    return 0;
+}
+)";
+    CHECK_EQ(build_and_run(source), 0);
+}
+

@@ -1,0 +1,120 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+public i64 from_true() {
+    return true as i64;
+}
+
+@nomangle
+public i64 from_false() {
+    return false as i64;
+}
+
+@nomangle
+public u8 widen_u8(bool b) {
+    return b as u8;
+}
+
+@nomangle
+public i8 widen_i8(bool b) {
+    return b as i8;
+}
+
+@nomangle
+public u16 widen_u16(bool b) {
+    return b as u16;
+}
+
+@nomangle
+public i16 widen_i16(bool b) {
+    return b as i16;
+}
+
+@nomangle
+public u32 widen_u32(bool b) {
+    return b as u32;
+}
+
+@nomangle
+public i32 widen_i32(bool b) {
+    return b as i32;
+}
+
+@nomangle
+public u64 widen_u64(bool b) {
+    return b as u64;
+}
+
+@nomangle
+public i64 widen_i64(bool b) {
+    return b as i64;
+}
+
+@nomangle
+public usize widen_usize(bool b) {
+    return b as usize;
+}
+
+@nomangle
+public isize widen_isize(bool b) {
+    return b as isize;
+}
+
+@nomangle
+public bool int_to_bool(i32 v) {
+    return v as bool;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if from_true() != 1 { return 1; }
+    if from_false() != 0 { return 2; }
+
+    bool t = int_to_bool(42);
+    bool f = int_to_bool(0);
+
+    if widen_u8(t) != (1 as u8) { return 10; }
+    if widen_u8(f) != (0 as u8) { return 11; }
+
+    if widen_i8(t) != (1 as i8) { return 12; }
+    if widen_i8(f) != (0 as i8) { return 13; }
+
+    if widen_u16(t) != (1 as u16) { return 14; }
+    if widen_u16(f) != (0 as u16) { return 15; }
+
+    if widen_i16(t) != (1 as i16) { return 16; }
+    if widen_i16(f) != (0 as i16) { return 17; }
+
+    if widen_u32(t) != (1 as u32) { return 18; }
+    if widen_u32(f) != (0 as u32) { return 19; }
+
+    if widen_i32(t) != (1 as i32) { return 20; }
+    if widen_i32(f) != (0 as i32) { return 21; }
+
+    if widen_u64(t) != (1 as u64) { return 22; }
+    if widen_u64(f) != (0 as u64) { return 23; }
+
+    if widen_i64(t) != 1 { return 24; }
+    if widen_i64(f) != 0 { return 25; }
+
+    if widen_usize(t) != (1 as usize) { return 26; }
+    if widen_usize(f) != (0 as usize) { return 27; }
+
+    if widen_isize(t) != (1 as isize) { return 28; }
+    if widen_isize(f) != (0 as isize) { return 29; }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

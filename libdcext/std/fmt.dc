@@ -434,13 +434,11 @@ public Status(FmtError) format_value(T)(
     T value,
     const Options* opts
 ) {
-    static if T == bool {
-        // checked first: `bool as i64` compiles but lowers to an
-        // invalid bitcast in the backend, so never take that path.
-        format_builtin_unsigned(w, value, opts) ?;
-    } else static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char
+    static if T == bool || T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char
                  || T == i8 || T == i16 || T == i32 || T == i64 || T == isize {
-        static if compiles (T t) {
+        static if T == bool {
+            format_builtin_unsigned(w, value, opts) ?;
+        } else static if compiles (T t) {
             t as u64;
             t - t;
         }
