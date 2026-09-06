@@ -5,7 +5,7 @@ DRIVER_LDFLAGS := $(LLVM_LDFLAGS)
 
 .PHONY: all install clean
 
-BINARY := $(BUILD_DIR)/bin/dcc
+BINARY := $(BUILD_DIR)/bin/dcc$(EXE_SUFFIX)
 COMPILER_LIB := $(BUILD_DIR)/lib/libcompiler.a
 
 all: $(BINARY)

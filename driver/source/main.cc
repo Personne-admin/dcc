@@ -27,6 +27,9 @@ import dcc.backend.em64t.objwriter;
 #include <sys/ioctl.h>
 #include <unistd.h>
 #else
+#define WIN32_LEAN_AND_MEAN
+#define NOUSER
+#define NOGDI
 #include <windows.h>
 #endif
 
@@ -34,6 +37,15 @@ namespace
 {
     [[nodiscard]] std::filesystem::path detect_exe_path(char** argv)
     {
+#ifdef _WIN32
+        std::ignore = argv;
+        wchar_t buf[MAX_PATH];
+        DWORD len = ::GetModuleFileNameW(nullptr, buf, MAX_PATH);
+        if (len > 0 && len < MAX_PATH)
+            return std::filesystem::path{std::wstring{buf, len}};
+
+        return {};
+#else
         std::error_code ec;
 
         auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
@@ -102,6 +114,7 @@ namespace
         }
 
         return arg0;
+#endif
     }
 
     [[nodiscard]] std::filesystem::path compute_prefix(std::filesystem::path const& exe_path)

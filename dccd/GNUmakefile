@@ -5,7 +5,7 @@ DCCD_LDFLAGS := $(LLVM_LDFLAGS)
 
 .PHONY: all clean
 
-BINARY := $(BUILD_DIR)/bin/dccd
+BINARY := $(BUILD_DIR)/bin/dccd$(EXE_SUFFIX)
 COMPILER_LIB := $(BUILD_DIR)/lib/libcompiler.a
 
 all: $(BINARY)

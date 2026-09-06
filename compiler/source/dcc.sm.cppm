@@ -1,10 +1,17 @@
 module;
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOUSER
+#define NOGDI
+#include <windows.h>
+#else
 #include <cerrno>
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
 
 export module dcc.sm;
 
@@ -750,8 +757,13 @@ namespace dcc::sm
 {
     void SourceFile::close_mapping() noexcept
     {
+#ifdef _WIN32
+        if (m_is_mmaped && m_mapping && m_size > 0)
+            ::UnmapViewOfFile(m_mapping);
+#else
         if (m_is_mmaped && m_mapping && m_mapping != MAP_FAILED && m_size > 0)
             ::munmap(m_mapping, m_size);
+#endif
 
         m_mapping = nullptr;
         m_size = 0;
@@ -759,6 +771,73 @@ namespace dcc::sm
 
     namespace
     {
+#ifdef _WIN32
+        [[nodiscard]] std::optional<DiskSignature> stat_signature(std::filesystem::path const& path) noexcept
+        {
+            WIN32_FILE_ATTRIBUTE_DATA data{};
+            if (!::GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &data))
+                return std::nullopt;
+
+            auto const ticks = (static_cast<std::uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
+            auto const size = (static_cast<std::uint64_t>(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
+
+            return DiskSignature{
+                .mtime_sec = static_cast<std::int64_t>(ticks / 10'000'000),
+                .mtime_nsec = static_cast<std::int64_t>((ticks % 10'000'000) * 100),
+                .size = size,
+            };
+        }
+
+        [[nodiscard]] std::expected<std::pair<void*, std::size_t>, Error> mmap_file(std::filesystem::path const& path) noexcept
+        {
+            HANDLE file = ::CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+            if (file == INVALID_HANDLE_VALUE)
+            {
+                auto const err = ::GetLastError();
+                if (err == ERROR_FILE_NOT_FOUND || err == ERROR_PATH_NOT_FOUND)
+                    return std::unexpected{Error::FileNotFound};
+                if (err == ERROR_ACCESS_DENIED)
+                    return std::unexpected{Error::PermissionDenied};
+                return std::unexpected{Error::MmapFailed};
+            }
+
+            LARGE_INTEGER size{};
+            if (!::GetFileSizeEx(file, &size))
+            {
+                ::CloseHandle(file);
+                return std::unexpected{Error::MmapFailed};
+            }
+
+            auto const file_size = static_cast<std::size_t>(size.QuadPart);
+
+            constexpr std::size_t kMaxSize = std::size_t{1} << 32;
+            if (file_size >= kMaxSize)
+            {
+                ::CloseHandle(file);
+                return std::unexpected{Error::FileTooLarge};
+            }
+
+            if (file_size == 0)
+            {
+                ::CloseHandle(file);
+                static char const empty = '\0';
+                return std::pair{const_cast<char*>(&empty), std::size_t{}};
+            }
+
+            HANDLE mapping_handle = ::CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr);
+            ::CloseHandle(file);
+            if (!mapping_handle)
+                return std::unexpected{Error::MmapFailed};
+
+            void* mapping = ::MapViewOfFile(mapping_handle, FILE_MAP_READ, 0, 0, 0);
+            ::CloseHandle(mapping_handle);
+
+            if (!mapping)
+                return std::unexpected{Error::MmapFailed};
+
+            return std::pair{mapping, file_size};
+        }
+#else
         [[nodiscard]] std::optional<DiskSignature> stat_signature(std::filesystem::path const& path) noexcept
         {
             struct ::stat st{};
@@ -822,6 +901,7 @@ namespace dcc::sm
 
             return std::pair{mapping, file_size};
         }
+#endif
 
         [[nodiscard]] std::string uri_encode_path(std::filesystem::path const& path)
         {
@@ -912,6 +992,18 @@ namespace dcc::sm
                 }
             }
 
+#ifdef _WIN32
+            switch (ec.value())
+            {
+                case ERROR_FILE_NOT_FOUND:
+                case ERROR_PATH_NOT_FOUND:
+                    return std::unexpected{Error::FileNotFound};
+                case ERROR_ACCESS_DENIED:
+                    return std::unexpected{Error::PermissionDenied};
+                default:
+                    return std::unexpected{Error::MmapFailed};
+            }
+#else
             switch (ec.value())
             {
                 case ENOENT:
@@ -921,6 +1013,7 @@ namespace dcc::sm
                 default:
                     return std::unexpected{Error::MmapFailed};
             }
+#endif
         }
 
         for (auto const& f : m_files)
@@ -939,8 +1032,10 @@ namespace dcc::sm
         sf->m_content_revision = next_content_revision();
         sf->m_disk_signature = stat_signature(canonical);
 
+#ifndef _WIN32
         if (size > 0)
             ::madvise(mapping, size, MADV_RANDOM);
+#endif
 
         m_files.push_back(std::move(sf));
         return id;
@@ -997,8 +1092,10 @@ namespace dcc::sm
         f->m_line_start.clear();
         f->m_line_index_built = false;
 
+#ifndef _WIN32
         if (size > 0)
             ::madvise(mapping, size, MADV_RANDOM);
+#endif
 
         return true;
     }
