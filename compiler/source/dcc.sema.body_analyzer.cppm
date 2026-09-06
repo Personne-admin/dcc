@@ -8427,6 +8427,49 @@ export namespace dcc::sema
             PatternCoverage(std::pmr::polymorphic_allocator<> alloc) : enum_variants(alloc), int_literals(alloc), char_literals(alloc), int_ranges(alloc) {}
         };
 
+        [[nodiscard]] static bool supports_constant_equality_pattern(types::TypePtr ty) noexcept
+        {
+            if (!ty)
+                return false;
+
+            switch (ty->kind)
+            {
+                case types::TypeKind::Int:
+                case types::TypeKind::Char:
+                case types::TypeKind::Bool:
+                case types::TypeKind::Float:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] static bool is_scalar_constant_symbol(Symbol const& sym) noexcept
+        {
+            if (sym.kind == SymbolKind::ValueAlias)
+                return true;
+
+            if (sym.kind == SymbolKind::Variable)
+            {
+                auto const* vd = ast::node_cast<ast::VarDecl>(sym.decl);
+                return vd && vd->sema.is_immutable;
+            }
+
+            return false;
+        }
+
+        [[nodiscard]] ast::LiteralPattern* make_constant_path_pattern(ast::Path const& src, sm::SourceRange range)
+        {
+            ast::Path path{m_ast_ctx.allocator()};
+            path.segments.reserve(src.segments.size());
+            for (auto const& seg : src.segments)
+                path.segments.push_back(seg);
+            path.range = src.range;
+
+            auto* path_expr = m_ast_ctx.make<ast::PathExpr>(range, std::move(path), m_ast_ctx.allocator());
+            return m_ast_ctx.make<ast::LiteralPattern>(range, path_expr);
+        }
+
         [[nodiscard]] static bool is_ordered_scalar(types::TypePtr ty) noexcept
         {
             if (!ty)
@@ -8893,12 +8936,14 @@ export namespace dcc::sema
             }
         }
 
-        [[nodiscard]] PatternValidation validate_pattern(ModuleInfo& mod, ast::Pattern& p, types::TypePtr matched_type, Scope& scope, ConstEnv const* const_env)
+        [[nodiscard]] PatternValidation validate_pattern(ModuleInfo& mod, ast::Pattern*& p_ref, types::TypePtr matched_type, Scope& scope,
+                                                         ConstEnv const* const_env)
         {
             PatternValidation out{m_alloc};
+            ast::Pattern& p = *p_ref;
             p.matched_type = reinterpret_cast<decltype(p.matched_type)>(matched_type);
 
-            auto validate_child = [&](ast::Pattern& child, types::TypePtr child_type) {
+            auto validate_child = [&](ast::Pattern*& child, types::TypePtr child_type) {
                 auto r = validate_pattern(mod, child, child_type, scope, const_env);
                 if (!r.ok)
                     out.ok = false;
@@ -8912,6 +8957,17 @@ export namespace dcc::sema
                     break;
                 case ast::PatternKind::Binding: {
                     auto& b = static_cast<ast::BindingPattern&>(p);
+                    if (!b.by_reference && supports_constant_equality_pattern(matched_type))
+                    {
+                        if (auto const* sym = lookup_name(mod, scope, b.name); sym && is_scalar_constant_symbol(*sym))
+                        {
+                            ast::Path path{m_ast_ctx.allocator()};
+                            path.segments.push_back({b.name, b.range});
+                            path.range = b.range;
+                            p_ref = make_constant_path_pattern(path, b.range);
+                            return validate_pattern(mod, p_ref, matched_type, scope, const_env);
+                        }
+                    }
                     auto* v = make_local_decl(b.name, b.range, nullptr, ast::StorageClass::Local, 0);
                     b.synthetic_decl = v;
                     if (b.by_reference && matched_type)
@@ -8945,7 +9001,7 @@ export namespace dcc::sema
                     {
                         auto& b = static_cast<ast::BindingPattern&>(*r.inner);
                         b.by_reference = true;
-                        auto child = validate_pattern(mod, *r.inner, matched_type, scope, const_env);
+                        auto child = validate_pattern(mod, r.inner, matched_type, scope, const_env);
                         out.ok = child.ok;
                         out.bindings = std::move(child.bindings);
                     }
@@ -8954,7 +9010,7 @@ export namespace dcc::sema
                         error(r.range, "`&` is only meaningful on binding names within patterns");
                         out.ok = false;
 
-                        std::ignore = validate_pattern(mod, *r.inner, matched_type, scope, const_env);
+                        std::ignore = validate_pattern(mod, r.inner, matched_type, scope, const_env);
                     }
                     break;
                 }
@@ -8994,11 +9050,11 @@ export namespace dcc::sema
                     auto& o = static_cast<ast::OrPattern&>(p);
                     std::optional<std::vector<std::string_view>> baseline;
                     si::InternedPmrHashMap<types::TypePtr> first_binding_types{m_alloc};
-                    for (auto* alt : o.alternatives)
+                    for (auto& alt : o.alternatives)
                     {
                         if (!alt)
                             continue;
-                        auto r = validate_pattern(mod, *alt, matched_type, scope, const_env);
+                        auto r = validate_pattern(mod, alt, matched_type, scope, const_env);
                         if (!r.ok)
                             out.ok = false;
 
@@ -9049,6 +9105,16 @@ export namespace dcc::sema
                     auto const* op_enum = types::type_cast<types::EnumType>(matched_type);
                     if (!op_enum)
                     {
+                        if (!e.has_parens && e.payload.empty() && supports_constant_equality_pattern(matched_type) && mod.own_scope)
+                        {
+                            auto const* const_sym = resolve_value_path_with_fallback(*mod.own_scope, e.variant_path);
+                            if (const_sym && is_scalar_constant_symbol(*const_sym))
+                            {
+                                p_ref = make_constant_path_pattern(e.variant_path, e.range);
+                                return validate_pattern(mod, p_ref, matched_type, scope, const_env);
+                            }
+                        }
+
                         error(e.range, "enum pattern requires enum operand");
                         out.ok = false;
                         break;
@@ -9121,7 +9187,7 @@ export namespace dcc::sema
                             auto* pay_ty_node = e.resolved_variant->payload[i];
                             auto payload_ty = pay_ty_node ? resolve_payload_type(*enum_decl, pay_ty_node, matched_type, mod, scope) : m_types.m_errort();
                             if (e.payload[i])
-                                validate_child(*e.payload[i], payload_ty);
+                                validate_child(e.payload[i], payload_ty);
                         }
                     }
                     break;
@@ -9175,7 +9241,7 @@ export namespace dcc::sema
                         field.resolved_field_index = static_cast<std::uint32_t>(std::distance(fields.begin(), it));
                         auto field_ty = substitute_in_nominal_context(it->type, matched_type);
                         if (field.pattern)
-                            validate_child(*field.pattern, field_ty);
+                            validate_child(field.pattern, field_ty);
                     }
                     break;
                 }
@@ -9712,8 +9778,8 @@ export namespace dcc::sema
                                                  result_discarded);
                         break;
                     case ast::ExprKind::If:
-                        out = analyze_if_expr(mod, fn, scope, static_cast<ast::IfExpr&>(expr), loop_depth, next_off, expected_type, const_env,
-                                              result_discarded);
+                        out =
+                            analyze_if_expr(mod, fn, scope, static_cast<ast::IfExpr&>(expr), loop_depth, next_off, expected_type, const_env, result_discarded);
                         break;
                     case ast::ExprKind::Match:
                         out = analyze_match_expr(mod, fn, scope, static_cast<ast::MatchExpr&>(expr), loop_depth, next_off, expected_type, const_env,
@@ -11443,8 +11509,7 @@ export namespace dcc::sema
                 {
                     auto* else_scope = make_scope(ScopeKind::Block, &scope);
                     auto* else_consts = make_const_env(const_env);
-                    auto else_stmt =
-                        analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts, result_discarded);
+                    auto else_stmt = analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts, result_discarded);
                     else_res.type = else_block->body.tail ? get_resolved_type(else_block->body.tail->sema) : m_types.m_voidt();
                     else_res.is_diverging = !else_stmt.falls_through;
                     else_res.constant = else_block->body.tail ? else_block->body.tail->sema.const_value : nullptr;
@@ -11541,7 +11606,7 @@ export namespace dcc::sema
                 bool pattern_valid = true;
                 if (arm.pattern)
                 {
-                    auto validated = validate_pattern(mod, *arm.pattern, operand.type, *arm_scope, const_env);
+                    auto validated = validate_pattern(mod, arm.pattern, operand.type, *arm_scope, const_env);
                     pattern_valid = validated.ok;
                     all_patterns_valid = all_patterns_valid && validated.ok;
                     if (validated.ok)
@@ -14313,7 +14378,7 @@ export namespace dcc::sema
                         bool guard_is_true = !sm.arms[i].guard;
                         if (sm.arms[i].pattern)
                         {
-                            auto validated = validate_pattern(mod, *sm.arms[i].pattern, operand.type, *inner, const_env);
+                            auto validated = validate_pattern(mod, sm.arms[i].pattern, operand.type, *inner, const_env);
                             pattern_ok = validated.ok;
                             if (validated.ok)
                                 install_pattern_bindings(*inner, validated);

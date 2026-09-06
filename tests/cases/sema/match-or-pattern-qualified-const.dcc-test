@@ -1,0 +1,19 @@
+=== FILE: abi.dc ===
+module abi;
+
+public using const u32 EACCES = 13;
+public using const u32 EPERM = 1;
+
+=== FILE: main.dc ===
+module m;
+
+import abi;
+
+bool is_denied(u32 err) {
+    return match err {
+        abi::EACCES | abi::EPERM => true,
+        _ => false,
+    };
+}
+
+=== ENTRY: main.dc ===

@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module m;
+
+using const u32 A = 10;
+using const u32 B = 20;
+
+bool f() {
+    u32 v = 10;
+    bool matched = match v {
+        A | B => true,
+        _ => false,
+    };
+    return matched;
+}

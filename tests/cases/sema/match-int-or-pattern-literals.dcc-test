@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+u32 f() {
+    u32 x = 2;
+    u32 res = match x {
+        1 | 2 | 3 => 10,
+        4 | 5     => 20,
+        _         => 0,
+    };
+    return res;
+}
