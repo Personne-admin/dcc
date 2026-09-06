@@ -1,3 +1,13 @@
+dcc (0.1.1-1) unstable; urgency=medium
+
+  * New upstream release v0.1.1.
+  * Standard library expansion: containers, fmt, utf8, math, sort.
+  * Parser and semantic analysis improvements and bug fixes.
+  * Compile-time diagnostic intrinsics support.
+  * Packaging and installation improvements.
+
+ -- personne-admin <personneadmin@protonmail.com>  Sun, 06 Sep 2026 11:38:00 +0200
+
 dcc (0.1.0-1) unstable; urgency=medium
 
   * Initial Debian package.
