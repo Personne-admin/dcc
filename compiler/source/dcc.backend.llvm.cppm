@@ -18,6 +18,7 @@ import dcc.backend;
 import dcc.ir;
 import dcc.ir.pass;
 import dcc.ir.transforms;
+import dcc.backend.inline_asm;
 import dcc.target;
 import dcc.sm;
 
@@ -3703,170 +3704,81 @@ namespace dcc::backend
                         break;
                     }
                     case IrNodeKind::InlineAsm: {
-                        // TODO(em64t): consume structured IrInlineAsmInst operands
                         auto* ai = static_cast<IrInlineAsmInst const*>(inst);
-
-                        std::vector<std::string> output_constraints;
-                        std::vector<std::string> input_constraints;
+                        auto lowered = dcc::backend::prepare_llvm_asm(*ai);
+                        if (!lowered.error.empty())
+                        {
+                            add_diag(diags, inst->range, std::format("LLVM backend: {}", lowered.error));
+                            return false;
+                        }
                         std::vector<LLVMValueRef> input_values;
                         std::vector<std::pair<unsigned, LLVMTypeRef>> mem_elemtypes;
-                        unsigned output_index = 0;
-
-                        auto reg_class_for_type = [](IrType const* t) -> const char* {
-                            if (t && t->kind == IrTypeKind::Float)
-                                return "x";
-                            return "r";
+                        auto push_address = [&](std::uint32_t index) -> bool {
+                            if (index >= ai->operands.size())
+                            {
+                                add_diag(diags, inst->range, "LLVM backend: inline assembly operand reference out of range");
+                                return false;
+                            }
+                            auto const& op = ai->operands[index];
+                            if (!op.value || op.placement_kind != IrAsmOperand::PlacementKind::Mem)
+                            {
+                                add_diag(diags, inst->range, "LLVM backend: inline assembly memory operand has no address");
+                                return false;
+                            }
+                            auto* v = lookup(op.value);
+                            if (!v)
+                                return false;
+                            auto* ir_ptr_ty = op.value->type;
+                            if (ir_ptr_ty && ir_ptr_ty->kind == IrTypeKind::Pointer)
+                            {
+                                auto* ir_pointee_ty = static_cast<IrPointerType const*>(ir_ptr_ty)->pointee;
+                                if (ir_pointee_ty)
+                                {
+                                    auto* llvm_pointee = llvm_type_cached(tc, ir_pointee_ty);
+                                    if (llvm_pointee)
+                                        mem_elemtypes.emplace_back(static_cast<unsigned>(input_values.size()), llvm_pointee);
+                                }
+                            }
+                            input_values.push_back(v);
+                            return true;
                         };
-
-                        for (auto const& op : ai->operands)
+                        for (auto index : lowered.output_address_indices)
+                            if (!push_address(index))
+                                return false;
+                        for (auto index : lowered.input_operand_indices)
                         {
-                            switch (op.direction)
+                            if (index >= ai->operands.size())
                             {
-                                case IrAsmOperand::Direction::Out: {
-                                    std::string c = "=";
-                                    if (op.placement_kind != IrAsmOperand::PlacementKind::Mem)
-                                        c += "&";
-
-                                    switch (op.placement_kind)
+                                add_diag(diags, inst->range, "LLVM backend: inline assembly operand reference out of range");
+                                return false;
+                            }
+                            auto const& op = ai->operands[index];
+                            if (!op.value)
+                            {
+                                add_diag(diags, inst->range, "LLVM backend: inline assembly input operand has no value");
+                                return false;
+                            }
+                            auto* v = lookup(op.value);
+                            if (!v)
+                                return false;
+                            if (op.placement_kind == IrAsmOperand::PlacementKind::Mem)
+                            {
+                                auto* ir_ptr_ty = op.value->type;
+                                if (ir_ptr_ty && ir_ptr_ty->kind == IrTypeKind::Pointer)
+                                {
+                                    auto* ir_pointee_ty = static_cast<IrPointerType const*>(ir_ptr_ty)->pointee;
+                                    if (ir_pointee_ty)
                                     {
-                                        case IrAsmOperand::PlacementKind::Reg:
-                                            if (op.reg_name.empty())
-                                                c += reg_class_for_type(inst->type);
-                                            else
-                                                c += "{" + std::string(op.reg_name) + "}";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::RegPair:
-                                            c += "A";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::Mem:
-                                            c += "*m";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::Imm:
-                                            c += "X";
-                                            break;
+                                        auto* llvm_pointee = llvm_type_cached(tc, ir_pointee_ty);
+                                        if (llvm_pointee)
+                                            mem_elemtypes.emplace_back(static_cast<unsigned>(input_values.size()), llvm_pointee);
                                     }
-                                    output_constraints.push_back(std::move(c));
-                                    ++output_index;
-                                    break;
-                                }
-                                case IrAsmOperand::Direction::In: {
-                                    std::string c;
-                                    switch (op.placement_kind)
-                                    {
-                                        case IrAsmOperand::PlacementKind::Reg:
-                                            if (op.reg_name.empty())
-                                                c += reg_class_for_type(op.value ? op.value->type : nullptr);
-                                            else
-                                                c += "{" + std::string(op.reg_name) + "}";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::RegPair:
-                                            c += "A";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::Mem:
-                                            c += "*m";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::Imm:
-                                            c += "i";
-                                            break;
-                                    }
-                                    input_constraints.push_back(std::move(c));
-                                    if (op.value)
-                                    {
-                                        auto* v = lookup(op.value);
-                                        if (!v)
-                                            return false;
-
-                                        if (op.placement_kind == IrAsmOperand::PlacementKind::Mem)
-                                        {
-                                            auto* ir_ptr_ty = op.value->type;
-                                            if (ir_ptr_ty && ir_ptr_ty->kind == IrTypeKind::Pointer)
-                                            {
-                                                auto* ir_pointee_ty = static_cast<IrPointerType const*>(ir_ptr_ty)->pointee;
-                                                if (ir_pointee_ty)
-                                                {
-                                                    auto* llvm_pointee = llvm_type_cached(tc, ir_pointee_ty);
-                                                    if (llvm_pointee)
-                                                        mem_elemtypes.emplace_back(static_cast<unsigned>(input_values.size()), llvm_pointee);
-                                                }
-                                            }
-                                        }
-
-                                        input_values.push_back(v);
-                                    }
-                                    break;
-                                }
-                                case IrAsmOperand::Direction::InOut: {
-                                    std::string out_c = "=";
-                                    if (op.placement_kind != IrAsmOperand::PlacementKind::Mem && op.placement_kind != IrAsmOperand::PlacementKind::Imm)
-                                        out_c += "&";
-
-                                    switch (op.placement_kind)
-                                    {
-                                        case IrAsmOperand::PlacementKind::Reg:
-                                            if (op.reg_name.empty())
-                                                out_c += reg_class_for_type(op.value ? op.value->type : inst->type);
-                                            else
-                                                out_c += "{" + std::string(op.reg_name) + "}";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::RegPair:
-                                            out_c += "A";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::Mem:
-                                            out_c += "*m";
-                                            break;
-                                        case IrAsmOperand::PlacementKind::Imm:
-                                            out_c += "X";
-                                            break;
-                                    }
-                                    unsigned tie_index = output_index;
-                                    output_constraints.push_back(std::move(out_c));
-                                    ++output_index;
-
-                                    if (op.placement_kind != IrAsmOperand::PlacementKind::Mem)
-                                        input_constraints.push_back(std::to_string(tie_index));
-
-                                    if (op.value)
-                                    {
-                                        auto* v = lookup(op.value);
-                                        if (!v)
-                                            return false;
-
-                                        if (op.placement_kind == IrAsmOperand::PlacementKind::Mem)
-                                        {
-                                            auto* ir_ptr_ty = op.value->type;
-                                            if (ir_ptr_ty && ir_ptr_ty->kind == IrTypeKind::Pointer)
-                                            {
-                                                auto* ir_pointee_ty = static_cast<IrPointerType const*>(ir_ptr_ty)->pointee;
-                                                if (ir_pointee_ty)
-                                                {
-                                                    auto* llvm_pointee = llvm_type_cached(tc, ir_pointee_ty);
-                                                    if (llvm_pointee)
-                                                        mem_elemtypes.emplace_back(static_cast<unsigned>(input_values.size()), llvm_pointee);
-                                                }
-                                            }
-                                        }
-
-                                        input_values.push_back(v);
-                                    }
-                                    break;
                                 }
                             }
+                            input_values.push_back(v);
                         }
-
-                        std::string constraint_str;
-                        auto append_list = [&](auto const& list) {
-                            for (auto const& entry : list)
-                            {
-                                if (!constraint_str.empty())
-                                    constraint_str += ",";
-                                constraint_str += entry;
-                            }
-                        };
-
-                        append_list(output_constraints);
-                        append_list(input_constraints);
-
-                        for (auto const& clobber : ai->clobbers)
+                        std::string constraint_str = lowered.constraints;
+                        for (auto const& clobber : lowered.clobbers)
                         {
                             if (!constraint_str.empty())
                                 constraint_str += ",";
@@ -3884,7 +3796,7 @@ namespace dcc::backend
 
                         auto* asm_func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
 
-                        auto* asm_val = LLVMGetInlineAsm(asm_func_ty, ai->template_str.data(), ai->template_str.size(), constraint_str.c_str(),
+                        auto* asm_val = LLVMGetInlineAsm(asm_func_ty, lowered.template_str.data(), lowered.template_str.size(), constraint_str.c_str(),
                                                          constraint_str.size(), ai->is_volatile ? 1 : 0, ai->align_stack ? 1 : 0,
                                                          ai->dialect == IrAsmDialect::Intel ? LLVMInlineAsmDialectIntel : LLVMInlineAsmDialectATT, 0);
 
