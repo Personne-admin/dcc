@@ -111,6 +111,12 @@ namespace dccd::format
             bool has_comment_inside{false};
         };
 
+        struct BinaryLayout
+        {
+            std::size_t begin{}, end{};
+            std::vector<std::size_t> operators;
+        };
+
         struct StructuralInfo
         {
             bool parsed{false};
@@ -129,6 +135,9 @@ namespace dccd::format
             std::unordered_set<std::size_t> reanchor_starts;
             std::unordered_set<std::size_t> for_header_parens;
             std::unordered_set<std::size_t> for_header_semicolons;
+            std::unordered_set<std::size_t> ast_match_braces;
+            std::unordered_set<std::size_t> attached_bodies;
+            std::vector<BinaryLayout> binary_layouts;
             int tab_size{4};
             std::unordered_map<std::size_t, DelimitedGroup> groups;
         };
@@ -209,6 +218,7 @@ namespace dccd::format
                 case TokenKind::LBrace:
                 case TokenKind::Dot:
                 case TokenKind::ColonColon:
+                case TokenKind::DotDot:
                 case TokenKind::Bang:
                 case TokenKind::At:
                 case TokenKind::Hash:
@@ -745,6 +755,12 @@ namespace dccd::format
                 order[g] = g;
             std::ranges::sort(order, [&groups](std::size_t a, std::size_t b) { return groups[a].open_tok < groups[b].open_tok; });
 
+            std::unordered_set<std::size_t> chain_parens;
+            for (auto const& layout : info.binary_layouts)
+                if (layout.begin > 0 && layout.end < tokens.size() && tokens[layout.begin - 1].kind == TokenKind::LParen &&
+                    tokens[layout.end].kind == TokenKind::RParen)
+                    chain_parens.insert(layout.begin - 1);
+
             std::vector<std::size_t> wrap_stack;
             for (std::size_t const gi : order)
             {
@@ -776,7 +792,11 @@ namespace dccd::format
                     if (want_compact && has_inner_block(g.open_tok, content_end(g)))
                         want_compact = false;
 
-                    if (want_compact)
+                    if (info.ast_match_braces.contains(g.open_tok) && !empty_brace)
+                    {
+                        g.wrap = true;
+                    }
+                    else if (want_compact)
                     {
                         g.compact = true;
                         g.tight = ast_struct || ast_restricted;
@@ -788,7 +808,7 @@ namespace dccd::format
                 }
                 else
                 {
-                    bool const direct_nl = g.has_direct_newline;
+                    bool const direct_nl = g.has_direct_newline && (!chain_parens.contains(g.open_tok) || info.width_eligible_parens.contains(g.open_tok));
                     bool const block_inside = has_inner_block(g.open_tok, content_end(g));
                     bool const width_eligible = g.open_kind == TokenKind::LParen && info.width_eligible_parens.contains(g.open_tok);
 
@@ -796,7 +816,7 @@ namespace dccd::format
                     {
                         g.wrap = true;
                     }
-                    else if (width_eligible)
+                    else if (width_eligible && (!g.matched || g.open_tok + 1 != g.close_tok))
                     {
                         std::size_t context = line_start[g.open_tok];
                         if (nested)
@@ -888,6 +908,49 @@ namespace dccd::format
                         info.reanchor_starts.insert(idx);
                 }
                 dcc::ast::RecursiveAstVisitor::visitDecl(d);
+            }
+
+            void attach_condition_body(dcc::ast::Expr const* condition)
+            {
+                if (!condition || !condition->range.valid())
+                    return;
+
+                auto const body = token_index_at_or_after(condition->range.end.offset);
+                if (body != kNoTokenIndex && tokens[body].kind == TokenKind::LBrace)
+                    info.attached_bodies.insert(body);
+            }
+
+            void visitIfExpr(dcc::ast::IfExpr const* e) override
+            {
+                attach_condition_body(e->condition);
+                dcc::ast::RecursiveAstVisitor::visitIfExpr(e);
+                if (auto const* branch = dcc::ast::node_cast<dcc::ast::BlockExpr>(e->else_branch); branch && (!branch->body.stmts.empty() || branch->body.tail))
+                {
+                    auto const idx = token_at(branch->body.range.begin.offset);
+                    info.ast_compact_braces.erase(idx);
+                    info.ast_block_braces.insert(idx);
+                }
+            }
+
+            void visitStaticIfStmt(dcc::ast::StaticIfStmt const* s) override
+            {
+                attach_condition_body(s->condition);
+                dcc::ast::RecursiveAstVisitor::visitStaticIfStmt(s);
+            }
+
+            void visitStaticIfGroup(dcc::ast::StaticIfGroup const* d) override
+            {
+                attach_condition_body(d->condition);
+                dcc::ast::RecursiveAstVisitor::visitStaticIfGroup(d);
+            }
+
+            void visitMatchExpr(dcc::ast::MatchExpr const* e) override
+            {
+                attach_condition_body(e->operand);
+                auto const body = e->operand && e->operand->range.valid() ? token_index_at_or_after(e->operand->range.end.offset) : kNoTokenIndex;
+                if (body != kNoTokenIndex && tokens[body].kind == TokenKind::LBrace)
+                    info.ast_match_braces.insert(body);
+                dcc::ast::RecursiveAstVisitor::visitMatchExpr(e);
             }
 
             void visitForStmt(dcc::ast::ForStmt const* s) override
@@ -1051,10 +1114,34 @@ namespace dccd::format
                 dcc::ast::RecursiveAstVisitor::visitFuncPtrType(t);
             }
 
+            int binary_depth{};
+
+            void collect_chain(dcc::ast::BinaryExpr const* e, TokenKind op, BinaryLayout& layout)
+            {
+                if (!e->lhs || !e->rhs || !e->lhs->range.valid() || !e->rhs->range.valid() || e->op != op)
+                    return;
+                if (auto const* lhs = dcc::ast::node_cast<dcc::ast::BinaryExpr>(e->lhs))
+                    collect_chain(lhs, op, layout);
+                auto const idx = token_index_at_or_after(e->lhs->range.end.offset);
+                if (idx != kNoTokenIndex && tokens[idx].kind == op)
+                    layout.operators.push_back(idx);
+                if (auto const* rhs = dcc::ast::node_cast<dcc::ast::BinaryExpr>(e->rhs))
+                    collect_chain(rhs, op, layout);
+            }
+
             void visitBinaryExpr(dcc::ast::BinaryExpr const* e) override
             {
                 collect_binary_operator(e);
+                if (binary_depth == 0 && e->range.valid())
+                {
+                    BinaryLayout layout{token_index_at_or_after(e->range.begin.offset), token_index_at_or_after(e->range.end.offset), {}};
+                    collect_chain(e, e->op, layout);
+                    if (!layout.operators.empty() && (layout.operators.size() > 1 || e->op == TokenKind::AmpAmp || e->op == TokenKind::PipePipe))
+                        info.binary_layouts.push_back(std::move(layout));
+                }
+                ++binary_depth;
                 dcc::ast::RecursiveAstVisitor::visitBinaryExpr(e);
+                --binary_depth;
             }
 
             void visitStructLiteralExpr(dcc::ast::StructLiteralExpr const* e) override
@@ -1376,6 +1463,9 @@ namespace dccd::format
                                       .reanchor_starts = {},
                                       .for_header_parens = {},
                                       .for_header_semicolons = {},
+                                      .ast_match_braces = {},
+                                      .attached_bodies = {},
+                                      .binary_layouts = {},
                                       .tab_size = static_cast<int>(options.tabSize),
                                       .groups = {}};
             }
@@ -1404,6 +1494,59 @@ namespace dccd::format
                     else if (k == TokenKind::LBrace || k == TokenKind::RBrace || k == TokenKind::Semicolon || k == TokenKind::KwStruct ||
                              k == TokenKind::KwUnion || k == TokenKind::KwModule)
                         in_enum = false;
+                }
+            }
+
+            std::vector<bool> chain_gap(tokens.size(), false);
+            std::vector<bool> chain_break(tokens.size(), false);
+            std::vector<bool> chain_continuation(tokens.size(), false);
+            std::vector<std::size_t> widths(tokens.size() + 1, 0);
+            std::vector<std::size_t> starts(tokens.size(), 0);
+            std::vector<int> depths(tokens.size(), 0);
+            std::size_t start = 0;
+            int depth = 0;
+            for (std::size_t i = 0; i < tokens.size(); ++i)
+            {
+                starts[i] = start;
+                depths[i] = depth;
+                widths[i + 1] = widths[i] + spelling_at(src_text, tokens[i]).size() + (space_before_token(tokens, i, info) ? 1 : 0);
+                if (tokens[i].kind == TokenKind::LBrace)
+                    ++depth;
+                if (tokens[i].kind == TokenKind::RBrace)
+                    depth = std::max(0, depth - 1);
+                if (tokens[i].kind == TokenKind::LBrace || tokens[i].kind == TokenKind::RBrace || tokens[i].kind == TokenKind::Semicolon)
+                    start = i + 1;
+            }
+
+            for (auto const& layout : info.binary_layouts)
+            {
+                if (layout.begin >= layout.end || layout.end >= tokens.size())
+                    continue;
+
+                bool structural = false;
+                for (auto i = layout.begin; i < layout.end; ++i)
+                {
+                    if (tokens[i].kind == TokenKind::LBrace || gap_has_comment(trivia, i))
+                        structural = true;
+                    if (auto it = info.groups.find(i); it != info.groups.end() && it->second.wrap)
+                        structural = true;
+                }
+                if (structural)
+                    continue;
+
+                auto const width = widths[layout.end] - widths[starts[layout.begin]] + (static_cast<std::size_t>(depths[layout.begin]) * options.tabSize);
+                bool const wrap = width > kMaxLineWidth;
+                for (auto i = layout.begin + 1; i < layout.end; ++i)
+                    chain_gap[i] = true;
+
+                if (wrap)
+                {
+                    for (auto const op : layout.operators)
+                        chain_break[op] = true;
+                    for (auto i = layout.operators.front(); i < layout.end; ++i)
+                        chain_continuation[i] = true;
+                    if (info.attached_bodies.contains(layout.end))
+                        chain_break[layout.end] = true;
                 }
             }
 
@@ -1532,6 +1675,9 @@ namespace dccd::format
                     }
                 }
 
+                if (chain_continuation[i])
+                    ++want_indent;
+
                 int need_newlines = 0;
                 if (i > 0)
                 {
@@ -1594,6 +1740,18 @@ namespace dccd::format
                 }
 
                 bool const has_comments = gap_has_comment(trivia, i);
+                if (!has_comments)
+                {
+                    if (chain_gap[i])
+                        need_newlines = 0;
+                    if (info.attached_bodies.contains(i) ||
+                        (prev_kind == TokenKind::RBrace && (tok.kind == TokenKind::KwElse || info.binary_operator[i] || tok.kind == TokenKind::KwAs ||
+                                                            tok.kind == TokenKind::Dot || tok.kind == TokenKind::Question)))
+                        need_newlines = 0;
+                    if (chain_break[i])
+                        need_newlines = 1;
+                }
+
                 if (is_eof && !has_comments && need_newlines > 1)
                     need_newlines = 1;
                 if (has_comments)

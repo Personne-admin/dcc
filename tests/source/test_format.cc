@@ -743,7 +743,9 @@ TEST_CASE("template function and template calls stay stable")
                  "T max(T)(T a, T b) {\n"
                  "    return if a > b {\n"
                  "        a\n"
-                 "    } else { b };\n"
+                 "    } else {\n"
+                 "        b\n"
+                 "    };\n"
                  "}\n"
                  "void f() {\n"
                  "    copy!(u8, 23)(dst, src);\n"
@@ -1900,7 +1902,9 @@ TEST_CASE("compact block-expression braces keep their spaced style")
                  "    i32 b = 2;\n"
                  "    i32 x = if a > 0 {\n"
                  "        b\n"
-                 "    } else { 0 };\n"
+                 "    } else {\n"
+                 "        0\n"
+                 "    };\n"
                  "}\n");
 }
 
@@ -2215,4 +2219,338 @@ TEST_CASE("formatting options on-type ';' with trimTrailingWhitespace")
     REQUIRE(nl != std::string::npos);
     applied.replace(eq, nl - eq, edits[0].newText);
     CHECK_EQ(applied, *full);
+}
+
+TEST_CASE("static if compiles keeps probe and body attached")
+{
+    check_format(R"dc(void f(T)() {
+static if compiles (T t) {t as i64;}
+{foo();} else static if compiles (T t) {t as f64;}
+{bar();}
+}
+)dc",
+                 R"dc(void f(T)() {
+    static if compiles (T t) {
+        t as i64;
+    } {
+        foo();
+    } else static if compiles (T t) {
+        t as f64;
+    } {
+        bar();
+    }
+}
+)dc");
+}
+
+TEST_CASE("chained static if and detached else")
+{
+    check_format(R"dc(void f(T)() {
+static if T == u8 {a();}
+else static if T == u16 {b();}
+else {c();}
+}
+)dc",
+                 R"dc(void f(T)() {
+    static if T == u8 {
+        a();
+    } else static if T == u16 {
+        b();
+    } else {
+        c();
+    }
+}
+)dc");
+}
+
+TEST_CASE("nested ordinary if and return expression")
+{
+    check_format(R"dc(bool f(bool a, bool b) {
+if a {if b {foo();} else {bar();}}
+else {baz();}
+return if a {true} else {false};
+}
+)dc",
+                 R"dc(bool f(bool a, bool b) {
+    if a {
+        if b {
+            foo();
+        } else {
+            bar();
+        }
+    } else {
+        baz();
+    }
+    return if a {
+        true
+    } else {
+        false
+    };
+}
+)dc");
+}
+
+TEST_CASE("match expression and block arms")
+{
+    check_format(R"dc(i32 f(i32 x) {return match x {0 => 1, 1 => {foo(); 2}, _ => 3,};}
+)dc",
+                 R"dc(i32 f(i32 x) {
+    return match x {
+        0 => 1,
+        1 => {
+            foo();
+            2
+        },
+        _ => 3,
+    };
+}
+)dc");
+}
+
+TEST_CASE("short boolean chain collapses source wrapping")
+{
+    check_format(R"dc(void f(T)() {
+static if T == u8 || T == u16
+|| T == u32 || T == u64 {foo();}
+}
+)dc",
+                 R"dc(void f(T)() {
+    static if T == u8 || T == u16 || T == u32 || T == u64 {
+        foo();
+    }
+}
+)dc");
+}
+
+TEST_CASE("long boolean chain breaks at consistent boundaries")
+{
+    check_format(R"dc(void f() {
+if first_very_long_condition || second_very_long_condition || third_very_long_condition {foo();}
+}
+)dc",
+                 R"dc(void f() {
+    if first_very_long_condition
+        || second_very_long_condition
+        || third_very_long_condition
+    {
+        foo();
+    }
+}
+)dc");
+}
+
+TEST_CASE("long return binary chain")
+{
+    check_format(R"dc(i64 f() {return first_very_long_operand + second_very_long_operand + third_very_long_operand;}
+)dc",
+                 R"dc(i64 f() {
+    return first_very_long_operand
+        + second_very_long_operand
+        + third_very_long_operand;
+}
+)dc");
+}
+
+TEST_CASE("template signature and long call arguments")
+{
+    check_format(R"dc(public Status(FmtError) format_value(T)(const Writer* w, T value, const Options* opts) {
+return write_padded(w, value, opts);
+}
+)dc",
+                 R"dc(public Status(FmtError) format_value(T)(
+    const Writer* w,
+    T value,
+    const Options* opts
+) {
+    return write_padded(w, value, opts);
+}
+)dc");
+}
+
+TEST_CASE("calls struct enum ufcs casts slices and nested templates")
+{
+    check_format(R"dc(void f() {
+auto result=Point{x=1,y=2};
+return Result::Ok(transform!(Map(String, Vec(Value)))(value).finish(result,items[1..count],items[index] as i64));
+}
+)dc",
+                 R"dc(void f() {
+    auto result = Point {x = 1, y = 2};
+    return Result::Ok(
+        transform!(Map(String, Vec(Value)))(value).finish(
+            result,
+            items[1..count],
+            items[index] as i64
+        )
+    );
+}
+)dc");
+}
+
+TEST_CASE("stdlib fmt format_value layout regression")
+{
+    check_format(R"dc(public Status(FmtError) format_value(T)(
+    const Writer* w,
+    T value,
+    const Options* opts
+) {
+    static if T == bool || T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char
+                 || T == i8 || T == i16 || T == i32 || T == i64 || T == isize {
+        static if T == bool {
+            format_builtin_unsigned(w, value, opts) ?;
+        } else static if compiles (T t) {
+            t as u64;
+            t - t;
+        }
+        {
+            static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char {
+                format_builtin_unsigned(w, value, opts) ?;
+            } else {
+                format_signed(w, value as i64, opts) ?;
+            }
+        } else {
+            format_signed(w, value as i64, opts) ?;
+        }
+    } else static if T == f32 || T == f64 {
+        format_float(w, value as f64, opts) ?;
+    } else static if T == [] const u8 {
+        write_padded(w, value, opts) ?;
+    } else static if compiles (T t, const Writer* q, const Options* o) {
+        t.format(q, o);
+    }
+    {
+        value.format(w, opts) ?;
+    } else {
+        core::compile_error(
+            "type is not formattable: add format(const T*, const Writer*, const Options*)"
+        );
+    }
+
+    return Status::Ok;
+}
+
+)dc",
+                 R"dc(public Status(FmtError) format_value(T)(
+    const Writer* w,
+    T value,
+    const Options* opts
+) {
+    static if T == bool
+        || T == u8
+        || T == u16
+        || T == u32
+        || T == u64
+        || T == usize
+        || T == char
+        || T == i8
+        || T == i16
+        || T == i32
+        || T == i64
+        || T == isize
+    {
+        static if T == bool {
+            format_builtin_unsigned(w, value, opts) ?;
+        } else static if compiles (T t) {
+            t as u64;
+            t - t;
+        } {
+            static if T == u8
+                || T == u16
+                || T == u32
+                || T == u64
+                || T == usize
+                || T == char
+            {
+                format_builtin_unsigned(w, value, opts) ?;
+            } else {
+                format_signed(w, value as i64, opts) ?;
+            }
+        } else {
+            format_signed(w, value as i64, opts) ?;
+        }
+    } else static if T == f32 || T == f64 {
+        format_float(w, value as f64, opts) ?;
+    } else static if T == [] const u8 {
+        write_padded(w, value, opts) ?;
+    } else static if compiles (T t, const Writer* q, const Options* o) {
+        t.format(q, o);
+    } {
+        value.format(w, opts) ?;
+    } else {
+        core::compile_error(
+            "type is not formattable: add format(const T*, const Writer*, const Options*)"
+        );
+    }
+
+    return Status::Ok;
+}
+)dc");
+}
+
+TEST_CASE("parenthesized chains and boolean call arguments remain idempotent")
+{
+    check_format(R"dc(void f() {
+if (first_very_long_condition || second_very_long_condition || third_very_long_condition) {foo();}
+return consume(first_very_long_condition || second_very_long_condition || third_very_long_condition);
+}
+)dc",
+                 R"dc(void f() {
+    if (first_very_long_condition
+        || second_very_long_condition
+        || third_very_long_condition) {
+        foo();
+    }
+    return consume(
+        first_very_long_condition
+            || second_very_long_condition
+            || third_very_long_condition
+    );
+}
+)dc");
+}
+
+TEST_CASE("unrelated blocks stay on separate lines")
+{
+    check_format(R"dc(void f() {
+{foo();}
+{bar();}
+}
+)dc",
+                 R"dc(void f() {
+    {
+        foo();
+    }
+    {
+        bar();
+    }
+}
+)dc");
+}
+
+TEST_CASE("module static if probe and declarations stay attached")
+{
+    check_format(R"dc(static if compiles (i32 t) {t as i64;}
+{void foo() {}}
+else static if true {void bar() {}}
+)dc",
+                 R"dc(static if compiles (i32 t) {
+    t as i64;
+} {
+    void foo() {}
+} else static if true {
+    void bar() {}
+}
+)dc");
+}
+
+TEST_CASE("long ufcs chains do not expand empty argument lists")
+{
+    check_format(R"dc(void f() {
+return a_very_long_receiver_name.first_operation().second_operation().third_operation();
+}
+)dc",
+                 R"dc(void f() {
+    return a_very_long_receiver_name.first_operation().second_operation().third_operation();
+}
+)dc");
 }
