@@ -1073,6 +1073,14 @@ export namespace dcc::ir
         std::string_view reg_name2{};
         IrValue* value{};
         std::string_view placeholder{};
+        IrType const* type{};
+    };
+
+    struct IrAsmTemplatePart
+    {
+        std::uint32_t offset{};
+        std::uint32_t length{};
+        std::uint32_t operand{0xFFFFFFFFU};
     };
 
     struct IrInlineAsmInst : IrValue
@@ -1081,6 +1089,7 @@ export namespace dcc::ir
 
         std::pmr::string template_str;
         std::pmr::vector<IrAsmOperand> operands;
+        std::pmr::vector<IrAsmTemplatePart> template_parts;
         std::pmr::vector<std::string_view> clobbers;
         bool is_volatile{true};
         bool align_stack{false};
@@ -1088,8 +1097,8 @@ export namespace dcc::ir
 
         IrInlineAsmInst(std::pmr::string t, std::pmr::vector<IrAsmOperand> o, std::pmr::vector<std::string_view> c, bool vol, bool align, IrAsmDialect d,
                         IrType const* result_type, sm::SourceRange range, std::pmr::polymorphic_allocator<> alloc)
-            : IrValue(Kind, range), template_str(std::move(t), alloc), operands(std::move(o), alloc), clobbers(std::move(c), alloc), is_volatile(vol),
-              align_stack(align), dialect(d)
+            : IrValue(Kind, range), template_str(std::move(t), alloc), operands(std::move(o), alloc), template_parts(alloc), clobbers(std::move(c), alloc),
+              is_volatile(vol), align_stack(align), dialect(d)
         {
             type = result_type;
         }

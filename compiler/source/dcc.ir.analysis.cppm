@@ -524,6 +524,12 @@ export namespace dcc::ir::analysis
 
                         break;
                     }
+                    case IrNodeKind::InlineAsm: {
+                        for (auto const& op : static_cast<IrInlineAsmInst const*>(inst)->operands)
+                            if (op.value)
+                                record_use(op.value, const_cast<IrValue*>(inst));
+                        break;
+                    }
                     case IrNodeKind::CallTail: {
                         auto* c = static_cast<IrCallTailInst const*>(inst);
                         record_use(c->callee, const_cast<IrValue*>(inst));
@@ -839,6 +845,11 @@ export namespace dcc::ir::analysis
                                 break;
                             }
                             case IrNodeKind::Phi:
+                                break;
+                            case IrNodeKind::InlineAsm:
+                                for (auto const& op : static_cast<IrInlineAsmInst const*>(n)->operands)
+                                    if (op.value && !kill_set.contains(op.value))
+                                        gen_set.insert(op.value);
                                 break;
                             case IrNodeKind::Call: {
                                 auto* c = static_cast<IrCallInst const*>(n);

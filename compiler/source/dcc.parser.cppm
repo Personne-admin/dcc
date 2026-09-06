@@ -1645,6 +1645,8 @@ export namespace dcc::parser
             if (reg_tok.kind == TK::Identifier)
             {
                 op.reg_name = reg_tok.interned;
+                if (op.reg_name == "reg")
+                    op.reg_name = {};
                 if (match(TK::Colon))
                 {
                     auto reg2_tok = expect(TK::Identifier, "in register pair");
@@ -1683,6 +1685,18 @@ export namespace dcc::parser
         {
             ast::AsmOperand op;
             op.direction = ast::AsmOperandDirection::Out;
+
+            if (check(TK::Identifier) && check_at(1, TK::Eq))
+            {
+                op.placeholder = advance().interned;
+                advance();
+                op.expr = parse_expr();
+                if (match(TK::KwIn))
+                    parse_placement(op);
+                op.range = range_from(start);
+                node->operands.push_back(std::move(op));
+                return;
+            }
 
             if (match(TK::KwIn))
             {
@@ -2074,72 +2088,67 @@ export namespace dcc::parser
         template <typename AsmNode> void scan_asm_placeholders(AsmNode* node, std::string_view raw_spelling)
         {
             auto const& str = node->template_str;
-
             std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>> raw_segments(m_ctx.allocator());
             bool const mapped = build_asm_decoded_raw_segments(raw_spelling, str, raw_segments);
-
             auto const fid = node->template_range.begin.fileId;
-            auto const raw_base = static_cast<dcc::sm::Offset>(node->template_range.begin.offset);
+            auto const raw_base = node->template_range.begin.offset;
+            auto ident_start = [](char c) { return std::isalpha(static_cast<unsigned char>(c)) || c == '_'; };
+            auto ident = [&](char c) { return ident_start(c) || std::isdigit(static_cast<unsigned char>(c)); };
 
-            std::size_t i = 0;
-            while (i < str.size())
+            for (std::size_t i = 0; i < str.size();)
             {
-                if (str[i] == '%' && i + 1 < str.size())
+                if (str[i] != '%')
                 {
-                    if (str[i + 1] == '%' && i + 2 < str.size())
+                    ++i;
+                    continue;
+                }
+                auto start = i++;
+                ast::AsmPlaceholderSpan span;
+                span.byte_offset = static_cast<std::uint32_t>(start);
+                span.kind = ast::AsmPlaceholderSpan::Kind::Unresolved;
+                std::string_view problem;
+                if (i < str.size() && str[i] == '%')
+                {
+                    auto name_start = ++i;
+                    while (i < str.size() && ident(str[i]))
+                        ++i;
+                    span.kind = ast::AsmPlaceholderSpan::Kind::RegLiteral;
+                    span.name = std::string_view(str).substr(name_start, i - name_start);
+                }
+                else if (i < str.size() && str[i] == '[')
+                {
+                    auto name_start = ++i;
+                    while (i < str.size() && str[i] != ']')
+                        ++i;
+                    span.name = std::string_view(str).substr(name_start, i - name_start);
+                    if (i == str.size())
+                        problem = "unterminated asm operand reference; expected ']'";
+                    else
                     {
-                        std::size_t name_start = i + 2;
-                        std::size_t end = name_start;
-                        while (end < str.size() && (std::isalnum(static_cast<unsigned char>(str[end])) || str[end] == '_'))
-                            ++end;
-
-                        if (end > name_start)
-                        {
-                            ast::AsmPlaceholderSpan span;
-                            span.byte_offset = static_cast<std::uint32_t>(i);
-                            span.byte_length = static_cast<std::uint32_t>(end - i);
-                            span.kind = ast::AsmPlaceholderSpan::Kind::RegLiteral;
-                            span.name = std::string_view(str.data() + name_start, end - name_start);
-                            span.operand_index = 0xFFFFFFFFU;
-                            if (mapped && span.byte_offset + span.byte_length <= raw_segments.size())
-                            {
-                                span.raw_range = sm::SourceRange{
-                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset].first)},
-                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset + span.byte_length - 1].second)}};
-                            }
-                            node->placeholder_spans.push_back(std::move(span));
-                            i = end;
-                            continue;
-                        }
-                    }
-                    else if (str[i + 1] == '[')
-                    {
-                        std::size_t name_start = i + 2;
-                        std::size_t end = name_start;
-                        while (end < str.size() && str[end] != ']')
-                            ++end;
-
-                        if (end < str.size() && end > name_start)
-                        {
-                            ast::AsmPlaceholderSpan span;
-                            span.byte_offset = static_cast<std::uint32_t>(i);
-                            span.byte_length = static_cast<std::uint32_t>(end - i + 1);
+                        ++i;
+                        if (span.name.empty() || !ident_start(span.name.front()) || !std::ranges::all_of(span.name, ident))
+                            problem = "invalid asm operand name";
+                        else
                             span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
-                            span.name = std::string_view(str.data() + name_start, end - name_start);
-                            span.operand_index = 0xFFFFFFFFU;
-                            if (mapped && span.byte_offset + span.byte_length <= raw_segments.size())
-                            {
-                                span.raw_range = sm::SourceRange{
-                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset].first)},
-                                    sm::Location{fid, raw_base + static_cast<dcc::sm::Offset>(raw_segments[span.byte_offset + span.byte_length - 1].second)}};
-                            }
-                            node->placeholder_spans.push_back(std::move(span));
-                            i = end + 1;
-                            continue;
-                        }
                     }
                 }
-                ++i;
+                else if (i < str.size() && std::isdigit(static_cast<unsigned char>(str[i])))
+                {
+                    auto name_start = i;
+                    while (i < str.size() && std::isdigit(static_cast<unsigned char>(str[i])))
+                        ++i;
+                    span.name = std::string_view(str).substr(name_start, i - name_start);
+                    span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
+                }
+                else
+                    problem = "invalid asm '%' escape; use %0, %[name], or %%";
+
+                span.byte_length = static_cast<std::uint32_t>(i - start);
+                if (mapped && i <= raw_segments.size())
+                    span.raw_range = {{fid, raw_base + raw_segments[start].first}, {fid, raw_base + raw_segments[i - 1].second}};
+                if (!problem.empty())
+                    error_at(span.raw_range.valid() ? span.raw_range : node->template_range, std::string(problem));
+                node->placeholder_spans.push_back(span);
             }
         }
 

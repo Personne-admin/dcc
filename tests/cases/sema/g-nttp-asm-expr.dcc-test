@@ -2,7 +2,7 @@
 module m;
 
 u64 f(u32 N)() {
-    return asm @[output(u64 in rax), inputs(v in eax = N)] { "mov %[v], %%rax" };
+    return asm @[output(u64 in rax), inputs(v in ecx = N)] { "mov %[v], %%rax" };
 }
 
 void a() {

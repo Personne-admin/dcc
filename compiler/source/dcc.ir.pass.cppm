@@ -574,6 +574,7 @@ namespace dcc::ir::pass
                         cloned_op.reg_name = op.reg_name;
                         cloned_op.reg_name2 = op.reg_name2;
                         cloned_op.placeholder = op.placeholder;
+                        cloned_op.type = clone_type_impl(op.type, dst, cctx);
                         if (op.value)
                         {
                             auto it2 = cctx.value_map.find(op.value);
@@ -587,6 +588,7 @@ namespace dcc::ir::pass
                         cloned_clobbers.push_back(c);
                     result = dst.inline_asm(std::pmr::string(ia->template_str, dst.allocator()), std::move(cloned_operands), std::move(cloned_clobbers),
                                             ia->is_volatile, ia->align_stack, ia->dialect, clone_type_impl(ia->type, dst, cctx), ia->range);
+                    static_cast<IrInlineAsmInst*>(result)->template_parts = ia->template_parts;
                     break;
                 }
 

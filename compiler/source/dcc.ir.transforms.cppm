@@ -274,6 +274,12 @@ namespace dcc::ir::pass
                             arg = new_val;
                     break;
                 }
+                case IrNodeKind::InlineAsm: {
+                    for (auto& op : static_cast<IrInlineAsmInst*>(node)->operands)
+                        if (op.value == old_val)
+                            op.value = new_val;
+                    break;
+                }
                 case IrNodeKind::CallTail: {
                     auto* c = static_cast<IrCallTailInst*>(node);
                     if (c->callee == old_val)
