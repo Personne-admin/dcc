@@ -1,0 +1,50 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 load_intel(u64* p) {
+    u64 v = 0;
+    asm @[intel, output(dst = v in rax), inputs(ptr = p)] { "mov %[dst], [%[ptr]]" };
+    return v;
+}
+
+void store_intel(u64* p, u64 v) {
+    asm @[intel, inputs(val = v), inout(slot = *p)] { "mov %[slot], %[val]" };
+}
+
+u64 load_att(u64* p) {
+    u64 v = asm @[output(u64 in rax), inputs(ptr = p)] { "movq (%[ptr]), %0" };
+    return v;
+}
+
+u64* bump_ptr(u64* p) {
+    u64* q = asm @[intel, output(u64* in rax), inputs(ptr = p)] { "lea %0, [%[ptr] + 8]" };
+    return q;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u64 cell = 1234;
+    u64* p = &cell;
+    if load_intel(p) != 1234 { return 1; }
+    if load_att(p) != 1234 { return 2; }
+    store_intel(p, 777);
+    if cell != 777 { return 3; }
+    if load_intel(p) != 777 { return 4; }
+    u64* q = bump_ptr(p);
+    u64 qi = q as u64;
+    u64 pi = p as u64;
+    if qi != pi + 8 { return 5; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

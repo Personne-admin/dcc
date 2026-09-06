@@ -1,0 +1,38 @@
+=== FILE: test.dc ===
+module test;
+
+void stray_percent() {
+    asm { "nop %eax" };
+}
+
+void unterminated_name() {
+    asm { "nop %[abc" };
+}
+
+void index_out_of_range() {
+    u64 x = 0;
+    asm @[inputs(v in rax = x)] { "mov %5, %[v]" };
+}
+
+void unknown_name() {
+    u64 x = 0;
+    asm @[inputs(v in rax = x)] { "mov %[nope], %[v]" };
+}
+
+void duplicate_name() {
+    u64 x = 0;
+    u64 y = 0;
+    asm @[inputs(v in rax = x, v in rbx = y)] { "mov %[v], %[v]" };
+}
+
+void unknown_literal_register() {
+    asm { "mov %%bogus, %%rax" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:4: invalid asm '%' escape
+test.dc:8: unterminated asm operand reference
+test.dc:13: out of range (1 operands)
+test.dc:18: undefined asm operand `nope`
+test.dc:24: duplicate asm operand name `v`
+test.dc:28: unknown register `bogus`

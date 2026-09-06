@@ -1,0 +1,45 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 move_named(u64 x) {
+    u64 y = 0;
+    asm @[intel, output(dst = y in rax), inputs(v in rbx = x)] { "mov %[dst], %[v]" };
+    return y;
+}
+
+u64 move_positional(u64 x) {
+    u64 y = asm @[output(u64 in rax), inputs(v in rbx = x)] { "mov %[v], %0" };
+    return y;
+}
+
+u64 inc_inout(u64 x) {
+    u64 y = x;
+    asm @[inout(acc = y in rax)] { "inc %[acc]" };
+    return y;
+}
+
+u64 add_immediate(u64 x) {
+    u64 y = asm @[output(u64 in rax), inputs(v = x)] { "mov %1, %0; add $5, %0" };
+    return y;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if move_named(40) != 40 { return 1; }
+    if move_positional(41) != 41 { return 2; }
+    if inc_inout(42) != 43 { return 3; }
+    if add_immediate(43) != 48 { return 4; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

@@ -1,0 +1,58 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+void two_outputs(u64 x, u64* out_a, u64* out_b) {
+    u64 p = 0;
+    u64 q = 0;
+    asm @[intel, output(a = p), output(b = q), inputs(v = x)] { "mov %[a], %[v]; mov %[b], %[v]" };
+    *out_a = p;
+    *out_b = q;
+}
+
+u64 push_pop(u64 x) {
+    u64 y = asm @[intel, output(u64 in rax), inputs(v = x)] { "push %[v]; pop %0" };
+    return y;
+}
+
+u64 with_clobber(u64 x) {
+    u64 y = asm @[intel, output(u64), inputs(v = x), clobbers(rcx, rdx)] { "mov %[v], %0" };
+    return y;
+}
+
+u16 fixed_regs(u16 port) {
+    u16 r = 0;
+    asm @[output(dst = r in ax), inputs(p in dx = port)] { "mov %[p], %[dst]" };
+    return r;
+}
+
+u64 lit_regs(u64 x) {
+    u64 y = 0;
+    asm @[intel, output(dst = y in rax), inputs(v in rbx = x)] { "mov %%rax, %%rbx" };
+    return y;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u64 a = 0;
+    u64 b = 0;
+    two_outputs(55, &a, &b);
+    if a != 55 { return 1; }
+    if b != 55 { return 2; }
+    if push_pop(66) != 66 { return 3; }
+    if with_clobber(77) != 77 { return 4; }
+    if fixed_regs(88) != 88 { return 5; }
+    if lit_regs(99) != 99 { return 6; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
