@@ -32,6 +32,54 @@ every major feature addition or a large number of smaller improvements.
 Solo project, pre-release. The language, ABI, and CLI surface are all
 expected to keep moving. Treat anything here as subject to change.
 
+## Installation
+
+### Debian
+
+Prebuilt Debian packages are available from
+[GitHub Releases](https://github.com/Personne-admin/dcc/releases).
+
+Download the appropriate `.deb` package and install it with:
+
+```bash
+sudo apt install ./dcc_*.deb
+```
+
+### Arch Linux
+
+Arch users can build the package using the provided `PKGBUILD`:
+
+```bash
+git clone https://github.com/Personne-admin/dcc.git
+cd dcc/packaging/arch
+makepkg -si
+```
+
+### Nix / NixOS
+
+dcc provides a Nix flake and can be installed directly from GitHub:
+
+```bash
+nix profile install github:Personne-admin/dcc
+```
+
+For development, enter the provided development shell with:
+
+```bash
+nix develop github:Personne-admin/dcc
+```
+
+On NixOS, the flake package can also be added directly to
+`environment.systemPackages`.
+
+### From source
+
+On other distributions, dcc can be built directly from source. A
+C++26-capable Clang with module support, LLVM, Python 3, and GNU Make are
+required.
+
+See the build instructions below.
+
 ## Building the compiler
 
 Build dependencies: a C++26-capable clang with module support, LLVM, GNU
@@ -53,7 +101,7 @@ provided for the Zig build system for use in any user projects. In order to use
 DCC from a project which uses Zig build, add the SDK to it:
 
 ```bash
-zig fetch --save git+https://github.com/yeint-herp/dcc.git
+zig fetch --save git+https://github.com/Personne-admin/dcc.git
 ```
 
 then in `build.zig` add dc sources:
@@ -105,4 +153,4 @@ built on the same `dccd` server.
 
 ## License
 
-GPLv3. See `LICENSE`.
+GPLv3 or later. See `LICENSE`.
