@@ -1,0 +1,51 @@
+=== FILE: test.dc ===
+module test;
+
+u64 move_named(u64 x) {
+    u64 y = asm @[output(u64 in rax), inputs(v = x)] { "mov %[v], %0" };
+    return y;
+}
+
+u64 move_positional(u64 x) {
+    u64 y = asm @[output(u64 in rax), inputs(v in rbx = x)] { "mov %1, %0" };
+    return y;
+}
+
+u64 repeat_refs(u64 x) {
+    u64 y = asm @[output(u64 in rax), inputs(v = x)] { "mov %[v], %0; add %1, %0; add %[v], %0" };
+    return y;
+}
+
+u64 add_immediate(u64 x) {
+    u64 y = asm @[output(u64 in rax), inputs(v = x)] { "mov %1, %0; add $5, %0" };
+    return y;
+}
+
+u64 inc_inout(u64 x) {
+    u64 y = x;
+    asm @[inout(acc = y in rax)] { "inc %[acc]" };
+    return y;
+}
+
+u64 add_inout(u64 x, u64 step) {
+    u64 acc = x;
+    asm @[inout(a = acc), inputs(s = step)] { "add %[s], %[a]" };
+    return acc;
+}
+
+void mem_barrier_cc() {
+    asm @[clobbers(memory, cc)] { "" };
+}
+
+u64 mem_load(u64* ptr) {
+    u64 total = 0;
+    asm @[inout(t = total), inputs(p = ptr)] { "add (%[p]), %[t]" };
+    return total;
+}
+
+u64 tsc_pair() {
+    u64 t = asm @[output(u64 in edx:eax)] { "rdtsc" };
+    return t;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

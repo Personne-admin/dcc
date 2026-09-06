@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+
+u64 maker() {
+    return 1;
+}
+
+void output_needs_lvalue() {
+    asm @[output(dst = maker() in rax)] { "mov %[dst], %[dst]" };
+}
+
+void output_needs_writable() {
+    const u64 y = 1;
+    asm @[output(dst = y in rax)] { "mov %[dst], %[dst]" };
+}
+
+void immediate_output() {
+    u64 x = 0;
+    asm @[output(v = x in imm)] { "nop" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:8: requires a writable lvalue
+test.dc:13: requires a writable lvalue
+test.dc:18: must be inputs

@@ -1,0 +1,52 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u8 round8(u8 x) {
+    u8 r = 0;
+    asm @[intel, output(dst = r in al), inputs(v in cl = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u16 round16(u16 x) {
+    u16 r = 0;
+    asm @[intel, output(dst = r in ax), inputs(v in cx = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u32 round32(u32 x) {
+    u32 r = 0;
+    asm @[intel, output(dst = r in eax), inputs(v in ecx = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+i64 neg64(i64 x) {
+    i64 r = asm @[intel, output(i64 in rax), inputs(v = x)] { "mov %0, %1; add %0, -1" };
+    return r;
+}
+
+u64 big_add(u64 x) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(v = x)] { "mov %0, %1; add %0, 1000000" };
+    return r;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if round8(200) != 200 { return 1; }
+    if round16(60000) != 60000 { return 2; }
+    if round32(3000000000) != 3000000000 { return 3; }
+    if neg64(10) != 9 { return 4; }
+    if big_add(5) != 1000005 { return 5; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

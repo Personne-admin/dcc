@@ -1,0 +1,50 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 alu64(u64 x, u64 y) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(a = x, b = y)] {
+        "mov %0, %1; add %0, %2; sub %0, 3; and %0, 63; or %0, 64; xor %0, %2"
+    };
+    return r;
+}
+
+u32 alu32(u32 x, u32 y) {
+    u32 r = asm @[intel, output(u32 in eax), inputs(a = x, b = y)] {
+        "mov %0, %1; add %0, %2; sub %0, 3"
+    };
+    return r;
+}
+
+u64 mul_shift(u64 x) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(v = x)] {
+        "mov %0, %1; imul %0, %0, 6; shl %0, 1; shr %0, 2; neg %0; not %0"
+    };
+    return r;
+}
+
+u64 dec_it(u64 x) {
+    u64 y = x;
+    asm @[intel, inout(acc = y in rax)] { "dec %[acc]" };
+    return y;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if alu64(100, 7) != 111 { return 1; }
+    if alu32(100, 7) != 104 { return 2; }
+    if mul_shift(10) != 29 { return 3; }
+    if dec_it(9) != 8 { return 4; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
