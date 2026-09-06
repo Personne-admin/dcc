@@ -14442,7 +14442,12 @@ export namespace dcc::sema
                         sema::set_canonical(op.type_override->sema, resolved);
                 }
                 if (op.expr)
-                    std::ignore = analyze_expr(mod, fn, scope, *op.expr, loop_depth, next_off, nullptr, const_env);
+                {
+                    auto result = analyze_expr(mod, fn, scope, *op.expr, loop_depth, next_off, nullptr, const_env);
+                    if (op.direction != ast::AsmOperandDirection::In && op.placement_kind != ast::AsmPlacementKind::Mem &&
+                        (!result.is_lvalue || !result.is_writable))
+                        error(op.range, "asm output operand `{}` requires a writable lvalue", op.placeholder);
+                }
             }
         }
 
@@ -14487,436 +14492,184 @@ export namespace dcc::sema
             return sm::SourceRange{start, end};
         }
 
+        template <typename AsmNode> void validate_asm(AsmNode& node, types::TypePtr expected_type = nullptr)
+        {
+            using namespace target;
+            auto arch = m_target ? m_target->arch : Arch::X86_64;
+            auto arch_name = arch == Arch::X86_64 ? "x86_64" : "x86";
+            if (auto const* attr = find_asm_attr(node.attrs, "arch"))
+            {
+                auto required = get_asm_attr_string(*attr);
+                if (required != "x86" && required != "x86_64")
+                    error(attr->range, "unknown asm architecture `{}`", required);
+                else if (required != arch_name)
+                    error(attr->range, "asm block requires architecture `{}`, but target is `{}`", required, arch_name);
+            }
+
+            std::unordered_set<std::string_view> names;
+            std::unordered_set<std::string_view> registers;
+            for (auto const& op : node.operands)
+            {
+                if (!op.placeholder.empty() && !names.insert(op.placeholder).second)
+                    error(op.range, "duplicate asm operand name `{}`", op.placeholder);
+
+                auto* ty = unwrap_nominal(resolve_operand_type(op));
+                if (!ty && op.type_is_deduced)
+                {
+                    ty = unwrap_nominal(expected_type);
+                    if (!ty || has_error(ty))
+                        error(op.range, "cannot deduce output type for inline asm; write the type explicitly");
+                }
+                if (!ty || has_error(ty))
+                    continue;
+
+                bool memory = op.placement_kind == ast::AsmPlacementKind::Mem;
+                bool immediate = op.placement_kind == ast::AsmPlacementKind::Imm;
+                bool pair = op.placement_kind == ast::AsmPlacementKind::RegPair;
+                bool input = op.direction == ast::AsmOperandDirection::In;
+                auto width = type_byte_width(ty);
+
+                if (memory)
+                {
+                    auto* ptr = types::type_cast<types::PointerType>(ty);
+                    if (!ptr)
+                        error(op.range, "asm memory operand `{}` requires a pointer", op.placeholder);
+                    else if (!input && types::has_qual(ptr->pointee_quals, types::Qual::Const))
+                        error(op.range, "cannot use const pointer as writable memory operand for `{}`", op.placeholder);
+                    continue;
+                }
+                if (immediate)
+                {
+                    if (!input)
+                        error(op.range, "asm immediate operands must be inputs");
+                    if (!op.expr || !op.expr->sema.is_constant)
+                        error(op.range, "operand `{}` with `imm` placement requires a compile-time constant", op.placeholder);
+                    if (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool)
+                        error(op.range, "asm immediate operand `{}` requires an integer constant", op.placeholder);
+                    continue;
+                }
+                if (width == 0 || width > 8 ||
+                    (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool && ty->kind != types::TypeKind::Pointer &&
+                     ty->kind != types::TypeKind::Float))
+                    error(op.range, "asm register operand `{}` requires a scalar type of at most 8 bytes", op.placeholder);
+
+                auto check_register = [&](std::string_view name) -> PhysReg const* {
+                    if (name.empty())
+                        return nullptr;
+                    auto* reg = lookup_register(arch, name);
+                    if (!reg)
+                        error(op.range, "unknown register `{}` for target `{}`", name, arch_name);
+                    else if (reg->reserved)
+                        error(op.range, "register `{}` cannot be used as an asm operand", name);
+                    else if ((reg->cls != PhysRegClass::GPR && reg->cls != PhysRegClass::XMM) ||
+                             (reg->cls == PhysRegClass::XMM && (!name.starts_with("xmm") || ty->kind != types::TypeKind::Float)) ||
+                             (reg->cls == PhysRegClass::GPR && ty->kind == types::TypeKind::Float) || name == "ah" || name == "bh" || name == "ch" ||
+                             name == "dh")
+                        error(op.range, "unsupported asm register `{}` for type `{}`", name, format_type_str(ty));
+                    if (!registers.insert(register_family(name)).second)
+                        error(op.range, "overlapping asm register placement `{}`; use one inout operand", name);
+                    return reg;
+                };
+                auto* first = check_register(op.reg_name);
+                auto* second = pair ? check_register(op.reg_name2) : nullptr;
+                if (pair)
+                {
+                    if (first && second &&
+                        (first->cls != PhysRegClass::GPR || second->cls != PhysRegClass::GPR || first->width != second->width ||
+                         width != (first->width + second->width) / 8u))
+                        error(op.range, "operand `{}` type `{}` does not match register pair `{}:{}` width", op.placeholder, format_type_str(ty), op.reg_name,
+                              op.reg_name2);
+                }
+                else if (first && first->cls == PhysRegClass::GPR && width != first->width / 8u)
+                    error(op.range, "operand `{}` type `{}` does not match register `{}` width", op.placeholder, format_type_str(ty), op.reg_name);
+            }
+
+            for (auto& span : node.placeholder_spans)
+            {
+                if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral && !span.name.empty() &&
+                    (span.name.front() == '_' || (span.name.front() >= 'a' && span.name.front() <= 'z') ||
+                     (span.name.front() >= 'A' && span.name.front() <= 'Z')) &&
+                    !lookup_register(arch, span.name))
+                {
+                    error(placeholder_source_range(node.template_range, span), "unknown register `{}` for target `{}`", span.name, arch_name);
+                    continue;
+                }
+                if (span.kind != ast::AsmPlaceholderSpan::Kind::OperandRef)
+                    continue;
+                auto range = placeholder_source_range(node.template_range, span);
+                std::size_t index = node.operands.size();
+                if (!span.name.empty() && span.name.front() >= '0' && span.name.front() <= '9')
+                {
+                    auto result = std::from_chars(span.name.data(), span.name.data() + span.name.size(), index);
+                    if (result.ec != std::errc{} || index >= node.operands.size())
+                        error(range, "asm operand index `{}` out of range ({} operands)", span.name, node.operands.size());
+                }
+                else
+                {
+                    for (std::size_t i = 0; i < node.operands.size(); ++i)
+                        if (node.operands[i].placeholder == span.name)
+                        {
+                            index = i;
+                            break;
+                        }
+                    if (index == node.operands.size())
+                        error(range, "undefined asm operand `{}`", span.name);
+                }
+                if (index < node.operands.size())
+                {
+                    span.operand_index = static_cast<std::uint32_t>(index);
+                    if (node.operands[index].placement_kind == ast::AsmPlacementKind::RegPair)
+                        error(range, "asm register pairs have two registers; reference each literal register with %%");
+                }
+            }
+
+            std::pmr::vector<std::string_view> clobbers(node.clobbers.get_allocator());
+            for (auto clobber : node.clobbers)
+            {
+                if (clobber == "cc" || clobber == "flags" || clobber == "eflags" || clobber == "rflags")
+                    clobber = "cc";
+                else if (clobber != "memory")
+                {
+                    auto* reg = lookup_register(arch, clobber);
+                    if (!reg)
+                        error(node.template_range, "unknown clobber register `{}` for target `{}`", clobber, arch_name);
+                    else if (reg->reserved)
+                        error(node.template_range, "register `{}` cannot be clobbered", clobber);
+                    else if (reg->cls != PhysRegClass::GPR && !(reg->cls == PhysRegClass::XMM && clobber.starts_with("xmm")))
+                        error(node.template_range, "unsupported asm clobber register `{}`", clobber);
+                    if (registers.contains(register_family(clobber)))
+                    {
+                        warning(node.template_range, "register `{}` appears as both an operand placement and a clobber; the clobber entry is redundant",
+                                clobber);
+                        continue;
+                    }
+                    clobber = register_family(clobber);
+                }
+                if (std::ranges::find(clobbers, clobber) == clobbers.end())
+                    clobbers.push_back(clobber);
+            }
+            node.clobbers = std::move(clobbers);
+        }
+
         void analyze_asm(ast::AsmExpr& expr, detail::ExprResult& out, types::TypePtr expected_type = nullptr)
         {
-            // TODO(asm): multi-output anonymous form → type pack
-            using namespace target;
-            auto const* target = m_target;
-
-            if (!target)
-            {
-                set_asm_result_type(expr, out);
-                return;
-            }
-
-            Arch const arch = target->arch;
-
-            if (auto const* arch_attr = find_asm_attr(expr.attrs, "arch"))
-            {
-                auto required_arch_str = get_asm_attr_string(*arch_attr);
-                Arch required_arch = (required_arch_str == "x86_64") ? Arch::X86_64 : (required_arch_str == "x86") ? Arch::X86 : Arch::X86_64;
-                if (required_arch != arch)
-                {
-                    error(arch_attr->range, "asm block requires architecture `{}`, but target is `{}`", required_arch_str,
-                          arch == Arch::X86_64 ? "x86_64" : "x86");
-
-                    out.type = m_types.m_errort();
-                    return;
-                }
-            }
-
-            for (auto& span : expr.placeholder_spans)
-            {
-                if (span.kind != ast::AsmPlaceholderSpan::Kind::OperandRef)
-                    continue;
-
-                bool found = false;
-                for (std::size_t i = 0; i < expr.operands.size(); ++i)
-                {
-                    if (expr.operands[i].placeholder == span.name)
-                    {
-                        span.operand_index = static_cast<std::uint32_t>(i);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    auto intra_range = placeholder_source_range(expr.template_range, span);
-                    error(intra_range, "undefined asm operand `{}`", span.name);
-                }
-            }
-
-            for (auto& op : expr.operands)
-            {
-                types::TypePtr operand_type = resolve_operand_type(op);
-                if (!operand_type && op.type_is_deduced && expected_type && !has_error(expected_type))
-                    operand_type = expected_type;
-
-                if (op.placement_kind == ast::AsmPlacementKind::Reg || op.placement_kind == ast::AsmPlacementKind::RegPair)
-                {
-                    if (!op.reg_name.empty())
-                    {
-                        auto const* phys = lookup_register(arch, op.reg_name);
-                        if (!phys)
-                            error(op.range, "unknown register `{}` for target `{}`", op.reg_name, arch == Arch::X86_64 ? "x86_64" : "x86");
-                        else
-                        {
-                            if (op.placement_kind != ast::AsmPlacementKind::RegPair)
-                            {
-                                if (operand_type && !has_error(operand_type))
-                                {
-                                    auto uw = unwrap_nominal(operand_type);
-                                    auto ty_width = type_byte_width(uw);
-                                    auto reg_width = phys->width / 8u;
-                                    if (ty_width > 0 && ty_width != reg_width)
-                                        error(op.range, "operand `{}` type `{}` ({} bytes) does not match register `{}` width ({} bytes)", op.placeholder,
-                                              format_type_str(operand_type), ty_width, phys->name, reg_width);
-                                }
-                            }
-                        }
-                    }
-
-                    if (op.placement_kind == ast::AsmPlacementKind::RegPair && !op.reg_name2.empty())
-                    {
-                        auto const* phys2 = lookup_register(arch, op.reg_name2);
-                        if (!phys2)
-                            error(op.range, "unknown register `{}` for target `{}`", op.reg_name2, arch == Arch::X86_64 ? "x86_64" : "x86");
-                        else if (op.reg_name.empty())
-                            ;
-                        else if (auto const* phys = lookup_register(arch, op.reg_name))
-                        {
-                            auto combined_bits = static_cast<std::uint32_t>(phys->width) + static_cast<std::uint32_t>(phys2->width);
-                            auto combined_bytes = combined_bits / 8u;
-                            if (operand_type && !has_error(operand_type))
-                            {
-                                auto uw = unwrap_nominal(operand_type);
-                                auto ty_width = type_byte_width(uw);
-                                if (ty_width > 0 && ty_width != combined_bytes)
-                                    error(op.range, "operand `{}` type `{}` ({} bytes) does not match register pair `{}:{}` width ({} bytes)", op.placeholder,
-                                          format_type_str(operand_type), ty_width, phys->name, phys2->name, combined_bytes);
-                            }
-                        }
-                    }
-                }
-
-                if (op.direction == ast::AsmOperandDirection::In && op.placement_kind == ast::AsmPlacementKind::Imm)
-                {
-                    bool is_const = false;
-                    if (op.expr)
-                        is_const = op.expr->sema.is_constant;
-
-                    if (!is_const)
-                        error(op.range, "operand `{}` with `imm` placement requires a compile-time constant", op.placeholder);
-                }
-
-                if (op.direction == ast::AsmOperandDirection::In && op.placement_kind != ast::AsmPlacementKind::Imm &&
-                    op.placement_kind != ast::AsmPlacementKind::Mem)
-                {
-                    if (operand_type && !has_error(operand_type))
-                    {
-                        auto uw = unwrap_nominal(operand_type);
-                        auto ty_width = type_byte_width(uw);
-
-                        std::uint64_t reg_width = 0;
-                        if (!op.reg_name.empty())
-                            if (auto const* phys = lookup_register(arch, op.reg_name))
-                                reg_width = phys->width / 8u;
-
-                        if (op.placement_kind == ast::AsmPlacementKind::RegPair && !op.reg_name2.empty())
-                            if (auto const* phys = lookup_register(arch, op.reg_name))
-                                if (auto const* phys2 = lookup_register(arch, op.reg_name2))
-                                    reg_width = (phys->width + phys2->width) / 8u;
-
-                        if (reg_width > 0 && ty_width > 0 && ty_width != reg_width)
-                            error(op.range, "operand `{}` type `{}` ({} bytes) does not match register width ({} bytes)", op.placeholder,
-                                  format_type_str(operand_type), ty_width, reg_width);
-                    }
-                }
-
-                if (op.direction == ast::AsmOperandDirection::InOut && op.placement_kind == ast::AsmPlacementKind::Mem)
-                {
-                    bool writable = true;
-                    if (op.expr)
-                    {
-                        auto* ty = get_resolved_type(op.expr->sema);
-                        if (ty)
-                        {
-                            if (auto* pt = types::type_cast<types::PointerType>(ty))
-                                writable = (pt->pointee_quals == types::Qual::None);
-                        }
-                    }
-                    if (!writable)
-                        error(op.range, "cannot use const pointer as writable memory operand for `{}`", op.placeholder);
-                }
-            }
-
-            for (auto const& clobber : expr.clobbers)
-            {
-                if (clobber == "memory")
-                    continue;
-
-                auto const* phys = lookup_register(arch, clobber);
-                if (!phys)
-                    error(expr.template_range, "unknown clobber register `{}` for target `{}`", clobber, arch == Arch::X86_64 ? "x86_64" : "x86");
-                else if (phys->reserved)
-                    error(expr.template_range, "register `{}` cannot be clobbered", clobber);
-                else
-                {
-                    bool also_operand = false;
-                    for (auto const& op : expr.operands)
-                        if (op.reg_name == clobber || op.reg_name2 == clobber)
-                        {
-                            also_operand = true;
-                            break;
-                        }
-
-                    if (also_operand)
-                        warning(expr.template_range,
-                                "register `{}` appears as both an operand placement and a clobber; "
-                                "the clobber entry is redundant",
-                                clobber);
-                }
-            }
-
-            types::TypePtr result_type = nullptr;
+            validate_asm(expr, expected_type);
+            out.type = m_types.m_voidt();
             for (auto const& op : expr.operands)
-            {
-                if (op.direction == ast::AsmOperandDirection::Out || op.direction == ast::AsmOperandDirection::InOut)
+                if (op.direction != ast::AsmOperandDirection::In && op.placement_kind != ast::AsmPlacementKind::Mem)
                 {
-                    if (op.type_override)
-                    {
-                        result_type = get_canonical(op.type_override->sema);
-                        break;
-                    }
-                    if (op.type_is_deduced)
-                    {
-                        if (expected_type && !has_error(expected_type))
-                            result_type = expected_type;
-                        else
-                            error(expr.range, "cannot deduce output type for inline asm; "
-                                              "write the type explicitly, e.g. @[output(u64 in eax)]");
-                        break;
-                    }
-                    if (op.expr)
-                    {
-                        result_type = get_resolved_type(op.expr->sema);
-                        break;
-                    }
+                    auto* ty = resolve_operand_type(op);
+                    if (!ty && op.type_is_deduced)
+                        ty = expected_type;
+                    if (ty && !has_error(ty))
+                        out.type = ty;
+                    break;
                 }
-            }
-
-            if (!result_type || has_error(result_type))
-                out.type = m_types.m_voidt();
-            else
-                out.type = result_type;
         }
 
-        void set_asm_result_type(ast::AsmExpr& expr, detail::ExprResult& out)
-        {
-            types::TypePtr result_type = nullptr;
-            for (auto const& op : expr.operands)
-            {
-                if (op.direction == ast::AsmOperandDirection::Out || op.direction == ast::AsmOperandDirection::InOut)
-                {
-                    if (op.type_override)
-                    {
-                        result_type = get_canonical(op.type_override->sema);
-                        break;
-                    }
-                    if (op.expr)
-                    {
-                        result_type = get_resolved_type(op.expr->sema);
-                        break;
-                    }
-                }
-            }
+        void set_asm_result_type(ast::AsmExpr& expr, detail::ExprResult& out) { analyze_asm(expr, out); }
 
-            if (!result_type || has_error(result_type))
-                out.type = m_types.m_voidt();
-            else
-                out.type = result_type;
-        }
-
-        void analyze_asm(ast::AsmStmt& stmt)
-        {
-            using namespace target;
-            auto const* target = m_target;
-
-            if (!target)
-                return;
-
-            Arch const arch = target->arch;
-
-            if (auto const* arch_attr = find_asm_attr(stmt.attrs, "arch"))
-            {
-                auto required_arch_str = get_asm_attr_string(*arch_attr);
-                Arch required_arch = (required_arch_str == "x86_64") ? Arch::X86_64 : (required_arch_str == "x86") ? Arch::X86 : Arch::X86_64;
-                if (required_arch != arch)
-                {
-                    error(arch_attr->range, "asm block requires architecture `{}`, but target is `{}`", required_arch_str,
-                          arch == Arch::X86_64 ? "x86_64" : "x86");
-                    return;
-                }
-            }
-
-            for (auto& span : stmt.placeholder_spans)
-            {
-                if (span.kind != ast::AsmPlaceholderSpan::Kind::OperandRef)
-                    continue;
-
-                bool found = false;
-                for (std::size_t i = 0; i < stmt.operands.size(); ++i)
-                {
-                    if (stmt.operands[i].placeholder == span.name)
-                    {
-                        span.operand_index = static_cast<std::uint32_t>(i);
-                        found = true;
-                        break;
-                    }
-                }
-
-                if (!found)
-                {
-                    auto intra_range = placeholder_source_range(stmt.template_range, span);
-                    error(intra_range, "undefined asm operand `{}`", span.name);
-                }
-            }
-
-            for (auto& op : stmt.operands)
-            {
-                if (op.type_is_deduced)
-                    error(op.range, "cannot deduce output type for inline asm, write the type explicitly.");
-
-                if (op.placement_kind == ast::AsmPlacementKind::Reg || op.placement_kind == ast::AsmPlacementKind::RegPair)
-                {
-                    if (!op.reg_name.empty())
-                    {
-                        auto const* phys = lookup_register(arch, op.reg_name);
-                        if (!phys)
-                            error(op.range, "unknown register `{}` for target `{}`", op.reg_name, arch == Arch::X86_64 ? "x86_64" : "x86");
-
-                        else
-                        {
-                            if (op.placement_kind != ast::AsmPlacementKind::RegPair)
-                            {
-                                types::TypePtr operand_type = resolve_operand_type(op);
-                                if (operand_type && !has_error(operand_type))
-                                {
-                                    auto uw = unwrap_nominal(operand_type);
-                                    auto ty_width = type_byte_width(uw);
-                                    auto reg_width = phys->width / 8u;
-                                    if (ty_width > 0 && ty_width != reg_width)
-                                    {
-                                        error(op.range, "operand `{}` type `{}` ({} bytes) does not match register `{}` width ({} bytes)", op.placeholder,
-                                              format_type_str(operand_type), ty_width, phys->name, reg_width);
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if (op.placement_kind == ast::AsmPlacementKind::RegPair && !op.reg_name2.empty())
-                    {
-                        auto const* phys2 = lookup_register(arch, op.reg_name2);
-                        if (!phys2)
-                            error(op.range, "unknown register `{}` for target `{}`", op.reg_name2, arch == Arch::X86_64 ? "x86_64" : "x86");
-
-                        else if (!op.reg_name.empty())
-                        {
-                            if (auto const* phys = lookup_register(arch, op.reg_name))
-                            {
-                                auto combined_bits = static_cast<std::uint32_t>(phys->width) + static_cast<std::uint32_t>(phys2->width);
-                                auto combined_bytes = combined_bits / 8u;
-                                types::TypePtr operand_type = resolve_operand_type(op);
-                                if (operand_type && !has_error(operand_type))
-                                {
-                                    auto uw = unwrap_nominal(operand_type);
-                                    auto ty_width = type_byte_width(uw);
-                                    if (ty_width > 0 && ty_width != combined_bytes)
-                                    {
-                                        error(op.range, "operand `{}` type `{}` ({} bytes) does not match register pair `{}:{}` width ({} bytes)",
-                                              op.placeholder, format_type_str(operand_type), ty_width, phys->name, phys2->name, combined_bytes);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if (op.direction == ast::AsmOperandDirection::In && op.placement_kind == ast::AsmPlacementKind::Imm)
-                {
-                    bool is_const = false;
-                    if (op.expr)
-                        is_const = op.expr->sema.is_constant;
-
-                    if (!is_const)
-                        error(op.range, "operand `{}` with `imm` placement requires a compile-time constant", op.placeholder);
-                }
-
-                if (op.direction == ast::AsmOperandDirection::In && op.placement_kind != ast::AsmPlacementKind::Imm &&
-                    op.placement_kind != ast::AsmPlacementKind::Mem)
-                {
-                    types::TypePtr operand_type = resolve_operand_type(op);
-                    if (operand_type && !has_error(operand_type))
-                    {
-                        auto uw = unwrap_nominal(operand_type);
-                        auto ty_width = type_byte_width(uw);
-                        std::uint64_t reg_width = 0;
-                        if (!op.reg_name.empty())
-                            if (auto const* phys = lookup_register(arch, op.reg_name))
-                                reg_width = phys->width / 8u;
-
-                        if (op.placement_kind == ast::AsmPlacementKind::RegPair && !op.reg_name2.empty())
-                            if (auto const* phys = lookup_register(arch, op.reg_name))
-                                if (auto const* phys2 = lookup_register(arch, op.reg_name2))
-                                    reg_width = (phys->width + phys2->width) / 8u;
-
-                        if (reg_width > 0 && ty_width > 0 && ty_width != reg_width)
-                            error(op.range, "operand `{}` type `{}` ({} bytes) does not match register width ({} bytes)", op.placeholder,
-                                  format_type_str(operand_type), ty_width, reg_width);
-                    }
-                }
-
-                if (op.direction == ast::AsmOperandDirection::InOut && op.placement_kind == ast::AsmPlacementKind::Mem)
-                {
-                    bool writable = true;
-                    if (op.expr)
-                    {
-                        auto* ty = get_resolved_type(op.expr->sema);
-                        if (ty)
-                        {
-                            if (auto* pt = types::type_cast<types::PointerType>(ty))
-                                writable = (pt->pointee_quals == types::Qual::None);
-                        }
-                    }
-                    if (!writable)
-                        error(op.range, "cannot use const pointer as writable memory operand for `{}`", op.placeholder);
-                }
-            }
-
-            for (auto const& clobber : stmt.clobbers)
-            {
-                if (clobber == "memory")
-                    continue;
-
-                auto const* phys = lookup_register(arch, clobber);
-                if (!phys)
-                    error(stmt.template_range, "unknown clobber register `{}` for target `{}`", clobber, arch == Arch::X86_64 ? "x86_64" : "x86");
-                else if (phys->reserved)
-                    error(stmt.template_range, "register `{}` cannot be clobbered", clobber);
-                else
-                {
-                    bool also_operand = false;
-                    for (auto const& op : stmt.operands)
-                    {
-                        if (op.reg_name == clobber || op.reg_name2 == clobber)
-                        {
-                            also_operand = true;
-                            break;
-                        }
-                    }
-                    if (also_operand)
-                    {
-                        warning(stmt.template_range,
-                                "register `{}` appears as both an operand placement and a clobber; "
-                                "the clobber entry is redundant",
-                                clobber);
-                    }
-                }
-            }
-        }
+        void analyze_asm(ast::AsmStmt& stmt) { validate_asm(stmt); }
 
         static types::TypePtr resolve_operand_type(ast::AsmOperand const& op) noexcept
         {
