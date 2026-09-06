@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module test;
+
+import core;
+public i32 direct() {
+    core::compile_error("hello {verbatim}");
+    return 0;
+}
+
+=== EXPECT-ERROR-COUNT: 1 ===
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:5: hello {verbatim}

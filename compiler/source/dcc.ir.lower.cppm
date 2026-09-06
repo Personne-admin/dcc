@@ -2808,6 +2808,15 @@ export namespace dcc::ir::lower
 
         IrValue* lower_intrinsic_call(ast::FuncDecl const* func, ast::CallExpr const* call)
         {
+            switch (func->sema.intrinsic_kind)
+            {
+                case ast::IntrinsicKind::CompileError:
+                case ast::IntrinsicKind::CompileWarning:
+                case ast::IntrinsicKind::CompileNote:
+                    return nullptr;
+                default:
+                    break;
+            }
             auto name = func->name;
 
             std::vector<IrValue*> args;

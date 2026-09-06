@@ -97,6 +97,15 @@ export namespace dcc::vfs
 public import core::atomic;
 public import core::source_location;
 
+@intrinsic
+public void compile_error([]const char message);
+
+@intrinsic
+public void compile_warning([]const char message);
+
+@intrinsic
+public void compile_note([]const char message);
+
 )dc";
 
     constexpr std::string_view kCoreAtomicSourceText = R"dc(module core::atomic;

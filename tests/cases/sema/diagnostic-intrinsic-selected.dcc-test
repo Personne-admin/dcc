@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module test;
+
+import core;
+public i32 selected() {
+    static if true {
+        core::compile_error("selected");
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 1 ===
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:6: selected

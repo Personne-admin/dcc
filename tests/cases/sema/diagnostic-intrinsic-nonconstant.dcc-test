@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module test;
+
+import core;
+public void test([] const char message) {
+    core::compile_error(message);
+}
+
+=== EXPECT-ERROR-COUNT: 1 ===
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:5: compile_error message must be a compile-time string

@@ -1,0 +1,29 @@
+=== FILE: main.dc ===
+module test;
+
+import core;
+void f(T)(T value) {
+    static if T == u8 {
+    } else {
+        core::compile_error("unsupported type");
+    }
+}
+public void test() {
+    static if false {
+        core::compile_error("must not fire");
+        undefined_name();
+        static if true {
+            core::compile_error("nested");
+        }
+    }
+    static if true {
+        static if false {
+            core::compile_error(undefined_message);
+        }
+    } else {
+        core::compile_error("discarded else");
+    }
+    f(1 as u8);
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

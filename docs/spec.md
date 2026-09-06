@@ -1170,3 +1170,40 @@ Available operations: `atomic_load`, `atomic_store`, `atomic_exchange`,
 `atomic_fetch_or`, `atomic_fetch_xor`, `atomic_fence`.
 
 ---
+
+## 18. Compiler diagnostics (`core`)
+
+The compiler-provided `core` module declares these `@intrinsic` actions:
+
+```dc
+import core;
+
+// Each takes a compile-time string of type []const char.
+// core::compile_error("message");
+// core::compile_warning("message");
+// core::compile_note("message");
+
+void require_supported(T)(T value) {
+    static if T == u8 {
+    } else {
+        core::compile_error("unsupported type");
+    }
+}
+```
+
+Each call emits its message verbatim at the call's source range through the
+normal diagnostic engine. `compile_error` fails compilation; warning and note
+allow compilation to continue. These actions run during semantic analysis,
+including in ordinary runtime function bodies, and generate no runtime call
+or symbol. A runtime `if` does not defer the action until execution.
+
+Discarded `static if` and `static match` branches are not analyzed and do not
+emit diagnostics. Template bodies perform the action for selected branches
+of instantiated specializations. A `compiles` probe treats an error action as
+a failed requirement under its normal diagnostic suppression rules.
+
+Messages can be string literals or compile-time expressions yielding strings,
+including calls to compile-time-evaluable functions. A message that cannot be
+evaluated to a string is an error (`compile_error message must be a compile-time
+string`, and similarly for warning and note). CTFE does not re-emit actions
+already performed by semantic analysis.

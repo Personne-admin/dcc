@@ -271,6 +271,9 @@ export namespace dcc::ast
     {
         None,
         SourceLocation,
+        CompileError,
+        CompileWarning,
+        CompileNote,
     };
 
     struct DeclSema
