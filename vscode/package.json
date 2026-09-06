@@ -7,13 +7,13 @@
     "license": "GPL-3.0-only",
     "repository": {
         "type": "git",
-        "url": "https://github.com/yeint-herp/dcc.git",
+        "url": "https://github.com/Personne-admin/dcc.git",
         "directory": "vscode"
     },
     "bugs": {
-        "url": "https://github.com/yeint-herp/dcc/issues"
+        "url": "https://github.com/Personne-admin/dcc/issues"
     },
-    "homepage": "https://github.com/yeint-herp/dcc#readme",
+    "homepage": "https://github.com/Personne-admin/dcc#readme",
     "engines": {
         "vscode": "^1.82.0"
     },
