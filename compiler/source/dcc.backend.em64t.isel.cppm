@@ -8,6 +8,7 @@ import std;
 import dcc.ir;
 import dcc.ir.analysis;
 import dcc.backend.em64t.mir;
+import dcc.backend.inline_asm;
 import dcc.target;
 
 namespace dcc::backend::em64t
@@ -70,6 +71,8 @@ namespace dcc::backend::em64t
             bool has_error = false;
             bool uses_sret = false;
             VReg sret_ptr_vreg;
+            std::unordered_map<dcc::ir::IrValue const*, std::vector<VReg>> asm_result_regs;
+            std::vector<dcc::backend::InlineAsmDiag>* asm_diags = nullptr;
 
             IselCtx(MFunction& f, dcc::target::TargetConfig const& t) : mfunc(f), target(t), cc(detect_cc(t)) {}
 
@@ -302,7 +305,8 @@ namespace dcc::backend::em64t
 
 export namespace dcc::backend::em64t
 {
-    [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target);
+    [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target,
+                                          std::vector<dcc::backend::InlineAsmDiag>* diags = nullptr);
 }
 
 namespace dcc::backend::em64t
@@ -1767,6 +1771,145 @@ namespace dcc::backend::em64t
             return cl;
         }
 
+        void lower_inline_asm(IselCtx& ctx, dcc::ir::IrInlineAsmInst const* ai)
+        {
+            using namespace dcc::ir;
+            auto fail = [&](std::string message) {
+                ctx.has_error = true;
+                if (ctx.asm_diags)
+                    ctx.asm_diags->push_back({ai->range, "inline assembly: " + message});
+            };
+            auto plan = dcc::backend::prepare_inline_asm(*ai, ctx.target);
+            if (!plan.error.empty())
+            {
+                fail(plan.error);
+                return;
+            }
+            if (plan.registers.size() != ai->operands.size())
+            {
+                fail("internal mismatch between planned and IR operands");
+                return;
+            }
+            std::vector<VReg> pinned(ai->operands.size());
+            for (std::size_t i = 0; i < ai->operands.size(); ++i)
+            {
+                if (plan.registers[i].empty())
+                    continue;
+                auto phys = dcc::backend::inline_asm_family_phys(dcc::target::register_family(plan.registers[i]));
+                if (phys == PhysReg::None)
+                {
+                    fail(std::format("cannot map register '{}' to the native backend", plan.registers[i]));
+                    return;
+                }
+                pinned[i] = VReg::phys(phys);
+            }
+            auto phys_bit = [](PhysReg reg) { return 1ULL << static_cast<std::uint8_t>(reg); };
+            std::uint64_t clobber_bits = 0;
+            for (auto const& clobber : plan.clobbers)
+            {
+                if (clobber == "memory" || clobber == "cc")
+                    continue;
+                auto phys = dcc::backend::inline_asm_family_phys(dcc::target::register_family(clobber));
+                if (phys == PhysReg::None)
+                {
+                    fail(std::format("cannot map clobbered register '{}' to the native backend", clobber));
+                    return;
+                }
+                clobber_bits |= phys_bit(phys);
+            }
+            std::uint64_t literal_bits = 0;
+            for (auto const& family : plan.literal_registers)
+            {
+                auto phys = dcc::backend::inline_asm_family_phys(family);
+                if (phys != PhysReg::None)
+                    literal_bits |= phys_bit(phys);
+            }
+            auto transfer_opc = [](IrAsmOperand const& op) -> MOpc {
+                if (op.placement_kind == IrAsmOperand::PlacementKind::Mem)
+                    return MOpc::MOV64rr;
+                std::uint64_t size = op.type ? op.type->byte_size : 8;
+                if (op.type && op.type->kind == IrTypeKind::Float)
+                    return MOpc::COPY;
+                if (size == 1)
+                    return MOpc::MOV8rr;
+                if (size == 2)
+                    return MOpc::MOV16rr;
+                if (size == 4)
+                    return MOpc::MOV32rr;
+                return MOpc::MOV64rr;
+            };
+            auto emit_transfer = [&](VReg dst, VReg src, MOpc opc) {
+                if (opc == MOpc::COPY)
+                {
+                    ctx.append_instr(make_copy(dst, src));
+                    return;
+                }
+                MInstr move;
+                move.opc = opc;
+                move.num_ops = 2;
+                move.num_defs = 1;
+                move.ops[0] = MOp::from_reg(dst);
+                move.ops[1] = MOp::from_reg(src);
+                ctx.append_instr(move);
+            };
+            for (std::size_t i = 0; i < ai->operands.size(); ++i)
+            {
+                auto const& op = ai->operands[i];
+                if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                    continue;
+                if (!op.value)
+                {
+                    fail("inline assembly input operand has no value");
+                    return;
+                }
+                VReg source = ctx.try_materialize(op.value);
+                if (!source.is_valid())
+                {
+                    fail("cannot materialize inline assembly input");
+                    return;
+                }
+                emit_transfer(pinned[i], source, transfer_opc(op));
+            }
+            for (auto instruction : plan.instructions)
+            {
+                instruction.implicit_defs |= clobber_bits;
+                instruction.implicit_uses |= literal_bits;
+                instruction.implicit_defs |= literal_bits;
+                ctx.append_instr(instruction);
+            }
+            std::vector<VReg> outputs;
+            for (std::size_t i = 0; i < ai->operands.size(); ++i)
+            {
+                auto const& op = ai->operands[i];
+                if (op.direction == IrAsmOperand::Direction::In || op.placement_kind == IrAsmOperand::PlacementKind::Mem ||
+                    op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                    continue;
+                if (!pinned[i].is_valid())
+                {
+                    fail("inline assembly output operand has no register");
+                    return;
+                }
+                VReg out = ctx.mfunc.new_vreg();
+                emit_transfer(out, pinned[i], transfer_opc(op));
+                std::uint64_t out_size = op.type ? op.type->byte_size : 8;
+                if (out_size == 1 || out_size == 2)
+                {
+                    MInstr ext;
+                    ext.opc = out_size == 1 ? MOpc::MOVZX32rr8 : MOpc::MOVZX32_16rr;
+                    ext.num_ops = 2;
+                    ext.num_defs = 1;
+                    ext.ops[0] = MOp::from_reg(out);
+                    ext.ops[1] = MOp::from_reg(out);
+                    ctx.append_instr(ext);
+                }
+                outputs.push_back(out);
+            }
+            if (outputs.size() == 1)
+                ctx.set_vreg(ai, outputs.front());
+            else if (!outputs.empty())
+                ctx.asm_result_regs[ai] = std::move(outputs);
+        }
+
         void lower_instruction(IselCtx& ctx, dcc::ir::IrValue const* inst)
         {
             if (!inst)
@@ -2759,10 +2902,35 @@ namespace dcc::backend::em64t
                     break;
                 }
 
+                case IrNodeKind::InlineAsm: {
+                    auto* ai = ir_cast<IrInlineAsmInst>(inst);
+                    if (!ai)
+                        break;
+                    lower_inline_asm(ctx, ai);
+                    break;
+                }
+
                 case IrNodeKind::Extract: {
                     auto* e = ir_cast<IrExtractInst>(inst);
                     if (!e)
                         break;
+
+                    if (e->aggregate && e->aggregate->kind == IrNodeKind::InlineAsm)
+                    {
+                        auto it = ctx.asm_result_regs.find(e->aggregate);
+                        if (it != ctx.asm_result_regs.end() && e->field_index < it->second.size())
+                        {
+                            ctx.set_vreg(inst, it->second[e->field_index]);
+                            break;
+                        }
+                        if (!ctx.has_error)
+                        {
+                            ctx.has_error = true;
+                            if (ctx.asm_diags)
+                                ctx.asm_diags->push_back({e->range, "inline assembly: cannot reconstruct a multiple-output result"});
+                        }
+                        break;
+                    }
 
                     auto* agg_type = e->aggregate ? e->aggregate->type : nullptr;
                     VReg agg_vreg = is_memory_type(agg_type) ? memory_value_addr(ctx, e->aggregate) : ctx.try_materialize(e->aggregate);
@@ -3412,7 +3580,8 @@ namespace dcc::backend::em64t
 
     } // anonymous namespace
 
-    [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target)
+    [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target,
+                                          std::vector<dcc::backend::InlineAsmDiag>* diags)
     {
         using namespace dcc::ir;
 
@@ -3421,6 +3590,7 @@ namespace dcc::backend::em64t
         mfunc.src_line = static_cast<std::int32_t>(func.decl_line);
 
         IselCtx ctx(mfunc, target);
+        ctx.asm_diags = diags;
         auto use_def = analysis::UseDef::build(func);
         std::unordered_map<IrValue const*, std::size_t> terminator_uses;
         for (auto* block : func.blocks)

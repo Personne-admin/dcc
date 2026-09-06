@@ -11,6 +11,7 @@ import dcc.ir.pass;
 import dcc.ir.transforms;
 import dcc.target;
 import dcc.backend.em64t.mir;
+import dcc.backend.inline_asm;
 import dcc.backend.em64t.isel;
 import dcc.backend.em64t.regalloc;
 import dcc.backend.em64t.framelay;
@@ -76,7 +77,12 @@ namespace dcc::backend
                     if (!func || func->blocks.empty())
                         continue;
 
-                    auto mfunc = em64t::isel_function(*func, opts.target);
+                    std::vector<InlineAsmDiag> asm_diags;
+                    auto mfunc = em64t::isel_function(*func, opts.target, &asm_diags);
+                    for (auto& diag : asm_diags)
+                        artifact.diagnostics.push_back(BackendDiagnostic{diag.where, "em64t backend: " + diag.message});
+                    if (!asm_diags.empty())
+                        return artifact;
                     em64t::regalloc(mfunc, opts.target);
                     em64t::frame_layout(mfunc, opts.target);
                     mfuncs.push_back(std::move(mfunc));
