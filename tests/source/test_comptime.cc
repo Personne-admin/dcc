@@ -636,6 +636,22 @@ TEST_CASE("fold_cast int to bool")
     CHECK(r->get_bool());
 }
 
+TEST_CASE("fold_cast bool to int")
+{
+    types::TypeContext ctx;
+    auto vt = comptime::Value::make_bool(true, ctx.m_boolt());
+    auto rt = vt.fold_cast(ctx.int_t(64, true));
+    REQUIRE(rt.has_value());
+    CHECK_EQ(rt->kind(), comptime::Value::Kind::Int);
+    CHECK_EQ(rt->get_int(), 1);
+
+    auto vf = comptime::Value::make_bool(false, ctx.m_boolt());
+    auto rf = vf.fold_cast(ctx.int_t(64, true));
+    REQUIRE(rf.has_value());
+    CHECK_EQ(rf->kind(), comptime::Value::Kind::Int);
+    CHECK_EQ(rf->get_int(), 0);
+}
+
 TEST_CASE("fold_cast float to int")
 {
     types::TypeContext ctx;

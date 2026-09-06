@@ -1,0 +1,75 @@
+=== FILE: test.dc ===
+module test;
+
+public i64 from_true() {
+    return true as i64;
+}
+
+public i64 from_false() {
+    return false as i64;
+}
+
+public u8 cast_u8(bool b) {
+    return b as u8;
+}
+
+public i32 cast_i32(bool b) {
+    return b as i32;
+}
+
+public u64 cast_u64(bool b) {
+    return b as u64;
+}
+
+public i64 cast_i64(bool b) {
+    return b as i64;
+}
+
+public bool int_to_bool(i32 x) {
+    return x as bool;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i64 @_DC0F1.4.test9.from_true0i64s() {
+entry:
+  ret i64 1
+}
+
+define i64 @_DC0F1.4.test10.from_false0i64s() {
+entry:
+  ret i64 0
+}
+
+define i8 @_DC0F1.4.test7.cast_u81bi8u(i1 %b) {
+entry:
+  %"0" = zext i1 %b to i8
+  ret i8 %"0"
+}
+
+define i32 @_DC0F1.4.test8.cast_i321bi32s(i1 %b) {
+entry:
+  %"0" = zext i1 %b to i32
+  ret i32 %"0"
+}
+
+define i64 @_DC0F1.4.test8.cast_u641bi64u(i1 %b) {
+entry:
+  %"0" = zext i1 %b to i64
+  ret i64 %"0"
+}
+
+define i64 @_DC0F1.4.test8.cast_i641bi64s(i1 %b) {
+entry:
+  %"0" = zext i1 %b to i64
+  ret i64 %"0"
+}
+
+define i1 @_DC0F1.4.test11.int_to_bool1i32sb(i32 %x) {
+entry:
+  %"0" = icmp ne i32 %x, 0
+  ret i1 %"0"
+}

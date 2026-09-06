@@ -1,0 +1,72 @@
+=== FILE: test.dc ===
+module test;
+
+public i64 from_true() {
+    return true as i64;
+}
+
+public i64 from_false() {
+    return false as i64;
+}
+
+public u8 cast_u8(bool b) {
+    return b as u8;
+}
+
+public i32 cast_i32(bool b) {
+    return b as i32;
+}
+
+public u64 cast_u64(bool b) {
+    return b as u64;
+}
+
+public i64 cast_i64(bool b) {
+    return b as i64;
+}
+
+public bool int_to_bool(i32 x) {
+    return x as bool;
+}
+
+=== EXPECT-IR ===
+module "test"
+i64@_DC0F1.4.test9.from_true0i64s() {
+%entry:
+  ret i64 #1
+}
+
+i64@_DC0F1.4.test10.from_false0i64s() {
+%entry:
+  ret i64 #0
+}
+
+u8@_DC0F1.4.test7.cast_u81bi8u(bool) {
+%entry(bool %b):
+  %0 = zext bool %b to u8
+  ret u8 %0
+}
+
+i32@_DC0F1.4.test8.cast_i321bi32s(bool) {
+%entry(bool %b):
+  %0 = zext bool %b to i32
+  ret i32 %0
+}
+
+u64@_DC0F1.4.test8.cast_u641bi64u(bool) {
+%entry(bool %b):
+  %0 = zext bool %b to u64
+  ret u64 %0
+}
+
+i64@_DC0F1.4.test8.cast_i641bi64s(bool) {
+%entry(bool %b):
+  %0 = zext bool %b to i64
+  ret i64 %0
+}
+
+bool@_DC0F1.4.test11.int_to_bool1i32sb(i32) {
+%entry(i32 %x):
+  %0 = cmp.ne i32 %x, #0
+  ret bool %0
+}
