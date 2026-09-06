@@ -7,6 +7,7 @@ import dcc.si;
 import dcc.diag;
 import dcc.sema.scope;
 import dcc.vfs;
+import dcc.target;
 
 export namespace dcc::sema
 {
@@ -60,8 +61,8 @@ export namespace dcc::sema
     {
     public:
         Importer(ModuleGraph& graph, sm::SourceManager& sm, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, ParseFn parse,
-                 si::string_interner* interner = nullptr)
-            : m_graph{graph}, m_sm{sm}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_parse{std::move(parse)}, m_interner{interner}
+                 si::string_interner* interner = nullptr, dcc::target::TargetConfig const* target = nullptr)
+            : m_graph{graph}, m_sm{sm}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_parse{std::move(parse)}, m_interner{interner}, m_target{target}
         {
         }
 
@@ -117,6 +118,7 @@ export namespace dcc::sema
         ast::AstContext& m_ast_ctx;
         ParseFn m_parse;
         si::string_interner* m_interner{nullptr};
+        dcc::target::TargetConfig const* m_target{nullptr};
 
         std::unordered_set<std::filesystem::path::string_type> in_flight_;
 
@@ -133,17 +135,8 @@ export namespace dcc::sema
             return rel;
         }
 
-        ModuleInfo* try_resolve_virtual(ModulePath const& path)
+        ModuleInfo* register_virtual_tu(ModulePath const& path, std::string_view uri, sm::FileId fid)
         {
-            auto module_path_str = path.str();
-            auto const* entry = dcc::vfs::lookup_by_module_path(module_path_str);
-            if (!entry)
-                return nullptr;
-
-            if (auto* hit = m_graph.find(path))
-                return hit;
-
-            auto fid = dcc::vfs::materialize(*entry, m_sm);
             auto* tu = m_parse(fid, m_ast_ctx, m_diag);
             if (!tu)
                 return nullptr;
@@ -157,12 +150,36 @@ export namespace dcc::sema
 
             auto info = std::make_unique<ModuleInfo>();
             info->canonical_path = canonical;
-            info->file_path = std::string{entry->uri};
+            info->file_path = std::string{uri};
             info->file_id = fid;
             info->tu = tu;
             info->state = ModuleState::Parsed;
 
             return m_graph.insert(std::move(info));
+        }
+
+        ModuleInfo* try_resolve_virtual(ModulePath const& path)
+        {
+            auto module_path_str = path.str();
+
+            if (auto const* entry = dcc::vfs::lookup_by_module_path(module_path_str))
+            {
+                if (auto* hit = m_graph.find(path))
+                    return hit;
+
+                return register_virtual_tu(path, entry->uri, dcc::vfs::materialize(*entry, m_sm));
+            }
+
+            if (auto const* entry = dcc::vfs::lookup_dynamic_by_module_path(module_path_str))
+            {
+                if (auto* hit = m_graph.find(path))
+                    return hit;
+
+                auto target = m_target ? *m_target : dcc::target::TargetConfig::host_default();
+                return register_virtual_tu(path, entry->uri, dcc::vfs::materialize_dynamic(*entry, target, m_sm));
+            }
+
+            return nullptr;
         }
 
         ModuleInfo* try_resolve(ModulePath const& path)

@@ -101,7 +101,7 @@ export namespace dcc::session
             parser::Parser parser{lexer, ast, d, mode};
             auto* tu = parser.parse();
 
-            if (m_prelude_enabled && tu && file->path() == m_entry_path)
+            if (m_prelude_enabled && tu && file->path() == m_entry_path && !is_std_prelude(tu))
             {
                 auto alloc = ast.allocator();
                 ast::Path prelude_path{alloc};
@@ -142,6 +142,15 @@ export namespace dcc::session
         }
 
     private:
+        [[nodiscard]] static bool is_std_prelude(ast::TranslationUnit const* tu) noexcept
+        {
+            auto const* mdecl = tu->module_decl ? ast::node_cast<ast::ModuleDecl>(tu->module_decl) : nullptr;
+            if (!mdecl)
+                return false;
+
+            return sema::ModulePath::from_ast(mdecl->module_path).str() == "std::prelude";
+        }
+
         sm::SourceManager m_sm;
         si::string_interner m_interner;
         diag::DiagnosticEngine m_diag;

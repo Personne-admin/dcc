@@ -631,12 +631,11 @@ export namespace dccd
 
             if (dcc::vfs::is_dcc_core_uri(uri))
             {
-                auto const* entry = dcc::vfs::lookup_by_uri(uri);
-                if (entry)
-                {
-                    auto materialized = dcc::vfs::materialize(*entry, m_session->source_manager());
-                    return materialized;
-                }
+                if (auto const* entry = dcc::vfs::lookup_by_uri(uri))
+                    return dcc::vfs::materialize(*entry, m_session->source_manager());
+
+                if (auto const* entry = dcc::vfs::lookup_dynamic_by_uri(uri))
+                    return dcc::vfs::materialize_dynamic(*entry, dcc::target::TargetConfig::host_default(), m_session->source_manager());
 
                 std::println(m_log, "[dccd] file_id_from_uri: dcc-core: URI has no matching entry: {}", uri);
                 return std::nullopt;
@@ -2214,12 +2213,19 @@ export namespace dccd
             if (!dcc::vfs::is_dcc_core_uri(uri))
                 return protocol::build_error_response(rpc.id.value(), -32602, std::format("not a virtual URI: {}", uri));
 
-            auto text = dcc::vfs::source_text_for_uri(uri);
+            std::string text;
+            if (auto fid = m_session->source_manager().find_by_uri(uri))
+                if (auto const* sf = m_session->source_manager().get(*fid))
+                    text = std::string{sf->text()};
+
+            if (text.empty())
+                text = std::string{dcc::vfs::source_text_for_uri(uri)};
+
             if (text.empty())
                 return protocol::build_error_response(rpc.id.value(), -32602, std::format("unknown virtual URI: {}", uri));
 
             auto result = protocol::JsonValue::empty_object();
-            result.set("text", protocol::JsonValue::string_val(std::string{text}));
+            result.set("text", protocol::JsonValue::string_val(std::move(text)));
 
             return protocol::build_response(rpc.id.value(), std::move(result));
         }

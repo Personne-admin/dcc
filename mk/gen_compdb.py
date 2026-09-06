@@ -7,21 +7,25 @@ import sys
 
 def cmd_fragment(args):
     flags = args.cxxflags.split()
-    pcm_dir = os.path.abspath(args.pcm_dir)
     toplevel = os.path.abspath(args.toplevel)
 
     entries = []
 
     for src in args.sources:
         src = os.path.abspath(src)
-        ext = os.path.splitext(src)[1]
 
-        cmd_parts = [args.cxx] + flags + [f"-fprebuilt-module-path={pcm_dir}"]
-
-        if ext == ".cppm":
-            cmd_parts += ["--precompile", src]
+        if args.mode == "plain":
+            cmd_parts = [args.cxx] + flags + [src]
         else:
-            cmd_parts += ["-c", src]
+            pcm_dir = os.path.abspath(args.pcm_dir)
+            ext = os.path.splitext(src)[1]
+
+            cmd_parts = [args.cxx] + flags + [f"-fprebuilt-module-path={pcm_dir}"]
+
+            if ext == ".cppm":
+                cmd_parts += ["--precompile", src]
+            else:
+                cmd_parts += ["-c", src]
 
         entries.append(
             {
@@ -72,7 +76,8 @@ def main():
     frag = sub.add_parser("fragment")
     frag.add_argument("--cxx", required=True)
     frag.add_argument("--cxxflags", required=True)
-    frag.add_argument("--pcm-dir", required=True)
+    frag.add_argument("--mode", choices=["cxx", "plain"], default="cxx")
+    frag.add_argument("--pcm-dir", default="", help="required unless --mode plain")
     frag.add_argument("--toplevel", required=True)
     frag.add_argument("--output", required=True)
     frag.add_argument("sources", nargs="*", default=[])

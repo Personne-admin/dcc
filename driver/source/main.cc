@@ -128,6 +128,7 @@ namespace
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
         bool help{false};
         bool libdcext{false};
+        dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
         std::string target_triple;
         bool no_red_zone{false};
         bool no_simd{false};
@@ -245,6 +246,31 @@ namespace
             if (arg == "-flibdcext")
             {
                 opts.libdcext = true;
+                opts.libdcext_os = dcc::target::LibdcextOs::Host;
+                ++i;
+
+                if (i < argc)
+                {
+                    if (auto os = dcc::target::parse_libdcext_os(argv[i]))
+                    {
+                        opts.libdcext_os = *os;
+                        ++i;
+                    }
+                }
+                continue;
+            }
+
+            if (arg.starts_with("-flibdcext="))
+            {
+                auto value = arg.substr(11);
+                auto os = dcc::target::parse_libdcext_os(value);
+                if (!os)
+                {
+                    std::println(std::cerr, "dcc: error: unknown -flibdcext value '{}' (expected: linux, windows, freestanding)", value);
+                    std::exit(1);
+                }
+                opts.libdcext = true;
+                opts.libdcext_os = *os;
                 ++i;
                 continue;
             }
@@ -502,6 +528,26 @@ namespace
         return opts;
     }
 
+    [[nodiscard]] dcc::target::TargetConfig resolve_target_or_exit(Options const& opts)
+    {
+        std::optional<std::string_view> triple;
+        if (!opts.target_triple.empty())
+            triple = opts.target_triple;
+
+        std::optional<dcc::target::LibdcextRequest> libdcext;
+        if (opts.libdcext)
+            libdcext = dcc::target::LibdcextRequest{.enabled = true, .os = opts.libdcext_os};
+
+        auto result = dcc::target::resolve_target(triple, libdcext);
+        if (!result)
+        {
+            std::println(std::cerr, "dcc: error: {}", result.error());
+            std::exit(1);
+        }
+
+        return *result;
+    }
+
     [[nodiscard]] int get_terminal_width()
     {
 #ifndef _WIN32
@@ -529,7 +575,7 @@ namespace
                        {"-fdump-ir", "dump IR and exit"},
                        {"-fdump-llvm", "dump LLVM IR"},
                        {"-fdump-mir", "dump em64t MIR"},
-                       {"-flibdcext", "link with libdcext"},
+                       {"-flibdcext [os]", "link with libdcext for a hosted os (linux, windows, freestanding; default: host)"},
                        {"-fbounds-check", "enable bounds checking"},
                        {"-frestricted-check", "enable restricted-value cast checks"},
                        {"-fbackend <name>", "select backend (llvm, em64t)"},
@@ -546,7 +592,7 @@ namespace
                        {"-fPIC | -fPIE", "position-independent code"},
                        {"-mcmodel <model>", "code model (default, small, kernel, medium, large)"},
                        {"-farch <cpu>", "target CPU baseline (pentium, i686, generic, native, ...)"},
-                       {"-target <triple>", "target triple"},
+                       {"-target <triple>", "target triple: x86_64-elf, x86-elf, x86_64-coff, x86-coff"},
                        {"-h, --help", "show this help"},
                        {"-fomit-frame-pointer | -fno-omit-frame-pointer", "toggle frame pointer omission"}};
 
@@ -1393,13 +1439,7 @@ auto main(int argc, char** argv) -> int
             return 1;
         }
 
-        dcc::target::TargetConfig dep_target = dcc::target::TargetConfig::host_default();
-        if (!opts.target_triple.empty())
-        {
-            auto parsed = dcc::target::TargetConfig::parse_triple(opts.target_triple);
-            if (parsed)
-                dep_target = *parsed;
-        }
+        auto dep_target = resolve_target_or_exit(opts);
 
         auto dep_target_path = primary_output_path(opts, input_path, dep_target);
         if (dep_target_path && same_file_path(*opts.depfile, *dep_target_path))
@@ -1417,17 +1457,7 @@ auto main(int argc, char** argv) -> int
     compile_opts.arena_initial_size = 256 * 1024;
     compile_opts.injected_decls = std::move(opts.injected_decls);
 
-    if (!opts.target_triple.empty())
-    {
-        auto parsed = dcc::target::TargetConfig::parse_triple(opts.target_triple);
-        if (parsed)
-            compile_opts.target = *parsed;
-        else
-        {
-            std::println(std::cerr, "dcc: error: unsupported target triple '{}'", opts.target_triple);
-            return 1;
-        }
-    }
+    compile_opts.target = resolve_target_or_exit(opts);
 
     compile_opts.import_roots.push_back(input_path.parent_path());
 
@@ -1478,19 +1508,7 @@ auto main(int argc, char** argv) -> int
 
         if (need_backend)
         {
-            dcc::target::TargetConfig target;
-            if (!opts.target_triple.empty())
-            {
-                auto parsed = dcc::target::TargetConfig::parse_triple(opts.target_triple);
-                if (!parsed)
-                {
-                    std::println(std::cerr, "dcc: error: unsupported target triple '{}'", opts.target_triple);
-                    return 1;
-                }
-                target = *parsed;
-            }
-            else
-                target = dcc::target::TargetConfig::host_default();
+            dcc::target::TargetConfig target = resolve_target_or_exit(opts);
 
             target.no_red_zone = opts.no_red_zone;
             target.no_simd = opts.no_simd;

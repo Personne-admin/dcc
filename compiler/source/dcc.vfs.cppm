@@ -2,6 +2,7 @@ export module dcc.vfs;
 
 import std;
 import dcc.sm;
+import dcc.target;
 
 export namespace dcc::vfs
 {
@@ -96,6 +97,7 @@ export namespace dcc::vfs
 
 public import core::atomic;
 public import core::source_location;
+public import core::target;
 
 @intrinsic
 public void compile_error([]const char message);
@@ -270,6 +272,77 @@ public SourceLocation source_location();
     [[nodiscard]] bool is_dcc_core_uri(std::string_view uri) noexcept
     {
         return uri.starts_with(kDccCoreScheme);
+    }
+
+    struct DynamicModuleEntry
+    {
+        std::string_view module_path;
+        std::string_view uri;
+    };
+
+    constexpr DynamicModuleEntry kDynamicCoreModules[] = {
+        {
+            .module_path = "core::target",
+            .uri = "dcc-core:/core/target.dc",
+        },
+    };
+
+    [[nodiscard]] DynamicModuleEntry const* lookup_dynamic_by_module_path(std::string_view module_path) noexcept
+    {
+        for (auto const& entry : kDynamicCoreModules)
+            if (entry.module_path == module_path)
+                return &entry;
+
+        return nullptr;
+    }
+
+    [[nodiscard]] DynamicModuleEntry const* lookup_dynamic_by_uri(std::string_view uri) noexcept
+    {
+        for (auto const& entry : kDynamicCoreModules)
+            if (entry.uri == uri)
+                return &entry;
+
+        return nullptr;
+    }
+
+    [[nodiscard]] std::string generate_core_target_source(dcc::target::TargetConfig const& target)
+    {
+        auto const* os = target.os == dcc::target::Os::Linux ? "Linux" : target.os == dcc::target::Os::Windows ? "Windows" : "Freestanding";
+        auto const* arch = target.arch == dcc::target::Arch::X86_64 ? "X86_64" : "X86";
+
+        return std::format(R"dc(module core::target;
+
+public enum Os {{
+    Linux,
+    Windows,
+    Freestanding,
+}}
+
+public enum Arch {{
+    X86_64,
+    X86,
+}}
+
+public const Os OS = Os::{};
+public const Arch ARCH = Arch::{};
+public const bool IS_64_BIT = {};
+
+)dc",
+                           os, arch, target.pointer_bits == 64);
+    }
+
+    [[nodiscard]] sm::FileId materialize_dynamic(DynamicModuleEntry const& entry, dcc::target::TargetConfig const& target, sm::SourceManager& smgr)
+    {
+        auto rest = entry.uri.substr(kDccCoreScheme.size());
+        if (!rest.empty() && rest[0] == '/')
+            rest = rest.substr(1);
+
+        std::string syn_path;
+        syn_path.reserve(kDccCorePathPrefix.size() + rest.size());
+        syn_path += kDccCorePathPrefix;
+        syn_path += rest;
+
+        return smgr.open_virtual_in_memory(std::string{entry.uri}, generate_core_target_source(target), std::move(syn_path));
     }
 
     [[nodiscard]] std::string_view source_text_for_uri(std::string_view uri) noexcept

@@ -22,6 +22,7 @@ export namespace dccd
         std::vector<std::string> injected_decls;
 
         bool inject_libdcext_prelude{false};
+        dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
     };
 
     class CompilationDatabase
@@ -295,6 +296,7 @@ namespace dccd
     std::optional<AnalysisCommand> project_analysis_command(CompileCommand const& command, std::ostream& log)
     {
         AnalysisCommand analysis;
+        std::optional<std::string> triple_str;
 
         auto const& argv = command.arguments;
         for (std::size_t i = 0; i < argv.size(); ++i)
@@ -303,20 +305,13 @@ namespace dccd
 
             if (arg == "-target" && i + 1 < argv.size())
             {
-                if (auto parsed = dcc::target::TargetConfig::parse_triple(argv[i + 1]))
-                    analysis.target = std::move(*parsed);
-                else
-                    std::println(log, "[dccd] unsupported target triple \"{}\"; ignoring for analysis", argv[i + 1]);
+                triple_str = argv[i + 1];
                 ++i;
                 continue;
             }
             if (arg.starts_with("--target="))
             {
-                std::string_view triple = arg.substr(9);
-                if (auto parsed = dcc::target::TargetConfig::parse_triple(triple))
-                    analysis.target = std::move(*parsed);
-                else
-                    std::println(log, "[dccd] unsupported target triple \"{}\"; ignoring for analysis", triple);
+                triple_str = arg.substr(9);
                 continue;
             }
 
@@ -352,6 +347,26 @@ namespace dccd
             if (arg == "-flibdcext")
             {
                 analysis.inject_libdcext_prelude = true;
+                analysis.libdcext_os = dcc::target::LibdcextOs::Host;
+
+                if (i + 1 < argv.size())
+                    if (auto os = dcc::target::parse_libdcext_os(argv[i + 1]))
+                    {
+                        analysis.libdcext_os = *os;
+                        ++i;
+                    }
+
+                continue;
+            }
+            if (arg.starts_with("-flibdcext="))
+            {
+                auto value = arg.substr(11);
+                analysis.inject_libdcext_prelude = true;
+                if (auto os = dcc::target::parse_libdcext_os(value))
+                    analysis.libdcext_os = *os;
+                else
+                    std::println(log, "[dccd] unknown -flibdcext value \"{}\"; treating as host", value);
+
                 continue;
             }
 
@@ -371,6 +386,23 @@ namespace dccd
                 std::println(log, "[dccd] ignoring unknown option in compile command: {}", arg);
                 continue;
             }
+        }
+
+        if (triple_str || analysis.inject_libdcext_prelude)
+        {
+            std::optional<dcc::target::LibdcextRequest> libdcext_request;
+            if (analysis.inject_libdcext_prelude)
+                libdcext_request = dcc::target::LibdcextRequest{.enabled = true, .os = analysis.libdcext_os};
+
+            std::optional<std::string_view> triple_view;
+            if (triple_str)
+                triple_view = *triple_str;
+
+            auto resolved = dcc::target::resolve_target(triple_view, libdcext_request);
+            if (resolved)
+                analysis.target = std::move(*resolved);
+            else
+                std::println(log, "[dccd] {}; ignoring for analysis", resolved.error());
         }
 
         return analysis;
