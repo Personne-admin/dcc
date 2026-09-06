@@ -950,6 +950,7 @@ export namespace dcc::sema
     private:
         std::span<std::unique_ptr<ModuleInfo> const> m_modules;
         diag::DiagnosticEngine& m_diag;
+        std::uint32_t m_error_action_count{};
         ast::AstContext& m_ast_ctx;
         types::TypeContext& m_types;
         std::pmr::polymorphic_allocator<> m_alloc;
@@ -9820,6 +9821,10 @@ export namespace dcc::sema
                 }
             }
 
+            if (expr.kind == ast::ExprKind::Call && !has_error(out.type))
+                if (auto const* f = ast::node_cast<ast::FuncDecl>(out.resolved_decl))
+                    analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out);
+
             set_resolved_type(expr.sema, out.type);
             expr.sema.const_value = out.constant;
             expr.sema.resolved_decl = out.resolved_decl;
@@ -13518,6 +13523,66 @@ export namespace dcc::sema
             return out;
         }
 
+        void analyze_diagnostic_intrinsic(ast::FuncDecl const& f, ast::CallExpr const& call, detail::ExprResult& out)
+        {
+            switch (f.sema.intrinsic_kind)
+            {
+                case ast::IntrinsicKind::CompileError:
+                case ast::IntrinsicKind::CompileWarning:
+                case ast::IntrinsicKind::CompileNote: {
+                    auto const* message_expr = call.args[out.call_argument_offset];
+                    auto const* message = message_expr->sema.const_value;
+                    if (!message || (message->kind() == comptime::Value::Kind::Slice && message->slice_is_ref()))
+                    {
+                        auto result = evaluate_constant(*message_expr, ctfe::Mode::Opportunistic);
+                        if (result.flow == ctfe::Flow::Normal && result.value)
+                            message = make_value(std::move(*result.value));
+                    }
+                    std::optional<std::string> text;
+                    if (message && message->kind() == comptime::Value::Kind::String)
+                        text = message->get_string();
+                    else if (message && message->kind() == comptime::Value::Kind::Slice && !message->slice_is_ref())
+                    {
+                        text.emplace();
+                        for (std::size_t i = 0; i < message->size(); ++i)
+                        {
+                            auto byte = message->at(i).const_to_int();
+                            if (!byte || *byte < 0 || *byte > 255)
+                            {
+                                text.reset();
+                                break;
+                            }
+                            text->push_back(static_cast<char>(*byte));
+                        }
+                    }
+                    if (!text)
+                    {
+                        if (!m_suppress_errors && !m_diag.silent())
+                            ++m_error_action_count;
+                        error(call.range, "{} message must be a compile-time string", f.name);
+                        out.type = m_types.m_errort();
+                        out.is_diverging = true;
+                        return;
+                    }
+                    if (f.sema.intrinsic_kind == ast::IntrinsicKind::CompileError)
+                    {
+                        if (!m_suppress_errors && !m_diag.silent())
+                            ++m_error_action_count;
+                        error(call.range, "{}", *text);
+                        out.type = m_types.m_errort();
+                        out.is_diverging = true;
+                    }
+                    else if (f.sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning)
+                        warning(call.range, "{}", *text);
+                    else if (!m_suppress_errors)
+                        m_diag.emit(diag::Diagnostic{diag::Severity::Note, *text}.primary(call.range));
+                    return;
+                }
+                default:
+                    break;
+            }
+        }
+
         [[nodiscard]] std::span<ast::Expr* const> expand_concept_call_args(ModuleInfo& mod, Scope& scope, std::span<ast::Expr* const> arg_exprs,
                                                                            std::pmr::vector<ast::Expr*>& out)
         {
@@ -13970,7 +14035,12 @@ export namespace dcc::sema
                 case ast::StmtKind::Expr: {
                     auto* expr = static_cast<ast::ExprStmt&>(s).expr;
                     if (expr)
-                        std::ignore = analyze_expr(mod, fn, scope, *expr, loop_depth, next_off, nullptr, const_env, true);
+                    {
+                        auto const error_actions_before = m_error_action_count;
+                        auto result = analyze_expr(mod, fn, scope, *expr, loop_depth, next_off, nullptr, const_env, true);
+                        out.diverges = result.is_diverging && m_error_action_count != error_actions_before;
+                        out.falls_through = !out.diverges;
+                    }
                     out.foldable = false;
                     return out;
                 }
@@ -14340,7 +14410,10 @@ export namespace dcc::sema
                     else if (a.as_expr)
                     {
                         a.resolution = ast::AmbiguousStmt::Resolution::AsExpr;
-                        std::ignore = analyze_expr(mod, fn, scope, *a.as_expr, loop_depth, next_off, nullptr, const_env);
+                        auto const error_actions_before = m_error_action_count;
+                        auto result = analyze_expr(mod, fn, scope, *a.as_expr, loop_depth, next_off, nullptr, const_env);
+                        out.diverges = result.is_diverging && m_error_action_count != error_actions_before;
+                        out.falls_through = !out.diverges;
                     }
                     out.foldable = false;
                     return out;
@@ -14989,10 +15062,11 @@ export namespace dcc::sema
             auto const saved_defer_depth = m_active_defers.size();
             block.exit_defers.clear();
             bool reachable = true;
+            auto const error_actions_before = m_error_action_count;
             for (std::size_t i = 0; i < block.stmts.size(); ++i)
             {
                 auto* s = block.stmts[i];
-                if (!reachable)
+                if (!reachable && m_error_action_count == error_actions_before)
                     error(s->range, "unreachable statement");
 
                 auto r = analyze_stmt(mod, fn, scope, *s, loop_depth, next_off, const_env);

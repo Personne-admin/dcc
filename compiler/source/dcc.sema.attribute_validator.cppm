@@ -102,8 +102,17 @@ namespace
         }
 
         if (d.sema.is_intrinsic)
-            if (auto const* f = dcc::ast::node_cast<dcc::ast::FuncDecl>(&d); f && f->name == "source_location")
-                d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SourceLocation;
+            if (auto const* f = dcc::ast::node_cast<dcc::ast::FuncDecl>(&d))
+            {
+                if (f->name == "source_location")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SourceLocation;
+                else if (f->name == "compile_error")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileError;
+                else if (f->name == "compile_warning")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileWarning;
+                else if (f->name == "compile_note")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileNote;
+            }
     }
 
     void validate_combinations(dcc::ast::Decl const& d, std::span<dcc::ast::Attribute const> attrs, dcc::diag::DiagnosticEngine& diag)

@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module test;
+import core;
+[]const char message() { return "a slice message!"[2..15]; }
+public void test() {
+    core::compile_error(message());
+}
+
+=== EXPECT-ERROR-COUNT: 1 ===
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:5: slice message

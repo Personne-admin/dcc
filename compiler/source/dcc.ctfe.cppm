@@ -1267,6 +1267,11 @@ export namespace dcc::ctfe
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation)
                     return folded(source_location_value(type_of(call), call.range));
 
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning || fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileNote)
+                    return {Flow::Normal, {}, {}, {}};
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileError)
+                    return failure("compile_error reached");
+
                 if (fn->sema.is_runtime)
                     is_runtime = true;
                 for (auto const& a : fn->attrs)

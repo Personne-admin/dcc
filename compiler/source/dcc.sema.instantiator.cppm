@@ -3879,6 +3879,7 @@ export namespace dcc::sema
 
         syn_decl->attrs = template_fn.attrs;
         syn_decl->sema.is_intrinsic = template_fn.sema.is_intrinsic;
+        syn_decl->sema.intrinsic_kind = template_fn.sema.intrinsic_kind;
         syn_decl->sema.is_runtime = template_fn.sema.is_runtime;
 
         if (diag)

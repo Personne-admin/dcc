@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module test;
+
+import core;
+public void test() {
+    core::compile_warning("warning {verbatim}");
+    static if false {
+        core::compile_warning("dead warning");
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===
+
+=== EXPECT-WARNINGS ===
+main.dc:5: warning {verbatim}

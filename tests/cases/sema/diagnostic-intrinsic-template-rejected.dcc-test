@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module test;
+
+import core;
+void f(T)(T value) {
+    static if T == u8 {
+    } else {
+        core::compile_error("unsupported type");
+    }
+}
+public void test() {
+    f(1 as u8);
+    f(1 as i32);
+}
+
+=== EXPECT-ERROR-COUNT: 1 ===
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:7: unsupported type

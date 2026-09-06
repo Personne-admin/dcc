@@ -1,5 +1,6 @@
 module std::fmt;
 
+import core;
 import std::math;
 import std::mem;
 import std::slice;
@@ -437,10 +438,8 @@ public Status(FmtError) format_value(T)(
         // checked first: `bool as i64` compiles but lowers to an
         // invalid bitcast in the backend, so never take that path.
         format_builtin_unsigned(w, value, opts) ?;
-    } else static if compiles (T t) {
-        t as i64;
-    }
-    {
+    } else static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char
+                 || T == i8 || T == i16 || T == i32 || T == i64 || T == isize {
         static if compiles (T t) {
             t as u64;
             t - t;
@@ -455,10 +454,7 @@ public Status(FmtError) format_value(T)(
         } else {
             format_signed(w, value as i64, opts) ?;
         }
-    } else static if compiles (T t) {
-        t as f64;
-    }
-    {
+    } else static if T == f32 || T == f64 {
         format_float(w, value as f64, opts) ?;
     } else static if T == [] const u8 {
         write_padded(w, value, opts) ?;
@@ -468,7 +464,7 @@ public Status(FmtError) format_value(T)(
     {
         value.format(w, opts) ?;
     } else {
-        compile_error(
+        core::compile_error(
             "type is not formattable: add format(const T*, const Writer*, const Options*)"
         );
     }
