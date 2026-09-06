@@ -2,7 +2,10 @@
 MAKEFLAGS += --no-builtin-rules --no-builtin-variables
 
 TOPLEVEL := $(abspath .)
-BUILD_DIR := $(TOPLEVEL)/build
+
+CROSS ?=
+BUILD_DIR := $(TOPLEVEL)/build$(if $(CROSS),-$(CROSS))
+NATIVE_BUILD_DIR := $(TOPLEVEL)/build
 OBJ_DIR := $(BUILD_DIR)/obj
 PCM_DIR := $(BUILD_DIR)/pcm
 DEP_DIR := $(BUILD_DIR)/dep
@@ -28,7 +31,7 @@ DOCDIR ?= $(PREFIX)/share/doc/dcc
 
 -include configure.mk
 
-export TOPLEVEL BUILD_DIR OBJ_DIR PCM_DIR DEP_DIR PREFIX DESTDIR
+export TOPLEVEL BUILD_DIR OBJ_DIR PCM_DIR DEP_DIR NATIVE_BUILD_DIR PREFIX DESTDIR CROSS
 export ENABLE_LLVM ENABLE_ASAN BUILD_TYPE
 export BINDIR LIBDIR INCLUDEDIR DOCDIR
 export CONFIG_MK RULES_MK MODULES_MK STD_MK COMPDB_MK SCAN_SCRIPT
@@ -43,7 +46,7 @@ else
   MSG = @true
 endif
 
-.PHONY: all compiler driver dccd libdcext test install uninstall compdb clean distclean help
+.PHONY: all compiler driver dccd libdcext test install uninstall compdb clean distclean help tools-windows msi
 
 all: driver libdcext dccd
 
@@ -58,6 +61,31 @@ dccd: compiler
 
 libdcext: driver
 	@$(MAKE) -C libdcext
+
+tools-windows:
+	@$(MAKE) CROSS=windows driver
+	@$(MAKE) CROSS=windows dccd
+
+MSI_VERSION ?= 0.1.0
+MSI_STAGE_DIR := $(TOPLEVEL)/build-windows/msi-stage
+MSI_OUT := $(TOPLEVEL)/build-windows/dcc-$(MSI_VERSION)-x86_64.msi
+GEN_WXS_SCRIPT := $(TOPLEVEL)/mk/gen_wxs.py
+
+msi: tools-windows
+	@$(MAKE) libdcext TARGET=x86_64-windows
+	@rm -rf $(MSI_STAGE_DIR)
+	@mkdir -p $(MSI_STAGE_DIR)/bin $(MSI_STAGE_DIR)/lib
+	$(Q)cp $(TOPLEVEL)/build-windows/bin/dcc.exe $(MSI_STAGE_DIR)/bin/
+	$(Q)cp $(TOPLEVEL)/build-windows/bin/dccd.exe $(MSI_STAGE_DIR)/bin/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp -r $(NATIVE_BUILD_DIR)/include $(MSI_STAGE_DIR)/include
+	$(Q)cp $(TOPLEVEL)/LICENSE $(MSI_STAGE_DIR)/
+	@mkdir -p $(dir $(MSI_OUT))
+	$(Q)$(PYTHON) $(GEN_WXS_SCRIPT) --stage-dir $(MSI_STAGE_DIR) --version $(MSI_VERSION) \
+		--output $(TOPLEVEL)/build-windows/dcc.wxs
+
+	$(Q)wixl -v -a x64 -o $(MSI_OUT) $(TOPLEVEL)/build-windows/dcc.wxs
+	$(call MSG,MSI,$(MSI_OUT))
 
 test: compiler driver libdcext dccd
 	@$(MAKE) -C tests
@@ -104,7 +132,7 @@ clean:
 	rm -rf $(OBJ_DIR) $(PCM_DIR) $(DEP_DIR)
 
 distclean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(TOPLEVEL)/build-windows
 
 help:
 	@echo "dcc build system"
@@ -117,8 +145,15 @@ help:
 	@echo "  test           Build and run the test suite"
 	@echo "  install        Install to PREFIX (default: /usr/local)"
 	@echo "  uninstall      Remove files installed by 'make install'"
+	@echo "  tools-windows  Cross-compile dcc/dccd to run on Windows (needs llvm-mingw)"
+	@echo "  msi            Package tools-windows + a windows-targeted libdcext as a .msi (needs msitools)"
 	@echo "  clean          Remove build artifacts"
 	@echo "  distclean      Remove entire build directory"
+	@echo ""
+	@echo "Variables:"
+	@echo "  CROSS=windows  Cross-compile dcc/dccd for Windows (see tools-windows)"
+	@echo "  TARGET=...     What OS libdcext targets: x86_64-linux, x86_64-windows, "
+	@echo "                 x86_64-freestanding -- independent of CROSS"
 	@echo ""
 
 include $(COMPDB_MK)

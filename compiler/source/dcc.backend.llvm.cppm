@@ -11,6 +11,11 @@ module;
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 export module dcc.backend.llvm;
 
 import std;

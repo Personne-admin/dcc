@@ -1,7 +1,10 @@
 include $(RULES_MK)
 
 TARGET ?= x86_64-linux
-DCC ?= $(BUILD_DIR)/bin/dcc
+DCC ?= $(NATIVE_BUILD_DIR)/bin/dcc
+MINGW_SYSROOT ?= /opt/llvm-mingw
+MINGW_TARGET ?= x86_64-w64-mingw32
+MINGW_CC := $(wildcard $(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-clang)
 
 ifeq ($(TARGET),x86_64-elf)
   override TARGET := x86_64-linux
@@ -23,6 +26,14 @@ else ifeq ($(TARGET),x86_64-freestanding)
   TARGET_OS := freestanding
 else
   $(error libdcext does not yet support target $(TARGET); expected x86_64-linux, x86_64-windows, or x86_64-freestanding)
+endif
+
+ifeq ($(TARGET_OS),windows)
+  ASM_CC := $(if $(MINGW_CC),$(MINGW_CC),$(CC))
+  ASM_TARGET := $(if $(MINGW_CC),$(MINGW_TARGET),$(DCC_TARGET))
+else
+  ASM_CC := $(CC)
+  ASM_TARGET := $(DCC_TARGET)
 endif
 
 OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)
@@ -56,7 +67,17 @@ headers:
 	$(Q)cp -r $(HEADER_SRC) $(BUILD_DIR)/include/
 	$(Q)cp $(STD_SRC) $(BUILD_DIR)/include/
 
-$(LIBDCEXT_A): $(ALL_OBJS) $(DCC)
+TARGET_STAMP := $(BUILD_DIR)/lib/.libdcext-target-stamp
+
+.PHONY: FORCE
+FORCE:
+
+$(TARGET_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(TARGET)" ]; then echo "$(TARGET)" > $@; fi
+
+$(LIBDCEXT_A): $(ALL_OBJS) $(DCC) $(TARGET_STAMP)
+	@rm -f $@
 	$(call create-archive,$@,$(ALL_OBJS))
 
 $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
@@ -67,7 +88,7 @@ $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
 	$(call MSG,ASM,$<)
-	$(Q)$(CC) -c -target $(DCC_TARGET) -x assembler-with-cpp -o $@ $<
+	$(Q)$(ASM_CC) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
 
 COMPDB_TARGETS ?= x86_64-linux x86_64-windows
 COMPDB_SCRIPT := $(TOPLEVEL)/mk/gen_compdb.py
@@ -89,8 +110,8 @@ compdb-fragment-one:
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-dc.json" \
 		$(DC_SRCS)
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
-		--cxx "$(CC)" \
-		--cxxflags "-c -target $(DCC_TARGET) -x assembler-with-cpp" \
+		--cxx "$(ASM_CC)" \
+		--cxxflags "-c -target $(ASM_TARGET) -x assembler-with-cpp" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-asm.json" \
 		$(ASM_SRCS)
@@ -108,5 +129,5 @@ uninstall:
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
 
 clean:
-	rm -f $(DC_OBJS) $(ASM_OBJS) $(LIBDCEXT_A)
+	rm -f $(DC_OBJS) $(ASM_OBJS) $(LIBDCEXT_A) $(TARGET_STAMP)
 	rm -rf $(HEADER_DST)

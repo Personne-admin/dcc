@@ -2,6 +2,11 @@ module;
 
 #include <cstdio>
 
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 export module dcc.backend.em64t;
 
 import std;
