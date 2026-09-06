@@ -1,0 +1,260 @@
+module std::utf8;
+
+public import std::result;
+import std::slice;
+
+using result::{ Result, Optional };
+
+//!
+//! UTF-8 decoding and encoding
+//!
+
+public using u32 REPLACEMENT = 0xFFFD;
+public using u32 MAX_CODEPOINT = 0x10FFFF;
+
+public enum Utf8Error : u8 {
+    Truncated,
+    InvalidStart,
+    InvalidContinuation,
+    Overlong,
+    Surrogate,
+    OutOfRange,
+}
+
+public struct Decoded {
+    u32 codepoint;
+    usize width;
+}
+
+//!
+//! Classification
+//!
+
+/// length in bytes of the sequence starting with `first`, or 0 when the
+/// byte cannot start one.
+public usize sequence_len(u8 first) {
+    if first < 0x80 {
+        return 1;
+    }
+
+    if (first & 0xE0) == 0xC0 {
+        return 2;
+    }
+
+    if (first & 0xF0) == 0xE0 {
+        return 3;
+    }
+
+    if (first & 0xF8) == 0xF0 {
+        return 4;
+    }
+
+    return 0;
+}
+
+public bool is_continuation(u8 byte) {
+    return (byte & 0xC0) == 0x80;
+}
+
+/// bytes needed to encode `cp`, or 0 when it is not a valid scalar value.
+public usize encoded_len(u32 cp) {
+    if cp < 0x80 {
+        return 1;
+    }
+
+    if cp < 0x800 {
+        return 2;
+    }
+
+    if cp >= 0xD800 && cp <= 0xDFFF {
+        return 0;
+    }
+
+    if cp < 0x10000 {
+        return 3;
+    }
+
+    if cp <= MAX_CODEPOINT {
+        return 4;
+    }
+
+    return 0;
+}
+
+//!
+//! Decoding
+//!
+
+/// decodes the sequence at the start of `bytes`.
+public Result(Decoded, Utf8Error) decode([] const u8 bytes) {
+    if bytes.len == 0 {
+        return Utf8Error::Truncated;
+    }
+
+    u8 first = bytes[0];
+    usize width = sequence_len(first);
+
+    if width == 0 {
+        return Utf8Error::InvalidStart;
+    }
+    if width > bytes.len {
+        return Utf8Error::Truncated;
+    }
+
+    if width == 1 {
+        return Result::Ok({codepoint = first as u32, width = 1});
+    }
+
+    u32 cp = match width {
+        2 => (first & 0x1F) as u32,
+        3 => (first & 0x0F) as u32,
+        _ => (first & 0x07) as u32,
+    };
+
+    for usize i = 1; i < width; i++ {
+        if !is_continuation(bytes[i]) {
+            return Utf8Error::InvalidContinuation;
+        }
+
+        cp = (cp << 6) | ((bytes[i] & 0x3F) as u32);
+    }
+
+    usize minimal = encoded_len(cp);
+    if minimal == 0 {
+        return if cp >= 0xD800 && cp <= 0xDFFF {
+            Utf8Error::Surrogate
+        } else { Utf8Error::OutOfRange };
+    }
+    if minimal != width {
+        return Utf8Error::Overlong;
+    }
+
+    return Result::Ok({codepoint = cp, width = width});
+}
+
+/// decodes one sequence.
+public Decoded decode_lossy([] const u8 bytes) {
+    return match decode(bytes) {
+        Result::Ok(d) => d,
+        Result::Err(_) => {codepoint = REPLACEMENT, width = 1},
+    };
+}
+
+//!
+//! Encoding
+//!
+
+/// writes the encoding of `cp` into `out`
+public Result(usize, Utf8Error) encode(u32 cp, [] u8 out) {
+    usize width = encoded_len(cp);
+
+    if width == 0 {
+        return if cp >= 0xD800 && cp <= 0xDFFF {
+            Utf8Error::Surrogate
+        } else { Utf8Error::OutOfRange };
+    }
+    if width > out.len {
+        return Utf8Error::Truncated;
+    }
+
+    static_encode(cp, width, out);
+    return Result::Ok(width);
+}
+
+void static_encode(u32 cp, usize width, [] u8 out) {
+    match width {
+        1 => out[0] = cp as u8,
+        2 => {
+            out[0] = (0xC0 | (cp >> 6)) as u8;
+            out[1] = (0x80 | (cp & 0x3F)) as u8;
+        },
+        3 => {
+            out[0] = (0xE0 | (cp >> 12)) as u8;
+            out[1] = (0x80 | ((cp >> 6) & 0x3F)) as u8;
+            out[2] = (0x80 | (cp & 0x3F)) as u8;
+        },
+        _ => {
+            out[0] = (0xF0 | (cp >> 18)) as u8;
+            out[1] = (0x80 | ((cp >> 12) & 0x3F)) as u8;
+            out[2] = (0x80 | ((cp >> 6) & 0x3F)) as u8;
+            out[3] = (0x80 | (cp & 0x3F)) as u8;
+        },
+    }
+}
+
+//!
+//! Whole-string operations
+//!
+
+/// byte offset of the first malformed sequence, or None when valid.
+public Optional(usize) validate([] const u8 bytes) {
+    usize i = 0;
+
+    while i < bytes.len {
+        Result(Decoded, Utf8Error) d = decode(bytes[i.. bytes.len]);
+        if d.is_ok() {
+            i = i + d.unwrap().width;
+        } else {
+            return Optional::Some(i);
+        }
+    }
+
+    return Optional::None;
+}
+
+public bool is_valid([] const u8 bytes) {
+    return validate(bytes).is_none();
+}
+
+/// number of scalar values, counting each malformed byte as one.
+public usize count_codepoints([] const u8 bytes) {
+    usize n = 0;
+    usize i = 0;
+
+    while i < bytes.len {
+        i = i + decode_lossy(bytes[i.. bytes.len]).width;
+        n++;
+    }
+
+    return n;
+}
+
+//!
+//! Iteration
+//!
+
+public struct Iterator {
+    [] const u8 bytes;
+    usize offset;
+}
+
+public Iterator iterate([] const u8 bytes) {
+    return Iterator {bytes = bytes, offset = 0};
+}
+
+public Optional(u32) next(Iterator* self) {
+    if self.offset >= self.bytes.len {
+        return Optional::None;
+    }
+
+    Decoded d = decode_lossy(
+        self.bytes[self.offset.. self.bytes.len]
+    );
+    self.offset = self.offset + d.width;
+    return Optional::Some(d.codepoint);
+}
+
+/// Byte offset of the previous codepoint boundary at or before `index`.
+public usize boundary_before([] const u8 bytes, usize index) {
+    usize i = if index > bytes.len {
+        bytes.len
+    } else { index };
+
+    while i > 0 && is_continuation(bytes[i - 1]) {
+        i--;
+    }
+
+    return if i > 0 {
+        i - 1
+    } else { 0 };
+}

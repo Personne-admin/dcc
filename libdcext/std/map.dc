@@ -1,0 +1,439 @@
+module std::map;
+
+import std::hash;
+import std::slice;
+public import std::mem;
+public import std::math;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+using mem::{ Allocator, AllocError };
+using hash::{ Hashable, KeyEq };
+
+//!
+//! Open-addressed hash map
+//!
+
+public using MapKey(K) = Hashable(K) & KeyEq(K);
+
+using u8 CTRL_EMPTY = 0x00;
+using u8 CTRL_TOMB = 0x01;
+
+using usize MIN_CAPACITY = 16;
+using usize LOAD_NUM = 3;
+using usize LOAD_DEN = 4;
+
+public struct Map(K, V) if MapKey(K) {
+    Allocator alloc;
+    [] u8 control;
+    [] K keys;
+    [] V values;
+    usize count;
+    usize tombstones;
+}
+
+public struct Entry(K, V) {
+    K* key;
+    V* value;
+}
+
+//!
+//! Construction
+//!
+
+public Map(K, V) new_map(K, V)(Allocator alloc) {
+    return {
+        alloc = alloc,
+        control = slice::from_raw(null as u8*, 0),
+        keys = slice::from_raw(
+            null as K*,
+            0
+        ),
+        values = slice::from_raw(
+            null as V*,
+            0
+        ),
+        count = 0,
+        tombstones = 0,
+    };
+}
+
+public Result(Map(K, V), AllocError) with_capacity(K, V)(
+    Allocator alloc,
+    usize capacity
+) {
+    Map(K, V) self = new_map(alloc);
+    self.ensure_capacity(capacity) ?;
+    return Result::Ok(self);
+}
+
+/// releases the table. keys and values holding resources must be drained
+/// through `iterate` first.
+public void deinit(K, V)(Map(K, V)* self) if MapKey(K) {
+    Map(K, V) b = *self;
+    if b.control.len > 0 {
+        b.alloc.free(b.control);
+        b.alloc.free(b.keys);
+        b.alloc.free(b.values);
+    }
+
+    b.control = slice::from_raw(null as u8*, 0);
+    b.keys = slice::from_raw(null as K*, 0);
+    b.values = slice::from_raw(null as V*, 0);
+    b.count = 0;
+    b.tombstones = 0;
+    *self = b;
+}
+
+//!
+//! Queries
+//!
+
+public usize len(K, V)(const Map(K, V)* self) {
+    Map(K, V) b = *self;
+    return b.count;
+}
+
+public bool is_empty(K, V)(const Map(K, V)* self) {
+    Map(K, V) b = *self;
+    return b.count == 0;
+}
+
+public usize capacity(K, V)(const Map(K, V)* self) {
+    Map(K, V) b = *self;
+    return b.control.len;
+}
+
+//!
+//! Probing
+//!
+
+u8 control_byte(u64 hash) {
+    return 0x80 | ((hash >> 57) as u8);
+}
+
+/// index of `key` in the table, or None.
+Optional(usize) find_slot(K, V)(const Map(K, V)* self, const K* key, u64 hash) {
+    Map(K, V) b = *self;
+    usize mask = b.control.len - 1;
+    usize index = (hash as usize) & mask;
+    u8 tag = control_byte(hash);
+
+    usize probe = 0;
+    while probe < b.control.len {
+        u8 ctrl = b.control[index];
+
+        if ctrl == CTRL_EMPTY {
+            return Optional::None;
+        }
+
+        if ctrl == tag && hash::key_eq(&b.keys[index], key) {
+            return Optional::Some(index);
+        }
+
+        index = (index + 1) & mask;
+        probe++;
+    }
+
+    return Optional::None;
+}
+
+/// slot an insertion should occupy: the existing entry when present, else
+/// the first empty or tombstoned slot on the probe chain.
+usize find_insert_slot(K, V)(
+    const Map(K, V)* self,
+    const K* key,
+    u64 hash,
+    bool* replacing
+) {
+    Map(K, V) b = *self;
+    usize mask = b.control.len - 1;
+    usize index = (hash as usize) & mask;
+    u8 tag = control_byte(hash);
+
+    Optional(usize) first_free = Optional::None;
+
+    usize probe = 0;
+    while probe < b.control.len {
+        u8 ctrl = b.control[index];
+
+        if ctrl == CTRL_EMPTY {
+            *replacing = false;
+            return first_free.some_or(index);
+        }
+
+        if ctrl == CTRL_TOMB {
+            if first_free.is_none() {
+                first_free = Optional::Some(index);
+            }
+        } else if ctrl == tag && hash::key_eq(&b.keys[index], key) {
+            *replacing = true;
+            return index;
+        }
+
+        index = (index + 1) & mask;
+        probe++;
+    }
+
+    *replacing = false;
+    return first_free.some_or(0 as usize);
+}
+
+//!
+//! Capacity
+//!
+
+public Status(AllocError) ensure_capacity(K, V)(Map(K, V)* self, usize wanted) {
+    Map(K, V) b = *self;
+    usize needed = math::max(wanted, MIN_CAPACITY);
+    usize required = needed * LOAD_DEN / LOAD_NUM + 1;
+    usize target = math::next_power_of_two(required as u64) as usize;
+
+    if b.control.len >= target && b.control.len > 0 {
+        return Status::Ok;
+    }
+
+    *self = b;
+    Status(AllocError) rh_st = rehash_into(self, target);
+    if !rh_st.is_ok() {
+        return rh_st.unwrap_err();
+    }
+    return Status::Ok;
+}
+
+Status(AllocError) rehash_into(K, V)(Map(K, V)* self, usize new_capacity) {
+    Map(K, V) b = *self;
+    [] u8 old_control = b.control;
+    [] K old_keys = b.keys;
+    [] V old_values = b.values;
+    Allocator alloc = b.alloc;
+
+    Result([] u8, AllocError) control_r = alloc.alloc_zeroed(new_capacity);
+    if control_r.is_err() {
+        return control_r.unwrap_err();
+    }
+    Result([] K, AllocError) keys_r = alloc.alloc(new_capacity);
+    if keys_r.is_err() {
+        return keys_r.unwrap_err();
+    }
+    Result([] V, AllocError) values_r = alloc.alloc(new_capacity);
+    if values_r.is_err() {
+        return values_r.unwrap_err();
+    }
+
+    b.control = control_r.unwrap();
+    b.keys = keys_r.unwrap();
+    b.values = values_r.unwrap();
+    b.count = 0;
+    b.tombstones = 0;
+    *self = b;
+
+    usize i = 0;
+    while i < old_control.len {
+        if old_control[i] >= 0x80 {
+            insert_unchecked(self, old_keys[i], old_values[i]);
+        }
+        i++;
+    }
+
+    if old_control.len > 0 {
+        alloc.free(old_control);
+        alloc.free(old_keys);
+        alloc.free(old_values);
+    }
+
+    return Status::Ok;
+}
+
+/// Places an entry known to be absent into a table known to have room.
+void insert_unchecked(K, V)(Map(K, V)* self, K key, V value) {
+    Map(K, V) b = *self;
+    u64 hash = key.hash_of();
+    usize mask = b.control.len - 1;
+    usize index = (hash as usize) & mask;
+
+    while b.control[index] >= 0x80 {
+        index = (index + 1) & mask;
+    }
+
+    b.control[index] = control_byte(hash);
+    b.keys[index] = key;
+    b.values[index] = value;
+    b.count++;
+    *self = b;
+}
+
+bool needs_growth(K, V)(const Map(K, V)* self) {
+    Map(K, V) b = *self;
+    if b.control.len == 0 {
+        return true;
+    }
+
+    return (b.count + b.tombstones + 1) * LOAD_DEN > b.control.len * LOAD_NUM;
+}
+
+//!
+//! Access
+//!
+
+/// inserts or replaces.
+public Result(Optional(V), AllocError) put(K, V)(
+    Map(K, V)* self,
+    K key,
+    V value
+) {
+    Map(K, V) b = *self;
+    if needs_growth(&b) {
+        usize target = if b.control.len == 0 {
+            MIN_CAPACITY
+        } else { b.control.len * 2 };
+        *self = b;
+        Status(AllocError) rh_st = rehash_into(self, target);
+        if !rh_st.is_ok() {
+            return rh_st.unwrap_err();
+        }
+        Map(K, V) grown = *self;
+        Result(Optional(V), AllocError) again = put(&grown, key, value);
+        *self = grown;
+        return again;
+    }
+
+    u64 hash = key.hash_of();
+    bool replacing = false;
+    usize slot = find_insert_slot(&b, &key, hash, &replacing);
+
+    if replacing {
+        V previous = b.values[slot];
+        b.values[slot] = value;
+        *self = b;
+        return Result::Ok(Optional::Some(previous));
+    }
+
+    if b.control[slot] == CTRL_TOMB {
+        b.tombstones--;
+    }
+
+    b.control[slot] = control_byte(hash);
+    b.keys[slot] = key;
+    b.values[slot] = value;
+    b.count++;
+    *self = b;
+
+    return Result::Ok(Optional::None);
+}
+
+public Optional(V) get(K, V)(const Map(K, V)* self, K key) {
+    Map(K, V) b = *self;
+    if b.control.len == 0 {
+        return Optional::None;
+    }
+
+    Optional(usize) slot = find_slot(&b, &key, key.hash_of());
+    return match slot {
+        Optional::Some(i) => Optional::Some(b.values[i]),
+        _ => Optional::None,
+    };
+}
+
+/// pointer to the stored value. invalidated by any insertion that grows
+/// the table.
+public Optional(V*) get_ptr(K, V)(Map(K, V)* self, K key) {
+    Map(K, V) b = *self;
+    if b.control.len == 0 {
+        return Optional::None;
+    }
+
+    Optional(usize) slot = find_slot(&b, &key, key.hash_of());
+    return match slot {
+        Optional::Some(i) => Optional::Some(&b.values[i]),
+        _ => Optional::None,
+    };
+}
+
+public bool contains(K, V)(const Map(K, V)* self, K key) {
+    return self.get(key).is_some();
+}
+
+/// returns a pointer to the value for `key`, inserting `fallback` when
+/// absent.
+public Result(V*, AllocError) get_or_put(K, V)(
+    Map(K, V)* self,
+    K key,
+    V fallback
+) {
+    Optional(V*) p = self.get_ptr(key);
+    if p.is_some() {
+        return Result::Ok(p.unwrap_some());
+    }
+
+    Result(Optional(V), AllocError) put_r = self.put(key, fallback);
+    if put_r.is_err() {
+        return put_r.unwrap_err();
+    }
+    Optional(V*) q = self.get_ptr(key);
+    return Result::Ok(q.unwrap_some());
+}
+
+public Optional(V) remove(K, V)(Map(K, V)* self, K key) {
+    Map(K, V) b = *self;
+    if b.control.len == 0 {
+        return Optional::None;
+    }
+
+    Optional(usize) slot = find_slot(&b, &key, key.hash_of());
+    return match slot {
+        Optional::Some(i) => {
+            V value = b.values[i];
+            b.control[i] = CTRL_TOMB;
+            b.count--;
+            b.tombstones++;
+            *self = b;
+            Optional::Some(value)
+        },
+        _ => Optional::None,
+    };
+}
+
+/// empties the map without releasing its storage.
+public void clear(K, V)(Map(K, V)* self) {
+    Map(K, V) b = *self;
+    mem::set(b.control, CTRL_EMPTY);
+    b.count = 0;
+    b.tombstones = 0;
+    *self = b;
+}
+
+//!
+//! Iteration
+//!
+
+public struct Iterator(K, V) {
+    Map(K, V)* map;
+    usize index;
+}
+
+public Iterator(K, V) iterate(K, V)(Map(K, V)* self) {
+    return {map = self, index = 0};
+}
+
+public Optional(Entry(K, V)) next(K, V)(Iterator(K, V)* self) {
+    Iterator(K, V) it = *self;
+    Map(K, V) m = *it.map;
+    while it.index < m.control.len {
+        usize i = it.index;
+        it.index++;
+
+        if m.control[i] >= 0x80 {
+            *self = it;
+            return Optional::Some(
+                {
+                    key = &m.keys[i],
+                    value = &m.values[i],
+                }
+            );
+        }
+    }
+
+    *self = it;
+    return Optional::None;
+}

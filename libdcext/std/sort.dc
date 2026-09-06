@@ -1,0 +1,355 @@
+module std::sort;
+
+import std::slice;
+public import std::mem;
+public import std::result;
+
+using result::{ Optional, Result };
+
+//!
+//! Ordering
+//!
+
+public using Ord(T) = compiles (T a, T b) {
+    a < b;
+};
+
+public i32 compare_default(T)(const T* a, const T* b) if Ord(T) {
+    if *a < *b {
+        return -1;
+    }
+
+    if *b < *a {
+        return 1;
+    }
+
+    return 0;
+}
+
+using usize INSERTION_THRESHOLD = 24;
+
+//!
+//! Insertion sort
+//!
+
+public void insertion_sort_by(T)([] T items, i32(*)(const T*, const T*) cmp) {
+    for usize i = 1; i < items.len; i++ {
+        T value = items[i];
+        usize j = i;
+
+        while j > 0 && cmp(&items[j - 1], &value) > 0 {
+            items[j] = items[j - 1];
+            j--;
+        }
+
+        items[j] = value;
+    }
+}
+
+//!
+//! Heap sort
+//!
+//! Used as the introsort fallback so a hostile input cannot drive quicksort
+//! quadratic.
+//!
+
+void sift_down(T)(
+    [] T items,
+    usize root,
+    usize end,
+    i32(*)(const T*, const T*) cmp
+) {
+    usize parent = root;
+
+    while true {
+        usize child = parent * 2 + 1;
+        if child >= end {
+            return;
+        }
+
+        if child + 1 < end && cmp(&items[child], &items[child + 1]) < 0 {
+            child++;
+        }
+
+        if cmp(&items[parent], &items[child]) >= 0 {
+            return;
+        }
+
+        mem::swap(&items[parent], &items[child]);
+        parent = child;
+    }
+}
+
+public void heap_sort_by(T)([] T items, i32(*)(const T*, const T*) cmp) {
+    if items.len < 2 {
+        return;
+    }
+
+    usize i = items.len / 2;
+    while i > 0 {
+        i--;
+        sift_down(items, i, items.len, cmp);
+    }
+
+    usize end = items.len;
+    while end > 1 {
+        end--;
+        mem::swap(&items[0], &items[end]);
+        sift_down(items, 0, end, cmp);
+    }
+}
+
+//!
+//! Introsort
+//!
+
+usize median_of_three(T)([] T items, i32(*)(const T*, const T*) cmp) {
+    usize a = 0;
+    usize b = items.len / 2;
+    usize c = items.len - 1;
+
+    if cmp(&items[a], &items[b]) > 0 {
+        mem::swap(&items[a], &items[b]);
+    }
+    if cmp(&items[b], &items[c]) > 0 {
+        mem::swap(&items[b], &items[c]);
+    }
+    if cmp(&items[a], &items[b]) > 0 {
+        mem::swap(&items[a], &items[b]);
+    }
+
+    return b;
+}
+
+/// hoare partition around the median-of-three pivot. returns the split point.
+usize partition(T)([] T items, i32(*)(const T*, const T*) cmp) {
+    usize p = median_of_three(items, cmp);
+    T pivot = items[p];
+
+    usize lo = 0;
+    usize hi = items.len - 1;
+
+    while true {
+        while cmp(&items[lo], &pivot) < 0 {
+            lo++;
+        }
+        while cmp(&items[hi], &pivot) > 0 {
+            hi--;
+        }
+
+        if lo >= hi {
+            return hi + 1;
+        }
+
+        mem::swap(&items[lo], &items[hi]);
+        lo++;
+        hi--;
+    }
+
+    return 0;
+}
+
+void introsort(T)([] T items, i32(*)(const T*, const T*) cmp, u32 depth_budget) {
+    [] T region = items;
+
+    while region.len > INSERTION_THRESHOLD {
+        if depth_budget == 0 {
+            heap_sort_by(region, cmp);
+            return;
+        }
+        depth_budget--;
+
+        usize split = partition(region, cmp);
+
+        // recurse into the smaller half, iterate on the larger
+        if split < region.len - split {
+            introsort(region[0..split], cmp, depth_budget);
+            region = region[split..region.len];
+        } else {
+            introsort(region[split..region.len], cmp, depth_budget);
+            region = region[0..split];
+        }
+    }
+
+    insertion_sort_by(region, cmp);
+}
+
+/// unstable sort, O(n log n) worst case.
+public void sort_by(T)([] T items, i32(*)(const T*, const T*) cmp) {
+    if items.len < 2 {
+        return;
+    }
+
+    u32 budget = 2 * (log2_floor(items.len) + 1);
+    introsort(items, cmp, budget);
+}
+
+public void sort(T)([] T items) if Ord(T) {
+    sort_by(items, compare_default);
+}
+
+u32 log2_floor(usize v) {
+    u32 n = 0;
+    usize x = v;
+    while x > 1 {
+        x = x >> 1;
+        n++;
+    }
+
+    return n;
+}
+
+//!
+//! Stable sort
+//!
+
+/// bottom-up merge sort into caller-supplied scratch of at least `items.len` elements.
+public void sort_stable_by(T)(
+    [] T items,
+    [] T scratch,
+    i32(*)(const T*, const T*) cmp
+) {
+    if items.len < 2 {
+        return;
+    }
+
+    usize width = 1;
+    while width < items.len {
+        usize i = 0;
+        while i < items.len {
+            usize mid = if i + width < items.len {
+                i + width
+            } else { items.len };
+
+            usize end = if i + 2 * width < items.len {
+                i + 2 * width
+            } else { items.len };
+
+            merge_run(items, scratch, i, mid, end, cmp);
+            i = i + 2 * width;
+        }
+
+        mem::copy(items, scratch);
+        width = width * 2;
+    }
+}
+
+void merge_run(T)(
+    [] T src,
+    [] T dst,
+    usize lo,
+    usize mid,
+    usize hi,
+    i32(*)(const T*, const T*) cmp
+) {
+    usize a = lo;
+    usize b = mid;
+
+    for usize k = lo; k < hi; k++ {
+        bool take_left = if a < mid && (b >= hi || cmp(&src[a], &src[b]) <= 0) {
+            true
+        } else { false };
+
+        if take_left {
+            dst[k] = src[a];
+            a++;
+        } else {
+            dst[k] = src[b];
+            b++;
+        }
+    }
+}
+
+public result::Status(mem::AllocError) sort_stable_alloc(T)(
+    const mem::Allocator* allocator,
+    [] T items,
+    i32(*)(const T*, const T*) cmp
+) {
+    if items.len < 2 {
+        return result::Status::Ok;
+    }
+
+    result::Result([] T, mem::AllocError) scratch_r = allocator.alloc(items.len);
+    if scratch_r.is_err() {
+        return scratch_r.unwrap_err();
+    }
+    [] T scratch = scratch_r.unwrap();
+
+    sort_stable_by(items, scratch, cmp);
+    allocator.free(scratch);
+    return result::Status::Ok;
+}
+
+//!
+//! Binary search
+//!
+
+/// index of the first element not ordered before `key`.
+public usize lower_bound_by(T)(
+    [] const T items,
+    const T* key,
+    i32(*)(const T*, const T*) cmp
+) {
+    usize lo = 0;
+    usize hi = items.len;
+
+    while lo < hi {
+        usize mid = lo + (hi - lo) / 2;
+        if cmp(&items[mid], key) < 0 {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+
+    return lo;
+}
+
+/// Index of the first element ordered after `key`.
+public usize upper_bound_by(T)(
+    [] const T items,
+    const T* key,
+    i32(*)(const T*, const T*) cmp
+) {
+    usize lo = 0;
+    usize hi = items.len;
+
+    while lo < hi {
+        usize mid = lo + (hi - lo) / 2;
+        if cmp(&items[mid], key) <= 0 {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+
+    return lo;
+}
+
+public Optional(usize) binary_search_by(T)(
+    [] const T items,
+    const T* key,
+    i32(*)(const T*, const T*) cmp
+) {
+    usize i = lower_bound_by(items, key, cmp);
+
+    if i < items.len && cmp(&items[i], key) == 0 {
+        return Optional::Some(i);
+    }
+
+    return Optional::None;
+}
+
+public Optional(usize) binary_search(T)([] const T items, T key) if Ord(T) {
+    return binary_search_by(items, &key, compare_default);
+}
+
+public bool is_sorted_by(T)([] const T items, i32(*)(const T*, const T*) cmp) {
+    for usize i = 1; i < items.len; i++ {
+        if cmp(&items[i - 1], &items[i]) > 0 {
+            return false;
+        }
+    }
+
+    return true;
+}

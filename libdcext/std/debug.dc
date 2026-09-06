@@ -1,0 +1,42 @@
+module std::debug;
+
+public import core::source_location;
+
+using core::source_location::source_location;
+
+//!
+//! Panic hook
+//!
+
+public using PanicFn = void(*)([] const u8 message, core::source_location::SourceLocation sl);
+
+PanicFn g_panic = null;
+
+/// installs the process-wide panic handler. not thread safe.
+public void set_panic_handler(PanicFn handler) {
+    g_panic = handler;
+}
+
+/// reports an unrecoverable condition and does not return.
+public void panic(
+    [] const u8 message,
+    core::source_location::SourceLocation sl = source_location()
+) {
+    match g_panic {
+        null => {},
+        f => f(message, sl),
+    }
+
+    while true {}
+}
+
+/// panics when `cond` is false.
+public void assert(
+    bool cond,
+    [] const u8 message,
+    core::source_location::SourceLocation sl = source_location()
+) {
+    if !cond {
+        panic(message, sl);
+    }
+}

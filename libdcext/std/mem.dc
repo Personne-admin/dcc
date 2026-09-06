@@ -1,0 +1,428 @@
+module std::mem;
+
+public import std::result;
+import std::slice;
+
+using result::{ Result, Status, Optional };
+
+//!
+//! Errors and allocator interface
+//!
+
+public enum AllocError : u8 {
+    OutOfMemory,
+    InvalidAlignment,
+}
+
+public using AllocFn = Result([] u8, AllocError)(*)(void* ctx, usize len, usize align);
+public using ResizeFn = bool(*)(void* ctx, [] u8 buf, usize new_len, usize align);
+public using FreeFn = void(*)(void* ctx, [] u8 buf, usize align);
+
+public struct Allocator {
+    void* ctx;
+    AllocFn alloc_fn;
+    ResizeFn resize_fn;
+    FreeFn free_fn;
+}
+
+//!
+//! Allocator operations
+//!
+
+/// allocates `len` bytes with the given alignment.
+public Result([] u8, AllocError) raw_alloc(
+    const Allocator* self,
+    usize len,
+    usize align
+) {
+    if !is_power_of_two(align) {
+        return AllocError::InvalidAlignment;
+    }
+
+    return self.alloc_fn(self.ctx, len, align);
+}
+
+/// attempts to grow or shrink `buf` in place. returns false when the
+/// allocator cannot honour the request without moving the block.
+public bool raw_resize(
+    const Allocator* self,
+    [] u8 buf,
+    usize new_len,
+    usize align
+) {
+    return self.resize_fn(self.ctx, buf, new_len, align);
+}
+
+public void raw_free(const Allocator* self, [] u8 buf, usize align) {
+    self.free_fn(self.ctx, buf, align);
+}
+
+public [] T raw_as_typed(T)([] u8 raw, usize n) {
+    return (raw as [] T)[0.. n];
+}
+
+/// allocates storage for `n` values of `T`, uninitialized.
+public Result([] T, AllocError) alloc(T)(const Allocator* self, usize n) {
+    usize bytes = sizeof (T) * n;
+    Result([] u8, AllocError) raw_r = self.raw_alloc(bytes, alignof (T));
+    if raw_r.is_err() {
+        return raw_r.unwrap_err();
+    }
+    [] u8 raw = raw_r.unwrap();
+    [] T out = raw_as_typed(raw, n);
+    return result::Result::Ok(out);
+}
+
+/// allocates storage for `n` values of `T` and zeroes it.
+public Result([] T, AllocError) alloc_zeroed(T)(const Allocator* self, usize n) {
+    Result([] T, AllocError) out_r = self.alloc(n);
+    if out_r.is_err() {
+        return out_r;
+    }
+    [] T out = out_r.unwrap();
+    zero(out);
+    return Result::Ok(out);
+}
+
+public void free(T)(const Allocator* self, [] T items) {
+    [] u8 raw = slice::from_raw!u8(
+        items.ptr as u8*,
+        items.len * sizeof (T)
+    );
+
+    self.raw_free(raw, alignof (T));
+}
+
+/// allocates a single `T`.
+public Result(T*, AllocError) create(T)(const Allocator* self) {
+    Result([] T, AllocError) one_r = self.alloc(1);
+    if one_r.is_err() {
+        return one_r.unwrap_err();
+    }
+    [] T one = one_r.unwrap();
+    return Result::Ok(one.ptr);
+}
+
+public void destroy(T)(const Allocator* self, T* value) {
+    self.free(slice::from_raw(value, 1));
+}
+
+/// copies `source` into freshly allocated storage owned by the caller.
+public Result([] T, AllocError) dupe(T)(
+    const Allocator* self,
+    [] const T source
+) {
+    Result([] T, AllocError) out_r = self.alloc(source.len);
+    if out_r.is_err() {
+        return out_r;
+    }
+    [] T out = out_r.unwrap();
+    copy(out, source);
+    return Result::Ok(out);
+}
+
+//!
+//! Raw memory primitives
+//!
+
+/// copies `min(dst.len, src.len)` elements forward. regions must not overlap.
+public void copy(T)([] T dst, [] const T src) {
+    usize n = if dst.len < src.len {
+        dst.len
+    } else { src.len };
+
+    for usize i = 0; i < n; i++ {
+        dst[i] = src[i];
+    }
+}
+
+/// copies elements even when the regions overlap.
+public void move(T)([] T dst, [] const T src) {
+    usize n = if dst.len < src.len {
+        dst.len
+    } else { src.len };
+
+    if dst.ptr as usize < src.ptr as usize {
+        for usize i = 0; i < n; i++ {
+            dst[i] = src[i];
+        }
+    } else {
+        usize i = n;
+        while i > 0 {
+            i--;
+            dst[i] = src[i];
+        }
+    }
+}
+
+public void set(T)([] T dst, T value) {
+    for usize i = 0; i < dst.len; i++ {
+        dst[i] = value;
+    }
+}
+
+public void zero(T)([] T dst) {
+    [] u8 raw = slice::from_raw!u8(dst.ptr as u8*, dst.len * sizeof (T));
+    for usize i = 0; i < raw.len; i++ {
+        raw[i] = 0;
+    }
+}
+
+/// lexicographic byte comparison. returns -1, 0 or 1.
+public i32 compare([] const u8 a, [] const u8 b) {
+    usize n = if a.len < b.len {
+        a.len
+    } else { b.len };
+
+    for usize i = 0; i < n; i++ {
+        if a[i] != b[i] {
+            return if a[i] < b[i] {
+                -1
+            } else { 1 };
+        }
+    }
+
+    if a.len == b.len {
+        return 0;
+    }
+
+    return if a.len < b.len {
+        -1
+    } else { 1 };
+}
+
+public bool equal([] const u8 a, [] const u8 b) {
+    return compare(a, b) == 0;
+}
+
+public void swap(T)(T* a, T* b) {
+    T tmp = *a;
+    *a = *b;
+    *b = tmp;
+}
+
+//!
+//! Reinterpretation
+//!
+
+/// views a value as its raw bytes. the result borrows from `value`.
+public [] const u8 as_bytes(T)(const T* value) {
+    return slice::from_raw_const!u8(value as const u8*, sizeof (T));
+}
+
+public [] u8 as_bytes_mut(T)(T* value) {
+    return slice::from_raw!u8(value as u8*, sizeof (T));
+}
+
+/// views a typed slice as raw bytes.
+public [] const u8 slice_as_bytes(T)([] const T items) {
+    return slice::from_raw_const!u8(
+        items.ptr as const u8*,
+        items.len * sizeof (T)
+    );
+}
+
+//!
+//! Alignment
+//!
+
+public bool is_power_of_two(usize v) {
+    return v != 0 && (v & (v - 1)) == 0;
+}
+
+public usize align_up(usize value, usize align) {
+    return (value + align - 1) & ~(align - 1);
+}
+
+public usize align_down(usize value, usize align) {
+    return value & ~(align - 1);
+}
+
+public bool is_aligned(usize value, usize align) {
+    return (value & (align - 1)) == 0;
+}
+
+public bool is_ptr_aligned(T)(const T* p, usize align) {
+    return is_aligned(p as usize, align);
+}
+
+//!
+//! Fixed buffer allocator
+//!
+
+public struct FixedBuffer {
+    [] u8 buffer;
+    usize offset;
+    usize last_offset;
+}
+
+public FixedBuffer new_fixed_buffer([] u8 backing) {
+    return FixedBuffer {buffer = backing, offset = 0, last_offset = 0};
+}
+
+public using FixedBuffer::new = new_fixed_buffer;
+
+Result([] u8, AllocError) fixed_alloc(void* ctx, usize len, usize align) {
+    FixedBuffer* self = ctx as FixedBuffer*;
+
+    usize base = self.buffer.ptr as usize;
+    usize start = align_up(base + self.offset, align) - base;
+
+    if start + len > self.buffer.len {
+        return AllocError::OutOfMemory;
+    }
+
+    self.last_offset = start;
+    self.offset = start + len;
+    return Result::Ok(slice::from_raw(self.buffer.ptr + start, len));
+}
+
+bool fixed_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
+    FixedBuffer* self = ctx as FixedBuffer*;
+    usize start = buf.ptr as usize - self.buffer.ptr as usize;
+
+    if start != self.last_offset {
+        return new_len <= buf.len;
+    }
+
+    if start + new_len > self.buffer.len {
+        return false;
+    }
+
+    self.offset = start + new_len;
+    return true;
+}
+
+void fixed_free(void* ctx, [] u8 buf, usize align) {
+    FixedBuffer* self = ctx as FixedBuffer*;
+    usize start = buf.ptr as usize - self.buffer.ptr as usize;
+
+    if start == self.last_offset {
+        self.offset = start;
+    }
+}
+
+public Allocator allocator(FixedBuffer* self) {
+    return Allocator {
+        ctx = self as void*,
+        alloc_fn = fixed_alloc,
+        resize_fn = fixed_resize,
+        free_fn = fixed_free,
+    };
+}
+
+/// discards every allocation made from this buffer.
+public void reset(FixedBuffer* self) {
+    self.offset = 0;
+    self.last_offset = 0;
+}
+
+//!
+//! Arena allocator
+//!
+
+public struct ArenaChunk {
+    ArenaChunk* next;
+    [] u8 memory;
+    usize offset;
+}
+
+public struct Arena {
+    Allocator parent;
+    ArenaChunk* head;
+    usize next_chunk_size;
+}
+
+public using usize ARENA_MIN_CHUNK = 4096;
+
+public Arena new_arena(Allocator parent) {
+    return Arena {parent = parent, head = null, next_chunk_size = ARENA_MIN_CHUNK};
+}
+
+bool arena_push_chunk(Arena* self, usize min_size) {
+    usize size = if self.next_chunk_size > min_size {
+        self.next_chunk_size
+    } else { align_up(min_size, ARENA_MIN_CHUNK) };
+
+    Result([] u8, AllocError) got = self.parent.raw_alloc(
+        size + sizeof (ArenaChunk),
+        alignof (ArenaChunk)
+    );
+    if !got.is_ok() {
+        return false;
+    }
+
+    [] u8 block = got.unwrap();
+    ArenaChunk* chunk = block.ptr as ArenaChunk*;
+
+    chunk.next = self.head;
+    chunk.memory = slice::from_raw(
+        block.ptr + sizeof (ArenaChunk),
+        size
+    );
+    chunk.offset = 0;
+
+    self.head = chunk;
+    self.next_chunk_size = size * 2;
+    return true;
+}
+
+Result([] u8, AllocError) arena_alloc(void* ctx, usize len, usize align) {
+    Arena* self = ctx as Arena*;
+
+    for u32 attempt = 0; attempt < 2; attempt++ {
+        if self.head != null {
+            usize base = self.head.memory.ptr as usize;
+            usize start = align_up(base + self.head.offset, align) - base;
+
+            if start + len <= self.head.memory.len {
+                self.head.offset = start + len;
+                return Result::Ok(
+                    slice::from_raw(
+                        self.head.memory.ptr + start,
+                        len
+                    )
+                );
+            }
+        }
+
+        if !arena_push_chunk(self, len + align) {
+            break;
+        }
+    }
+
+    return Result::Err(AllocError::OutOfMemory);
+}
+
+bool arena_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
+    return new_len <= buf.len;
+}
+
+void arena_free(void* ctx, [] u8 buf, usize align) {}
+
+public Allocator allocator(Arena* self) {
+    return Allocator {
+        ctx = self as void*,
+        alloc_fn = arena_alloc,
+        resize_fn = arena_resize,
+        free_fn = arena_free,
+    };
+}
+
+/// releases every chunk back to the parent allocator.
+public void deinit(Arena* self) {
+    ArenaChunk* chunk = self.head;
+
+    while chunk != null {
+        ArenaChunk* next = chunk.next;
+        usize total = chunk.memory.len + sizeof (ArenaChunk);
+        self.parent.raw_free(
+            slice::from_raw(chunk as u8*, total),
+            alignof (ArenaChunk)
+        );
+        chunk = next;
+    }
+
+    self.head = null;
+    self.next_chunk_size = ARENA_MIN_CHUNK;
+}

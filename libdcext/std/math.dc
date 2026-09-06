@@ -1,0 +1,657 @@
+module std::math;
+
+//!
+//! Bit-level float access
+//!
+//! Rough math targetting IEEE-754 bit layout.
+//!
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+union F32Bits {
+    f32 f;
+    u32 u;
+}
+
+//!
+//! Constants
+//!
+
+public using f64 PI = 3.14159265358979311600;
+public using f64 TAU = 6.28318530717958623200;
+public using f64 E = 2.71828182845904509080;
+public using f64 SQRT2 = 1.41421356237309514547;
+public using f64 LN2 = 0.69314718055994530942;
+public using f64 LN10 = 2.30258509299404568402;
+public using f64 LOG2E = 1.44269504088896340736;
+public using f64 EPSILON = 2.22044604925031308085e-16;
+
+public using f64 INF = 1.0e308 * 10.0;
+public using f64 NAN = INF - INF;
+
+using u64 SIGN_MASK = 0x8000000000000000;
+using u64 EXP_MASK = 0x7FF0000000000000;
+using u64 FRAC_MASK = 0x000FFFFFFFFFFFFF;
+
+//!
+//! Classification
+//!
+
+public bool is_nan(f64 x) {
+    return x != x;
+}
+
+public bool is_inf(f64 x) {
+    F64Bits b = {f = x};
+    return (b.u & ~SIGN_MASK) == EXP_MASK;
+}
+
+public bool is_finite(f64 x) {
+    F64Bits b = {f = x};
+    return (b.u & EXP_MASK) != EXP_MASK;
+}
+
+public bool signbit(f64 x) {
+    F64Bits b = {f = x};
+    return (b.u & SIGN_MASK) != 0;
+}
+
+public f64 copysign(f64 magnitude, f64 sign) {
+    F64Bits m = {f = magnitude};
+    F64Bits s = {f = sign};
+    m.u = (m.u & ~SIGN_MASK) | (s.u & SIGN_MASK);
+    return m.f;
+}
+
+/// unbiased exponent of a finite non-zero value.
+public i32 exponent_of(f64 x) {
+    F64Bits b = {f = x};
+    return (((b.u & EXP_MASK) >> 52) as i32) - 1023;
+}
+
+/// multiplies by 2^n without going through the exponential.
+public f64 ldexp(f64 x, i32 n) {
+    if x == 0.0 || !is_finite(x) {
+        return x;
+    }
+
+    f64 result = x;
+    i32 k = n;
+
+    // step in chunks so intermediate exponents stay representable
+    while k > 1000 {
+        result = result * 8.98846567431158e307;
+        k = k - 1023;
+    }
+    while k < -1000 {
+        result = result * 2.2250738585072014e-308;
+        k = k + 1022;
+    }
+
+    F64Bits scale = {u = ((k + 1023) as u64) << 52};
+    return result * scale.f;
+}
+
+//!
+//! Generic comparison
+//!
+
+/// TODO deduplicate, cba rn.
+public using Ord(T) = compiles (T a, T b) {
+    a < b;
+};
+
+public T min(T)(T a, T b) if Ord(T) {
+    return if a < b {
+        a
+    } else { b };
+}
+
+public T max(T)(T a, T b) if Ord(T) {
+    return if a < b {
+        b
+    } else { a };
+}
+
+public T clamp(T)(T value, T lo, T hi) if Ord(T) {
+    if value < lo {
+        return lo;
+    }
+
+    if hi < value {
+        return hi;
+    }
+
+    return value;
+}
+
+public f64 fabs(f64 x) {
+    F64Bits b = {f = x};
+    b.u = b.u & ~SIGN_MASK;
+    return b.f;
+}
+
+//!
+//! Rounding
+//!
+
+public f64 trunc(f64 x) {
+    if !is_finite(x) {
+        return x;
+    }
+
+    i32 e = exponent_of(x);
+    if e < 0 {
+        return copysign(0.0, x);
+    }
+
+    if e >= 52 {
+        return x;
+    }
+
+    F64Bits b = {f = x};
+    u64 mask = (1 as u64 << ((52 - e) as u64)) - 1;
+    b.u = b.u & ~mask;
+    return b.f;
+}
+
+public f64 floor(f64 x) {
+    f64 t = trunc(x);
+    return if t > x {
+        t - 1.0
+    } else { t };
+}
+
+public f64 ceil(f64 x) {
+    f64 t = trunc(x);
+    return if t < x {
+        t + 1.0
+    } else { t };
+}
+
+/// rounds half away from zero.
+public f64 round(f64 x) {
+    return copysign(floor(fabs(x) + 0.5), x);
+}
+
+public f64 fmod(f64 x, f64 y) {
+    if y == 0.0 || is_nan(x) || is_nan(y) || is_inf(x) {
+        return NAN;
+    }
+
+    if is_inf(y) {
+        return x;
+    }
+
+    f64 ax = fabs(x);
+    f64 ay = fabs(y);
+    if ax < ay {
+        return x;
+    }
+
+    i32 ex = exponent_of(ax);
+    i32 ey = exponent_of(ay);
+    f64 scaled = ldexp(ay, ex - ey);
+
+    f64 r = ax;
+    i32 shift = ex - ey;
+
+    while shift >= 0 {
+        if r >= scaled {
+            r = r - scaled;
+        }
+
+        scaled = scaled * 0.5;
+        shift--;
+    }
+
+    return copysign(r, x);
+}
+
+//!
+//! Roots and powers
+//!
+
+/// newton-Raphson from a bit-hack seed.
+public f64 sqrt(f64 x) {
+    if is_nan(x) || x == 0.0 {
+        return x;
+    }
+
+    if x < 0.0 {
+        return NAN;
+    }
+
+    if is_inf(x) {
+        return x;
+    }
+
+    F64Bits b = {f = x};
+    b.u = (b.u >> 1) + 0x1FF7A3BEA91D9B1B;
+
+    f64 y = b.f;
+    for u32 i = 0; i < 5; i++ {
+        y = 0.5 * (y + x / y);
+    }
+
+    return y;
+}
+
+public f64 cbrt(f64 x) {
+    if x == 0.0 || !is_finite(x) {
+        return x;
+    }
+
+    f64 a = fabs(x);
+    f64 y = exp(log(a) * (1.0 / 3.0));
+
+    for u32 i = 0; i < 3; i++ {
+        y = y - (y - a / (y * y)) * (1.0 / 3.0);
+    }
+
+    return copysign(y, x);
+}
+
+public f64 hypot(f64 a, f64 b) {
+    f64 x = fabs(a);
+    f64 y = fabs(b);
+
+    if x < y {
+        f64 t = x;
+        x = y;
+        y = t;
+    }
+    if x == 0.0 {
+        return 0.0;
+    }
+
+    f64 r = y / x;
+    return x * sqrt(1.0 + r * r);
+}
+
+//!
+//! Exponential and logarithm
+//!
+
+/// exp(x) = 2^k * exp(r), |r| <= ln2/2, degree-7 Taylor on the reduced range.
+public f64 exp(f64 x) {
+    if is_nan(x) {
+        return x;
+    }
+
+    if x > 709.78 {
+        return INF;
+    }
+
+    if x < -745.2 {
+        return 0.0;
+    }
+
+    f64 kf = round(x * LOG2E);
+    f64 r = x - kf * 0.693147180559945286227 - kf * 2.319046813846299558e-17;
+
+    f64 p = 1.0 + r * (
+        1.0 + r * (
+            1.0 / 2.0
+            + r * (
+                1.0 / 6.0
+                + r * (
+                    1.0 / 24.0
+                    + r * (
+                        1.0 / 120.0
+                        + r * (
+                            1.0 / 720.0
+                            + r * (1.0 / 5040.0)
+                        )
+                    )
+                )
+            )
+        )
+    );
+
+    return ldexp(p, kf as i32);
+}
+
+/// log(x) = e*ln2 + 2*atanh(s), s = (m-1)/(m+1) with m in [sqrt(0.5), sqrt(2)).
+public f64 log(f64 x) {
+    if is_nan(x) {
+        return x;
+    }
+
+    if x < 0.0 {
+        return NAN;
+    }
+
+    if x == 0.0 {
+        return -INF;
+    }
+
+    if is_inf(x) {
+        return x;
+    }
+
+    i32 e = exponent_of(x);
+    f64 m = ldexp(x, -e);
+
+    if m < 0.70710678118654752440 {
+        m = m * 2.0;
+        e--;
+    }
+
+    f64 s = (m - 1.0) / (m + 1.0);
+    f64 s2 = s * s;
+
+    f64 series = s * (
+        2.0 + s2 * (
+            2.0 / 3.0
+            + s2 * (
+                2.0 / 5.0
+                + s2 * (
+                    2.0 / 7.0
+                    + s2 * (
+                        2.0 / 9.0
+                        + s2 * (2.0 / 11.0)
+                    )
+                )
+            )
+        )
+    );
+
+    return (e as f64) * LN2 + series;
+}
+
+public f64 log2(f64 x) {
+    return log(x) * LOG2E;
+}
+
+public f64 log10(f64 x) {
+    return log(x) / LN10;
+}
+
+public f64 pow(f64 base, f64 exponent) {
+    if exponent == 0.0 {
+        return 1.0;
+    }
+
+    if base == 1.0 {
+        return 1.0;
+    }
+
+    if is_nan(base) || is_nan(exponent) {
+        return NAN;
+    }
+
+    if base < 0.0 {
+        f64 t = trunc(exponent);
+        if t != exponent {
+            return NAN;
+        }
+
+        f64 magnitude = exp(exponent * log(-base));
+        bool odd = fmod(fabs(t), 2.0) == 1.0;
+        return if odd {
+            -magnitude
+        } else { magnitude };
+    }
+
+    return exp(exponent * log(base));
+}
+
+//!
+//! Trigonometry
+//!
+//! Cody-Waite reduction against pi/2 in two pieces, then minimax-shaped
+//! Taylor polynomials.
+//!
+
+using f64 PIO2_HI = 1.57079632679489655800;
+using f64 PIO2_LO = 6.12323399573676603587e-17;
+
+f64 sin_poly(f64 r) {
+    f64 r2 = r * r;
+    return r * (
+        1.0 + r2 * (
+            -1.0 / 6.0
+            + r2 * (
+                1.0 / 120.0
+                + r2 * (
+                    -1.0 / 5040.0
+                    + r2 * (
+                        1.0 / 362880.0
+                        + r2 * (-1.0 / 39916800.0)
+                    )
+                )
+            )
+        )
+    );
+}
+
+f64 cos_poly(f64 r) {
+    f64 r2 = r * r;
+    return 1.0 + r2 * (
+        -1.0 / 2.0
+        + r2 * (
+            1.0 / 24.0
+            + r2 * (
+                -1.0 / 720.0
+                + r2 * (
+                    1.0 / 40320.0
+                    + r2 * (-1.0 / 3628800.0)
+                )
+            )
+        )
+    );
+}
+
+public f64 sin(f64 x) {
+    if !is_finite(x) {
+        return NAN;
+    }
+
+    f64 kf = round(x * (2.0 / PI));
+    f64 r = x - kf * PIO2_HI - kf * PIO2_LO;
+    i32 quadrant = ((kf as i64) & 3) as i32;
+
+    return match quadrant {
+        0 => sin_poly(r),
+        1 => cos_poly(r),
+        2 => -sin_poly(r),
+        _ => -cos_poly(r),
+    };
+}
+
+public f64 cos(f64 x) {
+    if !is_finite(x) {
+        return NAN;
+    }
+
+    f64 kf = round(x * (2.0 / PI));
+    f64 r = x - kf * PIO2_HI - kf * PIO2_LO;
+    i32 quadrant = ((kf as i64) & 3) as i32;
+
+    return match quadrant {
+        0 => cos_poly(r),
+        1 => -sin_poly(r),
+        2 => -cos_poly(r),
+        _ => sin_poly(r),
+    };
+}
+
+public f64 tan(f64 x) {
+    return sin(x) / cos(x);
+}
+
+public f64 atan(f64 x) {
+    if is_nan(x) {
+        return x;
+    }
+
+    if is_inf(x) {
+        return copysign(PI / 2.0, x);
+    }
+
+    f64 a = fabs(x);
+    bool inverted = a > 1.0;
+    if inverted {
+        a = 1.0 / a;
+    }
+
+    f64 a2 = a * a;
+    f64 p = a * (
+        1.0 + a2 * (
+            -1.0 / 3.0
+            + a2 * (
+                1.0 / 5.0
+                + a2 * (
+                    -1.0 / 7.0
+                    + a2 * (
+                        1.0 / 9.0
+                        + a2 * (
+                            -1.0 / 11.0
+                            + a2 * (1.0 / 13.0)
+                        )
+                    )
+                )
+            )
+        )
+    );
+
+    if inverted {
+        p = PI / 2.0 - p;
+    }
+
+    return copysign(p, x);
+}
+
+public f64 atan2(f64 y, f64 x) {
+    if x == 0.0 && y == 0.0 {
+        return 0.0;
+    }
+
+    if x > 0.0 {
+        return atan(y / x);
+    }
+    if x < 0.0 {
+        return copysign(PI, y) + atan(y / x);
+    }
+
+    return copysign(PI / 2.0, y);
+}
+
+public f64 asin(f64 x) {
+    if fabs(x) > 1.0 {
+        return NAN;
+    }
+
+    if fabs(x) == 1.0 {
+        return copysign(PI / 2.0, x);
+    }
+
+    return atan(x / sqrt(1.0 - x * x));
+}
+
+public f64 acos(f64 x) {
+    return PI / 2.0 - asin(x);
+}
+
+//!
+//! Integer utilities
+//!
+
+public u64 ipow(u64 base, u32 exponent) {
+    u64 result = 1;
+    u64 b = base;
+    u32 e = exponent;
+
+    while e > 0 {
+        if (e & 1) == 1 {
+            result = result * b;
+        }
+        b = b * b;
+        e = e >> 1;
+    }
+
+    return result;
+}
+
+public u64 gcd(u64 a, u64 b) {
+    u64 x = a;
+    u64 y = b;
+
+    while y != 0 {
+        u64 t = x % y;
+        x = y;
+        y = t;
+    }
+
+    return x;
+}
+
+public u64 lcm(u64 a, u64 b) {
+    if a == 0 || b == 0 {
+        return 0;
+    }
+
+    return a / gcd(a, b) * b;
+}
+
+public u32 popcount(u64 v) {
+    u64 x = v;
+    x = x - ((x >> 1) & 0x5555555555555555);
+    x = (x & 0x3333333333333333) + ((x >> 2) & 0x3333333333333333);
+    x = (x + (x >> 4)) & 0x0F0F0F0F0F0F0F0F;
+    return ((x * 0x0101010101010101) >> 56) as u32;
+}
+
+/// number of leading zero bits.
+public u32 leading_zeros(u64 v) {
+    if v == 0 {
+        return 64;
+    }
+
+    u64 x = v;
+    x = x | (x >> 1);
+    x = x | (x >> 2);
+    x = x | (x >> 4);
+    x = x | (x >> 8);
+    x = x | (x >> 16);
+    x = x | (x >> 32);
+    return 64 - popcount(x);
+}
+
+public u32 trailing_zeros(u64 v) {
+    if v == 0 {
+        return 64;
+    }
+
+    return popcount((v & (0 - v)) - 1);
+}
+
+public u32 log2_floor(u64 v) {
+    return 63 - leading_zeros(v);
+}
+
+/// smallest power of two greater than or equal to `v`.
+public u64 next_power_of_two(u64 v) {
+    if v <= 1 {
+        return 1;
+    }
+
+    return 1 as u64 << (64 - leading_zeros(v - 1)) as u64;
+}
+
+public u64 rotl64(u64 v, u32 n) {
+    u32 k = n & 63;
+    if k == 0 {
+        return v;
+    }
+
+    return (v << k as u64) | (v >> (64 - k) as u64);
+}
+
+public u64 rotr64(u64 v, u32 n) {
+    return rotl64(v, 64 - (n & 63));
+}

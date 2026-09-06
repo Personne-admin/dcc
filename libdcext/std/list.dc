@@ -1,0 +1,354 @@
+module std::list;
+
+public import std::mem;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+using mem::{ Allocator, AllocError };
+
+//!
+//! Intrusive doubly-linked list
+//!
+
+public struct Node(T) {
+    Node(T)* prev;
+    Node(T)* next;
+    T value;
+}
+
+public struct List(T) {
+    Node(T)* head;
+    Node(T)* tail;
+    usize count;
+}
+
+public List(T) new_list(T)() {
+    return {head = null, tail = null, count = 0};
+}
+
+public Node(T) new_node(T)(T value) {
+    return {prev = null, next = null, value = value};
+}
+
+//!
+//! Queries
+//!
+
+public usize len(T)(const List(T)* self) {
+    return self.count;
+}
+
+public bool is_empty(T)(const List(T)* self) {
+    return self.count == 0;
+}
+
+public Optional(T*) front(T)(List(T)* self) {
+    List(T) b = *self;
+    return match b.head {
+        null => Optional::None,
+        n => Optional::Some(&(*n).value),
+    };
+}
+
+public Optional(T*) back(T)(List(T)* self) {
+    List(T) b = *self;
+    return match b.tail {
+        null => Optional::None,
+        n => Optional::Some(&(*n).value),
+    };
+}
+
+//!
+//! Linking
+//!
+
+public void push_front(T)(List(T)* self, Node(T)* node) {
+    List(T) b = *self;
+    Node(T) nn = *node;
+    nn.prev = null;
+    nn.next = b.head;
+
+    match nn.next {
+        null => b.tail = node,
+        h => {
+            Node(T) hh = *h;
+            hh.prev = node;
+            *h = hh;
+        },
+    }
+
+    b.head = node;
+    b.count++;
+    *node = nn;
+    *self = b;
+}
+
+public void push_back(T)(List(T)* self, Node(T)* node) {
+    List(T) b = *self;
+    Node(T) nn = *node;
+    nn.next = null;
+    nn.prev = b.tail;
+
+    match nn.prev {
+        null => b.head = node,
+        t => {
+            Node(T) tt = *t;
+            tt.next = node;
+            *t = tt;
+        },
+    }
+
+    b.tail = node;
+    b.count++;
+    *node = nn;
+    *self = b;
+}
+
+/// links `node` immediately after `anchor`, which must already be in `self`.
+public void insert_after(T)(List(T)* self, Node(T)* anchor, Node(T)* node) {
+    List(T) b = *self;
+    Node(T) aa = *anchor;
+    Node(T) nn = *node;
+    nn.prev = anchor;
+    nn.next = aa.next;
+
+    match nn.next {
+        null => b.tail = node,
+        n => {
+            Node(T) nxt = *n;
+            nxt.prev = node;
+            *n = nxt;
+        },
+    }
+
+    aa.next = node;
+    *anchor = aa;
+    *node = nn;
+    b.count++;
+    *self = b;
+}
+
+public void insert_before(T)(List(T)* self, Node(T)* anchor, Node(T)* node) {
+    List(T) b = *self;
+    Node(T) aa = *anchor;
+    Node(T) nn = *node;
+    nn.next = anchor;
+    nn.prev = aa.prev;
+
+    match nn.prev {
+        null => b.head = node,
+        pr => {
+            Node(T) pp = *pr;
+            pp.next = node;
+            *pr = pp;
+        },
+    }
+
+    aa.prev = node;
+    *anchor = aa;
+    *node = nn;
+    b.count++;
+    *self = b;
+}
+
+/// unlinks `node` from `self`. the node's storage is untouched.
+public void unlink(T)(List(T)* self, Node(T)* node) {
+    List(T) b = *self;
+    Node(T) nn = *node;
+
+    match nn.prev {
+        null => b.head = nn.next,
+        p => {
+            Node(T) pp = *p;
+            pp.next = nn.next;
+            *p = pp;
+        },
+    }
+
+    match nn.next {
+        null => b.tail = nn.prev,
+        n => {
+            Node(T) nx = *n;
+            nx.prev = nn.prev;
+            *n = nx;
+        },
+    }
+
+    nn.prev = null;
+    nn.next = null;
+    b.count--;
+    *node = nn;
+    *self = b;
+}
+
+public Optional(Node(T)*) pop_front(T)(List(T)* self) {
+    List(T) b = *self;
+    return match b.head {
+        null => Optional::None,
+        n => {
+            *self = b;
+            self.unlink(n);
+            Optional::Some(n)
+        },
+    };
+}
+
+public Optional(Node(T)*) pop_back(T)(List(T)* self) {
+    List(T) b = *self;
+    return match b.tail {
+        null => Optional::None,
+        n => {
+            *self = b;
+            self.unlink(n);
+            Optional::Some(n)
+        },
+    };
+}
+
+/// moves every node of `other` onto the end of `self`, emptying `other`.
+public void splice(T)(List(T)* self, List(T)* other) {
+    List(T) b = *self;
+    List(T) o = *other;
+    if o.count == 0 {
+        return;
+    }
+
+    match b.tail {
+        null => b.head = o.head,
+        t => {
+            Node(T) tt = *t;
+            tt.next = o.head;
+            *t = tt;
+            Node(T) oh = *o.head;
+            oh.prev = t;
+            *o.head = oh;
+        },
+    }
+
+    b.tail = o.tail;
+    b.count = b.count + o.count;
+
+    o.head = null;
+    o.tail = null;
+    o.count = 0;
+    *other = o;
+    *self = b;
+}
+
+public void reverse(T)(List(T)* self) {
+    List(T) b = *self;
+    Node(T)* current = b.head;
+    b.head = b.tail;
+    b.tail = current;
+    *self = b;
+
+    while current != null {
+        Node(T) cur = *current;
+        Node(T)* next = cur.next;
+        cur.next = cur.prev;
+        cur.prev = next;
+        *current = cur;
+        current = next;
+    }
+}
+
+//!
+//! Iteration
+//!
+
+public struct Iterator(T) {
+    Node(T)* current;
+}
+
+public Iterator(T) iterate(T)(const List(T)* self) {
+    List(T) b = *self;
+    return {current = b.head};
+}
+
+public Iterator(T) iterate_reverse(T)(const List(T)* self) {
+    List(T) b = *self;
+    return {current = b.tail};
+}
+
+public Optional(Node(T)*) next(T)(Iterator(T)* self) {
+    Iterator(T) it = *self;
+    return match it.current {
+        null => Optional::None,
+        n => {
+            Node(T) nn = *n;
+            it.current = nn.next;
+            *self = it;
+            Optional::Some(n)
+        },
+    };
+}
+
+public Optional(Node(T)*) previous(T)(Iterator(T)* self) {
+    Iterator(T) it = *self;
+    return match it.current {
+        null => Optional::None,
+        n => {
+            Node(T) nn = *n;
+            it.current = nn.prev;
+            *self = it;
+            Optional::Some(n)
+        },
+    };
+}
+
+//!
+//! Allocating helpers
+//!
+
+public Status(AllocError) push_back_alloc(T)(
+    List(T)* self,
+    const Allocator* alloc,
+    T value
+) {
+    Result(Node(T)*, AllocError) node_r = alloc.create();
+    if node_r.is_err() {
+        return node_r.unwrap_err();
+    }
+    Node(T)* node = node_r.unwrap();
+    *node = new_node(value);
+    self.push_back(node);
+    return Status::Ok;
+}
+
+public Status(AllocError) push_front_alloc(T)(
+    List(T)* self,
+    const Allocator* alloc,
+    T value
+) {
+    Result(Node(T)*, AllocError) node_r = alloc.create();
+    if node_r.is_err() {
+        return node_r.unwrap_err();
+    }
+    Node(T)* node = node_r.unwrap();
+    *node = new_node(value);
+    self.push_front(node);
+    return Status::Ok;
+}
+
+public void destroy_node(T)(const Allocator* alloc, Node(T)* node) {
+    alloc.destroy(node);
+}
+
+/// unlinks and frees every node. only valid when all nodes came from
+/// `alloc` through the helpers above.
+public void deinit(T)(List(T)* self, const Allocator* alloc) {
+    List(T) b = *self;
+    Node(T)* current = b.head;
+
+    while current != null {
+        Node(T) cur = *current;
+        Node(T)* next = cur.next;
+        alloc.destroy(current);
+        current = next;
+    }
+
+    b.head = null;
+    b.tail = null;
+    b.count = 0;
+    *self = b;
+}

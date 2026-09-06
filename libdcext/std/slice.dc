@@ -1,0 +1,294 @@
+module std::slice;
+
+public import std::result;
+
+using result::Optional;
+
+//!
+//! Concepts
+//!
+
+public using Eq(T) = compiles (T a, T b) {
+    a == b;
+};
+public using Ord(T) = compiles (T a, T b) {
+    a < b;
+};
+
+//!
+//! Construction and views
+//!
+
+public [] T from_raw(T)(T* ptr, usize len) {
+    [] T slice;
+    slice.ptr = ptr;
+    slice.len = len;
+    return slice;
+}
+
+public [] const T from_raw_const(T)(const T* ptr, usize len) {
+    [] const T slice;
+    slice.ptr = ptr;
+    slice.len = len;
+    return slice;
+}
+
+public bool is_empty(T)([] const T items) {
+    return items.len == 0;
+}
+
+public Optional(T) first(T)([] const T items) {
+    if items.len == 0 {
+        return Optional::None;
+    }
+
+    return Optional::Some(items[0]);
+}
+
+public Optional(T) last(T)([] const T items) {
+    if items.len == 0 {
+        return Optional::None;
+    }
+
+    return Optional::Some(items[items.len - 1]);
+}
+
+public Optional(T*) at(T)([] T items, usize index) {
+    if index >= items.len {
+        return Optional::None;
+    }
+
+    return Optional::Some(&items[index]);
+}
+
+//!
+//! Comparison and search
+//!
+
+public bool eq(T)([] const T a, [] const T b) if Eq(T) {
+    if a.len != b.len {
+        return false;
+    }
+
+    for usize i = 0; i < a.len; i++ {
+        if !(a[i] == b[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+public bool starts_with(T)([] const T items, [] const T prefix) if Eq(T) {
+    if prefix.len > items.len {
+        return false;
+    }
+
+    return eq(items[0.. prefix.len], prefix);
+}
+
+public bool ends_with(T)([] const T items, [] const T suffix) if Eq(T) {
+    if suffix.len > items.len {
+        return false;
+    }
+
+    return eq(items[items.len - suffix.len.. items.len], suffix);
+}
+
+public Optional(usize) index_of(T)([] const T items, T needle) if Eq(T) {
+    for usize i = 0; i < items.len; i++ {
+        if items[i] == needle {
+            return Optional::Some(i);
+        }
+    }
+
+    return Optional::None;
+}
+
+public Optional(usize) last_index_of(T)([] const T items, T needle) if Eq(T) {
+    for usize i = items.len; i > 0; i-- {
+        if items[i - 1] == needle {
+            return Optional::Some(i - 1);
+        }
+    }
+
+    return Optional::None;
+}
+
+public bool contains(T)([] const T items, T needle) if Eq(T) {
+    return items.index_of(needle).is_some();
+}
+
+/// first index at which `pattern` occurs.
+public Optional(usize) find(T)([] const T items, [] const T pattern) if Eq(T) {
+    if pattern.len == 0 {
+        return Optional::Some(0 as usize);
+    }
+
+    if pattern.len > items.len {
+        return Optional::None;
+    }
+
+    usize limit = items.len - pattern.len + 1;
+    for usize i = 0; i < limit; i++ {
+        if eq(items[i.. i + pattern.len], pattern) {
+            return Optional::Some(i);
+        }
+    }
+
+    return Optional::None;
+}
+
+public usize count(T)([] const T items, T needle) if Eq(T) {
+    usize n = 0;
+    for usize i = 0; i < items.len; i++ {
+        if items[i] == needle {
+            n++;
+        }
+    }
+
+    return n;
+}
+
+//!
+//! Predicate helpers
+//!
+
+public Optional(usize) index_where(T)([] const T items, bool(*)(const T*) pred) {
+    for usize i = 0; i < items.len; i++ {
+        if pred(&items[i]) {
+            return Optional::Some(i);
+        }
+    }
+
+    return Optional::None;
+}
+
+public bool all(T)([] const T items, bool(*)(const T*) pred) {
+    for usize i = 0; i < items.len; i++ {
+        if !pred(&items[i]) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+public bool any(T)([] const T items, bool(*)(const T*) pred) {
+    return items.index_where(pred).is_some();
+}
+
+//!
+//! Mutation
+//!
+
+public void reverse(T)([] T items) {
+    usize i = 0;
+    usize j = items.len;
+
+    while i + 1 < j {
+        j--;
+        T tmp = items[i];
+        items[i] = items[j];
+        items[j] = tmp;
+        i++;
+    }
+}
+
+/// rotates left by `n` positions using three reversals.
+public void rotate_left(T)([] T items, usize n) {
+    if items.len == 0 {
+        return;
+    }
+
+    usize k = n % items.len;
+    if k == 0 {
+        return;
+    }
+
+    reverse(items[0.. k]);
+    reverse(items[k.. items.len]);
+    reverse(items);
+}
+
+public void fill(T)([] T items, T value) {
+    for usize i = 0; i < items.len; i++ {
+        items[i] = value;
+    }
+}
+
+//!
+//! Extremes
+//!
+
+public Optional(usize) index_of_min(T)([] const T items) if Ord(T) {
+    if items.len == 0 {
+        return Optional::None;
+    }
+
+    usize best = 0;
+    for usize i = 1; i < items.len; i++ {
+        if items[i] < items[best] {
+            best = i;
+        }
+    }
+
+    return Optional::Some(best);
+}
+
+public Optional(usize) index_of_max(T)([] const T items) if Ord(T) {
+    if items.len == 0 {
+        return Optional::None;
+    }
+
+    usize best = 0;
+    for usize i = 1; i < items.len; i++ {
+        if items[best] < items[i] {
+            best = i;
+        }
+    }
+
+    return Optional::Some(best);
+}
+
+//!
+//! Splitting
+//!
+
+public struct Split(T) {
+    [] const T rest;
+    T separator;
+    bool done;
+}
+
+public Split(T) split(T)([] const T items, T separator) if Eq(T) {
+    return {rest = items, separator = separator, done = false};
+}
+
+/// yields each separator-delimited run, including empty ones.
+public Optional([] const T) next(T)(Split(T)* self) if Eq(T) {
+    // copy-operate-writeback: member access through the pointer does not
+    // substitute the element type while `T` is still generic.
+    Split(T) b = *self;
+    if b.done {
+        return Optional::None;
+    }
+
+    // linear search inline: calling the constrained `index_of` with the
+    // still-generic separator does not forward this function's own
+    // `Eq(T)` constraint to the callee during instantiation.
+    usize i = 0;
+    while i < b.rest.len {
+        if b.rest[i] == b.separator {
+            [] const T piece = b.rest[0.. i];
+            b.rest = b.rest[i + 1.. b.rest.len];
+            *self = b;
+            return Optional::Some(piece);
+        }
+        i++;
+    }
+
+    b.done = true;
+    *self = b;
+    return Optional::Some(b.rest);
+}

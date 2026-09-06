@@ -1,0 +1,155 @@
+module std::hash;
+
+import std::math;
+import std::mem;
+
+//!
+//! Hashing protocol
+//!
+
+public using Hashable(K) = compiles (const K* k) {
+    k.hash_of();
+};
+
+using u64 FNV_OFFSET = 0xCBF29CE484222325;
+using u64 FNV_PRIME = 0x00000100000001B3;
+
+//!
+//! Byte hashing
+//!
+
+public u64 fnv1a_64([] const u8 bytes) {
+    u64 h = FNV_OFFSET;
+
+    for usize i = 0; i < bytes.len; i++ {
+        h = h ^ (bytes[i] as u64);
+        h = h * FNV_PRIME;
+    }
+
+    return h;
+}
+
+public u32 fnv1a_32([] const u8 bytes) {
+    u32 h = 0x811C9DC5;
+
+    for usize i = 0; i < bytes.len; i++ {
+        h = h ^ (bytes[i] as u32);
+        h = h * 0x01000193;
+    }
+
+    return h;
+}
+
+/// SplitMix64 finalizer. cheap avalanche for already-dense integers.
+public u64 mix64(u64 v) {
+    u64 z = v + 0x9E3779B97F4A7C15;
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EB;
+    return z ^ (z >> 31);
+}
+
+/// block-at-a-time hash for larger inputs. faster than FNV past ~16 bytes
+/// and keeps FNV's behaviour on short keys.
+public u64 hash_bytes([] const u8 bytes) {
+    if bytes.len <= 16 {
+        return mix64(fnv1a_64(bytes));
+    }
+
+    u64 h = FNV_OFFSET ^ (bytes.len as u64);
+    usize i = 0;
+
+    while i + 8 <= bytes.len {
+        u64 block = 0;
+        for usize k = 0; k < 8; k++ {
+            block = block | ((bytes[i + k] as u64) << (k * 8) as u64);
+        }
+
+        h = math::rotl64(h ^ mix64(block), 27) * FNV_PRIME;
+        i = i + 8;
+    }
+
+    while i < bytes.len {
+        h = (h ^ (bytes[i] as u64)) * FNV_PRIME;
+        i++;
+    }
+
+    return mix64(h);
+}
+
+//!
+//! Streaming hasher
+//!
+
+public struct Hasher {
+    u64 state;
+}
+
+public Hasher new_hasher() {
+    return Hasher {state = FNV_OFFSET};
+}
+public using Hasher::new = new_hasher;
+
+public void write(Hasher* self, [] const u8 bytes) {
+    self.state = mix64(self.state ^ hash_bytes(bytes));
+}
+
+public void write_u64(Hasher* self, u64 value) {
+    self.state = mix64(self.state ^ mix64(value));
+}
+
+public u64 finish(const Hasher* self) {
+    return mix64(self.state);
+}
+
+//!
+//! Protocol implementations
+//!
+
+public using ToU64(T) = compiles (T a) {
+    a as u64;
+};
+
+/// covers every integer type and `char` through one instantiation.
+public u64 hash_of(T)(const T* self) if ToU64(T) {
+    return mix64(*self as u64);
+}
+
+public u64 hash_of(const bool* self) {
+    return mix64(
+        if *self {
+            1 as u64
+        } else { 0 as u64 }
+    );
+}
+
+public u64 hash_of((const[] const u8)* self) {
+    return hash_bytes(*self);
+}
+
+public u64 hash_of(T)(const T** self) {
+    return mix64(*self as usize as u64);
+}
+
+/// hashes a value by its raw representation.
+public u64 hash_raw(T)(const T* self) {
+    return hash_bytes(self.as_bytes());
+}
+
+//!
+//! Equality protocol
+//!
+
+public using KeyEq(K) = compiles (const K* a, const K* b) {
+    key_eq(a, b);
+};
+
+public bool key_eq(K)(const K* a, const K* b) if compiles (K x, K y) {
+    x == y;
+}
+{
+    return *a == *b;
+}
+
+public bool key_eq((const[] const u8)* a, (const[] const u8)* b) {
+    return mem::equal(*a, *b);
+}

@@ -1,0 +1,695 @@
+module std::fmt;
+
+import std::math;
+import std::mem;
+import std::slice;
+import std::utf8;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+
+//!
+//! Sink
+//!
+
+public enum FmtError : u8 {
+    OutOfSpace,
+    SinkFailed,
+    BadFormat,
+}
+
+public using WriteFn = Status(FmtError)(*)(void* ctx, [] const u8 bytes);
+
+public struct Writer {
+    void* ctx;
+    WriteFn write_fn;
+}
+
+public Status(FmtError) write_all(const Writer* self, [] const u8 bytes) {
+    return self.write_fn(self.ctx, bytes);
+}
+
+public Status(FmtError) write_byte(const Writer* self, u8 byte) {
+    u8[1] one = { byte };
+    return self.write_all(slice::from_raw(&one[0], 1));
+}
+
+public Status(FmtError) write_codepoint(const Writer* self, u32 cp) {
+    u8[4] buf;
+    [] u8 view = slice::from_raw(&buf[0], 4);
+
+    return match utf8::encode(cp, view) {
+        Result::Ok(n) => self.write_all(view[0.. n]),
+        Result::Err(_) => Status::Err(
+            FmtError::BadFormat
+        ),
+    };
+}
+
+public Status(FmtError) write_repeat(const Writer* self, u8 byte, usize times) {
+    for usize i = 0; i < times; i++ {
+        self.write_byte(byte) ?;
+    }
+
+    return Status::Ok;
+}
+
+//!
+//! Buffer writers
+//!
+
+public struct BufferWriter {
+    [] u8 buffer;
+    usize written;
+    bool overflowed;
+}
+
+public BufferWriter new_buffer_writer([] u8 backing) {
+    return {buffer = backing, written = 0, overflowed = false};
+}
+public using BufferWriter::new = new_buffer_writer;
+
+Status(FmtError) buffer_write(void* ctx, [] const u8 bytes) {
+    BufferWriter* self = ctx as BufferWriter*;
+
+    if self.written + bytes.len > self.buffer.len {
+        self.overflowed = true;
+        return FmtError::OutOfSpace;
+    }
+
+    mem::copy(
+        self.buffer[self.written.. self.buffer.len],
+        bytes
+    );
+    self.written = self.written + bytes.len;
+    return Status::Ok;
+}
+
+public Writer writer(BufferWriter* self) {
+    return Writer {ctx = self as void*, write_fn = buffer_write};
+}
+
+/// the bytes written so far.
+public [] const u8 written_slice(const BufferWriter* self) {
+    return self.buffer[0.. self.written];
+}
+
+//!
+//! Counting writer
+//!
+
+public struct CountingWriter {
+    usize count;
+}
+
+public CountingWriter new_counting_writer() {
+    return CountingWriter {count = 0};
+}
+public using CountingWriter::new = new_counting_writer;
+
+Status(FmtError) counting_write(void* ctx, [] const u8 bytes) {
+    CountingWriter* self = ctx as CountingWriter*;
+    self.count = self.count + bytes.len;
+    return Status::Ok;
+}
+
+public Writer writer(CountingWriter* self) {
+    return Writer {ctx = self as void*, write_fn = counting_write};
+}
+
+//!
+//! Format options
+//!
+
+public enum Align : u8 {
+    Left,
+    Right,
+    Center,
+}
+
+public struct Options {
+    u8 fill;
+    Align align;
+    u8 base;
+    bool uppercase;
+    bool plus_sign;
+    bool zero_pad;
+    bool scientific;
+    u8 spec;
+    usize width;
+    usize precision;
+}
+
+public using usize NO_PRECISION = 0xFFFFFFFFFFFFFFFF;
+
+public Options default_options() {
+    return Options {
+        fill = ' ' as u8,
+        align = Align::Right,
+        base = 10,
+        uppercase = false,
+        plus_sign = false,
+        zero_pad = false,
+        scientific = false,
+        spec = 0,
+        width = 0,
+        precision = NO_PRECISION,
+    };
+}
+public using Options::default = default_options;
+
+//!
+//! Padding
+//!
+
+Status(FmtError) write_padded(
+    const Writer* w,
+    [] const u8 body,
+    const Options* opts
+) {
+    if body.len >= opts.width {
+        return w.write_all(body);
+    }
+
+    usize slack = opts.width - body.len;
+
+    match opts.align {
+        Align::Left => {
+            w.write_all(body) ?;
+            w.write_repeat(opts.fill, slack) ?;
+        },
+        Align::Right => {
+            w.write_repeat(opts.fill, slack) ?;
+            w.write_all(body) ?;
+        },
+        Align::Center => {
+            w.write_repeat(opts.fill, slack / 2) ?;
+            w.write_all(body) ?;
+            w.write_repeat(opts.fill, slack - slack / 2) ?;
+        },
+    }
+
+    return Status::Ok;
+}
+
+//!
+//! Integers
+//!
+
+u8 digit_char(u64 value, bool uppercase) {
+    if value < 10 {
+        return ('0' as u8) + value as u8;
+    }
+
+    return (
+        if uppercase {
+            'A' as u8
+        } else { 'a' as u8 } + (value - 10) as u8
+    );
+}
+
+/// renders `value` into `scratch` and returns the populated tail.
+[] u8 render_unsigned(u64 value, [] u8 scratch, const Options* opts) {
+    usize i = scratch.len;
+    u64 v = value;
+    u64 base = opts.base as u64;
+
+    if v == 0 {
+        i--;
+        scratch[i] = '0' as u8;
+    }
+
+    while v > 0 {
+        i--;
+        scratch[i] = digit_char(v % base, opts.uppercase);
+        v = v / base;
+    }
+
+    return scratch[i.. scratch.len];
+}
+
+public Status(FmtError) format_unsigned(
+    const Writer* w,
+    u64 value,
+    const Options* opts
+) {
+    u8[72] scratch;
+    [] u8 view = slice::from_raw(&scratch[0], 72);
+    [] u8 digits = render_unsigned(value, view, opts);
+
+    if opts.zero_pad && digits.len < opts.width && opts.align == Align::Right {
+        w.write_repeat('0' as u8, opts.width - digits.len) ?;
+        return w.write_all(digits);
+    }
+
+    return write_padded(w, digits, opts);
+}
+
+public Status(FmtError) format_signed(
+    const Writer* w,
+    i64 value,
+    const Options* opts
+) {
+    u8[72] scratch;
+    [] u8 view = slice::from_raw(&scratch[0], 72);
+
+    bool negative = value < 0;
+    u64 magnitude = if negative {
+        (0 - value) as u64
+    } else { value as u64 };
+
+    [] u8 digits = render_unsigned(magnitude, view, opts);
+    u8 sign = if negative {
+        '-' as u8
+    } else {
+        if opts.plus_sign {
+            '+' as u8
+        } else { 0 }
+    };
+
+    usize total = digits.len + if sign != 0 {
+        1 as usize
+    } else { 0 as usize };
+
+    if opts.zero_pad && total < opts.width && opts.align == Align::Right {
+        if sign != 0 {
+            w.write_byte(sign) ?;
+        }
+
+        w.write_repeat('0' as u8, opts.width - total) ?;
+        return w.write_all(digits);
+    }
+
+    if sign == 0 {
+        return write_padded(w, digits, opts);
+    }
+
+    // sign must sit inside the padding, so pad manually
+    if total < opts.width && opts.align == Align::Right {
+        w.write_repeat(opts.fill, opts.width - total) ?;
+    }
+
+    w.write_byte(sign) ?;
+    w.write_all(digits) ?;
+
+    if total < opts.width && opts.align == Align::Left {
+        w.write_repeat(opts.fill, opts.width - total) ?;
+    }
+
+    return Status::Ok;
+}
+
+//!
+//! Floats
+//!
+
+public using usize DEFAULT_PRECISION = 6;
+
+Status(FmtError) write_special(const Writer* w, f64 value, const Options* opts) {
+    if math::is_nan(value) {
+        return write_padded(w, "nan", opts);
+    }
+
+    if math::signbit(value) {
+        return write_padded(w, "-inf", opts);
+    }
+
+    return write_padded(
+        w,
+        if opts.plus_sign {
+            "+inf"
+        } else { "inf" },
+        opts
+    );
+}
+
+public Status(FmtError) format_float(
+    const Writer* w,
+    f64 value,
+    const Options* opts
+) {
+    if !math::is_finite(value) {
+        return write_special(w, value, opts);
+    }
+
+    u8[512] scratch;
+    [] u8 view = slice::from_raw(&scratch[0], 512);
+    BufferWriter sink = BufferWriter::new(view);
+    Writer inner = sink.writer();
+
+    usize precision = if opts.precision == NO_PRECISION {
+        DEFAULT_PRECISION
+    } else { opts.precision };
+
+    f64 v = value;
+    if math::signbit(v) {
+        inner.write_byte('-' as u8) ?;
+        v = -v;
+    } else if opts.plus_sign {
+        inner.write_byte('+' as u8) ?;
+    }
+
+    i32 exponent = 0;
+    if opts.scientific && v != 0.0 {
+        exponent = math::floor(math::log10(v)) as i32;
+        v = v / math::pow(10.0, exponent as f64);
+
+        if v >= 10.0 {
+            v = v / 10.0;
+            exponent++;
+        }
+        if v < 1.0 {
+            v = v * 10.0;
+            exponent--;
+        }
+    }
+
+    write_fixed(&inner, v, precision) ?;
+
+    if opts.scientific {
+        inner.write_byte(
+            if opts.uppercase {
+                'E' as u8
+            } else { 'e' as u8 }
+        ) ?;
+        inner.write_byte(
+            if exponent < 0 {
+                '-' as u8
+            } else { '+' as u8 }
+        ) ?;
+
+        Options exp_opts = Options::default();
+        exp_opts.width = 2;
+        exp_opts.zero_pad = true;
+        format_unsigned(
+            &inner,
+            if exponent < 0 {
+                (0 - exponent) as u64
+            } else { exponent as u64 },
+            &exp_opts
+        ) ?;
+    }
+
+    return write_padded(w, sink.written_slice(), opts);
+}
+
+Status(FmtError) write_fixed(const Writer* w, f64 value, usize precision) {
+    f64 rounded = value + 0.5 * math::pow(10.0, -(precision as f64));
+
+    f64 integral = math::floor(rounded);
+    f64 fraction = rounded - integral;
+
+    Options plain = Options::default();
+
+    if integral < 1.8446744073709552e19 {
+        format_unsigned(w, integral as u64, &plain) ?;
+    } else {
+        w.write_all("<overflow>") ?;
+    }
+
+    if precision == 0 {
+        return Status::Ok;
+    }
+
+    w.write_byte('.' as u8) ?;
+
+    f64 f = fraction;
+    for usize i = 0; i < precision; i++ {
+        f = f * 10.0;
+        f64 digit = math::floor(f);
+        w.write_byte(('0' as u8) + (digit as u32 as u8)) ?;
+        f = f - digit;
+    }
+
+    return Status::Ok;
+}
+
+//!
+//! Value dispatch
+//!
+
+public Status(FmtError) format_value(T)(
+    const Writer* w,
+    T value,
+    const Options* opts
+) {
+    static if T == bool {
+        // checked first: `bool as i64` compiles but lowers to an
+        // invalid bitcast in the backend, so never take that path.
+        format_builtin_unsigned(w, value, opts) ?;
+    } else static if compiles (T t) {
+        t as i64;
+    }
+    {
+        static if compiles (T t) {
+            t as u64;
+            t - t;
+        }
+        {
+            // unsigned when subtracting cannot produce a negative
+            static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char {
+                format_builtin_unsigned(w, value, opts) ?;
+            } else {
+                format_signed(w, value as i64, opts) ?;
+            }
+        } else {
+            format_signed(w, value as i64, opts) ?;
+        }
+    } else static if compiles (T t) {
+        t as f64;
+    }
+    {
+        format_float(w, value as f64, opts) ?;
+    } else static if T == [] const u8 {
+        write_padded(w, value, opts) ?;
+    } else static if compiles (T t, const Writer* q, const Options* o) {
+        t.format(q, o);
+    }
+    {
+        value.format(w, opts) ?;
+    } else {
+        compile_error(
+            "type is not formattable: add format(const T*, const Writer*, const Options*)"
+        );
+    }
+
+    return Status::Ok;
+}
+
+Status(FmtError) format_builtin_unsigned(T)(const Writer* w, T value, const Options* opts) {
+    static if T == bool {
+        return write_padded(
+            w,
+            if value {
+                "true"
+            } else { "false" },
+            opts
+        );
+    } else static if T == char {
+        if opts.spec == ('c' as u8) || opts.spec == 0 {
+            u8[1] one = { value as u8 };
+            return write_padded(w, slice::from_raw(&one[0], 1), opts);
+        }
+        return format_unsigned(w, value as u64, opts);
+    } else {
+        return format_unsigned(w, value as u64, opts);
+    }
+}
+
+//!
+//! Placeholder parsing
+//!
+
+struct Chunk {
+    usize cursor;
+    Options opts;
+    bool found;
+}
+
+/// emits literal text up to the next placeholder and parses its spec.
+Result(Chunk, FmtError) emit_until_placeholder(const Writer* w, [] const u8 fmt, usize from) {
+    usize i = from;
+    usize literal_start = from;
+
+    while i < fmt.len {
+        if fmt[i] == ('{' as u8) {
+            if i + 1 < fmt.len && fmt[i + 1] == ('{' as u8) {
+                w.write_all(fmt[literal_start.. i + 1]) ?;
+                i = i + 2;
+                literal_start = i;
+                continue;
+            }
+
+            w.write_all(fmt[literal_start.. i]) ?;
+            return parse_spec(fmt, i + 1);
+        }
+
+        if fmt[i] == ('}' as u8) && i + 1 < fmt.len && fmt[i + 1] == ('}' as u8) {
+            w.write_all(fmt[literal_start.. i + 1]) ?;
+            i = i + 2;
+            literal_start = i;
+            continue;
+        }
+
+        i++;
+    }
+
+    w.write_all(fmt[literal_start.. fmt.len]) ?;
+    return Result::Ok({ cursor = fmt.len, opts = Options::default(), found = false });
+}
+
+Result(Chunk, FmtError) parse_spec([] const u8 fmt, usize from) {
+    Options opts = Options::default();
+    usize i = from;
+
+    // placeholders may use an explicit `:` separator before the spec
+    // (`{:x}`), or give the spec directly (`{x}`). skip the separator so
+    // the option parsing below sees the same shape either way.
+    if i < fmt.len && fmt[i] == (':' as u8) {
+        i++;
+    }
+
+    if i + 1 < fmt.len && is_align(fmt[i + 1]) {
+        opts.fill = fmt[i];
+        opts.align = align_of(fmt[i + 1]);
+        i = i + 2;
+    } else if i < fmt.len && is_align(fmt[i]) {
+        opts.align = align_of(fmt[i]);
+        i++;
+    }
+
+    if i < fmt.len && fmt[i] == ('+' as u8) {
+        opts.plus_sign = true;
+        i++;
+    }
+
+    if i < fmt.len && fmt[i] == ('0' as u8) {
+        opts.zero_pad = true;
+        i++;
+    }
+
+    while i < fmt.len && is_digit(fmt[i]) {
+        opts.width = opts.width* 10 + (fmt[i] - ('0' as u8)) as usize;
+        i++;
+    }
+
+    if i < fmt.len && fmt[i] == ('.' as u8) {
+        i++;
+        opts.precision = 0;
+        while i < fmt.len && is_digit(fmt[i]) {
+            opts.precision = opts.precision* 10 + (fmt[i] - ('0' as u8)) as usize;
+            i++;
+        }
+    }
+
+    if i < fmt.len && fmt[i] != ('}' as u8) {
+        opts.spec = fmt[i];
+        apply_spec(&opts, fmt[i]);
+        i++;
+    }
+
+    if i >= fmt.len || fmt[i] != ('}' as u8) {
+        return FmtError::BadFormat;
+    }
+
+    return Result::Ok({ cursor = i + 1, opts = opts, found = true });
+}
+
+void apply_spec(Options* opts, u8 spec) {
+    match spec as char {
+        'x' => opts.base = 16,
+        'X' => { opts.base = 16; opts.uppercase = true; },
+        'o' => opts.base = 8,
+        'b' => opts.base = 2,
+        'e' => opts.scientific = true,
+        'E' => { opts.scientific = true; opts.uppercase = true; },
+        'p' => { opts.base = 16; opts.zero_pad = true; opts.width = 16; },
+        _ => {},
+    }
+}
+
+bool is_digit(u8 c) {
+    return c >= ('0' as u8) && c <= ('9' as u8);
+}
+
+bool is_align(u8 c) {
+    return c == ('<' as u8) || c == ('>' as u8) || c == ('^' as u8);
+}
+
+Align align_of(u8 c) {
+    return match c as char {
+        '<' => Align::Left,
+        '^' => Align::Center,
+        _ => Align::Right,
+    };
+}
+
+//!
+//! Entry points
+//!
+
+public Status(FmtError) format(T...)(const Writer* w, [] const u8 fmt, T args) {
+    usize cursor = 0;
+
+    static for arg in args {
+        Chunk chunk = emit_until_placeholder(w, fmt, cursor) ?;
+        cursor = chunk.cursor;
+
+        if chunk.found {
+            format_value(w, arg, &chunk.opts) ?;
+        }
+    }
+
+    Chunk tail = emit_until_placeholder(w, fmt, cursor) ?;
+    if tail.found {
+        return FmtError::BadFormat;
+    }
+
+    return Status::Ok;
+}
+
+/// formats into `out` and returns the bytes written.
+public Result([] u8, FmtError) format_buf(T...)([] u8 out, [] const u8 fmt, T args) {
+    BufferWriter sink = BufferWriter::new(out);
+    Writer w = sink.writer();
+
+    format(&w, fmt, args...) ?;
+    return Result::Ok(out[0.. sink.written]);
+}
+
+/// byte length the formatted output would occupy.
+public Result(usize, FmtError) format_len(T...)([] const u8 fmt, T args) {
+    CountingWriter sink = CountingWriter::new();
+    Writer w = sink.writer();
+
+    format(&w, fmt, args...) ?;
+    return Result::Ok(sink.count);
+}
+
+/// formats into freshly allocated storage owned by the caller.
+public Result([] u8, mem::AllocError) format_alloc(T...)(const mem::Allocator* alloc, [] const u8 fmt, T args) {
+    CountingWriter counter = CountingWriter::new();
+    Writer probe = counter.writer();
+
+    match format(&probe, fmt, args...) {
+        Status::Err(_) => return mem::AllocError::OutOfMemory,
+        _ => {},
+    }
+
+    // inference for the callee's element type does not flow through `?`,
+    // so bind the result with an explicit type first.
+    Result([] u8, mem::AllocError) buffer_r = alloc.alloc(counter.count);
+    [] u8 buffer = buffer_r ?;
+    BufferWriter sink = BufferWriter::new(buffer);
+    Writer w = sink.writer();
+
+    match format(&w, fmt, args...) {
+        Status::Err(_) => {
+            alloc.free(buffer);
+            return mem::AllocError::OutOfMemory;
+        },
+        _ => {},
+    }
+
+    return Result::Ok(buffer);
+}
