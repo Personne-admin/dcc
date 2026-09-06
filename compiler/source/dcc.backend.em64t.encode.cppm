@@ -29,6 +29,8 @@ export namespace dcc::backend::em64t
 
     [[nodiscard]] EncodeResult encode_function(MFunction const& func);
 
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr);
+
 } // namespace dcc::backend::em64t
 
 namespace
@@ -3019,6 +3021,33 @@ namespace
 
 export namespace dcc::backend::em64t
 {
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr)
+    {
+        for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+        {
+            auto const& op = instr.ops[i];
+            if (op.kind == MOpKind::Label || op.kind == MOpKind::Symbol || op.kind == MOpKind::FrameSlot)
+                return std::unexpected("inline assembly instruction cannot use labels, symbols, or frame slots");
+            if (op.kind == MOpKind::Mem && !op.mem.symbol.empty())
+                return std::unexpected("inline assembly symbol references are not yet supported; pass the address as an operand");
+        }
+        std::vector<std::uint8_t> bytes;
+        std::vector<BranchPatch> branches;
+        std::vector<Reloc> relocs;
+        std::vector<std::string> warnings;
+        auto before = bytes.size();
+        encode_instr(instr, bytes, branches, relocs, warnings);
+        if (!branches.empty() || !relocs.empty())
+            return std::unexpected("inline assembly instruction requires a relocation, which is not supported");
+        if (!warnings.empty())
+            return std::unexpected("cannot encode inline assembly instruction: " + warnings.front());
+
+        if (bytes.size() == before || (bytes.size() == before + 2 && bytes[before] == 0x0F && bytes[before + 1] == 0x0B))
+            return std::unexpected("cannot encode inline assembly instruction");
+        std::vector<std::uint8_t> result(bytes.begin() + static_cast<std::ptrdiff_t>(before), bytes.end());
+        return result;
+    }
+
     [[nodiscard]] EncodeResult encode_function(MFunction const& func)
     {
         EncodeResult r;
