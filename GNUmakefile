@@ -13,7 +13,7 @@ STD_MK := $(TOPLEVEL)/mk/std.mk
 COMPDB_MK := $(TOPLEVEL)/mk/compdb.mk
 SCAN_SCRIPT := $(TOPLEVEL)/mk/scan_modules.py
 
-COMPDB_SUBDIRS := compiler driver dccd
+COMPDB_SUBDIRS := compiler driver dccd libdcext
 
 PREFIX ?= /usr/local
 DESTDIR ?=

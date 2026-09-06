@@ -2,6 +2,12 @@ export module dcc.target;
 
 import std;
 
+#if defined(_WIN32)
+#define DCC_HOST_OS_WINDOWS 1
+#else
+#define DCC_HOST_OS_WINDOWS 0
+#endif
+
 export namespace dcc::target
 {
     enum class Arch : std::uint8_t
@@ -123,6 +129,19 @@ export namespace dcc::target
             return cfg;
         }
 
+        [[nodiscard]] static TargetConfig for_os(Os os, Arch arch = Arch::X86_64)
+        {
+            TargetConfig cfg;
+            cfg.arch = arch;
+            cfg.os = os;
+            cfg.object_format = (os == Os::Windows) ? ObjectFormat::Coff : ObjectFormat::Elf;
+            cfg.pointer_bits = (arch == Arch::X86_64) ? 64 : 32;
+            cfg.pointer_align = (arch == Arch::X86_64) ? 8 : 4;
+            cfg.little_endian = true;
+            cfg.triple = std::string{arch == Arch::X86_64 ? "x86_64-" : "x86-"} + (cfg.object_format == ObjectFormat::Coff ? "coff" : "elf");
+            return cfg;
+        }
+
         [[nodiscard]] static std::optional<TargetConfig> parse_triple(std::string_view triple)
         {
             TargetConfig cfg;
@@ -175,6 +194,87 @@ export namespace dcc::target
             return std::nullopt;
         }
     };
+
+    [[nodiscard]] constexpr std::string_view os_name(Os os) noexcept
+    {
+        switch (os)
+        {
+            case Os::Linux:
+                return "linux";
+            case Os::Windows:
+                return "windows";
+            case Os::Freestanding:
+                return "freestanding";
+        }
+        return "freestanding";
+    }
+
+    [[nodiscard]] constexpr Os host_os() noexcept
+    {
+        return DCC_HOST_OS_WINDOWS ? Os::Windows : Os::Linux;
+    }
+
+    enum class LibdcextOs : std::uint8_t
+    {
+        Host,
+        Linux,
+        Windows,
+        Freestanding,
+    };
+
+    [[nodiscard]] constexpr std::optional<LibdcextOs> parse_libdcext_os(std::string_view s) noexcept
+    {
+        if (s == "linux")
+            return LibdcextOs::Linux;
+        if (s == "windows" || s == "win")
+            return LibdcextOs::Windows;
+        if (s == "freestanding")
+            return LibdcextOs::Freestanding;
+        return std::nullopt;
+    }
+
+    struct LibdcextRequest
+    {
+        bool enabled{false};
+        LibdcextOs os{LibdcextOs::Host};
+    };
+
+    [[nodiscard]] inline std::expected<TargetConfig, std::string> resolve_target(std::optional<std::string_view> explicit_triple,
+                                                                                 std::optional<LibdcextRequest> libdcext)
+    {
+        std::optional<TargetConfig> base;
+        if (explicit_triple)
+        {
+            auto parsed = TargetConfig::parse_triple(*explicit_triple);
+            if (!parsed)
+                return std::unexpected(std::format("unsupported target triple '{}'", *explicit_triple));
+
+            base = parsed;
+        }
+
+        if (!libdcext || !libdcext->enabled)
+            return base ? *base : TargetConfig::host_default();
+
+        Os resolved_os;
+        if (libdcext->os == LibdcextOs::Host)
+            resolved_os = base ? (base->object_format == ObjectFormat::Coff ? Os::Windows : Os::Linux) : host_os();
+        else
+            resolved_os = (libdcext->os == LibdcextOs::Linux) ? Os::Linux : (libdcext->os == LibdcextOs::Windows) ? Os::Windows : Os::Freestanding;
+
+        if (!base)
+            return TargetConfig::for_os(resolved_os);
+
+        auto expected_fmt = (resolved_os == Os::Windows) ? ObjectFormat::Coff : ObjectFormat::Elf;
+        if (resolved_os != Os::Freestanding && base->object_format != expected_fmt)
+        {
+            return std::unexpected(std::format("-flibdcext {} requires a {} target, but -target '{}' uses {}", os_name(resolved_os),
+                                               expected_fmt == ObjectFormat::Coff ? "COFF" : "ELF", base->triple,
+                                               base->object_format == ObjectFormat::Coff ? "COFF" : "ELF"));
+        }
+
+        base->os = resolved_os;
+        return *base;
+    }
 
     enum class PhysRegClass : std::uint8_t
     {

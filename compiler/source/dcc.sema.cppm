@@ -35,7 +35,7 @@ export namespace dcc::sema
     public:
         SemaContext(sm::SourceManager& sm, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, ParseFn parse, SemaOptions opts)
             : m_sm{sm}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_opts{std::move(opts)}, m_buffer{m_opts.arena_initial_size}, m_alloc{&m_buffer},
-              m_types{256 * 1024, &m_opts.target}, m_graph{}, m_importer{m_graph, m_sm, diag, m_ast_ctx, std::move(parse), m_opts.interner}
+              m_types{256 * 1024, &m_opts.target}, m_graph{}, m_importer{m_graph, m_sm, diag, m_ast_ctx, std::move(parse), m_opts.interner, &m_opts.target}
         {
             for (auto const& root : m_opts.import_roots)
                 m_graph.add_root(root);
