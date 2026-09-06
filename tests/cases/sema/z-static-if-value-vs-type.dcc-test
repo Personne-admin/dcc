@@ -1,0 +1,38 @@
+=== FILE: main.dc ===
+module main;
+
+i32 f(i32 A)() {
+    static if A != 12 {
+        incorrect_ctfe_result();
+    }
+    return 0;
+}
+
+i32 g(i32 A, i32 B)() {
+    static if A != 12 || B != 15 {
+        incorrect_ctfe_result();
+    }
+    return 0;
+}
+
+bool classify(T)(T v) {
+    static if T == u8 || T == u16 {
+        return true;
+    } else {
+        return false;
+    }
+}
+
+public i32 dcc_main() {
+    i32 r1 = f!12();
+    i32 r2 = g!(12, 15)();
+    bool c1 = classify(1 as u8);
+    bool c2 = classify(1 as u16);
+    bool c3 = classify(1 as u32);
+    if !c1 || !c2 || c3 {
+        return 1;
+    }
+    return r1 + r2;
+}
+
+=== ENTRY: main.dc ===

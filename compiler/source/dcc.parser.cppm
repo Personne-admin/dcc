@@ -2524,8 +2524,11 @@ export namespace dcc::parser
                     return self(self, bin->lhs) && self(self, bin->rhs);
                 if (bin->op != TK::EqEq && bin->op != TK::BangEq)
                     return false;
-                return ast::node_cast<ast::IdentExpr>(bin->lhs) ||
-                       (ast::node_cast<ast::TypeASTExpr>(bin->lhs) && ast::node_cast<ast::IdentExpr>(bin->rhs));
+                auto const* lhs_ident = ast::node_cast<ast::IdentExpr>(bin->lhs);
+                auto const* rhs_ident = ast::node_cast<ast::IdentExpr>(bin->rhs);
+                auto const* lhs_type = ast::node_cast<ast::TypeASTExpr>(bin->lhs);
+                auto const* rhs_type = ast::node_cast<ast::TypeASTExpr>(bin->rhs);
+                return (lhs_ident && rhs_type) || (lhs_type && rhs_ident) || (lhs_type && rhs_type);
             };
             s->is_type_if = is_type_condition(is_type_condition, cond);
 
