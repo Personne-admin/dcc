@@ -1,11 +1,11 @@
 STD_PCM := $(PCM_DIR)/std.pcm
 STD_COMPAT_PCM := $(PCM_DIR)/std.compat.pcm
-STD_INCLUDE_DIR := /usr/include/c++/v1
+STD_INCLUDE_DIR ?= /usr/include/c++/v1
 
 $(STD_PCM): $(STD_MODULE_SRC)
 	@mkdir -p $(dir $@)
 	$(call MSG,PCM,std)
-	$(Q)$(CXX) $(BASE_CXXFLAGS) -Wno-reserved-module-identifier -I/usr/include/c++/v1 --precompile $< -o $@
+	$(Q)$(CXX) $(BASE_CXXFLAGS) -Wno-reserved-module-identifier -I$(STD_INCLUDE_DIR) --precompile $< -o $@
 
 $(STD_COMPAT_PCM): $(STD_COMPAT_SRC) $(STD_PCM)
 	@mkdir -p $(dir $@)
