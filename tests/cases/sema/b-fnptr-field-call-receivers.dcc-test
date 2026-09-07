@@ -1,0 +1,50 @@
+=== FILE: main.dc ===
+module m;
+
+struct Wrap(F) {
+    F entry;
+}
+
+struct Plain {
+    i32 n;
+}
+
+i32 sunk0;
+
+void target2(i32 x, f64 y) {
+    sunk0 = x;
+}
+
+i32 doubled(Plain p) {
+    return p.n * 2;
+}
+
+void call_cast() {
+    Wrap(void(*)(i32, f64)) w;
+    w.entry = target2 as void(*)(i32, f64);
+    Wrap(void(*)(i32, f64))* raw = &w;
+    (raw as Wrap(void(*)(i32, f64))*).entry(1, 2.0);
+}
+
+void call_deref() {
+    Wrap(void(*)(i32, f64)) w;
+    w.entry = target2 as void(*)(i32, f64);
+    Wrap(void(*)(i32, f64))* raw = &w;
+    Wrap(void(*)(i32, f64))** pp = &raw;
+    (*pp).entry(2, 3.0);
+}
+
+void call_addrof() {
+    Wrap(void(*)(i32, f64)) w;
+    w.entry = target2 as void(*)(i32, f64);
+    (&w).entry(3, 4.0);
+}
+
+i32 call_ufcs_fallback() {
+    Plain p;
+    p.n = 21;
+    Plain* raw = &p;
+    return (raw as Plain*).doubled();
+}
+
+=== EXPECT-ERRORS ===
