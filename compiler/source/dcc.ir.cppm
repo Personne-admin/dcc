@@ -1333,6 +1333,15 @@ export namespace dcc::ir
             return t;
         }
 
+        [[nodiscard]] IrAggregateType* create_aggregate_placeholder(std::uint64_t byte_size, std::uint64_t byte_align)
+        {
+            auto* t = make<IrAggregateType>(m_arena);
+            t->byte_size = byte_size;
+            t->byte_align = byte_align;
+            m_aggregates.push_back(t);
+            return t;
+        }
+
         [[nodiscard]] IrType const* array_t(IrType const* element, std::uint64_t count)
         {
             for (auto const* t : m_arrays)

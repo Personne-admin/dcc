@@ -192,11 +192,12 @@ namespace dcc::ir::pass
                 }
                 case IrTypeKind::Aggregate: {
                     auto* at = static_cast<IrAggregateType const*>(t);
-                    std::vector<IrType const*> members;
+                    auto* placeholder = dst.create_aggregate_placeholder(at->byte_size, at->byte_align);
+                    cctx.type_map[t] = placeholder;
                     for (auto* m : at->members)
-                        members.push_back(clone_type_impl(m, dst, cctx));
-
-                    result = dst.aggregate_t(members, at->member_offsets, at->byte_size, at->byte_align, false);
+                        placeholder->members.push_back(clone_type_impl(m, dst, cctx));
+                    placeholder->member_offsets.assign(at->member_offsets.begin(), at->member_offsets.end());
+                    result = placeholder;
                     break;
                 }
                 case IrTypeKind::Array: {
