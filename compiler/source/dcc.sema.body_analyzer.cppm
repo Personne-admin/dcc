@@ -11886,7 +11886,8 @@ export namespace dcc::sema
                             continue;
                         }
                     }
-                    if (!f.name.empty())
+                    bool as_positional = f.name.empty();
+                    if (!as_positional)
                     {
                         for (std::size_t i = 0; i < fields.size(); ++i)
                             if (fields[i].name == f.name)
@@ -11897,16 +11898,29 @@ export namespace dcc::sema
 
                         if (field_index == fields.size())
                         {
-                            error(f.range, "unknown field `{}` in brace literal", f.name);
-                            return std::nullopt;
+                            bool shorthand = false;
+                            if (auto* ident = ast::node_cast<ast::IdentExpr>(f.value))
+                                shorthand = ident->name == f.name;
+                            if (shorthand)
+                                for (auto const& other : s.fields)
+                                    if (other.name.empty())
+                                    {
+                                        as_positional = true;
+                                        break;
+                                    }
+                            if (!as_positional)
+                            {
+                                error(f.range, "unknown field `{}` in brace literal", f.name);
+                                return std::nullopt;
+                            }
                         }
-                        if (used[field_index])
+                        if (!as_positional && used[field_index])
                         {
                             error(f.range, "duplicate field `{}` in brace literal", f.name);
                             return std::nullopt;
                         }
                     }
-                    else
+                    if (as_positional)
                     {
                         while (next_pos < fields.size() && used[next_pos])
                             ++next_pos;
@@ -11918,15 +11932,6 @@ export namespace dcc::sema
                         field_index = next_pos;
                         used[field_index] = true;
                         ++next_pos;
-                        if (auto* ident = ast::node_cast<ast::IdentExpr>(f.value))
-                            for (std::size_t j = 0; j < fields.size(); ++j)
-                                if (j != field_index && fields[j].name == ident->name)
-                                {
-                                    error(f.range,
-                                          "identifier `{}` matches field `{}` but appears in a positional brace literal; write `{} = {}` to assign by name",
-                                          ident->name, fields[j].name, ident->name, ident->name);
-                                    return std::nullopt;
-                                }
                     }
 
                     used[field_index] = true;

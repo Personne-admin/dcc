@@ -38,6 +38,18 @@ i32 named_kept() {
     return p.x;
 }
 
+i32 mixed_shorthand_first() {
+    f64 y = 2.0;
+    Pair p = {y, 1};
+    return p.x;
+}
+
+i32 mixed_shorthand_last() {
+    f64 y = 2.0;
+    Pair p = {1, y};
+    return p.x;
+}
+
 Bridge(F, T) wrap_it(F, T...)(F fp, T args) {
     return {fp, args...};
 }
@@ -48,4 +60,4 @@ i32 bridge_first(i32 v, f64 w) {
     return b.args.0 - v;
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
