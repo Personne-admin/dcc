@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+struct Pair {
+    i32 x;
+    f64 y;
+}
+
+i32 typo_shorthand() {
+    i32 fpx = 1;
+    f64 y = 2.0;
+    Pair p = {fpx, y};
+    return p.x;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:11: unknown field `fpx` in brace literal
