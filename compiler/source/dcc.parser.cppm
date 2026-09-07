@@ -3672,6 +3672,7 @@ export namespace dcc::parser
                     nf.range = range_from(fstart);
                     sl->fields.push_back(std::move(nf));
                 }
+                demote_mixed_shorthand(sl);
                 expect(TK::RBrace, "to close struct literal");
                 sl->range = range_from(start);
                 return sl;
@@ -3748,9 +3749,34 @@ export namespace dcc::parser
                 sl->fields.push_back(std::move(f));
             } while (match(TK::Comma) && !check(TK::RBrace));
 
+            demote_mixed_shorthand(sl);
             expect(TK::RBrace, "to close struct literal");
             sl->range = range_from(start);
             return sl;
+        }
+
+        static void demote_mixed_shorthand(ast::StructLiteralExpr* sl) noexcept
+        {
+            bool saw_positional = false;
+            for (auto const& f : sl->fields)
+            {
+                if (!f.name.empty() || !f.value)
+                    continue;
+                if (f.value->kind == ast::ExprKind::Ident)
+                    continue;
+                saw_positional = true;
+                break;
+            }
+            if (!saw_positional)
+                return;
+            for (auto& f : sl->fields)
+            {
+                if (f.name.empty())
+                    continue;
+                auto* ident = ast::node_cast<ast::IdentExpr>(f.value);
+                if (ident && ident->name == f.name)
+                    f.name = {};
+            }
         }
 
         static bool is_stmt_keyword_token(lex::TokenKind k)

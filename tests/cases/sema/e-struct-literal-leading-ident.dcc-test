@@ -1,0 +1,51 @@
+=== FILE: main.dc ===
+module m;
+
+struct Pair {
+    i32 x;
+    f64 y;
+}
+
+struct Bridge(F, T...) {
+    F entry;
+    T... args;
+}
+
+void target2(i32 x, f64 y) {
+}
+
+i32 leading_untyped() {
+    i32 fp = 1;
+    Pair p = {fp, 2.0};
+    return p.x;
+}
+
+i32 leading_typed() {
+    i32 fp = 1;
+    Pair p = Pair {fp, 2.0};
+    return p.x;
+}
+
+i32 shorthand_kept() {
+    i32 x = 1;
+    f64 y = 2.0;
+    Pair p = {x, y};
+    return p.x;
+}
+
+i32 named_kept() {
+    Pair p = {x = 1, y = 2.0};
+    return p.x;
+}
+
+Bridge(F, T) wrap_it(F, T...)(F fp, T args) {
+    return {fp, args...};
+}
+
+i32 bridge_first(i32 v, f64 w) {
+    void(*)(i32, f64) fp = target2 as void(*)(i32, f64);
+    Bridge(void(*)(i32, f64), i32, f64) b = wrap_it(fp, v, w);
+    return b.args.0 - v;
+}
+
+=== EXPECT-ERRORS ===
