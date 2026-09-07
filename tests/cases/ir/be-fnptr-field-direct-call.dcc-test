@@ -1,0 +1,67 @@
+=== FILE: test.dc ===
+module test;
+
+struct Wrap(F) {
+    F entry;
+}
+
+i32 sunk0;
+
+void target2(i32 x, f64 y) {
+    sunk0 = x;
+}
+
+i32 main() {
+    Wrap(void(*)(i32, f64)) w;
+    w.entry = target2 as void(*)(i32, f64);
+    Wrap(void(*)(i32, f64))* back = &w;
+    back.entry(1, 2.0);
+    w.entry(1, 2.0);
+    void(*)(i32, f64) e1 = back.entry;
+    e1(1, 2.0);
+    void(*)(i32, f64) e2 = w.entry;
+    e2(1, 2.0);
+    return 0;
+}
+
+=== EXPECT-IR ===
+module "test"
+
+global @_DC0G1.4.test5.sunk0i32s : i32
+
+
+void@_DC0F1.4.test7.target22i32sf64.v(i32, f64) {
+%entry(i32 %x, f64 %y):
+  store i32 %x, ptr<i32> @_DC0G1.4.test5.sunk0i32s
+  ret void
+}
+
+i32@_DC0F1.4.test4.main0i32s() {
+%entry:
+  %0 = alloca {@0 ptr<fn(i32, f64) -> void>}
+  %1 = gep ptr<{@0 ptr<fn(i32, f64) -> void>}> %0, field #0
+  store ptr<fn(i32, f64) -> void> @_DC0F1.4.test7.target22i32sf64.v, ptr<ptr<fn(i32, f64) -> void>> %1
+  %2 = alloca ptr<{@0 ptr<fn(i32, f64) -> void>}>
+  store ptr<{@0 ptr<fn(i32, f64) -> void>}> %0, ptr<ptr<{@0 ptr<fn(i32, f64) -> void>}>> %2
+  %3 = load ptr<{@0 ptr<fn(i32, f64) -> void>}>, ptr<ptr<{@0 ptr<fn(i32, f64) -> void>}>> %2
+  %4 = gep ptr<{@0 ptr<fn(i32, f64) -> void>}> %3, field #0
+  %5 = load ptr<fn(i32, f64) -> void>, ptr<ptr<fn(i32, f64) -> void>> %4
+  call fn(%5)(i32 #1, f64 #2)
+  %6 = gep ptr<{@0 ptr<fn(i32, f64) -> void>}> %0, field #0
+  %7 = load ptr<fn(i32, f64) -> void>, ptr<ptr<fn(i32, f64) -> void>> %6
+  call fn(%7)(i32 #1, f64 #2)
+  %8 = alloca ptr<fn(i32, f64) -> void>
+  %9 = load ptr<{@0 ptr<fn(i32, f64) -> void>}>, ptr<ptr<{@0 ptr<fn(i32, f64) -> void>}>> %2
+  %10 = gep ptr<{@0 ptr<fn(i32, f64) -> void>}> %9, field #0
+  %11 = load ptr<fn(i32, f64) -> void>, ptr<ptr<fn(i32, f64) -> void>> %10
+  store ptr<fn(i32, f64) -> void> %11, ptr<ptr<fn(i32, f64) -> void>> %8
+  %12 = load ptr<fn(i32, f64) -> void>, ptr<ptr<fn(i32, f64) -> void>> %8
+  call fn(%12)(i32 #1, f64 #2)
+  %13 = alloca ptr<fn(i32, f64) -> void>
+  %14 = gep ptr<{@0 ptr<fn(i32, f64) -> void>}> %0, field #0
+  %15 = load ptr<fn(i32, f64) -> void>, ptr<ptr<fn(i32, f64) -> void>> %14
+  store ptr<fn(i32, f64) -> void> %15, ptr<ptr<fn(i32, f64) -> void>> %13
+  %16 = load ptr<fn(i32, f64) -> void>, ptr<ptr<fn(i32, f64) -> void>> %13
+  call fn(%16)(i32 #1, f64 #2)
+  ret i32 #0
+}
