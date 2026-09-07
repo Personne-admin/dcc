@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module main;
+
+public i32 main() {
+    Nosuch x;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: unknown type `Nosuch`

@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module main;
+
+struct Box(T) {
+    T value;
+}
+
+i32 bad(Box(i32, i32) b) {
+    return 0;
+}
+
+public i32 main() {
+    Nosuch x;
+    return 0;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:7: template argument count mismatch for `Box`
