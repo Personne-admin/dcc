@@ -785,9 +785,10 @@ namespace dcc::sema
         class TypeSubstitutor
         {
         public:
-            TypeSubstitutor(infer::TemplateBindings const& b, types::TypeContext& tc, si::InternedHashMap<types::TypePtr> const& name_map,
-                            std::span<ast::TemplateParam const> tparams = {}, diag::DiagnosticEngine* diag_ptr = nullptr)
-                : m_bindings(b), m_types(tc), m_name_map(name_map), m_template_params(tparams), m_diag(diag_ptr)
+            TypeSubstitutor(infer::TemplateBindings const& b, types::TypeContext& tc, ast::AstContext& actx,
+                            si::InternedHashMap<types::TypePtr> const& name_map, std::span<ast::TemplateParam const> tparams = {},
+                            diag::DiagnosticEngine* diag_ptr = nullptr)
+                : m_bindings(b), m_types(tc), m_ast_ctx(actx), m_name_map(name_map), m_template_params(tparams), m_diag(diag_ptr)
             {
             }
 
@@ -803,9 +804,13 @@ namespace dcc::sema
         private:
             infer::TemplateBindings const& m_bindings;
             types::TypeContext& m_types;
+            ast::AstContext& m_ast_ctx;
             si::InternedHashMap<types::TypePtr> const& m_name_map;
             std::span<ast::TemplateParam const> m_template_params;
             diag::DiagnosticEngine* m_diag{};
+
+            [[nodiscard]] std::vector<types::TypePtr> const* splice_pack_types(std::string_view name) const;
+            void expand_pack_splices(ast::NamedType* nt);
 
             [[nodiscard]] types::TypePtr deep_substitute(types::TypePtr type) const
             {
@@ -1019,6 +1024,7 @@ namespace dcc::sema
                     break;
                 case ast::TypeKind::Named: {
                     auto* nt = static_cast<ast::NamedType*>(t);
+                    expand_pack_splices(nt);
                     if (!t->sema.canonical && nt->path.is_simple() && nt->template_args.empty())
                     {
                         auto it = m_name_map.find(nt->path.simple_name());
@@ -2055,7 +2061,7 @@ export namespace dcc::sema
             auto const& p = template_fn.params[i];
             ast::FuncParam new_param = cloner.clone_func_param(p);
             {
-                TypeSubstitutor sub{const_cast<infer::TemplateBindings&>(bindings), type_ctx, empty_name_map, template_fn.template_params, diag};
+                TypeSubstitutor sub{const_cast<infer::TemplateBindings&>(bindings), type_ctx, ast_ctx, empty_name_map, template_fn.template_params, diag};
                 sub.substitute_in_type(new_param.type);
             }
             result.push_back(std::move(new_param));
@@ -2580,7 +2586,7 @@ export namespace dcc::sema
             AstCloner cloner{ast_ctx};
             cloned_body = cloner.clone_block(*template_fn.body);
 
-            TypeSubstitutor substitutor{bindings, type_ctx, param_type_map, template_fn.template_params, diag};
+            TypeSubstitutor substitutor{bindings, type_ctx, ast_ctx, param_type_map, template_fn.template_params, diag};
             substitutor.substitute_in_block(*cloned_body);
 
             if (!nttp_map.empty())
@@ -3944,7 +3950,7 @@ export namespace dcc::sema
         syn_decl->return_type = template_fn.return_type ? [&]() -> ast::TypeExpr* {
             AstCloner cloner{ast_ctx};
             auto* ty = cloner.clone_type(template_fn.return_type);
-            TypeSubstitutor sub{bindings, type_ctx, param_type_map, template_fn.template_params, diag};
+            TypeSubstitutor sub{bindings, type_ctx, ast_ctx, param_type_map, template_fn.template_params, diag};
             sub.substitute_in_type(ty);
 
             if (ty->sema.canonical)
@@ -4658,4 +4664,65 @@ export namespace dcc::sema
         }
     };
 
+} // namespace dcc::sema
+
+namespace dcc::sema
+{
+    namespace
+    {
+        std::vector<types::TypePtr> const* TypeSubstitutor::splice_pack_types(std::string_view name) const
+        {
+            for (std::size_t i = 0; i < m_template_params.size(); ++i)
+            {
+                auto const& tp = m_template_params[i];
+                if (tp.name != name || !tp.is_pack || tp.value_type)
+                    continue;
+                auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(&tp), tp.name, static_cast<std::uint32_t>(i));
+                if (!key)
+                    return nullptr;
+                return m_bindings.lookup_pack(static_cast<types::TemplateParamType const*>(key));
+            }
+            return nullptr;
+        }
+
+        void TypeSubstitutor::expand_pack_splices(ast::NamedType* nt)
+        {
+            if (!nt || nt->template_args.empty())
+                return;
+            bool needs_expansion = false;
+            for (auto const& ta : nt->template_args)
+            {
+                if (!ta.type || ta.expr)
+                    continue;
+                auto const* arg_named = ast::node_cast<ast::NamedType>(ta.type);
+                if (!arg_named || !arg_named->path.is_simple() || !arg_named->template_args.empty())
+                    continue;
+                if (splice_pack_types(arg_named->path.simple_name()))
+                {
+                    needs_expansion = true;
+                    break;
+                }
+            }
+            if (!needs_expansion)
+                return;
+            std::pmr::vector<ast::TemplateArg> expanded{nt->template_args.get_allocator()};
+            expanded.reserve(nt->template_args.size());
+            for (auto const& ta : nt->template_args)
+            {
+                std::vector<types::TypePtr> const* pack = nullptr;
+                if (ta.type && !ta.expr)
+                    if (auto const* arg_named = ast::node_cast<ast::NamedType>(ta.type);
+                        arg_named && arg_named->path.is_simple() && arg_named->template_args.empty())
+                        pack = splice_pack_types(arg_named->path.simple_name());
+                if (!pack)
+                {
+                    expanded.push_back(ta);
+                    continue;
+                }
+                for (auto const* elem : *pack)
+                    expanded.push_back(ast::TemplateArg{ta.range, clone_type_from_canonical(elem, m_ast_ctx, m_types), nullptr});
+            }
+            nt->template_args = std::move(expanded);
+        }
+    } // namespace
 } // namespace dcc::sema
