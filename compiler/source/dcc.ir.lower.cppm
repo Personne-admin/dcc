@@ -2527,6 +2527,8 @@ export namespace dcc::ir::lower
                 }
 
                 case ast::ExprKind::PackAccess: {
+                    if (auto* pa = static_cast<ast::PackAccessExpr const*>(expr); pa->has_resolved_field_index)
+                        return lower_pack_access_expr(pa);
                     lower_panic(expr, "PackAccess must be resolved before IR lowering");
                 }
 
@@ -3181,7 +3183,11 @@ export namespace dcc::ir::lower
             }
 
             if (operand->kind == ast::ExprKind::PackAccess)
+            {
+                if (auto* pa = static_cast<ast::PackAccessExpr const*>(operand); pa->has_resolved_field_index)
+                    return lower_pack_access_lvalue(pa);
                 lower_panic(operand, "PackAccess must be resolved before IR lowering");
+            }
 
             {
                 auto* sema_ty = get_sema_resolved_type(operand);
@@ -3734,7 +3740,14 @@ export namespace dcc::ir::lower
             }
 
             if (expr->kind == ast::ExprKind::PackAccess)
+            {
+                if (auto* pa = static_cast<ast::PackAccessExpr const*>(expr); pa->has_resolved_field_index)
+                {
+                    auto* gep = lower_pack_access_lvalue(pa);
+                    return {nullptr, gep};
+                }
                 lower_panic(expr, "PackAccess must be resolved before IR lowering");
+            }
 
             if (expr->kind == ast::ExprKind::Unary)
             {
@@ -6454,6 +6467,25 @@ export namespace dcc::ir::lower
 
             for (auto const& f : sl->fields)
             {
+                if (f.resolved_field_count != 1)
+                {
+                    if (f.resolved_field_count == 0)
+                        continue;
+                    auto* inner = ast::node_cast<ast::StructLiteralExpr>(f.value);
+                    if (!inner || inner->fields.size() != f.resolved_field_count)
+                        lower_panic(sl, "pack field initializer arity mismatch in constant struct literal");
+                    for (auto const& ef : inner->fields)
+                    {
+                        std::uint32_t idx = ef.resolved_field_index;
+                        if (idx >= field_count)
+                            lower_panic(sl, "field index out of range in constant struct literal");
+                        if (!ef.value)
+                            continue;
+                        agg->values[idx] = lower_constant_expr(ef.value, (idx < field_types.size()) ? field_types[idx] : nullptr);
+                    }
+                    continue;
+                }
+
                 std::uint32_t idx = f.resolved_field_index;
                 if (idx >= field_count)
                     lower_panic(sl, "field index out of range in constant struct literal");
@@ -7050,6 +7082,10 @@ export namespace dcc::ir::lower
                     return placeholder;
                 }
 
+                if (!sd->template_params.empty() && sd->template_params.back().is_pack &&
+                    (st->is_specialization || !st->template_args.empty()))
+                    lower_panic("variadic struct specialization reached lowering without its stored expansion");
+
                 auto subst = st->template_args.empty() ? std::unordered_map<void const*, types::TypePtr>{}
                                                        : build_template_subst(sd->template_params, st->template_args);
 
@@ -7058,25 +7094,8 @@ export namespace dcc::ir::lower
                 members.reserve(sd->fields.size());
                 subst_field_types.reserve(sd->fields.size());
 
-                bool variadic_fallback = !sd->template_params.empty() && sd->template_params.back().is_pack &&
-                                         (st->is_specialization || !st->template_args.empty());
-                std::size_t pack_start = variadic_fallback ? sd->template_params.size() - 1 : 0;
-
                 for (auto const& f : sd->fields)
                 {
-                    if (variadic_fallback && f.is_pack)
-                    {
-                        for (std::size_t i = pack_start; i < st->template_args.size(); ++i)
-                        {
-                            auto* ft = st->template_args[i];
-                            if (!subst.empty())
-                                ft = substitute_type(ft, subst);
-                            members.push_back(lower_type(ft));
-                            subst_field_types.push_back(ft);
-                        }
-                        continue;
-                    }
-
                     auto* ft = get_canonical_type(f.type);
 
                     if (!subst.empty())
@@ -7094,10 +7113,8 @@ export namespace dcc::ir::lower
                 }
 
                 std::vector<std::uint64_t> offsets;
-                if (!subst.empty() && !variadic_fallback)
+                if (!subst.empty())
                     offsets = compute_field_offsets(subst_field_types);
-                else if (variadic_fallback)
-                    offsets = compute_variadic_field_offsets(*sd, subst_field_types);
                 else
                     for (auto const& f : sd->fields)
                         offsets.push_back(f.byte_offset);
@@ -7306,6 +7323,26 @@ export namespace dcc::ir::lower
 
             for (auto const& f : sl->fields)
             {
+                if (f.resolved_field_count != 1)
+                {
+                    if (f.resolved_field_count == 0)
+                        continue;
+
+                    auto* inner = ast::node_cast<ast::StructLiteralExpr>(f.value);
+                    if (!inner || inner->fields.size() != f.resolved_field_count)
+                        lower_panic(sl, "pack field initializer arity mismatch");
+                    for (auto const& ef : inner->fields)
+                    {
+                        std::uint32_t idx = ef.resolved_field_index;
+                        if (idx >= field_count)
+                            lower_panic(sl, "field index out of range");
+                        if (!ef.value)
+                            continue;
+                        agg->values[idx] = lower_field_value(ef.value);
+                    }
+                    continue;
+                }
+
                 std::uint32_t idx = f.resolved_field_index;
                 if (idx >= field_count)
                     lower_panic(sl, "field index out of range");
@@ -7626,37 +7663,6 @@ export namespace dcc::ir::lower
                     align = field_align;
 
                 size = (size + field_align - 1) & ~(field_align - 1);
-                offsets.push_back(size);
-                size += ft->byte_size;
-            }
-            return offsets;
-        }
-
-        [[nodiscard]] static std::vector<std::uint64_t> compute_variadic_field_offsets(ast::StructDecl const& sd,
-                                                                                       std::span<types::TypePtr const> field_types)
-        {
-            bool is_packed = false;
-            for (auto const& a : sd.attrs)
-                if (a.name == "packed")
-                {
-                    is_packed = true;
-                    break;
-                }
-
-            std::vector<std::uint64_t> offsets;
-            offsets.reserve(field_types.size());
-            std::uint64_t size = 0;
-            for (auto* ft : field_types)
-            {
-                if (!ft)
-                {
-                    offsets.push_back(size);
-                    continue;
-                }
-
-                std::uint32_t field_align = is_packed ? 1 : ft->byte_align;
-                if (field_align > 1)
-                    size = (size + field_align - 1) & ~(static_cast<std::uint64_t>(field_align) - 1);
                 offsets.push_back(size);
                 size += ft->byte_size;
             }
@@ -8690,6 +8696,134 @@ export namespace dcc::ir::lower
             }
 
             lower_panic(fa, "cannot lower field lvalue");
+        }
+
+        IrValue* lower_pack_access_gep(ast::PackAccessExpr const* pa)
+        {
+            auto* fa = ast::node_cast<ast::FieldAccessExpr>(pa->object);
+            if (!fa || !pa->has_resolved_field_index)
+                return nullptr;
+
+            auto* elem_sema_ty = get_sema_resolved_type(pa);
+            if (!elem_sema_ty)
+                return nullptr;
+
+            auto* inner = fa->object;
+            if (!inner)
+                return nullptr;
+
+            auto* inner_ty = get_sema_resolved_type(inner);
+            std::uint32_t field_idx = pa->resolved_field_index;
+
+            auto make_gep = [&](IrValue* base_ptr) -> IrValue* {
+                auto* elem_ptr_type = m_ctx.pointer_to(lower_type(elem_sema_ty));
+                auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
+                auto gep_name = ident_name();
+                gep->name = m_name_pool.back();
+                append_inst(gep);
+                return gep;
+            };
+
+            if (inner->kind == ast::ExprKind::Ident)
+            {
+                auto* resolved = static_cast<ast::IdentExpr const*>(inner)->sema.resolved_decl;
+                if (resolved)
+                {
+                    auto it = m_value_map.find(resolved);
+                    if (it != m_value_map.end() && it->second.is_storage)
+                    {
+                        IrValue* base_ptr = load_lvalue_pointer_layers(it->second.value, inner_ty);
+                        return make_gep(base_ptr);
+                    }
+
+                    if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
+                    {
+                        auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
+                        if (global)
+                        {
+                            auto* ptr_type = m_ctx.pointer_to(global->type);
+                            auto* global_ref = m_ctx.global_ref(global, ptr_type);
+                            IrValue* base_ptr = load_lvalue_pointer_layers(global_ref, inner_ty);
+                            return make_gep(base_ptr);
+                        }
+                    }
+                }
+            }
+
+            if (inner->kind == ast::ExprKind::FieldAccess)
+            {
+                IrValue* base_ptr = load_lvalue_pointer_layers(lower_field_lvalue(static_cast<ast::FieldAccessExpr const*>(inner)), inner_ty);
+                return make_gep(base_ptr);
+            }
+
+            if (inner->kind == ast::ExprKind::Index)
+            {
+                IrValue* base_ptr = load_lvalue_pointer_layers(lower_index_lvalue(static_cast<ast::IndexExpr const*>(inner)), inner_ty);
+                return make_gep(base_ptr);
+            }
+
+            if (inner->kind == ast::ExprKind::Unary)
+            {
+                auto* ue = static_cast<ast::UnaryExpr const*>(inner);
+                if (ue->op == dcc::lex::TokenKind::Star)
+                    return make_gep(lower_expr(ue->operand));
+            }
+
+            auto* obj_val = lower_expr(inner);
+            if (inner_ty && inner_ty->kind == types::TypeKind::Pointer)
+                return make_gep(obj_val);
+
+            return nullptr;
+        }
+
+        IrValue* lower_pack_access_lvalue(ast::PackAccessExpr const* pa)
+        {
+            if (auto* gep = lower_pack_access_gep(pa))
+                return gep;
+            lower_panic(pa, "cannot lower pack element lvalue");
+        }
+
+        IrValue* lower_pack_access_expr(ast::PackAccessExpr const* pa)
+        {
+            auto* resolved_type = get_sema_resolved_type(pa);
+            auto* ir_resolved_type = lower_type(resolved_type);
+
+            if (auto* gep = lower_pack_access_gep(pa))
+            {
+                auto* loaded = m_ctx.load(ir_resolved_type, gep);
+                auto load_name = ident_name();
+                loaded->name = m_name_pool.back();
+                append_inst(loaded);
+                return loaded;
+            }
+
+            auto* fa = ast::node_cast<ast::FieldAccessExpr>(pa->object);
+            if (fa && pa->has_resolved_field_index && fa->object)
+            {
+                auto* inner_ty = get_sema_resolved_type(fa->object);
+                auto* obj_val = lower_expr(fa->object);
+                if (inner_ty && inner_ty->kind == types::TypeKind::Pointer)
+                {
+                    auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_resolved_type), obj_val);
+                    gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, pa->resolved_field_index});
+                    auto gep_name = ident_name();
+                    gep->name = m_name_pool.back();
+                    append_inst(gep);
+                    auto* loaded = m_ctx.load(ir_resolved_type, gep);
+                    auto load_name = ident_name();
+                    loaded->name = m_name_pool.back();
+                    append_inst(loaded);
+                    return loaded;
+                }
+                auto* extracted = m_ctx.extract(ir_resolved_type, obj_val, pa->resolved_field_index);
+                auto name = ident_name();
+                extracted->name = m_name_pool.back();
+                append_inst(extracted);
+                return extracted;
+            }
+
+            lower_panic(pa, "cannot lower pack element access");
         }
 
         IrValue* lower_index_lvalue(ast::IndexExpr const* idx_expr)

@@ -1,0 +1,68 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+struct Tagged(K, T...) {
+    K key;
+    T... rest;
+}
+
+struct Wrap(T...) {
+    Tuple(T) inner;
+}
+
+void g(T...)(Tuple(T) t) {
+    sizeof...(T);
+}
+
+void f() {
+    offsetof(Tuple(i32, f64), items.0);
+    offsetof(Tuple(i32, f64), items.1);
+    offsetof(Tuple(u8, u64, u8), items.0);
+    offsetof(Tuple(u8, u64, u8), items.1);
+    offsetof(Tuple(u8, u64, u8), items.2);
+    offsetof(Tagged(u32, u8, u64), rest.0);
+    offsetof(Tagged(u32, u8, u64), rest.1);
+    offsetof(Tagged(u32, u8, u64), key);
+    sizeof(Wrap(u8, u16));
+    alignof(Wrap(u8, u16));
+    sizeof(Tuple(u8, u16));
+}
+
+void caller() {
+    Tuple(i32, f64) v = {1, 2.0};
+    g!(i32, f64)(v);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func g diverging=false
+    Param t type=Tuple(T) storage=param offset=0 index=0
+    Body
+      SizeofPack name=T [type=<unresolved> const=<none>]
+  Func f diverging=false
+    Body
+      Offsetof [type=usize const=0 constant]
+      Offsetof [type=usize const=8 constant]
+      Offsetof [type=usize const=0 constant]
+      Offsetof [type=usize const=8 constant]
+      Offsetof [type=usize const=16 constant]
+      Offsetof [type=usize const=4 constant]
+      Offsetof [type=usize const=8 constant]
+      Offsetof [type=usize const=0 constant]
+      Sizeof [type=usize const=4 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=4 constant]
+  Func caller diverging=false
+    Body
+      Var v type=Tuple(i32, f64) storage=local offset=0
+        StructLiteral [type=Tuple(i32, f64) const=agg(1, 2) constant]
+          IntLiteral 1 [type=i32 const=1 constant]
+          FloatLiteral 2 [type=f64 const=2 constant]
+      Call [type=void const=<none> decl=g spec=g]
+        TemplateInst [type=void(*)(Tuple(i32, f64)) const=<none> decl=g spec=g]
+          Ident g [type=void(*)(Tuple(T)) const=<none> decl=g]
+        Ident v [type=Tuple(i32, f64) const=agg(1, 2) lvalue constant decl=v]

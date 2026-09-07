@@ -279,6 +279,8 @@ namespace dcc::sema
                 case ast::ExprKind::PackAccess: {
                     auto* ex = static_cast<ast::PackAccessExpr const*>(e);
                     auto* n = m_ctx.make<ast::PackAccessExpr>(ex->range, clone_expr(ex->object), clone_expr(ex->index));
+                    n->has_resolved_field_index = ex->has_resolved_field_index;
+                    n->resolved_field_index = ex->resolved_field_index;
                     n->sema = ex->sema;
                     return n;
                 }
@@ -339,6 +341,8 @@ namespace dcc::sema
                 case ast::ExprKind::Offsetof: {
                     auto* ex = static_cast<ast::OffsetofExpr const*>(e);
                     auto* n = m_ctx.make<ast::OffsetofExpr>(ex->range, clone_type(ex->target), ex->field);
+                    n->has_pack_index = ex->has_pack_index;
+                    n->pack_index = ex->pack_index;
                     n->sema = ex->sema;
                     return n;
                 }
@@ -742,6 +746,7 @@ namespace dcc::sema
             result.range = f.range;
             result.value = clone_expr(f.value);
             result.resolved_field_index = f.resolved_field_index;
+            result.resolved_field_count = f.resolved_field_count;
             return result;
         }
 
@@ -2000,6 +2005,34 @@ export namespace dcc::sema
     {
         AstCloner cloner{ctx, params, args};
         return cloner.clone_expr(expr);
+    }
+
+    [[nodiscard]] std::pmr::vector<ast::StmtPtr> expand_struct_pack_loop(ast::AstContext& ast_ctx, ast::StaticForStmt const& sf,
+                                                                        ast::VarDecl const* item_decl,
+                                                                        ast::FieldAccessExpr const* pack_access, std::uint64_t count)
+    {
+        std::pmr::vector<ast::StmtPtr> out(ast_ctx.allocator());
+        for (std::uint64_t k = 0; k < count; ++k)
+        {
+            auto* fa_clone = static_cast<ast::FieldAccessExpr*>(AstCloner{ast_ctx}.clone_expr(pack_access));
+            auto* idx_lit = ast_ctx.make<ast::IntLiteralExpr>(pack_access->range, static_cast<std::int64_t>(k), std::string_view{});
+            auto* replacement = ast_ctx.make<ast::PackAccessExpr>(pack_access->range, fa_clone, idx_lit);
+            ast::FuncParam param;
+            param.name = sf.item_name;
+            param.range = sf.name_range;
+            param.synthetic_decl = item_decl;
+            ast::Expr* repl = replacement;
+            AstCloner cloner{ast_ctx, std::span<ast::FuncParam const>(&param, 1), std::span<ast::Expr* const>(&repl, 1)};
+            auto cloned = cloner.clone_block(sf.body);
+            if (cloned.tail)
+            {
+                cloned.stmts.push_back(ast_ctx.make<ast::ExprStmt>(cloned.tail->range, cloned.tail));
+                cloned.tail = nullptr;
+            }
+            auto* be = ast_ctx.make<ast::BlockExpr>(sf.range, std::move(cloned));
+            out.push_back(ast_ctx.make<ast::ExprStmt>(sf.range, be));
+        }
+        return out;
     }
 
     [[nodiscard]] std::vector<ast::FuncParam> expand_func_params(ast::FuncDecl const& template_fn, infer::TemplateBindings const& bindings,
@@ -3494,7 +3527,6 @@ export namespace dcc::sema
 
                             expand_block(cloned_block);
 
-                            // Each iteration gets its own lexical block so locals declared in the body do not collide across iterations.
                             if (cloned_block.tail)
                             {
                                 auto* tail_stmt = ast_ctx.make<ast::ExprStmt>(cloned_block.tail->range, cloned_block.tail);
@@ -3915,7 +3947,9 @@ export namespace dcc::sema
                 {
                     if (!e)
                         return;
-                    if (e->kind == ast::ExprKind::PackAccess)
+                    if (e->kind == ast::ExprKind::PackAccess &&
+                        (!static_cast<ast::PackAccessExpr const*>(e)->object ||
+                         static_cast<ast::PackAccessExpr const*>(e)->object->kind != ast::ExprKind::FieldAccess))
                         d->error(e->range, "internal error: PackAccessExpr survived into lowerable code");
                     check_canon(e->range, get_resolved_type(e->sema), "expr type");
                     switch (e->kind)

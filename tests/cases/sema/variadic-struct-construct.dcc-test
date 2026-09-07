@@ -1,0 +1,44 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+struct Tagged(K, T...) {
+    K key;
+    T... rest;
+}
+
+void construct() {
+    Tuple(i32, i64) a = {1, 2};
+    Tuple(i32, i64) b = {items = {3, 4}};
+    Tagged(u8, i32, i64) c = {key = 7, rest = {8, 9}};
+    Tuple() d = {};
+    Tuple(i32) e = {items = 5};
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func construct diverging=false
+    Body
+      Var a type=Tuple(i32, i64) storage=local offset=0
+        StructLiteral [type=Tuple(i32, i64) const=agg(1, 2) constant]
+          IntLiteral 1 [type=i32 const=1 constant]
+          IntLiteral 2 [type=i64 const=2 constant]
+      Var b type=Tuple(i32, i64) storage=local offset=16
+        StructLiteral [type=Tuple(i32, i64) const=agg(3, 4) constant]
+          StructLiteral [type=<unresolved> const=<none>]
+            IntLiteral 3 [type=i32 const=3 constant]
+            IntLiteral 4 [type=i64 const=4 constant]
+      Var c type=Tagged(u8, i32, i64) storage=local offset=32
+        StructLiteral [type=Tagged(u8, i32, i64) const=agg(7, 8, 9) constant]
+          IntLiteral 7 [type=u8 const=7 constant]
+          StructLiteral [type=<unresolved> const=<none>]
+            IntLiteral 8 [type=i32 const=8 constant]
+            IntLiteral 9 [type=i64 const=9 constant]
+      Var d type=Tuple storage=local offset=48
+        StructLiteral [type=Tuple const=agg() constant]
+      Var e type=Tuple(i32) storage=local offset=48
+        StructLiteral [type=Tuple(i32) const=agg(5) constant]
+          IntLiteral 5 [type=i32 const=5 constant]

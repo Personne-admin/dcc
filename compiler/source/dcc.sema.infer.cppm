@@ -839,6 +839,16 @@ export namespace dcc::infer
                     bool changed = false;
                     for (auto const* arg : t->template_args)
                     {
+                        if (auto const* tp = types::type_cast<types::TemplateParamType>(arg))
+                        {
+                            if (auto const* pack = lookup_pack(tp))
+                            {
+                                changed = true;
+                                for (auto const* elt : *pack)
+                                    args.push_back(elt);
+                                continue;
+                            }
+                        }
                         auto sub = substitute_impl(arg, memo);
                         changed |= sub != arg;
                         args.push_back(sub);
