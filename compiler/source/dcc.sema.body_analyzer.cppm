@@ -6320,10 +6320,7 @@ export namespace dcc::sema
             return r;
         }
 
-        [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypePtr ty)
-        {
-            return dcc::sema::make_bindings(m_types, ty);
-        }
+        [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypePtr ty) { return dcc::sema::make_bindings(m_types, ty); }
 
         [[nodiscard]] std::optional<Layout> layout_of(types::TypePtr ty)
         {
@@ -11823,9 +11820,7 @@ export namespace dcc::sema
                                 error(f.range, "duplicate field `{}` in brace literal", f.name);
                                 return std::nullopt;
                             }
-                            auto* inner = f.value && f.value->kind == ast::ExprKind::StructLiteral
-                                              ? static_cast<ast::StructLiteralExpr*>(f.value)
-                                              : nullptr;
+                            auto* inner = f.value && f.value->kind == ast::ExprKind::StructLiteral ? static_cast<ast::StructLiteralExpr*>(f.value) : nullptr;
                             std::size_t given = inner ? inner->fields.size() : (f.value ? 1 : 0);
                             if (given != window->arity)
                             {
@@ -11846,8 +11841,7 @@ export namespace dcc::sema
                                         reject_value_alias_decay(f.value->range, val);
                                         return std::nullopt;
                                     }
-                                    if (expected_field && val.type && val.type != expected_field &&
-                                        val.type->kind != types::TypeKind::Error)
+                                    if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                                     {
                                         error(f.range, "field type mismatch");
                                         return std::nullopt;
@@ -11870,15 +11864,13 @@ export namespace dcc::sema
                                     auto expected_field = fields[elem_index].type;
                                     if (nf.value)
                                     {
-                                        auto val = analyze_expr(mod, fn, scope, *nf.value, loop_depth, next_off, expected_field,
-                                                                const_env);
+                                        auto val = analyze_expr(mod, fn, scope, *nf.value, loop_depth, next_off, expected_field, const_env);
                                         if (value_alias_implicit_decay(val, expected_field))
                                         {
                                             reject_value_alias_decay(nf.value->range, val);
                                             return std::nullopt;
                                         }
-                                        if (expected_field && val.type && val.type != expected_field &&
-                                            val.type->kind != types::TypeKind::Error)
+                                        if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                                         {
                                             error(nf.range, "field type mismatch");
                                             return std::nullopt;
@@ -12312,9 +12304,7 @@ export namespace dcc::sema
                                     if (auto* inner = ast::node_cast<ast::StructLiteralExpr>(lit_it->value))
                                     {
                                         auto nested_it = std::find_if(inner->fields.begin(), inner->fields.end(),
-                                                                      [&](ast::StructLiteralField const& nf) {
-                                                                          return nf.resolved_field_index == fi;
-                                                                      });
+                                                                      [&](ast::StructLiteralField const& nf) { return nf.resolved_field_index == fi; });
                                         if (nested_it != inner->fields.end() && nested_it->value)
                                             elem_const = nested_it->value->sema.const_value;
                                     }
@@ -12476,8 +12466,7 @@ export namespace dcc::sema
                         else
                         {
                             std::uint32_t field_index = static_cast<std::uint32_t>(window->base + static_cast<std::uint64_t>(s.pack_index));
-                            out.constant =
-                                make_int_const(static_cast<std::int64_t>(window->st->expanded_fields[field_index].byte_offset), out.type);
+                            out.constant = make_int_const(static_cast<std::int64_t>(window->st->expanded_fields[field_index].byte_offset), out.type);
                         }
                     }
                     else
@@ -12742,19 +12731,18 @@ export namespace dcc::sema
 
             if (out_is_callable && field->type && field->type->sema.canonical)
             {
-                auto* field_type = get_canonical(field->type->sema);
+                auto* field_type = substitute_in_nominal_context(get_canonical(field->type->sema), receiver_type);
                 *out_is_callable = (types::type_cast<types::FuncPtrType>(field_type) != nullptr);
             }
             return true;
         }
 
-        bool expand_struct_pack_call_args(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CallExpr& c, int loop_depth,
-                                              std::uint32_t& next_off, ConstEnv const* const_env)
+        bool expand_struct_pack_call_args(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CallExpr& c, int loop_depth, std::uint32_t& next_off,
+                                          ConstEnv const* const_env)
         {
             bool saw_pack = false;
             for (auto* a : c.args)
-                if (a && a->kind == ast::ExprKind::PackExpansion &&
-                    static_cast<ast::PackExpansionExpr*>(a)->operand &&
+                if (a && a->kind == ast::ExprKind::PackExpansion && static_cast<ast::PackExpansionExpr*>(a)->operand &&
                     static_cast<ast::PackExpansionExpr*>(a)->operand->kind == ast::ExprKind::FieldAccess)
                 {
                     saw_pack = true;
@@ -12768,9 +12756,7 @@ export namespace dcc::sema
             for (auto* a : c.args)
             {
                 auto* pe = (a && a->kind == ast::ExprKind::PackExpansion) ? static_cast<ast::PackExpansionExpr*>(a) : nullptr;
-                auto* fa = (pe && pe->operand && pe->operand->kind == ast::ExprKind::FieldAccess)
-                               ? static_cast<ast::FieldAccessExpr*>(pe->operand)
-                               : nullptr;
+                auto* fa = (pe && pe->operand && pe->operand->kind == ast::ExprKind::FieldAccess) ? static_cast<ast::FieldAccessExpr*>(pe->operand) : nullptr;
                 std::optional<StructPackWindow> window;
                 if (fa)
                 {
@@ -12783,8 +12769,7 @@ export namespace dcc::sema
                     changed = true;
                     for (std::uint64_t k = 0; k < window->arity; ++k)
                     {
-                        auto* idx_lit =
-                            m_ast_ctx.make<ast::IntLiteralExpr>(pe->range, static_cast<std::int64_t>(k), std::string_view{});
+                        auto* idx_lit = m_ast_ctx.make<ast::IntLiteralExpr>(pe->range, static_cast<std::int64_t>(k), std::string_view{});
                         expanded.push_back(m_ast_ctx.make<ast::PackAccessExpr>(pe->range, fa, idx_lit));
                     }
                     continue;
@@ -15166,7 +15151,7 @@ export namespace dcc::sema
         }
 
         bool try_expand_struct_pack_loop(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Block& block, std::size_t index, int loop_depth,
-                                             std::uint32_t& next_off, ConstEnv const* const_env)
+                                         std::uint32_t& next_off, ConstEnv const* const_env)
         {
             auto* s = block.stmts[index];
             auto* sf = ast::node_cast<ast::StaticForStmt>(s);
@@ -15184,8 +15169,7 @@ export namespace dcc::sema
 
             auto* inner = make_scope(ScopeKind::Block, &scope);
             auto* inner_consts = make_const_env(const_env);
-            auto* v =
-                make_local_decl(sf->item_name, sf->name_range, nullptr, ast::StorageClass::Local, allocate_frame_slot(next_off, m_types.usize_t()));
+            auto* v = make_local_decl(sf->item_name, sf->name_range, nullptr, ast::StorageClass::Local, allocate_frame_slot(next_off, m_types.usize_t()));
             define_local(*inner, v);
             {
                 ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
@@ -16121,8 +16105,8 @@ export namespace dcc::sema
         if (has_pack)
         {
             auto const& tp = *template_params.back();
-            auto param_ty = static_cast<types::TemplateParamType const*>(types.template_param_t(
-                const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count)));
+            auto param_ty = static_cast<types::TemplateParamType const*>(
+                types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count)));
             std::vector<types::TypePtr> pack_elements;
             pack_elements.reserve(args.size() - fixed_count);
             for (std::size_t i = fixed_count; i < args.size(); ++i)
