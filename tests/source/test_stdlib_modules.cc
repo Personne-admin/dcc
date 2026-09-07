@@ -197,3 +197,21 @@ public i32 main() {
     CHECK_EQ(build_and_run(source), 0);
 }
 
+TEST_CASE("tuple constructs through Tuple::make and reads elements back")
+{
+    constexpr std::string_view source = R"(module main;
+import std::tuple;
+
+public i32 main() {
+    std::tuple::Tuple(i32, f64) t = std::tuple::Tuple::make(1, 2.0);
+    if t.items.0 != 1 { return 1; }
+    if t.items.1 != 2.0 { return 2; }
+    std::tuple::Tuple(i32) s = std::tuple::Tuple::make(5);
+    if s.items.0 != 5 { return 3; }
+    std::tuple::Tuple() e = std::tuple::Tuple::make();
+    if sizeof(std::tuple::Tuple()) != 0 { return 4; }
+    return 0;
+}
+)";
+    CHECK_EQ(build_and_run(source), 0);
+}

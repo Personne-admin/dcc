@@ -595,9 +595,114 @@ void outer(T...)(T x) { inner(x...); }   // forwards outer's pack to inner
 outer!(i32, i64)(0, 1);
 ```
 
-Variadic template parameters are allowed on function templates and concept
-definitions (`using Foo(T...) = compiles(T x) { ... };`) but explicitly
-not on struct/enum declarations.
+Variadic template parameters are allowed on function templates, struct
+declarations (see §8.6), and concept definitions
+(`using Foo(T...) = compiles(T x) { ... };`) but explicitly not on enum
+declarations.
+
+### 8.6 Pack fields in structs
+
+A struct template whose last template parameter is a pack may declare a
+pack field: a field of the form `T... items;` where `T` is that pack. At
+instantiation the pack field expands to one ordinary field per element of
+the pack, in order. An instantiation with an empty pack has no fields from
+the pack field.
+
+```dc
+struct Tuple(T...) {
+    T... items;
+}
+
+struct Tagged(K, T...) {
+    K key;
+    T... rest;
+}
+
+Tuple(i32, f64) t = {1, 2.0};
+Tagged(u8, i32, i64) g = {key = 7, rest = {8, 9}};
+Tuple() e = {};
+```
+
+A pack field is subject to four structural rules:
+
+- A struct can have at most one pack field.
+- The pack field must be the last field of the struct.
+- A struct cannot have both a pack field and a flexible array member.
+- The pack field type must name a type pack from the struct's own
+  template parameter list.
+
+Layout follows from expansion: the fields of `Tuple(i32, f64)` lay out
+exactly as if the struct had been written by hand with an `i32` field
+followed by an `f64` field. There is no hidden arity field or header;
+`@packed` and `@align` apply to expanded fields normally. An empty pack
+contributes nothing: `sizeof(Tuple())` is 0 and `alignof(Tuple())` is 1.
+
+Elements are accessed with a constant index: `s.items.N` reads or writes
+the Nth element (0-based). The index must be a compile-time constant and
+lie within the pack; both violations are errors. A `static for` loop
+iterates the elements of a pack field, and `offsetof` accepts the pack
+form `offsetof(S(...), items.N)`:
+
+```dc
+i32 first(Tuple(i32, f64) s) {
+    return s.items.0;
+}
+
+void set0(Tuple(i32, f64)* p, i32 v) {
+    p.items.0 = v;
+}
+
+void each(Tuple(i32, i32, i32) s) {
+    static for v in s.items {
+        take(v);
+    }
+}
+
+usize o = offsetof(Tuple(i32, f64), items.1);
+```
+
+Construction works positionally or by naming the pack field. The named
+form takes a nested brace list with one initializer per pack element;
+a single value initializes a one-element pack:
+
+```dc
+Tuple(i32, i64) a = {1, 2};
+Tuple(i32, i64) b = {items = {3, 4}};
+Tagged(u8, i32, i64) c = {key = 7, rest = {8, 9}};
+Tuple(i32) d = {items = 5};
+```
+
+A pack field can be forwarded to another variadic function by
+re-expanding it with `...`. Inside a generic function, a brace literal
+accepts a positional pack expansion, which splices one initializer per
+element at instantiation:
+
+```dc
+void g(T...)(Tuple(T) t) {
+    sizeof...(T);
+}
+
+void caller() {
+    Tuple(i32, f64) v = {1, 2.0};
+    g!(i32, f64)(v);
+}
+
+Tuple(T) tuple_make(T...)(T args) {
+    return {args...};
+}
+```
+
+The standard library builds on this: `std::tuple::Tuple` is a variadic
+struct with an `items` pack field, and `std::tuple::Tuple::make`
+forwards its arguments through `tuple_make` above.
+
+The following are explicitly deferred and not part of this design:
+variadic enums; per-element constraint quantifiers over packs; pack
+aliases; pack slicing, concatenation, or reversal; structural comparison
+or hashing of tuples; structs with more than one pack field; `sizeof...`
+over literal arguments under implicit deduction; and implicit deduction
+of type packs for a call whose result is captured with `auto` (name the
+result type explicitly or supply `!` arguments).
 
 ---
 

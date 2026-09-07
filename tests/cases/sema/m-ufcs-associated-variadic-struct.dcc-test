@@ -1,0 +1,37 @@
+=== FILE: def.dc ===
+module def;
+
+public struct Tuple(T...) {
+    T... items;
+}
+
+public i32 first(Tuple(i32, f64)* self) {
+    return self.items.0;
+}
+
+public i32 get0(T...)(Tuple(T)* self) {
+    return self.items.0;
+}
+
+=== FILE: bridge.dc ===
+module bridge;
+
+import def;
+
+public using Tup = def::Tuple;
+
+=== FILE: main.dc ===
+module main;
+
+import bridge;
+
+void test() {
+    bridge::Tup(i32, f64) t = {1, 2.0};
+    i32 a = t.first();
+    i32 b = t.get0();
+    bridge::Tup(i32, f64)* p = &t;
+    i32 c = p.get0();
+    a + b + c;
+}
+
+=== ENTRY: main.dc ===

@@ -3,6 +3,7 @@ export module dcc.sema.infer;
 import std;
 import dcc.types;
 import dcc.comptime;
+import dcc.ast;
 
 export namespace dcc::infer
 {
@@ -122,6 +123,31 @@ export namespace dcc::infer
         }
 
         [[nodiscard]] bool has_pack_binding(types::TemplateParamType const* param) const { return lookup_pack(param) != nullptr; }
+
+        [[nodiscard]] static bool is_pack_param(types::TemplateParamType const* param) noexcept
+        {
+            if (!param || !param->param)
+                return false;
+            return static_cast<ast::TemplateParam const*>(param->param)->is_pack;
+        }
+
+        [[nodiscard]] DeductionResult deduce_trailing_pack(types::UserType const* pattern, types::UserType const* actual)
+        {
+            if (!pattern || !actual || pattern->template_args.empty() ||
+                actual->template_args.size() < pattern->template_args.size() - 1)
+                return fail(DeductionError::ArityMismatch, "nominal template argument count mismatch");
+            auto const* tp = types::type_cast<types::TemplateParamType>(pattern->template_args.back());
+            if (!tp || !is_pack_param(tp) || has_pack_binding(tp))
+                return fail(DeductionError::ArityMismatch, "nominal template argument count mismatch");
+            for (std::size_t i = 0; i + 1 < pattern->template_args.size(); ++i)
+                if (auto r = deduce(pattern->template_args[i], actual->template_args[i]); !r)
+                    return r;
+            std::size_t fixed = pattern->template_args.size() - 1;
+            std::vector<types::TypePtr> rest(actual->template_args.begin() + static_cast<std::ptrdiff_t>(fixed), actual->template_args.end());
+            if (!bind_pack(tp, std::move(rest)))
+                return fail(DeductionError::Conflict, "conflicting pack binding");
+            return ok();
+        }
 
         [[nodiscard]] bool bind_value_pack(types::TemplateParamType const* param, std::vector<comptime::Value> values)
         {
@@ -651,7 +677,11 @@ export namespace dcc::infer
                         return fail(DeductionError::KindMismatch, "nominal type mismatch");
 
                     if (a->template_args.size() != b->template_args.size())
+                    {
+                        if (deduce_trailing_pack(a, b) || deduce_trailing_pack(b, a))
+                            return ok();
                         return fail(DeductionError::ArityMismatch, "nominal template argument count mismatch");
+                    }
 
                     for (std::size_t i = 0; i < a->template_args.size(); ++i)
                         if (auto r = deduce(a->template_args[i], b->template_args[i]); !r)

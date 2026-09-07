@@ -1,0 +1,11 @@
+module std::tuple;
+
+public struct Tuple(T...) {
+    T... items;
+}
+
+public Tuple(T) tuple_make(T...)(T args) {
+    return {args...};
+}
+
+public using Tuple::make = tuple_make;

@@ -11777,9 +11777,40 @@ export namespace dcc::sema
                 result.type = record_ty;
                 result.construction_kind = kind;
 
+                bool has_splice = false;
                 for (auto& f : s.fields)
                 {
                     std::size_t field_index = fields.size();
+                    if (f.value && f.value->kind == ast::ExprKind::PackExpansion)
+                    {
+                        if (!f.name.empty())
+                        {
+                            if (!resolve_struct_pack_window(record_ty, f.name))
+                            {
+                                bool known = false;
+                                for (auto const& field : fields)
+                                    if (field.name == f.name)
+                                    {
+                                        known = true;
+                                        break;
+                                    }
+                                if (!known)
+                                {
+                                    error(f.range, "unknown field `{}` in brace literal", f.name);
+                                    return std::nullopt;
+                                }
+                                error(f.range, "pack expansion cannot initialize non-pack field `{}`", f.name);
+                                return std::nullopt;
+                            }
+                        }
+                        auto splice = analyze_expr(mod, fn, scope, *f.value, loop_depth, next_off, nullptr, const_env);
+                        if (!splice.type || splice.type->kind == types::TypeKind::Error)
+                            return std::nullopt;
+                        f.resolved_field_index = 0;
+                        f.resolved_field_count = 0;
+                        has_splice = true;
+                        continue;
+                    }
                     if (!f.name.empty())
                     {
                         if (auto window = resolve_struct_pack_window(record_ty, f.name))
@@ -11939,7 +11970,7 @@ export namespace dcc::sema
                     std::size_t covered = 0;
                     for (auto const& f : s.fields)
                         covered += f.resolved_field_count;
-                    if (covered != fields.size())
+                    if (!has_splice && covered != fields.size())
                     {
                         for (std::size_t i = 0; i < used.size(); ++i)
                             if (!used[i] && !types::is_fam_type(fields[i].type))

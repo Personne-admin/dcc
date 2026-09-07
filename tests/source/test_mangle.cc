@@ -365,6 +365,43 @@ TEST_CASE("mangle_type Enum")
     CHECK_EQ(s, "_DC0TD1.3.gfx5.Color0.");
 }
 
+TEST_CASE("mangle_type variadic struct pack instantiations are distinct")
+{
+    types::TypeContext ctx;
+    ast::AstContext actx;
+    auto* sd = actx.make<ast::StructDecl>(dcc::sm::SourceRange{}, "Tuple", dcc::sm::SourceRange{});
+    auto resolver = make_resolver({"m"}, "Tuple");
+    std::vector<types::TypePtr> i32f64 = {i32(ctx), f64(ctx)};
+    std::vector<types::TypePtr> f64i32 = {f64(ctx), i32(ctx)};
+    std::vector<types::TypePtr> i32only = {i32(ctx)};
+    std::vector<types::TypePtr> i32i32 = {i32(ctx), i32(ctx)};
+    std::vector<types::TypePtr> none;
+    auto t_i32f64 = ctx.nominal_t(types::TypeKind::Struct, sd, i32f64);
+    auto t_f64i32 = ctx.nominal_t(types::TypeKind::Struct, sd, f64i32);
+    auto t_i32 = ctx.nominal_t(types::TypeKind::Struct, sd, i32only);
+    auto t_i32i32 = ctx.nominal_t(types::TypeKind::Struct, sd, i32i32);
+    auto t_empty = ctx.nominal_t(types::TypeKind::Struct, sd, none, true);
+    auto t_unspec = ctx.nominal_t(types::TypeKind::Struct, sd);
+    auto s_i32f64 = mangle::mangle_type(t_i32f64, resolver);
+    auto s_f64i32 = mangle::mangle_type(t_f64i32, resolver);
+    auto s_i32 = mangle::mangle_type(t_i32, resolver);
+    auto s_i32i32 = mangle::mangle_type(t_i32i32, resolver);
+    auto s_empty = mangle::mangle_type(t_empty, resolver);
+    auto s_unspec = mangle::mangle_type(t_unspec, resolver);
+    CHECK_EQ(s_empty, "_DC0TD1.1.m5.Tuple0.e");
+    CHECK_EQ(s_unspec, "_DC0TD1.1.m5.Tuple0.");
+    std::vector<std::string> all = {s_i32f64, s_f64i32, s_i32, s_i32i32, s_empty, s_unspec};
+    for (std::size_t i = 0; i < all.size(); ++i)
+        for (std::size_t j = i + 1; j < all.size(); ++j)
+            CHECK_NE(all[i], all[j]);
+    mangle::DemangledName d_empty;
+    REQUIRE(mangle::demangle(d_empty, s_empty));
+    CHECK(d_empty.type_only.is_specialization);
+    mangle::DemangledName d_unspec;
+    REQUIRE(mangle::demangle(d_unspec, s_unspec));
+    CHECK(!d_unspec.type_only.is_specialization);
+}
+
 SECTION("mangle_value");
 
 TEST_CASE("mangle_value Null")

@@ -3202,10 +3202,69 @@ export namespace dcc::sema
                                 expand_in_expr(arm.body, false);
                             break;
                         }
-                        case ast::ExprKind::StructLiteral:
-                            for (auto& f : static_cast<ast::StructLiteralExpr*>(e)->fields)
+                        case ast::ExprKind::StructLiteral: {
+                            auto* sl = static_cast<ast::StructLiteralExpr*>(e);
+                            std::pmr::vector<ast::StructLiteralField> new_fields(sl->fields.get_allocator());
+                            for (auto& f : sl->fields)
+                            {
+                                if (f.value && f.value->kind == ast::ExprKind::PackExpansion)
+                                {
+                                    auto* pe = static_cast<ast::PackExpansionExpr*>(f.value);
+                                    auto* ident = ast::node_cast<ast::IdentExpr>(pe->operand);
+                                    if (ident)
+                                    {
+                                        auto it = pack_info.find(ident->name);
+                                        if (it != pack_info.end() && it->second.types.empty())
+                                            continue;
+                                        if (it != pack_info.end() && !it->second.types.empty())
+                                        {
+                                            bool multi = it->second.types.size() > 1;
+                                            for (std::size_t pi = 0; pi < it->second.types.size(); ++pi)
+                                            {
+                                                AstCloner cloner{ast_ctx};
+                                                auto* cloned = cloner.clone_expr(pe->operand);
+                                                auto elem_type = it->second.types[pi];
+                                                set_resolved_type(cloned->sema, elem_type);
+                                                auto* elem_ident = ast::node_cast<ast::IdentExpr>(cloned);
+                                                if (elem_ident)
+                                                {
+                                                    auto name_key = multi ? std::format("{}_{}", ident->name, pi) : std::string{ident->name};
+                                                    auto dit = expanded_decls.find(name_key);
+                                                    if (dit != expanded_decls.end())
+                                                    {
+                                                        elem_ident->name = dit->second->name;
+                                                        cloned->sema.resolved_decl = dit->second;
+                                                    }
+                                                    else if (multi)
+                                                    {
+                                                        auto* buf = static_cast<char*>(ast_ctx.resource()->allocate(name_key.size() + 1, alignof(char)));
+                                                        std::memcpy(buf, name_key.data(), name_key.size() + 1);
+                                                        elem_ident->name = std::string_view{buf, name_key.size()};
+                                                    }
+
+                                                    if (it->second.is_value_pack && pi < it->second.values.size())
+                                                    {
+                                                        auto const& v = it->second.values[pi];
+                                                        cloned->sema.const_value = ast_ctx.own_value(v);
+                                                        cloned->sema.is_constant = true;
+                                                    }
+                                                }
+                                                ast::StructLiteralField nf;
+                                                nf.range = f.range;
+                                                nf.value = cloned;
+                                                new_fields.push_back(std::move(nf));
+                                            }
+
+                                            continue;
+                                        }
+                                    }
+                                }
                                 expand_in_expr(f.value, false);
+                                new_fields.push_back(std::move(f));
+                            }
+                            sl->fields = std::move(new_fields);
                             break;
+                        }
                         case ast::ExprKind::Range: {
                             auto* r = static_cast<ast::RangeExpr*>(e);
                             expand_in_expr(r->start, false);
