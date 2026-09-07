@@ -1,0 +1,188 @@
+//!!
+//!! Path conversion
+//!!
+//!! Kernels do not take slices. Linux wants a NUL-terminated byte string,
+//!! NT wants NUL-terminated UTF-16. Both conversions are bounded and
+//!! stack-allocatable, so nothing here allocates. A caller declares the
+//!! buffer, we fill it, and the borrow ends with the call.
+//!!
+
+module std::os::path;
+
+import core::target;
+import std::mem;
+import std::slice;
+import std::utf8;
+public import std::os::error;
+public import std::result;
+
+using result::{ Result, Status };
+using error::Error;
+
+public using usize MAX_BYTES = 4096;
+public using usize MAX_WIDE = 4096;
+
+//!
+//! Byte paths
+//!
+
+public struct PathZ {
+    // Keep the ABI extent literal: imported named array bounds currently
+    // resolve to zero in dcc. The OS tests check this against MAX_BYTES.
+    u8[4096] bytes;
+    usize len;
+}
+
+/// NUL-terminates `path` into `out`.
+public Status(Error) to_pathz([] const u8 path, PathZ* out) {
+    if path.len + 1 > MAX_BYTES {
+        return Error::NameTooLong;
+    }
+
+    // Borrow the field explicitly; implicit field-array decay currently copies.
+    [] u8 view = slice::from_raw(&out.bytes[0], MAX_BYTES);
+    mem::copy(view, path);
+    view[path.len] = 0;
+    out.len = path.len;
+
+    return Status::Ok;
+}
+
+public const u8* ptr(const PathZ* self) {
+    return &self.bytes[0];
+}
+
+//!
+//! Wide paths
+//!
+
+public struct PathW {
+    // See PathZ; the OS tests keep this extent tied to MAX_WIDE.
+    u16[4096] units;
+    usize len;
+}
+
+/// transcodes `path` from UTF-8 to NUL-terminated UTF-16.
+///
+/// malformed input is rejected rather than replaced: a path is a name,
+/// and silently renaming it is worse than failing.
+public Status(Error) to_pathw([] const u8 path, PathW* out) {
+    usize i = 0;
+    usize n = 0;
+
+    while i < path.len {
+        Result(utf8::Decoded, utf8::Utf8Error) d = utf8::decode(
+            path[i..path.len]
+        );
+        if d.is_err() {
+            return Error::InvalidArgument;
+        }
+
+        utf8::Decoded scalar = d.unwrap();
+        i = i + scalar.width;
+
+        if scalar.codepoint < 0x10000 {
+            if n + 2 > MAX_WIDE {
+                return Error::NameTooLong;
+            }
+
+            out.units[n] = scalar.codepoint as u16;
+            n++;
+        } else {
+            if n + 3 > MAX_WIDE {
+                return Error::NameTooLong;
+            }
+
+            u32 rest = scalar.codepoint - 0x10000;
+            out.units[n] = (0xD800 | (rest >> 10)) as u16;
+            out.units[n + 1] = (0xDC00 | (rest & 0x3FF)) as u16;
+            n = n + 2;
+        }
+    }
+
+    if n + 1 > MAX_WIDE {
+        return Error::NameTooLong;
+    }
+
+    out.units[n] = 0;
+    out.len = n;
+    return Status::Ok;
+}
+
+public const u16* wide_ptr(const PathW* self) {
+    return &self.units[0];
+}
+
+//!
+//! Lexical helpers
+//!
+//! Separator handling only; nothing here touches the filesystem.
+//!
+
+public u8 separator() {
+    static if core::target::OS == core::target::Os::Windows {
+        return '\\' as u8;
+    } else {
+        return '/' as u8;
+    }
+}
+
+public bool is_separator(u8 c) {
+    static if core::target::OS == core::target::Os::Windows {
+        return c == ('\\' as u8) || c == ('/' as u8);
+    } else {
+        return c == ('/' as u8);
+    }
+}
+
+/// the final component of `path`, without any trailing separator.
+public [] const u8 basename([] const u8 path) {
+    usize end = path.len;
+    while end > 0 && is_separator(path[end - 1]) {
+        end--;
+    }
+
+    usize start = end;
+    while start > 0 && !is_separator(path[start - 1]) {
+        start--;
+    }
+
+    return path[start..end];
+}
+
+/// everything before the final component, or an empty slice.
+public [] const u8 dirname([] const u8 path) {
+    usize end = path.len;
+    while end > 0 && is_separator(path[end - 1]) {
+        end--;
+    }
+
+    while end > 0 && !is_separator(path[end - 1]) {
+        end--;
+    }
+
+    while end > 1 && is_separator(path[end - 1]) {
+        end--;
+    }
+
+    return path[0..end];
+}
+
+/// the extension including its dot, or an empty slice.
+public [] const u8 extension([] const u8 path) {
+    [] const u8 base = basename(path);
+
+    usize i = base.len;
+    while i > 0 {
+        i--;
+        if base[i] == ('.' as u8) {
+            return if i == 0 {
+                base[base.len..base.len]
+            } else {
+                base[i..base.len]
+            };
+        }
+    }
+
+    return base[base.len..base.len];
+}

@@ -1,0 +1,687 @@
+module main;
+
+import core::target;
+import std::os::error;
+import std::os::path;
+import std::sys::linux::abi;
+import std::sys::win::abi;
+import std::mem;
+import std::slice;
+
+using std::os::{ error, path };
+using std::sys::{ linux, win };
+using error::Error;
+
+bool same([] const u8 a, [] const u8 b) {
+    return std::mem::equal(a, b);
+}
+
+i32 error_mappings() {
+    if error::from_errno(1) != Error::AccessDenied {
+        return 1;
+    }
+    if error::from_errno(13) != Error::AccessDenied {
+        return 2;
+    }
+    if error::from_errno(2) != Error::NotFound {
+        return 3;
+    }
+    if error::from_errno(17) != Error::AlreadyExists {
+        return 4;
+    }
+    if error::from_errno(21) != Error::IsDirectory {
+        return 5;
+    }
+    if error::from_errno(20) != Error::NotDirectory {
+        return 6;
+    }
+    if error::from_errno(39) != Error::DirectoryNotEmpty {
+        return 7;
+    }
+    if error::from_errno(9) != Error::BadHandle {
+        return 8;
+    }
+    if error::from_errno(14) != Error::InvalidArgument {
+        return 9;
+    }
+    if error::from_errno(22) != Error::InvalidArgument {
+        return 10;
+    }
+    if error::from_errno(36) != Error::NameTooLong {
+        return 11;
+    }
+    if error::from_errno(23) != Error::TooManyOpenFiles {
+        return 12;
+    }
+    if error::from_errno(24) != Error::TooManyOpenFiles {
+        return 13;
+    }
+    if error::from_errno(12) != Error::OutOfMemory {
+        return 14;
+    }
+    if error::from_errno(28) != Error::NoSpace {
+        return 15;
+    }
+    if error::from_errno(27) != Error::FileTooBig {
+        return 16;
+    }
+    if error::from_errno(32) != Error::BrokenPipe {
+        return 17;
+    }
+    if error::from_errno(11) != Error::WouldBlock {
+        return 18;
+    }
+    if error::from_errno(4) != Error::Interrupted {
+        return 19;
+    }
+    if error::from_errno(16) != Error::Busy {
+        return 20;
+    }
+    if error::from_errno(110) != Error::TimedOut {
+        return 21;
+    }
+    if error::from_errno(29) != Error::NotSeekable {
+        return 22;
+    }
+    if error::from_errno(30) != Error::ReadOnlyFilesystem {
+        return 23;
+    }
+    if error::from_errno(18) != Error::CrossDevice {
+        return 24;
+    }
+    if error::from_errno(40) != Error::SymlinkLoop {
+        return 25;
+    }
+    if error::from_errno(38) != Error::NotSupported {
+        return 26;
+    }
+    if error::from_errno(95) != Error::NotSupported {
+        return 27;
+    }
+    if error::from_errno(125) != Error::Canceled {
+        return 28;
+    }
+    if error::from_errno(5) != Error::InputOutput {
+        return 29;
+    }
+    if error::from_errno(0) != Error::Unexpected {
+        return 30;
+    }
+    if error::from_errno(3) != Error::Unexpected {
+        return 31;
+    }
+    if error::from_errno(6) != Error::Unexpected {
+        return 32;
+    }
+    if error::from_errno(7) != Error::Unexpected {
+        return 33;
+    }
+    if error::from_errno(8) != Error::Unexpected {
+        return 34;
+    }
+    if error::from_errno(10) != Error::Unexpected {
+        return 35;
+    }
+    if error::from_errno(19) != Error::Unexpected {
+        return 36;
+    }
+    if error::from_errno(25) != Error::Unexpected {
+        return 37;
+    }
+    if error::from_errno(31) != Error::Unexpected {
+        return 38;
+    }
+    if error::from_errno(34) != Error::Unexpected {
+        return 39;
+    }
+    if error::from_errno(35) != Error::Unexpected {
+        return 40;
+    }
+    if error::from_errno(75) != Error::Unexpected {
+        return 41;
+    }
+    if error::from_errno(88) != Error::Unexpected {
+        return 42;
+    }
+    if error::from_errno(98) != Error::Unexpected {
+        return 43;
+    }
+    if error::from_errno(104) != Error::Unexpected {
+        return 44;
+    }
+    if error::from_errno(111) != Error::Unexpected {
+        return 45;
+    }
+    if error::from_errno(9999) != Error::Unexpected {
+        return 46;
+    }
+    if error::from_win32(5) != Error::AccessDenied {
+        return 47;
+    }
+    if error::from_win32(32) != Error::AccessDenied {
+        return 48;
+    }
+    if error::from_win32(33) != Error::AccessDenied {
+        return 49;
+    }
+    if error::from_win32(2) != Error::NotFound {
+        return 50;
+    }
+    if error::from_win32(3) != Error::NotFound {
+        return 51;
+    }
+    if error::from_win32(80) != Error::AlreadyExists {
+        return 52;
+    }
+    if error::from_win32(183) != Error::AlreadyExists {
+        return 53;
+    }
+    if error::from_win32(267) != Error::NotDirectory {
+        return 54;
+    }
+    if error::from_win32(145) != Error::DirectoryNotEmpty {
+        return 55;
+    }
+    if error::from_win32(6) != Error::BadHandle {
+        return 56;
+    }
+    if error::from_win32(87) != Error::InvalidArgument {
+        return 57;
+    }
+    if error::from_win32(123) != Error::InvalidArgument {
+        return 58;
+    }
+    if error::from_win32(1113) != Error::InvalidArgument {
+        return 59;
+    }
+    if error::from_win32(206) != Error::NameTooLong {
+        return 60;
+    }
+    if error::from_win32(4) != Error::TooManyOpenFiles {
+        return 61;
+    }
+    if error::from_win32(8) != Error::OutOfMemory {
+        return 62;
+    }
+    if error::from_win32(14) != Error::OutOfMemory {
+        return 63;
+    }
+    if error::from_win32(112) != Error::NoSpace {
+        return 64;
+    }
+    if error::from_win32(39) != Error::NoSpace {
+        return 65;
+    }
+    if error::from_win32(109) != Error::BrokenPipe {
+        return 66;
+    }
+    if error::from_win32(21) != Error::Busy {
+        return 67;
+    }
+    if error::from_win32(170) != Error::Busy {
+        return 68;
+    }
+    if error::from_win32(258) != Error::TimedOut {
+        return 69;
+    }
+    if error::from_win32(50) != Error::NotSupported {
+        return 70;
+    }
+    if error::from_win32(995) != Error::Canceled {
+        return 71;
+    }
+    if error::from_win32(29) != Error::InputOutput {
+        return 72;
+    }
+    if error::from_win32(0) != Error::Unexpected {
+        return 73;
+    }
+    if error::from_win32(997) != Error::Unexpected {
+        return 74;
+    }
+    if error::from_win32(9999) != Error::Unexpected {
+        return 75;
+    }
+    if !(same(error::name(Error::AccessDenied), "AccessDenied")) {
+        return 76;
+    }
+    if !(same(error::name(Error::NotFound), "NotFound")) {
+        return 77;
+    }
+    if !(same(error::name(Error::AlreadyExists), "AlreadyExists")) {
+        return 78;
+    }
+    if !(same(error::name(Error::IsDirectory), "IsDirectory")) {
+        return 79;
+    }
+    if !(same(error::name(Error::NotDirectory), "NotDirectory")) {
+        return 80;
+    }
+    if !(same(error::name(Error::DirectoryNotEmpty), "DirectoryNotEmpty")) {
+        return 81;
+    }
+    if !(same(error::name(Error::BadHandle), "BadHandle")) {
+        return 82;
+    }
+    if !(same(error::name(Error::InvalidArgument), "InvalidArgument")) {
+        return 83;
+    }
+    if !(same(error::name(Error::NameTooLong), "NameTooLong")) {
+        return 84;
+    }
+    if !(same(error::name(Error::TooManyOpenFiles), "TooManyOpenFiles")) {
+        return 85;
+    }
+    if !(same(error::name(Error::OutOfMemory), "OutOfMemory")) {
+        return 86;
+    }
+    if !(same(error::name(Error::NoSpace), "NoSpace")) {
+        return 87;
+    }
+    if !(same(error::name(Error::FileTooBig), "FileTooBig")) {
+        return 88;
+    }
+    if !(same(error::name(Error::BrokenPipe), "BrokenPipe")) {
+        return 89;
+    }
+    if !(same(error::name(Error::WouldBlock), "WouldBlock")) {
+        return 90;
+    }
+    if !(same(error::name(Error::Interrupted), "Interrupted")) {
+        return 91;
+    }
+    if !(same(error::name(Error::Busy), "Busy")) {
+        return 92;
+    }
+    if !(same(error::name(Error::TimedOut), "TimedOut")) {
+        return 93;
+    }
+    if !(same(error::name(Error::NotSeekable), "NotSeekable")) {
+        return 94;
+    }
+    if !(same(error::name(Error::ReadOnlyFilesystem), "ReadOnlyFilesystem")) {
+        return 95;
+    }
+    if !(same(error::name(Error::CrossDevice), "CrossDevice")) {
+        return 96;
+    }
+    if !(same(error::name(Error::SymlinkLoop), "SymlinkLoop")) {
+        return 97;
+    }
+    if !(same(error::name(Error::NotSupported), "NotSupported")) {
+        return 98;
+    }
+    if !(same(error::name(Error::Canceled), "Canceled")) {
+        return 99;
+    }
+    if !(same(error::name(Error::InputOutput), "InputOutput")) {
+        return 100;
+    }
+    if !(same(error::name(Error::Unexpected), "Unexpected")) {
+        return 101;
+    }
+    return 0;
+}
+
+i32 lexical_paths() {
+    if !(same(path::basename(""), "")) {
+        return 102;
+    }
+    if !(same(path::dirname(""), "")) {
+        return 103;
+    }
+    if !(same(path::extension(""), "")) {
+        return 104;
+    }
+    if !(same(path::basename("/"), "")) {
+        return 105;
+    }
+    if !(same(path::dirname("/"), "")) {
+        return 106;
+    }
+    if !(same(path::extension("/"), "")) {
+        return 107;
+    }
+    if !(same(path::basename("///"), "")) {
+        return 108;
+    }
+    if !(same(path::dirname("///"), "")) {
+        return 109;
+    }
+    if !(same(path::extension("///"), "")) {
+        return 110;
+    }
+    if !(same(path::basename("a"), "a")) {
+        return 111;
+    }
+    if !(same(path::dirname("a"), "")) {
+        return 112;
+    }
+    if !(same(path::extension("a"), "")) {
+        return 113;
+    }
+    if !(same(path::basename("/a"), "a")) {
+        return 114;
+    }
+    if !(same(path::dirname("/a"), "/")) {
+        return 115;
+    }
+    if !(same(path::extension("/a"), "")) {
+        return 116;
+    }
+    if !(same(path::basename("/a/"), "a")) {
+        return 117;
+    }
+    if !(same(path::dirname("/a/"), "/")) {
+        return 118;
+    }
+    if !(same(path::extension("/a/"), "")) {
+        return 119;
+    }
+    if !(same(path::basename("/a///"), "a")) {
+        return 120;
+    }
+    if !(same(path::dirname("/a///"), "/")) {
+        return 121;
+    }
+    if !(same(path::extension("/a///"), "")) {
+        return 122;
+    }
+    if !(same(path::basename("a/b"), "b")) {
+        return 123;
+    }
+    if !(same(path::dirname("a/b"), "a")) {
+        return 124;
+    }
+    if !(same(path::extension("a/b"), "")) {
+        return 125;
+    }
+    if !(same(path::basename("a//b///"), "b")) {
+        return 126;
+    }
+    if !(same(path::dirname("a//b///"), "a")) {
+        return 127;
+    }
+    if !(same(path::extension("a//b///"), "")) {
+        return 128;
+    }
+    if !(same(path::basename(".bashrc"), ".bashrc")) {
+        return 129;
+    }
+    if !(same(path::dirname(".bashrc"), "")) {
+        return 130;
+    }
+    if !(same(path::extension(".bashrc"), "")) {
+        return 131;
+    }
+    if !(same(path::basename(".."), "..")) {
+        return 132;
+    }
+    if !(same(path::dirname(".."), "")) {
+        return 133;
+    }
+    if !(same(path::extension(".."), ".")) {
+        return 134;
+    }
+    if !(same(path::basename("...foo"), "...foo")) {
+        return 135;
+    }
+    if !(same(path::dirname("...foo"), "")) {
+        return 136;
+    }
+    if !(same(path::extension("...foo"), ".foo")) {
+        return 137;
+    }
+    if !(same(path::basename("a.b.c"), "a.b.c")) {
+        return 138;
+    }
+    if !(same(path::dirname("a.b.c"), "")) {
+        return 139;
+    }
+    if !(same(path::extension("a.b.c"), ".c")) {
+        return 140;
+    }
+    if !(same(path::basename("a."), "a.")) {
+        return 141;
+    }
+    if !(same(path::dirname("a."), "")) {
+        return 142;
+    }
+    if !(same(path::extension("a."), ".")) {
+        return 143;
+    }
+    if !(same(path::basename("a/.hidden"), ".hidden")) {
+        return 144;
+    }
+    if !(same(path::dirname("a/.hidden"), "a")) {
+        return 145;
+    }
+    if !(same(path::extension("a/.hidden"), "")) {
+        return 146;
+    }
+    if error::from_win32(131) != Error::InvalidArgument {
+        return 237;
+    }
+    if error::from_syscall(-13) != Error::AccessDenied || error::from_syscall(
+        -4095
+    ) != Error::Unexpected {
+        return 237;
+    }
+
+    bool separators_ok = false;
+    static if core::target::OS == core::target::Os::Windows {
+        separators_ok = path::separator() == 92 && path::is_separator(92) && same(
+            path::basename("C:\\a\\b"),
+            "b"
+        );
+    } else {
+        separators_ok = path::separator() == 47 && !path::is_separator(92);
+    }
+
+    if !separators_ok {
+        return 241;
+    }
+
+    if !path::is_separator(47) || path::is_separator(65) {
+        return 242;
+    }
+
+    return 0;
+}
+
+i32 path_encodings() {
+    if sizeof (path::PathZ) != path::MAX_BYTES + 8
+        || sizeof (path::PathW) != path::MAX_WIDE * 2 + 8
+    {
+        return 240;
+    }
+
+    if !same(error::name(65535 as Error), "Unexpected") {
+        return 239;
+    }
+
+    path::PathZ z;
+    path::PathW w;
+    u8[10] utf = {65, 0xC3, 0xA9, 0xE2, 0x82, 0xAC, 0xF0, 0x9F, 0x98, 0x80};
+    if !path::to_pathz(utf, &z).is_ok() || z.len != 10 || z.bytes[10] != 0 || !same(
+        z.bytes[0..10],
+        utf
+    ) {
+        return 243;
+    }
+
+    // U+1F600 - 0x10000 = 0xF600; high=0xD800+0x3D, low=0xDC00+0x200.
+    if !path::to_pathw(utf, &w).is_ok()
+        || w.len != 5
+        || w.units[0] != 65
+        || w.units[1] != 233
+        || w.units[2] != 8364
+        || w.units[3] != 0xD83D
+        || w.units[4] != 0xDE00
+        || w.units[5] != 0
+    {
+        return 244;
+    }
+
+    if !path::to_pathw("", &w).is_ok() || w.len != 0 || w.units[0] != 0 {
+        return 245;
+    }
+
+    if !path::to_pathz("", &z).is_ok() || z.len != 0 || z.bytes[0] != 0 {
+        return 245;
+    }
+
+    u8[4097] boundary;
+    std::mem::set(boundary[0..4097], 65 as u8);
+    if !path::to_pathz(boundary[0..4095], &z).is_ok()
+        || z.len != 4095
+        || z.bytes[4095] != 0
+    {
+        return 246;
+    }
+
+    if path::to_pathz(boundary[0..4096], &z).unwrap_err() != Error::NameTooLong || path::to_pathz(
+        boundary,
+        &z
+    ).unwrap_err() != Error::NameTooLong {
+        return 247;
+    }
+
+    if !path::to_pathw(boundary[0..4095], &w).is_ok()
+        || w.len != 4095
+        || w.units[4095] != 0
+    {
+        return 248;
+    }
+
+    if path::to_pathw(boundary[0..4096], &w).unwrap_err() != Error::NameTooLong || path::to_pathw(
+        boundary,
+        &w
+    ).unwrap_err() != Error::NameTooLong {
+        return 249;
+    }
+
+    boundary[4091] = 0xF0;
+    boundary[4092] = 0x9F;
+    boundary[4093] = 0x98;
+    boundary[4094] = 0x80;
+    if !path::to_pathw(boundary[0..4097], &w).is_ok()
+        || w.len != 4095
+        || w.units[4095] != 0
+    {
+        return 250;
+    }
+
+    boundary[4091] = 65;
+    boundary[4092] = 0xF0;
+    boundary[4093] = 0x9F;
+    boundary[4094] = 0x98;
+    boundary[4095] = 0x80;
+    if !path::to_pathw(boundary[0..4097], &w).is_ok() || w.len != 4095 {
+        return 250;
+    }
+
+    u8[4098] wider;
+    std::mem::set(wider[0..4098], 65 as u8);
+    wider[4092] = 0xF0;
+    wider[4093] = 0x9F;
+    wider[4094] = 0x98;
+    wider[4095] = 0x80;
+    if path::to_pathw(wider, &w).unwrap_err() != Error::NameTooLong {
+        return 250;
+    }
+
+    u8[1] continuation = { 0x80 };
+    u8[2] overlong = {0xC0, 0xAF};
+    u8[2] truncated = {0xE2, 0x82};
+    u8[4] too_large = {0xF4, 0x90, 0x80, 0x80};
+    if path::to_pathw(continuation, &w).unwrap_err() != Error::InvalidArgument || path::to_pathw(
+        overlong,
+        &w
+    ).unwrap_err() != Error::InvalidArgument || path::to_pathw(
+        truncated,
+        &w
+    ).unwrap_err() != Error::InvalidArgument || path::to_pathw(
+        too_large,
+        &w
+    ).unwrap_err() != Error::InvalidArgument {
+        return 251;
+    }
+
+    u8[3] bad = {0xED, 0xA0, 0x80};
+    if path::to_pathw(bad, &w).unwrap_err() != Error::InvalidArgument {
+        return 251;
+    }
+    return 0;
+}
+
+i32 abi_arithmetic() {
+    if !linux::abi::is_error(-1) || !linux::abi::is_error(-4095) || linux::abi::is_error(
+        -4096
+    ) || linux::abi::is_error(
+        0
+    ) || linux::abi::is_error(
+        7
+    ) {
+        return 252;
+    }
+
+    if linux::abi::errno_of(-1) != 1 || linux::abi::errno_of(-4095) != 4095 {
+        return 252;
+    }
+
+    // errno_of explicitly has no contract for successes or -4096.
+    if win::abi::succeeded(0) || !win::abi::succeeded(1) || !win::abi::succeeded(
+        -1
+    ) {
+        return 253;
+    }
+
+    if sizeof (linux::abi::Stat) != 144
+        || offsetof (linux::abi::Stat, size) != 48
+    {
+        return 238;
+    }
+
+    if sizeof (win::abi::FileTime) != 8
+        || sizeof (win::abi::SecurityAttributes) != 24
+        || sizeof (win::abi::Overlapped) != 32
+        || sizeof (win::abi::SystemInfo) != 48
+    {
+        return 238;
+    }
+
+    if sizeof (win::abi::ByHandleFileInformation) != 52
+        || offsetof (win::abi::ByHandleFileInformation, volume_serial_number) != 28
+    {
+        return 238;
+    }
+
+    win::abi::FileTime ft = {low = 0xD53E8000, high = 0x019DB1DE};
+    if win::abi::filetime_ticks(&ft) != win::abi::FILETIME_UNIX_EPOCH {
+        return 254;
+    }
+
+    ft.low = ft.low + 10000000;
+    if (win::abi::filetime_ticks(&ft) - win::abi::FILETIME_UNIX_EPOCH) * 100 != 1000000000 {
+        return 254;
+    }
+
+    return 0;
+}
+
+public i32 main() {
+    i32 code = error_mappings();
+    if code != 0 {
+        return code;
+    }
+    code = lexical_paths();
+    if code != 0 {
+        return code;
+    }
+    code = path_encodings();
+    if code != 0 {
+        return code;
+    }
+    return abi_arithmetic();
+}

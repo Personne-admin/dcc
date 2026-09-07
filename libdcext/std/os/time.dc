@@ -1,0 +1,141 @@
+//!!
+//!! Clocks
+//!!
+//!! Nanoseconds everywhere. The monotonic clock has an arbitrary origin
+//!! and is for measuring durations; the realtime clock is Unix epoch
+//!! based and can move backwards.
+//!!
+
+module std::os::time;
+
+import core;
+import core::target;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+public import std::os::error;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using result::Result;
+using error::Error;
+
+public using u64 NANOS_PER_MICRO = 1000;
+public using u64 NANOS_PER_MILLI = 1000000;
+public using u64 NANOS_PER_SECOND = 1000000000;
+
+public Result(u64, Error) monotonic_ns() {
+    static if core::target::OS == core::target::Os::Windows {
+        i64 ticks = 0;
+        i64 frequency = 0;
+
+        if !win::abi::succeeded(win::imports::QueryPerformanceCounter(&ticks)) {
+            return Result::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        if !win::abi::succeeded(
+            win::imports::QueryPerformanceFrequency(&frequency)
+        ) {
+            return Result::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        if frequency == 0 {
+            return Error::Unexpected;
+        }
+
+        // split the conversion so the multiply cannot overflow on a long
+        // uptime with a high-frequency counter
+        u64 whole = (ticks / frequency) as u64;
+        u64 part = (ticks % frequency) as u64;
+
+        return Result::Ok(
+            whole * NANOS_PER_SECOND
+            + part * NANOS_PER_SECOND / (frequency as u64)
+        );
+    } else {
+        linux::abi::Timespec now;
+        isize ret = linux::syscall::clock_gettime(
+            linux::abi::CLOCK_MONOTONIC,
+            &now
+        );
+
+        if linux::abi::is_error(ret) {
+            return Result::Err(error::from_syscall(ret));
+        }
+
+        return Result::Ok(
+            (now.seconds as u64) * NANOS_PER_SECOND
+            + now.nanoseconds as u64
+        );
+    }
+}
+
+public Result(u64, Error) realtime_ns() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::FileTime ft;
+        win::imports::GetSystemTimeAsFileTime(&ft);
+
+        u64 ticks = win::abi::filetime_ticks(&ft);
+        if ticks < win::abi::FILETIME_UNIX_EPOCH {
+            return Error::Unexpected;
+        }
+
+        return Result::Ok((ticks - win::abi::FILETIME_UNIX_EPOCH) * 100);
+    } else {
+        linux::abi::Timespec now;
+        isize ret = linux::syscall::clock_gettime(
+            linux::abi::CLOCK_REALTIME,
+            &now
+        );
+
+        if linux::abi::is_error(ret) {
+            return Result::Err(error::from_syscall(ret));
+        }
+
+        return Result::Ok(
+            (now.seconds as u64) * NANOS_PER_SECOND
+            + now.nanoseconds as u64
+        );
+    }
+}
+
+/// suspends the caller for at least `nanos`. an interrupted sleep is
+/// resumed with the remaining time rather than reported, so this returns
+/// only once the full duration has elapsed.
+public void sleep_ns(u64 nanos) {
+    static if core::target::OS == core::target::Os::Windows {
+        u64 millis = (nanos + NANOS_PER_MILLI - 1) / NANOS_PER_MILLI;
+        win::imports::Sleep(
+            if millis > 0xFFFFFFFE {
+                0xFFFFFFFE as u32
+            } else {
+                millis as u32
+            }
+        );
+    } else {
+        linux::abi::Timespec request = {
+            seconds = (nanos / NANOS_PER_SECOND) as i64,
+            nanoseconds = (nanos % NANOS_PER_SECOND) as i64,
+        };
+        linux::abi::Timespec remaining = {seconds = 0, nanoseconds = 0};
+
+        while true {
+            isize ret = linux::syscall::nanosleep(&request, &remaining);
+            if !linux::abi::is_error(ret) {
+                return;
+            }
+
+            if linux::abi::errno_of(ret) != linux::abi::EINTR {
+                return;
+            }
+
+            request = remaining;
+        }
+    }
+}
+
+public void sleep_ms(u64 millis) {
+    sleep_ns(millis * NANOS_PER_MILLI);
+}

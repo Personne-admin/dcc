@@ -90,6 +90,15 @@ msi: tools-windows
 test: compiler driver libdcext dccd
 	@$(MAKE) -C tests
 
+.PHONY: test-linux test-win
+test-linux: compiler driver dccd
+	@$(MAKE) libdcext TARGET=x86_64-linux
+	@$(MAKE) -C tests test-linux
+
+test-win: compiler driver dccd
+	@$(MAKE) libdcext TARGET=x86_64-windows
+	@$(MAKE) -C tests test-win
+
 install: driver dccd libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dcc)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
@@ -143,6 +152,8 @@ help:
 	@echo "  driver         Build the dcc binary"
 	@echo "  libdcext       Build the extended library"
 	@echo "  test           Build and run the test suite"
+	@echo "  test-linux     Run native Linux OS integration tests and ABI audit"
+	@echo "  test-win       Run Win64 OS integration tests under Wine and ABI audit"
 	@echo "  install        Install to PREFIX (default: /usr/local)"
 	@echo "  uninstall      Remove files installed by 'make install'"
 	@echo "  tools-windows  Cross-compile dcc/dccd to run on Windows (needs llvm-mingw)"

@@ -80,6 +80,8 @@ $(LIBDCEXT_A): $(ALL_OBJS) $(DCC) $(TARGET_STAMP)
 	@rm -f $@
 	$(call create-archive,$@,$(ALL_OBJS))
 
+$(DC_OBJS): $(DC_SRCS)
+
 $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	@mkdir -p $(dir $@)
 	$(call MSG,DCC,$<)

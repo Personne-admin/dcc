@@ -5,13 +5,16 @@
 .weak _DC0F1.4.main4.main1SqPCqci32s
 .weak _DC0F1.4.main4.main0i32s
 
-# TODO call _DC0F2.3.std5.debug17.set_panic_handler1pv1SCqi8uv with a linux specific panic handler
-
 _start:
-    mov (%rsp), %rsi
-    lea 8(%rsp), %rdi
+    mov (%rsp), %r14
+    lea 8(%rsp), %r15
 
     and $-16, %rsp
+
+    call __dc_rt_init
+
+    mov %r14, %rsi
+    mov %r15, %rdi
 
     mov _DC0F1.4.main4.main1SqPCqci32s@GOTPCREL(%rip), %rax
     test %rax, %rax

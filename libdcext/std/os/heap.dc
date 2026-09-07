@@ -1,0 +1,171 @@
+//!!
+//!! Page allocator
+//!!
+//!! The bottom of the allocator stack: it asks the kernel for pages and
+//!! gives them back, with no free lists and no bookkeeping of its own.
+//!! Every allocation costs at least a page, so this is a backing store
+//!! for `mem::Arena` and friends rather than something to call per object.
+//!!
+
+module std::os::heap;
+
+import core;
+import core::target;
+import std::slice;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+public import std::mem;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using result::Result;
+using mem::{ Allocator, AllocError };
+
+public usize page_size() {
+    static if core::target::OS == core::target::Os::Windows {
+        return win::abi::PAGE_SIZE;
+    } else {
+        return linux::abi::PAGE_SIZE;
+    }
+}
+
+usize rounded(usize len) {
+    return mem::align_up(len, page_size());
+}
+
+//!
+//! Allocator implementation
+//!
+
+/// alignments above the page size are rejected.
+Result([] u8, AllocError) page_alloc(void* ctx, usize len, usize align) {
+    if !mem::is_power_of_two(align) || align > page_size() {
+        return AllocError::InvalidAlignment;
+    }
+
+    if len == 0 {
+        return Result::Ok(slice::from_raw(null as u8*, 0));
+    }
+
+    if len > 0xFFFFFFFFFFFFFFFF - (page_size() - 1) {
+        return AllocError::OutOfMemory;
+    }
+
+    usize total = rounded(len);
+
+    static if core::target::OS == core::target::Os::Windows {
+        void* got = win::imports::VirtualAlloc(
+            null as void*,
+            total,
+            win::abi::MEM_COMMIT | win::abi::MEM_RESERVE,
+            win::abi::PAGE_READWRITE
+        );
+
+        if got == null {
+            return AllocError::OutOfMemory;
+        }
+
+        return Result::Ok(slice::from_raw(got as u8*, total));
+    } else static if core::target::OS == core::target::Os::Linux {
+        isize ret = linux::syscall::mmap(
+            0,
+            total,
+            linux::abi::PROT_READ | linux::abi::PROT_WRITE,
+            linux::abi::MAP_PRIVATE | linux::abi::MAP_ANONYMOUS,
+            -1,
+            0
+        );
+
+        if linux::abi::is_error(ret) {
+            return AllocError::OutOfMemory;
+        }
+
+        return Result::Ok(slice::from_raw(ret as usize as u8*, total));
+    } else {
+        core::compile_error("std::os::heap has no backend for this target");
+        return AllocError::OutOfMemory;
+    }
+}
+
+bool page_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
+    if buf.len == 0 {
+        return new_len == 0;
+    }
+
+    // Overflow must fail without changing the original mapping. Otherwise a
+    // huge grow request wraps to zero and becomes a successful full shrink.
+    if new_len > 0xFFFFFFFFFFFFFFFF - (page_size() - 1) {
+        return false;
+    }
+
+    usize have = rounded(buf.len);
+    usize want = rounded(new_len);
+
+    if want == have {
+        return true;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        if want < have {
+            // decommit the tail; the reservation stays, so the base
+            // address remains valid for a later MEM_RELEASE
+            return win::abi::succeeded(
+                win::imports::VirtualFree(
+                    (buf.ptr as usize + want) as void*,
+                    have - want,
+                    win::abi::MEM_DECOMMIT
+                )
+            );
+        }
+
+        return false;
+    } else {
+        if want < have {
+            isize cut = linux::syscall::munmap(
+                buf.ptr as usize + want,
+                have - want
+            );
+
+            return !linux::abi::is_error(cut);
+        }
+
+        isize ret = linux::syscall::mremap(buf.ptr as usize, have, want, 0);
+        return !linux::abi::is_error(ret);
+    }
+}
+
+void page_free(void* ctx, [] u8 buf, usize align) {
+    if buf.len == 0 {
+        return;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::VirtualFree(
+            buf.ptr as void*,
+            0,
+            win::abi::MEM_RELEASE
+        );
+    } else {
+        linux::syscall::munmap(buf.ptr as usize, rounded(buf.len));
+    }
+}
+
+/// the process-wide page allocator. stateless, so the handle is free to
+/// copy and outlives nothing.
+public Allocator allocator() {
+    return Allocator {
+        ctx = null as void*,
+        alloc_fn = page_alloc,
+        resize_fn = page_resize,
+        free_fn = page_free,
+    };
+}
+
+/// an arena backed by the page allocator, which is the shape most callers
+/// actually want.
+public mem::Arena new_arena() {
+    return mem::new_arena(allocator());
+}

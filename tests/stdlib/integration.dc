@@ -1,0 +1,484 @@
+module main;
+
+import core::target;
+import std::os::file;
+import std::os::heap;
+import std::os::time;
+import std::os::process;
+import std::os::error;
+import std::mem;
+import std::result;
+import std::slice;
+import std::array;
+import std::map;
+import std::fmt;
+import std::sys::linux::syscall;
+import std::sys::linux::abi;
+import std::sys::win::imports;
+import std::sys::win::abi;
+using std::os::{ file, heap, time, process, error };
+using std::{ mem, array, map, fmt, slice };
+using error::Error;
+
+// a real anonymous pipe is enough to exercise ReadFile's ERROR_BROKEN_PIPE.
+static if core::target::OS == core::target::Os::Windows {
+    @[import, nomangle] extern i32 CreatePipe(
+        void** reader,
+        void** writer,
+        void* security,
+        u32 size
+    );
+}
+
+// scratch working directory is private to each harness invocation and removed
+// even after a failed assertion or child timeout.
+i32 test_files() {
+    if file::open("missing", file::read_only()).unwrap_err() != Error::NotFound {
+        return 1;
+    }
+    if !file::make_directory("scratch").is_ok() {
+        return 2;
+    }
+    if file::make_directory("scratch").unwrap_err() != Error::AlreadyExists {
+        return 3;
+    }
+    file::File f = file::open("scratch/data", file::read_write()).unwrap();
+    if !f.write_all("abcdef").is_ok() || f.size().unwrap() != 6 {
+        return 4;
+    }
+    if !f.sync().is_ok() {
+        return 5;
+    }
+    if !f.seek(2, file::Seek::Set).is_ok() || f.position().unwrap() != 2 {
+        return 6;
+    }
+    if !f.seek(1, file::Seek::Current).is_ok() || f.position().unwrap() != 3 {
+        return 7;
+    }
+    if !f.seek(-1, file::Seek::End).is_ok() || f.position().unwrap() != 5 {
+        return 8;
+    }
+    if !f.seek(0, file::Seek::Set).is_ok() {
+        return 9;
+    }
+    u8[32] buf;
+    if f.read_all(buf[0..32]).unwrap() != 6 || !mem::equal(buf[0..6], "abcdef") || f.read(
+        buf[0..32]
+    ).unwrap() != 0 {
+        return 10;
+    }
+    if !f.truncate(3).is_ok() || f.size().unwrap() != 3 {
+        return 11;
+    }
+    if file::remove_directory("scratch").unwrap_err() != Error::DirectoryNotEmpty {
+        return 12;
+    }
+    file::OpenFlags excl = file::read_write();
+    excl.exclusive = true;
+    if file::open("scratch/data", excl).unwrap_err() != Error::AlreadyExists {
+        return 13;
+    }
+    f.close();
+    f.close();
+    if f.handle != file::INVALID_HANDLE {
+        return 14;
+    }
+    if f.read(buf[0..32]).unwrap_err() != Error::BadHandle || f.read_all(
+        buf[0..32]
+    ).unwrap_err() != Error::BadHandle {
+        return 15;
+    }
+    if f.write("x").unwrap_err() != Error::BadHandle
+        || f.write_all("x").unwrap_err() != Error::BadHandle
+    {
+        return 16;
+    }
+    if f.seek(0, file::Seek::Set).unwrap_err() != Error::BadHandle
+        || f.position().unwrap_err() != Error::BadHandle
+    {
+        return 17;
+    }
+    if f.size().unwrap_err() != Error::BadHandle
+        || f.truncate(0).unwrap_err() != Error::BadHandle
+        || f.sync().unwrap_err() != Error::BadHandle
+    {
+        return 18;
+    }
+    file::FileWriter failed = file::new_file_writer(f);
+    fmt::Writer sink = failed.writer();
+    if fmt::format(&sink, "{}", 42).unwrap_err() != fmt::FmtError::SinkFailed
+        || failed.status().unwrap_err() != Error::BadHandle
+    {
+        return 19;
+    }
+    file::FileWriter fw = file::new_file_writer(
+        file::create("formatted").unwrap()
+    );
+    sink = fw.writer();
+    if !fmt::format(&sink, "{} {:x} {:04}", 42, 255 as u32, 7).is_ok()
+        || !fw.status().is_ok()
+    {
+        return 20;
+    }
+    fw.file.close();
+    f = file::open("formatted", file::read_only()).unwrap();
+    if f.read_all(buf[0..32]).unwrap() != 10 || !mem::equal(
+        buf[0..10],
+        "42 ff 0007"
+    ) {
+        return 21;
+    }
+    bool access_errors_ok = false;
+    static if core::target::OS == core::target::Os::Windows {
+        // Wine reports ERROR_INVALID_PARAMETER when shrinking this read-only file.
+        access_errors_ok = f.write("x").unwrap_err() == Error::AccessDenied && f.truncate(
+            0
+        ).unwrap_err() == Error::InvalidArgument;
+    } else {
+        access_errors_ok = f.write("x").unwrap_err() == Error::BadHandle && f.truncate(
+            0
+        ).unwrap_err() == Error::InvalidArgument;
+    }
+    if !access_errors_ok {
+        return 56;
+    }
+    f.close();
+
+    f = file::open("formatted", file::read_write()).unwrap();
+    if f.seek(-1, file::Seek::Set).unwrap_err() != Error::InvalidArgument
+    || f.seek(
+        -1,
+        file::Seek::Current
+    ).unwrap_err() != Error::InvalidArgument
+    || f.seek(
+        -11,
+        file::Seek::End
+    ).unwrap_err() != Error::InvalidArgument {
+        return 57;
+    }
+    f.close();
+
+    if !file::delete_file("scratch/data").is_ok() || file::delete_file(
+        "scratch/data"
+    ).unwrap_err() != Error::NotFound {
+        return 22;
+    }
+    if !file::remove_directory("scratch").is_ok() || file::remove_directory(
+        "scratch"
+    ).unwrap_err() != Error::NotFound {
+        return 23;
+    }
+    if file::create("missing/child").unwrap_err() != Error::NotFound {
+        return 24;
+    }
+    u8[4096] long_path;
+    mem::set(long_path[0..4096], 65 as u8);
+    if file::open(long_path, file::read_only()).unwrap_err() != Error::NameTooLong || file::create(
+        long_path
+    ).unwrap_err() != Error::NameTooLong {
+        return 25;
+    }
+    if file::delete_file(long_path).unwrap_err() != Error::NameTooLong || file::make_directory(
+        long_path
+    ).unwrap_err() != Error::NameTooLong || file::remove_directory(
+        long_path
+    ).unwrap_err() != Error::NameTooLong {
+        return 26;
+    }
+    file::File input = file::stdin();
+    file::File output = file::stdout();
+    file::File err = file::stderr();
+    if input.read(buf[0..32]).unwrap() != 0 || !output.write_all("stdio ok\n").is_ok() || !err.write_all(
+        "stderr ok\n"
+    ).is_ok() {
+        return 27;
+    }
+
+    // all 64 access/create/truncate/append/exclusive combinations, on present
+    // AND absent files. exclusive without create has no effect.
+    for u32 bits = 0; bits < 64; bits++ {
+        for u32 exists = 0; exists < 2; exists++ {
+            if exists != 0 {
+                f = file::create("flags").unwrap();
+                f.write_all("seed").unwrap();
+                f.close();
+            }
+            file::OpenFlags flags = file::read_write();
+            flags.create = (bits & 1) != 0;
+            flags.truncate = (bits & 2) != 0;
+            flags.exclusive = (bits & 4) != 0;
+            flags.read = (bits & 8) != 0;
+            flags.write = (bits & 16) != 0;
+            flags.append = (bits & 32) != 0;
+            bool invalid = (!flags.read && !flags.write) || (!flags.write && (flags.truncate || flags.append));
+            std::result::Result(file::File, Error) opened = file::open(
+                "flags",
+                flags
+            );
+            if invalid {
+                if opened.unwrap_err() != Error::InvalidArgument {
+                    return 29;
+                }
+            } else if exists == 0 && !flags.create {
+                if opened.unwrap_err() != Error::NotFound {
+                    return 30;
+                }
+            } else if exists != 0 && flags.create && flags.exclusive {
+                if opened.unwrap_err() != Error::AlreadyExists {
+                    return 31;
+                }
+            } else {
+                f = opened.unwrap();
+                u64 expected = if exists != 0 && !flags.truncate {
+                    4 as u64
+                } else {
+                    0 as u64
+                };
+                if f.size().unwrap() != expected {
+                    return 32;
+                }
+                f.close();
+            }
+            file::delete_file("flags");
+        }
+    }
+
+    f = file::create("append").unwrap();
+    f.write_all("abc").unwrap();
+    f.close();
+    file::OpenFlags ap = file::read_write();
+    ap.append = true;
+    f = file::open("append", ap).unwrap();
+    f.seek(0, file::Seek::Set).unwrap();
+    f.write_all("d").unwrap();
+    if f.size().unwrap() != 4 {
+        return 33;
+    }
+
+    // Another handle extends EOF after the append handle has already written.
+    // Its next write must use the new EOF, even after seeking back to zero.
+    file::File other = file::open("append", file::read_write()).unwrap();
+    other.seek(0, file::Seek::End).unwrap();
+    other.write_all("e").unwrap();
+    other.close();
+    f.seek(0, file::Seek::Set).unwrap();
+    f.write_all("f").unwrap();
+    f.seek(0, file::Seek::Set).unwrap();
+    if f.read_all(buf[0..32]).unwrap() != 6 || !mem::equal(buf[0..6], "abcdef") {
+        return 34;
+    }
+
+    f.close();
+
+    file::File pipe_read;
+    file::File pipe_write;
+    bool pipe_ok = false;
+    static if core::target::OS == core::target::Os::Windows {
+        void* r = null;
+        void* w = null;
+        pipe_ok = CreatePipe(&r, &w, null as void*, 0) != 0;
+        pipe_read.handle = r as isize;
+        pipe_write.handle = w as isize;
+    } else {
+        i32[2] fds;
+        pipe_ok = std::sys::linux::syscall::raw2(
+            std::sys::linux::syscall::NR_PIPE2,
+            &fds[0] as usize,
+            0
+        ) == 0;
+        pipe_read.handle = fds[0] as isize;
+        pipe_write.handle = fds[1] as isize;
+    }
+
+    if !pipe_ok {
+        return 35;
+    }
+
+    pipe_write.close();
+    if pipe_read.read(buf[0..32]).unwrap() != 0 {
+        return 36;
+    }
+
+    pipe_read.close();
+
+    return 0;
+}
+
+i32 test_heap() {
+    mem::Allocator a = heap::allocator();
+    usize page = heap::page_size();
+    bool platform_pages_ok = true;
+    static if core::target::OS == core::target::Os::Windows {
+        std::sys::win::abi::SystemInfo info;
+        std::sys::win::imports::GetSystemInfo(&info);
+        platform_pages_ok = info.page_size as usize == page && info.allocation_granularity as usize == std::sys::win::abi::ALLOCATION_GRANULARITY;
+    }
+
+    if !platform_pages_ok {
+        return 59;
+    }
+
+    if a.raw_alloc(1, page * 2).unwrap_err() != mem::AllocError::InvalidAlignment || a.raw_alloc(
+        1,
+        3
+    ).unwrap_err() != mem::AllocError::InvalidAlignment {
+        return 40;
+    }
+
+    if a.alloc_fn(a.ctx, 1, page * 2).unwrap_err() != mem::AllocError::InvalidAlignment || a.alloc_fn(
+        a.ctx,
+        1,
+        0
+    ).unwrap_err() != mem::AllocError::InvalidAlignment {
+        return 58;
+    }
+
+    if a.raw_alloc(0x7FFFFFFFFFFFF000, 1).unwrap_err() != mem::AllocError::OutOfMemory {
+        return 41;
+    }
+
+    // alignment contract is PAGE_SIZE, not Windows' 64K reservation granularity.
+    for usize n = page - 1; n <= page + 1; n++ {
+        [] u8 block = a.raw_alloc(n, 1).unwrap();
+        if block.len != mem::align_up(n, page)
+            || (block.ptr as usize) % page != 0
+        {
+            return 42;
+        }
+        block[0] = 17;
+        block[n - 1] = 23;
+        a.raw_free(block, 1);
+    }
+
+    [] u8 empty = a.raw_alloc(0, 1).unwrap();
+    if empty.len != 0
+        || !a.raw_resize(empty, 0, 1)
+        || a.raw_resize(empty, 1, 1)
+    {
+        return 43;
+    }
+
+    a.raw_free(empty, 1);
+    [] u8 block = a.raw_alloc(page * 3, 1).unwrap();
+    block[0] = 77;
+
+    // rounding an impossible length must not wrap to zero and free the block.
+    if a.raw_resize(block, 0xFFFFFFFFFFFFFFFF, 1) {
+        return 60;
+    }
+
+    if !a.raw_resize(block, page, 1) {
+        return 44;
+    }
+
+    block = slice::from_raw(block.ptr, page);
+    // growth within the committed page is always in place on both backends.
+    if !a.raw_resize(block[0..1], page - 1, 1) || block[0] != 77 {
+        return 45;
+    }
+
+    bool growth_ok = false;
+    static if core::target::OS == core::target::Os::Windows {
+        // windows intentionally declines growth beyond committed pages; the
+        // container must allocate/copy/release, including after a decommit.
+        growth_ok = !a.raw_resize(block, page * 2, 1);
+    } else {
+        // shrink unmapped the tail, making adjacent space available.
+        growth_ok = a.raw_resize(block, page * 2, 1);
+        block = slice::from_raw(block.ptr, page * 2);
+    }
+
+    if !growth_ok {
+        return 46;
+    }
+
+    a.raw_free(block, 1);
+
+    // the adjacent pages belong to this allocation: Linux mremap cannot grow
+    // its first page over them. no MAP_FIXED clobber of unrelated memory.
+    [] u8 guarded = a.raw_alloc(page * 3, 1).unwrap();
+    guarded[0] = 91;
+    if a.raw_resize(guarded[0..page], page * 2, 1) {
+        return 54;
+    }
+
+    [] u8 relocated = a.raw_alloc(page * 2, 1).unwrap();
+    mem::copy(relocated, guarded[0..page]);
+    if relocated.ptr == guarded.ptr || relocated[0] != 91 {
+        return 55;
+    }
+    a.raw_free(relocated, 1);
+    a.raw_free(guarded, 1);
+
+    array::Array(i32) arr = array::new_array(a);
+    map::Map(i32, i32) table = map::new_map(a);
+    i32 i = 0;
+    while i < 5000 {
+        if !arr.push(i).is_ok() || table.put(i, i * 3).is_err() {
+            return 47;
+        }
+        i++;
+    }
+
+    i = 0;
+    while i < 5000 {
+        if arr.items()[i as usize] != i || table.get(i).unwrap_some() != i * 3 {
+            return 48;
+        }
+        i++;
+    }
+
+    arr.deinit();
+    table.deinit();
+    mem::Arena arena = heap::new_arena();
+    arena.deinit();
+
+    return 0;
+}
+
+i32 test_clocks_and_process() {
+    u32 pid = process::process_id();
+    if pid == 0 || process::process_id() != pid {
+        return 50;
+    }
+
+    process::yield_now();
+    u64 start = time::monotonic_ns().unwrap();
+    time::sleep_ns(20000000);
+    u64 end = time::monotonic_ns().unwrap();
+
+    // 1ms slack accommodates clock quantization under Wine; no upper bound on
+    // an ordinary sleep because heavily loaded CI can deschedule arbitrarily.
+    if end < start || end - start < 19000000 {
+        return 51;
+    }
+
+    u64 realtime = time::realtime_ns().unwrap();
+    // 2020 through 2100: catches wrong epoch/unit conversions without dating CI.
+    if realtime < 1577836800000000000 || realtime >= 4102444800000000000 {
+        return 52;
+    }
+
+    start = time::monotonic_ns().unwrap();
+    time::sleep_ms(0);
+    if time::monotonic_ns().unwrap() - start > 5000000000 {
+        return 53;
+    }
+
+    // hardware timer edge cases cannot be meaningfully asserted under Wine.
+    return 0;
+}
+
+public i32 main() {
+    i32 code = test_files();
+    if code != 0 {
+        return code;
+    }
+
+    code = test_heap();
+    if code != 0 {
+        return code;
+    }
+
+    return test_clocks_and_process();
+}

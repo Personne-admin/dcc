@@ -1,0 +1,186 @@
+//!!
+//!! Windows NT ABI
+//!!
+//!! Win64 values throughout.
+//!!
+
+module std::sys::win::abi;
+
+//!
+//! Scalar types
+//!
+
+public using Bool = i32;
+public using Byte = u8;
+public using Word = u16;
+public using Dword = u32;
+public using Qword = u64;
+public using Long = i32;
+public using LongLong = i64;
+public using Handle = void*;
+public using Wchar = u16;
+
+public using Bool FALSE = 0;
+public using Bool TRUE = 1;
+
+public using isize INVALID_HANDLE_VALUE = -1;
+
+public bool succeeded(Bool result) {
+    return result != FALSE;
+}
+
+//!
+//! Standard handles
+//!
+
+public using Dword STD_INPUT_HANDLE = 0xFFFFFFF6;
+public using Dword STD_OUTPUT_HANDLE = 0xFFFFFFF5;
+public using Dword STD_ERROR_HANDLE = 0xFFFFFFF4;
+
+//!
+//! File access
+//!
+
+public using Dword FILE_APPEND_DATA = 0x00000004;
+
+public using Dword GENERIC_READ = 0x80000000;
+public using Dword GENERIC_WRITE = 0x40000000;
+public using Dword GENERIC_EXECUTE = 0x20000000;
+public using Dword GENERIC_ALL = 0x10000000;
+
+public using Dword FILE_SHARE_READ = 0x00000001;
+public using Dword FILE_SHARE_WRITE = 0x00000002;
+public using Dword FILE_SHARE_DELETE = 0x00000004;
+
+public using Dword CREATE_NEW = 1;
+public using Dword CREATE_ALWAYS = 2;
+public using Dword OPEN_EXISTING = 3;
+public using Dword OPEN_ALWAYS = 4;
+public using Dword TRUNCATE_EXISTING = 5;
+
+public using Dword FILE_ATTRIBUTE_READONLY = 0x00000001;
+public using Dword FILE_ATTRIBUTE_HIDDEN = 0x00000002;
+public using Dword FILE_ATTRIBUTE_DIRECTORY = 0x00000010;
+public using Dword FILE_ATTRIBUTE_NORMAL = 0x00000080;
+public using Dword FILE_FLAG_OVERLAPPED = 0x40000000;
+public using Dword FILE_FLAG_WRITE_THROUGH = 0x80000000;
+
+public using Dword FILE_BEGIN = 0;
+public using Dword FILE_CURRENT = 1;
+public using Dword FILE_END = 2;
+
+public using Dword FILE_TYPE_UNKNOWN = 0x0000;
+public using Dword FILE_TYPE_DISK = 0x0001;
+public using Dword FILE_TYPE_CHAR = 0x0002;
+public using Dword FILE_TYPE_PIPE = 0x0003;
+
+//!
+//! Virtual memory
+//!
+
+public using Dword MEM_COMMIT = 0x00001000;
+public using Dword MEM_RESERVE = 0x00002000;
+public using Dword MEM_DECOMMIT = 0x00004000;
+public using Dword MEM_RELEASE = 0x00008000;
+
+public using Dword PAGE_NOACCESS = 0x01;
+public using Dword PAGE_READONLY = 0x02;
+public using Dword PAGE_READWRITE = 0x04;
+public using Dword PAGE_EXECUTE = 0x10;
+public using Dword PAGE_EXECUTE_READ = 0x20;
+public using Dword PAGE_EXECUTE_READWRITE = 0x40;
+
+/// VirtualAlloc rounds commits to the page size but reservations to the
+/// allocation granularity, which is coarser.
+public using usize PAGE_SIZE = 4096;
+public using usize ALLOCATION_GRANULARITY = 65536;
+
+//!
+//! Error codes
+//!
+
+public using Dword ERROR_SUCCESS = 0;
+public using Dword ERROR_FILE_NOT_FOUND = 2;
+public using Dword ERROR_PATH_NOT_FOUND = 3;
+public using Dword ERROR_TOO_MANY_OPEN_FILES = 4;
+public using Dword ERROR_ACCESS_DENIED = 5;
+public using Dword ERROR_INVALID_HANDLE = 6;
+public using Dword ERROR_NOT_ENOUGH_MEMORY = 8;
+public using Dword ERROR_OUTOFMEMORY = 14;
+public using Dword ERROR_NOT_READY = 21;
+public using Dword ERROR_BUSY = 170;
+public using Dword ERROR_WRITE_FAULT = 29;
+public using Dword ERROR_SHARING_VIOLATION = 32;
+public using Dword ERROR_LOCK_VIOLATION = 33;
+public using Dword ERROR_HANDLE_DISK_FULL = 39;
+public using Dword ERROR_NOT_SUPPORTED = 50;
+public using Dword ERROR_FILE_EXISTS = 80;
+public using Dword ERROR_INVALID_PARAMETER = 87;
+public using Dword ERROR_BROKEN_PIPE = 109;
+public using Dword ERROR_DISK_FULL = 112;
+public using Dword ERROR_INVALID_NAME = 123;
+public using Dword ERROR_NEGATIVE_SEEK = 131;
+public using Dword ERROR_DIR_NOT_EMPTY = 145;
+public using Dword ERROR_ALREADY_EXISTS = 183;
+public using Dword ERROR_FILENAME_EXCED_RANGE = 206;
+public using Dword ERROR_DIRECTORY = 267;
+public using Dword ERROR_OPERATION_ABORTED = 995;
+public using Dword ERROR_IO_PENDING = 997;
+public using Dword ERROR_NO_UNICODE_TRANSLATION = 1113;
+public using Dword WAIT_TIMEOUT = 258;
+
+//!
+//! Structures
+//!
+
+public struct Overlapped {
+    usize internal;
+    usize internal_high;
+    u64 offset;
+    Handle event;
+}
+
+public struct SecurityAttributes {
+    Dword length;
+    void* descriptor;
+    Bool inherit_handle;
+}
+
+public struct FileTime {
+    Dword low;
+    Dword high;
+}
+
+/// 100ns ticks since 1601-01-01.
+public u64 filetime_ticks(const FileTime* self) {
+    return ((self.high as u64) << 32) | (self.low as u64);
+}
+
+/// ticks between the FILETIME and Unix epochs.
+public using u64 FILETIME_UNIX_EPOCH = 116444736000000000;
+
+public struct SystemInfo {
+    Dword oem_id;
+    Dword page_size;
+    void* minimum_application_address;
+    void* maximum_application_address;
+    usize active_processor_mask;
+    Dword number_of_processors;
+    Dword processor_type;
+    Dword allocation_granularity;
+    Word processor_level;
+    Word processor_revision;
+}
+
+public struct ByHandleFileInformation {
+    Dword attributes;
+    FileTime creation_time;
+    FileTime last_access_time;
+    FileTime last_write_time;
+    Dword volume_serial_number;
+    Dword file_size_high;
+    Dword file_size_low;
+    Dword number_of_links;
+    Dword file_index_high;
+    Dword file_index_low;
+}
