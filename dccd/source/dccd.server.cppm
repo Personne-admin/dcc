@@ -231,9 +231,11 @@ export namespace dccd
         std::map<std::string, CachedDiagnosticEntry, std::less<>> m_diagnostic_cache;
         std::unordered_set<std::string> m_published_uris;
         std::unordered_set<std::string> m_stale_uris;
+        std::map<std::string, std::unordered_set<std::string>, std::less<>> m_diagnostic_graphs;
 
         std::map<dcc::sm::FileId, std::uint64_t> m_graph_revisions;
         std::uint64_t m_graph_generation{0};
+        std::uint64_t m_analysis_id{0};
         bool m_recompiling{false};
 
         [[nodiscard]] std::string const& active_entry_uri() const noexcept { return m_active_entry_uri; }
@@ -297,7 +299,10 @@ export namespace dccd
         void checkpoint_cancelled()
         {
             if (current_request_cancelled())
+            {
+                std::println(m_log, "[dccd] cancellation checkpoint: analysis={} request={}", m_analysis_id, m_current_request_id->to_json().serialize());
                 throw RequestCancelledError{};
+            }
         }
 
         void handle_cancel_request(protocol::RpcInfo const& rpc)
@@ -353,7 +358,7 @@ export namespace dccd
 
             auto it = m_graph_revisions.find(*opt_fid);
             if (it == m_graph_revisions.end())
-                return true;
+                return false;
 
             return it->second == m_session->source_manager().content_revision(*opt_fid);
         }
@@ -532,8 +537,7 @@ export namespace dccd
             else
                 std::println(m_log, "[dccd] didOpen: uri={} fid={} (file lookup failed)", params.textDocument.uri, static_cast<std::uint32_t>(fid));
 
-            recompile_document(params.textDocument.uri);
-            publish_all_diagnostics();
+            recompile_document(params.textDocument.uri, true, "didOpen");
         }
 
         void handle_did_change(protocol::RpcInfo const& rpc)
@@ -565,7 +569,6 @@ export namespace dccd
             {
                 std::println(m_log, "[dccd] update_in_memory failed for {}: {}", params.textDocument.uri, dcc::sm::to_string(result.error()));
                 m_stale_uris.insert(params.textDocument.uri);
-                publish_empty_diagnostics(params.textDocument.uri, params.textDocument.version);
                 return;
             }
 
@@ -580,8 +583,7 @@ export namespace dccd
                                  static_cast<std::uint32_t>(*fid), sf->path().string(), static_cast<int>(sf->kind()), params.textDocument.version);
             }
 
-            recompile_document(params.textDocument.uri);
-            publish_all_diagnostics();
+            recompile_document(params.textDocument.uri, true, "didChange");
         }
 
         void handle_did_close(protocol::RpcInfo const& rpc)
@@ -599,8 +601,17 @@ export namespace dccd
 
             clear_stale_marker(params.uri);
 
-            publish_empty_diagnostics(params.uri, known_version);
+            publish_empty_diagnostics(params.uri, known_version, "document closed");
             m_published_uris.erase(params.uri);
+            auto graph = m_diagnostic_graphs.extract(params.uri);
+            if (!graph.empty())
+                for (auto const& uri : graph.mapped())
+                    if (m_published_uris.contains(uri) && !version_for_uri(uri).has_value() &&
+                        std::ranges::none_of(m_diagnostic_graphs, [&](auto const& entry) { return entry.second.contains(uri); }))
+                    {
+                        publish_empty_diagnostics(uri, version_for_uri(uri), "dependency retired on close");
+                        m_published_uris.erase(uri);
+                    }
         }
 
         [[nodiscard]] static dcc::sm::Position protocol_position_to_sm_position(protocol::LspPosition const& pos) noexcept
@@ -2230,8 +2241,11 @@ export namespace dccd
             return protocol::build_response(rpc.id.value(), std::move(result));
         }
 
-        void recompile_document(std::string const& uri)
+        void recompile_document(std::string const& uri, bool publish = false, std::string_view trigger = "query")
         {
+            ++m_analysis_id;
+            std::println(m_log, "[dccd] analysis started: id={} uri={} version={} revision={} trigger={}", m_analysis_id, uri,
+                         version_for_uri(uri).value_or(-1), content_revision_for_uri(uri), trigger);
             std::println(m_log, "[dccd] recompile_document: incoming URI=\"{}\"", uri);
 
             if (dcc::vfs::is_dcc_core_uri(uri))
@@ -2255,8 +2269,6 @@ export namespace dccd
                 else
                 {
                     std::println(m_log, "[dccd] recompile_document: cannot resolve non-file URI to local path: {}", uri);
-                    publish_empty_diagnostics(uri, version_for_uri(uri));
-                    m_published_uris.erase(uri);
                     return;
                 }
             }
@@ -2349,6 +2361,10 @@ export namespace dccd
                 for (auto const& mod : graph.all())
                     m_graph_revisions[mod->file_id] = sm.content_revision(mod->file_id);
             }
+            for (auto const& diagnostic : m_session->diagnostics().diagnostics())
+                for (auto const& label : diagnostic.labels())
+                    if (label.range.valid())
+                        m_graph_revisions[label.range.begin.fileId] = m_session->source_manager().content_revision(label.range.begin.fileId);
             ++m_graph_generation;
 
             checkpoint_cancelled();
@@ -2390,6 +2406,11 @@ export namespace dccd
                     ++diag_count;
             }
             std::println(m_log, "[dccd] recompile_document: {} diagnostics for URI \"{}\"", diag_count, uri);
+            std::println(m_log, "[dccd] analysis completed: id={} uri={} version={} revision={} module={} compiler_diagnostics={} publish={}", m_analysis_id,
+                         uri, version_for_uri(uri).value_or(-1), content_revision_for_uri(uri), result.module != nullptr,
+                         m_session->diagnostics().diagnostics().size(), publish);
+            if (publish)
+                publish_all_diagnostics(result.module != nullptr);
         }
 
         [[nodiscard]] static std::filesystem::path global_config_dir()
@@ -2776,7 +2797,7 @@ export namespace dccd
                     uris.push_back(sf.uri());
             });
 
-            for (auto const& [uri, _] : m_diagnostic_cache)
+            for (auto const& [uri, _] : m_diagnostic_graphs)
             {
                 bool found = false;
                 for (auto const& u : uris)
@@ -2791,9 +2812,7 @@ export namespace dccd
             }
 
             for (auto const& uri : uris)
-                recompile_document(uri);
-
-            publish_all_diagnostics();
+                recompile_document(uri, true, "configuration");
         }
 
         void handle_workspace_did_change_configuration(protocol::RpcInfo const& rpc)
@@ -2820,8 +2839,7 @@ export namespace dccd
 
             bool reload = false;
             auto global_cfg = global_config_path();
-            bool graph_file_changed = false;
-            std::vector<std::string> changed_graph_uris;
+            std::set<std::string> affected_entries;
 
             for (auto const& change : params.changes)
             {
@@ -2878,11 +2896,13 @@ export namespace dccd
                 m_workspace_index.invalidate_unlinked(canonical.string());
 
                 auto fid = m_session->source_manager().find_by_path(*path);
+                if (auto const* sf = fid ? m_session->source_manager().get(*fid) : nullptr)
+                    for (auto const& [entry_uri, graph_uris] : m_diagnostic_graphs)
+                        if (graph_uris.contains(sf->uri()))
+                            affected_entries.insert(entry_uri);
+
                 if (fid && dcc::query::file_in_module_graph(*m_session, *fid))
-                {
-                    graph_file_changed = true;
-                    changed_graph_uris.push_back(change.uri);
-                }
+                    affected_entries.insert(m_active_entry_uri.empty() ? change.uri : m_active_entry_uri);
             }
 
             if (reload)
@@ -2891,21 +2911,23 @@ export namespace dccd
                 return;
             }
 
-            if (graph_file_changed)
-            {
-                if (!m_active_entry_uri.empty())
-                    recompile_document(m_active_entry_uri);
-                else
-                    for (auto const& uri : changed_graph_uris)
-                        recompile_document(uri);
-
-                publish_all_diagnostics();
-            }
+            for (auto const& uri : affected_entries)
+                recompile_document(uri, true, "watchedFiles");
         }
 
-        void publish_all_diagnostics()
+        void publish_all_diagnostics(bool analysis_completed)
         {
             auto const& sm = m_session->source_manager();
+            std::unordered_set<std::string> previous_graph;
+            if (analysis_completed)
+            {
+                auto& current_graph = m_diagnostic_graphs[m_active_entry_uri];
+                previous_graph = std::move(current_graph);
+                current_graph.clear();
+                for (auto const& [fid, revision] : m_graph_revisions)
+                    if (auto const* sf = sm.get(fid); sf && sf->content_revision() == revision)
+                        current_graph.insert(sf->uri());
+            }
 
             std::map<std::string, std::vector<CachedDiagnostic>, std::less<>> grouped;
 
@@ -2988,17 +3010,23 @@ export namespace dccd
                 grouped[pub_uri].push_back(CachedDiagnostic{lsp_diag, diag});
             }
 
-            std::unordered_set<std::string> published_this_round;
+            std::unordered_set<std::string> published_this_round = m_published_uris;
             for (auto& [uri, cached] : grouped)
                 if (publish_diagnostics_group(uri, cached))
                     published_this_round.insert(uri);
 
             for (auto const& uri : m_published_uris)
             {
-                if (published_this_round.contains(uri))
+                if (grouped.contains(uri) || !analysis_completed || m_stale_uris.contains(uri))
                     continue;
 
-                publish_empty_diagnostics(uri, version_for_uri(uri));
+                bool retired_dependency = previous_graph.contains(uri) && !version_for_uri(uri).has_value() &&
+                                          std::ranges::none_of(m_diagnostic_graphs, [&](auto const& entry) { return entry.second.contains(uri); });
+                if (!analyzed_file_current(uri) && !retired_dependency)
+                    continue;
+
+                publish_empty_diagnostics(uri, version_for_uri(uri), retired_dependency ? "dependency retired" : "analysis complete");
+                published_this_round.erase(uri);
             }
 
             m_published_uris = std::move(published_this_round);
@@ -3031,8 +3059,9 @@ export namespace dccd
             return true;
         }
 
-        void publish_empty_diagnostics(std::string const& uri, std::optional<std::int64_t> version)
+        void publish_empty_diagnostics(std::string const& uri, std::optional<std::int64_t> version, std::string_view reason)
         {
+            std::println(m_log, "[dccd] clearing diagnostics: uri={} reason={}", uri, reason);
             m_diagnostic_cache.erase(uri);
 
             protocol::PublishDiagnosticsParams params;
@@ -3043,6 +3072,8 @@ export namespace dccd
 
         void publish_lsp_diagnostics(protocol::PublishDiagnosticsParams const& params)
         {
+            std::println(m_log, "[dccd] publishDiagnostics: analysis={} uri={} version={} revision={} count={}", m_analysis_id, params.uri,
+                         params.version.value_or(-1), content_revision_for_uri(params.uri), params.diagnostics.size());
             auto notification = protocol::build_notification("textDocument/publishDiagnostics", params.to_json());
             send_message(notification);
         }

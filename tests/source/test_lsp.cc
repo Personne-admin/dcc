@@ -882,6 +882,53 @@ namespace
 
 SECTION("lsp: diagnostic lifecycle");
 
+TEST_CASE("independent invalid documents retain diagnostics across edits saves and configuration reloads")
+{
+    TempDir td;
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, td.path);
+    auto a = dcc::sm::SourceManager::to_file_uri(td.path / "a.dc");
+    auto b = dcc::sm::SourceManager::to_file_uri(td.path / "b.dc");
+    auto invalid = "module m; i32 x = missing;\n";
+    std::map<std::string, std::size_t> counts;
+    auto send = [&](JsonValue message) {
+        auto publications = send_and_collect_publishes(server, sink, std::move(message));
+        for (auto const& publication : publications)
+            counts[publication.uri] = publication.diagnostics.size();
+        return publications;
+    };
+    send(make_did_open(a, 1, invalid));
+    REQUIRE(counts[a] == 1);
+    send(make_did_open(b, 1, invalid));
+    CHECK_EQ(counts[a], 1u);
+    CHECK_EQ(counts[b], 1u);
+    for (std::int64_t version = 2; version <= 5; ++version)
+    {
+        send(make_did_change(b, version, std::string{invalid} + std::string(static_cast<std::size_t>(version), '\n')));
+        auto params = JsonValue::empty_object();
+        params.set("textDocument", text_document(b, version, invalid));
+        CHECK(send(dccd::protocol::build_notification("textDocument/didSave", std::move(params))).empty());
+        send(make_watched_files_change(b));
+        CHECK_EQ(counts[a], 1u);
+        CHECK_EQ(counts[b], 1u);
+    }
+    auto publications = send(make_watched_files_change(dcc::sm::SourceManager::to_file_uri(td.path / "dcc.json")));
+    CHECK_EQ(counts[a], 1u);
+    CHECK_EQ(counts[b], 1u);
+    CHECK(std::ranges::any_of(publications, [&](auto const& p) { return p.uri == a && !p.diagnostics.empty(); }));
+    CHECK(std::ranges::any_of(publications, [&](auto const& p) { return p.uri == b && !p.diagnostics.empty(); }));
+    send(make_did_change(a, 2, "module m; i32 x = 0;\n"));
+    CHECK_EQ(counts[a], 0u);
+    CHECK_EQ(counts[b], 1u);
+    CHECK(send(make_did_change(a, 1, invalid)).empty());
+    send(make_did_change(a, 3, invalid));
+    CHECK_EQ(counts[a], 1u);
+    send(make_did_close(b));
+    CHECK_EQ(counts[a], 1u);
+    CHECK_EQ(counts[b], 0u);
+}
+
 TEST_CASE("didOpen publishes version 1 with duplicate-declaration relatedInformation")
 {
     Sink sink;
@@ -916,6 +963,48 @@ TEST_CASE("didOpen publishes version 1 with duplicate-declaration relatedInforma
     CHECK_EQ(ri.location.range.start.character, 22u);
     CHECK_EQ(ri.location.range.end.line, 2u);
     CHECK_EQ(ri.location.range.end.character, 23u);
+}
+
+TEST_CASE("unavailable documents and cancelled requests do not clear published errors")
+{
+    TempDir td;
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, td.path);
+    auto uri = std::string{"dccv:diagnostic-failure/main.dc"};
+    auto invalid = "module main; i32 x = missing;\n";
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, invalid));
+    REQUIRE(publishes.size() == 1);
+    REQUIRE(publishes[0].diagnostics.size() == 1);
+    auto id = dccd::protocol::RequestId::from_json(JsonValue::string_val("diagnostic-cancel"));
+    REQUIRE(server.cancellation_registry().register_pending(id));
+    REQUIRE(server.cancellation_registry().cancel(id));
+    auto response = send_request(server, sink, make_position_params_request(uri, 0u, 22u, "textDocument/hover", "diagnostic-cancel"));
+    REQUIRE(response.has_value());
+    auto error = response->get_object("error");
+    REQUIRE(error != nullptr);
+    CHECK_EQ(error->get_integer("code").value_or(0), dccd::protocol::kErrorRequestCancelled);
+    REQUIRE(server.source_manager().close_in_memory(uri).has_value());
+    CHECK(send_and_collect_publishes(server, sink, make_did_change(uri, 2, invalid)).empty());
+    CHECK(send_and_collect_publishes(server, sink, make_watched_files_change(dcc::sm::SourceManager::to_file_uri(td.path / "dcc.json"))).empty());
+    publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 3, "module main; i32 x = 0;\n"));
+    REQUIRE(publishes.size() == 1);
+    CHECK(publishes[0].diagnostics.empty());
+    CHECK_EQ(publishes[0].version.value_or(0), 3);
+}
+
+TEST_CASE("failed module loading publishes its compiler error and a later repair clears it")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+    auto uri = std::string{"file:///tmp/dccd_missing_module.dc"};
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, "i32 x = 0;\n"));
+    REQUIRE(publishes.size() == 1);
+    REQUIRE(!publishes[0].diagnostics.empty());
+    publishes = send_and_collect_publishes(server, sink, make_did_change(uri, 2, "module main; i32 x = 0;\n"));
+    REQUIRE(publishes.size() == 1);
+    CHECK(publishes[0].diagnostics.empty());
 }
 
 TEST_CASE("successive versions replace and clear diagnostics")
@@ -994,7 +1083,7 @@ TEST_CASE("parser recovery publishes only the primary and independent sibling er
     CHECK(publishes[0].diagnostics.empty());
 }
 
-TEST_CASE("failed didChange on a closed document publishes empty diagnostics for the new version")
+TEST_CASE("failed didChange on a closed document publishes nothing")
 {
     Sink sink;
     dccd::LanguageServer server{&sink.stream};
@@ -1013,10 +1102,7 @@ TEST_CASE("failed didChange on a closed document publishes empty diagnostics for
 
     {
         auto publishes = send_and_collect_publishes(server, sink, make_did_change("file:///tmp/dccd_lsp_test.dc", 9, "module m;\ni32 broken = unknown;\n"));
-        REQUIRE(publishes.size() == 1);
-        REQUIRE(publishes[0].version.has_value());
-        CHECK_EQ(*publishes[0].version, 9);
-        CHECK(publishes[0].diagnostics.empty());
+        CHECK(publishes.empty());
     }
 
     {
@@ -1174,6 +1260,74 @@ TEST_CASE("errors in an imported disk file are published to that file and cleare
         CHECK(publishes2[0].diagnostics.empty());
         CHECK(!publishes2[0].version.has_value());
     }
+}
+
+TEST_CASE("removing an import retains diagnostics owned by another entry")
+{
+    TempDir td;
+    auto dependency = td.path / "dep.dc";
+    {
+        std::ofstream out{dependency};
+        out << "module dep; i32 x = missing;\n";
+    }
+    auto dep_uri = dcc::sm::SourceManager::to_file_uri(dependency);
+    auto a = dcc::sm::SourceManager::to_file_uri(td.path / "a.dc");
+    auto b = dcc::sm::SourceManager::to_file_uri(td.path / "b.dc");
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, td.path);
+    for (auto const& uri : {a, b})
+    {
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, "module main; import dep;\n"));
+        REQUIRE(publishes.size() == 1);
+        CHECK_EQ(publishes[0].uri, dep_uri);
+        CHECK(!publishes[0].diagnostics.empty());
+    }
+    auto reloads = send_and_collect_publishes(server, sink, make_watched_files_change(dcc::sm::SourceManager::to_file_uri(td.path / "dcc.json")));
+    REQUIRE(!reloads.empty());
+    CHECK(std::ranges::all_of(reloads, [&](auto const& p) { return p.uri == dep_uri && !p.diagnostics.empty(); }));
+    CHECK(send_and_collect_publishes(server, sink, make_did_change(a, 2, "module main;\n")).empty());
+    auto publishes = send_and_collect_publishes(server, sink, make_did_change(b, 2, "module main;\n"));
+    REQUIRE(publishes.size() == 1);
+    CHECK_EQ(publishes[0].uri, dep_uri);
+    CHECK(publishes[0].diagnostics.empty());
+    publishes = send_and_collect_publishes(server, sink, make_did_change(b, 3, "module main; import dep;\n"));
+    REQUIRE(publishes.size() == 1);
+    CHECK(!publishes[0].diagnostics.empty());
+    publishes = send_and_collect_publishes(server, sink, make_did_close(b));
+    REQUIRE(publishes.size() == 2);
+    CHECK(std::ranges::all_of(publishes, [](auto const& p) { return p.diagnostics.empty(); }));
+}
+
+TEST_CASE("watched dependency repairs update an inactive entry without clearing another module")
+{
+    TempDir td;
+    auto dependency = td.path / "dep.dc";
+    {
+        std::ofstream out{dependency};
+        out << "module dep; i32 x = missing;\n";
+    }
+    auto dep_uri = dcc::sm::SourceManager::to_file_uri(dependency);
+    auto a = dcc::sm::SourceManager::to_file_uri(td.path / "a.dc");
+    auto b = dcc::sm::SourceManager::to_file_uri(td.path / "b.dc");
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, td.path);
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(a, 1, "module main; import dep;\n"));
+    REQUIRE(publishes.size() == 1);
+    CHECK_EQ(publishes[0].uri, dep_uri);
+    CHECK(!publishes[0].diagnostics.empty());
+    publishes = send_and_collect_publishes(server, sink, make_did_open(b, 1, "module other; i32 x = missing;\n"));
+    REQUIRE(publishes.size() == 1);
+    CHECK_EQ(publishes[0].uri, b);
+    {
+        std::ofstream out{dependency};
+        out << "module dep; i32 x = 0;\n";
+    }
+    publishes = send_and_collect_publishes(server, sink, make_watched_files_change(dep_uri));
+    REQUIRE(publishes.size() == 1);
+    CHECK_EQ(publishes[0].uri, dep_uri);
+    CHECK(publishes[0].diagnostics.empty());
 }
 
 TEST_CASE("cross-file relatedInformation survives publication to the edited file")
@@ -5071,6 +5225,7 @@ namespace
         std::ignore = server.handle_message(*parsed);
         CHECK(sink.drain().empty());
     }
+
 } // namespace
 
 TEST_CASE("direct collector emits type hints for inferred for-in bindings")
@@ -5685,8 +5840,7 @@ TEST_CASE("virtual dccv didOpen compiles and publishes diagnostics on the virtua
     initialize_server(server, sink);
 
     auto uri = std::string{"dccv:Zm9v/main.dc"};
-    auto publishes = send_and_collect_publishes(
-        server, sink, make_did_open(uri, 1, "module main;\nvoid f() {\n    i32 x = 0;\n    i32 x = 1;\n}\n"));
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, "module main;\nvoid f() {\n    i32 x = 0;\n    i32 x = 1;\n}\n"));
 
     REQUIRE(publishes.size() == 1);
     auto const& publish = publishes[0];
@@ -5708,8 +5862,7 @@ TEST_CASE("virtual dccv didChange recompiles and clears diagnostics on the virtu
 
     auto uri = std::string{"dccv:Zm9v/main.dc"};
     {
-        auto publishes = send_and_collect_publishes(
-            server, sink, make_did_open(uri, 1, "module main;\ni32 x = 0;\ni32 x = 1;\n"));
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, "module main;\ni32 x = 0;\ni32 x = 1;\n"));
         REQUIRE(publishes.size() == 1);
         REQUIRE(publishes[0].diagnostics.size() == 1);
     }
@@ -5833,8 +5986,7 @@ TEST_CASE("closed virtual dccv documents publish empty diagnostics and return nu
 
     auto uri = std::string{"dccv:Zm9v/main.dc"};
     {
-        auto publishes = send_and_collect_publishes(
-            server, sink, make_did_open(uri, 1, "module main;\ni32 x = 0;\ni32 x = 1;\n"));
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, "module main;\ni32 x = 0;\ni32 x = 1;\n"));
         REQUIRE(publishes.size() == 1);
         REQUIRE(publishes[0].diagnostics.size() == 1);
     }
@@ -5844,10 +5996,7 @@ TEST_CASE("closed virtual dccv documents publish empty diagnostics and return nu
     CHECK(closes[0].diagnostics.empty());
 
     auto changes = send_and_collect_publishes(server, sink, make_did_change(uri, 2, "module main;\ni32 x = 0;\n"));
-    REQUIRE(changes.size() == 1);
-    REQUIRE(changes[0].version.has_value());
-    CHECK_EQ(*changes[0].version, 2);
-    CHECK(changes[0].diagnostics.empty());
+    CHECK(changes.empty());
 
     auto def = request_definition(server, sink, uri, 1u, 4u);
     CHECK(!def.has_value());
