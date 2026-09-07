@@ -11918,6 +11918,15 @@ export namespace dcc::sema
                         field_index = next_pos;
                         used[field_index] = true;
                         ++next_pos;
+                        if (auto* ident = ast::node_cast<ast::IdentExpr>(f.value))
+                            for (std::size_t j = 0; j < fields.size(); ++j)
+                                if (j != field_index && fields[j].name == ident->name)
+                                {
+                                    error(f.range,
+                                          "identifier `{}` matches field `{}` but appears in a positional brace literal; write `{} = {}` to assign by name",
+                                          ident->name, fields[j].name, ident->name, ident->name);
+                                    return std::nullopt;
+                                }
                     }
 
                     used[field_index] = true;
