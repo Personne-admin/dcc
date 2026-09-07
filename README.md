@@ -45,6 +45,11 @@ Download the appropriate `.deb` package and install it with:
 sudo apt install ./dcc_*.deb
 ```
 
+### Windows
+
+Prebuilt Windows MSI installers (`dcc-<version>-x86_64.msi`) are available from
+[GitHub Releases](https://github.com/Personne-admin/dcc/releases). Run the installer to set up `dcc`, `dccd`, and standard library headers.
+
 ### Arch Linux
 
 Arch users can build the package using the provided `PKGBUILD`:

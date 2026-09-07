@@ -2,6 +2,7 @@
 .cache
 .zig-cache
 build
+build-windows
 dist
 compile_commands.json
 __pycache__
