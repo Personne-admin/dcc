@@ -866,7 +866,8 @@ export namespace dcc::sema
     public:
         BodyAnalyzer(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
                      std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& spec_registry, target::TargetConfig const* target = nullptr)
-            : m_modules{modules}, m_diag{diag}, m_ast_ctx{ast_ctx}, m_types{type_ctx}, m_alloc{alloc}, m_spec_registry{spec_registry}, m_target{target}
+            : m_modules{modules}, m_diag{diag}, m_had_prior_errors{diag.has_errors()}, m_ast_ctx{ast_ctx}, m_types{type_ctx}, m_alloc{alloc},
+              m_spec_registry{spec_registry}, m_target{target}
         {
         }
 
@@ -953,6 +954,7 @@ export namespace dcc::sema
     private:
         std::span<std::unique_ptr<ModuleInfo> const> m_modules;
         diag::DiagnosticEngine& m_diag;
+        bool m_had_prior_errors{};
         std::uint32_t m_error_action_count{};
         ast::AstContext& m_ast_ctx;
         types::TypeContext& m_types;
@@ -15950,6 +15952,8 @@ export namespace dcc::sema
                         if (auto const* sym = resolve_type_path(*m_specialization_defining_module->own_scope, nt->path))
                             return {.type = instantiate(sym->decl)};
 
+                    if (!m_had_prior_errors)
+                        error(nt->range, "unknown type `{}`", path_str(nt->path));
                     return {.type = m_types.m_errort()};
                 }
                 case ast::TypeKind::Pointer: {
