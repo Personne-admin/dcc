@@ -3880,9 +3880,20 @@ export namespace dcc::parser
             auto* type = parse_type();
             expect(TK::Comma, "between offsetof type and field");
             auto field = expect(TK::Identifier, "as offsetof field");
+            auto* result = m_ctx.make<ast::OffsetofExpr>(range_from(start), type, (field.kind == TK::Identifier) ? field.interned : std::string_view{});
+            if (match(TK::Dot))
+            {
+                auto idx_tok = expect(TK::IntLiteral, "as offsetof pack index");
+                if (idx_tok.kind == TK::IntLiteral && idx_tok.value)
+                    if (auto* vp = std::get_if<std::intmax_t>(&*idx_tok.value))
+                    {
+                        result->has_pack_index = true;
+                        result->pack_index = static_cast<std::int64_t>(*vp);
+                    }
+            }
             expect(TK::RParen, "after offsetof field");
-            std::string_view name = (field.kind == TK::Identifier) ? field.interned : std::string_view{};
-            return m_ctx.make<ast::OffsetofExpr>(range_from(start), type, name);
+            result->range = range_from(start);
+            return result;
         }
 
         ast::Expr* parse_compiles_expr()

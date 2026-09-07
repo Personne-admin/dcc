@@ -1,0 +1,88 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+void take(i32 v) {
+}
+
+void take(f64 v) {
+}
+
+void iter(Tuple(i32, i32, i32) s) {
+    static for v in s.items {
+        take(v);
+    }
+}
+
+void iter_mixed(Tuple(i32, f64) s) {
+    static for v in s.items {
+        take(v);
+    }
+}
+
+void empty_iter(Tuple() e) {
+    static for v in e.items {
+        take(v);
+    }
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func take diverging=false
+    Param v type=i32 storage=param offset=0 index=0
+    Body
+  Func take diverging=false
+    Param v type=f64 storage=param offset=0 index=0
+    Body
+  Func iter diverging=false
+    Param s type=Tuple(i32, i32, i32) storage=param offset=0 index=0
+    Body
+      Block [type=void const=<none>]
+        Body
+          Call [type=void const=<none> decl=take]
+            Ident take [type=<unresolved> const=<none>]
+            PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+              FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+                Ident s [type=Tuple(i32, i32, i32) const=<none> lvalue decl=s]
+              IntLiteral 0 [type=i32 const=0 constant]
+      Block [type=void const=<none>]
+        Body
+          Call [type=void const=<none> decl=take]
+            Ident take [type=<unresolved> const=<none>]
+            PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+              FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+                Ident s [type=Tuple(i32, i32, i32) const=<none> lvalue decl=s]
+              IntLiteral 1 [type=i32 const=1 constant]
+      Block [type=void const=<none>]
+        Body
+          Call [type=void const=<none> decl=take]
+            Ident take [type=<unresolved> const=<none>]
+            PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+              FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+                Ident s [type=Tuple(i32, i32, i32) const=<none> lvalue decl=s]
+              IntLiteral 2 [type=i32 const=2 constant]
+  Func iter_mixed diverging=false
+    Param s type=Tuple(i32, f64) storage=param offset=0 index=0
+    Body
+      Block [type=void const=<none>]
+        Body
+          Call [type=void const=<none> decl=take]
+            Ident take [type=<unresolved> const=<none>]
+            PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+              FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+                Ident s [type=Tuple(i32, f64) const=<none> lvalue decl=s]
+              IntLiteral 0 [type=i32 const=0 constant]
+      Block [type=void const=<none>]
+        Body
+          Call [type=void const=<none> decl=take]
+            Ident take [type=<unresolved> const=<none>]
+            PackAccess [type=f64 const=<none> lvalue decl=Tuple]
+              FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+                Ident s [type=Tuple(i32, f64) const=<none> lvalue decl=s]
+              IntLiteral 1 [type=i32 const=1 constant]
+  Func empty_iter diverging=false
+    Param e type=Tuple storage=param offset=0 index=0
+    Body

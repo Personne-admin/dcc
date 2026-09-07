@@ -1,0 +1,99 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+struct Tagged(K, T...) {
+    K key;
+    T... rest;
+}
+
+i32 read0(Tuple(i32, f64) s) {
+    return s.items.0;
+}
+
+f64 read1(Tuple(i32, f64) s) {
+    return s.items.1;
+}
+
+i32 read_rest(Tagged(i32, i32, i32) t) {
+    return t.rest.1 + t.key;
+}
+
+void write0(Tuple(i32, f64) s, i32 v) {
+    s.items.0 = v;
+}
+
+i32 read_ptr(Tuple(i32, f64)* p) {
+    return p.items.0 + p.items.1 as i32;
+}
+
+void write_ptr(Tuple(i32, f64)* p, i32 v) {
+    p.items.0 = v;
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func read0 diverging=true
+    Param s type=Tuple(i32, f64) storage=param offset=0 index=0
+    Body
+      Return
+        PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+          FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+            Ident s [type=Tuple(i32, f64) const=<none> lvalue decl=s]
+          IntLiteral 0 [type=i32 const=0 constant]
+  Func read1 diverging=true
+    Param s type=Tuple(i32, f64) storage=param offset=0 index=0
+    Body
+      Return
+        PackAccess [type=f64 const=<none> lvalue decl=Tuple]
+          FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+            Ident s [type=Tuple(i32, f64) const=<none> lvalue decl=s]
+          IntLiteral 1 [type=i32 const=1 constant]
+  Func read_rest diverging=true
+    Param t type=Tagged(i32, i32, i32) storage=param offset=0 index=0
+    Body
+      Return
+        Binary + [type=i32 const=<none>]
+          PackAccess [type=i32 const=<none> lvalue decl=Tagged]
+            FieldAccess rest [type=T const=<none> lvalue decl=Tagged]
+              Ident t [type=Tagged(i32, i32, i32) const=<none> lvalue decl=t]
+            IntLiteral 1 [type=i32 const=1 constant]
+          FieldAccess key [type=i32 const=<none> lvalue decl=Tagged]
+            Ident t [type=Tagged(i32, i32, i32) const=<none> lvalue decl=t]
+  Func write0 diverging=false
+    Param s type=Tuple(i32, f64) storage=param offset=0 index=0
+    Param v type=i32 storage=param offset=16 index=1
+    Body
+      Binary = [type=i32 const=<none>]
+        PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+          FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+            Ident s [type=Tuple(i32, f64) const=<none> lvalue decl=s]
+          IntLiteral 0 [type=i32 const=0 constant]
+        Ident v [type=i32 const=<none> lvalue decl=v]
+  Func read_ptr diverging=true
+    Param p type=Tuple(i32, f64)* storage=param offset=0 index=0
+    Body
+      Return
+        Binary + [type=i32 const=<none>]
+          PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+            FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+              Ident p [type=Tuple(i32, f64)* const=<none> lvalue decl=p]
+            IntLiteral 0 [type=i32 const=0 constant]
+          Cast [type=i32 const=<none> lvalue decl=Tuple]
+            PackAccess [type=f64 const=<none> lvalue decl=Tuple]
+              FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+                Ident p [type=Tuple(i32, f64)* const=<none> lvalue decl=p]
+              IntLiteral 1 [type=i32 const=1 constant]
+  Func write_ptr diverging=false
+    Param p type=Tuple(i32, f64)* storage=param offset=0 index=0
+    Param v type=i32 storage=param offset=8 index=1
+    Body
+      Binary = [type=i32 const=<none>]
+        PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+          FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+            Ident p [type=Tuple(i32, f64)* const=<none> lvalue decl=p]
+          IntLiteral 0 [type=i32 const=0 constant]
+        Ident v [type=i32 const=<none> lvalue decl=v]

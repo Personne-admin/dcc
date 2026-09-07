@@ -458,6 +458,7 @@ export namespace dcc::ast
         ExprPtr value{};
 
         std::uint32_t resolved_field_index{};
+        std::uint32_t resolved_field_count{1};
     };
 
     struct StructPatternField
@@ -705,6 +706,8 @@ export namespace dcc::ast
         static constexpr auto Kind = ExprKind::PackAccess;
         ExprPtr object;
         ExprPtr index;
+        bool has_resolved_field_index{};
+        std::uint32_t resolved_field_index{};
         PackAccessExpr(sm::SourceRange r, ExprPtr obj, ExprPtr idx) : Expr(Kind, r), object(obj), index(idx) {}
     };
 
@@ -782,6 +785,8 @@ export namespace dcc::ast
         static constexpr auto Kind = ExprKind::Offsetof;
         TypePtr target;
         std::string_view field;
+        bool has_pack_index{};
+        std::int64_t pack_index{};
         OffsetofExpr(sm::SourceRange r, TypePtr t, std::string_view f) : Expr(Kind, r), target(t), field(f) {}
     };
 

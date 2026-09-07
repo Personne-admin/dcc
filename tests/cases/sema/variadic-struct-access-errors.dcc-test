@@ -1,0 +1,23 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+void bad_index(Tuple(i32, f64) s) {
+    s.items.2;
+}
+
+void nonconst(Tuple(i32, f64) s, i32 i) {
+    s.items.i;
+}
+
+void arity() {
+    Tuple(i32, f64) v = {items = {1}};
+}
+
+=== EXPECT-ERRORS ===
+main.dc:8: pack index 2 out of bounds for pack 'items' of length 2
+main.dc:12: pack index must be a compile-time constant
+main.dc:16: pack field `items` expects 2 initializers, got 1
