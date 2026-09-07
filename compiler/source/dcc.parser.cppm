@@ -3220,11 +3220,28 @@ export namespace dcc::parser
                             }
                             else if (check(TK::Identifier))
                             {
-                                auto tok = advance();
-                                ast::Path p(m_ctx.allocator());
-                                p.segments.push_back({tok.interned, tok.range});
-                                p.range = tok.range;
-                                arg.type = m_ctx.make<ast::NamedType>(tok.range, std::move(p));
+                                ast::TypeExpr* full_type = nullptr;
+                                {
+                                    Speculation inner(*this);
+                                    if (auto* candidate = parse_type())
+                                        if (!inner.had_suppressed_errors())
+                                            if (auto* named = ast::node_cast<ast::NamedType>(candidate))
+                                                if (named->explicit_template_args && check(TK::LParen))
+                                                {
+                                                    full_type = candidate;
+                                                    inner.commit();
+                                                }
+                                }
+                                if (full_type)
+                                    arg.type = full_type;
+                                else
+                                {
+                                    auto tok = advance();
+                                    ast::Path p(m_ctx.allocator());
+                                    p.segments.push_back({tok.interned, tok.range});
+                                    p.range = tok.range;
+                                    arg.type = m_ctx.make<ast::NamedType>(tok.range, std::move(p));
+                                }
                             }
                             else if (peek().kind == TK::IntLiteral || peek().kind == TK::FloatLiteral || peek().kind == TK::StringLiteral ||
                                      peek().kind == TK::U16StringLiteral || peek().kind == TK::CharLiteral || peek().kind == TK::U16CharLiteral ||
@@ -3529,8 +3546,7 @@ export namespace dcc::parser
                 }
 
                 default:
-                    if (ast::is_primitive_type(peek().kind) ||
-                        (allow_type && (ast::is_qualifier(peek().kind) || check(TK::LBracket))))
+                    if (ast::is_primitive_type(peek().kind) || (allow_type && (ast::is_qualifier(peek().kind) || check(TK::LBracket))))
                     {
                         auto* type_node = parse_type();
                         if (!type_node)
