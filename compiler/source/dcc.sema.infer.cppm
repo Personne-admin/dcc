@@ -857,7 +857,12 @@ export namespace dcc::infer
                         }
                     }
                     else if (changed)
-                        out = m_types.nominal_t(type->kind, t->decl, args);
+                    {
+                        bool spec = false;
+                        if (type->kind == types::TypeKind::Struct)
+                            spec = static_cast<types::StructType const*>(type)->is_specialization || !args.empty();
+                        out = m_types.nominal_t(type->kind, t->decl, args, spec);
+                    }
 
                     break;
                 }

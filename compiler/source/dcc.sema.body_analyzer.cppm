@@ -31,9 +31,12 @@ export namespace dcc::sema
                                    std::pmr::polymorphic_allocator<> alloc, target::TargetConfig const* target = nullptr);
 
     [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypeContext& types, types::TypePtr ty);
+    [[nodiscard]] std::vector<types::TypePtr> expand_pack_param_type(types::TypePtr ty, infer::TemplateBindings const& bindings);
     [[nodiscard]] types::TypePtr substitute_in_nominal_context(types::TypeContext& types, types::TypePtr ty, types::TypePtr context);
     void ensure_tagged_enum_complete(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::TypePtr ty);
     void complete_all_templated_tagged_enums(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc);
+    void complete_all_variadic_structs(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc);
+    void complete_templated_struct(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::StructType const* st);
 
     class BodyDumper
     {
@@ -2265,32 +2268,7 @@ export namespace dcc::sema
 
         [[nodiscard]] static std::vector<types::TypePtr> expand_pack_param_type(types::TypePtr ty, infer::TemplateBindings const& bindings)
         {
-            std::vector<types::TypePtr> result;
-
-            auto expand = [&](types::TypePtr inner) -> std::vector<types::TypePtr> {
-                if (auto const* tpp = types::type_cast<types::TemplateParamType>(inner))
-                {
-                    if (auto* pack = bindings.lookup_pack(tpp))
-                    {
-                        std::vector<types::TypePtr> out;
-                        out.reserve(pack->size());
-                        for (auto const& pt : *pack)
-                            out.push_back(pt);
-
-                        return out;
-                    }
-                }
-
-                return {bindings.substitute(inner)};
-            };
-
-            if (auto const* pack_ty = types::type_cast<types::TypePackType>(ty))
-                return expand(pack_ty->element);
-
-            if (auto const* tp = types::type_cast<types::TemplateParamType>(ty))
-                return expand(tp);
-
-            return {bindings.substitute(ty)};
+            return dcc::sema::expand_pack_param_type(ty, bindings);
         }
 
         struct PackArityInfo
@@ -2348,7 +2326,7 @@ export namespace dcc::sema
 
             auto build_nominal = [&](ast::Decl const* d, std::vector<types::TypePtr> const& args) -> types::TypePtr {
                 if (auto const* sd = ast::node_cast<ast::StructDecl>(d))
-                    return m_types.nominal_t(types::TypeKind::Struct, sd, args);
+                    return m_types.nominal_t(types::TypeKind::Struct, sd, args, true);
                 if (auto const* ud = ast::node_cast<ast::UnionDecl>(d))
                     return m_types.nominal_t(types::TypeKind::Union, ud, args);
                 if (auto const* ed = ast::node_cast<ast::EnumDecl>(d))
@@ -6344,57 +6322,7 @@ export namespace dcc::sema
 
         [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypePtr ty)
         {
-            if (!ty)
-                return std::nullopt;
-
-            std::vector<types::TypePtr> args;
-            std::vector<ast::TemplateParam const*> template_params;
-
-            if (ty->kind == types::TypeKind::Nominal)
-                ty = static_cast<types::NominalType const*>(ty)->underlying;
-
-            switch (ty->kind)
-            {
-                case types::TypeKind::Struct: {
-                    auto const* st = static_cast<types::StructType const*>(ty);
-                    auto const* decl = reinterpret_cast<ast::StructDecl const*>(st->decl);
-                    template_params.reserve(decl->template_params.size());
-                    for (auto const& tp : decl->template_params)
-                        template_params.push_back(&tp);
-
-                    args.assign(st->template_args.begin(), st->template_args.end());
-                    break;
-                }
-                case types::TypeKind::Enum: {
-                    auto const* et = static_cast<types::EnumType const*>(ty);
-                    auto const* decl = reinterpret_cast<ast::EnumDecl const*>(et->decl);
-                    template_params.reserve(decl->template_params.size());
-                    for (auto const& tp : decl->template_params)
-                        template_params.push_back(&tp);
-
-                    args.assign(et->template_args.begin(), et->template_args.end());
-                    break;
-                }
-                default:
-                    return std::nullopt;
-            }
-
-            if (template_params.empty())
-                return std::nullopt;
-            if (template_params.size() != args.size())
-                return std::nullopt;
-
-            std::optional<infer::TemplateBindings> bindings;
-            bindings.emplace(m_types);
-            for (std::size_t i = 0; i < template_params.size(); ++i)
-            {
-                auto const& tp = *template_params[i];
-                auto param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
-                if (auto r = bindings->deduce(param_ty, args[i]); !r)
-                    return std::nullopt;
-            }
-
-            return bindings;
+            return dcc::sema::make_bindings(m_types, ty);
         }
 
         [[nodiscard]] std::optional<Layout> layout_of(types::TypePtr ty)
@@ -6490,6 +6418,19 @@ export namespace dcc::sema
                 return Layout{ty->byte_size, std::max<std::uint32_t>(1, ty->byte_align)};
             }
 
+            if (ty->kind == types::TypeKind::Struct)
+            {
+                auto const* st = static_cast<types::StructType const*>(ty);
+                auto const* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                bool variadic = !sd->template_params.empty() && sd->template_params.back().is_pack;
+                if (variadic && (st->is_specialization || !st->template_args.empty()))
+                {
+                    complete_templated_struct(m_types, m_alloc, st);
+                    if (st->has_expansion)
+                        return Layout{ty->byte_size, std::max<std::uint32_t>(1, ty->byte_align)};
+                }
+            }
+
             if (!ty->layout_is_default)
                 return Layout{ty->byte_size, std::max<std::uint32_t>(1, ty->byte_align)};
 
@@ -6561,9 +6502,18 @@ export namespace dcc::sema
 
             switch (ty->kind)
             {
-                case types::TypeKind::Struct:
-                    append(*reinterpret_cast<ast::StructDecl const*>(static_cast<types::StructType const*>(ty)->decl));
+                case types::TypeKind::Struct: {
+                    auto const* st = static_cast<types::StructType const*>(ty);
+                    if (st->has_expansion)
+                    {
+                        fields.reserve(st->expanded_field_count);
+                        for (std::size_t i = 0; i < st->expanded_field_count; ++i)
+                            fields.push_back({st->expanded_fields[i].name, st->expanded_fields[i].type});
+                        break;
+                    }
+                    append(*reinterpret_cast<ast::StructDecl const*>(st->decl));
                     break;
+                }
                 case types::TypeKind::Union:
                     append(*reinterpret_cast<ast::UnionDecl const*>(static_cast<types::UnionType const*>(ty)->decl));
                     break;
@@ -12261,13 +12211,26 @@ export namespace dcc::sema
                 {
                     if (target_ty->kind == types::TypeKind::Struct)
                     {
-                        auto const& sd = *reinterpret_cast<ast::StructDecl const*>(static_cast<types::StructType const*>(target_ty)->decl);
-                        for (auto const& f : sd.fields)
-                            if (f.name == s.field)
-                            {
-                                out.constant = make_int_const(static_cast<std::int64_t>(f.byte_offset), out.type);
-                                break;
-                            }
+                        auto const* st = static_cast<types::StructType const*>(target_ty);
+                        if (st->has_expansion)
+                        {
+                            for (std::size_t i = 0; i < st->expanded_field_count; ++i)
+                                if (st->expanded_fields[i].name == s.field)
+                                {
+                                    out.constant = make_int_const(static_cast<std::int64_t>(st->expanded_fields[i].byte_offset), out.type);
+                                    break;
+                                }
+                        }
+                        else
+                        {
+                            auto const& sd = *reinterpret_cast<ast::StructDecl const*>(st->decl);
+                            for (auto const& f : sd.fields)
+                                if (f.name == s.field)
+                                {
+                                    out.constant = make_int_const(static_cast<std::int64_t>(f.byte_offset), out.type);
+                                    break;
+                                }
+                        }
                     }
                     else if (target_ty->kind == types::TypeKind::Union)
                     {
@@ -15418,7 +15381,14 @@ export namespace dcc::sema
                             return m_types.m_errort();
                         }
                         if (nt->template_args.empty())
-                            return decl_type(*decl);
+                        {
+                            bool variadic = false;
+                            if (nt->explicit_template_args)
+                                if (auto const* vsd = ast::node_cast<ast::StructDecl>(decl))
+                                    variadic = !vsd->template_params.empty() && vsd->template_params.back().is_pack;
+                            if (!variadic)
+                                return decl_type(*decl);
+                        }
 
                         std::vector<types::TypePtr> resolved_args;
                         resolved_args.reserve(nt->template_args.size());
@@ -15443,7 +15413,21 @@ export namespace dcc::sema
 
                         if (auto const* sd = ast::node_cast<ast::StructDecl>(decl))
                         {
-                            auto ty = m_types.nominal_t(types::TypeKind::Struct, sd, resolved_args);
+                            bool variadic = !sd->template_params.empty() && sd->template_params.back().is_pack;
+                            std::size_t fixed_count = variadic ? sd->template_params.size() - 1 : sd->template_params.size();
+                            std::size_t required = 0;
+                            for (std::size_t i = 0; i < fixed_count; ++i)
+                            {
+                                auto const& tp = sd->template_params[i];
+                                if (!tp.default_type && !tp.default_value)
+                                    ++required;
+                            }
+                            if (resolved_args.size() < required || (!variadic && resolved_args.size() > sd->template_params.size()))
+                            {
+                                error(nt->range, "template argument count mismatch for `{}`", sd->name);
+                                return m_types.m_errort();
+                            }
+                            auto ty = m_types.nominal_t(types::TypeKind::Struct, sd, resolved_args, true);
                             std::ignore = check_type_constraint(mod, scope, sd, resolved_args, nt->range);
                             return ty;
                         }
@@ -15684,6 +15668,34 @@ export namespace dcc::sema
         return rem ? (n + (align - rem)) : n;
     }
 
+    [[nodiscard]] std::vector<types::TypePtr> expand_pack_param_type(types::TypePtr ty, infer::TemplateBindings const& bindings)
+    {
+        auto expand = [&](types::TypePtr inner) -> std::vector<types::TypePtr> {
+            if (auto const* tpp = types::type_cast<types::TemplateParamType>(inner))
+            {
+                if (auto* pack = bindings.lookup_pack(tpp))
+                {
+                    std::vector<types::TypePtr> out;
+                    out.reserve(pack->size());
+                    for (auto const& pt : *pack)
+                        out.push_back(pt);
+
+                    return out;
+                }
+            }
+
+            return {bindings.substitute(inner)};
+        };
+
+        if (auto const* pack_ty = types::type_cast<types::TypePackType>(ty))
+            return expand(pack_ty->element);
+
+        if (auto const* tp = types::type_cast<types::TemplateParamType>(ty))
+            return expand(tp);
+
+        return {bindings.substitute(ty)};
+    }
+
     [[nodiscard]] std::optional<infer::TemplateBindings> make_bindings(types::TypeContext& types, types::TypePtr ty)
     {
         if (!ty)
@@ -15723,16 +15735,31 @@ export namespace dcc::sema
 
         if (template_params.empty())
             return std::nullopt;
-        if (template_params.size() != args.size())
+
+        bool has_pack = ty->kind == types::TypeKind::Struct && template_params.back()->is_pack;
+        std::size_t fixed_count = has_pack ? template_params.size() - 1 : template_params.size();
+        if ((!has_pack && template_params.size() != args.size()) || (has_pack && args.size() < fixed_count))
             return std::nullopt;
 
         std::optional<infer::TemplateBindings> bindings;
         bindings.emplace(types);
-        for (std::size_t i = 0; i < template_params.size(); ++i)
+        for (std::size_t i = 0; i < fixed_count; ++i)
         {
             auto const& tp = *template_params[i];
             auto param_ty = types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
             if (auto r = bindings->deduce(param_ty, args[i]); !r)
+                return std::nullopt;
+        }
+        if (has_pack)
+        {
+            auto const& tp = *template_params.back();
+            auto param_ty = static_cast<types::TemplateParamType const*>(types.template_param_t(
+                const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(fixed_count)));
+            std::vector<types::TypePtr> pack_elements;
+            pack_elements.reserve(args.size() - fixed_count);
+            for (std::size_t i = fixed_count; i < args.size(); ++i)
+                pack_elements.push_back(args[i]);
+            if (!bindings->bind_pack(param_ty, std::move(pack_elements)))
                 return std::nullopt;
         }
 
@@ -15755,7 +15782,9 @@ export namespace dcc::sema
 
     void complete_templated_struct(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::StructType const* st)
     {
-        if (!st || st->is_complete || st->template_args.empty())
+        if (!st || st->is_complete || st->has_expansion)
+            return;
+        if (st->template_args.empty() && !st->is_specialization)
             return;
 
         static thread_local std::vector<types::StructType const*> s_struct_stack;
@@ -15775,26 +15804,21 @@ export namespace dcc::sema
         if (!bindings)
             return;
 
-        std::uint64_t size = 0;
-        std::uint32_t align = 1;
-        bool ok = true;
-
-        for (auto const& f : sd->fields)
+        bool is_packed = false;
+        std::uint32_t forced_align = 0;
+        for (auto const& a : sd->attrs)
         {
-            if (!f.type || !f.type->sema.canonical)
-            {
-                ok = false;
-                break;
-            }
+            if (a.name == "packed")
+                is_packed = true;
+            if (a.name == "align" && !a.args.empty())
+                if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(a.args[0]))
+                    if (lit->value > 0)
+                        forced_align = static_cast<std::uint32_t>(lit->value);
+        }
 
-            auto* ft = get_canonical(f.type->sema);
-            auto concrete_ft = bindings->substitute(ft);
+        auto ensure_complete = [&](types::TypePtr concrete_ft) -> bool {
             if (!concrete_ft)
-            {
-                ok = false;
-                break;
-            }
-
+                return false;
             if (!concrete_ft->is_complete)
             {
                 if (auto* ft_et = types::type_cast<types::EnumType>(concrete_ft))
@@ -15807,29 +15831,83 @@ export namespace dcc::sema
                 else if (auto* ft_ut = types::type_cast<types::UnionType>(concrete_ft))
                     complete_templated_union(types, alloc, ft_ut);
             }
+            return concrete_ft->is_complete;
+        };
 
-            if (!concrete_ft->is_complete)
+        std::vector<std::pair<std::string_view, types::TypePtr>> expanded;
+        expanded.reserve(sd->fields.size());
+        bool ok = true;
+        for (auto const& f : sd->fields)
+        {
+            if (!f.type || !f.type->sema.canonical)
             {
                 ok = false;
                 break;
             }
 
-            auto field_align = concrete_ft->byte_align;
-            if (field_align > align)
-                align = field_align;
-            size = align_up_enum(size, field_align);
-            size += concrete_ft->byte_size;
+            auto* ft = get_canonical(f.type->sema);
+            if (f.is_pack)
+            {
+                for (auto* elem : expand_pack_param_type(ft, *bindings))
+                {
+                    if (!ensure_complete(elem))
+                    {
+                        ok = false;
+                        break;
+                    }
+                    expanded.emplace_back(f.name, elem);
+                }
+                if (!ok)
+                    break;
+                continue;
+            }
+
+            auto concrete_ft = bindings->substitute(ft);
+            if (!ensure_complete(concrete_ft))
+            {
+                ok = false;
+                break;
+            }
+            expanded.emplace_back(f.name, concrete_ft);
         }
 
-        if (ok)
+        if (!ok)
+            return;
+
+        std::vector<types::StructExpandedField> layout;
+        layout.reserve(expanded.size());
+        std::uint64_t size = 0;
+        std::uint32_t natural_align = 1;
+        for (auto const& [name, field_ty] : expanded)
         {
-            size = align_up_enum(size, align);
-            auto* mut_st = const_cast<types::StructType*>(st);
-            mut_st->byte_size = size;
-            mut_st->byte_align = align;
-            mut_st->is_zero_sized = (size == 0);
-            mut_st->is_complete = true;
+            std::uint32_t field_align = is_packed ? 1 : field_ty->byte_align;
+            natural_align = std::max(field_align, natural_align);
+            if (!is_packed)
+                size = align_up_enum(size, field_align);
+            layout.push_back({name, field_ty, static_cast<std::uint32_t>(size)});
+            size += field_ty->byte_size;
         }
+
+        std::uint32_t agg_align = forced_align ? forced_align : (is_packed ? 1 : natural_align);
+        size = align_up_enum(size, agg_align);
+
+        auto* mut_st = const_cast<types::StructType*>(st);
+        if (!layout.empty())
+        {
+            void* mem = alloc.resource()->allocate(sizeof(types::StructExpandedField) * layout.size(), alignof(types::StructExpandedField));
+            auto* out = static_cast<types::StructExpandedField*>(mem);
+            for (std::size_t i = 0; i < layout.size(); ++i)
+                ::new (out + i) types::StructExpandedField(layout[i]);
+            mut_st->expanded_fields = out;
+            mut_st->expanded_field_count = layout.size();
+        }
+        mut_st->has_expansion = true;
+        mut_st->byte_size = size;
+        mut_st->byte_align = agg_align;
+        mut_st->is_zero_sized = (size == 0);
+        mut_st->is_complete = true;
+        if (is_packed || forced_align)
+            mut_st->layout_is_default = false;
     }
 
     void complete_templated_union(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::UnionType const* ut)
@@ -16128,6 +16206,26 @@ export namespace dcc::sema
                 continue;
 
             ensure_tagged_enum_complete(types, alloc, et);
+        }
+    }
+
+    void complete_all_variadic_structs(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc)
+    {
+        for (std::size_t i = 0; i < types.structs().size(); ++i)
+        {
+            auto* st = const_cast<types::StructType*>(types.structs()[i]);
+            if (!st || st->has_expansion || st->is_complete)
+                continue;
+            if (st->template_args.empty() && !st->is_specialization)
+                continue;
+
+            auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+            if (!sd || sd->template_params.empty())
+                continue;
+            if (!sd->template_params.back().is_pack)
+                continue;
+
+            complete_templated_struct(types, alloc, st);
         }
     }
 

@@ -1031,6 +1031,7 @@ export namespace dcc::parser
                 if (check(TK::LParen) && !(check_at(1, TK::Star) && check_at(2, TK::RParen)))
                 {
                     advance();
+                    nt->explicit_template_args = true;
                     if (!check(TK::RParen))
                         do
                             nt->template_args.push_back(parse_template_arg());

@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    T... items;
+}
+
+void diff(S() a, S(u8) b) {
+    a = b;
+}
+
+void arith() {
+    S() t;
+    S()* pt = &t;
+    pt + 1;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:8: assignment type mismatch
+main.dc:14: pointer arithmetic requires a pointer to a sized type

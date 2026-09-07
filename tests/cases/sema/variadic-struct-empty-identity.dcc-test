@@ -1,0 +1,24 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    T... items;
+}
+
+void same(S() a, S() b) {
+    a = b;
+    sizeof(S());
+    alignof(S());
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func same diverging=false
+    Param a type=S storage=param offset=0 index=0
+    Param b type=S storage=param offset=0 index=1
+    Body
+      Binary = [type=S const=<none>]
+        Ident a [type=S const=<none> lvalue decl=a]
+        Ident b [type=S const=<none> lvalue decl=b]
+      Sizeof [type=usize const=0 constant]
+      Alignof [type=usize const=1 constant]

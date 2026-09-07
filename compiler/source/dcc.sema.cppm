@@ -77,6 +77,7 @@ export namespace dcc::sema
             m_diag.set_parser_recovery_suppression(false);
 
             complete_all_templated_tagged_enums(m_types, m_alloc);
+            complete_all_variadic_structs(m_types, m_alloc);
 
             return root;
         }
