@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+struct Empty {
+}
+
+struct Pair {
+    i32 x;
+    f64 y;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Empty v;
+    Pair p;
+    i32 es = sizeof(v) as i32;
+    i32 ps = sizeof(p) as i32;
+    i32 ts = sizeof(Pair) as i32;
+    if es != 0 { return 1; }
+    if ps != 16 { return 2; }
+    if ts != 16 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

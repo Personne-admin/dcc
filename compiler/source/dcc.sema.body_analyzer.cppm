@@ -12394,6 +12394,41 @@ export namespace dcc::sema
             out.type = m_types.usize_t();
             if (s.target)
             {
+                if (auto* nt = ast::node_cast<ast::NamedType>(s.target);
+                    nt && nt->path.is_simple() && nt->template_args.empty() && !nt->explicit_template_args)
+                {
+                    types::TypePtr trial = nullptr;
+                    {
+                        [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                        trial = resolve_type_node(mod, scope, s.target);
+                    }
+                    if (trial && trial->kind != types::TypeKind::Error)
+                    {
+                        if (mod.own_scope)
+                            check_type_constraints_in_type(mod, *mod.own_scope, trial, s.target->range);
+                        if (auto layout = layout_of(trial))
+                            out.constant = make_int_const(static_cast<std::int64_t>(layout->size), out.type);
+                        out.is_constant = true;
+                        return out;
+                    }
+                    if (auto const* sym = lookup_name(mod, scope, nt->path.simple_name()); sym && sym->decl)
+                    {
+                        auto value_type = decl_type(*sym->decl);
+                        if (auto layout = layout_of(value_type))
+                        {
+                            out.constant = make_int_const(static_cast<std::int64_t>(layout->size), out.type);
+                            out.is_constant = true;
+                            return out;
+                        }
+                        out.is_constant = true;
+                        return out;
+                    }
+                    if (m_spec_analysis_depth > 0)
+                    {
+                        out.is_constant = true;
+                        return out;
+                    }
+                }
                 auto target = resolve_type_node(mod, scope, s.target);
                 if (target && mod.own_scope)
                     check_type_constraints_in_type(mod, *mod.own_scope, target, s.target->range);
