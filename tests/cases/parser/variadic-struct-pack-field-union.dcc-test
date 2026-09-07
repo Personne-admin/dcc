@@ -1,0 +1,9 @@
+=== FILE: main.dc ===
+module m;
+
+union S {
+    i32... items;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4: pack fields are only allowed in struct declarations

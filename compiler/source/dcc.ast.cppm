@@ -433,6 +433,7 @@ export namespace dcc::ast
 
         std::uint32_t byte_offset{};
         std::uint32_t index{};
+        bool is_pack : 1 {};
     };
 
     struct EnumVariant

@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    T... items;
+    i32 tail;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4: pack field must be the last field of a struct

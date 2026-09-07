@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T..., U...) {}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:3: struct template parameter pack must be the last template parameter
