@@ -1,0 +1,132 @@
+//!!
+//!! Process control and runtime startup
+//!!
+//!! Also holds the hosted panic handler. `std::debug` spins on an
+//!! unhandled panic because a freestanding target may have nowhere to
+//!! report to; this module supplies the handler that writes to stderr and
+//!! terminates, and `__dc_rt_init` installs it from the entry stub.
+//!!
+
+module std::os::process;
+
+import core;
+import core::target;
+import core::source_location;
+import std::fmt;
+import std::slice;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+import std::os::file;
+public import std::debug;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using core::source_location::SourceLocation;
+using result::{ Result, Status };
+
+//!
+//! Termination
+//!
+
+/// ends the process. does not return and does not run any cleanup.
+public void exit(i32 status) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::ExitProcess(status as u32);
+    } else {
+        linux::syscall::exit_group(status);
+    }
+
+    // unreachable: both calls above diverge.
+    while true {}
+}
+
+public using i32 ABORT_EXIT_STATUS = 134;
+
+/// ends the process abnormally, without flushing anything.
+public void abort() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::TerminateProcess(
+            win::imports::GetCurrentProcess(),
+            ABORT_EXIT_STATUS as u32
+        );
+    } else {
+        linux::syscall::kill(
+            linux::syscall::getpid() as linux::abi::Pid,
+            linux::abi::SIGABRT
+        );
+    }
+
+    // a blocked or ignored SIGABRT lands here
+    exit(ABORT_EXIT_STATUS);
+}
+
+//!
+//! Identity and scheduling
+//!
+
+public u32 process_id() {
+    static if core::target::OS == core::target::Os::Windows {
+        return win::imports::GetCurrentProcessId();
+    } else {
+        return linux::syscall::getpid() as u32;
+    }
+}
+
+/// hands the rest of the current time slice back to the scheduler.
+public void yield_now() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::Sleep(0);
+    } else {
+        linux::syscall::sched_yield();
+    }
+}
+
+//!
+//! Panic handler
+//!
+//! The message is written before the location is formatted: if the
+//! formatting fails or the buffer overflows, the caller still learns what
+//! happened. Write failures are ignored throughout, we are already
+//! dying, and there is no second channel to report on.
+//!
+
+void report_panic([] const u8 message, SourceLocation sl) {
+    u8[512] scratch;
+    file::File err = file::stderr();
+
+    file::write_all(&err, "panic: ");
+    file::write_all(&err, message);
+    file::write_all(&err, "\n  at ");
+
+    match fmt::format_buf(
+        scratch,
+        "{}:{}:{}\n",
+        sl.file,
+        sl.line,
+        sl.column
+    ) {
+        Result::Ok(rendered) => file::write_all(&err, rendered),
+        Result::Err(_) => file::write_all(&err, "<unknown location>\n"),
+    }
+
+    file::sync(&err);
+    exit(ABORT_EXIT_STATUS);
+}
+
+/// routes panics to stderr and terminates. install once, early.
+public void install_panic_handler() {
+    debug::set_panic_handler(report_panic);
+}
+
+//!
+//! Runtime startup
+//!
+//! Called by the entry stub before it dispatches to main.
+//!
+
+@nomangle public void __dc_rt_init() {
+    install_panic_handler();
+}

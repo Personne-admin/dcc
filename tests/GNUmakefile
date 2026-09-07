@@ -1,3 +1,4 @@
+.DEFAULT_GOAL := all
 include $(RULES_MK)
 
 LOCAL_CXXFLAGS := $(LLVM_DEFS) $(LLVM_CXXFLAGS)
@@ -6,7 +7,19 @@ LOCAL_CXXFLAGS := $(LLVM_DEFS) $(LLVM_CXXFLAGS)
 
 COMPILER_LIB := $(BUILD_DIR)/lib/libcompiler.a
 
-ALL_TEST_SRCS := $(call find-sources,$(TOPLEVEL)/tests/source,cc)
+ALL_TEST_SRCS := $(filter-out %/test_stdlib_os_integration.cc,$(call find-sources,$(TOPLEVEL)/tests/source,cc))
+OS_TEST_OBJ := $(OBJ_DIR)/tests/source/test_stdlib_os_integration.cc.o
+
+MINGW_SYSROOT ?= /opt/llvm-mingw
+WINE ?= $(shell command -v wine64 2>/dev/null || command -v wine 2>/dev/null)
+
+.PHONY: test-linux test-win
+test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py linux
+	$(Q)$<
+test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
+	$(Q)MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py win
+	$(Q)DCC_TEST_WINDOWS=1 WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $<
 
 ifeq ($(ENABLE_LLVM),0)
   TEST_SRCS := $(filter-out %/test_backend.cc,$(ALL_TEST_SRCS))
@@ -16,10 +29,13 @@ endif
 
 ALL_TEST_OBJS := $(call objs-from-srcs,$(TEST_SRCS))
 ALL_TEST_BINS := $(patsubst $(TOPLEVEL)/tests/source/%.cc,$(BUILD_DIR)/bin/tests/%,$(TEST_SRCS))
-ALL_DEPS := $(ALL_TEST_OBJS:.o=.d)
+ALL_DEPS := $(ALL_TEST_OBJS:.o=.d) $(OS_TEST_OBJ:.o=.d)
 
 COMPILER_PCMS := $(wildcard $(PCM_DIR)/dcc.*.pcm)
 DCCD_PCMS := $(wildcard $(PCM_DIR)/dccd.*.pcm)
+
+$(OS_TEST_OBJ): $(TOPLEVEL)/tests/source/test_stdlib_os_integration.cc $(COMPILER_PCMS)
+	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 TEST_LDFLAGS := $(LLVM_LDFLAGS)
 
@@ -111,7 +127,7 @@ $(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/te
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:
-	rm -f $(ALL_TEST_OBJS) $(ALL_DEPS) $(ALL_TEST_BINS)
+	rm -f $(ALL_TEST_OBJS) $(OS_TEST_OBJ) $(ALL_DEPS) $(ALL_TEST_BINS)
 	rm -rf $(BUILD_DIR)/bin/tests
 
 -include $(ALL_DEPS)

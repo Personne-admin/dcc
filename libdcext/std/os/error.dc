@@ -1,0 +1,152 @@
+//!!
+//!! Portable errors
+//!!
+//!! One error set both platforms map onto.
+//!!
+
+module std::os::error;
+
+import std::sys::linux::abi;
+import std::sys::win::abi;
+
+using sys::linux;
+using sys::win;
+
+//!
+//! Error
+//!
+
+public enum Error : u16 {
+    /// platform reported something this mapping does not model.
+    /// a caller who needs the detail should drop into the `sys::` layer.
+    Unexpected,
+    AccessDenied,
+    NotFound,
+    AlreadyExists,
+    IsDirectory,
+    NotDirectory,
+    DirectoryNotEmpty,
+    BadHandle,
+    InvalidArgument,
+    NameTooLong,
+    TooManyOpenFiles,
+    OutOfMemory,
+    NoSpace,
+    FileTooBig,
+    BrokenPipe,
+    WouldBlock,
+    Interrupted,
+    Busy,
+    TimedOut,
+    NotSeekable,
+    ReadOnlyFilesystem,
+    CrossDevice,
+    SymlinkLoop,
+    NotSupported,
+    Canceled,
+    InputOutput,
+}
+
+public [] const u8 name(Error self) {
+    return match self {
+        Error::AccessDenied => "AccessDenied",
+        Error::NotFound => "NotFound",
+        Error::AlreadyExists => "AlreadyExists",
+        Error::IsDirectory => "IsDirectory",
+        Error::NotDirectory => "NotDirectory",
+        Error::DirectoryNotEmpty => "DirectoryNotEmpty",
+        Error::BadHandle => "BadHandle",
+        Error::InvalidArgument => "InvalidArgument",
+        Error::NameTooLong => "NameTooLong",
+        Error::TooManyOpenFiles => "TooManyOpenFiles",
+        Error::OutOfMemory => "OutOfMemory",
+        Error::NoSpace => "NoSpace",
+        Error::FileTooBig => "FileTooBig",
+        Error::BrokenPipe => "BrokenPipe",
+        Error::WouldBlock => "WouldBlock",
+        Error::Interrupted => "Interrupted",
+        Error::Busy => "Busy",
+        Error::TimedOut => "TimedOut",
+        Error::NotSeekable => "NotSeekable",
+        Error::ReadOnlyFilesystem => "ReadOnlyFilesystem",
+        Error::CrossDevice => "CrossDevice",
+        Error::SymlinkLoop => "SymlinkLoop",
+        Error::NotSupported => "NotSupported",
+        Error::Canceled => "Canceled",
+        Error::InputOutput => "InputOutput",
+        _ => "Unexpected",
+    };
+}
+
+//!
+//! Platform mappings
+//!
+
+public Error from_errno(i32 code) {
+    return match code {
+        linux::abi::EACCES | linux::abi::EPERM => Error::AccessDenied,
+        linux::abi::ENOENT => Error::NotFound,
+        linux::abi::EEXIST => Error::AlreadyExists,
+        linux::abi::EISDIR => Error::IsDirectory,
+        linux::abi::ENOTDIR => Error::NotDirectory,
+        linux::abi::ENOTEMPTY => Error::DirectoryNotEmpty,
+        linux::abi::EBADF => Error::BadHandle,
+        linux::abi::EINVAL | linux::abi::EFAULT => Error::InvalidArgument,
+        linux::abi::ENAMETOOLONG => Error::NameTooLong,
+        linux::abi::EMFILE | linux::abi::ENFILE => Error::TooManyOpenFiles,
+        linux::abi::ENOMEM => Error::OutOfMemory,
+        linux::abi::ENOSPC => Error::NoSpace,
+        linux::abi::EFBIG => Error::FileTooBig,
+        linux::abi::EPIPE => Error::BrokenPipe,
+        linux::abi::EAGAIN => Error::WouldBlock,
+        linux::abi::EINTR => Error::Interrupted,
+        linux::abi::EBUSY => Error::Busy,
+        linux::abi::ETIMEDOUT => Error::TimedOut,
+        linux::abi::ESPIPE => Error::NotSeekable,
+        linux::abi::EROFS => Error::ReadOnlyFilesystem,
+        linux::abi::EXDEV => Error::CrossDevice,
+        linux::abi::ELOOP => Error::SymlinkLoop,
+        linux::abi::ENOSYS | linux::abi::EOPNOTSUPP => Error::NotSupported,
+        linux::abi::ECANCELED => Error::Canceled,
+        linux::abi::EIO => Error::InputOutput,
+        _ => Error::Unexpected,
+    };
+}
+
+/// maps a raw syscall return. only meaningful when `is_error` holds.
+public Error from_syscall(isize ret) {
+    return from_errno(linux::abi::errno_of(ret));
+}
+
+public Error from_win32(u32 code) {
+    return match code {
+        win::abi::ERROR_ACCESS_DENIED
+        | win::abi::ERROR_SHARING_VIOLATION
+        | win::abi::ERROR_LOCK_VIOLATION => Error::AccessDenied,
+        win::abi::ERROR_FILE_NOT_FOUND
+        | win::abi::ERROR_PATH_NOT_FOUND => Error::NotFound,
+        win::abi::ERROR_FILE_EXISTS
+        | win::abi::ERROR_ALREADY_EXISTS => Error::AlreadyExists,
+        win::abi::ERROR_DIRECTORY => Error::NotDirectory,
+        win::abi::ERROR_DIR_NOT_EMPTY => Error::DirectoryNotEmpty,
+        win::abi::ERROR_INVALID_HANDLE => Error::BadHandle,
+        win::abi::ERROR_INVALID_PARAMETER
+        | win::abi::ERROR_NEGATIVE_SEEK
+        | win::abi::ERROR_INVALID_NAME
+        | win::abi::ERROR_NO_UNICODE_TRANSLATION => Error::InvalidArgument,
+        win::abi::ERROR_FILENAME_EXCED_RANGE => Error::NameTooLong,
+        win::abi::ERROR_TOO_MANY_OPEN_FILES => Error::TooManyOpenFiles,
+        win::abi::ERROR_NOT_ENOUGH_MEMORY
+        | win::abi::ERROR_OUTOFMEMORY => Error::OutOfMemory,
+        win::abi::ERROR_DISK_FULL
+        | win::abi::ERROR_HANDLE_DISK_FULL => Error::NoSpace,
+        win::abi::ERROR_BROKEN_PIPE => Error::BrokenPipe,
+        win::abi::ERROR_NOT_READY
+        | win::abi::ERROR_BUSY => Error::Busy,
+        win::abi::WAIT_TIMEOUT => Error::TimedOut,
+        win::abi::ERROR_NOT_SUPPORTED => Error::NotSupported,
+        win::abi::ERROR_OPERATION_ABORTED => Error::Canceled,
+        win::abi::ERROR_WRITE_FAULT => Error::InputOutput,
+        _ => Error::Unexpected,
+    };
+}

@@ -1,0 +1,121 @@
+//!!
+//!! kernel32 imports
+//!!
+//!! The gated half of the Windows pair. These are declarations of symbols
+//!! resolved at load time against the import table.
+//!!
+
+module std::sys::win::imports;
+
+public import std::sys::win::abi;
+
+using abi::{ Bool, Dword, Handle, Wchar };
+
+//!
+//! Errors
+//!
+
+@[import, nomangle] public extern Dword GetLastError();
+@[import, nomangle] public extern void SetLastError(Dword code);
+
+//!
+//! Files
+//!
+
+@[import, nomangle] public extern Handle CreateFileW(
+    const Wchar* file_name,
+    Dword desired_access,
+    Dword share_mode,
+    abi::SecurityAttributes* security,
+    Dword creation_disposition,
+    Dword flags_and_attributes,
+    Handle template_file
+);
+
+@[import, nomangle] public extern Bool ReadFile(
+    Handle file,
+    void* buffer,
+    Dword bytes_to_read,
+    Dword* bytes_read,
+    abi::Overlapped* overlapped
+);
+
+@[import, nomangle] public extern Bool WriteFile(
+    Handle file,
+    const void* buffer,
+    Dword bytes_to_write,
+    Dword* bytes_written,
+    abi::Overlapped* overlapped
+);
+
+@[import, nomangle] public extern Bool SetFilePointerEx(
+    Handle file,
+    i64 distance,
+    i64* new_pointer,
+    Dword move_method
+);
+
+@[import, nomangle] public extern Bool GetFileSizeEx(Handle file, i64* size);
+@[import, nomangle] public extern Bool SetEndOfFile(Handle file);
+@[import, nomangle] public extern Bool FlushFileBuffers(Handle file);
+@[import, nomangle] public extern Dword GetFileType(Handle file);
+@[import, nomangle] public extern Bool CloseHandle(Handle object);
+
+@[import, nomangle] public extern Bool DeleteFileW(const Wchar* file_name);
+@[import, nomangle] public extern Bool CreateDirectoryW(
+    const Wchar* path_name,
+    abi::SecurityAttributes* security
+);
+@[import, nomangle] public extern Bool RemoveDirectoryW(const Wchar* path_name);
+@[import, nomangle] public extern Bool MoveFileExW(
+    const Wchar* existing_name,
+    const Wchar* new_name,
+    Dword flags
+);
+
+@[import, nomangle] public extern Handle GetStdHandle(Dword std_handle);
+
+//!
+//! Virtual memory
+//!
+
+@[import, nomangle] public extern void* VirtualAlloc(
+    void* address,
+    usize size,
+    Dword allocation_type,
+    Dword protection
+);
+
+@[import, nomangle] public extern Bool VirtualFree(
+    void* address,
+    usize size,
+    Dword free_type
+);
+
+@[import, nomangle] public extern Bool VirtualProtect(
+    void* address,
+    usize size,
+    Dword new_protection,
+    Dword* old_protection
+);
+
+@[import, nomangle] public extern void GetSystemInfo(abi::SystemInfo* out);
+
+//!
+//! Process and time
+//!
+
+@[import, nomangle] public extern void ExitProcess(u32 exit_code);
+@[import, nomangle] public extern Handle GetCurrentProcess();
+@[import, nomangle] public extern Bool TerminateProcess(
+    Handle process,
+    u32 exit_code
+);
+@[import, nomangle] public extern Dword GetCurrentProcessId();
+@[import, nomangle] public extern void Sleep(Dword milliseconds);
+
+@[import, nomangle] public extern Bool QueryPerformanceCounter(i64* count);
+@[import, nomangle] public extern Bool QueryPerformanceFrequency(i64* frequency);
+@[import, nomangle] public extern void GetSystemTimeAsFileTime(
+    abi::FileTime* out
+);

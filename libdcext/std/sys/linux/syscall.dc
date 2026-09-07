@@ -1,0 +1,345 @@
+//!!
+//!! Linux system calls
+//!!
+//!! The trap itself, plus thin typed wrappers over it.
+//!!
+
+module std::sys::linux::syscall;
+
+import std::sys::linux::abi;
+
+@nomangle extern isize __syscall0(usize nr);
+@nomangle extern isize __syscall1(usize nr, usize a);
+@nomangle extern isize __syscall2(usize nr, usize a, usize b);
+@nomangle extern isize __syscall3(usize nr, usize a, usize b, usize c);
+@nomangle extern isize __syscall4(usize nr, usize a, usize b, usize c, usize d);
+@nomangle extern isize __syscall5(
+    usize nr,
+    usize a,
+    usize b,
+    usize c,
+    usize d,
+    usize e
+);
+@nomangle extern isize __syscall6(
+    usize nr,
+    usize a,
+    usize b,
+    usize c,
+    usize d,
+    usize e,
+    usize f
+);
+
+//!
+//! Call numbers (x86-64)
+//!
+
+public using usize NR_READ = 0;
+public using usize NR_WRITE = 1;
+public using usize NR_CLOSE = 3;
+public using usize NR_FSTAT = 5;
+public using usize NR_LSEEK = 8;
+public using usize NR_MMAP = 9;
+public using usize NR_MPROTECT = 10;
+public using usize NR_MUNMAP = 11;
+public using usize NR_IOCTL = 16;
+public using usize NR_PREAD64 = 17;
+public using usize NR_PWRITE64 = 18;
+public using usize NR_WRITEV = 20;
+public using usize NR_SCHED_YIELD = 24;
+public using usize NR_MREMAP = 25;
+public using usize NR_MADVISE = 28;
+public using usize NR_NANOSLEEP = 35;
+public using usize NR_GETPID = 39;
+public using usize NR_EXIT = 60;
+public using usize NR_KILL = 62;
+public using usize NR_FCNTL = 72;
+public using usize NR_FSYNC = 74;
+public using usize NR_FTRUNCATE = 77;
+public using usize NR_GETCWD = 79;
+public using usize NR_READLINK = 89;
+public using usize NR_GETUID = 102;
+public using usize NR_GETGID = 104;
+public using usize NR_CLOCK_GETTIME = 228;
+public using usize NR_CLOCK_NANOSLEEP = 230;
+public using usize NR_EXIT_GROUP = 231;
+public using usize NR_OPENAT = 257;
+public using usize NR_MKDIRAT = 258;
+public using usize NR_NEWFSTATAT = 262;
+public using usize NR_UNLINKAT = 263;
+public using usize NR_RENAMEAT = 264;
+public using usize NR_DUP3 = 292;
+public using usize NR_PIPE2 = 293;
+public using usize NR_GETRANDOM = 318;
+
+//!
+//! Raw entry
+//!
+//! Prefer the typed wrappers below.
+//!
+
+public isize raw0(usize nr) {
+    return __syscall0(nr);
+}
+
+public isize raw1(usize nr, usize a) {
+    return __syscall1(nr, a);
+}
+
+public isize raw2(usize nr, usize a, usize b) {
+    return __syscall2(nr, a, b);
+}
+
+public isize raw3(usize nr, usize a, usize b, usize c) {
+    return __syscall3(nr, a, b, c);
+}
+
+public isize raw4(usize nr, usize a, usize b, usize c, usize d) {
+    return __syscall4(nr, a, b, c, d);
+}
+
+public isize raw5(usize nr, usize a, usize b, usize c, usize d, usize e) {
+    return __syscall5(nr, a, b, c, d, e);
+}
+
+public isize raw6(
+    usize nr,
+    usize a,
+    usize b,
+    usize c,
+    usize d,
+    usize e,
+    usize f
+) {
+    return __syscall6(nr, a, b, c, d, e, f);
+}
+
+usize arg_fd(abi::Fd fd) {
+    return fd as isize as usize;
+}
+
+usize arg_i32(i32 v) {
+    return v as isize as usize;
+}
+
+//!
+//! Descriptors
+//!
+
+public isize read(abi::Fd fd, [] u8 buf) {
+    return raw3(NR_READ, arg_fd(fd), buf.ptr as usize, buf.len);
+}
+
+public isize write(abi::Fd fd, [] const u8 buf) {
+    return raw3(NR_WRITE, arg_fd(fd), buf.ptr as usize, buf.len);
+}
+
+public isize pread(abi::Fd fd, [] u8 buf, abi::Off offset) {
+    return raw4(
+        NR_PREAD64,
+        arg_fd(fd),
+        buf.ptr as usize,
+        buf.len,
+        offset as usize
+    );
+}
+
+public isize pwrite(abi::Fd fd, [] const u8 buf, abi::Off offset) {
+    return raw4(
+        NR_PWRITE64,
+        arg_fd(fd),
+        buf.ptr as usize,
+        buf.len,
+        offset as usize
+    );
+}
+
+public isize writev(abi::Fd fd, [] const abi::Iovec vectors) {
+    return raw3(NR_WRITEV, arg_fd(fd), vectors.ptr as usize, vectors.len);
+}
+
+public isize close(abi::Fd fd) {
+    return raw1(NR_CLOSE, arg_fd(fd));
+}
+
+public isize lseek(abi::Fd fd, abi::Off offset, i32 whence) {
+    return raw3(NR_LSEEK, arg_fd(fd), offset as usize, arg_i32(whence));
+}
+
+public isize fsync(abi::Fd fd) {
+    return raw1(NR_FSYNC, arg_fd(fd));
+}
+
+public isize ftruncate(abi::Fd fd, abi::Off length) {
+    return raw2(NR_FTRUNCATE, arg_fd(fd), length as usize);
+}
+
+public isize dup3(abi::Fd old_fd, abi::Fd new_fd, i32 flags) {
+    return raw3(NR_DUP3, arg_fd(old_fd), arg_fd(new_fd), arg_i32(flags));
+}
+
+public isize pipe2(abi::Fd* pair, i32 flags) {
+    return raw2(NR_PIPE2, pair as usize, arg_i32(flags));
+}
+
+public isize ioctl(abi::Fd fd, usize request, usize argument) {
+    return raw3(NR_IOCTL, arg_fd(fd), request, argument);
+}
+
+public isize fcntl(abi::Fd fd, i32 command, usize argument) {
+    return raw3(NR_FCNTL, arg_fd(fd), arg_i32(command), argument);
+}
+
+//!
+//! Paths
+//!
+//! `path` is a nul-terminated byte string; `std::os::path` builds them.
+//!
+
+public isize openat(abi::Fd dir_fd, const u8* path, i32 flags, abi::Mode mode) {
+    return raw4(
+        NR_OPENAT,
+        arg_fd(dir_fd),
+        path as usize,
+        arg_i32(flags),
+        mode as usize
+    );
+}
+
+public isize open(const u8* path, i32 flags, abi::Mode mode) {
+    return openat(abi::AT_FDCWD, path, flags, mode);
+}
+
+public isize mkdirat(abi::Fd dir_fd, const u8* path, abi::Mode mode) {
+    return raw3(NR_MKDIRAT, arg_fd(dir_fd), path as usize, mode as usize);
+}
+
+public isize unlinkat(abi::Fd dir_fd, const u8* path, i32 flags) {
+    return raw3(NR_UNLINKAT, arg_fd(dir_fd), path as usize, arg_i32(flags));
+}
+
+public isize renameat(
+    abi::Fd old_dir,
+    const u8* old_path,
+    abi::Fd new_dir,
+    const u8* new_path
+) {
+    return raw4(
+        NR_RENAMEAT,
+        arg_fd(old_dir),
+        old_path as usize,
+        arg_fd(new_dir),
+        new_path as usize
+    );
+}
+
+public isize readlink(const u8* path, [] u8 buf) {
+    return raw3(NR_READLINK, path as usize, buf.ptr as usize, buf.len);
+}
+
+public isize getcwd([] u8 buf) {
+    return raw2(NR_GETCWD, buf.ptr as usize, buf.len);
+}
+
+public isize fstat(abi::Fd fd, abi::Stat* out) {
+    return raw2(NR_FSTAT, arg_fd(fd), out as usize);
+}
+
+public isize fstatat(abi::Fd dir_fd, const u8* path, abi::Stat* out, i32 flags) {
+    return raw4(
+        NR_NEWFSTATAT,
+        arg_fd(dir_fd),
+        path as usize,
+        out as usize,
+        arg_i32(flags)
+    );
+}
+
+//!
+//! Memory
+//!
+
+public isize mmap(
+    usize address,
+    usize length,
+    i32 protection,
+    i32 flags,
+    abi::Fd fd,
+    abi::Off offset
+) {
+    return raw6(
+        NR_MMAP,
+        address,
+        length,
+        arg_i32(protection),
+        arg_i32(flags),
+        arg_fd(fd),
+        offset as usize
+    );
+}
+
+public isize munmap(usize address, usize length) {
+    return raw2(NR_MUNMAP, address, length);
+}
+
+public isize mprotect(usize address, usize length, i32 protection) {
+    return raw3(NR_MPROTECT, address, length, arg_i32(protection));
+}
+
+public isize mremap(
+    usize address,
+    usize old_length,
+    usize new_length,
+    i32 flags
+) {
+    return raw4(NR_MREMAP, address, old_length, new_length, arg_i32(flags));
+}
+
+public isize madvise(usize address, usize length, i32 advice) {
+    return raw3(NR_MADVISE, address, length, arg_i32(advice));
+}
+
+//!
+//! Process and time
+//!
+
+public isize exit_group(i32 status) {
+    return raw1(NR_EXIT_GROUP, arg_i32(status));
+}
+
+public isize exit_thread(i32 status) {
+    return raw1(NR_EXIT, arg_i32(status));
+}
+
+public isize getpid() {
+    return raw0(NR_GETPID);
+}
+
+public isize getuid() {
+    return raw0(NR_GETUID);
+}
+
+public isize getgid() {
+    return raw0(NR_GETGID);
+}
+
+public isize kill(abi::Pid pid, i32 signal) {
+    return raw2(NR_KILL, pid as isize as usize, arg_i32(signal));
+}
+
+public isize sched_yield() {
+    return raw0(NR_SCHED_YIELD);
+}
+
+public isize clock_gettime(i32 clock, abi::Timespec* out) {
+    return raw2(NR_CLOCK_GETTIME, arg_i32(clock), out as usize);
+}
+
+public isize nanosleep(const abi::Timespec* request, abi::Timespec* remaining) {
+    return raw2(NR_NANOSLEEP, request as usize, remaining as usize);
+}
+
+public isize getrandom([] u8 buf, u32 flags) {
+    return raw3(NR_GETRANDOM, buf.ptr as usize, buf.len, flags as usize);
+}

@@ -37,3 +37,42 @@ __syscall3:
     syscall
     ret
 .size __syscall3, . - __syscall3
+
+.globl __syscall4
+.type __syscall4, @function
+__syscall4:
+    mov %rdi, %rax
+    mov %rsi, %rdi
+    mov %rdx, %rsi
+    mov %rcx, %rdx
+    mov %r8, %r10
+    syscall
+    ret
+.size __syscall4, . - __syscall4
+
+.globl __syscall5
+.type __syscall5, @function
+__syscall5:
+    mov %rdi, %rax
+    mov %rsi, %rdi
+    mov %rdx, %rsi
+    mov %rcx, %rdx
+    mov %r8, %r10
+    mov %r9, %r8
+    syscall
+    ret
+.size __syscall5, . - __syscall5
+
+.globl __syscall6
+.type __syscall6, @function
+__syscall6:
+    mov %rdi, %rax
+    mov %rsi, %rdi
+    mov %rdx, %rsi
+    mov %rcx, %rdx
+    mov %r8, %r10
+    mov %r9, %r8
+    mov 8(%rsp), %r9
+    syscall
+    ret
+.size __syscall6, . - __syscall6
