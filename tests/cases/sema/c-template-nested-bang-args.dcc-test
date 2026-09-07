@@ -1,0 +1,42 @@
+=== FILE: main.dc ===
+module m;
+
+struct Bridge(F, T...) {
+    F entry;
+    T... args;
+}
+
+struct Expr {
+    i32 kind;
+}
+
+struct Arena(T) {
+    T* data;
+}
+
+T create(T)(T value) {
+    return value;
+}
+
+T create_in(T)(Arena(T)* self, T value) {
+    return value;
+}
+
+i32 call_nested() {
+    Bridge(void(*)(), i32) b;
+    Bridge(void(*)(), i32) r = create!Bridge(void(*)(), i32)(b);
+    return 0;
+}
+
+i32 call_plain(Arena(Expr)* x, Expr e) {
+    Expr r = create_in!Expr(x, e);
+    return r.kind;
+}
+
+i32 call_paren() {
+    Bridge(void(*)(), i32) b;
+    Bridge(void(*)(), i32) r = create!(Bridge(void(*)(), i32))(b);
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
