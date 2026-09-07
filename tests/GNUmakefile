@@ -2,7 +2,7 @@ include $(RULES_MK)
 
 LOCAL_CXXFLAGS := $(LLVM_DEFS) $(LLVM_CXXFLAGS)
 
-.PHONY: all test clean
+.PHONY: all test test-lsp-diagnostics clean
 
 COMPILER_LIB := $(BUILD_DIR)/lib/libcompiler.a
 
@@ -47,7 +47,10 @@ DCCD_COMPDB_OBJS := \
 
 all: test
 
-test: $(ALL_TEST_BINS)
+test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
+
+test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
