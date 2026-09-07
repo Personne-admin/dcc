@@ -489,6 +489,7 @@ export namespace dcc::ast
         static constexpr auto Kind = TypeKind::Named;
         Path path;
         std::pmr::vector<TemplateArg> template_args;
+        bool explicit_template_args{};
         NamedType(sm::SourceRange r, Path p, Allocator a) : TypeExpr(Kind, r), path(std::move(p)), template_args(a) {}
     };
 

@@ -610,19 +610,20 @@ export namespace dcc::sema
                 return out;
             }
 
-            out = resolve_symbol_type(*sym, mod, env, node->template_args, node->range, quiet_unknown);
+            out = resolve_symbol_type(*sym, mod, env, node->template_args, node->range, quiet_unknown, node->explicit_template_args);
             return out;
         }
 
         [[nodiscard]] detail::ResolvedType resolve_symbol_type(Symbol const& sym, ModuleInfo const& mod, detail::TemplateEnv const& env,
-                                                               std::pmr::vector<ast::TemplateArg> const& args, sm::SourceRange range, bool quiet_unknown)
+                                                               std::pmr::vector<ast::TemplateArg> const& args, sm::SourceRange range, bool quiet_unknown,
+                                                               bool explicit_args = false)
         {
             switch (sym.kind)
             {
                 case SymbolKind::Struct:
                 case SymbolKind::Union:
                 case SymbolKind::Enum:
-                    return resolve_nominal(sym.decl, mod, env, args, range, quiet_unknown);
+                    return resolve_nominal(sym.decl, mod, env, args, range, quiet_unknown, explicit_args);
                 case SymbolKind::TypeAlias:
                     if (auto const* u = ast::node_cast<ast::UsingDecl>(sym.decl))
                     {
@@ -647,7 +648,8 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] detail::ResolvedType resolve_nominal(ast::Decl const* decl, ModuleInfo const& mod, detail::TemplateEnv const& env,
-                                                           std::pmr::vector<ast::TemplateArg> const& args, sm::SourceRange range, bool quiet_unknown)
+                                                           std::pmr::vector<ast::TemplateArg> const& args, sm::SourceRange range, bool quiet_unknown,
+                                                           bool explicit_args = false)
         {
             if (!type_of(*decl))
                 return {m_types.m_errort(), types::Qual::None};
@@ -700,12 +702,18 @@ export namespace dcc::sema
                 return {m_types.m_errort(), types::Qual::None};
             }
 
+            bool is_variadic_struct = decl->kind == ast::DeclKind::Struct && !template_params.empty() && template_params.back().is_pack;
+            std::size_t fixed_count = is_variadic_struct ? template_params.size() - 1 : expected;
+
             std::size_t required = 0;
-            for (auto const& tp : template_params)
+            for (std::size_t i = 0; i < fixed_count && i < template_params.size(); ++i)
+            {
+                auto const& tp = template_params[i];
                 if (!tp.default_type && !tp.default_value)
                     ++required;
+            }
 
-            if (expected > 0 && (resolved_args.size() < required || resolved_args.size() > expected))
+            if (expected > 0 && (resolved_args.size() < required || (!is_variadic_struct && resolved_args.size() > expected)))
             {
                 if (!quiet_unknown)
                     m_diag.error(range, "template argument count mismatch for `{}`", detail::decl_name(decl));
@@ -713,7 +721,7 @@ export namespace dcc::sema
                 return {m_types.m_errort(), types::Qual::None};
             }
 
-            if (resolved_args.size() < expected)
+            if (resolved_args.size() < fixed_count)
             {
                 infer::TemplateBindings bindings{m_types};
                 for (std::size_t i = 0; i < resolved_args.size(); ++i)
@@ -722,7 +730,7 @@ export namespace dcc::sema
                     auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                     std::ignore = bindings.deduce(key, resolved_args[i]);
                 }
-                for (std::size_t i = resolved_args.size(); i < expected; ++i)
+                for (std::size_t i = resolved_args.size(); i < fixed_count; ++i)
                 {
                     auto const& tp = template_params[i];
                     if (!tp.default_type || !tp.default_type->sema.canonical)
@@ -738,10 +746,11 @@ export namespace dcc::sema
                 }
             }
 
-            if (!resolved_args.empty())
+            if (!resolved_args.empty() || (explicit_args && is_variadic_struct))
             {
                 if (auto kind = nominal_kind(*decl); kind != types::TypeKind::Error)
-                    return {m_types.nominal_t(kind, const_cast<ast::Decl*>(decl), resolved_args), types::Qual::None};
+                    return {m_types.nominal_t(kind, const_cast<ast::Decl*>(decl), resolved_args, kind == types::TypeKind::Struct),
+                            types::Qual::None};
             }
 
             if (auto kind = nominal_kind(*decl); kind != types::TypeKind::Error)

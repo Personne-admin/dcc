@@ -6416,12 +6416,21 @@ export namespace dcc::ir::lower
 
             if (auto* st = types::type_cast<types::StructType>(target_type))
             {
-                auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
-                field_count = static_cast<std::uint32_t>(sd->fields.size());
-                for (auto const& f : sd->fields)
+                if (st->has_expansion)
                 {
-                    auto* ft = get_canonical_type(f.type);
-                    field_types.push_back(ft);
+                    field_count = static_cast<std::uint32_t>(st->expanded_field_count);
+                    for (std::size_t i = 0; i < st->expanded_field_count; ++i)
+                        field_types.push_back(st->expanded_fields[i].type);
+                }
+                else
+                {
+                    auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                    field_count = static_cast<std::uint32_t>(sd->fields.size());
+                    for (auto const& f : sd->fields)
+                    {
+                        auto* ft = get_canonical_type(f.type);
+                        field_types.push_back(ft);
+                    }
                 }
             }
             else if (auto* ut = types::type_cast<types::UnionType>(target_type))
@@ -6936,7 +6945,12 @@ export namespace dcc::ir::lower
                         changed = true;
                 }
                 if (changed && m_type_ctx)
-                    return m_type_ctx->nominal_t(type->kind, const_cast<void*>(static_cast<void const*>(ut->decl)), new_args);
+                {
+                    bool spec = false;
+                    if (type->kind == types::TypeKind::Struct)
+                        spec = static_cast<types::StructType const*>(type)->is_specialization || !new_args.empty();
+                    return m_type_ctx->nominal_t(type->kind, const_cast<void*>(static_cast<void const*>(ut->decl)), new_args, spec);
+                }
 
                 return type;
             }
@@ -7018,6 +7032,24 @@ export namespace dcc::ir::lower
                 placeholder->byte_align = type->byte_align;
                 m_struct_type_cache[type] = placeholder;
 
+                if (st->has_expansion)
+                {
+                    std::vector<IrType const*> members;
+                    std::vector<std::uint64_t> offsets;
+                    members.reserve(st->expanded_field_count);
+                    offsets.reserve(st->expanded_field_count);
+                    for (std::size_t i = 0; i < st->expanded_field_count; ++i)
+                    {
+                        members.push_back(lower_type(st->expanded_fields[i].type));
+                        offsets.push_back(st->expanded_fields[i].byte_offset);
+                    }
+
+                    placeholder->members.assign(members.begin(), members.end());
+                    placeholder->member_offsets.assign(offsets.begin(), offsets.end());
+
+                    return placeholder;
+                }
+
                 auto subst = st->template_args.empty() ? std::unordered_map<void const*, types::TypePtr>{}
                                                        : build_template_subst(sd->template_params, st->template_args);
 
@@ -7026,8 +7058,25 @@ export namespace dcc::ir::lower
                 members.reserve(sd->fields.size());
                 subst_field_types.reserve(sd->fields.size());
 
+                bool variadic_fallback = !sd->template_params.empty() && sd->template_params.back().is_pack &&
+                                         (st->is_specialization || !st->template_args.empty());
+                std::size_t pack_start = variadic_fallback ? sd->template_params.size() - 1 : 0;
+
                 for (auto const& f : sd->fields)
                 {
+                    if (variadic_fallback && f.is_pack)
+                    {
+                        for (std::size_t i = pack_start; i < st->template_args.size(); ++i)
+                        {
+                            auto* ft = st->template_args[i];
+                            if (!subst.empty())
+                                ft = substitute_type(ft, subst);
+                            members.push_back(lower_type(ft));
+                            subst_field_types.push_back(ft);
+                        }
+                        continue;
+                    }
+
                     auto* ft = get_canonical_type(f.type);
 
                     if (!subst.empty())
@@ -7045,8 +7094,10 @@ export namespace dcc::ir::lower
                 }
 
                 std::vector<std::uint64_t> offsets;
-                if (!subst.empty())
+                if (!subst.empty() && !variadic_fallback)
                     offsets = compute_field_offsets(subst_field_types);
+                else if (variadic_fallback)
+                    offsets = compute_variadic_field_offsets(*sd, subst_field_types);
                 else
                     for (auto const& f : sd->fields)
                         offsets.push_back(f.byte_offset);
@@ -7219,11 +7270,20 @@ export namespace dcc::ir::lower
 
             if (st)
             {
-                auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
-                field_count = static_cast<std::uint32_t>(sd->fields.size());
-                auto subst = build_subst_from_user_type(target_type);
-                for (auto const& f : sd->fields)
-                    field_types.push_back(get_field_canonical_with_subst(target_type, f, &subst));
+                if (st->has_expansion)
+                {
+                    field_count = static_cast<std::uint32_t>(st->expanded_field_count);
+                    for (std::size_t i = 0; i < st->expanded_field_count; ++i)
+                        field_types.push_back(st->expanded_fields[i].type);
+                }
+                else
+                {
+                    auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                    field_count = static_cast<std::uint32_t>(sd->fields.size());
+                    auto subst = build_subst_from_user_type(target_type);
+                    for (auto const& f : sd->fields)
+                        field_types.push_back(get_field_canonical_with_subst(target_type, f, &subst));
+                }
             }
             else if (ut)
             {
@@ -7566,6 +7626,37 @@ export namespace dcc::ir::lower
                     align = field_align;
 
                 size = (size + field_align - 1) & ~(field_align - 1);
+                offsets.push_back(size);
+                size += ft->byte_size;
+            }
+            return offsets;
+        }
+
+        [[nodiscard]] static std::vector<std::uint64_t> compute_variadic_field_offsets(ast::StructDecl const& sd,
+                                                                                       std::span<types::TypePtr const> field_types)
+        {
+            bool is_packed = false;
+            for (auto const& a : sd.attrs)
+                if (a.name == "packed")
+                {
+                    is_packed = true;
+                    break;
+                }
+
+            std::vector<std::uint64_t> offsets;
+            offsets.reserve(field_types.size());
+            std::uint64_t size = 0;
+            for (auto* ft : field_types)
+            {
+                if (!ft)
+                {
+                    offsets.push_back(size);
+                    continue;
+                }
+
+                std::uint32_t field_align = is_packed ? 1 : ft->byte_align;
+                if (field_align > 1)
+                    size = (size + field_align - 1) & ~(static_cast<std::uint64_t>(field_align) - 1);
                 offsets.push_back(size);
                 size += ft->byte_size;
             }

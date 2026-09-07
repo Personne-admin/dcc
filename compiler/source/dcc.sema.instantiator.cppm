@@ -63,6 +63,7 @@ namespace dcc::sema
                     auto* e = static_cast<ast::NamedType const*>(t);
                     auto path = clone_path(e->path);
                     auto* n = m_ctx.make<ast::NamedType>(e->range, std::move(path));
+                    n->explicit_template_args = e->explicit_template_args;
                     n->template_args.reserve(e->template_args.size());
                     for (auto const& a : e->template_args)
                         n->template_args.push_back(clone_template_arg(a));

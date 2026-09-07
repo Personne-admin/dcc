@@ -1,0 +1,85 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Tuple(T...) {
+	T... items;
+}
+
+public struct Tagged(K, T...) {
+	K key;
+	T... rest;
+}
+
+@[packed]
+public struct PT(T...) {
+	T... items;
+}
+
+public Tuple(u64) ident1(Tuple(u64) t) {
+	return t;
+}
+public Tuple(u8, u8) ident2(Tuple(u8, u8) t) {
+	return t;
+}
+public Tuple(u8, u64, u8) ident3(Tuple(u8, u64, u8) t) {
+	return t;
+}
+public Tagged(u32, u8, u64) ident_tagged(Tagged(u32, u8, u64) t) {
+	return t;
+}
+public Tuple() ident_empty(Tuple() t) {
+	return t;
+}
+public PT(u8, u64, u8) ident_packed(PT(u8, u64, u8) t) {
+	return t;
+}
+
+=== EXPECT-IR ===
+module "test"
+{@0 u64}@_DC0F1.4.test6.ident11D1.4.test5.Tuple1.i64uD1.4.test5.Tuple1.i64u({@0 u64}) {
+%entry({@0 u64} %t):
+  %0 = alloca {@0 u64}
+  store {@0 u64} %t, ptr<{@0 u64}> %0
+  %1 = load {@0 u64}, ptr<{@0 u64}> %0
+  ret {@0 u64} %1
+}
+
+{@0 u8, @1 u8}@_DC0F1.4.test6.ident21D1.4.test5.Tuple2.i8ui8uD1.4.test5.Tuple2.i8ui8u({@0 u8, @1 u8}) {
+%entry({@0 u8, @1 u8} %t):
+  %0 = alloca {@0 u8, @1 u8}
+  store {@0 u8, @1 u8} %t, ptr<{@0 u8, @1 u8}> %0
+  %1 = load {@0 u8, @1 u8}, ptr<{@0 u8, @1 u8}> %0
+  ret {@0 u8, @1 u8} %1
+}
+
+{@0 u8, @8 u64, @16 u8}@_DC0F1.4.test6.ident31D1.4.test5.Tuple3.i8ui64ui8uD1.4.test5.Tuple3.i8ui64ui8u({@0 u8, @8 u64, @16 u8}) {
+%entry({@0 u8, @8 u64, @16 u8} %t):
+  %0 = alloca {@0 u8, @8 u64, @16 u8}
+  store {@0 u8, @8 u64, @16 u8} %t, ptr<{@0 u8, @8 u64, @16 u8}> %0
+  %1 = load {@0 u8, @8 u64, @16 u8}, ptr<{@0 u8, @8 u64, @16 u8}> %0
+  ret {@0 u8, @8 u64, @16 u8} %1
+}
+
+{@0 u32, @4 u8, @8 u64}@_DC0F1.4.test12.ident_tagged1D1.4.test6.Tagged3.i32ui8ui64uD1.4.test6.Tagged3.i32ui8ui64u({@0 u32, @4 u8, @8 u64}) {
+%entry({@0 u32, @4 u8, @8 u64} %t):
+  %0 = alloca {@0 u32, @4 u8, @8 u64}
+  store {@0 u32, @4 u8, @8 u64} %t, ptr<{@0 u32, @4 u8, @8 u64}> %0
+  %1 = load {@0 u32, @4 u8, @8 u64}, ptr<{@0 u32, @4 u8, @8 u64}> %0
+  ret {@0 u32, @4 u8, @8 u64} %1
+}
+
+{}@_DC0F1.4.test11.ident_empty1D1.4.test5.Tuple0.D1.4.test5.Tuple0.({}) {
+%entry({} %t):
+  %0 = alloca {}
+  store {} %t, ptr<{}> %0
+  %1 = load {}, ptr<{}> %0
+  ret {} %1
+}
+
+{@0 u8, @1 u64, @9 u8}@_DC0F1.4.test12.ident_packed1D1.4.test2.PT3.i8ui64ui8uD1.4.test2.PT3.i8ui64ui8u({@0 u8, @1 u64, @9 u8}) {
+%entry({@0 u8, @1 u64, @9 u8} %t):
+  %0 = alloca {@0 u8, @1 u64, @9 u8}
+  store {@0 u8, @1 u64, @9 u8} %t, ptr<{@0 u8, @1 u64, @9 u8}> %0
+  %1 = load {@0 u8, @1 u64, @9 u8}, ptr<{@0 u8, @1 u64, @9 u8}> %0
+  ret {@0 u8, @1 u64, @9 u8} %1
+}

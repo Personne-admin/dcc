@@ -318,6 +318,13 @@ export namespace dcc::types
         UserType(TypeKind k, void const* d, std::pmr::polymorphic_allocator<> a) : Type(k), decl(static_cast<ast::Decl const*>(d)), template_args(a) {}
     };
 
+    struct StructExpandedField
+    {
+        std::string_view name;
+        TypePtr type{};
+        std::uint32_t byte_offset{};
+    };
+
     struct StructType : UserType
     {
         static constexpr auto Kind = TypeKind::Struct;
@@ -325,6 +332,10 @@ export namespace dcc::types
         StructType(void const* d, std::pmr::polymorphic_allocator<> a) : UserType(Kind, d, a) { is_complete = false; }
 
         bool has_fam : 1 {};
+        bool is_specialization : 1 {};
+        bool has_expansion : 1 {};
+        StructExpandedField const* expanded_fields{};
+        std::size_t expanded_field_count{};
     };
 
     struct UnionType : UserType
@@ -633,9 +644,18 @@ export namespace dcc::types
             return t;
         }
 
-        [[nodiscard]] TypePtr nominal_t(TypeKind kind, void const* decl, std::span<TypePtr const> args = {})
+        [[nodiscard]] TypePtr nominal_t(TypeKind kind, void const* decl, std::span<TypePtr const> args = {}, bool is_specialization = false)
         {
-            auto matches = [&](UserType const* u) { return u->kind == kind && u->decl == decl && same_span(u->template_args, args); };
+            if (kind == TypeKind::Struct && !args.empty())
+                is_specialization = true;
+
+            auto matches = [&](UserType const* u) {
+                if (u->kind != kind || u->decl != decl || !same_span(u->template_args, args))
+                    return false;
+                if (kind == TypeKind::Struct && static_cast<StructType const*>(u)->is_specialization != is_specialization)
+                    return false;
+                return true;
+            };
 
             switch (kind)
             {
@@ -646,6 +666,7 @@ export namespace dcc::types
                     {
                         auto* t = make<StructType>(decl, m_arena);
                         t->template_args.assign(args.begin(), args.end());
+                        t->is_specialization = is_specialization;
                         m_structs.push_back(t);
                         return t;
                     }
@@ -697,6 +718,7 @@ export namespace dcc::types
         }
 
         [[nodiscard]] std::vector<EnumType const*> const& enums() const noexcept { return m_enums; }
+        [[nodiscard]] std::vector<StructType const*> const& structs() const noexcept { return m_structs; }
 
         template <typename T, typename... Args> [[nodiscard]] T* make(Args&&... args)
         {

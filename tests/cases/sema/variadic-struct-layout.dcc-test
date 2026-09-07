@@ -1,0 +1,92 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+struct Triple {
+    u8 a;
+    u64 b;
+    u8 c;
+}
+
+struct Tagged(K, T...) {
+    K key;
+    T... rest;
+}
+
+struct TaggedHand {
+    u32 key;
+    u8 x;
+    u64 y;
+}
+
+@[packed]
+struct PackedTuple(T...) {
+    T... items;
+}
+
+@[packed]
+struct PackedTriple {
+    u8 a;
+    u64 b;
+    u8 c;
+}
+
+@[align(16)]
+struct AlignedTuple(T...) {
+    T... items;
+}
+
+@[align(16)]
+struct AlignedPair {
+    u8 a;
+    u8 b;
+}
+
+void f() {
+    sizeof(Tuple());
+    alignof(Tuple());
+    sizeof(Tuple(u8));
+    sizeof(Tuple(u8, u8));
+    sizeof(Tuple(u8, u64, u8));
+    alignof(Tuple(u8, u64, u8));
+    offsetof(Tuple(u8, u64, u8), items);
+    sizeof(Triple);
+    alignof(Triple);
+    sizeof(Tagged(u32, u8, u64));
+    alignof(Tagged(u32, u8, u64));
+    offsetof(Tagged(u32, u8, u64), key);
+    sizeof(TaggedHand);
+    sizeof(PackedTuple(u8, u64, u8));
+    alignof(PackedTuple(u8, u64, u8));
+    sizeof(PackedTriple);
+    sizeof(AlignedTuple(u8, u8));
+    alignof(AlignedTuple(u8, u8));
+    sizeof(AlignedPair);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func f diverging=false
+    Body
+      Sizeof [type=usize const=0 constant]
+      Alignof [type=usize const=1 constant]
+      Sizeof [type=usize const=1 constant]
+      Sizeof [type=usize const=2 constant]
+      Sizeof [type=usize const=24 constant]
+      Alignof [type=usize const=8 constant]
+      Offsetof [type=usize const=0 constant]
+      Sizeof [type=usize const=24 constant]
+      Alignof [type=usize const=8 constant]
+      Sizeof [type=usize const=16 constant]
+      Alignof [type=usize const=8 constant]
+      Offsetof [type=usize const=0 constant]
+      Sizeof [type=usize const=16 constant]
+      Sizeof [type=usize const=10 constant]
+      Alignof [type=usize const=1 constant]
+      Sizeof [type=usize const=10 constant]
+      Sizeof [type=usize const=16 constant]
+      Alignof [type=usize const=16 constant]
+      Sizeof [type=usize const=16 constant]
