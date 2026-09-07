@@ -1516,7 +1516,9 @@ export namespace dcc::parser
             while (!check(TK::RBrace) && !eof())
             {
                 auto prev_pos = m_pos;
-                d->fields.push_back(parse_field_decl(true));
+                auto field = parse_field_decl(true);
+                field.index = static_cast<std::uint32_t>(d->fields.size());
+                d->fields.push_back(std::move(field));
                 if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
                     advance();
             }
@@ -1544,7 +1546,9 @@ export namespace dcc::parser
             while (!check(TK::RBrace) && !eof())
             {
                 auto prev_pos = m_pos;
-                d->fields.push_back(parse_field_decl());
+                auto field = parse_field_decl();
+                field.index = static_cast<std::uint32_t>(d->fields.size());
+                d->fields.push_back(std::move(field));
                 if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
                     advance();
             }
