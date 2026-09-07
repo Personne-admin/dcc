@@ -12723,6 +12723,40 @@ export namespace dcc::sema
                     return substitute_in_nominal_context(field_type, base_type);
                 }
 
+                if (auto* cast = ast::node_cast<ast::CastExpr>(object))
+                {
+                    if (!cast->target)
+                        return nullptr;
+
+                    [[maybe_unused]] ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                    auto target = resolve_type_node(const_cast<ModuleInfo&>(mod), scope, cast->target);
+                    if (!target || target->kind == types::TypeKind::Error)
+                        return nullptr;
+
+                    return target;
+                }
+
+                if (auto* unary = ast::node_cast<ast::UnaryExpr>(object))
+                {
+                    if ((unary->op != lex::TokenKind::Star && unary->op != lex::TokenKind::Amp) || !unary->operand)
+                        return nullptr;
+
+                    auto inner = get_receiver_type(unary->operand);
+                    if (!inner || inner->kind == types::TypeKind::Error)
+                        return nullptr;
+
+                    if (unary->op == lex::TokenKind::Star)
+                    {
+                        auto const* ptr = types::type_cast<types::PointerType>(inner);
+                        if (!ptr || !ptr->pointee)
+                            return nullptr;
+
+                        return ptr->pointee;
+                    }
+
+                    return m_types.pointer_to(inner, types::Qual::None);
+                }
+
                 return nullptr;
             };
 
