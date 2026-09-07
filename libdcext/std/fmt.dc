@@ -32,12 +32,12 @@ public Status(FmtError) write_all(const Writer* self, [] const u8 bytes) {
 
 public Status(FmtError) write_byte(const Writer* self, u8 byte) {
     u8[1] one = { byte };
-    return self.write_all(slice::from_raw(&one[0], 1));
+    return self.write_all(one);
 }
 
 public Status(FmtError) write_codepoint(const Writer* self, u32 cp) {
     u8[4] buf;
-    [] u8 view = slice::from_raw(&buf[0], 4);
+    [] u8 view = buf;
 
     return match utf8::encode(cp, view) {
         Result::Ok(n) => self.write_all(view[0.. n]),
@@ -235,7 +235,7 @@ public Status(FmtError) format_unsigned(
     const Options* opts
 ) {
     u8[72] scratch;
-    [] u8 view = slice::from_raw(&scratch[0], 72);
+    [] u8 view = scratch;
     [] u8 digits = render_unsigned(value, view, opts);
 
     if opts.zero_pad && digits.len < opts.width && opts.align == Align::Right {
@@ -252,7 +252,7 @@ public Status(FmtError) format_signed(
     const Options* opts
 ) {
     u8[72] scratch;
-    [] u8 view = slice::from_raw(&scratch[0], 72);
+    [] u8 view = scratch;
 
     bool negative = value < 0;
     u64 magnitude = if negative {
@@ -334,7 +334,7 @@ public Status(FmtError) format_float(
     }
 
     u8[512] scratch;
-    [] u8 view = slice::from_raw(&scratch[0], 512);
+    [] u8 view = scratch;
     BufferWriter sink = BufferWriter::new(view);
     Writer inner = sink.writer();
 
@@ -482,7 +482,7 @@ Status(FmtError) format_builtin_unsigned(T)(const Writer* w, T value, const Opti
     } else static if T == char {
         if opts.spec == ('c' as u8) || opts.spec == 0 {
             u8[1] one = { value as u8 };
-            return write_padded(w, slice::from_raw(&one[0], 1), opts);
+            return write_padded(w, one, opts);
         }
         return format_unsigned(w, value as u64, opts);
     } else {
