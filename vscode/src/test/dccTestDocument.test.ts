@@ -157,7 +157,7 @@ test('header-like text is only detected by the exact delimiter rule', () => {
 
     assert.equal(doc.sections.length, 2);
     assert.equal(doc.sections[0].kind, 'file');
-    assert.deepEqual(doc.sections[0].bodyLines, ['// === FILE: fake.dc ===   <- comment, not a header XD', 'x === y === z']);
+    assert.deepEqual(doc.sections[0].bodyLines, ['// === FILE: fake.dc ===   <- comment, not a header', 'x === y === z']);
     assert.equal(doc.virtualFiles[0].path, 'main.dc');
     assert.equal(doc.virtualFiles.length, 1);
 });

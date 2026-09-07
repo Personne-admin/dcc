@@ -66,7 +66,7 @@ tools-windows:
 	@$(MAKE) CROSS=windows driver
 	@$(MAKE) CROSS=windows dccd
 
-MSI_VERSION ?= 0.1.0
+MSI_VERSION ?= 0.2.0
 MSI_STAGE_DIR := $(TOPLEVEL)/build-windows/msi-stage
 MSI_OUT := $(TOPLEVEL)/build-windows/dcc-$(MSI_VERSION)-x86_64.msi
 GEN_WXS_SCRIPT := $(TOPLEVEL)/mk/gen_wxs.py

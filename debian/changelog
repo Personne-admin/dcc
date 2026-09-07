@@ -1,3 +1,15 @@
+dcc (0.2.0-1) unstable; urgency=medium
+
+  * New upstream release v0.2.0.
+  * Windows cross-compilation support for dcc and dccd and MSI packaging.
+  * Cross-platform OS abstraction layer with Linux and Windows support.
+  * Internal em64t assembler for native inline assembly with unified statement and expression syntax.
+  * Hosted target resolution and libdcext compilation database integration.
+  * Language and semantic improvements: match pattern constants, static-if formatting and other fixes.
+  * Language server (dccd) diagnostic lifecycle and stability fixes.
+
+ -- personne-admin <personneadmin@protonmail.com>  Mon, 07 Sep 2026 15:50:00 +0200
+
 dcc (0.1.1-1) unstable; urgency=medium
 
   * New upstream release v0.1.1.
