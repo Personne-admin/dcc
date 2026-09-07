@@ -70,6 +70,7 @@ export namespace dcc::ir::mangle
         std::uint64_t count{};
         std::shared_ptr<DemangledType> return_type_fp;
         std::uint32_t param_index{};
+        bool is_specialization{false};
 
         DemangledType() = default;
     };
@@ -592,6 +593,9 @@ namespace dcc::ir::mangle
                     out += '.';
                     for (auto* ta : ut->template_args)
                         encode_type(out, ta, resolver);
+                    if (type->kind == dcc::types::TypeKind::Struct && ut->template_args.empty() &&
+                        static_cast<dcc::types::StructType const*>(ut)->is_specialization)
+                        out += 'e';
 
                     return;
                 }
@@ -930,6 +934,11 @@ namespace dcc::ir::mangle
                         if (!demangle_type_into(ta, sv, pos))
                             return false;
                         dt.template_args.push_back(std::move(ta));
+                    }
+                    if (tc == 0 && pos < sv.size() && sv[pos] == 'e')
+                    {
+                        ++pos;
+                        dt.is_specialization = true;
                     }
 
                     dt.tag = DemangledType::Tag::Struct;

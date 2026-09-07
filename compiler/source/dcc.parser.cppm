@@ -3610,7 +3610,13 @@ export namespace dcc::parser
                 return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(b));
             }
 
-            if (check(TK::Comma))
+            if (first && check(TK::Ellipsis) && (check_at(1, TK::Comma) || check_at(1, TK::RBrace)))
+            {
+                advance();
+                first = m_ctx.make<ast::PackExpansionExpr>(range_from(first_start), first);
+            }
+
+            if (check(TK::Comma) || (first && first->kind == ast::ExprKind::PackExpansion))
             {
                 auto* sl = m_ctx.make<ast::StructLiteralExpr>(sm::SourceRange{});
                 sl->type = nullptr;
@@ -3643,6 +3649,9 @@ export namespace dcc::parser
                     }
                     else
                         nf.value = parse_expr();
+
+                    if (nf.value && match(TK::Ellipsis))
+                        nf.value = m_ctx.make<ast::PackExpansionExpr>(range_from(fstart), nf.value);
 
                     nf.range = range_from(fstart);
                     sl->fields.push_back(std::move(nf));
@@ -3713,7 +3722,11 @@ export namespace dcc::parser
                     f.value = m_ctx.make<ast::IdentExpr>(name.range, name.interned);
                 }
                 else
+                {
                     f.value = parse_expr();
+                    if (f.value && match(TK::Ellipsis))
+                        f.value = m_ctx.make<ast::PackExpansionExpr>(range_from(fstart), f.value);
+                }
 
                 f.range = range_from(fstart);
                 sl->fields.push_back(std::move(f));

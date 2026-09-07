@@ -1,0 +1,68 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+i32 first(Tuple(i32, f64)* self) {
+    return self.items.0;
+}
+
+i32 get0(T...)(Tuple(T)* self) {
+    return self.items.0;
+}
+
+void caller() {
+    Tuple(i32, f64) t = {1, 2.0};
+    i32 a = t.first();
+    i32 b = t.get0();
+    Tuple(i32, f64)* p = &t;
+    i32 c = p.get0();
+    a + b + c;
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func first diverging=true
+    Param self type=Tuple(i32, f64)* storage=param offset=0 index=0
+    Body
+      Return
+        PackAccess [type=i32 const=<none> lvalue decl=Tuple]
+          FieldAccess items [type=T const=<none> lvalue decl=Tuple]
+            Ident self [type=Tuple(i32, f64)* const=<none> lvalue decl=self]
+          IntLiteral 0 [type=i32 const=0 constant]
+  Func get0 diverging=false
+    Param self type=Tuple(T)* storage=param offset=0 index=0
+    Body
+      Return
+        PackAccess [type=<unresolved> const=<none>]
+          FieldAccess items [type=<unresolved> const=<none>]
+            Ident self [type=<unresolved> const=<none>]
+          IntLiteral 0 [type=<unresolved> const=<none>]
+  Func caller diverging=false
+    Body
+      Var t type=Tuple(i32, f64) storage=local offset=0
+        StructLiteral [type=Tuple(i32, f64) const=agg(1, 2) constant]
+          IntLiteral 1 [type=i32 const=1 constant]
+          FloatLiteral 2 [type=f64 const=2 constant]
+      Var a type=i32 storage=local offset=16
+        Call [type=i32 const=<none> decl=first ufcs=first]
+          FieldAccess first [type=<unresolved> const=<none> decl=first ufcs=first]
+            Ident t [type=Tuple(i32, f64) const=agg(1, 2) lvalue constant addr_of decl=t]
+      Var b type=i32 storage=local offset=20
+        Call [type=i32 const=<none> decl=get0 spec=get0 ufcs=get0]
+          FieldAccess get0 [type=<unresolved> const=<none> decl=get0 ufcs=get0]
+            Ident t [type=Tuple(i32, f64) const=<none> lvalue addr_of decl=t]
+      Var p type=Tuple(i32, f64)* storage=local offset=24
+        Unary & [type=Tuple(i32, f64)* const=<none> lvalue decl=t]
+          Ident t [type=Tuple(i32, f64) const=<none> lvalue decl=t]
+      Var c type=i32 storage=local offset=32
+        Call [type=i32 const=<none> decl=get0 spec=get0 ufcs=get0]
+          FieldAccess get0 [type=<unresolved> const=<none> decl=get0 ufcs=get0]
+            Ident p [type=Tuple(i32, f64)* const=<none> lvalue decl=p]
+      Binary + [type=i32 const=<none>]
+        Binary + [type=i32 const=<none>]
+          Ident a [type=i32 const=<none> lvalue decl=a]
+          Ident b [type=i32 const=<none> lvalue decl=b]
+        Ident c [type=i32 const=<none> lvalue decl=c]
