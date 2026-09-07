@@ -1,0 +1,36 @@
+=== FILE: test.dc ===
+module test;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+void f(T...)(void* raw) {
+    Tuple(T)* t = raw as Tuple(T)*;
+}
+
+i32 main() {
+    Tuple(i32, f64) v = {1, 2.0};
+    f!(i32, f64)(&v as void*);
+    return 0;
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test4.main0i32s() {
+%entry:
+  %0 = alloca {@0 i32, @8 f64}
+  %1 = aggregate {@0 i32, @8 f64}, #1, #2
+  store {@0 i32, @8 f64} %1, ptr<{@0 i32, @8 f64}> %0
+  %2 = bitcast ptr<{@0 i32, @8 f64}> %0 to ptr<void>
+  call fn(@_DC0S1.4.test1.f1PqvvX2ti32stf64.)(ptr<void> %2)
+  ret i32 #0
+}
+
+linkonce_odr void@_DC0S1.4.test1.f1PqvvX2ti32stf64.(ptr<void>) {
+%entry(ptr<void> %raw):
+  %0 = alloca ptr<{@0 i32, @8 f64}>
+  %1 = bitcast ptr<void> %raw to ptr<{@0 i32, @8 f64}>
+  store ptr<{@0 i32, @8 f64}> %1, ptr<ptr<{@0 i32, @8 f64}>> %0
+  ret void
+}
