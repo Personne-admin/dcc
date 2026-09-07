@@ -1,9 +1,0 @@
-=== FILE: main.dc ===
-module m;
-
-struct Foo(T...) {
-    i32 x;
-}
-
-=== EXPECT-ERRORS ===
-main.dc:3: variadic template parameters are not allowed on struct/enum declarations

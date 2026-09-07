@@ -1212,7 +1212,7 @@ export namespace dcc::ast
 
         void print_field_decl(const FieldDecl& f)
         {
-            line_fmt("Field name={}", f.name);
+            line_fmt("{} name={}", f.is_pack ? "PackField" : "Field", f.name);
             IndentScope is(m_indent_level);
             if (f.type)
                 visitTypeExpr(f.type);

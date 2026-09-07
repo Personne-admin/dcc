@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    u8[] bytes;
+    T... items;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4: struct cannot have both a pack field and a flexible array member

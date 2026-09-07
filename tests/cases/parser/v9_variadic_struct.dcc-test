@@ -1,0 +1,41 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    T... items;
+}
+
+struct Tagged(U, V, T...) {
+    U key;
+    V tag;
+    T... rest;
+}
+
+struct NoPackField(T...) {
+    i32 value;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=S
+    TemplateParams
+      Param name=T pack
+    PackField name=items
+      Named T
+  Struct name=Tagged
+    TemplateParams
+      Param name=U
+      Param name=V
+      Param name=T pack
+    Field name=key
+      Named U
+    Field name=tag
+      Named V
+    PackField name=rest
+      Named T
+  Struct name=NoPackField
+    TemplateParams
+      Param name=T pack
+    Field name=value
+      Primitive i32

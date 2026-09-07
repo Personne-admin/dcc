@@ -1201,7 +1201,7 @@ export namespace dcc::parser
             return arg;
         }
 
-        std::pmr::vector<ast::TemplateParam> parse_template_param_list(bool allow_pack = true)
+        std::pmr::vector<ast::TemplateParam> parse_template_param_list(bool allow_pack = true, bool require_trailing_pack = false)
         {
             std::pmr::vector<ast::TemplateParam> params(m_ctx.allocator());
             expect(TK::LParen, "to begin template parameter list");
@@ -1222,7 +1222,7 @@ export namespace dcc::parser
                     {
                         tp.is_pack = true;
                         if (!allow_pack)
-                            error_at(tp.range, "variadic template parameters are not allowed on struct/enum declarations");
+                            error_at(tp.range, "variadic template parameters are not allowed on enum declarations");
                     }
                 }
                 else
@@ -1237,7 +1237,7 @@ export namespace dcc::parser
                         {
                             tp.is_pack = true;
                             if (!allow_pack)
-                                error_at(tp.range, "variadic template parameters are not allowed on struct/enum declarations");
+                                error_at(tp.range, "variadic template parameters are not allowed on enum declarations");
                         }
                     }
                 }
@@ -1258,7 +1258,9 @@ export namespace dcc::parser
             bool seen_default = false;
             for (auto const& p : params)
             {
-                if (seen_pack && !p.is_pack)
+                if (require_trailing_pack && p.is_pack && &p != &params.back())
+                    error_at(p.range, "struct template parameter pack must be the last template parameter");
+                else if (!require_trailing_pack && seen_pack && !p.is_pack)
                     error_at(p.range, "non-pack template parameter after pack parameter");
 
                 if (p.is_pack) // TODO loosen.
@@ -1504,7 +1506,7 @@ export namespace dcc::parser
             d->attrs = std::move(attrs);
 
             if (check(TK::LParen))
-                d->template_params = parse_template_param_list(false);
+                d->template_params = parse_template_param_list(true, true);
 
             if (match(TK::KwIf))
                 d->constraint = parse_expr(0, true);
@@ -1513,12 +1515,14 @@ export namespace dcc::parser
             while (!check(TK::RBrace) && !eof())
             {
                 auto prev_pos = m_pos;
-                d->fields.push_back(parse_field_decl());
+                d->fields.push_back(parse_field_decl(true));
                 if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
                     advance();
             }
 
             expect(TK::RBrace, "to close struct body");
+
+            validate_struct_pack_fields(*d);
 
             d->range = range_from(start);
             return d;
@@ -1550,13 +1554,51 @@ export namespace dcc::parser
             return d;
         }
 
-        ast::FieldDecl parse_field_decl()
+        void validate_struct_pack_fields(ast::StructDecl const& d)
+        {
+            bool seen_pack = false;
+            auto fam_field = std::ranges::find_if(d.fields, [](ast::FieldDecl const& f) {
+                auto* type = f.type;
+                while (auto* qualified = ast::node_cast<ast::QualifiedType>(type))
+                    type = qualified->inner;
+                return ast::node_cast<ast::FamType>(type) != nullptr;
+            });
+
+            for (auto const& f : d.fields)
+            {
+                if (!f.is_pack)
+                    continue;
+
+                if (seen_pack)
+                    error_at(f.range, "struct can have at most one pack field");
+                seen_pack = true;
+                if (&f != &d.fields.back())
+                    error_at(f.range, "pack field must be the last field of a struct");
+                auto const* named = ast::node_cast<ast::NamedType>(f.type);
+                bool own_pack = named && named->path.is_simple() && named->template_args.empty() &&
+                                std::ranges::any_of(d.template_params, [&](ast::TemplateParam const& tp) {
+                                    return tp.is_pack && !tp.value_type && tp.name == named->path.simple_name();
+                                });
+                if (!own_pack)
+                    error_at(f.range, "pack field type must name a type pack from the struct's own template parameter list");
+            }
+            if (seen_pack && fam_field != d.fields.end())
+                error_at(fam_field->range, "struct cannot have both a pack field and a flexible array member");
+        }
+
+        ast::FieldDecl parse_field_decl(bool allow_pack = false)
         {
             auto start = loc();
             ast::FieldDecl f;
 
             auto saved_pos = m_pos;
             f.type = parse_type(true);
+            if (match(TK::Ellipsis))
+            {
+                f.is_pack = true;
+                if (!allow_pack)
+                    error_at(range_from(start), "pack fields are only allowed in struct declarations");
+            }
             auto name = expect(TK::Identifier, "in field declaration");
             if (name.kind == TK::Identifier)
             {

@@ -6,4 +6,4 @@ enum Foo(T...) {
 }
 
 === EXPECT-ERRORS ===
-main.dc:3: variadic template parameters are not allowed on struct/enum declarations
+main.dc:3: variadic template parameters are not allowed on enum declarations

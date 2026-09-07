@@ -218,6 +218,15 @@ export namespace dcc::sema
             for (auto& f : d.fields)
                 std::ignore = resolve_type_expr(f.type, mod, env);
 
+            auto pack_field = std::ranges::find_if(d.fields, [](ast::FieldDecl const& f) { return f.is_pack; });
+            if (pack_field != d.fields.end() && std::ranges::any_of(d.fields, [](ast::FieldDecl const& f) {
+                    return f.type && f.type->sema.canonical && types::is_fam_type(get_canonical(f.type->sema));
+                }))
+            {
+                m_diag.error(pack_field->range, "struct cannot have both a pack field and a flexible array member");
+                return;
+            }
+
             finalize_struct(d);
         }
 

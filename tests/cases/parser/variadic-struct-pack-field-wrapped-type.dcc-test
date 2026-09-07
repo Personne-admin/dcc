@@ -1,0 +1,9 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    T*... items;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4: pack field type must name a type pack from the struct's own template parameter list

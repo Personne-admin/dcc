@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+struct S(T...) {
+    T... items;
+    u8[] bytes;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:4: pack field must be the last field of a struct
+main.dc:5: struct cannot have both a pack field and a flexible array member
