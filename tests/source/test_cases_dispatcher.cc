@@ -1915,7 +1915,7 @@ namespace
 
             dcc::ir::IrContext ir_ctx;
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
-                                                              exp.restricted_check);
+                                                                     exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
             auto actual = dcc::ir::IrSerializer::dump(ir_mod);
             auto a = normalize(actual);
@@ -1956,7 +1956,7 @@ namespace
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
-                                                              exp.restricted_check);
+                                                                     exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             target.no_red_zone = exp.no_red_zone;
@@ -2217,8 +2217,8 @@ namespace
                 target = dcc::target::TargetConfig::host_default();
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
-            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types(),
-                                                              exp.restricted_check);
+            auto lowerer =
+                std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types(), exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             if (exp.pic)
@@ -2411,8 +2411,7 @@ namespace
                                 }
                                 auto target_va = static_cast<std::uint32_t>(rd_coff(reloc_off, 4));
                                 auto in_place = static_cast<std::size_t>(raw_data_ptr) + static_cast<std::size_t>(target_va);
-                                if (in_place + 8 <= obj.size() &&
-                                    static_cast<std::int64_t>(rd_coff(in_place, 8)) == required.addend)
+                                if (in_place + 8 <= obj.size() && static_cast<std::int64_t>(rd_coff(in_place, 8)) == required.addend)
                                 {
                                     found = true;
                                     break;
@@ -2422,10 +2421,9 @@ namespace
                         if (!found)
                         {
                             elf_valid = false;
-                            std::println(std::cerr,
-                                         "    FAIL  EXPECT-EM64T-OBJECT: COFF relocation {} type {:#x} -> '{}' with in-place addend {} not found  ({}:{})",
-                                         required.section, required.rel_type, required.symbol, required.has_addend ? required.addend : 0, path.string(),
-                                         exp.base_line);
+                            std::println(
+                                std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: COFF relocation {} type {:#x} -> '{}' with in-place addend {} not found  ({}:{})",
+                                required.section, required.rel_type, required.symbol, required.has_addend ? required.addend : 0, path.string(), exp.base_line);
                         }
                     }
                 }
@@ -2662,9 +2660,8 @@ namespace
                                         if (name_off >= str_size || str_off + name_off >= obj.size())
                                             continue;
                                         std::string name;
-                                        for (std::uint64_t p = str_off + name_off; p < str_off + str_size && p < obj.size() &&
-                                                                                    static_cast<unsigned char>(obj[static_cast<std::size_t>(p)]) != 0;
-                                             ++p)
+                                        for (std::uint64_t p = str_off + name_off;
+                                             p < str_off + str_size && p < obj.size() && static_cast<unsigned char>(obj[static_cast<std::size_t>(p)]) != 0; ++p)
                                             name += static_cast<char>(obj[static_cast<std::size_t>(p)]);
                                         sym_names[si2] = std::move(name);
                                     }
@@ -2689,9 +2686,8 @@ namespace
                                         std::uint64_t r_sym = r_info >> 32;
                                         std::int64_t r_addend = static_cast<std::int64_t>(rd_elf64(static_cast<std::size_t>(roff + 16), 8));
                                         auto it = sym_names.find(r_sym);
-                                        entries.push_back({static_cast<std::uint32_t>(r_info & 0xFFFFFFFF),
-                                                           it != sym_names.end() ? it->second : std::string{},
-                                                           r_addend});
+                                        entries.push_back(
+                                            {static_cast<std::uint32_t>(r_info & 0xFFFFFFFF), it != sym_names.end() ? it->second : std::string{}, r_addend});
                                     }
                                 }
                                 return entries;
@@ -2721,8 +2717,7 @@ namespace
                                 if (!found)
                                 {
                                     elf_valid = false;
-                                    std::println(std::cerr,
-                                                 "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-RELA-ADDEND: {} {} {} + {} not found  ({}:{})", ra.section,
+                                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: REQUIRE-RELA-ADDEND: {} {} {} + {} not found  ({}:{})", ra.section,
                                                  ra.rel_type, ra.symbol, ra.addend, path.string(), exp.base_line);
                                 }
                             }
