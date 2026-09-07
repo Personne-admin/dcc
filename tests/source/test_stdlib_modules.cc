@@ -215,3 +215,66 @@ public i32 main() {
 )";
     CHECK_EQ(build_and_run(source), 0);
 }
+
+TEST_CASE("variadic bridge survives void* round trip and heap allocation")
+{
+    constexpr std::string_view source = R"(module main;
+import std::mem;
+import std::os::heap;
+import std::result;
+
+struct Bridge(F, T...) {
+    F entry;
+    T... args;
+}
+
+using B2 = Bridge(void(*)(i32, f64), i32, f64);
+using B0 = Bridge(void(*)());
+
+void* pass_through(void* p) {
+    return p;
+}
+
+i32 sunk0;
+f64 sunk1;
+i32 sunk2;
+
+void target2(i32 x, f64 y) {
+    sunk0 = x;
+    sunk1 = y;
+}
+
+void target0() {
+    sunk2 = 42;
+}
+
+public i32 main() {
+    std::mem::Allocator alloc = std::os::heap::allocator();
+    void(*)(i32, f64) fp2 = target2 as void(*)(i32, f64);
+    void(*)() fp0 = target0 as void(*)();
+    std::result::Result(B2*, std::mem::AllocError) r2 = std::mem::create!B2(&alloc);
+    if r2.is_err() { return 10; }
+    B2* b2 = r2.unwrap();
+    b2.entry = fp2;
+    b2.args.0 = 1;
+    b2.args.1 = 2.0;
+    void* raw = pass_through(b2 as void*);
+    B2* back = raw as B2*;
+    void(*)(i32, f64) e2 = back.entry;
+    e2(back.args.0, back.args.1);
+    if sunk0 != 1 { return 1; }
+    if sunk1 != 2.0 { return 2; }
+    std::result::Result(B0*, std::mem::AllocError) r0 = std::mem::create!B0(&alloc);
+    if r0.is_err() { return 11; }
+    B0* b0 = r0.unwrap();
+    b0.entry = fp0;
+    void(*)() e0 = b0.entry;
+    e0();
+    if sunk2 != 42 { return 3; }
+    std::mem::destroy(&alloc, b2);
+    std::mem::destroy(&alloc, b0);
+    return 0;
+}
+)";
+    CHECK_EQ(build_and_run(source), 0);
+}
