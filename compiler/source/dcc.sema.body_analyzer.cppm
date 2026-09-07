@@ -15815,13 +15815,60 @@ export namespace dcc::sema
 
                             return m_types.m_errort();
                         }
+                        auto complete_template_args = [&](std::span<ast::TemplateParam const> template_params,
+                                                           std::vector<types::TypePtr>& resolved_args, bool variadic,
+                                                           std::string_view decl_name) -> bool {
+                            std::size_t fixed_count = variadic && !template_params.empty() ? template_params.size() - 1 : template_params.size();
+                            std::size_t required = 0;
+                            for (std::size_t i = 0; i < fixed_count && i < template_params.size(); ++i)
+                            {
+                                auto const& tp = template_params[i];
+                                if (!tp.default_type && !tp.default_value)
+                                    ++required;
+                            }
+                            if (resolved_args.size() < required || (!variadic && resolved_args.size() > template_params.size()))
+                            {
+                                error(nt->range, "template argument count mismatch for `{}`", decl_name);
+                                return false;
+                            }
+                            if (resolved_args.size() < fixed_count)
+                            {
+                                infer::TemplateBindings bindings{m_types};
+                                for (std::size_t i = 0; i < resolved_args.size(); ++i)
+                                {
+                                    auto const& tp = template_params[i];
+                                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                         static_cast<std::uint32_t>(i));
+                                    std::ignore = bindings.deduce(key, resolved_args[i]);
+                                }
+                                for (std::size_t i = resolved_args.size(); i < fixed_count; ++i)
+                                {
+                                    auto const& tp = template_params[i];
+                                    if (!tp.default_type || !tp.default_type->sema.canonical)
+                                    {
+                                        error(nt->range, "missing required template argument for `{}`", decl_name);
+                                        return false;
+                                    }
+                                    auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
+                                    resolved_args.push_back(actual);
+                                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
+                                                                         static_cast<std::uint32_t>(i));
+                                    std::ignore = bindings.deduce(key, actual);
+                                }
+                            }
+                            return true;
+                        };
+
                         if (nt->template_args.empty())
                         {
-                            bool variadic = false;
-                            if (nt->explicit_template_args)
-                                if (auto const* vsd = ast::node_cast<ast::StructDecl>(decl))
-                                    variadic = !vsd->template_params.empty() && vsd->template_params.back().is_pack;
-                            if (!variadic)
+                            std::size_t param_count = 0;
+                            if (auto const* sd = ast::node_cast<ast::StructDecl>(decl))
+                                param_count = sd->template_params.size();
+                            else if (auto const* ed = ast::node_cast<ast::EnumDecl>(decl))
+                                param_count = ed->template_params.size();
+                            if (param_count == 0 && ast::node_cast<ast::UnionDecl>(decl) == nullptr)
+                                return decl_type(*decl);
+                            if (ast::node_cast<ast::UnionDecl>(decl) != nullptr)
                                 return decl_type(*decl);
                         }
 
@@ -15831,7 +15878,10 @@ export namespace dcc::sema
                         for (auto const& arg : nt->template_args)
                         {
                             if (!arg.type)
+                            {
+                                error(arg.range, "value template arguments are not supported in signature types");
                                 return m_types.m_errort();
+                            }
 
                             auto arg_ty =
                                 arg.type->sema.canonical ? get_canonical(arg.type->sema) : resolve_type_node(mod, scope, arg.type, fn, next_off_ptr, const_env);
@@ -15849,27 +15899,27 @@ export namespace dcc::sema
                         if (auto const* sd = ast::node_cast<ast::StructDecl>(decl))
                         {
                             bool variadic = !sd->template_params.empty() && sd->template_params.back().is_pack;
-                            std::size_t fixed_count = variadic ? sd->template_params.size() - 1 : sd->template_params.size();
-                            std::size_t required = 0;
-                            for (std::size_t i = 0; i < fixed_count; ++i)
-                            {
-                                auto const& tp = sd->template_params[i];
-                                if (!tp.default_type && !tp.default_value)
-                                    ++required;
-                            }
-                            if (resolved_args.size() < required || (!variadic && resolved_args.size() > sd->template_params.size()))
-                            {
-                                error(nt->range, "template argument count mismatch for `{}`", sd->name);
+                            std::span<ast::TemplateParam const> params{sd->template_params.data(), sd->template_params.size()};
+                            if (!complete_template_args(params, resolved_args, variadic, sd->name))
                                 return m_types.m_errort();
-                            }
                             auto ty = m_types.nominal_t(types::TypeKind::Struct, sd, resolved_args, true);
                             std::ignore = check_type_constraint(mod, scope, sd, resolved_args, nt->range);
                             return ty;
                         }
                         if (auto const* ud = ast::node_cast<ast::UnionDecl>(decl))
+                        {
+                            if (!nt->template_args.empty())
+                            {
+                                error(nt->range, "`{}` does not take template arguments", ud->name);
+                                return m_types.m_errort();
+                            }
                             return m_types.nominal_t(types::TypeKind::Union, ud, resolved_args);
+                        }
                         if (auto const* ed = ast::node_cast<ast::EnumDecl>(decl))
                         {
+                            std::span<ast::TemplateParam const> params{ed->template_params.data(), ed->template_params.size()};
+                            if (!complete_template_args(params, resolved_args, false, ed->name))
+                                return m_types.m_errort();
                             auto ty = m_types.nominal_t(types::TypeKind::Enum, ed, resolved_args);
                             std::ignore = check_type_constraint(mod, scope, ed, resolved_args, nt->range);
                             return ty;

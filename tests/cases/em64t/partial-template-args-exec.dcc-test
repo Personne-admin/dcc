@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+
+struct P(T, U = i32) {
+    T first;
+    U second;
+}
+
+i32 use_it(P(i32) p) {
+    return p.first * 100 + p.second;
+}
+
+@nomangle
+public i32 dcc_main() {
+    P(i32) q = {1, 2};
+    return use_it(q) - 102;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
