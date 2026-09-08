@@ -7974,7 +7974,8 @@ export namespace dcc::ir::lower
             auto* obj_sema_type = get_sema_resolved_type(idx_expr->object);
 
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array && idx_expr->object->sema.is_lvalue &&
-                (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess))
+                (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess ||
+                 idx_expr->object->kind == ast::ExprKind::Unary))
             {
                 auto* base_ptr = lower_addr_of(idx_expr->object);
                 auto* nested_index = lower_expr(idx_expr->index);
@@ -8995,7 +8996,8 @@ export namespace dcc::ir::lower
             }
 
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Array &&
-                (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess))
+                (idx_expr->object->kind == ast::ExprKind::Index || idx_expr->object->kind == ast::ExprKind::FieldAccess ||
+                 idx_expr->object->kind == ast::ExprKind::Unary))
             {
                 auto* base_ptr = lower_addr_of(idx_expr->object);
 

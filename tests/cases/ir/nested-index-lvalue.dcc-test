@@ -29,6 +29,10 @@ public i32 field_array() {
     return h.a[0] + h.a[1] + h.a[2] + h.n;
 }
 
+public void deref_array(i32[4]* buf, usize* n, i32 v) {
+    (*buf)[*n] = v;
+}
+
 struct Holder {
     i32[3] a;
     i32 n;
