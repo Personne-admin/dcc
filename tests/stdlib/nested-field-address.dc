@@ -1,0 +1,23 @@
+module main;
+struct FT { u32 low; u32 high; }
+struct Find { u32 attributes; FT a; FT b; FT c; u32 high; u32 low; u32 r0; u32 r1; u16[260] name; u16[14] alt; }
+struct Wrap { u64 prefix; Find data; u64 suffix; }
+struct CV { usize ptr; }
+struct Cond { i32 seq; CV var; }
+usize addr1(Cond* c) { return &c.var as usize; }
+usize addr2(Cond* c) { c.var.ptr = 17; return &c.var as usize; }
+void touch(Wrap* w) { w.data.a.low = 11; w.data.b.low = 22; w.data.c.low = 33; w.data.name[259] = 44; }
+public i32 main() {
+ Cond c;
+ if addr1(&c) != (&c as usize) + 8 { return 1; }
+ if addr2(&c) != addr1(&c) { return 2; }
+ Wrap w;
+ touch(&w);
+ u32* raw = &w.data as u32*;
+ if raw[1] != 11 { return 3; }
+ if raw[3] != 22 { return 4; }
+ if raw[5] != 33 { return 5; }
+ u16* words = &w.data as u16*;
+ if words[281] != 44 { return 6; }
+ return 0;
+}

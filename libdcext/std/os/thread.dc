@@ -732,7 +732,6 @@ public void write_unlock(RwLock* self) {
 
 public struct Condvar {
     volatile i32 seq;
-    u32 reserved;
     win::abi::ConditionVariable var;
 }
 

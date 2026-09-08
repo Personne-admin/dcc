@@ -347,8 +347,9 @@ namespace dcc::backend
                 return opaque;
             }
 
-            [[nodiscard]] unsigned get_llvm_field_index(IrAggregateType const* at, unsigned ir_field_idx) const
+            [[nodiscard]] unsigned get_llvm_field_index(IrAggregateType const* at, unsigned ir_field_idx)
             {
+                std::ignore = get(at, true);
                 auto it = field_index_map.find(at);
                 if (it != field_index_map.end() && ir_field_idx < it->second.size())
                     return it->second[ir_field_idx];
