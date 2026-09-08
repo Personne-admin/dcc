@@ -50,3 +50,24 @@ TEST_CASE("breaks escape loops while retry loops retain returns")
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
 #endif
 }
+TEST_CASE("index lvalue through pointer dereference")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+void f(i32[4]* buf, usize* n, i32 v) {
+    (*buf)[*n] = v;
+}
+public i32 main() {
+    i32[4] arr;
+    usize n = 2;
+    f(&arr, &n, 42);
+    if arr[2] != 42 { return 1; }
+    return 0;
+}
+)DCC");
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+#if DCC_ENABLE_LLVM
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
+#endif
+}
