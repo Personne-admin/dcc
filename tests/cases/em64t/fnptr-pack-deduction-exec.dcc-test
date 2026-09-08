@@ -1,0 +1,59 @@
+=== FILE: test.dc ===
+module test;
+struct Tuple(T...) { T... items; }
+i32 result;
+void zero() { result = 7; }
+void one(i32 x) { result = x; }
+void two(i32 x, f64 y) { result = x + (y as i32); }
+i32 prefix(u8 tag, f64 x, bool yes) { return (tag as i32) + (x as i32) + (yes as i32); }
+i32 sum(i32 x, f64 y) { return x + (y as i32); }
+void invoke(T...)(void(*)(T) entry, T args) { entry(args...); }
+void call_it(F, T...)(F entry, T args) { entry(args...); }
+R returning(R, T...)(R(*)(T) entry, T args) { return entry(args...); }
+i32 prefixed(T...)(i32(*)(u8, T) entry, T args) { return entry(3, args...); }
+void through(T...)(void(*)(T)* entry, T args) { (*entry)(args...); }
+void mixed(T...)(void(*)(T) entry, Tuple(T)* args) { entry(args.items.0, args.items.1); }
+void mixed_reverse(T...)(Tuple(T)* args, void(*)(T) entry) { entry(args.items.0, args.items.1); }
+void mixed_free(F, T...)(F entry, Tuple(T)* args) { entry(args.items.0, args.items.1); }
+void paired(T...)(void(*)(T) a, void(*)(T) b, T args) { a(args...); b(args...); }
+void generic(T...)(void(*)(T) entry) { result = sizeof...(T) as i32; }
+void concrete(void(*)(void(*)(i32, f64)) entry) { entry(two); }
+using CallableWith(F, T...) = compiles(F f, T args) { f(args...); };
+void checked(T...)(void(*)(T) entry, T args) if CallableWith(void(*)(T), T...) { entry(args...); }
+void checked_free(F, T...)(F entry, T args) if CallableWith(F, T...) { entry(args...); }
+@nomangle
+public i32 dcc_main() {
+    invoke(zero);
+    if result != 7 { return 1; }
+    invoke(one, 8);
+    if result != 8 { return 2; }
+    invoke(two, 8, 2.0);
+    if result != 10 { return 3; }
+    call_it(two, 10, 2.0);
+    if result != 12 { return 4; }
+    if returning(sum, 9, 2.0) != 11 { return 5; }
+    if prefixed(prefix, 4.0, true) != 8 { return 6; }
+    void(*)(i32, f64) fp = two;
+    through(&fp, 11, 2.0);
+    if result != 13 { return 7; }
+    fp.invoke(12, 2.0);
+    if result != 14 { return 8; }
+    Tuple(i32, f64) tuple = {20, 2.0};
+    mixed(fp, &tuple);
+    if result != 22 { return 9; }
+    mixed_reverse(&tuple, fp);
+    if result != 22 { return 10; }
+    mixed_free(fp, &tuple);
+    if result != 22 { return 11; }
+    paired(fp, fp, 30, 2.0);
+    if result != 32 { return 12; }
+    checked(fp, 40, 2.0);
+    if result != 42 { return 13; }
+    checked_free(fp, 50, 2.0);
+    if result != 52 { return 14; }
+    concrete(generic);
+    if result != 2 { return 15; }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

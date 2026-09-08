@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+struct Tuple(T...) { T... items; }
+void wants_void(T...)(void(*)(T) f) {}
+void wants_prefix(T...)(i32(*)(u8, T) f) {}
+void same(T...)(void(*)(T) a, void(*)(T) b) {}
+void mixed(T...)(void(*)(T) f, Tuple(T)* args) {}
+void mixed_reverse(T...)(Tuple(T)* args, void(*)(T) f) {}
+void invoke(T...)(void(*)(T) f, T args) {}
+i32 wrong_return(i32 x) { return x; }
+i32 wrong_prefix(i32 x, f64 y) { return x; }
+i32 short_prefix() { return 0; }
+void empty() {}
+void one(i32 x) {}
+void two(i32 x, f64 y) {}
+void other(f64 x) {}
+void test() {
+    wants_void(wrong_return);
+    wants_prefix(wrong_prefix);
+    wants_prefix(short_prefix);
+    wants_void(12);
+    same(one, two);
+    same(one, other);
+    same(empty, one);
+    Tuple(f64) args;
+    mixed(one, &args);
+    mixed_reverse(&args, one);
+    invoke(two, 1);
+}
+=== EXPECT-ERRORS ===
+test.dc:17: function pointer return type mismatch
+test.dc:18: function pointer fixed parameter prefix mismatch
+test.dc:19: function pointer has fewer parameters than the fixed prefix
+test.dc:20: function pointer candidate required
+test.dc:21: conflicting pack binding
+test.dc:22: conflicting pack binding
+test.dc:23: conflicting pack binding
+test.dc:25: conflicting pack binding
+test.dc:26: conflicting pack binding
+test.dc:27: conflicting pack binding

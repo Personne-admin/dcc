@@ -1233,9 +1233,8 @@ export namespace dcc::sema
         ModuleInfo* m_current_module{};
         std::unordered_map<ast::VarDecl const*, comptime::Value const*> m_global_const_vals;
 
-        detail::ExprResult analyze_call_arg(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth,
-                                            std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env,
-                                            ast::FuncDecl const* default_owner)
+        detail::ExprResult analyze_call_arg(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
+                                            types::TypePtr expected_type, ConstEnv const* const_env, ast::FuncDecl const* default_owner)
         {
             if (default_owner)
             {
@@ -2099,6 +2098,11 @@ export namespace dcc::sema
             bool ufcs;
         };
 
+        [[nodiscard]] static bool is_pack_deduction_reason(std::string_view reason)
+        {
+            return reason.starts_with("function pointer ") || reason == "conflicting pack binding";
+        }
+
         void emit_overload_error(sm::SourceRange range, std::string primary_msg, std::vector<CandidateInfo> const& candidates, OverloadErrorContext const& ctx)
         {
             if (m_suppress_errors)
@@ -2107,6 +2111,8 @@ export namespace dcc::sema
                 return;
             }
 
+            if (candidates.size() == 1 && is_pack_deduction_reason(candidates.front().reason))
+                primary_msg += std::format(": {}", candidates.front().reason);
             auto primary_range = narrow_call_error_range(range, ctx.arg_exprs, ctx.receiver_range, ctx.ufcs, candidates);
             auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::move(primary_msg)}.primary(primary_range);
             for (auto const& cand : candidates)
@@ -2321,9 +2327,39 @@ export namespace dcc::sema
 
             if (auto const* type_expr = ast::node_cast<ast::TypeASTExpr>(&arg))
             {
-                auto* ty = type_expr->type_node ? get_canonical(type_expr->type_node->sema) : nullptr;
-                if (!ty && type_expr->type_node)
-                    ty = resolve_type_node(mod, scope, type_expr->type_node);
+                Scope* type_scope = const_cast<Scope*>(&scope);
+                Scope* param_scope = nullptr;
+                if (!params.empty())
+                {
+                    param_scope = make_scope(ScopeKind::Block, const_cast<Scope*>(&scope));
+                    for (std::size_t i = 0; i < params.size(); ++i)
+                    {
+                        auto const& tp = params[i];
+                        if (tp.value_type)
+                            continue;
+                        auto* param_ty = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                        if (!param_ty)
+                            continue;
+                        auto* dummy_type = m_ast_ctx.make<ast::PrimitiveType>(tp.range, lex::TokenKind::KwVoid);
+                        sema::set_canonical(dummy_type->sema, param_ty);
+                        auto* v = m_ast_ctx.make<ast::VarDecl>(tp.range, tp.name, tp.range);
+                        v->type = dummy_type;
+                        v->sema.storage = ast::StorageClass::Local;
+                        Symbol sym{};
+                        sym.name = tp.name;
+                        sym.kind = SymbolKind::TypeAlias;
+                        sym.decl = v;
+                        sym.definition_range = tp.range;
+                        param_scope->define_type(sym);
+                    }
+                    type_scope = param_scope;
+                }
+                types::TypePtr ty = nullptr;
+                if (type_expr->type_node)
+                {
+                    ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                    ty = resolve_type_node(mod, *type_scope, type_expr->type_node);
+                }
                 return ty ? bindings.substitute(ty) : nullptr;
             }
 
@@ -5317,6 +5353,12 @@ export namespace dcc::sema
 
                 if (rejection_reason)
                 {
+                    if (is_pack_deduction_reason(deduce_result.detail))
+                    {
+                        *rejection_reason = deduce_result.detail;
+                        record_rejection(rejection_info, CallRejectionKind::None);
+                        return std::nullopt;
+                    }
                     bool arg_mismatch_found = false;
                     for (std::size_t i = 0; i < actuals.size() && i < deduce_params.size(); ++i)
                     {
@@ -5872,8 +5914,8 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] std::optional<detail::ExprResult>
-        invoke_ufcs_candidate(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, Symbol const& sym, ast::Expr& object, std::span<ast::Expr* const> arg_exprs, sm::SourceRange range,
-                              int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, UfcsReceiverMatch expected_match,
+        invoke_ufcs_candidate(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, Symbol const& sym, ast::Expr& object, std::span<ast::Expr* const> arg_exprs,
+                              sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, UfcsReceiverMatch expected_match,
                               types::TypePtr expected_type = nullptr, detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false,
                               std::optional<std::size_t> default_arg_start = std::nullopt)
         {
@@ -6028,7 +6070,8 @@ export namespace dcc::sema
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
                 if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_call_arg(mod, fn, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env, is_default_arg ? &f : nullptr);
+                auto r =
+                    analyze_call_arg(mod, fn, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env, is_default_arg ? &f : nullptr);
                 if (has_error(r.type))
                     return std::nullopt;
 
@@ -12395,8 +12438,7 @@ export namespace dcc::sema
             out.type = m_types.usize_t();
             if (s.target)
             {
-                if (auto* nt = ast::node_cast<ast::NamedType>(s.target);
-                    nt && nt->path.is_simple() && nt->template_args.empty() && !nt->explicit_template_args)
+                if (auto* nt = ast::node_cast<ast::NamedType>(s.target); nt && nt->path.is_simple() && nt->template_args.empty() && !nt->explicit_template_args)
                 {
                     types::TypePtr trial = nullptr;
                     {
@@ -13643,8 +13685,8 @@ export namespace dcc::sema
             return {m_types.m_errort()};
         }
 
-        detail::ExprResult invoke_function(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FuncDecl const& f, std::span<ast::Expr* const> arg_exprs, sm::SourceRange range,
-                                           int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false,
+        detail::ExprResult invoke_function(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FuncDecl const& f, std::span<ast::Expr* const> arg_exprs,
+                                           sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false,
                                            types::TypePtr expected_type = nullptr, std::optional<std::size_t> default_arg_start = std::nullopt)
         {
             std::vector<types::TypePtr> params;
@@ -13764,7 +13806,8 @@ export namespace dcc::sema
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
                 if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r = analyze_call_arg(mod, fn, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env, is_default_arg ? &f : nullptr);
+                auto r =
+                    analyze_call_arg(mod, fn, scope, *arg_exprs[func_arg_start + i], loop_depth, next_off, param_ty, const_env, is_default_arg ? &f : nullptr);
                 if (value_alias_implicit_decay(r, param_ty))
                 {
                     if (!quiet)
@@ -14066,8 +14109,9 @@ export namespace dcc::sema
             return out;
         }
 
-        detail::ExprResult invoke_lambda_value(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, types::LambdaType const* lt, std::span<ast::Expr* const> arg_exprs,
-                                               sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, bool quiet = false)
+        detail::ExprResult invoke_lambda_value(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, types::LambdaType const* lt,
+                                               std::span<ast::Expr* const> arg_exprs, sm::SourceRange range, int loop_depth, std::uint32_t& next_off,
+                                               ConstEnv const* const_env, bool quiet = false)
         {
             auto* l = lt->expr ? static_cast<ast::LambdaExpr*>(const_cast<void*>(lt->expr)) : nullptr;
             if (!l)
@@ -14148,8 +14192,8 @@ export namespace dcc::sema
                 std::optional<DefaultArgumentCallSiteGuard> default_guard;
                 if (is_default_arg)
                     default_guard.emplace(*this, range);
-                auto r =
-                    analyze_call_arg(mod, fn, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env, is_default_arg ? default_owner : nullptr);
+                auto r = analyze_call_arg(mod, fn, scope, *effective_args[i], loop_depth, next_off, fp->params[i], const_env,
+                                          is_default_arg ? default_owner : nullptr);
                 if (value_alias_implicit_decay(r, fp->params[i]))
                 {
                     if (!quiet)
@@ -15804,6 +15848,14 @@ export namespace dcc::sema
                     }
 
                     auto instantiate = [&](ast::Decl const* decl) -> types::TypePtr {
+                        if (!decl)
+                            return m_types.m_errort();
+                        if (auto const* vd = ast::node_cast<ast::VarDecl>(decl))
+                        {
+                            if (vd->type && vd->type->sema.canonical)
+                                return get_canonical(vd->type->sema);
+                            return m_types.m_errort();
+                        }
                         if (auto const* u = ast::node_cast<ast::UsingDecl>(decl); u && u->template_params.empty())
                         {
                             if (u->using_kind == ast::UsingKind::Alias && u->target_type && u->target_type->sema.canonical)
@@ -15816,9 +15868,8 @@ export namespace dcc::sema
 
                             return m_types.m_errort();
                         }
-                        auto complete_template_args = [&](std::span<ast::TemplateParam const> template_params,
-                                                           std::vector<types::TypePtr>& resolved_args, bool variadic,
-                                                           std::string_view decl_name) -> bool {
+                        auto complete_template_args = [&](std::span<ast::TemplateParam const> template_params, std::vector<types::TypePtr>& resolved_args,
+                                                          bool variadic, std::string_view decl_name) -> bool {
                             std::size_t fixed_count = variadic && !template_params.empty() ? template_params.size() - 1 : template_params.size();
                             std::size_t required = 0;
                             for (std::size_t i = 0; i < fixed_count && i < template_params.size(); ++i)
@@ -15838,8 +15889,8 @@ export namespace dcc::sema
                                 for (std::size_t i = 0; i < resolved_args.size(); ++i)
                                 {
                                     auto const& tp = template_params[i];
-                                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                                         static_cast<std::uint32_t>(i));
+                                    auto* key =
+                                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                                     std::ignore = bindings.deduce(key, resolved_args[i]);
                                 }
                                 for (std::size_t i = resolved_args.size(); i < fixed_count; ++i)
@@ -15852,8 +15903,8 @@ export namespace dcc::sema
                                     }
                                     auto actual = bindings.substitute(get_canonical(tp.default_type->sema));
                                     resolved_args.push_back(actual);
-                                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name,
-                                                                         static_cast<std::uint32_t>(i));
+                                    auto* key =
+                                        m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                                     std::ignore = bindings.deduce(key, actual);
                                 }
                             }
@@ -15910,8 +15961,8 @@ export namespace dcc::sema
                             for (std::size_t i = 0; i < u->template_params.size(); ++i)
                             {
                                 auto const& tp = u->template_params[i];
-                                auto* key = static_cast<types::TemplateParamType const*>(m_types.template_param_t(
-                                    const_cast<ast::TemplateParam*>(&tp), tp.name, static_cast<std::uint32_t>(i)));
+                                auto* key = static_cast<types::TemplateParamType const*>(
+                                    m_types.template_param_t(const_cast<ast::TemplateParam*>(&tp), tp.name, static_cast<std::uint32_t>(i)));
                                 if (variadic && i + 1 == u->template_params.size())
                                     std::ignore = bindings.bind_pack(key, {resolved_args.begin() + static_cast<std::ptrdiff_t>(i), resolved_args.end()});
                                 else

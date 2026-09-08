@@ -11,7 +11,7 @@ namespace
         return std::format("'{}'", path.string());
     }
 
-    [[nodiscard]] int build_and_run(std::string_view source)
+    [[nodiscard]] int build_and_run(std::string_view source, std::string_view backend = "llvm", std::string_view optimization = "-O0")
     {
         std::error_code ec;
         auto const dcc = std::filesystem::weakly_canonical("/proc/self/exe", ec).parent_path().parent_path() / "dcc";
@@ -24,7 +24,8 @@ namespace
             out << source;
         }
 
-        auto const compile = std::format("{} -flibdcext -target x86_64-elf -o {} {}", shell_quote(dcc), shell_quote(exe), shell_quote(src));
+        auto const compile = std::format("{} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, optimization, shell_quote(exe),
+                                         shell_quote(src));
         if (std::system(compile.c_str()) != 0)
             return -1;
 
@@ -277,4 +278,26 @@ public i32 main() {
 }
 )";
     CHECK_EQ(build_and_run(source), 0);
+}
+
+TEST_CASE("implicit function pointer pack deduction executes on both backends at O0 and O2")
+{
+    auto fixture = std::filesystem::path{"cases/em64t/fnptr-pack-deduction-exec.dcc-test"};
+    if (!std::filesystem::exists(fixture))
+        fixture = std::filesystem::path{"tests"} / fixture;
+    std::ifstream input{fixture};
+    REQUIRE(input.good());
+    std::string contents{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    auto start = contents.find('\n') + 1;
+    auto end = contents.find("=== EXPECT-");
+    auto source = contents.substr(start, end - start);
+    auto entry = source.find("@nomangle\npublic i32 dcc_main()");
+    REQUIRE(entry != std::string::npos);
+    source.replace(entry, std::string_view{"@nomangle\npublic i32 dcc_main()"}.size(), "public i32 main()");
+    auto mod = source.find("module test;");
+    if (mod != std::string::npos)
+        source.replace(mod, std::string_view{"module test;"}.size(), "module main;");
+    for (auto backend : {"llvm", "em64t"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
