@@ -1,5 +1,10 @@
 import std;
 import dcc.types;
+import dcc.sema.infer;
+import dcc.session;
+import dcc.sema;
+import dcc.sema.scope;
+import dcc.sema.instantiator;
 import dcc.comptime;
 import dcc.ast;
 import dcc.sm;
@@ -1416,4 +1421,109 @@ TEST_CASE("demangle rejects invalid _DC0L strings")
     CHECK(!demangle_check("_DC0L1.4.main"));
     CHECK(!demangle_check("_DC0L1.4.main1.33.512"));
     CHECK(!demangle_check("_DC0L1.4.main1.33.5121i32si32s_extra"));
+}
+
+TEST_CASE("pack-spliced function pointer substitution interns and mangles expanded signatures")
+{
+    types::TypeContext ctx;
+    ast::AstContext actx;
+    ast::TemplateParam first;
+    first.name = "T";
+    first.is_pack = true;
+    ast::TemplateParam second;
+    second.name = "U";
+    second.is_pack = true;
+    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&first, first.name, 0));
+    auto* u = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&second, second.name, 0));
+    auto* symbol = make_func(actx, "consume");
+    for (auto const& pack : std::vector<std::vector<types::TypePtr>>{{}, {i32(ctx)}, {i32(ctx), f64(ctx)}})
+    {
+        dcc::infer::TemplateBindings bindings{ctx};
+        REQUIRE(bindings.bind_pack(t, pack));
+        REQUIRE(bindings.bind_pack(u, pack));
+        for (bool prefix : {false, true})
+        {
+            std::vector<types::TypePtr> pattern;
+            std::vector<types::TypePtr> written;
+            if (prefix)
+            {
+                pattern.push_back(u8(ctx));
+                written.push_back(u8(ctx));
+            }
+            pattern.push_back(t);
+            written.insert(written.end(), pack.begin(), pack.end());
+            auto* expected = ctx.funcptr_t(ctx.m_voidt(), written);
+            auto* expanded = bindings.substitute(ctx.funcptr_t(ctx.m_voidt(), pattern));
+            CHECK(expanded == expected);
+            pattern.back() = u;
+            CHECK(bindings.substitute(ctx.funcptr_t(ctx.m_voidt(), pattern)) == expected);
+            CHECK_EQ(expanded->byte_size, expected->byte_size);
+            CHECK_EQ(expanded->byte_align, expected->byte_align);
+            std::array<types::TypePtr, 1> actual_params{expanded};
+            std::array<types::TypePtr, 1> expected_params{expected};
+            CHECK_EQ(mangle::mangle_function({"test"}, *symbol, actual_params, ctx.m_voidt()),
+                     mangle::mangle_function({"test"}, *symbol, expected_params, ctx.m_voidt()));
+        }
+    }
+}
+
+TEST_CASE("parsed pack-spliced function pointer specializations share canonical identity")
+{
+    auto path = std::filesystem::temp_directory_path() /
+                std::format("dcc-fnptr-identity-{}.dc", std::chrono::steady_clock::now().time_since_epoch().count());
+    struct Cleanup
+    {
+        std::filesystem::path path;
+        ~Cleanup() { std::filesystem::remove(path); }
+    } cleanup{path};
+    {
+        std::ofstream out{path};
+        out << R"(module test;
+using Empty = void(*)();
+using Single = void(*)(i32);
+using Multi = void(*)(i32, f64);
+using PrefixEmpty = void(*)(u8);
+using PrefixSingle = void(*)(u8, i32);
+using PrefixMulti = void(*)(u8, i32, f64);
+void(*)(T) first(T...)() { return null as void(*)(T); }
+void(*)(T) second(T...)() { return null as void(*)(T); }
+void(*)(u8, T) prefix(T...)() { return null as void(*)(u8, T); }
+void use() {
+    void(*)() a = first!()();
+    void(*)(i32) b = first!(i32)();
+    void(*)(i32, f64) c = first!(i32, f64)();
+    void(*)() d = second!()();
+    void(*)(i32) e = second!(i32)();
+    void(*)(i32, f64) f = second!(i32, f64)();
+    void(*)(u8) g = prefix!()();
+    void(*)(u8, i32) h = prefix!(i32)();
+    void(*)(u8, i32, f64) i = prefix!(i32, f64)();
+}
+)";
+    }
+    dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+    auto result = session.analyze_entry(path, {});
+    REQUIRE(!result.has_errors);
+    auto& ctx = session.sema_context()->types();
+    std::vector<types::TypePtr> handwritten;
+    for (auto const* decl : result.module->tu->decls)
+        if (auto const* alias = ast::node_cast<ast::UsingDecl>(decl))
+            handwritten.push_back(dcc::sema::get_canonical(alias->target_type->sema));
+    REQUIRE(handwritten.size() == 6);
+    auto entries = session.sema_context()->spec_registry().entries();
+    REQUIRE(entries.size() == 9);
+    ast::AstContext actx;
+    auto* symbol = make_func(actx, "consume");
+    for (auto const& entry : entries)
+    {
+        auto index = entry.canonical_args.size() + (entry.template_decl->name == "prefix" ? 3 : 0);
+        REQUIRE(index < handwritten.size());
+        auto* expected = handwritten[index];
+        auto* actual = dcc::sema::get_canonical(entry.specialization_decl->return_type->sema);
+        CHECK(actual == expected);
+        std::array<types::TypePtr, 1> actual_params{actual};
+        std::array<types::TypePtr, 1> expected_params{expected};
+        CHECK_EQ(mangle::mangle_function({"test"}, *symbol, actual_params, ctx.m_voidt()),
+                 mangle::mangle_function({"test"}, *symbol, expected_params, ctx.m_voidt()));
+    }
 }

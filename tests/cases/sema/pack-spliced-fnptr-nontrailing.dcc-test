@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+void bad(T...)(void(*)(T, i32) p) {}
+struct Bad(T...) {
+    void(*)(T, u8) entry;
+}
+using BadAlias(T...) = void(*)(T, i32);
+void body(T...)() {
+    void(*)(T, i32) local;
+}
+void use() { body!(u8)(); }
+=== EXPECT-ERRORS ===
+test.dc:2: function pointer parameter pack must be the last parameter
+test.dc:4: function pointer parameter pack must be the last parameter
+test.dc:6: function pointer parameter pack must be the last parameter
+test.dc:8: function pointer parameter pack must be the last parameter

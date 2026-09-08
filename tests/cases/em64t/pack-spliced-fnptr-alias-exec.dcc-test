@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+using Fn(T...) = i32(*)(T);
+using Prefix(T...) = i32(*)(u8, T);
+i32 zero() { return 7; }
+i32 one(i32 x) { return x; }
+i32 two(i32 x, f64 y) { return x + (y as i32); }
+i32 prefixed(u8 x, i32 y, f64 z) { return (x as i32) + y + (z as i32); }
+Fn(T) cast(T...)(void* p) { return p as Fn(T); }
+@nomangle
+public i32 dcc_main() {
+    Fn() a = zero as i32(*)();
+    Fn(i32) b = one as i32(*)(i32);
+    Fn(i32, f64) c = cast!(i32, f64)(two as void*);
+    Prefix(i32, f64) d = prefixed as i32(*)(u8, i32, f64);
+    if a() != 7 { return 1; }
+    if b(8) != 8 { return 2; }
+    if c(8, 2.0) != 10 { return 3; }
+    if d(1, 8, 2.0) != 11 { return 4; }
+    if sizeof(Fn()) != sizeof(void*) { return 5; }
+    if alignof(Fn(i32, f64)) != alignof(void*) { return 6; }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

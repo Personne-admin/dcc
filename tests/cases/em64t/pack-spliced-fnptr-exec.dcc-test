@@ -1,0 +1,63 @@
+=== FILE: test.dc ===
+module test;
+
+struct Holder(T...) {
+    u8 tag;
+    i32(*)(T) entry;
+    u8 tail;
+}
+
+i32 zero() { return 11; }
+i32 one(i32 x) { return x + 1; }
+i32 two(i32 x, f64 y) { return x + (y as i32); }
+i32 prefixed(u8 x, i32 y, f64 z) { return (x as i32) + y + (z as i32); }
+
+i32(*)(T) convert(T...)(void* raw) {
+    i32(*)(T) local = raw as i32(*)(T);
+    return local;
+}
+
+i32(*)(u8, T) convert_prefix(T...)(void* raw) {
+    return raw as i32(*)(u8, T);
+}
+
+i32 layout(T...)() {
+    if sizeof(i32(*)(T)) != sizeof(void*) { return 1; }
+    if alignof(i32(*)(T)) != alignof(void*) { return 2; }
+    if sizeof(Holder(T)) != 24 { return 3; }
+    if alignof(Holder(T)) != alignof(void*) { return 4; }
+    return 0;
+}
+
+void accept(T...)(i32(*)(T) p) {
+    i32(*)(T) q = p;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32(*)() a = convert!()(zero as void*);
+    i32(*)(i32) b = convert!(i32)(one as void*);
+    i32(*)(i32, f64) c = convert!(i32, f64)(two as void*);
+    i32(*)(u8, i32, f64) d = convert_prefix!(i32, f64)(prefixed as void*);
+    if a() != 11 { return 1; }
+    if b(8) != 9 { return 2; }
+    if c(8, 2.0) != 10 { return 3; }
+    if d(1, 8, 2.0) != 11 { return 4; }
+    Holder(i32, f64) h;
+    h.tag = 7;
+    h.tail = 9;
+    h.entry = c;
+    if h.entry(30, 12.0) != 42 { return 5; }
+    if h.tag != 7 { return 6; }
+    if h.tail != 9 { return 7; }
+    accept!()(a);
+    accept!(i32)(b);
+    accept!(i32, f64)(c);
+    if layout!()() != 0 { return 8; }
+    if layout!(i32)() != 0 { return 9; }
+    if layout!(i32, f64)() != 0 { return 10; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
