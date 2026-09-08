@@ -16,6 +16,10 @@ void test_array_to_const_ptr() {
     const u16* ptr = buf as const u16*;
 }
 
+void test_null_cast_in_const_context() {
+    const u16* p = null as u16*;
+}
+
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===

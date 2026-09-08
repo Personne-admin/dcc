@@ -11553,6 +11553,12 @@ export namespace dcc::sema
                 }
             }
 
+            if (c.operand && c.operand->kind == ast::ExprKind::NullLiteral)
+            {
+                if (out.type && types::type_cast<types::PointerType>(out.type))
+                    op.type = out.type;
+            }
+
             if (op.type && out.type && op.type != out.type && !has_error(op.type) && !has_error(out.type))
             {
                 if (op.type->kind == types::TypeKind::Pointer && out.type->kind == types::TypeKind::Pointer)
