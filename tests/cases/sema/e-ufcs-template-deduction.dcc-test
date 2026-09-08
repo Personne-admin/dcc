@@ -17,4 +17,4 @@ void main() {
     a.x = u.testt() as i32;
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

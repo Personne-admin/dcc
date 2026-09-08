@@ -22,4 +22,4 @@ public usize use_it(i32* p, []i32 s) {
 
 === ENTRY: main.dc ===
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

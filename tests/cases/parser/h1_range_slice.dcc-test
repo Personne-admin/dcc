@@ -107,4 +107,5 @@ TranslationUnit
             IntLiteral 3
 
 === EXPECT-ERRORS ===
+main.dc:11: inclusive range slice requires an end index
 

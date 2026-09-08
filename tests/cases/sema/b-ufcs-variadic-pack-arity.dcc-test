@@ -44,7 +44,7 @@ i32 test_non_variadic_ufcs(S s) {
 void foo(T, U...)(T x, U args) {}
 
 void test_direct_variadic() {
-    foo!(i32)(1, 2, 3);
+    foo!(i32, i32, i32)(1, 2, 3);
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

@@ -25,5 +25,5 @@ public void test_match_err(Result(void, i32) x) {
     };
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 === EXPECT-LLVM FLAGS: -verify ===

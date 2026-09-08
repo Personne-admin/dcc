@@ -35,3 +35,7 @@ TranslationUnit
                   Ident p
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `ptr`
+main.dc:4: literal pattern type mismatch
+main.dc:4: unknown name `handle_null`
+main.dc:5: unknown name `use`

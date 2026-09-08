@@ -29,5 +29,5 @@ public void match_x2(X2 x) {
     };
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 === EXPECT-LLVM FLAGS: -verify ===

@@ -40,3 +40,8 @@ TranslationUnit
                   Ident default
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `opt`
+main.dc:4: enum pattern requires enum operand
+main.dc:4: unknown name `plot`
+main.dc:5: enum pattern requires enum operand
+main.dc:5: unknown name `default`

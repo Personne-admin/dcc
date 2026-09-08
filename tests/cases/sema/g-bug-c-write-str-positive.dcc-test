@@ -65,4 +65,4 @@ void nested_inst() {
     Result(Option(i32), IoError) r3 = get_nested!(BufferWriter, IoError)(w);
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

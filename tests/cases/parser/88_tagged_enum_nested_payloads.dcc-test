@@ -102,3 +102,14 @@ TranslationUnit
               IntLiteral 0
 
 === EXPECT-ERRORS ===
+main.dc:15: variant `Pair` has multiple payload types; wrap them in a struct
+main.dc:20: unknown name `node`
+main.dc:21: enum pattern requires enum operand
+main.dc:22: enum pattern requires enum operand
+main.dc:22: unknown name `value`
+main.dc:23: enum pattern requires enum operand
+main.dc:23: unknown name `extra`
+main.dc:24: enum pattern requires enum operand
+main.dc:24: unknown name `left`
+main.dc:25: enum pattern requires enum operand
+main.dc:26: enum pattern requires enum operand

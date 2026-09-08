@@ -31,4 +31,4 @@ i32 test_ok(Outcome(i32, i32) o) {
     return o?;
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

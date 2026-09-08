@@ -20,4 +20,4 @@ Res(i32) propagate(Box(i32) b) {
     return Res::Val(x);
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

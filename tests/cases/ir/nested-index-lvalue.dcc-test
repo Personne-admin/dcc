@@ -36,4 +36,4 @@ struct Holder {
 
 === ENTRY: test.dc ===
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

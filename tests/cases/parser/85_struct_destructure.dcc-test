@@ -38,3 +38,8 @@ TranslationUnit
                 Ident x
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `p`
+main.dc:4: struct pattern requires struct operand
+main.dc:4: unknown name `x`
+main.dc:5: struct pattern requires struct operand
+main.dc:5: unknown name `x`

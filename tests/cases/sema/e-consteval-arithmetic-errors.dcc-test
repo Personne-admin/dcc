@@ -7,4 +7,4 @@ void test_div_zero() {
     }
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

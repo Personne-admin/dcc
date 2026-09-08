@@ -25,3 +25,5 @@ TranslationUnit
                 Ident item
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `items`
+main.dc:4: unknown name `process`

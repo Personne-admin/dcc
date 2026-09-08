@@ -35,3 +35,5 @@ TranslationUnit
                 IntLiteral 0
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `v`
+main.dc:5: match arm result type mismatch: expected `<error>`, got `i32`

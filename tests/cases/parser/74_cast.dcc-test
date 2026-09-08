@@ -40,3 +40,4 @@ TranslationUnit
               Ident addr
 
 === EXPECT-ERRORS ===
+main.dc:5: unknown name `addr`

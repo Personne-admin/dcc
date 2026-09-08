@@ -23,3 +23,5 @@ TranslationUnit
                 Ident body
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `cond`
+main.dc:4: unknown name `body`

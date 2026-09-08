@@ -43,3 +43,8 @@ TranslationUnit
                         Ident z
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `a`
+main.dc:4: unknown name `x`
+main.dc:5: unknown name `b`
+main.dc:6: unknown name `y`
+main.dc:8: unknown name `z`

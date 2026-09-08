@@ -36,3 +36,5 @@ TranslationUnit
                 Ident i
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `n`
+main.dc:4: unknown name `body`

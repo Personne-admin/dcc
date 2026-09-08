@@ -116,5 +116,5 @@ Module m
         Ident arr [type=i32[10] const=<none> lvalue decl=arr]
         IntLiteral 0 [type=usize const=0 constant]
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 

@@ -152,3 +152,24 @@ TranslationUnit
                   Ident done
 
 === EXPECT-ERRORS ===
+main.dc:18: variant `Pair` has multiple payload types; wrap them in a struct
+main.dc:23: unknown name `packet`
+main.dc:24: enum pattern requires enum operand
+main.dc:24: unknown name `zero`
+main.dc:25: enum pattern requires enum operand
+main.dc:25: unknown name `value`
+main.dc:25: unknown name `value`
+main.dc:26: enum pattern requires enum operand
+main.dc:26: unknown name `x`
+main.dc:26: unknown name `y`
+main.dc:27: enum pattern requires enum operand
+main.dc:27: unknown name `left`
+main.dc:27: unknown name `right`
+main.dc:27: unknown name `extra`
+main.dc:28: enum pattern requires enum operand
+main.dc:29: enum pattern requires enum operand
+main.dc:29: unknown name `use`
+main.dc:30: enum pattern requires enum operand
+main.dc:30: unknown name `use`
+main.dc:31: enum pattern requires enum operand
+main.dc:31: unknown name `done`

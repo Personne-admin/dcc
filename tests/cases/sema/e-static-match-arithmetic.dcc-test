@@ -42,6 +42,6 @@ i32 f_static_match_cmp() {
     return -5;
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 
 === ENTRY: main.dc ===

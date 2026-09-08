@@ -32,3 +32,5 @@ TranslationUnit
                 Continue
 
 === EXPECT-ERRORS ===
+main.dc:4: unknown name `a`
+main.dc:5: unknown name `b`

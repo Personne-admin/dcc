@@ -43,3 +43,8 @@ TranslationUnit
                 IntLiteral 0
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `value`
+main.dc:4: literal pattern type mismatch
+main.dc:5: literal pattern type mismatch
+main.dc:5: literal pattern type mismatch
+main.dc:5: literal pattern type mismatch

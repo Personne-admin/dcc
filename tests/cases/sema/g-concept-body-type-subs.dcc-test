@@ -29,4 +29,4 @@ void entry_call() {
     require_writer(w, e, bytes);
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

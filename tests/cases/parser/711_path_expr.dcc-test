@@ -29,3 +29,7 @@ TranslationUnit
               FloatLiteral 2
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown type `Color`
+main.dc:3: unknown path `Color::Red`
+main.dc:4: unknown type `Point`
+main.dc:4: unknown path `Point::new`

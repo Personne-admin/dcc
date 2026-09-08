@@ -39,3 +39,10 @@ TranslationUnit
                 IntLiteral 0
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `res`
+main.dc:4: enum pattern requires enum operand
+main.dc:4: unknown name `inner`
+main.dc:5: enum pattern requires enum operand
+main.dc:5: match arm result type mismatch: expected `<error>`, got `i32`
+main.dc:6: enum pattern requires enum operand
+main.dc:6: match arm result type mismatch: expected `<error>`, got `i32`

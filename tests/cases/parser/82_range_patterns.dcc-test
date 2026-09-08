@@ -44,3 +44,6 @@ TranslationUnit
                 IntLiteral 0
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `v`
+main.dc:4: range pattern requires an ordered scalar operand
+main.dc:5: range pattern requires an ordered scalar operand
