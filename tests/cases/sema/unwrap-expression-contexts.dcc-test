@@ -24,4 +24,4 @@ i32 in_return(Res r) {
     return r?;
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
