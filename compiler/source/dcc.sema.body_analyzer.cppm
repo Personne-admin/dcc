@@ -817,6 +817,7 @@ export namespace dcc::sema
             bool is_constant{};
             bool is_diverging{};
             bool is_type_instantiation{};
+            bool has_return{};
         };
 
         struct StmtResult
@@ -824,6 +825,7 @@ export namespace dcc::sema
             bool falls_through{true};
             bool diverges{false};
             bool foldable{true};
+            bool has_return{false};
         };
 
     } // namespace detail
@@ -974,6 +976,7 @@ export namespace dcc::sema
         std::pmr::unordered_map<ast::Decl const*, std::uint32_t> m_decl_writes{};
         std::vector<sm::SourceRange> m_active_defers{};
         std::uint32_t m_defer_depth{};
+        std::vector<bool> m_loop_has_break{};
 
         struct CanonicalGuard
         {
@@ -11596,6 +11599,7 @@ export namespace dcc::sema
                 out.type = m_types.m_voidt();
 
             out.is_diverging = !res.falls_through;
+            out.has_return = res.has_return;
             if (b.body.tail && res.foldable)
             {
                 auto const* tail_const = b.body.tail->sema.const_value;
@@ -11625,6 +11629,7 @@ export namespace dcc::sema
                     auto else_stmt = analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts, result_discarded);
                     else_res.type = else_block->body.tail ? get_resolved_type(else_block->body.tail->sema) : m_types.m_voidt();
                     else_res.is_diverging = !else_stmt.falls_through;
+                    else_res.has_return = else_stmt.has_return;
                     else_res.constant = else_block->body.tail ? else_block->body.tail->sema.const_value : nullptr;
                     else_res.is_constant = else_res.constant != nullptr;
                     set_resolved_type(else_block->sema, else_res.type);
@@ -11649,6 +11654,7 @@ export namespace dcc::sema
                         out.type = m_types.m_voidt();
 
                     out.is_diverging = !then_res.falls_through;
+                    out.has_return = then_res.has_return;
                     out.constant = then_const;
                     out.is_constant = out.constant != nullptr;
                     return out;
@@ -11657,6 +11663,7 @@ export namespace dcc::sema
                 {
                     out.type = else_res.type;
                     out.is_diverging = else_res.is_diverging;
+                    out.has_return = else_res.has_return;
                     out.constant = else_const;
                     out.is_constant = out.constant != nullptr;
                     return out;
@@ -11687,6 +11694,7 @@ export namespace dcc::sema
                     error(i.range, "conditional expression result type mismatch: `{}` and `{}`", format_type_str(then_type), format_type_str(else_res.type));
                 }
                 out.is_diverging = then_res.diverges && else_res.is_diverging;
+                out.has_return = then_res.has_return || else_res.has_return;
                 if (then_const && else_const && constant_equal(*then_const, *else_const))
                 {
                     out.constant = then_const;
@@ -11697,6 +11705,7 @@ export namespace dcc::sema
             {
                 out.type = m_types.m_voidt();
                 out.is_diverging = then_res.diverges;
+                out.has_return = then_res.has_return;
             }
             return out;
         }
@@ -11744,6 +11753,7 @@ export namespace dcc::sema
                 if (arm.body)
                 {
                     auto r = analyze_expr(mod, fn, *arm_scope, *arm.body, loop_depth, next_off, expected_type, arm_consts, result_discarded);
+                    out.has_return = out.has_return || r.has_return;
                     if (!result_discarded && (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt())))
                         unified_type = r.type ? r.type : m_types.m_voidt();
                     else if (!result_discarded && r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error && r.type != m_types.m_voidt() &&
@@ -14510,6 +14520,7 @@ export namespace dcc::sema
                         auto result = analyze_expr(mod, fn, scope, *expr, loop_depth, next_off, nullptr, const_env, true);
                         out.diverges = result.is_diverging && m_error_action_count != error_actions_before;
                         out.falls_through = !out.diverges;
+                        out.has_return = result.has_return;
                     }
                     out.foldable = false;
                     return out;
@@ -14567,7 +14578,7 @@ export namespace dcc::sema
                         return {.foldable = false};
                     }
                     static_cast<ast::ReturnStmt&>(s).exit_defers = snapshot_exit_defers();
-                    return {.falls_through = false, .diverges = true, .foldable = false};
+                    return {.falls_through = false, .diverges = true, .foldable = false, .has_return = true};
                 case ast::StmtKind::Break:
                     static_cast<ast::BreakStmt&>(s).exit_defers.clear();
                     if (m_defer_depth)
@@ -14578,6 +14589,8 @@ export namespace dcc::sema
                     if (loop_depth == 0)
                         error(s.range, "break outside loop");
                     static_cast<ast::BreakStmt&>(s).exit_defers = snapshot_exit_defers();
+                    if (!m_loop_has_break.empty())
+                        m_loop_has_break.back() = true;
                     return {.falls_through = false, .foldable = false};
                 case ast::StmtKind::Continue:
                     static_cast<ast::ContinueStmt&>(s).exit_defers.clear();
@@ -14592,16 +14605,25 @@ export namespace dcc::sema
                     return {.falls_through = false, .foldable = false};
                 case ast::StmtKind::While: {
                     auto& w = static_cast<ast::WhileStmt&>(s);
-                    auto cond = analyze_expr_or_error(mod, fn, scope, w.condition, loop_depth, next_off, nullptr, const_env);
                     auto* inner = make_scope(ScopeKind::Block, &scope);
                     auto* inner_consts = make_const_env(const_env);
                     invalidate_loop_writes(&w, inner_consts);
+                    auto cond = analyze_expr_or_error(mod, fn, scope, w.condition, loop_depth, next_off, nullptr, inner_consts);
+                    m_loop_has_break.push_back(false);
                     auto body = analyze_block(mod, fn, *inner, w.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
-                    if (is_const_true(cond) && body.diverges)
+                    bool const loop_had_break = m_loop_has_break.back();
+                    m_loop_has_break.pop_back();
+                    if (loop_had_break)
+                    {
+                        out.falls_through = true;
+                        out.diverges = false;
+                    }
+                    else if (is_const_true(cond) && (body.diverges || body.has_return))
                     {
                         out.diverges = true;
                         out.falls_through = false;
                     }
+                    out.has_return = body.has_return;
                     out.foldable = false;
                     return out;
                 }
@@ -14610,13 +14632,22 @@ export namespace dcc::sema
                     auto* inner = make_scope(ScopeKind::Block, &scope);
                     auto* inner_consts = make_const_env(const_env);
                     invalidate_loop_writes(&w, inner_consts);
+                    m_loop_has_break.push_back(false);
                     auto body = analyze_block(mod, fn, *inner, w.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
-                    std::ignore = analyze_expr_or_error(mod, fn, scope, w.condition, loop_depth, next_off, nullptr, const_env);
-                    if (body.diverges)
+                    bool const loop_had_break = m_loop_has_break.back();
+                    m_loop_has_break.pop_back();
+                    auto cond = analyze_expr_or_error(mod, fn, scope, w.condition, loop_depth, next_off, nullptr, inner_consts);
+                    if (loop_had_break)
+                    {
+                        out.falls_through = true;
+                        out.diverges = false;
+                    }
+                    else if ((is_const_true(cond) || body.diverges) && (body.diverges || body.has_return))
                     {
                         out.diverges = true;
                         out.falls_through = false;
                     }
+                    out.has_return = body.has_return;
                     out.foldable = false;
                     return out;
                 }
@@ -14626,16 +14657,25 @@ export namespace dcc::sema
                     auto* inner_consts = make_const_env(const_env);
                     if (f.init)
                         std::ignore = analyze_stmt(mod, fn, *inner, *f.init, loop_depth, next_off, inner_consts);
+                    invalidate_loop_writes(&f, inner_consts);
                     auto cond = f.cond ? analyze_expr(mod, fn, *inner, *f.cond, loop_depth, next_off, nullptr, inner_consts) : detail::ExprResult{};
                     if (f.update)
                         std::ignore = analyze_expr(mod, fn, *inner, *f.update, loop_depth, next_off, nullptr, inner_consts);
-                    invalidate_loop_writes(&f, inner_consts);
+                    m_loop_has_break.push_back(false);
                     auto body = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
-                    if ((!f.cond || is_const_true(cond)) && body.diverges)
+                    bool const loop_had_break = m_loop_has_break.back();
+                    m_loop_has_break.pop_back();
+                    if (loop_had_break)
+                    {
+                        out.falls_through = true;
+                        out.diverges = false;
+                    }
+                    else if ((!f.cond || is_const_true(cond)) && (body.diverges || body.has_return))
                     {
                         out.diverges = true;
                         out.falls_through = false;
                     }
+                    out.has_return = body.has_return;
                     out.foldable = false;
                     return out;
                 }
@@ -14707,7 +14747,10 @@ export namespace dcc::sema
                         define_local(*inner, v);
                         track_decl_write(v);
                     }
-                    std::ignore = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
+                    m_loop_has_break.push_back(false);
+                    auto body = analyze_block(mod, fn, *inner, f.body, loop_depth + 1, next_off, nullptr, inner_consts, true);
+                    m_loop_has_break.pop_back();
+                    out.has_return = body.has_return;
                     out.foldable = false;
                     return out;
                 }
@@ -15345,13 +15388,21 @@ export namespace dcc::sema
                     reachable = false;
 
                 out.diverges = out.diverges || r.diverges;
+                out.has_return = out.has_return || r.has_return;
                 out.foldable = out.foldable && r.foldable;
             }
             if (block.tail)
             {
                 auto tr = analyze_expr(mod, fn, scope, *block.tail, loop_depth, next_off, expected_type, const_env, tail_result_discarded);
-                out.diverges = out.diverges || tr.is_diverging;
-                out.falls_through = reachable && !tr.is_diverging;
+                bool tail_diverges = tr.is_diverging;
+                if (auto* if_expr = ast::node_cast<ast::IfExpr>(block.tail))
+                {
+                    if (!if_expr->else_branch)
+                        tail_diverges = false;
+                }
+                out.diverges = out.diverges || tail_diverges;
+                out.has_return = out.has_return || tr.has_return;
+                out.falls_through = reachable && !tail_diverges;
                 out.foldable = out.foldable && tr.is_constant;
             }
             else

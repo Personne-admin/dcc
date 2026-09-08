@@ -141,7 +141,10 @@ i32 test_dirs() {
                 if !entry_id_ok(&entry) {
                     return 208;
                 }
-                std::result::Result(dir::Metadata, Error) m = dir::stat_at(&it, &entry);
+                std::result::Result(dir::Metadata, Error) m = dir::stat_at(
+                    &it,
+                    &entry
+                );
                 if m.is_err() {
                     return 209;
                 }
@@ -157,7 +160,10 @@ i32 test_dirs() {
                 if entry.kind != dir::EntryKind::Directory {
                     return 212;
                 }
-                std::result::Result(dir::Metadata, Error) mb = dir::stat_at(&it, &entry);
+                std::result::Result(dir::Metadata, Error) mb = dir::stat_at(
+                    &it,
+                    &entry
+                );
                 if mb.is_err() {
                     return 213;
                 }
@@ -672,7 +678,9 @@ i32 test_clocks_and_process() {
 
 thread::Mutex tally_mu;
 volatile i32 tally;
+
 thread::Mutex gate_mu;
+
 thread::Condvar gate;
 volatile i32 arrived;
 
@@ -695,15 +703,11 @@ i32 test_threads() {
     tally = 0;
     thread::Thread a = thread::spawn(tally_up, 500).unwrap();
     thread::Thread b = thread::spawn(tally_up, 500).unwrap();
-    i32 st = 0;
     if !a.join().is_ok() {
-        st = 70;
+        return 70;
     }
     if !b.join().is_ok() {
-        st = 71;
-    }
-    if st != 0 {
-        return st;
+        return 71;
     }
     if tally != 1000 {
         return 72;
