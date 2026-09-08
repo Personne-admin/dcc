@@ -811,6 +811,7 @@ namespace dcc::sema
 
             [[nodiscard]] std::vector<types::TypePtr> const* splice_pack_types(std::string_view name) const;
             void expand_pack_splices(ast::NamedType* nt);
+            void expand_pack_splices(ast::FuncPtrType* fp);
 
             [[nodiscard]] types::TypePtr deep_substitute(types::TypePtr type) const
             {
@@ -886,25 +887,8 @@ namespace dcc::sema
                             return m_types.type_pack_t(inner, pt->pack_index);
                         return type;
                     }
-                    case types::TypeKind::FuncPtr: {
-                        auto const* f = static_cast<types::FuncPtrType const*>(static_cast<void const*>(type));
-                        auto ret = deep_substitute(f->return_type);
-                        bool changed = (ret != f->return_type);
-                        std::vector<types::TypePtr> params;
-                        params.reserve(f->params.size());
-                        for (auto p : f->params)
-                        {
-                            auto sp = deep_substitute(p);
-                            if (sp != p)
-                                changed = true;
-
-                            params.push_back(sp);
-                        }
-                        if (changed)
-                            return m_types.funcptr_t(ret, params);
-
-                        return type;
-                    }
+                    case types::TypeKind::FuncPtr:
+                        return m_bindings.substitute(type);
                     case types::TypeKind::Nominal: {
                         auto const* t = static_cast<types::NominalType const*>(static_cast<void const*>(type));
                         auto underlying = deep_substitute(t->underlying);
@@ -1014,6 +998,7 @@ namespace dcc::sema
                     break;
                 case ast::TypeKind::FuncPtr: {
                     auto* fp = static_cast<ast::FuncPtrType*>(t);
+                    expand_pack_splices(fp);
                     substitute_in_type(fp->return_type);
                     for (auto& p : fp->params)
                         substitute_in_type(p.type);
@@ -4683,6 +4668,35 @@ namespace dcc::sema
                 return m_bindings.lookup_pack(static_cast<types::TemplateParamType const*>(key));
             }
             return nullptr;
+        }
+
+        void TypeSubstitutor::expand_pack_splices(ast::FuncPtrType* fp)
+        {
+            std::pmr::vector<ast::FuncPtrParam> expanded{fp->params.get_allocator()};
+            bool changed = false;
+            for (auto const& p : fp->params)
+            {
+                auto const* named = ast::node_cast<ast::NamedType>(p.type);
+                auto const* pack = named && named->path.is_simple() && named->template_args.empty()
+                                       ? splice_pack_types(named->path.simple_name())
+                                       : nullptr;
+                if (!pack)
+                {
+                    expanded.push_back(p);
+                    continue;
+                }
+                if (&p != &fp->params.back() && m_diag)
+                    m_diag->error(p.range, "function pointer parameter pack must be the last parameter");
+                changed = true;
+                for (auto const* elem : *pack)
+                {
+                    auto param = p;
+                    param.type = clone_type_from_canonical(elem, m_ast_ctx, m_types);
+                    expanded.push_back(param);
+                }
+            }
+            if (changed)
+                fp->params = std::move(expanded);
         }
 
         void TypeSubstitutor::expand_pack_splices(ast::NamedType* nt)

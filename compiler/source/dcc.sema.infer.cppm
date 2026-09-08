@@ -842,6 +842,13 @@ export namespace dcc::infer
                     bool changed = ret != t->return_type;
                     for (auto const* p : t->params)
                     {
+                        if (auto const* tp = types::type_cast<types::TemplateParamType>(p))
+                            if (auto const* pack = lookup_pack(tp))
+                            {
+                                changed = true;
+                                params.insert(params.end(), pack->begin(), pack->end());
+                                continue;
+                            }
                         auto sub = substitute_impl(p, memo);
                         changed |= sub != p;
                         params.push_back(sub);

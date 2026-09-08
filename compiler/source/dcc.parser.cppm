@@ -852,6 +852,19 @@ export namespace dcc::parser
                 d->using_kind = ast::UsingKind::Concept;
                 d->template_params = parse_template_param_list();
                 expect(TK::Eq, "after concept template parameters");
+                {
+                    Speculation spec(*this);
+                    auto* alias_type = parse_type(true);
+                    if (ast::node_cast<ast::FuncPtrType>(alias_type) && !spec.had_suppressed_errors() && check(TK::Semicolon))
+                    {
+                        spec.commit();
+                        d->using_kind = ast::UsingKind::Alias;
+                        d->target_type = alias_type;
+                        advance();
+                        d->range = range_from(start);
+                        return d;
+                    }
+                }
                 d->target_expr = parse_expr();
                 expect(TK::Semicolon, "after using declaration");
                 d->range = range_from(start);

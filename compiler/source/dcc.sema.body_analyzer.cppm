@@ -15804,7 +15804,7 @@ export namespace dcc::sema
                     }
 
                     auto instantiate = [&](ast::Decl const* decl) -> types::TypePtr {
-                        if (auto const* u = ast::node_cast<ast::UsingDecl>(decl))
+                        if (auto const* u = ast::node_cast<ast::UsingDecl>(decl); u && u->template_params.empty())
                         {
                             if (u->using_kind == ast::UsingKind::Alias && u->target_type && u->target_type->sema.canonical)
                             {
@@ -15867,6 +15867,8 @@ export namespace dcc::sema
                                 param_count = sd->template_params.size();
                             else if (auto const* ed = ast::node_cast<ast::EnumDecl>(decl))
                                 param_count = ed->template_params.size();
+                            else if (auto const* u = ast::node_cast<ast::UsingDecl>(decl))
+                                param_count = u->template_params.size();
                             if (param_count == 0 && ast::node_cast<ast::UnionDecl>(decl) == nullptr)
                                 return decl_type(*decl);
                             if (ast::node_cast<ast::UnionDecl>(decl) != nullptr)
@@ -15895,6 +15897,30 @@ export namespace dcc::sema
                                 }
                             }
                             resolved_args.push_back(arg_ty);
+                        }
+
+                        if (auto const* u = ast::node_cast<ast::UsingDecl>(decl))
+                        {
+                            if (!u->target_type || !u->target_type->sema.canonical)
+                                return m_types.m_errort();
+                            bool variadic = !u->template_params.empty() && u->template_params.back().is_pack && !u->template_params.back().value_type;
+                            if (!complete_template_args(u->template_params, resolved_args, variadic, nt->path.segments.back().name))
+                                return m_types.m_errort();
+                            infer::TemplateBindings bindings{m_types};
+                            for (std::size_t i = 0; i < u->template_params.size(); ++i)
+                            {
+                                auto const& tp = u->template_params[i];
+                                auto* key = static_cast<types::TemplateParamType const*>(m_types.template_param_t(
+                                    const_cast<ast::TemplateParam*>(&tp), tp.name, static_cast<std::uint32_t>(i)));
+                                if (variadic && i + 1 == u->template_params.size())
+                                    std::ignore = bindings.bind_pack(key, {resolved_args.begin() + static_cast<std::ptrdiff_t>(i), resolved_args.end()});
+                                else
+                                    std::ignore = bindings.deduce(key, resolved_args[i]);
+                            }
+                            auto underlying = bindings.substitute(get_canonical(u->target_type->sema));
+                            if (u->sema.is_nominal && underlying && underlying->kind != types::TypeKind::Error)
+                                return m_types.nominal_alias_t(underlying, u);
+                            return underlying;
                         }
 
                         if (auto const* sd = ast::node_cast<ast::StructDecl>(decl))

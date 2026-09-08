@@ -525,6 +525,9 @@ export namespace dcc::sema
                     for (auto const& p : t->params)
                     {
                         auto rp = resolve_type_expr(p.type, mod, env, quiet_unknown);
+                        if (types::type_cast<types::TemplateParamType>(rp.type) && is_pack_indexable_type(rp.type) &&
+                            &p != &t->params.back())
+                            m_diag.error(p.range, "function pointer parameter pack must be the last parameter");
                         params.push_back(rp.type);
                     }
                     out.type = m_types.funcptr_t(ret.type, params);
@@ -775,25 +778,44 @@ export namespace dcc::sema
 
             detail::ResolvedType out{m_types.m_errort(), types::Qual::None};
             auto inst_env = env;
+            infer::TemplateBindings bindings{m_types};
             if (!u.template_params.empty() || !args.empty())
             {
+                bool variadic = !u.template_params.empty() && u.template_params.back().is_pack && !u.template_params.back().value_type;
+                std::size_t fixed = u.template_params.size() - (variadic ? 1 : 0);
                 std::size_t required = 0;
-                for (auto const& tp : u.template_params)
-                    if (!tp.default_type && !tp.default_value)
+                for (std::size_t i = 0; i < fixed; ++i)
+                    if (!u.template_params[i].default_type && !u.template_params[i].default_value)
                         ++required;
-                if (args.size() < required || args.size() > u.template_params.size())
+                if (args.size() < required || (!variadic && args.size() > fixed))
                 {
                     if (!quiet_unknown)
                         m_diag.error(range, "template argument count mismatch for `{}`", detail::decl_name(&u));
-
                     m_alias_resolving.erase(&u);
                     return {m_types.m_errort(), types::Qual::None};
                 }
 
-                infer::TemplateBindings bindings{m_types};
                 for (std::size_t i = 0; i < u.template_params.size(); ++i)
                 {
                     auto const& tp = u.template_params[i];
+                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
+                    inst_env.types[tp.name] = key;
+                    if (variadic && i == fixed)
+                    {
+                        std::vector<types::TypePtr> pack;
+                        for (std::size_t j = fixed; j < args.size(); ++j)
+                        {
+                            if (!args[j].type)
+                            {
+                                if (!quiet_unknown)
+                                    m_diag.error(args[j].range, "value template arguments are not supported in signature types");
+                                continue;
+                            }
+                            pack.push_back(resolve_type_expr(args[j].type, mod, env, quiet_unknown).type);
+                        }
+                        std::ignore = bindings.bind_pack(static_cast<types::TemplateParamType const*>(key), std::move(pack));
+                        continue;
+                    }
                     types::TypePtr actual{};
                     if (i < args.size())
                     {
@@ -810,15 +832,15 @@ export namespace dcc::sema
                         actual = bindings.substitute(get_canonical(tp.default_type->sema));
                     else
                         continue;
-
-                    inst_env.types[tp.name] = actual;
-                    auto* key = m_types.template_param_t(const_cast<ast::TemplateParam*>(std::addressof(tp)), tp.name, static_cast<std::uint32_t>(i));
                     std::ignore = bindings.deduce(key, actual);
                 }
             }
 
             if (u.target_type)
+            {
                 out = resolve_type_expr(u.target_type, mod, inst_env, quiet_unknown);
+                out.type = bindings.substitute(out.type);
+            }
             else
             {
                 if (!quiet_unknown)
