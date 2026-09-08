@@ -1,0 +1,57 @@
+module main;
+import std::sys::win::abi;
+import std::sys::win::imports;
+import std::os::path;
+using std::sys::win;
+public i32 main() {
+    win::abi::SecurityAttributes sa;
+    sa.length = sizeof(win::abi::SecurityAttributes) as u32;
+    sa.descriptor = null as void*;
+    sa.inherit_handle = win::abi::TRUE;
+    u32* raw = &sa as u32*;
+    if raw[0] != 24 || raw[2] != 0 || raw[3] != 0 || raw[4] != 1 { return 1; }
+    win::abi::Handle reader;
+    win::abi::Handle writer;
+    if !win::abi::succeeded(win::imports::CreatePipe(&reader, &writer, &sa, 0)) { return 2; }
+    if !win::abi::succeeded(win::imports::SetHandleInformation(reader, win::abi::HANDLE_FLAG_INHERIT, 0)) { return 3; }
+    std::os::path::PathW command;
+    if !std::os::path::to_pathw("cmd.exe /c echo redirected", &command).is_ok() { return 4; }
+    win::abi::StartupInfoW si;
+    si.cb = sizeof(win::abi::StartupInfoW) as u32;
+    si.reserved = null as win::abi::Wchar*;
+    si.desktop = null as win::abi::Wchar*;
+    si.title = null as win::abi::Wchar*;
+    si.x = 0;
+    si.y = 0;
+    si.x_size = 0;
+    si.y_size = 0;
+    si.x_count_chars = 0;
+    si.y_count_chars = 0;
+    si.fill_attribute = 0;
+    si.show_window = 0;
+    si.reserved2_len = 0;
+    si.reserved2 = null as win::abi::Byte*;
+    si.flags = win::abi::STARTF_USESTDHANDLES;
+    si.std_input = win::imports::GetStdHandle(win::abi::STD_INPUT_HANDLE);
+    si.std_output = writer;
+    si.std_error = win::imports::GetStdHandle(win::abi::STD_ERROR_HANDLE);
+    win::abi::ProcessInformation pi;
+    if !win::abi::succeeded(win::imports::CreateProcessW(null, &command.units[0], null, null, win::abi::TRUE, 0, null, null, &si, &pi)) { return 5; }
+    win::imports::CloseHandle(writer);
+    u8[32] data;
+    u32 total = 0;
+    while total < 32 {
+        u32 got = 0;
+        win::abi::Bool read_ok = win::imports::ReadFile(reader, &data[total] as void*, 32 - total, &got, null);
+        if !win::abi::succeeded(read_ok) { break; }
+        if got == 0 { break; }
+        total = total + got;
+    }
+    win::imports::CloseHandle(reader);
+    win::imports::WaitForSingleObject(pi.process, win::abi::INFINITE);
+    win::imports::CloseHandle(pi.thread);
+    win::imports::CloseHandle(pi.process);
+    if total != 12 { return 6; }
+    if data[0] != 'r' as u8 || data[9] != 'd' as u8 || data[10] != 13 || data[11] != 10 { return 7; }
+    return 0;
+}
