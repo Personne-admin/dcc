@@ -1,6 +1,12 @@
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sys/wait.h>
+#ifndef _WIN32
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
 
 import std;
 
@@ -3222,6 +3228,51 @@ namespace
         return s;
     }
 
+    bool run_fixture_isolated(fs::path const& f, Stats& stats)
+    {
+#ifdef _WIN32
+        return run_fixture(f, stats);
+#else
+        std::cout.flush();
+        std::cerr.flush();
+        std::fflush(stdout);
+        std::fflush(stderr);
+        auto* shared = static_cast<Stats*>(mmap(nullptr, sizeof(Stats), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0));
+        if (shared == MAP_FAILED)
+            return run_fixture(f, stats);
+        *shared = stats;
+        pid_t pid = fork();
+        if (pid < 0)
+        {
+            munmap(shared, sizeof(Stats));
+            return run_fixture(f, stats);
+        }
+        if (pid == 0)
+        {
+            bool ok = run_fixture(f, *shared);
+            std::cout.flush();
+            std::cerr.flush();
+            std::fflush(stdout);
+            std::fflush(stderr);
+            _exit(ok ? 0 : 1);
+        }
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+        {
+        }
+        stats = *shared;
+        munmap(shared, sizeof(Stats));
+        if (WIFSIGNALED(status))
+        {
+            int sig = WTERMSIG(status);
+            ++stats.failed;
+            std::println(std::cerr, "    FAIL  case crashed: {} (signal {})  ({}:1)", strsignal(sig), sig, f.string());
+            return false;
+        }
+        return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+#endif
+    }
+
 } // namespace
 
 int main()
@@ -3259,7 +3310,7 @@ int main()
         }
 #endif
 
-        if (!run_fixture(f, stats))
+        if (!run_fixture_isolated(f, stats))
             ++cases_failed;
     }
 
