@@ -94,6 +94,34 @@ public Result(Pipe, Error) create() {
     }
 }
 
+/// creates a connected pair whose ends a child process can inherit.
+/// needed for `process` stdio redirection; prefer `create` otherwise.
+public Result(Pipe, Error) create_inheritable() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::SecurityAttributes sa;
+        sa.length = sizeof (win::abi::SecurityAttributes) as u32;
+        sa.descriptor = null;
+        sa.inherit_handle = win::abi::TRUE;
+
+        win::abi::Handle r = null as win::abi::Handle;
+        win::abi::Handle w = null as win::abi::Handle;
+        win::abi::Bool ok = win::imports::CreatePipe(&r, &w, &sa, 0);
+
+        if !win::abi::succeeded(ok) {
+            return Result::Err(
+                error::from_win32(win::imports::GetLastError())
+            );
+        }
+
+        Pipe p;
+        p.reader.handle = r as Handle;
+        p.writer.handle = w as Handle;
+        return Result::Ok(p);
+    } else {
+        return create();
+    }
+}
+
 /// ignores `SIGPIPE` process-wide. after this a write to a pipe with no
 /// reader reports `BrokenPipe` instead of killing the process. on Windows
 /// there is no `SIGPIPE`, so this is a successful no-op.

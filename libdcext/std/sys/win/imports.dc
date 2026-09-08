@@ -129,6 +129,10 @@ using abi::{ Bool, Byte, Dword, Handle, Socket, Wchar, Word };
     Dword mask,
     Dword flags
 );
+@[import, nomangle] public extern Bool GetHandleInformation(
+    Handle object,
+    Dword* flags
+);
 
 //!
 //! Locks, condition variables and init-once
