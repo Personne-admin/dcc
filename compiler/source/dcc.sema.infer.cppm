@@ -66,8 +66,7 @@ export namespace dcc::infer
             return resolve_impl(type, seen);
         }
 
-        [[nodiscard]] bool bind_pack(types::TemplateParamType const* param, std::vector<types::TypePtr> types,
-                                     std::vector<comptime::Value> values = {})
+        [[nodiscard]] bool bind_pack(types::TemplateParamType const* param, std::vector<types::TypePtr> types, std::vector<comptime::Value> values = {})
         {
             if (!param)
                 return false;
@@ -131,13 +130,45 @@ export namespace dcc::infer
             return static_cast<ast::TemplateParam const*>(param->param)->is_pack;
         }
 
+        [[nodiscard]] static types::TemplateParamType const* trailing_pack(std::span<types::TypePtr const> params)
+        {
+            if (params.empty())
+                return nullptr;
+
+            auto const* tp = types::type_cast<types::TemplateParamType>(params.back());
+            return tp && is_pack_param(tp) ? tp : nullptr;
+        }
+
+        [[nodiscard]] DeductionResult deduce_trailing_pack(types::FuncPtrType const* pattern, types::FuncPtrType const* actual)
+        {
+            auto const* tp = trailing_pack(pattern->params);
+            if (auto r = deduce(pattern->return_type, actual->return_type); !r)
+                return fail(DeductionError::Conflict, "function pointer return type mismatch");
+
+            auto fixed = pattern->params.size() - 1;
+            if (actual->params.size() < fixed)
+                return fail(DeductionError::ArityMismatch, "function pointer has fewer parameters than the fixed prefix");
+
+            for (std::size_t i = 0; i < fixed; ++i)
+                if (auto r = deduce(pattern->params[i], actual->params[i]); !r)
+                    return fail(DeductionError::Conflict, "function pointer fixed parameter prefix mismatch");
+
+            std::vector<types::TypePtr> rest;
+            for (std::size_t i = fixed; i < actual->params.size(); ++i)
+                rest.push_back(substitute(actual->params[i]));
+
+            if (!bind_pack(tp, std::move(rest)))
+                return fail(DeductionError::Conflict, "conflicting pack binding");
+
+            return ok();
+        }
+
         [[nodiscard]] DeductionResult deduce_trailing_pack(types::UserType const* pattern, types::UserType const* actual)
         {
-            if (!pattern || !actual || pattern->template_args.empty() ||
-                actual->template_args.size() < pattern->template_args.size() - 1)
+            if (!pattern || !actual || pattern->template_args.empty() || actual->template_args.size() < pattern->template_args.size() - 1)
                 return fail(DeductionError::ArityMismatch, "nominal template argument count mismatch");
             auto const* tp = types::type_cast<types::TemplateParamType>(pattern->template_args.back());
-            if (!tp || !is_pack_param(tp) || has_pack_binding(tp))
+            if (!tp || !is_pack_param(tp))
                 return fail(DeductionError::ArityMismatch, "nominal template argument count mismatch");
             for (std::size_t i = 0; i + 1 < pattern->template_args.size(); ++i)
                 if (auto r = deduce(pattern->template_args[i], actual->template_args[i]); !r)
@@ -236,7 +267,18 @@ export namespace dcc::infer
 
         [[nodiscard]] auto const& value_bindings() const noexcept { return m_value_bindings; }
 
-        [[nodiscard]] DeductionResult deduce(types::TypePtr pattern, types::TypePtr actual) { return unify(pattern, actual); }
+        [[nodiscard]] DeductionResult deduce(types::TypePtr pattern, types::TypePtr actual)
+        {
+            auto binding_count = m_bindings.size();
+            auto pack_count = m_pack_bindings.size();
+            auto result = unify(pattern, actual);
+            if (!result)
+            {
+                m_bindings.resize(binding_count);
+                m_pack_bindings.resize(pack_count);
+            }
+            return result;
+        }
 
         [[nodiscard]] DeductionResult deduce_function(std::span<types::TypePtr const> params, std::span<types::TypePtr const> args)
         {
@@ -281,9 +323,8 @@ export namespace dcc::infer
 
             if (auto const* tp = types::type_cast<types::TemplateParamType>(pack_type->element))
             {
-                if (!has_pack_binding(tp))
-                    if (!bind_pack(tp, pack_elements))
-                        return fail(DeductionError::Conflict, "conflicting pack binding");
+                if (!bind_pack(tp, pack_elements))
+                    return fail(DeductionError::Conflict, "conflicting pack binding");
             }
             else
                 for (std::size_t i = non_pack_count; i < args.size(); ++i)
@@ -518,8 +559,12 @@ export namespace dcc::infer
 
         [[nodiscard]] DeductionResult unify(types::TypePtr lhs, types::TypePtr rhs)
         {
-            lhs = substitute(lhs);
-            rhs = substitute(rhs);
+            lhs = resolve(lhs);
+            rhs = resolve(rhs);
+            if (types::type_cast<types::TypePackType>(lhs))
+                lhs = substitute(lhs);
+            if (types::type_cast<types::TypePackType>(rhs))
+                rhs = substitute(rhs);
 
             if (lhs == rhs)
                 return ok();
@@ -552,6 +597,11 @@ export namespace dcc::infer
 
                 return deduce(slice->element, array_elem);
             }
+
+            auto const* lhs_fn = types::type_cast<types::FuncPtrType>(lhs);
+            auto const* rhs_fn = types::type_cast<types::FuncPtrType>(rhs);
+            if ((lhs_fn && trailing_pack(lhs_fn->params) && !rhs_fn) || (rhs_fn && trailing_pack(rhs_fn->params) && !lhs_fn))
+                return fail(DeductionError::KindMismatch, "function pointer candidate required");
 
             if (!lhs || !rhs || lhs->kind != rhs->kind)
                 return fail(DeductionError::Conflict, "type kind mismatch");
@@ -593,8 +643,7 @@ export namespace dcc::infer
                 case types::TypeKind::Pointer: {
                     auto const* a = static_cast<types::PointerType const*>(lhs);
                     auto const* b = static_cast<types::PointerType const*>(rhs);
-                    if ((std::to_underlying(a->pointee_quals) & std::to_underlying(b->pointee_quals)) !=
-                        std::to_underlying(a->pointee_quals))
+                    if ((std::to_underlying(a->pointee_quals) & std::to_underlying(b->pointee_quals)) != std::to_underlying(a->pointee_quals))
                         return fail(DeductionError::Conflict, "pointer pointee qualifier mismatch");
                     return deduce(a->pointee, b->pointee);
                 }
@@ -642,6 +691,10 @@ export namespace dcc::infer
                 case types::TypeKind::FuncPtr: {
                     auto const* a = static_cast<types::FuncPtrType const*>(lhs);
                     auto const* b = static_cast<types::FuncPtrType const*>(rhs);
+                    if (trailing_pack(a->params) && !trailing_pack(b->params))
+                        return deduce_trailing_pack(a, static_cast<types::FuncPtrType const*>(substitute(b)));
+                    if (trailing_pack(b->params) && !trailing_pack(a->params))
+                        return deduce_trailing_pack(b, static_cast<types::FuncPtrType const*>(substitute(a)));
                     if (a->params.size() != b->params.size())
                         return fail(DeductionError::ArityMismatch, "function parameter count mismatch");
 
@@ -676,12 +729,12 @@ export namespace dcc::infer
                     if (a->kind != b->kind || a->decl != b->decl)
                         return fail(DeductionError::KindMismatch, "nominal type mismatch");
 
+                    if (trailing_pack(a->template_args) && !trailing_pack(b->template_args))
+                        return deduce_trailing_pack(a, static_cast<types::UserType const*>(substitute(b)));
+                    if (trailing_pack(b->template_args) && !trailing_pack(a->template_args))
+                        return deduce_trailing_pack(b, static_cast<types::UserType const*>(substitute(a)));
                     if (a->template_args.size() != b->template_args.size())
-                    {
-                        if (deduce_trailing_pack(a, b) || deduce_trailing_pack(b, a))
-                            return ok();
                         return fail(DeductionError::ArityMismatch, "nominal template argument count mismatch");
-                    }
 
                     for (std::size_t i = 0; i < a->template_args.size(); ++i)
                         if (auto r = deduce(a->template_args[i], b->template_args[i]); !r)

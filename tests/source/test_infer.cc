@@ -1,5 +1,6 @@
 import std;
 import dcc.types;
+import dcc.ast;
 import dcc.sema.infer;
 
 #include "harness.hh"
@@ -371,4 +372,72 @@ TEST_CASE("ptr qualifier same, pointee deduces template param")
     REQUIRE(ib.deduce(pattern, actual));
     auto bound = ib.lookup(static_cast<types::TemplateParamType const*>(T));
     CHECK(bound == boolean);
+}
+
+TEST_CASE("function pointer splice deduction binds either direction and preserves identity")
+{
+    types::TypeContext ctx;
+    dcc::ast::TemplateParam pack;
+    pack.name = "T";
+    pack.is_pack = true;
+    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, "T", 0));
+    auto i32 = ctx.int_t(32, true);
+    auto f64 = ctx.float_t(64);
+    for (auto const& suffix : std::vector<std::vector<types::TypePtr>>{{}, {f64}, {f64, ctx.m_boolt()}})
+        for (bool prefix : {false, true})
+            for (bool reverse : {false, true})
+            {
+                infer::TemplateBindings bindings{ctx};
+                std::vector<types::TypePtr> pattern_params;
+                std::vector<types::TypePtr> actual_params;
+                if (prefix)
+                {
+                    pattern_params.push_back(ctx.int_t(8, false));
+                    actual_params.push_back(ctx.int_t(8, false));
+                }
+                pattern_params.push_back(t);
+                actual_params.insert(actual_params.end(), suffix.begin(), suffix.end());
+                auto pattern = ctx.funcptr_t(i32, pattern_params);
+                auto actual = ctx.funcptr_t(i32, actual_params);
+                REQUIRE(reverse ? bindings.deduce(actual, pattern) : bindings.deduce(pattern, actual));
+                REQUIRE(bindings.lookup_pack(t) != nullptr);
+                CHECK(*bindings.lookup_pack(t) == suffix);
+                CHECK(bindings.substitute(pattern) == actual);
+            }
+}
+
+TEST_CASE("function pointer splice rejection rolls back return prefix and pack deductions")
+{
+    types::TypeContext ctx;
+    dcc::ast::TemplateParam pack;
+    pack.is_pack = true;
+    dcc::ast::TemplateParam ret;
+    dcc::ast::TemplateParam prefix;
+    auto* t = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&pack, "T", 0));
+    auto* r = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&ret, "R", 1));
+    auto* p = static_cast<types::TemplateParamType const*>(ctx.template_param_t(&prefix, "P", 2));
+    auto i32 = ctx.int_t(32, true);
+    auto f64 = ctx.float_t(64);
+    std::array<types::TypePtr, 3> pattern_params{p, ctx.m_boolt(), t};
+    std::array<types::TypePtr, 3> actual_params{i32, f64, i32};
+    auto pattern = ctx.funcptr_t(r, pattern_params);
+    auto actual = ctx.funcptr_t(i32, actual_params);
+    for (bool reverse : {false, true})
+    {
+        infer::TemplateBindings bindings{ctx};
+        auto result = reverse ? bindings.deduce(actual, pattern) : bindings.deduce(pattern, actual);
+        CHECK(!result);
+        CHECK_EQ(result.detail, "function pointer fixed parameter prefix mismatch");
+        CHECK(bindings.empty());
+        std::array<types::TypePtr, 1> splice{t};
+        std::array<types::TypePtr, 1> single{i32};
+        auto a = ctx.funcptr_t(ctx.m_voidt(), splice);
+        auto b = ctx.funcptr_t(ctx.m_voidt(), single);
+        REQUIRE(bindings.deduce(a, b));
+        auto rejected = bindings.deduce(a, ctx.funcptr_t(ctx.m_voidt(), {}));
+        CHECK(!rejected);
+        CHECK_EQ(rejected.detail, "conflicting pack binding");
+        REQUIRE(bindings.lookup_pack(t) != nullptr);
+        CHECK(*bindings.lookup_pack(t) == std::vector<types::TypePtr>{i32});
+    }
 }
