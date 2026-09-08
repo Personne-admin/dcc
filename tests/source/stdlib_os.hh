@@ -27,7 +27,7 @@ namespace os_test
         std::string err;
     };
 
-    inline Run run(std::string_view source, bool windows = false)
+    inline Run run(std::string_view source, bool windows = false, std::string_view flags = {})
     {
         auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path();
         auto dir =
@@ -50,7 +50,7 @@ namespace os_test
             f << source;
         }
         std::string command = quote(root / "bin/dcc") + " -flibdcext " + (windows ? "windows -target x86_64-coff -c" : "linux -target x86_64-elf") + " -o " +
-                              quote(windows ? obj : exe) + " " + quote(src);
+                              quote(windows ? obj : exe) + " " + quote(src) + " " + std::string(flags);
 
         if (std::system(command.c_str()) != 0)
             return {-1, {}, "compilation failed"};
