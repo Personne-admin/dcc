@@ -145,8 +145,6 @@ usize partition(T)([] T items, i32(*)(const T*, const T*) cmp) {
         lo++;
         hi--;
     }
-
-    return 0;
 }
 
 void introsort(T)([] T items, i32(*)(const T*, const T*) cmp, u32 depth_budget) {

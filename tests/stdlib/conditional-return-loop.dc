@@ -1,0 +1,24 @@
+module main;
+
+i32 check(i32* values) {
+    for i32 i = 0; i < 2; i++ {
+        if values[i] != 0 {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+public i32 main() {
+    i32[2] zeros = {0, 0};
+    i32[2] bad = {0, 7};
+    if check(&zeros[0]) != 0 {
+        return 1;
+    }
+
+    if check(&bad[0]) != 1 {
+        return 2;
+    }
+
+    return 0;
+}

@@ -30,3 +30,23 @@ TEST_CASE("repeated imported nested records retain their ABI layout")
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
 #endif
 }
+TEST_CASE("conditional returns leave loop fall-through reachable")
+{
+    auto source = os_test::fixture("conditional-return-loop.dc");
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+#if DCC_ENABLE_LLVM
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
+#endif
+}
+TEST_CASE("breaks escape loops while retry loops retain returns")
+{
+    auto source = os_test::fixture("loop-break-return.dc");
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+#if DCC_ENABLE_LLVM
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
+#endif
+}

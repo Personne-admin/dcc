@@ -1,0 +1,40 @@
+module main;
+
+i32 check() {
+    i32 count = 0;
+    while true {
+        while true {
+            break;
+        }
+        if count == 3 {
+            break;
+        }
+        count++;
+        if count > 5 {
+            return 1;
+        }
+    }
+
+    return count;
+}
+
+i32 retry(i32 n) {
+    while true {
+        if n == 0 {
+            return 7;
+        }
+        n--;
+    }
+}
+
+public i32 main() {
+    if check() != 3 {
+        return 1;
+    }
+
+    if retry(2) != 7 {
+        return 2;
+    }
+
+    return 0;
+}
