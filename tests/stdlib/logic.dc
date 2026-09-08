@@ -3,12 +3,13 @@ module main;
 import core::target;
 import std::os::error;
 import std::os::path;
+import std::os::dir;
 import std::sys::linux::abi;
 import std::sys::win::abi;
 import std::mem;
 import std::slice;
 
-using std::os::{ error, path };
+using std::os::{ error, path, dir };
 using std::sys::{ linux, win };
 using error::Error;
 
@@ -140,17 +141,65 @@ i32 error_mappings() {
     if error::from_errno(75) != Error::Unexpected {
         return 41;
     }
-    if error::from_errno(88) != Error::Unexpected {
+    if error::from_errno(88) != Error::BadHandle {
         return 42;
     }
-    if error::from_errno(98) != Error::Unexpected {
+    if error::from_errno(98) != Error::AddressInUse {
         return 43;
     }
-    if error::from_errno(104) != Error::Unexpected {
+    if error::from_errno(104) != Error::ConnectionReset {
         return 44;
     }
-    if error::from_errno(111) != Error::Unexpected {
+    if error::from_errno(111) != Error::ConnectionRefused {
         return 45;
+    }
+    if error::from_errno(99) != Error::AddressNotAvailable {
+        return 300;
+    }
+    if error::from_errno(103) != Error::ConnectionAborted {
+        return 301;
+    }
+    if error::from_errno(107) != Error::NotConnected {
+        return 302;
+    }
+    if error::from_errno(89) != Error::NotConnected {
+        return 303;
+    }
+    if error::from_errno(113) != Error::HostUnreachable {
+        return 304;
+    }
+    if error::from_errno(112) != Error::HostUnreachable {
+        return 305;
+    }
+    if error::from_errno(100) != Error::NetworkDown {
+        return 306;
+    }
+    if error::from_errno(101) != Error::NetworkDown {
+        return 307;
+    }
+    if error::from_errno(115) != Error::AlreadyInProgress {
+        return 308;
+    }
+    if error::from_errno(114) != Error::AlreadyInProgress {
+        return 309;
+    }
+    if error::from_errno(106) != Error::AlreadyInProgress {
+        return 310;
+    }
+    if error::from_errno(105) != Error::OutOfMemory {
+        return 311;
+    }
+    if error::from_errno(90) != Error::InvalidArgument {
+        return 312;
+    }
+    if error::from_errno(97) != Error::NotSupported {
+        return 313;
+    }
+    if error::from_errno(93) != Error::NotSupported {
+        return 314;
+    }
+    if error::from_errno(91) != Error::NotSupported {
+        return 315;
     }
     if error::from_errno(9999) != Error::Unexpected {
         return 46;
@@ -239,6 +288,48 @@ i32 error_mappings() {
     if error::from_win32(997) != Error::Unexpected {
         return 74;
     }
+    if error::from_win32(10048) != Error::AddressInUse {
+        return 325;
+    }
+    if error::from_win32(10049) != Error::AddressNotAvailable {
+        return 326;
+    }
+    if error::from_win32(10061) != Error::ConnectionRefused {
+        return 327;
+    }
+    if error::from_win32(10054) != Error::ConnectionReset {
+        return 328;
+    }
+    if error::from_win32(10053) != Error::ConnectionAborted {
+        return 329;
+    }
+    if error::from_win32(10057) != Error::NotConnected {
+        return 330;
+    }
+    if error::from_win32(10065) != Error::HostUnreachable {
+        return 331;
+    }
+    if error::from_win32(10050) != Error::NetworkDown {
+        return 332;
+    }
+    if error::from_win32(10036) != Error::AlreadyInProgress {
+        return 333;
+    }
+    if error::from_win32(10035) != Error::WouldBlock {
+        return 334;
+    }
+    if error::from_win32(10060) != Error::TimedOut {
+        return 335;
+    }
+    if error::from_win32(11001) != Error::NotFound {
+        return 336;
+    }
+    if error::from_win32(10038) != Error::BadHandle {
+        return 337;
+    }
+    if error::from_win32(10040) != Error::InvalidArgument {
+        return 338;
+    }
     if error::from_win32(9999) != Error::Unexpected {
         return 75;
     }
@@ -316,6 +407,33 @@ i32 error_mappings() {
     }
     if !(same(error::name(Error::InputOutput), "InputOutput")) {
         return 100;
+    }
+    if !(same(error::name(Error::AddressInUse), "AddressInUse")) {
+        return 316;
+    }
+    if !(same(error::name(Error::AddressNotAvailable), "AddressNotAvailable")) {
+        return 317;
+    }
+    if !(same(error::name(Error::ConnectionRefused), "ConnectionRefused")) {
+        return 318;
+    }
+    if !(same(error::name(Error::ConnectionReset), "ConnectionReset")) {
+        return 319;
+    }
+    if !(same(error::name(Error::ConnectionAborted), "ConnectionAborted")) {
+        return 320;
+    }
+    if !(same(error::name(Error::NotConnected), "NotConnected")) {
+        return 321;
+    }
+    if !(same(error::name(Error::HostUnreachable), "HostUnreachable")) {
+        return 322;
+    }
+    if !(same(error::name(Error::NetworkDown), "NetworkDown")) {
+        return 323;
+    }
+    if !(same(error::name(Error::AlreadyInProgress), "AlreadyInProgress")) {
+        return 324;
     }
     if !(same(error::name(Error::Unexpected), "Unexpected")) {
         return 101;
@@ -655,6 +773,23 @@ i32 abi_arithmetic() {
         || offsetof (win::abi::ByHandleFileInformation, volume_serial_number) != 28
     {
         return 238;
+    }
+
+    if sizeof (linux::abi::SockaddrIn) != 16
+        || sizeof (linux::abi::SockaddrIn6) != 28
+        || sizeof (win::abi::SockaddrIn) != 16
+        || sizeof (win::abi::SockaddrIn6) != 28
+        || sizeof (win::abi::Wsadata) != 408
+        || sizeof (win::abi::AddrInfoW) != 48
+        || sizeof (win::abi::Win32FindDataW) != 592
+        || sizeof (win::abi::StartupInfoW) != 104
+        || sizeof (win::abi::ProcessInformation) != 24
+        || sizeof (win::abi::SrwLock) != 8
+        || sizeof (win::abi::ConditionVariable) != 8
+        || sizeof (win::abi::InitOnce) != 8
+        || sizeof (dir::Iterator) != 17016
+    {
+        return 339;
     }
 
     win::abi::FileTime ft = {low = 0xD53E8000, high = 0x019DB1DE};

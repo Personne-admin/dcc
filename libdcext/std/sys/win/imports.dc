@@ -9,7 +9,7 @@ module std::sys::win::imports;
 
 public import std::sys::win::abi;
 
-using abi::{ Bool, Dword, Handle, Wchar };
+using abi::{ Bool, Byte, Dword, Handle, Socket, Wchar, Word };
 
 //!
 //! Errors
@@ -74,6 +74,257 @@ using abi::{ Bool, Dword, Handle, Wchar };
 );
 
 @[import, nomangle] public extern Handle GetStdHandle(Dword std_handle);
+
+//!
+//! File enumeration
+//!
+
+@[import, nomangle] public extern Handle FindFirstFileW(
+    const Wchar* file_name,
+    abi::Win32FindDataW* data
+);
+@[import, nomangle] public extern Bool FindNextFileW(
+    Handle find,
+    abi::Win32FindDataW* data
+);
+@[import, nomangle] public extern Bool FindClose(Handle find);
+@[import, nomangle] public extern Dword GetFileAttributesW(
+    const Wchar* file_name
+);
+
+//!
+//! Threads, waits and TLS
+//!
+
+@[import, nomangle] public extern Handle CreateThread(
+    abi::SecurityAttributes* attributes,
+    usize stack_size,
+    void* start_address,
+    void* parameter,
+    Dword creation_flags,
+    Dword* thread_id
+);
+@[import, nomangle] public extern Dword WaitForSingleObject(
+    Handle handle,
+    Dword milliseconds
+);
+@[import, nomangle] public extern Dword GetCurrentThreadId();
+@[import, nomangle] public extern Dword TlsAlloc();
+@[import, nomangle] public extern void* TlsGetValue(Dword index);
+@[import, nomangle] public extern Bool TlsSetValue(Dword index, void* value);
+@[import, nomangle] public extern Bool TlsFree(Dword index);
+@[import, nomangle] public extern Bool SetHandleInformation(
+    Handle object,
+    Dword mask,
+    Dword flags
+);
+
+//!
+//! Locks, condition variables and init-once
+//!
+
+@[import, nomangle] public extern void AcquireSrwLockExclusive(
+    abi::SrwLock* lock
+);
+@[import, nomangle] public extern void ReleaseSrwLockExclusive(
+    abi::SrwLock* lock
+);
+@[import, nomangle] public extern void AcquireSrwLockShared(
+    abi::SrwLock* lock
+);
+@[import, nomangle] public extern void ReleaseSrwLockShared(
+    abi::SrwLock* lock
+);
+@[import, nomangle] public extern void WakeConditionVariable(
+    abi::ConditionVariable* var
+);
+@[import, nomangle] public extern void WakeAllConditionVariable(
+    abi::ConditionVariable* var
+);
+@[import, nomangle] public extern Bool SleepConditionVariableSRW(
+    abi::ConditionVariable* var,
+    abi::SrwLock* lock,
+    Dword milliseconds,
+    Dword flags
+);
+@[import, nomangle] public extern Bool InitOnceExecuteOnce(
+    abi::InitOnce* init,
+    void* callback,
+    void* parameter,
+    void** context
+);
+
+//!
+//! Pipes
+//!
+
+@[import, nomangle] public extern Bool CreatePipe(
+    Handle* read_pipe,
+    Handle* write_pipe,
+    abi::SecurityAttributes* attributes,
+    Dword size
+);
+@[import, nomangle] public extern Bool PeekNamedPipe(
+    Handle pipe,
+    void* buffer,
+    Dword buffer_size,
+    Dword* bytes_read,
+    Dword* bytes_available,
+    Dword* bytes_left
+);
+@[import, nomangle] public extern Bool SetNamedPipeHandleState(
+    Handle pipe,
+    Dword* mode,
+    Dword* max_collection_count,
+    Dword* collect_data_timeout
+);
+
+//!
+//! Processes, command line and environment
+//!
+
+@[import, nomangle] public extern Bool CreateProcessW(
+    const Wchar* application_name,
+    Wchar* command_line,
+    abi::SecurityAttributes* process_attributes,
+    abi::SecurityAttributes* thread_attributes,
+    Bool inherit_handles,
+    Dword creation_flags,
+    void* environment,
+    const Wchar* current_directory,
+    abi::StartupInfoW* startup_info,
+    abi::ProcessInformation* process_info
+);
+@[import, nomangle] public extern Bool GetExitCodeProcess(
+    Handle process,
+    Dword* exit_code
+);
+@[import, nomangle] public extern Wchar* GetCommandLineW();
+@[import, nomangle] public extern Wchar** CommandLineToArgvW(
+    const Wchar* cmdline,
+    i32* num_args
+);
+@[import, nomangle] public extern Handle LocalFree(Handle mem);
+@[import, nomangle] public extern Wchar* GetEnvironmentStringsW();
+@[import, nomangle] public extern Bool FreeEnvironmentStringsW(Wchar* env);
+@[import, nomangle] public extern Dword GetCurrentDirectoryW(
+    Dword length,
+    Wchar* buffer
+);
+@[import, nomangle] public extern Bool SetCurrentDirectoryW(
+    const Wchar* path
+);
+@[import, nomangle] public extern Dword GetTempPathW(
+    Dword length,
+    Wchar* buffer
+);
+
+//!
+//! Winsock
+//!
+
+@[import, nomangle] public extern i32 WSAStartup(
+    Word version,
+    abi::Wsadata* data
+);
+@[import, nomangle] public extern i32 WSACleanup();
+@[import, nomangle] public extern i32 WSAGetLastError();
+@[import, nomangle] public extern Socket socket(
+    i32 af,
+    i32 socktype,
+    i32 protocol
+);
+@[import, nomangle] public extern i32 bind(
+    Socket s,
+    const abi::Sockaddr* name,
+    i32 name_len
+);
+@[import, nomangle] public extern i32 listen(Socket s, i32 backlog);
+@[import, nomangle] public extern Socket accept(
+    Socket s,
+    abi::Sockaddr* addr,
+    i32* addr_len
+);
+@[import, nomangle] public extern i32 connect(
+    Socket s,
+    const abi::Sockaddr* name,
+    i32 name_len
+);
+@[import, nomangle] public extern i32 send(
+    Socket s,
+    const void* buf,
+    i32 len,
+    i32 flags
+);
+@[import, nomangle] public extern i32 recv(
+    Socket s,
+    void* buf,
+    i32 len,
+    i32 flags
+);
+@[import, nomangle] public extern i32 sendto(
+    Socket s,
+    const void* buf,
+    i32 len,
+    i32 flags,
+    const abi::Sockaddr* to,
+    i32 to_len
+);
+@[import, nomangle] public extern i32 recvfrom(
+    Socket s,
+    void* buf,
+    i32 len,
+    i32 flags,
+    abi::Sockaddr* from,
+    i32* from_len
+);
+@[import, nomangle] public extern i32 shutdown(Socket s, i32 how);
+@[import, nomangle] public extern i32 closesocket(Socket s);
+@[import, nomangle] public extern i32 setsockopt(
+    Socket s,
+    i32 level,
+    i32 optname,
+    const void* optval,
+    i32 optlen
+);
+@[import, nomangle] public extern i32 getsockopt(
+    Socket s,
+    i32 level,
+    i32 optname,
+    void* optval,
+    i32* optlen
+);
+@[import, nomangle] public extern i32 ioctlsocket(
+    Socket s,
+    i32 cmd,
+    Dword* argp
+);
+@[import, nomangle] public extern i32 GetAddrInfoW(
+    const Wchar* node,
+    const Wchar* service,
+    const abi::AddrInfoW* hints,
+    abi::AddrInfoW** result
+);
+@[import, nomangle] public extern void FreeAddrInfoW(abi::AddrInfoW* info);
+@[import, nomangle] public extern i32 getsockname(
+    Socket s,
+    abi::Sockaddr* name,
+    i32* name_len
+);
+@[import, nomangle] public extern i32 getpeername(
+    Socket s,
+    abi::Sockaddr* name,
+    i32* name_len
+);
+
+//!
+//! Randomness
+//!
+
+@[import, nomangle] public extern Byte SystemFunction036(
+    void* buffer,
+    Dword length
+);
 
 //!
 //! Virtual memory

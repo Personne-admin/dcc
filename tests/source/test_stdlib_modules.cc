@@ -280,6 +280,135 @@ public i32 main() {
     CHECK_EQ(build_and_run(source), 0);
 }
 
+TEST_CASE("os::dir iteration executes on both backends at O0 and O2")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import std::os::dir;
+import std::os::file;
+import std::os::error;
+import std::result;
+import std::mem;
+
+using std::result;
+using std::os::dir;
+using std::os::error;
+
+struct DirTally {
+    u64 count;
+    u64 name_bytes;
+    bool saw_subdir;
+}
+
+DirTally tally_step(DirTally acc, dir::Entry* e) {
+    acc.count = acc.count + 1;
+    acc.name_bytes = acc.name_bytes + (e.name.len as u64);
+    if e.kind == dir::EntryKind::Directory {
+        acc.saw_subdir = true;
+    }
+    return acc;
+}
+
+T drain(T)(dir::Iterator* it, T seed, T(*)(T, dir::Entry*) step) {
+    T acc = seed;
+    bool done = false;
+    while !done {
+        result::Optional(dir::Entry) oe = it.next();
+        if oe.is_none() {
+            done = true;
+        } else {
+            dir::Entry entry = oe.unwrap_some();
+            acc = step(acc, &entry);
+        }
+    }
+    return acc;
+}
+
+bool same([] const u8 a, [] const u8 b) {
+    return std::mem::equal(a, b);
+}
+
+public i32 main() {
+    if !std::os::file::make_directory("dmod-dir").is_ok() {
+        return 1;
+    }
+    std::os::file::File f = std::os::file::create("dmod-dir/one").unwrap();
+    f.write_all("hey").unwrap();
+    f.close();
+    if !std::os::file::make_directory("dmod-dir/two").is_ok() {
+        return 2;
+    }
+    dir::Iterator it;
+    if !dir::open("dmod-dir", &it).is_ok() {
+        return 3;
+    }
+    DirTally t0;
+    t0.count = 0;
+    t0.name_bytes = 0;
+    t0.saw_subdir = false;
+    DirTally t = drain!DirTally(&it, t0, tally_step);
+    if t.count != 4 {
+        return 4;
+    }
+    if !t.saw_subdir {
+        return 5;
+    }
+    if !it.rewind().is_ok() {
+        return 6;
+    }
+    bool saw_one = false;
+    bool saw_two = false;
+    bool done = false;
+    while !done {
+        result::Optional(dir::Entry) oe = it.next();
+        if oe.is_none() {
+            done = true;
+        } else {
+            dir::Entry entry = oe.unwrap_some();
+            if same(entry.name, "one") {
+                saw_one = true;
+                if entry.kind != dir::EntryKind::File {
+                    return 7;
+                }
+                if entry.id == 0 {
+                    return 8;
+                }
+                result::Result(dir::Metadata, error::Error) m = dir::stat_at(&it, &entry);
+                if m.unwrap().size != 3 {
+                    return 9;
+                }
+            }
+            if same(entry.name, "two") {
+                saw_two = true;
+                if entry.kind != dir::EntryKind::Directory {
+                    return 10;
+                }
+            }
+        }
+    }
+    if !saw_one || !saw_two {
+        return 11;
+    }
+    it.close();
+    if !std::os::file::delete_file("dmod-dir/one").is_ok() {
+        return 12;
+    }
+    if !std::os::file::remove_directory("dmod-dir/two").is_ok() {
+        return 13;
+    }
+    if !std::os::file::remove_directory("dmod-dir").is_ok() {
+        return 14;
+    }
+    dir::Iterator bad;
+    if dir::open("dmod-dir", &bad).unwrap_err() != error::Error::NotFound {
+        return 15;
+    }
+    return 0;
+}
+)DCC");
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+}
+
 TEST_CASE("implicit function pointer pack deduction executes on both backends at O0 and O2")
 {
     auto fixture = std::filesystem::path{"cases/em64t/fnptr-pack-deduction-exec.dcc-test"};
