@@ -11,6 +11,8 @@ _start:
 
     and $-16, %rsp
 
+    mov %r14, %rdi
+    mov %r15, %rsi
     call __dc_rt_init
 
     mov %r14, %rsi
