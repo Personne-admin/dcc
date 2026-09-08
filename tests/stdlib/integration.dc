@@ -7,6 +7,7 @@ import std::os::time;
 import std::os::process;
 import std::os::dir;
 import std::os::thread;
+import std::os::pipe;
 import std::os::error;
 import std::mem;
 import std::result;
@@ -18,7 +19,7 @@ import std::sys::linux::syscall;
 import std::sys::linux::abi;
 import std::sys::win::imports;
 import std::sys::win::abi;
-using std::os::{ file, heap, time, process, dir, thread, error };
+using std::os::{ file, heap, time, process, dir, thread, pipe, error };
 using std::{ mem, array, map, fmt, slice };
 using error::Error;
 
@@ -750,5 +751,60 @@ public i32 main() {
         return code;
     }
 
+    code = test_pipes();
+    if code != 0 {
+        return code;
+    }
+
     return test_clocks_and_process();
+}
+
+i32 test_pipes() {
+    if !pipe::ignore_sigpipe().is_ok() {
+        return 80;
+    }
+    pipe::Pipe p = pipe::create().unwrap();
+    u8[64] data;
+    for usize i = 0; i < 64; i++ {
+        data[i] = (i * 3 & 255) as u8;
+    }
+    [] u8 out = slice::from_raw(&data[0], 64);
+    if !p.writer.write_all(out).is_ok() {
+        return 81;
+    }
+    u8[64] back;
+    [] u8 inb = slice::from_raw(&back[0], 64);
+    if p.reader.read_all(inb).unwrap() != 64 as usize {
+        return 82;
+    }
+    if !mem::equal(out, inb) {
+        return 83;
+    }
+    p.writer.close();
+    if p.reader.read(inb).unwrap() != 0 as usize {
+        return 84;
+    }
+    p.reader.close();
+    p.reader.close();
+    pipe::Pipe cp = pipe::create().unwrap();
+    cp.reader.close();
+    if cp.writer.write(out).unwrap_err() != error::Error::BrokenPipe {
+        return 85;
+    }
+    cp.writer.close();
+    if cp.writer.write(out).unwrap_err() != error::Error::BadHandle {
+        return 86;
+    }
+    u8[1] one;
+    [] u8 oneview = slice::from_raw(&one[0], 1);
+    pipe::Pipe ep = pipe::create().unwrap();
+    if ep.reader.read(oneview[0..0]).unwrap() != 0 as usize {
+        return 87;
+    }
+    if ep.writer.write(oneview[0..0]).unwrap() != 0 as usize {
+        return 88;
+    }
+    ep.reader.close();
+    ep.writer.close();
+    return 0;
 }

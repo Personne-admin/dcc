@@ -272,6 +272,14 @@ public using i32 SIGPIPE = 13;
 public using i32 SIGALRM = 14;
 public using i32 SIGTERM = 15;
 public using i32 SIGCHLD = 17;
+public using usize SIG_IGN = 1;
+
+public struct Sigaction {
+    usize handler;
+    usize flags;
+    usize restorer;
+    u64 mask;
+}
 
 //!
 //! Threads and futexes

@@ -182,7 +182,8 @@ public Error from_win32(u32 code) {
         | win::abi::WSAENOBUFS => Error::OutOfMemory,
         win::abi::ERROR_DISK_FULL
         | win::abi::ERROR_HANDLE_DISK_FULL => Error::NoSpace,
-        win::abi::ERROR_BROKEN_PIPE => Error::BrokenPipe,
+        win::abi::ERROR_BROKEN_PIPE
+        | win::abi::ERROR_NO_DATA => Error::BrokenPipe,
         win::abi::ERROR_NOT_READY
         | win::abi::ERROR_BUSY => Error::Busy,
         win::abi::WSAEWOULDBLOCK => Error::WouldBlock,
