@@ -71,3 +71,34 @@ public i32 main() {
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
 #endif
 }
+TEST_CASE("mutable auto-ref receiver on temporary rvalue")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+struct S {
+    i32 val;
+}
+S make_s(i32 v) {
+    S s;
+    s.val = v;
+    return s;
+}
+S* add(S* self, i32 delta) {
+    self.val = self.val + delta;
+    return self;
+}
+i32 get(S* self) {
+    return self.val;
+}
+public i32 main() {
+    if make_s(10).add(5).get() != 15 { return 1; }
+    return 0;
+}
+)DCC");
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+#if DCC_ENABLE_LLVM
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
+#endif
+}
+

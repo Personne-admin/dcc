@@ -4948,7 +4948,8 @@ export namespace dcc::sema
 
                 if (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee))
                 {
-                    bool receiver_has_const = !analyzed.is_lvalue || (analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl));
+                    bool receiver_has_const =
+                        (analyzed.is_lvalue && !analyzed.is_writable) || (analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl));
                     bool param_wants_const = types::has_qual(param_ptr->pointee_quals, types::Qual::Const);
 
                     if (param_wants_const)
@@ -4959,7 +4960,7 @@ export namespace dcc::sema
                         if (types::has_qual(param_ptr->pointee_quals, types::Qual::Restrict))
                             out_quals = out_quals | types::Qual::Restrict;
 
-                        if (receiver_has_const)
+                        if (receiver_has_const || !analyzed.is_lvalue)
                             return std::pair{UfcsReceiverMatch::AutoRefConst, m_types.pointer_to(analyzed.type, out_quals)};
                         else
                             return std::pair{UfcsReceiverMatch::AutoRefQualMismatch, m_types.pointer_to(analyzed.type, out_quals)};

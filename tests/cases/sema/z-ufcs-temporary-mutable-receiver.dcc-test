@@ -6,7 +6,7 @@ public struct S {
 }
 
 void mutate(S* self) {
-    self.val = 1;
+    self.val = 42;
 }
 
 S make_s() {
@@ -16,6 +16,3 @@ S make_s() {
 void test() {
     make_s().mutate();
 }
-
-=== EXPECT-ERRORS ===
-main.dc:16: no matching UFCS function for `mutate` on receiver type `S`
