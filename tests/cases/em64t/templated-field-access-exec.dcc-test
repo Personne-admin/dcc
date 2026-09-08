@@ -1,0 +1,36 @@
+=== FILE: test.dc ===
+module test;
+
+struct Triple(T) {
+    T a;
+    T b;
+    T c;
+}
+
+struct Mixed(T) {
+    u8 tag;
+    T val;
+    f64 x;
+}
+
+struct Wrap(T) {
+    Triple(T) inner;
+}
+
+T second(T)(Triple(T)* self) {
+    return (*self).b;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Triple(i32) p = {1, 2, 3};
+    p.c = 30;
+    p.a = 10;
+    if p.a != 10 { return 1; }
+    if p.b != 2 { return 2; }
+    if p.c != 30 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

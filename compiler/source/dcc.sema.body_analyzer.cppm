@@ -35,7 +35,7 @@ export namespace dcc::sema
     [[nodiscard]] types::TypePtr substitute_in_nominal_context(types::TypeContext& types, types::TypePtr ty, types::TypePtr context);
     void ensure_tagged_enum_complete(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::TypePtr ty);
     void complete_all_templated_tagged_enums(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc);
-    void complete_all_variadic_structs(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc);
+    void complete_all_templated_structs(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc);
     void complete_templated_struct(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::StructType const* st);
 
     class BodyDumper
@@ -6421,9 +6421,7 @@ export namespace dcc::sema
             if (ty->kind == types::TypeKind::Struct)
             {
                 auto const* st = static_cast<types::StructType const*>(ty);
-                auto const* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
-                bool variadic = !sd->template_params.empty() && sd->template_params.back().is_pack;
-                if (variadic && (st->is_specialization || !st->template_args.empty()))
+                if (st->is_specialization || !st->template_args.empty())
                 {
                     complete_templated_struct(m_types, m_alloc, st);
                     if (st->has_expansion)
@@ -16713,7 +16711,7 @@ export namespace dcc::sema
         }
     }
 
-    void complete_all_variadic_structs(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc)
+    void complete_all_templated_structs(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc)
     {
         for (std::size_t i = 0; i < types.structs().size(); ++i)
         {
@@ -16725,8 +16723,6 @@ export namespace dcc::sema
 
             auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
             if (!sd || sd->template_params.empty())
-                continue;
-            if (!sd->template_params.back().is_pack)
                 continue;
 
             complete_templated_struct(types, alloc, st);
