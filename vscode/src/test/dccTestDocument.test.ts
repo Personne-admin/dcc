@@ -193,6 +193,36 @@ test('EXPECT-ERRORS EXACT and EXPECT-ERROR-COUNT parsing', () => {
     assert.equal(errors.exact, true);
 });
 
+test('empty EXPECT-ERRORS is exact with zero entries (harness parity)', () => {
+    const text = [
+        '=== FILE: main.dc ===',
+        'module test;',
+        '=== EXPECT-ERRORS ===',
+    ].join(LF);
+
+    const doc = DccTestDocument.parse(text, 'file:///cases/empty-errors.dcc-test');
+    const errors = doc.sections.find((s) => s.kind === 'expect-errors');
+    assert.ok(errors);
+    assert.equal(errors.expectations.length, 0);
+    assert.equal(errors.exact, true);
+    assert.equal(doc.diagnostics.length, 0);
+});
+
+test('non-empty EXPECT-ERRORS without EXACT stays substring match', () => {
+    const text = [
+        '=== FILE: main.dc ===',
+        'module test;',
+        '=== EXPECT-ERRORS ===',
+        'main.dc:1: boom',
+    ].join(LF);
+
+    const doc = DccTestDocument.parse(text, 'file:///cases/substring-errors.dcc-test');
+    const errors = doc.sections.find((s) => s.kind === 'expect-errors');
+    assert.ok(errors);
+    assert.equal(errors.expectations.length, 1);
+    assert.equal(errors.exact, false);
+});
+
 test('malformed EXPECT-ERROR-COUNT is diagnosed', () => {
     const text = '=== EXPECT-ERROR-COUNT: xyz ===';
     const doc = DccTestDocument.parse(text, 'file:///cases/badcount.dcc-test');

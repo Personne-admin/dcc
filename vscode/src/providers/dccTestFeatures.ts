@@ -132,7 +132,7 @@ const HEADER_COMPLETIONS: { label: string; insert: string; detail: string }[] = 
     { label: 'EXPECT-REGISTRY', insert: 'EXPECT-REGISTRY', detail: 'expected spec registry dump' },
     { label: 'EXPECT-WARNINGS', insert: 'EXPECT-WARNINGS', detail: 'expected compiler warnings' },
     { label: 'EXPECT-ERROR-COUNT', insert: 'EXPECT-ERROR-COUNT: ${1:0}', detail: 'expected number of errors' },
-    { label: 'EXPECT-ERRORS', insert: 'EXPECT-ERRORS${1| , EXACT|}', detail: 'expected compiler errors' },
+    { label: 'EXPECT-ERRORS', insert: 'EXPECT-ERRORS${1| , EXACT|}', detail: 'expected compiler errors (empty asserts zero errors)' },
 ];
 
 const FLAG_COMPLETIONS: string[] = [
@@ -242,6 +242,9 @@ export function dccTestHover(model: DccTestDocument, document: vscode.TextDocume
 
         if (sec.expectations.length > 0)
             extras.push(`${sec.expectations.length} expected ${sec.kind === 'expect-errors' ? 'error' : 'warning'}(s)`);
+
+        if (sec.kind === 'expect-errors' && sec.expectations.length === 0)
+            extras.push('Empty section asserts zero errors (exact match).');
 
         if (extras.length > 0)
             md.appendMarkdown(`\n\n${extras.join('\n')}`);

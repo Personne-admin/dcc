@@ -437,6 +437,8 @@ export class DccTestDocument {
                 case 'expect-errors':
                 case 'expect-warnings': {
                     sec.expectations = parseExpectations(sec.bodyLines, sec.bodyStartLine, uri);
+                    if (sec.kind === 'expect-errors' && sec.expectations.length === 0)
+                        sec.exact = true;
                     for (const exp of sec.expectations) {
                         if (!exp.valid) {
                             sec.problems.push({
