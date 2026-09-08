@@ -664,6 +664,169 @@ public i32 main() {
         CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
 }
 
+TEST_CASE("os::pipe transfer, EOF, and errors execute on llvm at O0 and O2")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import std::os::pipe;
+import std::os::thread;
+import std::os::error;
+import std::slice;
+import std::mem;
+
+using std::os::pipe;
+using std::os::thread;
+using std::os::error;
+using std::slice;
+using std::mem;
+
+struct Msg {
+    u32 id;
+    u64 stamp;
+    bool flag;
+}
+
+void send_msg(pipe::PipeWriter* w, Msg* m) {
+    u8* raw = m as u8*;
+    [] u8 bytes = slice::from_raw(raw, sizeof(Msg));
+    if !w.write_all(bytes).is_ok() {
+        return;
+    }
+}
+
+pipe::Pipe* big_pipe;
+
+void big_writer() {
+    u8[4096] chunk;
+    for usize i = 0; i < 4096; i++ {
+        chunk[i] = (i & 255) as u8;
+    }
+    [] u8 view = slice::from_raw(&chunk[0], 4096);
+    bool ok = true;
+    for i32 k = 0; k < 32; k++ {
+        if ok {
+            if !big_pipe.writer.write_all(view).is_ok() {
+                ok = false;
+            }
+        }
+    }
+    big_pipe.writer.close();
+}
+
+public i32 main() {
+    if !pipe::ignore_sigpipe().is_ok() {
+        return 1;
+    }
+    pipe::Pipe p = pipe::create().unwrap();
+    u8[8] hello;
+    hello[0] = 'h' as u8;
+    hello[1] = 'e' as u8;
+    hello[2] = 'l' as u8;
+    hello[3] = 'l' as u8;
+    hello[4] = 'o' as u8;
+    hello[5] = '!' as u8;
+    [] u8 out = slice::from_raw(&hello[0], 6);
+    if !p.writer.write_all(out).is_ok() {
+        return 2;
+    }
+    u8[8] back;
+    [] u8 six = slice::from_raw(&back[0], 6);
+    if p.reader.read_all(six).unwrap() != 6 as usize {
+        return 3;
+    }
+    if !mem::equal(out, six) {
+        return 4;
+    }
+    p.writer.close();
+    p.writer.close();
+    [] u8 rest = slice::from_raw(&back[0], 8);
+    if p.reader.read(rest).unwrap() != 0 as usize {
+        return 5;
+    }
+    if p.reader.read_all(rest).unwrap() != 0 as usize {
+        return 6;
+    }
+    p.reader.close();
+    p.reader.close();
+    if p.writer.write(out).unwrap_err() != error::Error::BadHandle {
+        return 7;
+    }
+    Msg m;
+    m.id = 42;
+    m.stamp = 123456789;
+    m.flag = true;
+    Msg got;
+    got.id = 0;
+    got.stamp = 0;
+    got.flag = false;
+    pipe::Pipe q = pipe::create().unwrap();
+    thread::Thread t = thread::spawn(send_msg, &q.writer, &m).unwrap();
+    u8* graw = &got as u8*;
+    [] u8 gbytes = slice::from_raw(graw, sizeof(Msg));
+    if q.reader.read_all(gbytes).unwrap() != sizeof(Msg) {
+        return 8;
+    }
+    if !t.join().is_ok() {
+        return 9;
+    }
+    if got.id != 42 || got.stamp != 123456789 || !got.flag {
+        return 10;
+    }
+    q.reader.close();
+    q.writer.close();
+    pipe::Pipe bp = pipe::create().unwrap();
+    big_pipe = &bp;
+    thread::Thread bt = thread::spawn(big_writer).unwrap();
+    u8[4096] rchunk;
+    [] u8 rview = slice::from_raw(&rchunk[0], 4096);
+    u64 total = 0;
+    u64 checksum = 0;
+    while true {
+        usize n = bp.reader.read(rview).unwrap();
+        if n == 0 as usize {
+            break;
+        }
+        total = total + (n as u64);
+        for usize i = 0; i < n; i++ {
+            checksum = checksum + (rchunk[i] as u64);
+        }
+    }
+    if !bt.join().is_ok() {
+        return 11;
+    }
+    if total != 131072 as u64 {
+        return 12;
+    }
+    if checksum != 16711680 as u64 {
+        return 13;
+    }
+    bp.reader.close();
+    pipe::Pipe cp = pipe::create().unwrap();
+    cp.reader.close();
+    if cp.writer.write(out).unwrap_err() != error::Error::BrokenPipe {
+        return 14;
+    }
+    if cp.writer.write_all(out).unwrap_err() != error::Error::BrokenPipe {
+        return 15;
+    }
+    cp.writer.close();
+    u8[1] one;
+    [] u8 oneview = slice::from_raw(&one[0], 1);
+    pipe::Pipe ep = pipe::create().unwrap();
+    if ep.reader.read(oneview[0..0]).unwrap() != 0 as usize {
+        return 16;
+    }
+    if ep.writer.write(oneview[0..0]).unwrap() != 0 as usize {
+        return 17;
+    }
+    ep.reader.close();
+    ep.writer.close();
+    return 0;
+}
+)DCC");
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+}
+
 TEST_CASE("implicit function pointer pack deduction executes on both backends at O0 and O2")
 {
     auto fixture = std::filesystem::path{"cases/em64t/fnptr-pack-deduction-exec.dcc-test"};

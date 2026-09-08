@@ -1,0 +1,297 @@
+//!!
+//!! Pipes
+//!!
+//!! A portable façade over whichever `sys::` layer the target implies. It
+//!! is a convenience, not a gate: code that needs `pipe2` flags or
+//!! `PeekNamedPipe` this module does not model imports the `sys::` layer
+//!! directly and is not second-class for doing so.
+//!!
+
+module std::os::pipe;
+
+import core;
+import core::target;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+public import std::os::error;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using result::{ Result, Status, Optional };
+using error::Error;
+
+//!
+//! Ends
+//!
+//! `Handle` is `isize` on every target. A Linux descriptor widens into it
+//! and an NT `HANDLE` is already pointer-sized, so the invalid value is
+//! -1 either way and no conditional type alias is needed.
+//!
+//! The two ends have distinct types: a `PipeReader` supports `read` and a
+//! `PipeWriter` supports `write`. Closing one end does not close the other.
+//!
+
+public using Handle = isize;
+public using Handle INVALID_HANDLE = -1;
+
+public struct PipeReader {
+    Handle handle;
+}
+
+public struct PipeWriter {
+    Handle handle;
+}
+
+public struct Pipe {
+    PipeReader reader;
+    PipeWriter writer;
+}
+
+//!
+//! Creation
+//!
+
+/// creates a connected pair. descriptors do not leak across `exec`.
+public Result(Pipe, Error) create() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Handle r = null as win::abi::Handle;
+        win::abi::Handle w = null as win::abi::Handle;
+        win::abi::Bool ok = win::imports::CreatePipe(
+            &r,
+            &w,
+            null as win::abi::SecurityAttributes*,
+            0
+        );
+
+        if !win::abi::succeeded(ok) {
+            return Result::Err(
+                error::from_win32(win::imports::GetLastError())
+            );
+        }
+
+        Pipe p;
+        p.reader.handle = r as Handle;
+        p.writer.handle = w as Handle;
+        return Result::Ok(p);
+    } else {
+        linux::abi::Fd[2] pair;
+        isize ret = linux::syscall::pipe2(
+            &pair[0],
+            linux::abi::O_CLOEXEC
+        );
+
+        if linux::abi::is_error(ret) {
+            return Result::Err(error::from_syscall(ret));
+        }
+
+        Pipe p;
+        p.reader.handle = pair[0] as Handle;
+        p.writer.handle = pair[1] as Handle;
+        return Result::Ok(p);
+    }
+}
+
+/// ignores `SIGPIPE` process-wide. after this a write to a pipe with no
+/// reader reports `BrokenPipe` instead of killing the process. on Windows
+/// there is no `SIGPIPE`, so this is a successful no-op.
+public Status(Error) ignore_sigpipe() {
+    static if core::target::OS == core::target::Os::Windows {
+        return Status::Ok;
+    } else {
+        linux::abi::Sigaction act;
+        act.handler = linux::abi::SIG_IGN;
+        act.flags = 0;
+        act.restorer = 0;
+        act.mask = 0;
+
+        isize ret = linux::syscall::rt_sigaction(
+            linux::abi::SIGPIPE,
+            &act,
+            null as linux::abi::Sigaction*,
+            8
+        );
+
+        if linux::abi::is_error(ret) {
+            return Status::Err(error::from_syscall(ret));
+        }
+
+        return Status::Ok;
+    }
+}
+
+//!
+//! Transfer
+//!
+
+u32 clamp_dword(usize n) {
+    return if n > 0xFFFFFFFF {
+        0xFFFFFFFF as u32
+    } else {
+        n as u32
+    };
+}
+
+/// reads up to `buf.len` bytes. returns 0 only at end of input.
+public Result(usize, Error) read(PipeReader* self, [] u8 buf) {
+    if buf.len == 0 {
+        return Result::Ok(0 as usize);
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Dword got = 0;
+        win::abi::Bool ok = win::imports::ReadFile(
+            self.handle as win::abi::Handle,
+            buf.ptr as void*,
+            clamp_dword(buf.len),
+            &got,
+            null as win::abi::Overlapped*
+        );
+
+        if !win::abi::succeeded(ok) {
+            win::abi::Dword code = win::imports::GetLastError();
+
+            // a closed pipe is end of input, not an error
+            if code == win::abi::ERROR_BROKEN_PIPE {
+                return Result::Ok(0 as usize);
+            }
+
+            return Result::Err(error::from_win32(code));
+        }
+
+        return Result::Ok(got as usize);
+    } else {
+        while true {
+            isize ret = linux::syscall::read(
+                self.handle as linux::abi::Fd,
+                buf
+            );
+            if !linux::abi::is_error(ret) {
+                return Result::Ok(ret as usize);
+            }
+
+            if linux::abi::errno_of(ret) != linux::abi::EINTR {
+                return Result::Err(error::from_syscall(ret));
+            }
+        }
+    }
+}
+
+/// writes up to `buf.len` bytes.
+public Result(usize, Error) write(PipeWriter* self, [] const u8 buf) {
+    if buf.len == 0 {
+        return Result::Ok(0 as usize);
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Dword put = 0;
+        win::abi::Bool ok = win::imports::WriteFile(
+            self.handle as win::abi::Handle,
+            buf.ptr as const void*,
+            clamp_dword(buf.len),
+            &put,
+            null as win::abi::Overlapped*
+        );
+
+        if !win::abi::succeeded(ok) {
+            return Result::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        return Result::Ok(put as usize);
+    } else {
+        while true {
+            isize ret = linux::syscall::write(
+                self.handle as linux::abi::Fd,
+                buf
+            );
+            if !linux::abi::is_error(ret) {
+                return Result::Ok(ret as usize);
+            }
+
+            if linux::abi::errno_of(ret) != linux::abi::EINTR {
+                return Result::Err(error::from_syscall(ret));
+            }
+        }
+    }
+}
+
+/// writes every byte or fails. a short write with no error means the sink
+/// is closed, so it is reported rather than retried forever.
+public Status(Error) write_all(PipeWriter* self, [] const u8 buf) {
+    usize sent = 0;
+
+    while sent < buf.len {
+        Result(usize, Error) step = write(self, buf[sent..buf.len]);
+        if step.is_err() {
+            return Status::Err(step.unwrap_err());
+        }
+
+        usize n = step.unwrap();
+        if n == 0 {
+            return Error::BrokenPipe;
+        }
+
+        sent = sent + n;
+    }
+
+    return Status::Ok;
+}
+
+/// fills `buf` or stops at end of input. returns the bytes read.
+public Result(usize, Error) read_all(PipeReader* self, [] u8 buf) {
+    usize got = 0;
+
+    while got < buf.len {
+        Result(usize, Error) step = read(self, buf[got..buf.len]);
+        if step.is_err() {
+            return Result::Err(step.unwrap_err());
+        }
+
+        usize n = step.unwrap();
+        if n == 0 {
+            return Result::Ok(got);
+        }
+
+        got = got + n;
+    }
+
+    return Result::Ok(got);
+}
+
+//!
+//! Closing
+//!
+
+/// closes the handle. errors are dropped: there is nothing a caller can
+/// usefully do about a failing close, and retrying it is unsafe.
+public void close(PipeReader* self) {
+    if self.handle == INVALID_HANDLE {
+        return;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::CloseHandle(self.handle as win::abi::Handle);
+    } else {
+        linux::syscall::close(self.handle as linux::abi::Fd);
+    }
+
+    self.handle = INVALID_HANDLE;
+}
+
+/// closes the handle. errors are dropped: there is nothing a caller can
+/// usefully do about a failing close, and retrying it is unsafe.
+public void close(PipeWriter* self) {
+    if self.handle == INVALID_HANDLE {
+        return;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::CloseHandle(self.handle as win::abi::Handle);
+    } else {
+        linux::syscall::close(self.handle as linux::abi::Fd);
+    }
+
+    self.handle = INVALID_HANDLE;
+}
