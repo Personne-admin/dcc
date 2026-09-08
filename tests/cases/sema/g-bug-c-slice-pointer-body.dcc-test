@@ -24,4 +24,4 @@ void instantiate_bool() {
     Holder(bool) h = make_holder(x, xs);
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

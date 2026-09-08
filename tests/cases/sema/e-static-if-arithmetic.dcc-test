@@ -88,6 +88,6 @@ void test_ufcs_condition() {
     }
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 
 === ENTRY: main.dc ===

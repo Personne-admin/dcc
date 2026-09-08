@@ -55,3 +55,8 @@ TranslationUnit
               Ident buf
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown type `File`
+main.dc:3: unknown name `open`
+main.dc:4: unknown name `close`
+main.dc:5: unknown name `alloc`
+main.dc:6: unknown name `free`

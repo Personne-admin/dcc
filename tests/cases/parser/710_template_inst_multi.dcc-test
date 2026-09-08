@@ -27,3 +27,4 @@ TranslationUnit
             Ident src
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `copy`

@@ -25,4 +25,4 @@ void test_template_ufcs_with_concept() {
     w.println("hello");
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

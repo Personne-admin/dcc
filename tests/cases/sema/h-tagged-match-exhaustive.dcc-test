@@ -20,5 +20,5 @@ i32 unwrap_wildcard_payload(Option opt) {
     };
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 

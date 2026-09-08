@@ -10,5 +10,5 @@ i32 f(Result r) {
     };
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
 

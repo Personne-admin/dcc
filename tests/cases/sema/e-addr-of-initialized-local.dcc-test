@@ -38,4 +38,4 @@ void test_param_call_arg(i32 x) {
     take_ptr(&x);
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

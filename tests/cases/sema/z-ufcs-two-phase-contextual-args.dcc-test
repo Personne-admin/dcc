@@ -75,4 +75,4 @@ Module m
       Return
         IntLiteral 0 [type=i32 const=0 constant]
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

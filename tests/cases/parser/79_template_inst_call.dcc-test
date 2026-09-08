@@ -39,3 +39,5 @@ TranslationUnit
               IntLiteral 2
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `max`
+main.dc:4: unknown name `max`

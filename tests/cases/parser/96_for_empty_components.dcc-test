@@ -76,4 +76,4 @@ TranslationUnit
         Body
           Break
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

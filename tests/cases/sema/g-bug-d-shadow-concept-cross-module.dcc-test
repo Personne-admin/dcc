@@ -28,4 +28,4 @@ void entry() {
 
 === ENTRY: main.dc ===
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

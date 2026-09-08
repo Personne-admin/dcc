@@ -27,3 +27,4 @@ TranslationUnit
                   IntLiteral 2
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `cond`

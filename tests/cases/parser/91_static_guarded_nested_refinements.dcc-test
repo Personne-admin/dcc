@@ -96,3 +96,10 @@ TranslationUnit
                 Ident done
 
 === EXPECT-ERRORS ===
+main.dc:19: variant `Pair` has multiple payload types; wrap them in a struct
+main.dc:25: unknown name `packet`
+main.dc:25: static match operand must be constant
+main.dc:26: enum pattern requires enum operand
+main.dc:26: unknown name `x`
+main.dc:26: unknown name `y`
+main.dc:26: unknown name `extra`

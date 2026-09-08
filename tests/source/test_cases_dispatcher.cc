@@ -938,6 +938,7 @@ namespace
             {
                 fx.errors_block_present = true;
                 fx.exact_errors = h == "EXPECT-ERRORS EXACT";
+                auto errors_before = fx.errors.size();
                 std::size_t i = 0;
                 std::string_view body = sec.body;
                 while (i < body.size())
@@ -988,6 +989,8 @@ namespace
                     }
                     i = (nl == std::string_view::npos) ? body.size() : nl + 1;
                 }
+                if (fx.errors.size() == errors_before)
+                    fx.exact_errors = true;
             }
         }
 

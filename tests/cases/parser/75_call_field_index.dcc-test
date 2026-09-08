@@ -29,3 +29,4 @@ TranslationUnit
               IntLiteral 3
 
 === EXPECT-ERRORS ===
+main.dc:3: unknown name `obj`

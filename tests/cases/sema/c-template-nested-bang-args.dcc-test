@@ -39,4 +39,4 @@ i32 call_paren() {
     return 0;
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===

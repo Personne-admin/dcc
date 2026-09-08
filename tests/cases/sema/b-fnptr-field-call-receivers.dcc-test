@@ -47,4 +47,4 @@ i32 call_ufcs_fallback() {
     return (raw as Plain*).doubled();
 }
 
-=== EXPECT-ERRORS ===
+=== EXPECT-ERRORS EXACT ===
