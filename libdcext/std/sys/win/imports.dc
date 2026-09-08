@@ -109,6 +109,17 @@ using abi::{ Bool, Byte, Dword, Handle, Socket, Wchar, Word };
     Dword milliseconds
 );
 @[import, nomangle] public extern Dword GetCurrentThreadId();
+@[import, nomangle] public extern Handle GetCurrentThread();
+@[import, nomangle] public extern i32 SetThreadDescription(
+    Handle thread,
+    const Wchar* description
+);
+@[import, nomangle] public extern Bool TryAcquireSRWLockExclusive(
+    abi::SrwLock* lock
+);
+@[import, nomangle] public extern Bool TryAcquireSRWLockShared(
+    abi::SrwLock* lock
+);
 @[import, nomangle] public extern Dword TlsAlloc();
 @[import, nomangle] public extern void* TlsGetValue(Dword index);
 @[import, nomangle] public extern Bool TlsSetValue(Dword index, void* value);
@@ -123,16 +134,16 @@ using abi::{ Bool, Byte, Dword, Handle, Socket, Wchar, Word };
 //! Locks, condition variables and init-once
 //!
 
-@[import, nomangle] public extern void AcquireSrwLockExclusive(
+@[import, nomangle] public extern void AcquireSRWLockExclusive(
     abi::SrwLock* lock
 );
-@[import, nomangle] public extern void ReleaseSrwLockExclusive(
+@[import, nomangle] public extern void ReleaseSRWLockExclusive(
     abi::SrwLock* lock
 );
-@[import, nomangle] public extern void AcquireSrwLockShared(
+@[import, nomangle] public extern void AcquireSRWLockShared(
     abi::SrwLock* lock
 );
-@[import, nomangle] public extern void ReleaseSrwLockShared(
+@[import, nomangle] public extern void ReleaseSRWLockShared(
     abi::SrwLock* lock
 );
 @[import, nomangle] public extern void WakeConditionVariable(

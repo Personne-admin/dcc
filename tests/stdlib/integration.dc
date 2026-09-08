@@ -6,6 +6,7 @@ import std::os::heap;
 import std::os::time;
 import std::os::process;
 import std::os::dir;
+import std::os::thread;
 import std::os::error;
 import std::mem;
 import std::result;
@@ -17,7 +18,7 @@ import std::sys::linux::syscall;
 import std::sys::linux::abi;
 import std::sys::win::imports;
 import std::sys::win::abi;
-using std::os::{ file, heap, time, process, dir, error };
+using std::os::{ file, heap, time, process, dir, thread, error };
 using std::{ mem, array, map, fmt, slice };
 using error::Error;
 
@@ -668,6 +669,67 @@ i32 test_clocks_and_process() {
     return 0;
 }
 
+thread::Mutex tally_mu;
+volatile i32 tally;
+thread::Mutex gate_mu;
+thread::Condvar gate;
+volatile i32 arrived;
+
+void tally_up(i32 n) {
+    for i32 i = 0; i < n; i++ {
+        tally_mu.lock();
+        tally = tally + 1;
+        tally_mu.unlock();
+    }
+}
+
+void arrive() {
+    gate_mu.lock();
+    arrived = arrived + 1;
+    gate_mu.unlock();
+    gate.signal();
+}
+
+i32 test_threads() {
+    tally = 0;
+    thread::Thread a = thread::spawn(tally_up, 500).unwrap();
+    thread::Thread b = thread::spawn(tally_up, 500).unwrap();
+    i32 st = 0;
+    if !a.join().is_ok() {
+        st = 70;
+    }
+    if !b.join().is_ok() {
+        st = 71;
+    }
+    if st != 0 {
+        return st;
+    }
+    if tally != 1000 {
+        return 72;
+    }
+    if a.join().unwrap_err() != error::Error::BadHandle {
+        return 73;
+    }
+    arrived = 0;
+    thread::Thread c = thread::spawn(arrive).unwrap();
+    gate_mu.lock();
+    while arrived < 1 {
+        gate.wait(&gate_mu);
+    }
+    gate_mu.unlock();
+    if !c.join().is_ok() {
+        return 74;
+    }
+    if arrived != 1 {
+        return 75;
+    }
+    if !tally_mu.try_lock() {
+        return 76;
+    }
+    tally_mu.unlock();
+    return 0;
+}
+
 public i32 main() {
     i32 code = test_dirs();
     if code != 0 {
@@ -679,6 +741,11 @@ public i32 main() {
     }
 
     code = test_heap();
+    if code != 0 {
+        return code;
+    }
+
+    code = test_threads();
     if code != 0 {
         return code;
     }

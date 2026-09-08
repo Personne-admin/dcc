@@ -1,0 +1,1179 @@
+//!!
+//!! Threads and synchronization
+//!!
+//!! Kernel threads with an ergonomic spawn, plus Mutex, RwLock, Condvar,
+//!! Once, Semaphore and TLS keys. Everything is fixed-size and usable
+//!! from zero; only spawn allocates, from the page heap, and join or
+//!! detach reclaims it. Detached Linux threads are reaped by later
+//!! spawn and detach calls, so an app that never spawns again holds
+//!! their stacks until exit.
+//!!
+
+module std::os::thread;
+
+import core;
+import core::target;
+import core::atomic;
+import std::slice;
+import std::mem;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+import std::os::path;
+import std::os::time;
+import std::os::process;
+import std::os::heap;
+public import std::os::error;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using core::atomic;
+using core::atomic::MemoryOrder;
+using result::{ Result, Status, Optional };
+using error::Error;
+
+public using ThreadHandle = isize;
+
+//!
+//! Handles
+//!
+
+public struct Control {
+    void(*)(void*) entry;
+    void* arg;
+    volatile i32 done;
+    volatile i32 detached;
+    i32 tid;
+    u32 reserved;
+    usize stack_base;
+    usize stack_len;
+    isize handle;
+}
+
+public struct Thread {
+    Control* control;
+}
+
+//!
+//! Spawning
+//!
+
+using CallableWith(F, T...) = compiles (F f, T args) {
+    f(args...);
+};
+
+struct Bridge(F, T...) {
+    F entry;
+    T... args;
+}
+
+void run_bridge(F, T...)(Bridge(F, T)* b) {
+    b.entry(b.args...);
+    mem::Allocator alloc = heap::allocator();
+    [] u8 bytes = slice::from_raw(b as u8*, sizeof (Bridge(F, T)));
+    heap::raw_free(&alloc, bytes, 8);
+}
+
+/// runs `entry(args...)` on a new thread. the argument bridge is
+/// heap-allocated and freed by the thread after `entry` returns.
+public Result(Thread, Error) spawn(T...)(
+    void(*)(T) entry,
+    T args
+) if CallableWith(
+    void(*)(T),
+    T...
+) {
+    mem::Allocator alloc = heap::allocator();
+    Result([] u8, mem::AllocError) slot = alloc.raw_alloc(
+        sizeof (Bridge(void(*)(T), T)),
+        8
+    );
+
+    if slot.is_err() {
+        return Error::OutOfMemory;
+    }
+
+    Bridge(void(*)(T), T)* bridge = slot.unwrap().ptr as Bridge(void(*)(T), T)*;
+    Bridge(void(*)(T), T) tmp = {entry, args...};
+    *bridge = tmp;
+
+    void(*)(Bridge(void(*)(T), T)*) runner = run_bridge;
+    return spawn_raw(runner as void(*)(void*), bridge as void*);
+}
+
+/// runs a raw entry point on a new thread. the escape hatch behind
+/// spawn for entries that already fit void(*)(void*).
+public Result(Thread, Error) spawn_raw(
+    void(*)(void*) entry,
+    void* arg
+) {
+    static if core::target::OS == core::target::Os::Windows {
+        mem::Allocator alloc = heap::allocator();
+        Result([] u8, mem::AllocError) slot = alloc.raw_alloc(
+            sizeof (Control),
+            8
+        );
+
+        if slot.is_err() {
+            return Error::OutOfMemory;
+        }
+
+        Control* c = slot.unwrap().ptr as Control*;
+        c.entry = entry;
+        c.arg = arg;
+        c.done = 0;
+        c.detached = 0;
+        c.tid = 0;
+        c.stack_base = 0;
+        c.stack_len = 0;
+        c.handle = -1;
+
+        win::abi::Dword tid = 0;
+        win::abi::Handle h = win::imports::CreateThread(
+            null as win::abi::SecurityAttributes*,
+            8388608,
+            thread_trampoline_win as void*,
+            c as void*,
+            0,
+            &tid
+        );
+
+        if h == null {
+            [] u8 bytes = slice::from_raw(c as u8*, sizeof (Control));
+            heap::raw_free(&alloc, bytes, 8);
+            return Result::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        c.handle = h as isize;
+        c.tid = tid as i32;
+
+        Thread t = {control = c};
+        return Result::Ok(t);
+    } else static if core::target::OS == core::target::Os::Linux {
+        sweep_detached();
+
+        usize total = 8388608 + 4096;
+        isize mapped = linux::syscall::mmap(
+            0,
+            total,
+            linux::abi::PROT_READ | linux::abi::PROT_WRITE,
+            linux::abi::MAP_PRIVATE | linux::abi::MAP_ANONYMOUS,
+            -1,
+            0
+        );
+
+        if linux::abi::is_error(mapped) {
+            return Result::Err(error::from_syscall(mapped));
+        }
+
+        usize base = mapped as usize;
+        linux::syscall::mprotect(base, 4096, linux::abi::PROT_NONE);
+
+        Control* c = (base + 4096) as Control*;
+        c.entry = entry;
+        c.arg = arg;
+        c.done = 0;
+        c.detached = 0;
+        c.tid = 0;
+        c.stack_base = base;
+        c.stack_len = total;
+        c.handle = -1;
+
+        i32 flags = linux::abi::CLONE_VM
+            | linux::abi::CLONE_FS
+            | linux::abi::CLONE_FILES
+            | linux::abi::CLONE_SIGHAND
+            | linux::abi::CLONE_THREAD
+            | linux::abi::CLONE_SYSVSEM;
+        isize tid = linux::syscall::__thread_entry(
+            flags as usize,
+            base + total,
+            c as void*
+        );
+
+        if linux::abi::is_error(tid) {
+            linux::syscall::munmap(base, total);
+            return Result::Err(error::from_syscall(tid));
+        }
+
+        c.tid = tid as i32;
+
+        Thread t = {control = c};
+        return Result::Ok(t);
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return Error::NotSupported;
+    }
+}
+
+@[nomangle] void thread_child_main(Control* c) {
+    static if core::target::OS == core::target::Os::Linux {
+        c.entry(c.arg);
+        atomic::atomic_store(&c.done as volatile i32*, 1, MemoryOrder::Release);
+        linux::syscall::futex(
+            &c.done,
+            linux::abi::FUTEX_WAKE | linux::abi::FUTEX_PRIVATE_FLAG,
+            1,
+            null as linux::abi::Timespec*,
+            0,
+            0
+        );
+
+        return;
+    } else {
+        return;
+    }
+}
+
+win::abi::Dword thread_trampoline_win(void* raw) {
+    static if core::target::OS == core::target::Os::Windows {
+        Control* c = raw as Control*;
+        c.entry(c.arg);
+        if c.detached != 0 {
+            mem::Allocator alloc = heap::allocator();
+            [] u8 bytes = slice::from_raw(c as u8*, sizeof (Control));
+            heap::raw_free(&alloc, bytes, 8);
+        }
+
+        return 0;
+    } else {
+        return 0;
+    }
+}
+
+//!
+//! Lifecycle
+//!
+
+Control*[256] detached_table;
+usize detached_count;
+
+Mutex detached_lock;
+
+bool thread_gone(i32 tid) {
+    static if core::target::OS == core::target::Os::Linux {
+        isize r = linux::syscall::kill(tid as linux::abi::Pid, 0);
+        return r == (0 - linux::abi::ESRCH) as isize;
+    } else {
+        return false;
+    }
+}
+
+void sweep_detached() {
+    static if core::target::OS == core::target::Os::Linux {
+        detached_lock.lock();
+
+        usize i = 0;
+        while i < detached_count {
+            Control* c = detached_table[i];
+            if thread_gone(c.tid) {
+                linux::syscall::munmap(c.stack_base, c.stack_len);
+                detached_count = detached_count - 1;
+                detached_table[i] = detached_table[detached_count];
+            } else {
+                i = i + 1;
+            }
+        }
+
+        detached_lock.unlock();
+    } else {
+        return;
+    }
+}
+
+/// waits for the thread and reclaims its stack. consumes the handle.
+public Status(Error) join(Thread* t) {
+    if t.control == null {
+        return Error::BadHandle;
+    }
+
+    Control* c = t.control;
+
+    static if core::target::OS == core::target::Os::Windows {
+        if c.detached != 0 {
+            return Error::InvalidArgument;
+        }
+
+        win::abi::Dword r = win::imports::WaitForSingleObject(
+            c.handle as win::abi::Handle,
+            win::abi::INFINITE
+        );
+
+        if r == win::abi::WAIT_FAILED {
+            return Status::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        win::imports::CloseHandle(c.handle as win::abi::Handle);
+        mem::Allocator alloc = heap::allocator();
+        [] u8 bytes = slice::from_raw(c as u8*, sizeof (Control));
+        heap::raw_free(&alloc, bytes, 8);
+
+        t.control = null;
+        return Status::Ok;
+    } else static if core::target::OS == core::target::Os::Linux {
+        if c.detached != 0 {
+            return Error::InvalidArgument;
+        }
+
+        while atomic::atomic_load(
+            &c.done as volatile i32*,
+            MemoryOrder::Acquire
+        ) == 0 {
+            linux::syscall::futex(
+                &c.done,
+                linux::abi::FUTEX_WAIT | linux::abi::FUTEX_PRIVATE_FLAG,
+                0,
+                null as linux::abi::Timespec*,
+                0,
+                0
+            );
+        }
+
+        while !thread_gone(c.tid) {
+            process::yield_now();
+        }
+
+        linux::syscall::munmap(c.stack_base, c.stack_len);
+        t.control = null;
+        return Status::Ok;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return Error::NotSupported;
+    }
+}
+
+/// detaches the thread. its stack is reclaimed by later spawn and
+/// detach calls once it has exited. consumes the handle.
+public Status(Error) detach(Thread* t) {
+    if t.control == null {
+        return Error::BadHandle;
+    }
+
+    Control* c = t.control;
+
+    static if core::target::OS == core::target::Os::Windows {
+        c.detached = 1;
+        win::abi::Bool ok = win::imports::CloseHandle(
+            c.handle as win::abi::Handle
+        );
+
+        if !win::abi::succeeded(ok) {
+            c.detached = 0;
+            return Status::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        t.control = null;
+        return Status::Ok;
+    } else static if core::target::OS == core::target::Os::Linux {
+        if thread_gone(c.tid) {
+            linux::syscall::munmap(c.stack_base, c.stack_len);
+            t.control = null;
+            return Status::Ok;
+        }
+
+        detached_lock.lock();
+        usize i = 0;
+        while i < detached_count {
+            Control* old = detached_table[i];
+            if thread_gone(old.tid) {
+                linux::syscall::munmap(old.stack_base, old.stack_len);
+                detached_count = detached_count - 1;
+                detached_table[i] = detached_table[detached_count];
+            } else {
+                i = i + 1;
+            }
+        }
+
+        if detached_count >= 256 {
+            detached_lock.unlock();
+            return Error::OutOfMemory;
+        }
+
+        detached_table[detached_count] = c;
+        detached_count = detached_count + 1;
+        c.detached = 1;
+
+        detached_lock.unlock();
+        t.control = null;
+        return Status::Ok;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return Error::NotSupported;
+    }
+}
+
+/// returns the calling thread's handle.
+public ThreadHandle current() {
+    static if core::target::OS == core::target::Os::Windows {
+        return win::imports::GetCurrentThreadId() as isize;
+    } else static if core::target::OS == core::target::Os::Linux {
+        return linux::syscall::gettid();
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return -1;
+    }
+}
+
+public void sleep_ms(u64 millis) {
+    time::sleep_ms(millis);
+}
+
+public void yield() {
+    process::yield_now();
+}
+
+public u32 hardware_concurrency() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::SystemInfo info;
+        win::imports::GetSystemInfo(&info);
+        if info.number_of_processors == 0 {
+            return 1;
+        }
+
+        return info.number_of_processors;
+    } else static if core::target::OS == core::target::Os::Linux {
+        u8[16] mask;
+        [] u8 view = slice::from_raw(&mask[0], 16);
+        for usize i = 0; i < 16; i++ {
+            view[i] = 0;
+        }
+
+        isize r = linux::syscall::sched_getaffinity(0, view);
+        if linux::abi::is_error(r) {
+            return 1;
+        }
+
+        u32 n = 0;
+        for usize i = 0; i < 16; i++ {
+            u8 byte = view[i];
+            while byte != 0 {
+                n = n + ((byte & 1) as u32);
+                byte = byte >> 1;
+            }
+        }
+
+        if n == 0 {
+            return 1;
+        }
+
+        return n;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return 1;
+    }
+}
+
+//!
+//! Mutex
+//!
+
+public struct Mutex {
+    volatile i32 state;
+    u32 reserved;
+    win::abi::SrwLock srw;
+}
+
+public void lock(Mutex* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::AcquireSRWLockExclusive(&self.srw);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        if atomic::atomic_exchange(
+            &self.state as volatile i32*,
+            1 as i32,
+            MemoryOrder::Acquire
+        ) == 0 {
+            return;
+        }
+
+        while atomic::atomic_exchange(
+            &self.state as volatile i32*,
+            2 as i32,
+            MemoryOrder::Acquire
+        ) != 0 {
+            linux::syscall::futex(
+                &self.state,
+                linux::abi::FUTEX_WAIT | linux::abi::FUTEX_PRIVATE_FLAG,
+                2,
+                null as linux::abi::Timespec*,
+                0,
+                0
+            );
+        }
+
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+public bool try_lock(Mutex* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        return win::abi::succeeded(
+            win::imports::TryAcquireSRWLockExclusive(&self.srw)
+        );
+    } else static if core::target::OS == core::target::Os::Linux {
+        i32 before = atomic::atomic_exchange(
+            &self.state as volatile i32*,
+            1 as i32,
+            MemoryOrder::Acquire
+        );
+
+        return before == 0;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return false;
+    }
+}
+
+public void unlock(Mutex* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::ReleaseSRWLockExclusive(&self.srw);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        if atomic::atomic_exchange(
+            &self.state as volatile i32*,
+            0 as i32,
+            MemoryOrder::Release
+        ) == 2 {
+            linux::syscall::futex(
+                &self.state,
+                linux::abi::FUTEX_WAKE | linux::abi::FUTEX_PRIVATE_FLAG,
+                1,
+                null as linux::abi::Timespec*,
+                0,
+                0
+            );
+        }
+
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+//!
+//! RwLock
+//!
+
+public struct RwLock {
+    Mutex guard;
+    volatile i32 readers;
+    volatile i32 writer;
+    volatile i32 seq;
+    u32 reserved;
+    win::abi::SrwLock srw;
+}
+
+void rw_wait(RwLock* self, i32 known) {
+    static if core::target::OS == core::target::Os::Linux {
+        linux::syscall::futex(
+            &self.seq,
+            linux::abi::FUTEX_WAIT | linux::abi::FUTEX_PRIVATE_FLAG,
+            known,
+            null as linux::abi::Timespec*,
+            0,
+            0
+        );
+
+        return;
+    } else {
+        return;
+    }
+}
+
+void rw_wake(RwLock* self) {
+    static if core::target::OS == core::target::Os::Linux {
+        atomic::atomic_fetch_add(
+            &self.seq as volatile i32*,
+            1 as i32,
+            MemoryOrder::Release
+        );
+        linux::syscall::futex(
+            &self.seq,
+            linux::abi::FUTEX_WAKE | linux::abi::FUTEX_PRIVATE_FLAG,
+            2147483647,
+            null as linux::abi::Timespec*,
+            0,
+            0
+        );
+
+        return;
+    } else {
+        return;
+    }
+}
+
+public void read_lock(RwLock* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::AcquireSRWLockShared(&self.srw);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        self.guard.lock();
+        while atomic::atomic_load(
+            &self.writer as volatile i32*,
+            MemoryOrder::Acquire
+        ) != 0 {
+            i32 known = atomic::atomic_load(
+                &self.seq as volatile i32*,
+                MemoryOrder::Acquire
+            );
+            self.guard.unlock();
+            rw_wait(self, known);
+            self.guard.lock();
+        }
+
+        atomic::atomic_fetch_add(
+            &self.readers as volatile i32*,
+            1 as i32,
+            MemoryOrder::Relaxed
+        );
+
+        self.guard.unlock();
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+public void read_unlock(RwLock* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::ReleaseSRWLockShared(&self.srw);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        self.guard.lock();
+        atomic::atomic_fetch_sub(
+            &self.readers as volatile i32*,
+            1 as i32,
+            MemoryOrder::Relaxed
+        );
+
+        if atomic::atomic_load(
+            &self.readers as volatile i32*,
+            MemoryOrder::Acquire
+        ) == 0 {
+            rw_wake(self);
+        }
+
+        self.guard.unlock();
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+public void write_lock(RwLock* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::AcquireSRWLockExclusive(&self.srw);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        self.guard.lock();
+        while atomic::atomic_load(
+            &self.writer as volatile i32*,
+            MemoryOrder::Acquire
+        ) != 0
+        || atomic::atomic_load(
+            &self.readers as volatile i32*,
+            MemoryOrder::Acquire
+        ) != 0 {
+            i32 known = atomic::atomic_load(
+                &self.seq as volatile i32*,
+                MemoryOrder::Acquire
+            );
+            self.guard.unlock();
+            rw_wait(self, known);
+            self.guard.lock();
+        }
+
+        atomic::atomic_store(
+            &self.writer as volatile i32*,
+            1,
+            MemoryOrder::Relaxed
+        );
+
+        self.guard.unlock();
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+public void write_unlock(RwLock* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::ReleaseSRWLockExclusive(&self.srw);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        self.guard.lock();
+        atomic::atomic_store(
+            &self.writer as volatile i32*,
+            0,
+            MemoryOrder::Relaxed
+        );
+
+        rw_wake(self);
+        self.guard.unlock();
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+//!
+//! Condvar
+//!
+
+public struct Condvar {
+    volatile i32 seq;
+    u32 reserved;
+    win::abi::ConditionVariable var;
+}
+
+/// waits, releasing `guard` until signaled. always relocks.
+public void wait(Condvar* self, Mutex* guard) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::SleepConditionVariableSRW(
+            &self.var,
+            &guard.srw,
+            win::abi::INFINITE,
+            0
+        );
+
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        i32 known = atomic::atomic_load(
+            &self.seq as volatile i32*,
+            MemoryOrder::Acquire
+        );
+
+        guard.unlock();
+        linux::syscall::futex(
+            &self.seq,
+            linux::abi::FUTEX_WAIT | linux::abi::FUTEX_PRIVATE_FLAG,
+            known,
+            null as linux::abi::Timespec*,
+            0,
+            0
+        );
+
+        guard.lock();
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+public void signal(Condvar* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::WakeConditionVariable(&self.var);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        atomic::atomic_fetch_add(
+            &self.seq as volatile i32*,
+            1 as i32,
+            MemoryOrder::Release
+        );
+
+        linux::syscall::futex(
+            &self.seq,
+            linux::abi::FUTEX_WAKE | linux::abi::FUTEX_PRIVATE_FLAG,
+            1,
+            null as linux::abi::Timespec*,
+            0,
+            0
+        );
+
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+public void broadcast(Condvar* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::WakeAllConditionVariable(&self.var);
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        atomic::atomic_fetch_add(
+            &self.seq as volatile i32*,
+            1 as i32,
+            MemoryOrder::Release
+        );
+
+        linux::syscall::futex(
+            &self.seq,
+            linux::abi::FUTEX_WAKE | linux::abi::FUTEX_PRIVATE_FLAG,
+            2147483647,
+            null as linux::abi::Timespec*,
+            0,
+            0
+        );
+
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+//!
+//! Once
+//!
+
+public struct Once {
+    volatile i32 state;
+    u32 reserved;
+    win::abi::InitOnce once;
+}
+
+win::abi::Bool once_callback_win(
+    win::abi::InitOnce* init,
+    void* parameter,
+    void** context
+) {
+    static if core::target::OS == core::target::Os::Windows {
+        void(*)() fn = parameter as void(*)();
+        fn();
+        return 1;
+    } else {
+        return 0;
+    }
+}
+
+/// runs `fn` exactly once no matter how many threads arrive.
+public void call_once(Once* self, void(*)() fn) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::InitOnceExecuteOnce(
+            &self.once,
+            once_callback_win as void*,
+            fn as void*,
+            null as void**
+        );
+
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        if atomic::atomic_load(
+            &self.state as volatile i32*,
+            MemoryOrder::Acquire
+        ) == 2 {
+            return;
+        }
+
+        if atomic::atomic_exchange(
+            &self.state as volatile i32*,
+            1 as i32,
+            MemoryOrder::Acquire
+        ) == 0 {
+            fn();
+            atomic::atomic_store(
+                &self.state as volatile i32*,
+                2,
+                MemoryOrder::Release
+            );
+            linux::syscall::futex(
+                &self.state,
+                linux::abi::FUTEX_WAKE | linux::abi::FUTEX_PRIVATE_FLAG,
+                2147483647,
+                null as linux::abi::Timespec*,
+                0,
+                0
+            );
+            return;
+        }
+
+        while atomic::atomic_load(
+            &self.state as volatile i32*,
+            MemoryOrder::Acquire
+        ) == 1 {
+            linux::syscall::futex(
+                &self.state,
+                linux::abi::FUTEX_WAIT | linux::abi::FUTEX_PRIVATE_FLAG,
+                1,
+                null as linux::abi::Timespec*,
+                0,
+                0
+            );
+        }
+
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+//!
+//! Semaphore
+//!
+
+public struct Semaphore {
+    Mutex guard;
+    Condvar cond;
+    volatile i32 count;
+}
+
+public void init(Semaphore* self, i32 initial) {
+    self.count = initial;
+}
+
+public void wait(Semaphore* self) {
+    self.guard.lock();
+    while atomic::atomic_load(
+        &self.count as volatile i32*,
+        MemoryOrder::Acquire
+    ) == 0 {
+        self.cond.wait(&self.guard);
+    }
+
+    atomic::atomic_fetch_sub(
+        &self.count as volatile i32*,
+        1 as i32,
+        MemoryOrder::Relaxed
+    );
+
+    self.guard.unlock();
+}
+
+public bool try_wait(Semaphore* self) {
+    self.guard.lock();
+    if atomic::atomic_load(&self.count as volatile i32*, MemoryOrder::Acquire) == 0 {
+        self.guard.unlock();
+        return false;
+    }
+
+    atomic::atomic_fetch_sub(
+        &self.count as volatile i32*,
+        1 as i32,
+        MemoryOrder::Relaxed
+    );
+
+    self.guard.unlock();
+    return true;
+}
+
+public void post(Semaphore* self) {
+    self.guard.lock();
+    atomic::atomic_fetch_add(
+        &self.count as volatile i32*,
+        1 as i32,
+        MemoryOrder::Relaxed
+    );
+
+    self.cond.signal();
+    self.guard.unlock();
+}
+
+//!
+//! TLS
+//!
+
+public struct TlsKey {
+    u32 index;
+}
+
+struct TlsSlot {
+    i32 tid;
+    void*[64] values;
+}
+
+TlsSlot[64] tls_slots;
+volatile i32 tls_next;
+
+Mutex tls_lock;
+
+public Result(TlsKey, Error) create() {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Dword i = win::imports::TlsAlloc();
+        if i == win::abi::TLS_OUT_OF_INDEXES {
+            return Error::OutOfMemory;
+        }
+
+        TlsKey key = {index = i};
+        return Result::Ok(key);
+    } else static if core::target::OS == core::target::Os::Linux {
+        tls_lock.lock();
+        i32 i = atomic::atomic_load(
+            &tls_next as volatile i32*,
+            MemoryOrder::Relaxed
+        );
+
+        if i >= 64 {
+            tls_lock.unlock();
+            return Error::OutOfMemory;
+        }
+
+        atomic::atomic_store(
+            &tls_next as volatile i32*,
+            i + 1,
+            MemoryOrder::Relaxed
+        );
+
+        tls_lock.unlock();
+        TlsKey key = {index = i as u32};
+        return Result::Ok(key);
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return Error::NotSupported;
+    }
+}
+
+i32 tls_slot_for(i32 tid, bool claim) {
+    tls_lock.lock();
+    i32 found = -1;
+    i32 free = -1;
+    for usize i = 0; i < 64; i++ {
+        i32 owner = atomic::atomic_load(
+            &tls_slots[i].tid as volatile i32*,
+            MemoryOrder::Acquire
+        );
+
+        if owner == tid {
+            found = i as i32;
+            break;
+        }
+
+        if owner == 0 && free < 0 {
+            free = i as i32;
+        }
+    }
+    if found < 0 && claim && free >= 0 {
+        TlsSlot* slot = &tls_slots[free as usize];
+        for usize k = 0; k < 64; k++ {
+            slot.values[k] = null;
+        }
+
+        atomic::atomic_store(
+            &slot.tid as volatile i32*,
+            tid,
+            MemoryOrder::Release
+        );
+
+        found = free;
+    }
+    tls_lock.unlock();
+    return found;
+}
+
+public void* get(const TlsKey* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        return win::imports::TlsGetValue(self.index);
+    } else static if core::target::OS == core::target::Os::Linux {
+        i32 tid = linux::syscall::gettid() as i32;
+
+        i32 slot = tls_slot_for(tid, false);
+        if slot < 0 {
+            return null;
+        }
+
+        return tls_slots[slot as usize].values[self.index as usize];
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return null;
+    }
+}
+
+public Status(Error) set(const TlsKey* self, void* value) {
+    static if core::target::OS == core::target::Os::Windows {
+        if !win::abi::succeeded(win::imports::TlsSetValue(self.index, value)) {
+            return error::from_win32(win::imports::GetLastError());
+        }
+
+        return Status::Ok;
+    } else static if core::target::OS == core::target::Os::Linux {
+        if self.index >= 64 {
+            return Error::InvalidArgument;
+        }
+
+        i32 tid = linux::syscall::gettid() as i32;
+
+        i32 slot = tls_slot_for(tid, true);
+        if slot < 0 {
+            return Error::OutOfMemory;
+        }
+
+        tls_slots[slot as usize].values[self.index as usize] = value;
+        return Status::Ok;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return Error::NotSupported;
+    }
+}
+
+public void destroy(TlsKey* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::TlsFree(self.index);
+        self.index = 0;
+
+        return;
+    } else static if core::target::OS == core::target::Os::Linux {
+        tls_lock.lock();
+        for usize i = 0; i < 64; i++ {
+            tls_slots[i].values[self.index as usize] = null;
+        }
+
+        tls_lock.unlock();
+        self.index = 0;
+
+        return;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return;
+    }
+}
+
+/// names the calling thread. silently truncates past 15 bytes.
+public Status(Error) set_name([] const u8 name) {
+    static if core::target::OS == core::target::Os::Windows {
+        path::PathW wide;
+        path::to_pathw(name, &wide) ?;
+        win::abi::Handle self = win::imports::GetCurrentThread();
+        i32 r = win::imports::SetThreadDescription(
+            self,
+            path::wide_ptr(&wide)
+        );
+
+        if r < 0 {
+            return Error::Unexpected;
+        }
+
+        return Status::Ok;
+    } else static if core::target::OS == core::target::Os::Linux {
+        u8[16] buf;
+        [] u8 view = slice::from_raw(&buf[0], 16);
+        usize n = name.len;
+        if n > 15 {
+            n = 15;
+        }
+
+        for usize i = 0; i < n; i++ {
+            view[i] = name[i];
+        }
+
+        view[n] = 0;
+        isize r = linux::syscall::prctl(
+            linux::abi::PR_SET_NAME,
+            view.ptr as usize,
+            0,
+            0,
+            0
+        );
+
+        if linux::abi::is_error(r) {
+            return Status::Err(error::from_syscall(r));
+        }
+
+        return Status::Ok;
+    } else {
+        core::compile_error("std::os::thread has no backend for this target");
+        return Error::NotSupported;
+    }
+}

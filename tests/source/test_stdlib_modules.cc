@@ -409,6 +409,261 @@ public i32 main() {
         CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
 }
 
+TEST_CASE("os::thread spawn, join, and sync execute on llvm at O0 and O2")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import std::os::thread;
+import std::os::error;
+
+using std::os::thread;
+using std::os::error;
+
+thread::Mutex mu;
+volatile i32 counter;
+
+void bump() {
+    for i32 i = 0; i < 1000; i++ {
+        mu.lock();
+        counter = counter + 1;
+        mu.unlock();
+    }
+}
+
+void bump_by(i32 n) {
+    for i32 i = 0; i < n; i++ {
+        mu.lock();
+        counter = counter + 10;
+        mu.unlock();
+    }
+}
+
+struct Pair {
+    i32 a;
+    i32 b;
+    bool seen;
+}
+
+void use_pair(Pair* p, i32 x, i32 y) {
+    mu.lock();
+    p.a = x;
+    p.b = y;
+    p.seen = true;
+    counter = counter + 100;
+    mu.unlock();
+}
+
+thread::Mutex cv_mu;
+thread::Condvar cv;
+volatile i32 ready;
+
+void worker() {
+    cv_mu.lock();
+    ready = ready + 1;
+    cv_mu.unlock();
+    cv.signal();
+}
+
+thread::Once flag;
+volatile i32 onces;
+
+void init_fn() {
+    onces = onces + 1;
+}
+
+void do_once() {
+    flag.call_once(init_fn);
+}
+
+thread::RwLock rw;
+volatile i32 readers_ok;
+
+void read_it(i32 v) {
+    rw.read_lock();
+    i32 x = readers_ok;
+    rw.read_unlock();
+    mu.lock();
+    readers_ok = x + v;
+    mu.unlock();
+}
+
+thread::Semaphore sem;
+volatile i32 sem_done;
+
+void sem_worker() {
+    sem.wait();
+    sem_done = sem_done + 1;
+}
+
+thread::TlsKey* tls_key;
+volatile i32 tls_ok;
+
+void tls_user(usize v) {
+    if !(tls_key.set(v as void*).is_ok()) {
+        return;
+    }
+    thread::sleep_ms(10);
+    void* back = tls_key.get();
+    if (back as usize) == v {
+        tls_ok = tls_ok + 1;
+    }
+}
+
+public i32 main() {
+    counter = 0;
+    if thread::hardware_concurrency() == 0 {
+        return 1;
+    }
+    thread::ThreadHandle me = thread::current();
+    if (me as usize) == 0 {
+        return 2;
+    }
+    if !thread::set_name("tmod").is_ok() {
+        return 3;
+    }
+    thread::Thread[8] ts;
+    ts[0] = thread::spawn(bump).unwrap();
+    ts[1] = thread::spawn(bump_by, 100).unwrap();
+    Pair p;
+    p.a = 0;
+    p.b = 0;
+    p.seen = false;
+    ts[2] = thread::spawn(use_pair, &p, 3, 4).unwrap();
+    i32 st = 0;
+    for i32 i = 0; i < 3; i++ {
+        if !ts[i].join().is_ok() {
+            st = 4;
+        }
+    }
+    if st != 0 {
+        return st;
+    }
+    if counter != 1000 + 1000 + 100 {
+        return 6;
+    }
+    if !p.seen || p.a != 3 || p.b != 4 {
+        return 7;
+    }
+    if ts[0].join().unwrap_err() != error::Error::BadHandle {
+        return 8;
+    }
+    thread::Thread td = thread::spawn(bump).unwrap();
+    if !td.detach().is_ok() {
+        return 9;
+    }
+    thread::sleep_ms(100);
+    ready = 0;
+    thread::Thread[8] ws;
+    ws[0] = thread::spawn(worker).unwrap();
+    ws[1] = thread::spawn(worker).unwrap();
+    cv_mu.lock();
+    while ready < 2 {
+        cv.wait(&cv_mu);
+    }
+    cv_mu.unlock();
+    st = 0;
+    for i32 i = 0; i < 2; i++ {
+        if !ws[i].join().is_ok() {
+            st = 10;
+        }
+    }
+    if st != 0 {
+        return st;
+    }
+    if ready != 2 {
+        return 11;
+    }
+    onces = 0;
+    thread::Thread[8] os;
+    os[0] = thread::spawn(do_once).unwrap();
+    os[1] = thread::spawn(do_once).unwrap();
+    os[2] = thread::spawn(do_once).unwrap();
+    st = 0;
+    for i32 i = 0; i < 3; i++ {
+        if !os[i].join().is_ok() {
+            st = 12;
+        }
+    }
+    if st != 0 {
+        return st;
+    }
+    if onces != 1 {
+        return 13;
+    }
+    readers_ok = 0;
+    thread::Thread[8] rs;
+    rs[0] = thread::spawn(read_it, 1).unwrap();
+    rs[1] = thread::spawn(read_it, 1).unwrap();
+    st = 0;
+    for i32 i = 0; i < 2; i++ {
+        if !rs[i].join().is_ok() {
+            st = 14;
+        }
+    }
+    if st != 0 {
+        return st;
+    }
+    if readers_ok != 2 {
+        return 15;
+    }
+    if !mu.try_lock() {
+        return 16;
+    }
+    mu.unlock();
+    sem_done = 0;
+    sem.init(0);
+    thread::Thread[8] ss;
+    ss[0] = thread::spawn(sem_worker).unwrap();
+    ss[1] = thread::spawn(sem_worker).unwrap();
+    thread::sleep_ms(30);
+    sem.post();
+    sem.post();
+    st = 0;
+    for i32 i = 0; i < 2; i++ {
+        if !ss[i].join().is_ok() {
+            st = 17;
+        }
+    }
+    if st != 0 {
+        return st;
+    }
+    if sem_done != 2 {
+        return 18;
+    }
+    if sem.try_wait() {
+        return 19;
+    }
+    thread::TlsKey k = thread::create().unwrap();
+    tls_key = &k;
+    tls_ok = 0;
+    if (k.get() as usize) != 0 {
+        return 20;
+    }
+    thread::Thread[8] tls_ts;
+    tls_ts[0] = thread::spawn(tls_user, 700 as usize).unwrap();
+    tls_ts[1] = thread::spawn(tls_user, 800 as usize).unwrap();
+    st = 0;
+    for i32 i = 0; i < 2; i++ {
+        if !tls_ts[i].join().is_ok() {
+            st = 21;
+        }
+    }
+    if st != 0 {
+        return st;
+    }
+    if tls_ok != 2 {
+        return 22;
+    }
+    if (k.get() as usize) != 0 {
+        return 23;
+    }
+    k.destroy();
+    return 0;
+}
+)DCC");
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+}
+
 TEST_CASE("implicit function pointer pack deduction executes on both backends at O0 and O2")
 {
     auto fixture = std::filesystem::path{"cases/em64t/fnptr-pack-deduction-exec.dcc-test"};
