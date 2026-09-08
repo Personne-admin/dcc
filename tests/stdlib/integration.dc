@@ -5,6 +5,7 @@ import std::os::file;
 import std::os::heap;
 import std::os::time;
 import std::os::process;
+import std::os::dir;
 import std::os::error;
 import std::mem;
 import std::result;
@@ -16,7 +17,7 @@ import std::sys::linux::syscall;
 import std::sys::linux::abi;
 import std::sys::win::imports;
 import std::sys::win::abi;
-using std::os::{ file, heap, time, process, error };
+using std::os::{ file, heap, time, process, dir, error };
 using std::{ mem, array, map, fmt, slice };
 using error::Error;
 
@@ -32,6 +33,204 @@ static if core::target::OS == core::target::Os::Windows {
 
 // scratch working directory is private to each harness invocation and removed
 // even after a failed assertion or child timeout.
+struct DirTally {
+    u64 count;
+    u64 name_bytes;
+    bool saw_subdir;
+}
+
+DirTally tally_step(DirTally acc, dir::Entry* e) {
+    acc.count = acc.count + 1;
+    acc.name_bytes = acc.name_bytes + (e.name.len as u64);
+    if e.kind == dir::EntryKind::Directory {
+        acc.saw_subdir = true;
+    }
+    return acc;
+}
+
+struct SizeTally {
+    u64 files;
+    u64 name_bytes;
+    bool ok;
+}
+
+SizeTally size_step(SizeTally acc, dir::Entry* e) {
+    if e.kind == dir::EntryKind::File {
+        acc.files = acc.files + 1;
+        acc.name_bytes = acc.name_bytes + (e.name.len as u64);
+    }
+    acc.ok = true;
+    return acc;
+}
+
+bool entry_id_ok(dir::Entry* e) {
+    static if core::target::OS == core::target::Os::Linux {
+        return e.id != 0;
+    } else {
+        return true;
+    }
+}
+
+T drain(T)(dir::Iterator* it, T seed, T(*)(T, dir::Entry*) step) {
+    T acc = seed;
+    bool done = false;
+    while !done {
+        std::result::Optional(dir::Entry) oe = it.next();
+        if oe.is_none() {
+            done = true;
+        } else {
+            dir::Entry entry = oe.unwrap_some();
+            acc = step(acc, &entry);
+        }
+    }
+    return acc;
+}
+
+i32 test_dirs() {
+    if !file::make_directory("dtest").is_ok() {
+        return 200;
+    }
+    file::File f = file::create("dtest/alpha").unwrap();
+    if !f.write_all("hi").is_ok() {
+        return 201;
+    }
+    f.close();
+    if !file::make_directory("dtest/beta").is_ok() {
+        return 202;
+    }
+    file::File g = file::create("dtest/caf\xc3\xa9").unwrap();
+    g.close();
+
+    dir::Iterator it;
+    if !dir::open("dtest", &it).is_ok() {
+        return 203;
+    }
+
+    DirTally t0;
+    t0.count = 0;
+    t0.name_bytes = 0;
+    t0.saw_subdir = false;
+    DirTally t = drain!DirTally(&it, t0, tally_step);
+    if t.count != 5 {
+        return 204;
+    }
+    if !t.saw_subdir {
+        return 205;
+    }
+
+    bool saw_alpha = false;
+    bool saw_beta = false;
+    bool saw_cafe = false;
+    if !it.rewind().is_ok() {
+        return 206;
+    }
+    bool done = false;
+    while !done {
+        std::result::Optional(dir::Entry) oe = it.next();
+        if oe.is_none() {
+            done = true;
+        } else {
+            dir::Entry entry = oe.unwrap_some();
+            if mem::equal(entry.name, "alpha") {
+                saw_alpha = true;
+                if entry.kind != dir::EntryKind::File {
+                    return 207;
+                }
+                if !entry_id_ok(&entry) {
+                    return 208;
+                }
+                std::result::Result(dir::Metadata, Error) m = dir::stat_at(&it, &entry);
+                if m.is_err() {
+                    return 209;
+                }
+                if m.unwrap().size != 2 {
+                    return 210;
+                }
+                if m.unwrap().kind != dir::EntryKind::File {
+                    return 211;
+                }
+            }
+            if mem::equal(entry.name, "beta") {
+                saw_beta = true;
+                if entry.kind != dir::EntryKind::Directory {
+                    return 212;
+                }
+                std::result::Result(dir::Metadata, Error) mb = dir::stat_at(&it, &entry);
+                if mb.is_err() {
+                    return 213;
+                }
+                if mb.unwrap().kind != dir::EntryKind::Directory {
+                    return 214;
+                }
+            }
+            if mem::equal(entry.name, "caf\xc3\xa9") {
+                saw_cafe = true;
+                if entry.kind != dir::EntryKind::File {
+                    return 215;
+                }
+            }
+        }
+    }
+    if !saw_alpha || !saw_beta || !saw_cafe {
+        return 216;
+    }
+
+    if !it.rewind().is_ok() {
+        return 217;
+    }
+    SizeTally s0;
+    s0.files = 0;
+    s0.name_bytes = 0;
+    s0.ok = false;
+    SizeTally s = drain!SizeTally(&it, s0, size_step);
+    if s.files != 2 {
+        return 218;
+    }
+    if !s.ok {
+        return 219;
+    }
+
+    it.close();
+    it.close();
+    if !file::delete_file("dtest/alpha").is_ok() {
+        return 220;
+    }
+    if !file::delete_file("dtest/caf\xc3\xa9").is_ok() {
+        return 221;
+    }
+    if !file::remove_directory("dtest/beta").is_ok() {
+        return 222;
+    }
+    if !file::remove_directory("dtest").is_ok() {
+        return 223;
+    }
+
+    dir::Iterator bad;
+    if dir::open("dtest", &bad).unwrap_err() != Error::NotFound {
+        return 224;
+    }
+    file::File h = file::create("plain").unwrap();
+    h.close();
+    if dir::open("plain", &bad).unwrap_err() != Error::NotDirectory {
+        return 225;
+    }
+    u8[4] scratch;
+    dir::Entry be;
+    be.name = scratch[0..0];
+    be.kind = dir::EntryKind::Unknown;
+    be.id = 0;
+    if dir::stat_at(&bad, &be).unwrap_err() != Error::BadHandle {
+        return 226;
+    }
+    if dir::rewind(&bad).unwrap_err() != Error::BadHandle {
+        return 227;
+    }
+    if !file::delete_file("plain").is_ok() {
+        return 228;
+    }
+    return 0;
+}
+
 i32 test_files() {
     if file::open("missing", file::read_only()).unwrap_err() != Error::NotFound {
         return 1;
@@ -470,7 +669,11 @@ i32 test_clocks_and_process() {
 }
 
 public i32 main() {
-    i32 code = test_files();
+    i32 code = test_dirs();
+    if code != 0 {
+        return code;
+    }
+    code = test_files();
     if code != 0 {
         return code;
     }

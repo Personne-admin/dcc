@@ -184,3 +184,222 @@ public struct ByHandleFileInformation {
     Dword file_index_high;
     Dword file_index_low;
 }
+
+//!
+//! Sockets
+//!
+
+public using Socket = usize;
+public using usize INVALID_SOCKET = 0xFFFFFFFFFFFFFFFF;
+public using i32 SOCKET_ERROR = -1;
+
+public using Dword AF_UNSPEC = 0;
+public using Dword AF_INET = 2;
+public using Dword AF_INET6 = 23;
+
+public using Dword SOCK_STREAM = 1;
+public using Dword SOCK_DGRAM = 2;
+
+public using Dword IPPROTO_TCP = 6;
+public using Dword IPPROTO_UDP = 17;
+
+public using Dword SOL_SOCKET = 0xFFFF;
+public using Dword SO_REUSEADDR = 0x0004;
+public using Dword SO_SNDTIMEO = 0x1005;
+public using Dword SO_RCVTIMEO = 0x1006;
+public using Dword SO_ERROR = 0x1007;
+
+/// TCP_NODELAY lives at level IPPROTO_TCP, not SOL_SOCKET.
+public using Dword TCP_NODELAY = 0x0001;
+
+public using Dword SD_RECEIVE = 0;
+public using Dword SD_SEND = 1;
+public using Dword SD_BOTH = 2;
+
+public using Dword AI_PASSIVE = 0x00000001;
+public using Dword AI_NUMERICHOST = 0x00000004;
+public using Dword AI_NUMERICSERV = 0x00000008;
+
+public using i32 SOMAXCONN = 0x7FFFFFFF;
+
+public using Dword INADDR_ANY = 0x00000000;
+public using Dword INADDR_LOOPBACK = 0x7F000001;
+public using Dword INADDR_NONE = 0xFFFFFFFF;
+
+/// ioctl code, not a small int. passed as the i32 cmd of ioctlsocket.
+public using Dword FIONBIO = 0x8004667E;
+
+public struct Sockaddr {
+    Word family;
+    u8[14] data;
+}
+
+public struct SockaddrIn {
+    Word family;
+    Word port;
+    Dword addr;
+    u8[8] zero;
+}
+
+public struct SockaddrIn6 {
+    Word family;
+    Word port;
+    Dword flowinfo;
+    u8[16] addr;
+    Dword scope_id;
+}
+
+public struct Wsadata {
+    Word version;
+    Word high_version;
+    Word max_sockets;
+    Word max_udp_dg;
+    void* vendor_info;
+    u8[257] description;
+    u8[129] system_status;
+}
+
+public struct AddrInfoW {
+    i32 flags;
+    i32 family;
+    i32 socktype;
+    i32 protocol;
+    usize addrlen;
+    Wchar* canonname;
+    Sockaddr* addr;
+    AddrInfoW* next;
+}
+
+//!
+//! Directory enumeration
+//!
+
+public using Dword INVALID_FILE_ATTRIBUTES = 0xFFFFFFFF;
+public using Dword ERROR_NO_MORE_FILES = 18;
+public using Dword FILE_ATTRIBUTE_REPARSE_POINT = 0x00000400;
+
+public struct Win32FindDataW {
+    Dword attributes;
+    FileTime creation_time;
+    FileTime last_access_time;
+    FileTime last_write_time;
+    Dword file_size_high;
+    Dword file_size_low;
+    Dword reserved0;
+    Dword reserved1;
+    u16[260] file_name;
+    u16[14] alternate_file_name;
+}
+
+//!
+//! Threads and synchronization
+//!
+//! SrwLock, ConditionVariable and InitOnce init from zero.
+//!
+
+public using Dword WAIT_OBJECT_0 = 0;
+public using Dword WAIT_FAILED = 0xFFFFFFFF;
+public using Dword INFINITE = 0xFFFFFFFF;
+public using Dword TLS_OUT_OF_INDEXES = 0xFFFFFFFF;
+public using Dword STILL_ACTIVE = 259;
+public using Dword CONDITION_VARIABLE_LOCKMODE_SHARED = 0x1;
+
+public struct SrwLock {
+    usize ptr;
+}
+
+public struct ConditionVariable {
+    usize ptr;
+}
+
+public struct InitOnce {
+    usize ptr;
+}
+
+//!
+//! Pipes and processes
+//!
+
+public using Dword HANDLE_FLAG_INHERIT = 0x1;
+public using Dword PIPE_NOWAIT = 0x1;
+public using Dword ERROR_INSUFFICIENT_BUFFER = 122;
+
+public struct StartupInfoW {
+    Dword cb;
+    Wchar* reserved;
+    Wchar* desktop;
+    Wchar* title;
+    Dword x;
+    Dword y;
+    Dword x_size;
+    Dword y_size;
+    Dword x_count_chars;
+    Dword y_count_chars;
+    Dword fill_attribute;
+    Dword flags;
+    Word show_window;
+    Word reserved2_len;
+    Byte* reserved2;
+    Handle std_input;
+    Handle std_output;
+    Handle std_error;
+}
+
+public struct ProcessInformation {
+    Handle process;
+    Handle thread;
+    Dword process_id;
+    Dword thread_id;
+}
+
+//!
+//! Winsock error codes
+//!
+
+public using Dword WSABASEERR = 10000;
+
+public using Dword WSAEINTR = 10004;
+public using Dword WSAEBADF = 10009;
+public using Dword WSAEACCES = 10013;
+public using Dword WSAEFAULT = 10014;
+public using Dword WSAEINVAL = 10022;
+public using Dword WSAEMFILE = 10024;
+public using Dword WSAEWOULDBLOCK = 10035;
+public using Dword WSAEINPROGRESS = 10036;
+public using Dword WSAEALREADY = 10037;
+public using Dword WSAENOTSOCK = 10038;
+public using Dword WSAEDESTADDRREQ = 10039;
+public using Dword WSAEMSGSIZE = 10040;
+public using Dword WSAEPROTOTYPE = 10041;
+public using Dword WSAENOPROTOOPT = 10042;
+public using Dword WSAEPROTONOSUPPORT = 10043;
+public using Dword WSAESOCKTNOSUPPORT = 10044;
+public using Dword WSAEOPNOTSUPP = 10045;
+public using Dword WSAEPFNOSUPPORT = 10046;
+public using Dword WSAEAFNOSUPPORT = 10047;
+public using Dword WSAEADDRINUSE = 10048;
+public using Dword WSAEADDRNOTAVAIL = 10049;
+public using Dword WSAENETDOWN = 10050;
+public using Dword WSAENETUNREACH = 10051;
+public using Dword WSAENETRESET = 10052;
+public using Dword WSAECONNABORTED = 10053;
+public using Dword WSAECONNRESET = 10054;
+public using Dword WSAENOBUFS = 10055;
+public using Dword WSAEISCONN = 10056;
+public using Dword WSAENOTCONN = 10057;
+public using Dword WSAESHUTDOWN = 10058;
+public using Dword WSAETOOMANYREFS = 10059;
+public using Dword WSAETIMEDOUT = 10060;
+public using Dword WSAECONNREFUSED = 10061;
+public using Dword WSAELOOP = 10062;
+public using Dword WSAENAMETOOLONG = 10063;
+public using Dword WSAEHOSTDOWN = 10064;
+public using Dword WSAEHOSTUNREACH = 10065;
+public using Dword WSAHOST_NOT_FOUND = 11001;
+public using Dword WSATRY_AGAIN = 11002;
+public using Dword WSANO_RECOVERY = 11003;
+public using Dword WSANO_DATA = 11004;
+public using Dword WSASYSNOTREADY = 10091;
+public using Dword WSAVERNOTSUPPORTED = 10092;
+public using Dword WSANOTINITIALISED = 10093;
+public using Dword WSAEDISCON = 10101;

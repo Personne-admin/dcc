@@ -45,6 +45,15 @@ public enum Error : u16 {
     NotSupported,
     Canceled,
     InputOutput,
+    AddressInUse,
+    AddressNotAvailable,
+    ConnectionRefused,
+    ConnectionReset,
+    ConnectionAborted,
+    NotConnected,
+    HostUnreachable,
+    NetworkDown,
+    AlreadyInProgress,
 }
 
 public [] const u8 name(Error self) {
@@ -74,6 +83,15 @@ public [] const u8 name(Error self) {
         Error::NotSupported => "NotSupported",
         Error::Canceled => "Canceled",
         Error::InputOutput => "InputOutput",
+        Error::AddressInUse => "AddressInUse",
+        Error::AddressNotAvailable => "AddressNotAvailable",
+        Error::ConnectionRefused => "ConnectionRefused",
+        Error::ConnectionReset => "ConnectionReset",
+        Error::ConnectionAborted => "ConnectionAborted",
+        Error::NotConnected => "NotConnected",
+        Error::HostUnreachable => "HostUnreachable",
+        Error::NetworkDown => "NetworkDown",
+        Error::AlreadyInProgress => "AlreadyInProgress",
         _ => "Unexpected",
     };
 }
@@ -106,9 +124,22 @@ public Error from_errno(i32 code) {
         linux::abi::EROFS => Error::ReadOnlyFilesystem,
         linux::abi::EXDEV => Error::CrossDevice,
         linux::abi::ELOOP => Error::SymlinkLoop,
-        linux::abi::ENOSYS | linux::abi::EOPNOTSUPP => Error::NotSupported,
+        linux::abi::ENOSYS | linux::abi::EOPNOTSUPP | linux::abi::EPROTOTYPE
+        | linux::abi::EPROTONOSUPPORT | linux::abi::EAFNOSUPPORT => Error::NotSupported,
         linux::abi::ECANCELED => Error::Canceled,
         linux::abi::EIO => Error::InputOutput,
+        linux::abi::EADDRINUSE => Error::AddressInUse,
+        linux::abi::EADDRNOTAVAIL => Error::AddressNotAvailable,
+        linux::abi::ECONNREFUSED => Error::ConnectionRefused,
+        linux::abi::ECONNRESET => Error::ConnectionReset,
+        linux::abi::ECONNABORTED => Error::ConnectionAborted,
+        linux::abi::ENOTCONN | linux::abi::EDESTADDRREQ => Error::NotConnected,
+        linux::abi::EHOSTUNREACH | linux::abi::EHOSTDOWN => Error::HostUnreachable,
+        linux::abi::ENETDOWN | linux::abi::ENETUNREACH => Error::NetworkDown,
+        linux::abi::EINPROGRESS | linux::abi::EALREADY | linux::abi::EISCONN => Error::AlreadyInProgress,
+        linux::abi::ENOTSOCK => Error::BadHandle,
+        linux::abi::ENOBUFS => Error::OutOfMemory,
+        linux::abi::EMSGSIZE => Error::InvalidArgument,
         _ => Error::Unexpected,
     };
 }
@@ -122,31 +153,70 @@ public Error from_win32(u32 code) {
     return match code {
         win::abi::ERROR_ACCESS_DENIED
         | win::abi::ERROR_SHARING_VIOLATION
-        | win::abi::ERROR_LOCK_VIOLATION => Error::AccessDenied,
+        | win::abi::ERROR_LOCK_VIOLATION
+        | win::abi::WSAEACCES => Error::AccessDenied,
         win::abi::ERROR_FILE_NOT_FOUND
-        | win::abi::ERROR_PATH_NOT_FOUND => Error::NotFound,
+        | win::abi::ERROR_PATH_NOT_FOUND
+        | win::abi::WSAHOST_NOT_FOUND
+        | win::abi::WSANO_DATA => Error::NotFound,
         win::abi::ERROR_FILE_EXISTS
         | win::abi::ERROR_ALREADY_EXISTS => Error::AlreadyExists,
         win::abi::ERROR_DIRECTORY => Error::NotDirectory,
         win::abi::ERROR_DIR_NOT_EMPTY => Error::DirectoryNotEmpty,
-        win::abi::ERROR_INVALID_HANDLE => Error::BadHandle,
+        win::abi::ERROR_INVALID_HANDLE
+        | win::abi::WSAEBADF
+        | win::abi::WSAENOTSOCK => Error::BadHandle,
         win::abi::ERROR_INVALID_PARAMETER
         | win::abi::ERROR_NEGATIVE_SEEK
         | win::abi::ERROR_INVALID_NAME
-        | win::abi::ERROR_NO_UNICODE_TRANSLATION => Error::InvalidArgument,
-        win::abi::ERROR_FILENAME_EXCED_RANGE => Error::NameTooLong,
-        win::abi::ERROR_TOO_MANY_OPEN_FILES => Error::TooManyOpenFiles,
+        | win::abi::ERROR_NO_UNICODE_TRANSLATION
+        | win::abi::WSAEINVAL
+        | win::abi::WSAEFAULT
+        | win::abi::WSAEMSGSIZE => Error::InvalidArgument,
+        win::abi::ERROR_FILENAME_EXCED_RANGE
+        | win::abi::WSAENAMETOOLONG => Error::NameTooLong,
+        win::abi::ERROR_TOO_MANY_OPEN_FILES
+        | win::abi::WSAEMFILE => Error::TooManyOpenFiles,
         win::abi::ERROR_NOT_ENOUGH_MEMORY
-        | win::abi::ERROR_OUTOFMEMORY => Error::OutOfMemory,
+        | win::abi::ERROR_OUTOFMEMORY
+        | win::abi::WSAENOBUFS => Error::OutOfMemory,
         win::abi::ERROR_DISK_FULL
         | win::abi::ERROR_HANDLE_DISK_FULL => Error::NoSpace,
         win::abi::ERROR_BROKEN_PIPE => Error::BrokenPipe,
         win::abi::ERROR_NOT_READY
         | win::abi::ERROR_BUSY => Error::Busy,
-        win::abi::WAIT_TIMEOUT => Error::TimedOut,
-        win::abi::ERROR_NOT_SUPPORTED => Error::NotSupported,
+        win::abi::WSAEWOULDBLOCK => Error::WouldBlock,
+        win::abi::WSAEINTR => Error::Interrupted,
+        win::abi::WSAELOOP => Error::SymlinkLoop,
+        win::abi::WAIT_TIMEOUT
+        | win::abi::WSAETIMEDOUT
+        | win::abi::WSATRY_AGAIN => Error::TimedOut,
+        win::abi::WSAESHUTDOWN => Error::BrokenPipe,
+        win::abi::ERROR_NOT_SUPPORTED
+        | win::abi::WSAEOPNOTSUPP
+        | win::abi::WSAEPROTONOSUPPORT
+        | win::abi::WSAEPROTOTYPE
+        | win::abi::WSAESOCKTNOSUPPORT
+        | win::abi::WSAEPFNOSUPPORT
+        | win::abi::WSAEAFNOSUPPORT
+        | win::abi::WSAENOPROTOOPT => Error::NotSupported,
         win::abi::ERROR_OPERATION_ABORTED => Error::Canceled,
         win::abi::ERROR_WRITE_FAULT => Error::InputOutput,
+        win::abi::WSAEADDRINUSE => Error::AddressInUse,
+        win::abi::WSAEADDRNOTAVAIL => Error::AddressNotAvailable,
+        win::abi::WSAECONNREFUSED => Error::ConnectionRefused,
+        win::abi::WSAECONNRESET
+        | win::abi::WSAENETRESET => Error::ConnectionReset,
+        win::abi::WSAECONNABORTED => Error::ConnectionAborted,
+        win::abi::WSAENOTCONN
+        | win::abi::WSAEDESTADDRREQ => Error::NotConnected,
+        win::abi::WSAEHOSTUNREACH
+        | win::abi::WSAEHOSTDOWN => Error::HostUnreachable,
+        win::abi::WSAENETDOWN
+        | win::abi::WSAENETUNREACH => Error::NetworkDown,
+        win::abi::WSAEINPROGRESS
+        | win::abi::WSAEALREADY
+        | win::abi::WSAEISCONN => Error::AlreadyInProgress,
         _ => Error::Unexpected,
     };
 }

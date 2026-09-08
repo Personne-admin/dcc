@@ -72,6 +72,26 @@ public using usize NR_RENAMEAT = 264;
 public using usize NR_DUP3 = 292;
 public using usize NR_PIPE2 = 293;
 public using usize NR_GETRANDOM = 318;
+public using usize NR_GETDENTS64 = 217;
+public using usize NR_CLONE = 56;
+public using usize NR_FUTEX = 202;
+public using usize NR_WAIT4 = 61;
+public using usize NR_EXECVE = 59;
+public using usize NR_SOCKET = 41;
+public using usize NR_BIND = 49;
+public using usize NR_CONNECT = 42;
+public using usize NR_LISTEN = 50;
+public using usize NR_ACCEPT = 43;
+public using usize NR_ACCEPT4 = 288;
+public using usize NR_GETSOCKNAME = 51;
+public using usize NR_GETPEERNAME = 52;
+public using usize NR_SENDTO = 44;
+public using usize NR_RECVFROM = 45;
+public using usize NR_SHUTDOWN = 48;
+public using usize NR_SETSOCKOPT = 54;
+public using usize NR_GETSOCKOPT = 55;
+public using usize NR_GETTID = 186;
+public using usize NR_PRCTL = 157;
 
 //!
 //! Raw entry
@@ -246,6 +266,10 @@ public isize fstat(abi::Fd fd, abi::Stat* out) {
     return raw2(NR_FSTAT, arg_fd(fd), out as usize);
 }
 
+public isize getdents64(abi::Fd fd, [] u8 buf) {
+    return raw3(NR_GETDENTS64, arg_fd(fd), buf.ptr as usize, buf.len);
+}
+
 public isize fstatat(abi::Fd dir_fd, const u8* path, abi::Stat* out, i32 flags) {
     return raw4(
         NR_NEWFSTATAT,
@@ -342,4 +366,186 @@ public isize nanosleep(const abi::Timespec* request, abi::Timespec* remaining) {
 
 public isize getrandom([] u8 buf, u32 flags) {
     return raw3(NR_GETRANDOM, buf.ptr as usize, buf.len, flags as usize);
+}
+
+//!
+//! Threads, processes and sockets
+//!
+
+public isize clone(
+    i32 flags,
+    usize stack,
+    usize parent_tid,
+    usize child_tid,
+    usize tls
+) {
+    return raw5(
+        NR_CLONE,
+        flags as isize as usize,
+        stack,
+        parent_tid,
+        child_tid,
+        tls
+    );
+}
+
+public isize futex(
+    i32* word,
+    i32 op,
+    i32 value,
+    abi::Timespec* timeout,
+    usize word2,
+    i32 value3
+) {
+    return raw6(
+        NR_FUTEX,
+        word as usize,
+        op as isize as usize,
+        value as isize as usize,
+        timeout as usize,
+        word2,
+        value3 as isize as usize
+    );
+}
+
+public isize wait4(abi::Pid pid, i32* status, i32 options) {
+    return raw4(
+        NR_WAIT4,
+        pid as isize as usize,
+        status as usize,
+        arg_i32(options),
+        0
+    );
+}
+
+public isize execve(const u8* path, const u8** argv, const u8** envp) {
+    return raw3(NR_EXECVE, path as usize, argv as usize, envp as usize);
+}
+
+public isize gettid() {
+    return raw0(NR_GETTID);
+}
+
+public isize prctl(i32 option, usize a, usize b, usize c, usize d) {
+    return raw5(
+        NR_PRCTL,
+        arg_i32(option),
+        a,
+        b,
+        c,
+        d
+    );
+}
+
+public isize socket(i32 domain, i32 kind, i32 protocol) {
+    return raw3(
+        NR_SOCKET,
+        arg_i32(domain),
+        arg_i32(kind),
+        arg_i32(protocol)
+    );
+}
+
+public isize bind(abi::Fd fd, const u8* addr, u32 addr_len) {
+    return raw3(NR_BIND, arg_fd(fd), addr as usize, addr_len as usize);
+}
+
+public isize connect(abi::Fd fd, const u8* addr, u32 addr_len) {
+    return raw3(NR_CONNECT, arg_fd(fd), addr as usize, addr_len as usize);
+}
+
+public isize listen(abi::Fd fd, i32 backlog) {
+    return raw2(NR_LISTEN, arg_fd(fd), arg_i32(backlog));
+}
+
+public isize accept4(abi::Fd fd, u8* addr, u32* addr_len, i32 flags) {
+    return raw4(
+        NR_ACCEPT4,
+        arg_fd(fd),
+        addr as usize,
+        addr_len as usize,
+        arg_i32(flags)
+    );
+}
+
+public isize getsockname(abi::Fd fd, u8* addr, u32* addr_len) {
+    return raw3(NR_GETSOCKNAME, arg_fd(fd), addr as usize, addr_len as usize);
+}
+
+public isize getpeername(abi::Fd fd, u8* addr, u32* addr_len) {
+    return raw3(NR_GETPEERNAME, arg_fd(fd), addr as usize, addr_len as usize);
+}
+
+public isize sendto(
+    abi::Fd fd,
+    [] const u8 buf,
+    i32 flags,
+    const u8* addr,
+    u32 addr_len
+) {
+    return raw6(
+        NR_SENDTO,
+        arg_fd(fd),
+        buf.ptr as usize,
+        buf.len,
+        arg_i32(flags),
+        addr as usize,
+        addr_len as usize
+    );
+}
+
+public isize recvfrom(
+    abi::Fd fd,
+    [] u8 buf,
+    i32 flags,
+    u8* addr,
+    u32* addr_len
+) {
+    return raw6(
+        NR_RECVFROM,
+        arg_fd(fd),
+        buf.ptr as usize,
+        buf.len,
+        arg_i32(flags),
+        addr as usize,
+        addr_len as usize
+    );
+}
+
+public isize shutdown(abi::Fd fd, i32 how) {
+    return raw2(NR_SHUTDOWN, arg_fd(fd), arg_i32(how));
+}
+
+public isize setsockopt(
+    abi::Fd fd,
+    i32 level,
+    i32 name,
+    const u8* value,
+    u32 value_len
+) {
+    return raw5(
+        NR_SETSOCKOPT,
+        arg_fd(fd),
+        arg_i32(level),
+        arg_i32(name),
+        value as usize,
+        value_len as usize
+    );
+}
+
+public isize getsockopt(
+    abi::Fd fd,
+    i32 level,
+    i32 name,
+    u8* value,
+    u32* value_len
+) {
+    return raw5(
+        NR_GETSOCKOPT,
+        arg_fd(fd),
+        arg_i32(level),
+        arg_i32(name),
+        value as usize,
+        value_len as usize
+    );
 }

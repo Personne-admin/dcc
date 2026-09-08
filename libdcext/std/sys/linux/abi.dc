@@ -70,11 +70,27 @@ public using i32 ENOTEMPTY = 39;
 public using i32 ELOOP = 40;
 public using i32 EOVERFLOW = 75;
 public using i32 ENOTSOCK = 88;
+public using i32 EDESTADDRREQ = 89;
+public using i32 EMSGSIZE = 90;
+public using i32 EPROTOTYPE = 91;
+public using i32 EPROTONOSUPPORT = 93;
 public using i32 EOPNOTSUPP = 95;
+public using i32 EAFNOSUPPORT = 97;
 public using i32 EADDRINUSE = 98;
+public using i32 EADDRNOTAVAIL = 99;
+public using i32 ENETDOWN = 100;
+public using i32 ENETUNREACH = 101;
+public using i32 ECONNABORTED = 103;
 public using i32 ECONNRESET = 104;
+public using i32 ENOBUFS = 105;
+public using i32 EISCONN = 106;
+public using i32 ENOTCONN = 107;
 public using i32 ETIMEDOUT = 110;
 public using i32 ECONNREFUSED = 111;
+public using i32 EHOSTDOWN = 112;
+public using i32 EHOSTUNREACH = 113;
+public using i32 EALREADY = 114;
+public using i32 EINPROGRESS = 115;
 public using i32 ECANCELED = 125;
 
 public using isize MAX_ERRNO = 4095;
@@ -114,6 +130,16 @@ public using i32 SEEK_END = 2;
 public using i32 AT_SYMLINK_NOFOLLOW = 0x100;
 public using i32 AT_REMOVEDIR = 0x200;
 public using i32 AT_EMPTY_PATH = 0x1000;
+
+//!
+//! Descriptor control
+//!
+
+public using i32 F_GETFD = 1;
+public using i32 F_SETFD = 2;
+public using i32 F_GETFL = 3;
+public using i32 F_SETFL = 4;
+public using i32 FD_CLOEXEC = 1;
 
 //!
 //! File modes
@@ -245,6 +271,27 @@ public using i32 SIGSEGV = 11;
 public using i32 SIGPIPE = 13;
 public using i32 SIGALRM = 14;
 public using i32 SIGTERM = 15;
+public using i32 SIGCHLD = 17;
+
+//!
+//! Threads and futexes
+//!
+
+public using i32 CLONE_VM = 0x100;
+public using i32 CLONE_FS = 0x200;
+public using i32 CLONE_FILES = 0x400;
+public using i32 CLONE_SIGHAND = 0x800;
+public using i32 CLONE_THREAD = 0x10000;
+public using i32 CLONE_SYSVSEM = 0x40000;
+
+public using i32 FUTEX_WAIT = 0;
+public using i32 FUTEX_WAKE = 1;
+public using i32 FUTEX_PRIVATE_FLAG = 0x80;
+
+public using i32 WNOHANG = 1;
+
+public using i32 PR_SET_NAME = 15;
+public using i32 PR_GET_NAME = 16;
 
 //!
 //! Standard descriptors and misc
@@ -258,3 +305,55 @@ public using u32 GRND_NONBLOCK = 0x0001;
 public using u32 GRND_RANDOM = 0x0002;
 
 public using usize PAGE_SIZE = 4096;
+
+//!
+//! Sockets
+//!
+
+public using i32 AF_INET = 2;
+public using i32 AF_INET6 = 10;
+public using i32 SOCK_STREAM = 1;
+public using i32 SOCK_DGRAM = 2;
+public using i32 SOCK_CLOEXEC = 0x80000;
+public using i32 SOCK_NONBLOCK = 0x800;
+public using i32 IPPROTO_TCP = 6;
+public using i32 IPPROTO_UDP = 17;
+public using i32 SOL_SOCKET = 1;
+public using i32 SO_REUSEADDR = 2;
+public using i32 SO_SNDTIMEO = 21;
+public using i32 SO_RCVTIMEO = 20;
+public using i32 SO_ERROR = 4;
+public using i32 TCP_NODELAY = 1;
+public using i32 SHUT_RD = 0;
+public using i32 SHUT_WR = 1;
+public using i32 SHUT_RDWR = 2;
+
+public struct SockaddrIn {
+    u16 family;
+    u16 port;
+    u32 addr;
+    u8[8] zero;
+}
+
+public struct SockaddrIn6 {
+    u16 family;
+    u16 port;
+    u32 flowinfo;
+    u8[16] addr;
+    u32 scope_id;
+}
+
+//!
+//! Directory entries
+//!
+//! getdents64 packs variable-length records: u64 ino, i64 off,
+//! u16 reclen, u8 kind, then the nul-terminated name.
+
+public using u8 DT_UNKNOWN = 0;
+public using u8 DT_FIFO = 1;
+public using u8 DT_CHR = 2;
+public using u8 DT_DIR = 4;
+public using u8 DT_BLK = 6;
+public using u8 DT_REG = 8;
+public using u8 DT_LNK = 10;
+public using u8 DT_SOCK = 12;

@@ -9,9 +9,9 @@ import tempfile
 
 root = Path(__file__).resolve().parents[2]
 checks = [
-    ('linux', ['clang'], '#define _GNU_SOURCE\n#include <errno.h>\n#include <fcntl.h>\n#include <sys/mman.h>\n#include <sys/stat.h>\n#include <signal.h>\n#include <time.h>\n#include <sys/random.h>\n',
+    ('linux', ['clang'], '#define _GNU_SOURCE\n#include <errno.h>\n#include <fcntl.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <netinet/tcp.h>\n#include <sys/prctl.h>\n#include <dirent.h>\n#include <sys/mman.h>\n#include <sys/stat.h>\n#include <signal.h>\n#include <time.h>\n#include <sys/random.h>\n',
      {'MAX_ERRNO', 'PAGE_SIZE', 'DEFAULT_FILE_MODE', 'DEFAULT_DIR_MODE', 'STDIN', 'STDOUT', 'STDERR', 'CLOCK_PROCESS_CPUTIME', 'CLOCK_THREAD_CPUTIME'}),
-    ('win', [str(Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw')) / 'bin/x86_64-w64-mingw32-clang')], '#include <windows.h>\n',
+    ('win', [str(Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw')) / 'bin/x86_64-w64-mingw32-clang')], '#include <winsock2.h>\n#include <ws2tcpip.h>\n#include <windows.h>\n',
      {'PAGE_SIZE', 'ALLOCATION_GRANULARITY', 'FILETIME_UNIX_EPOCH'}),
 ]
 
@@ -52,6 +52,67 @@ win_layouts = {
         ('file_index_high', 'nFileIndexHigh', 44, 4),
         ('file_index_low', 'nFileIndexLow', 48, 4),
     ]),
+    'Sockaddr': ('SOCKADDR', 16, [
+        ('family', 'sa_family', 0, 2), ('data', 'sa_data', 2, 14),
+    ]),
+    'SockaddrIn': ('SOCKADDR_IN', 16, [
+        ('family', 'sin_family', 0, 2), ('port', 'sin_port', 2, 2),
+        ('addr', 'sin_addr', 4, 4), ('zero', 'sin_zero', 8, 8),
+    ]),
+    'SockaddrIn6': ('SOCKADDR_IN6', 28, [
+        ('family', 'sin6_family', 0, 2), ('port', 'sin6_port', 2, 2),
+        ('flowinfo', 'sin6_flowinfo', 4, 4), ('addr', 'sin6_addr', 8, 16),
+        ('scope_id', 'sin6_scope_id', 24, 4),
+    ]),
+    'Wsadata': ('WSADATA', 408, [
+        ('version', 'wVersion', 0, 2), ('high_version', 'wHighVersion', 2, 2),
+        ('max_sockets', 'iMaxSockets', 4, 2), ('max_udp_dg', 'iMaxUdpDg', 6, 2),
+        ('vendor_info', 'lpVendorInfo', 8, 8),
+        ('description', 'szDescription', 16, 257),
+        ('system_status', 'szSystemStatus', 273, 129),
+    ]),
+    'AddrInfoW': ('ADDRINFOW', 48, [
+        ('flags', 'ai_flags', 0, 4), ('family', 'ai_family', 4, 4),
+        ('socktype', 'ai_socktype', 8, 4), ('protocol', 'ai_protocol', 12, 4),
+        ('addrlen', 'ai_addrlen', 16, 8), ('canonname', 'ai_canonname', 24, 8),
+        ('addr', 'ai_addr', 32, 8), ('next', 'ai_next', 40, 8),
+    ]),
+    'Win32FindDataW': ('WIN32_FIND_DATAW', 592, [
+        ('attributes', 'dwFileAttributes', 0, 4),
+        ('creation_time', 'ftCreationTime', 4, 8),
+        ('last_access_time', 'ftLastAccessTime', 12, 8),
+        ('last_write_time', 'ftLastWriteTime', 20, 8),
+        ('file_size_high', 'nFileSizeHigh', 28, 4),
+        ('file_size_low', 'nFileSizeLow', 32, 4),
+        ('reserved0', 'dwReserved0', 36, 4),
+        ('reserved1', 'dwReserved1', 40, 4),
+        ('file_name', 'cFileName', 44, 520),
+        ('alternate_file_name', 'cAlternateFileName', 564, 28),
+    ]),
+    'StartupInfoW': ('STARTUPINFOW', 104, [
+        ('cb', 'cb', 0, 4), ('reserved', 'lpReserved', 8, 8),
+        ('desktop', 'lpDesktop', 16, 8), ('title', 'lpTitle', 24, 8),
+        ('x', 'dwX', 32, 4), ('y', 'dwY', 36, 4),
+        ('x_size', 'dwXSize', 40, 4), ('y_size', 'dwYSize', 44, 4),
+        ('x_count_chars', 'dwXCountChars', 48, 4),
+        ('y_count_chars', 'dwYCountChars', 52, 4),
+        ('fill_attribute', 'dwFillAttribute', 56, 4),
+        ('flags', 'dwFlags', 60, 4),
+        ('show_window', 'wShowWindow', 64, 2),
+        ('reserved2_len', 'cbReserved2', 66, 2),
+        ('reserved2', 'lpReserved2', 72, 8),
+        ('std_input', 'hStdInput', 80, 8),
+        ('std_output', 'hStdOutput', 88, 8),
+        ('std_error', 'hStdError', 96, 8),
+    ]),
+    'ProcessInformation': ('PROCESS_INFORMATION', 24, [
+        ('process', 'hProcess', 0, 8), ('thread', 'hThread', 8, 8),
+        ('process_id', 'dwProcessId', 16, 4),
+        ('thread_id', 'dwThreadId', 20, 4),
+    ]),
+    'SrwLock': ('SRWLOCK', 8, [('ptr', 'Ptr', 0, 8)]),
+    'ConditionVariable': ('CONDITION_VARIABLE', 8, [('ptr', 'Ptr', 0, 8)]),
+    'InitOnce': ('INIT_ONCE', 8, [('ptr', 'Ptr', 0, 8)]),
 }
 
 
@@ -66,8 +127,8 @@ def win_field_assertions(source, directory):
         dc_checks.append(f'static if !({expression}) {{ core::compile_error("{label}"); }}')
 
     for name, (sdk, size, fields) in win_layouts.items():
-        declared = dict((field, kind.strip()) for kind, field in
-                        re.findall(r'([\w*]+)\s+(\w+);', declarations[name]))
+        declared = dict((field, (kind.strip(), count)) for kind, count, field in
+                        re.findall(r'(\w+(?:\*)?)(?:\[(\d+)\])?\s+(\w+);', declarations[name]))
         assert declared.keys() == {field[0] for field in fields}, f'uncovered field in {name}'
         c_checks.append(f'_Static_assert(sizeof({sdk}) == {size}, "{sdk} size");')
         dc_check(f'sizeof(abi::{name}) == {size}', f'{name} size')
@@ -75,9 +136,17 @@ def win_field_assertions(source, directory):
             c_checks.append(f'_Static_assert(__builtin_offsetof({sdk}, {sdk_field}) == {offset}, "{sdk}.{sdk_field} offset");')
             c_checks.append(f'_Static_assert(sizeof((({sdk}*)0)->{sdk_field}) == {width}, "{sdk}.{sdk_field} width");')
             dc_check(f'offsetof(abi::{name}, {field}) == {offset}', f'{name}.{field} offset')
-            kind = declared[field]
-            dc_type = kind if kind in {'usize', 'u64', 'void*'} else f'abi::{kind}'
-            dc_check(f'sizeof({dc_type}) == {width}', f'{name}.{field} width')
+            kind, count = declared[field]
+            primitives = {'u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64',
+                          'usize', 'isize', 'bool', 'f32', 'f64', 'void*'}
+            if kind.endswith('*'):
+                dc_check(f'sizeof(usize) == {width}', f'{name}.{field} width')
+            elif count:
+                base = kind if kind in primitives else f'abi::{kind}'
+                dc_check(f'sizeof({base}) * {count} == {width}', f'{name}.{field} width')
+            else:
+                dc_type = kind if kind in primitives else f'abi::{kind}'
+                dc_check(f'sizeof({dc_type}) == {width}', f'{name}.{field} width')
 
     # D's u64 offset represents the SDK's Offset/OffsetHigh union storage.
     c_checks += ['_Static_assert(__builtin_offsetof(OVERLAPPED, Offset) == 16, "Offset");',
