@@ -322,6 +322,7 @@ public struct InitOnce {
 //!
 
 public using Dword HANDLE_FLAG_INHERIT = 0x1;
+public using Dword STARTF_USESTDHANDLES = 0x100;
 public using Dword PIPE_NOWAIT = 0x1;
 public using Dword ERROR_INSUFFICIENT_BUFFER = 122;
 

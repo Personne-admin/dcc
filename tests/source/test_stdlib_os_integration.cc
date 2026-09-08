@@ -45,3 +45,9 @@ TEST_CASE("abort terminates through SIGABRT or TerminateProcess")
 {
     CHECK_EQ(os_test::run("module main; import std::os::process; public i32 main() { std::os::process::abort(); return 1; }", windows()).status, 134);
 }
+
+TEST_CASE("Windows child standard output reaches an inherited pipe")
+{
+    if (windows())
+        CHECK_EQ(os_test::run(os_test::fixture("pipe-redirection.dc"), true).status, 0);
+}
