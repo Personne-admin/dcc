@@ -68,14 +68,10 @@ public struct Iterator {
     u8[8192] buffer;
     usize len;
     usize pos;
-    u8[592] win_data; // raw Win32FindDataW. never embed that struct: its triple FileTime miscompiles.
+    win::abi::Win32FindDataW win_data;
     path::PathW pattern;
     bool first_pending;
     bool exhausted;
-}
-
-win::abi::Win32FindDataW* win_data_ptr(Iterator* self) {
-    return &self.win_data[0] as win::abi::Win32FindDataW*;
 }
 
 EntryKind kind_from_linux(u8 raw) {
@@ -185,7 +181,7 @@ public Status(Error) open([] const u8 path, Iterator* out) {
 
         win::abi::Handle h = win::imports::FindFirstFileW(
             path::wide_ptr(&out.pattern),
-            win_data_ptr(out)
+            &out.win_data
         );
 
         if h as isize == win::abi::INVALID_HANDLE_VALUE {
@@ -266,13 +262,13 @@ public Optional(Entry) next(Iterator* self) {
 
     static if core::target::OS == core::target::Os::Windows {
         while true {
-            win::abi::Win32FindDataW* current = win_data_ptr(self);
+            win::abi::Win32FindDataW* current = &self.win_data;
             if self.first_pending {
                 self.first_pending = false;
             } else {
                 win::abi::Bool ok = win::imports::FindNextFileW(
                     self.handle as win::abi::Handle,
-                    win_data_ptr(self)
+                    &self.win_data
                 );
 
                 if !win::abi::succeeded(ok) {
@@ -349,7 +345,7 @@ public Status(Error) rewind(Iterator* self) {
         win::imports::FindClose(self.handle as win::abi::Handle);
         win::abi::Handle h = win::imports::FindFirstFileW(
             path::wide_ptr(&self.pattern),
-            win_data_ptr(self)
+            &self.win_data
         );
 
         if h as isize == win::abi::INVALID_HANDLE_VALUE {

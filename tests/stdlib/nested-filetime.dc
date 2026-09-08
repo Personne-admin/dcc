@@ -1,0 +1,15 @@
+module main;
+import std::sys::win::abi;
+struct Wrap { u64 prefix; std::sys::win::abi::Win32FindDataW data; u64 suffix; }
+void touch(Wrap* w) { w.data.creation_time.low = 11; w.data.last_access_time.low = 22; w.data.last_write_time.low = 33; w.data.file_name[259] = 44; }
+public i32 main() {
+ Wrap w;
+ touch(&w);
+ u32* raw = &w.data as u32*;
+ if raw[1] != 11 { return 1; }
+ if raw[3] != 22 { return 2; }
+ if raw[5] != 33 { return 3; }
+ u16* words = &w.data as u16*;
+ if words[281] != 44 { return 4; }
+ return 0;
+}

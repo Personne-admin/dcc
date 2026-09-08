@@ -1013,8 +1013,16 @@ export namespace dcc::sema
         void ensure_type_finalized(ast::TypeSema& ts)
         {
             auto* raw = const_cast<types::Type*>(get_canonical(ts));
-            if (!raw || raw->is_complete)
+            if (!raw)
                 return;
+            if (raw->is_complete)
+            {
+                ts.byte_size = raw->byte_size;
+                ts.byte_align = raw->byte_align;
+                ts.is_complete = raw->is_complete;
+                ts.is_zero_sized = raw->is_zero_sized;
+                return;
+            }
 
             if (auto* arr = const_cast<types::ArrayType*>(types::type_cast<types::ArrayType>(raw)))
             {
