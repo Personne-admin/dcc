@@ -76,3 +76,28 @@ __syscall6:
     syscall
     ret
 .size __syscall6, . - __syscall6
+
+.globl __thread_entry
+.type __thread_entry, @function
+__thread_entry:
+    mov %rdx, %r12
+    mov $56, %eax
+
+    xor %r10d, %r10d
+    xor %r8d, %r8d
+    syscall
+    test %rax, %rax
+    jnz .thread_parent
+
+    cld
+    mov %r12, %rdi
+    call thread_child_main
+
+    mov $60, %eax
+    xor %edi, %edi
+    syscall
+    ud2
+
+.thread_parent:
+    ret
+.size __thread_entry, . - __thread_entry

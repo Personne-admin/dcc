@@ -92,6 +92,7 @@ public using usize NR_SETSOCKOPT = 54;
 public using usize NR_GETSOCKOPT = 55;
 public using usize NR_GETTID = 186;
 public using usize NR_PRCTL = 157;
+public using usize NR_SCHED_GETAFFINITY = 204;
 
 //!
 //! Raw entry
@@ -425,6 +426,21 @@ public isize execve(const u8* path, const u8** argv, const u8** envp) {
 public isize gettid() {
     return raw0(NR_GETTID);
 }
+
+public isize sched_getaffinity(abi::Pid pid, [] u8 mask) {
+    return raw3(
+        NR_SCHED_GETAFFINITY,
+        pid as isize as usize,
+        mask.len,
+        mask.ptr as usize
+    );
+}
+
+@[nomangle] public extern isize __thread_entry(
+    usize flags,
+    usize stack,
+    void* control
+);
 
 public isize prctl(i32 option, usize a, usize b, usize c, usize d) {
     return raw5(
