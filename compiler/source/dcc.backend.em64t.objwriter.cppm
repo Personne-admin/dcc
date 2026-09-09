@@ -28,6 +28,7 @@ namespace dcc::backend::em64t
 
         constexpr std::uint32_t STB_LOCAL = 0;
         constexpr std::uint32_t STB_GLOBAL = 1;
+        constexpr std::uint32_t STB_WEAK = 2;
         constexpr std::uint32_t STT_NOTYPE = 0;
         constexpr std::uint32_t STT_OBJECT = 1;
         constexpr std::uint32_t STT_FUNC = 2;
@@ -593,11 +594,16 @@ export namespace dcc::backend::em64t
 
         std::vector<std::string> func_names;
         func_names.reserve(mod.functions.size());
+        std::vector<ir::Linkage> func_linkages;
+        func_linkages.reserve(mod.functions.size());
         for (auto const& mf : mod.functions)
+        {
             if (!mf.owned_name.empty())
                 func_names.push_back(mf.owned_name);
             else
                 func_names.push_back("<unnamed>");
+            func_linkages.push_back(mf.linkage);
+        }
 
         std::unordered_set<std::string> defined_names;
         for (auto const& fn : func_names)
@@ -1138,9 +1144,13 @@ export namespace dcc::backend::em64t
             auto const& fn = func_names[i];
             if (name_to_sym_idx.contains(fn))
                 continue;
+            std::uint8_t bind = STB_GLOBAL;
+            if (i < func_linkages.size() &&
+                (func_linkages[i] == ir::Linkage::LinkOnceODR || func_linkages[i] == ir::Linkage::WeakODR))
+                bind = STB_WEAK;
             Elf64_Sym s{};
             s.st_name = add_str(strtab, fn);
-            s.st_info = elf_st_info(STB_GLOBAL, STT_FUNC);
+            s.st_info = elf_st_info(bind, STT_FUNC);
             s.st_shndx = static_cast<std::uint16_t>(sec_text);
             s.st_value = func_offsets[i];
             s.st_size = func_codes[i].size();
