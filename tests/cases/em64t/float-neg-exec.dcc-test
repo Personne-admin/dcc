@@ -1,0 +1,28 @@
+=== FILE: test.dc ===
+module test;
+@nomangle
+public i32 dcc_main() {
+    f64 e = -2.5;
+    f64 d = e + 2.5;
+    if d < 0.0 { return 1; }
+    if d > 0.0001 { return 2; }
+    if e != (0.0 - 2.5) { return 3; }
+    f64 n = -(1 as f64);
+    if n != (0.0 - 1.0) { return 4; }
+    f32 a = -(1.0 as f32);
+    f32 b = 0.0 as f32 - 1.0 as f32;
+    if a != b { return 5; }
+    f32 c = a + 1.0 as f32;
+    if c < 0.0 as f32 { return 6; }
+    if c > 0.0001 as f32 { return 7; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

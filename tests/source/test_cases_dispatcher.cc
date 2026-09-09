@@ -539,7 +539,9 @@ namespace
                     auto flags_str = trim(std::string_view{h}.substr(flags_start + 6));
                     if (flags_str.find("-no-section-check") != std::string::npos)
                         e.verify_sections = false;
-                    if (flags_str.find("-O1") != std::string::npos || flags_str.find("OPT-LEVEL: 1") != std::string::npos)
+                    if (flags_str.find("-O2") != std::string::npos || flags_str.find("OPT-LEVEL: 2") != std::string::npos)
+                        e.opt_level = 2;
+                    else if (flags_str.find("-O1") != std::string::npos || flags_str.find("OPT-LEVEL: 1") != std::string::npos)
                         e.opt_level = 1;
                     if (flags_str.find("-frestricted-check") != std::string::npos)
                         e.restricted_check = true;

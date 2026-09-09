@@ -2829,11 +2829,20 @@ namespace dcc::backend::em64t
                             bool is_float = ctx.is_float_type(n->type);
                             if (is_float)
                             {
+                                bool const is_f32 = n->type && static_cast<dcc::ir::IrFloatType const*>(n->type)->bits == 32;
                                 VReg dst = ctx.mfunc.new_vreg();
                                 VReg zero = ctx.mfunc.new_vreg();
-                                emit_mov_ri(ctx, zero, 0, 64);
+                                VReg zero_bits = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, zero_bits, 0, 64);
+                                MInstr movq;
+                                movq.opc = MOpc::MOVQ64rr;
+                                movq.num_ops = 2;
+                                movq.num_defs = 1;
+                                movq.ops[0] = MOp::from_reg(zero);
+                                movq.ops[1] = MOp::from_reg(zero_bits);
+                                ctx.append_instr(movq);
                                 MInstr sub;
-                                sub.opc = MOpc::SUBSDrr;
+                                sub.opc = is_f32 ? MOpc::SUBSSrr : MOpc::SUBSDrr;
                                 sub.num_ops = 3;
                                 sub.num_defs = 1;
                                 sub.ops[0] = MOp::from_reg(dst);
