@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+enum Opt(T) {
+    Some(T),
+    None,
+}
+
+@nomangle
+public i32 dcc_main() {
+    u64[4] arr = {10, 20, 30, 40};
+    Opt(u64) o = Opt::Some(2);
+    Opt(u64) r = match o {
+        Opt::Some(i) => Opt::Some(arr[i]),
+        Opt::None => Opt::None,
+    };
+    return match r { Opt::Some(v) => v as i32, Opt::None => -1, };
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 30

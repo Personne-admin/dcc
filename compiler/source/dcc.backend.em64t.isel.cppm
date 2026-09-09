@@ -60,6 +60,10 @@ namespace dcc::backend::em64t
             dcc::target::TargetConfig const& target;
             CallConvKind cc;
             std::unordered_map<dcc::ir::IrBasicBlock const*, std::uint32_t> ir_bb_to_mblock;
+            dcc::ir::IrBasicBlock const* ir_entry_block = nullptr;
+            std::unordered_set<dcc::ir::IrBasicBlock const*> lowered_blocks;
+            std::unordered_set<dcc::ir::IrBasicBlock const*> lowering_blocks;
+            std::unordered_map<dcc::ir::IrValue const*, dcc::ir::IrBasicBlock const*> value_home;
             std::unordered_map<dcc::ir::IrValue const*, VReg> value_map;
             std::unordered_map<dcc::ir::IrValue const*, std::uint32_t> alloca_to_slot;
             std::unordered_map<dcc::ir::IrValue const*, std::uint32_t> aggregate_to_slot;
@@ -277,6 +281,19 @@ namespace dcc::backend::em64t
                     return it->second;
 
                 return get_or_create_vreg(v);
+            }
+
+            void evict_rematerialized()
+            {
+                for (auto it = value_map.begin(); it != value_map.end();)
+                {
+                    dcc::ir::IrNodeKind const k = it->first->kind;
+                    if (k == dcc::ir::IrNodeKind::IntConstant || k == dcc::ir::IrNodeKind::FloatConstant || k == dcc::ir::IrNodeKind::BoolConstant ||
+                        k == dcc::ir::IrNodeKind::NullConstant || k == dcc::ir::IrNodeKind::StringConstant || k == dcc::ir::IrNodeKind::GlobalRef)
+                        it = value_map.erase(it);
+                    else
+                        ++it;
+                }
             }
 
             [[nodiscard]] unsigned type_bits(dcc::ir::IrType const* t) const
@@ -809,6 +826,69 @@ namespace dcc::backend::em64t
         }
 
         VReg emit_aggregate(IselCtx& ctx, dcc::ir::IrAggregateInst const* agg);
+
+        [[nodiscard]] bool phi_operand_available_in(IselCtx& ctx, dcc::ir::IrValue const* v, dcc::ir::IrBasicBlock const* pred,
+                                                    dcc::ir::IrBasicBlock const* entry, int depth = 0)
+        {
+            if (!v || !pred || depth > 16)
+                return false;
+            switch (v->kind)
+            {
+                case dcc::ir::IrNodeKind::IntConstant:
+                case dcc::ir::IrNodeKind::FloatConstant:
+                case dcc::ir::IrNodeKind::BoolConstant:
+                case dcc::ir::IrNodeKind::NullConstant:
+                case dcc::ir::IrNodeKind::StringConstant:
+                case dcc::ir::IrNodeKind::GlobalRef:
+                    return true;
+                case dcc::ir::IrNodeKind::Aggregate: {
+                    auto* agg = static_cast<dcc::ir::IrAggregateInst const*>(v);
+                    for (auto* m : agg->values)
+                        if (!phi_operand_available_in(ctx, m, pred, entry, depth + 1))
+                            return false;
+                    return true;
+                }
+                default: {
+                    auto it = ctx.value_home.find(v);
+                    return it != ctx.value_home.end() && (it->second == pred || it->second == entry);
+                }
+            }
+        }
+
+        void erase_aggregate_cache(IselCtx& ctx, dcc::ir::IrValue const* v)
+        {
+            if (!v || v->kind != dcc::ir::IrNodeKind::Aggregate)
+                return;
+            ctx.aggregate_to_slot.erase(v);
+            auto* agg = static_cast<dcc::ir::IrAggregateInst const*>(v);
+            for (auto* m : agg->values)
+                erase_aggregate_cache(ctx, m);
+        }
+
+        [[nodiscard]] bool is_mblock_branch(MOpc opc) noexcept
+        {
+            switch (opc)
+            {
+                case MOpc::JMP:
+                case MOpc::JE:
+                case MOpc::JNE:
+                case MOpc::JB:
+                case MOpc::JAE:
+                case MOpc::JBE:
+                case MOpc::JA:
+                case MOpc::JL:
+                case MOpc::JGE:
+                case MOpc::JLE:
+                case MOpc::JG:
+                case MOpc::JS:
+                case MOpc::JNS:
+                case MOpc::JP:
+                case MOpc::JNP:
+                    return true;
+                default:
+                    return false;
+            }
+        }
 
         [[nodiscard]] VReg memory_value_addr(IselCtx& ctx, dcc::ir::IrValue const* val)
         {
@@ -3232,6 +3312,7 @@ namespace dcc::backend::em64t
                         break;
 
                     VReg result = ctx.mfunc.new_vreg();
+                    bool has_phi_input = false;
                     constexpr std::size_t kMaxPhiInputs = 15;
                     for (std::size_t first = 0; first < p->incoming.size();)
                     {
@@ -3244,9 +3325,42 @@ namespace dcc::backend::em64t
                         for (std::size_t k = first; k < last; ++k)
                         {
                             auto const& inc = p->incoming[k];
-                            VReg val = ctx.try_materialize(inc.value);
+                            VReg val{};
+                            if (is_memory_type(inst->type))
+                            {
+                                if (auto* agg_in = ir_cast<IrAggregateInst>(inc.value))
+                                {
+                                    if (auto pit = ctx.ir_bb_to_mblock.find(inc.block);
+                                        pit != ctx.ir_bb_to_mblock.end() && ctx.lowered_blocks.contains(inc.block) &&
+                                        phi_operand_available_in(ctx, agg_in, inc.block, ctx.ir_entry_block))
+                                    {
+                                        auto* pred_mb = ctx.mfunc.block_by_id(pit->second);
+                                        if (pred_mb)
+                                        {
+                                            std::size_t term_start = pred_mb->instrs.size();
+                                            while (term_start > 0 && is_mblock_branch(pred_mb->instrs[term_start - 1].opc))
+                                                --term_start;
+
+                                            std::size_t emit_start = pred_mb->instrs.size();
+                                            std::uint32_t saved_block = ctx.current_block_id;
+                                            ctx.current_block_id = pit->second;
+                                            ctx.evict_rematerialized();
+                                            erase_aggregate_cache(ctx, agg_in);
+                                            val = emit_aggregate(ctx, agg_in);
+                                            erase_aggregate_cache(ctx, agg_in);
+                                            ctx.evict_rematerialized();
+                                            ctx.current_block_id = saved_block;
+                                            std::rotate(pred_mb->instrs.begin() + static_cast<std::ptrdiff_t>(term_start),
+                                                        pred_mb->instrs.begin() + static_cast<std::ptrdiff_t>(emit_start), pred_mb->instrs.end());
+                                        }
+                                    }
+                                }
+                            }
+                            if (!val.is_valid())
+                                val = ctx.try_materialize(inc.value);
                             if (!val.is_valid())
                                 continue;
+                            has_phi_input = true;
 
                             if (phi.num_ops + 2 <= phi.ops.size())
                             {
@@ -3265,6 +3379,8 @@ namespace dcc::backend::em64t
                         first = last;
                     }
 
+                    if (has_phi_input && is_memory_type(inst->type))
+                        ctx.memory_addr_values.insert(inst);
                     ctx.set_vreg(inst, result);
                     break;
                 }
@@ -3891,8 +4007,18 @@ namespace dcc::backend::em64t
             auto& mbb = mfunc.create_block(ir_bb->has_name() ? ir_bb->name : std::string{});
             ctx.ir_bb_to_mblock[ir_bb] = mbb.id;
 
+            for (auto* inst : ir_bb->instructions)
+                if (inst)
+                    ctx.value_home[inst] = ir_bb;
+
             if (ir_bb == func.entry_block)
+            {
                 mfunc.entry_block_id = mbb.id;
+                ctx.ir_entry_block = ir_bb;
+                for (auto* param : ir_bb->params)
+                    if (param)
+                        ctx.value_home[param] = ir_bb;
+            }
         }
 
         if (mfunc.blocks.empty())
@@ -4108,6 +4234,7 @@ namespace dcc::backend::em64t
             }
 
             lower_terminator(ctx, ir_bb->terminator);
+            ctx.lowered_blocks.insert(ir_bb);
         }
 
         for (auto& mbb : mfunc.blocks)
