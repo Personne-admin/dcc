@@ -97,7 +97,13 @@ namespace dcc::backend::em64t
 
                 if (auto* ic = dcc::ir::ir_cast<dcc::ir::IrIntConstant>(ir_val))
                 {
-                    auto mi = make_mov_ri(v, ic->value, ir_val->type ? static_cast<dcc::ir::IrIntType const*>(ir_val->type)->bits : 64);
+                    unsigned const cbits = ir_val->type ? static_cast<dcc::ir::IrIntType const*>(ir_val->type)->bits : 64;
+                    std::int64_t cval = ic->value;
+                    if (cbits == 8)
+                        cval &= 0xFF;
+                    else if (cbits == 16)
+                        cval &= 0xFFFF;
+                    auto mi = make_mov_ri(v, cval, cbits);
                     append_instr(mi);
                 }
                 else if (dcc::ir::ir_cast<dcc::ir::IrBoolConstant>(ir_val))
@@ -535,6 +541,34 @@ namespace dcc::backend::em64t
             if (t && t->byte_size == 4 && !ctx.is_float_type(t))
                 return 4;
             return 8;
+        }
+
+        [[nodiscard]] static unsigned narrow_bits(dcc::ir::IrType const* t) noexcept
+        {
+            if (t && t->kind == dcc::ir::IrTypeKind::Int)
+            {
+                auto b = static_cast<dcc::ir::IrIntType const*>(t)->bits;
+                if (b == 8 || b == 16)
+                    return b;
+            }
+            return 0;
+        }
+
+        [[nodiscard]] static bool int_is_signed(dcc::ir::IrType const* t) noexcept
+        {
+            if (t && t->kind == dcc::ir::IrTypeKind::Int)
+                return static_cast<dcc::ir::IrIntType const*>(t)->is_signed;
+            return false;
+        }
+
+        [[nodiscard]] VReg extend_narrow_to_32(IselCtx& ctx, VReg v, unsigned bits)
+        {
+            return emit_unary_op(ctx, (bits == 8) ? MOpc::MOVSX32_8rr : MOpc::MOVSX32_16rr, v);
+        }
+
+        [[nodiscard]] VReg trunc_to_narrow(IselCtx& ctx, VReg v, unsigned bits)
+        {
+            return emit_unary_op(ctx, (bits == 8) ? MOpc::MOVZX32rr8 : MOpc::MOVZX32_16rr, v);
         }
 
         void emit_cmp(IselCtx& ctx, VReg lhs, VReg rhs, unsigned bits = 8)
@@ -2444,12 +2478,14 @@ namespace dcc::backend::em64t
 
                     bool is_f32 = false;
                     bool is_i32 = false;
+                    unsigned bin_narrow = 0;
                     auto set_binop = [&](auto const* bin_inst) {
                         lhs = bin_inst->lhs;
                         rhs = bin_inst->rhs;
                         is_float = ctx.is_float_type(bin_inst->type);
                         is_f32 = is_float && static_cast<IrFloatType const*>(bin_inst->type)->bits == 32;
-                        is_i32 = !is_float && int_width(ctx, bin_inst->type) == 4;
+                        bin_narrow = !is_float ? narrow_bits(bin_inst->type) : 0;
+                        is_i32 = !is_float && (int_width(ctx, bin_inst->type) == 4 || bin_narrow != 0);
                     };
 
                     switch (inst->kind)
@@ -2502,6 +2538,8 @@ namespace dcc::backend::em64t
                         else
                         {
                             VReg dst = emit_binary_op(ctx, opc, lhs_v, rhs_v);
+                            if (bin_narrow != 0)
+                                dst = trunc_to_narrow(ctx, dst, bin_narrow);
                             ctx.set_vreg(inst, dst);
                         }
                     }
@@ -2544,9 +2582,18 @@ namespace dcc::backend::em64t
                     VReg rhs_v = ctx.try_materialize(rhs);
                     if (lhs_v.is_valid() && rhs_v.is_valid())
                     {
-                        auto [quot, rem] = emit_idiv(ctx, lhs_v, rhs_v, is_signed, lhs ? int_width(ctx, lhs->type) : 8);
+                        unsigned const div_narrow = narrow_bits(inst->type);
+                        if (div_narrow != 0 && is_signed)
+                        {
+                            lhs_v = extend_narrow_to_32(ctx, lhs_v, div_narrow);
+                            rhs_v = extend_narrow_to_32(ctx, rhs_v, div_narrow);
+                        }
+                        auto [quot, rem] = emit_idiv(ctx, lhs_v, rhs_v, is_signed, (div_narrow != 0) ? 4 : (lhs ? int_width(ctx, lhs->type) : 8));
                         bool want_rem = (inst->kind == IrNodeKind::SRem || inst->kind == IrNodeKind::URem);
-                        ctx.set_vreg(inst, want_rem ? rem : quot);
+                        VReg div_result = want_rem ? rem : quot;
+                        if (div_narrow != 0)
+                            div_result = trunc_to_narrow(ctx, div_result, div_narrow);
+                        ctx.set_vreg(inst, div_result);
                     }
                     break;
                 }
@@ -2632,7 +2679,19 @@ namespace dcc::backend::em64t
                     VReg rhs_v = ctx.try_materialize(rhs);
                     if (lhs_v.is_valid() && rhs_v.is_valid())
                     {
-                        if (inst->type && inst->type->byte_size == 4)
+                        unsigned const shift_narrow = narrow_bits(inst->type);
+                        if (shift_narrow != 0)
+                        {
+                            if (inst->kind == IrNodeKind::AShr && int_is_signed(inst->type))
+                                lhs_v = extend_narrow_to_32(ctx, lhs_v, shift_narrow);
+                            if (cl_opc == MOpc::SHL64rcl)
+                                cl_opc = MOpc::SHL32rCL;
+                            else if (cl_opc == MOpc::SHR64rcl)
+                                cl_opc = MOpc::SHR32rCL;
+                            else if (cl_opc == MOpc::SAR64rcl)
+                                cl_opc = MOpc::SAR32rCL;
+                        }
+                        else if (inst->type && inst->type->byte_size == 4)
                         {
                             if (cl_opc == MOpc::SHL64rcl)
                                 cl_opc = MOpc::SHL32rCL;
@@ -2642,6 +2701,8 @@ namespace dcc::backend::em64t
                                 cl_opc = MOpc::SAR32rCL;
                         }
                         VReg dst = emit_shift(ctx, cl_opc, lhs_v, rhs_v);
+                        if (shift_narrow != 0)
+                            dst = trunc_to_narrow(ctx, dst, shift_narrow);
                         ctx.set_vreg(inst, dst);
                     }
                     break;
@@ -2731,7 +2792,22 @@ namespace dcc::backend::em64t
                             ctx.append_instr((ucom));
                         }
                         else
-                            emit_cmp(ctx, lhs_v, rhs_v, lhs ? int_width(ctx, lhs->type) : 8);
+                        {
+                            unsigned const cmp_narrow = (lhs && lhs->type && lhs->type->kind == IrTypeKind::Int) ? narrow_bits(lhs->type) : 0;
+                            if (cmp_narrow != 0)
+                            {
+                                bool const cmp_signed = inst->kind == IrNodeKind::CmpLt || inst->kind == IrNodeKind::CmpLe ||
+                                                        inst->kind == IrNodeKind::CmpGt || inst->kind == IrNodeKind::CmpGe;
+                                if (cmp_signed)
+                                {
+                                    lhs_v = extend_narrow_to_32(ctx, lhs_v, cmp_narrow);
+                                    rhs_v = extend_narrow_to_32(ctx, rhs_v, cmp_narrow);
+                                }
+                                emit_cmp(ctx, lhs_v, rhs_v, 4);
+                            }
+                            else
+                                emit_cmp(ctx, lhs_v, rhs_v, lhs ? int_width(ctx, lhs->type) : 8);
+                        }
 
                         VReg result = emit_setcc(ctx, set_opc);
                         ctx.set_vreg(inst, result);
@@ -2764,8 +2840,18 @@ namespace dcc::backend::em64t
                             }
                             else
                             {
-                                MOpc neg_opc = (n->type && int_width(ctx, n->type) == 4) ? MOpc::NEG32r : MOpc::NEG64r;
-                                VReg dst = emit_unary_op(ctx, neg_opc, op);
+                                unsigned const neg_narrow = narrow_bits(n->type);
+                                MOpc neg_opc = (neg_narrow != 0 || (n->type && int_width(ctx, n->type) == 4)) ? MOpc::NEG32r : MOpc::NEG64r;
+                                VReg dst = ctx.mfunc.new_vreg();
+                                emit_mov(ctx, dst, op);
+                                MInstr neg_mi;
+                                neg_mi.opc = neg_opc;
+                                neg_mi.num_ops = 1;
+                                neg_mi.num_defs = 1;
+                                neg_mi.ops[0] = MOp::from_reg(dst);
+                                ctx.append_instr(neg_mi);
+                                if (neg_narrow != 0)
+                                    dst = trunc_to_narrow(ctx, dst, neg_narrow);
                                 ctx.set_vreg(inst, dst);
                             }
                         }
@@ -2782,8 +2868,11 @@ namespace dcc::backend::em64t
                         {
                             VReg all_ones = ctx.mfunc.new_vreg();
                             emit_mov_ri(ctx, all_ones, -1, 64);
-                            MOpc xor_opc = (n->type && int_width(ctx, n->type) == 4) ? MOpc::XOR32rr : MOpc::XOR64rr;
+                            unsigned const not_narrow = narrow_bits(n->type);
+                            MOpc xor_opc = (not_narrow != 0 || (n->type && int_width(ctx, n->type) == 4)) ? MOpc::XOR32rr : MOpc::XOR64rr;
                             VReg dst = emit_binary_op(ctx, xor_opc, op, all_ones);
+                            if (not_narrow != 0)
+                                dst = trunc_to_narrow(ctx, dst, not_narrow);
                             ctx.set_vreg(inst, dst);
                         }
                     }
@@ -2850,18 +2939,46 @@ namespace dcc::backend::em64t
                             }
                             else
                             {
-                                VReg dst = emit_unary_op(ctx, MOpc::MOV64rr, op_vreg);
+                                unsigned const src_bits = operand && operand->type ? ctx.type_bits(operand->type) : 64;
+                                unsigned const dst_bits = inst->type ? ctx.type_bits(inst->type) : 64;
+                                MOpc zext_opc = MOpc::MOV64rr;
+                                if (src_bits <= 8)
+                                    zext_opc = (dst_bits <= 32) ? MOpc::MOVZX32rr8 : MOpc::MOVZX64rr8;
+                                else if (src_bits <= 16)
+                                    zext_opc = (dst_bits <= 32) ? MOpc::MOVZX32_16rr : MOpc::MOVZX64_16rr;
+                                else if (src_bits <= 32)
+                                    zext_opc = (dst_bits <= 32) ? MOpc::MOV32rr : MOpc::MOVZX64_32rr;
+                                VReg dst = emit_unary_op(ctx, zext_opc, op_vreg);
                                 ctx.set_vreg(inst, dst);
                             }
                             break;
                         }
                         case IrNodeKind::Sext: {
-                            VReg dst = emit_unary_op(ctx, MOpc::MOVSX64rr8, op_vreg);
+                            unsigned const src_bits = operand && operand->type ? ctx.type_bits(operand->type) : 64;
+                            unsigned const dst_bits = inst->type ? ctx.type_bits(inst->type) : 64;
+                            MOpc sext_opc = MOpc::MOVSX64rr8;
+                            if (src_bits <= 8)
+                                sext_opc = (dst_bits <= 32) ? MOpc::MOVSX32_8rr : MOpc::MOVSX64rr8;
+                            else if (src_bits <= 16)
+                                sext_opc = (dst_bits <= 32) ? MOpc::MOVSX32_16rr : MOpc::MOVSX64rr16;
+                            else if (src_bits <= 32)
+                                sext_opc = (dst_bits <= 32) ? MOpc::MOV32rr : MOpc::MOVSX64_32rr;
+                            else
+                                sext_opc = MOpc::MOV64rr;
+                            VReg dst = emit_unary_op(ctx, sext_opc, op_vreg);
                             ctx.set_vreg(inst, dst);
                             break;
                         }
                         case IrNodeKind::Trunc: {
-                            VReg dst = emit_unary_op(ctx, MOpc::MOV64rr, op_vreg);
+                            unsigned const dst_bits = inst->type ? ctx.type_bits(inst->type) : 64;
+                            MOpc trunc_opc = MOpc::MOV64rr;
+                            if (dst_bits <= 8)
+                                trunc_opc = MOpc::MOVZX32rr8;
+                            else if (dst_bits <= 16)
+                                trunc_opc = MOpc::MOVZX32_16rr;
+                            else if (dst_bits <= 32)
+                                trunc_opc = MOpc::MOVZX64_32rr;
+                            VReg dst = emit_unary_op(ctx, trunc_opc, op_vreg);
                             ctx.set_vreg(inst, dst);
                             break;
                         }
@@ -3269,7 +3386,21 @@ namespace dcc::backend::em64t
                         auto* cmp = static_cast<IrCmpEqInst const*>(bc->condition);
                         VReg lhs = ctx.try_materialize(cmp->lhs);
                         VReg rhs = ctx.try_materialize(cmp->rhs);
-                        emit_cmp(ctx, lhs, rhs, cmp->lhs ? int_width(ctx, cmp->lhs->type) : 8);
+                        unsigned const fused_narrow =
+                            (cmp->lhs && cmp->lhs->type && cmp->lhs->type->kind == IrTypeKind::Int) ? narrow_bits(cmp->lhs->type) : 0;
+                        if (fused_narrow != 0)
+                        {
+                            auto ck = bc->condition->kind;
+                            bool const ck_signed = ck == IrNodeKind::CmpLt || ck == IrNodeKind::CmpLe || ck == IrNodeKind::CmpGt || ck == IrNodeKind::CmpGe;
+                            if (ck_signed)
+                            {
+                                lhs = extend_narrow_to_32(ctx, lhs, fused_narrow);
+                                rhs = extend_narrow_to_32(ctx, rhs, fused_narrow);
+                            }
+                            emit_cmp(ctx, lhs, rhs, 4);
+                        }
+                        else
+                            emit_cmp(ctx, lhs, rhs, cmp->lhs ? int_width(ctx, cmp->lhs->type) : 8);
                         emit_jcc(ctx, fused->second, ctx.ir_bb_to_mblock.at(bc->true_target));
                         emit_jmp(ctx, ctx.ir_bb_to_mblock.at(bc->false_target));
                         break;

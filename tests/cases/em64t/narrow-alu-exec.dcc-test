@@ -1,0 +1,117 @@
+=== FILE: test.dc ===
+module test;
+@nomangle
+public i32 dcc_main() {
+    i16 a = -300 as i16;
+    i16 b = 7 as i16;
+    if a + b != (-293 as i16) {
+        return 1;
+    }
+    if a - b != (-307 as i16) {
+        return 2;
+    }
+    if a * b != (-2100 as i16) {
+        return 3;
+    }
+    if a / b != (-42 as i16) {
+        return 4;
+    }
+    if a % b != (-6 as i16) {
+        return 5;
+    }
+    if -a != (300 as i16) {
+        return 6;
+    }
+    if a > b {
+        return 7;
+    }
+    if !(a < b) {
+        return 8;
+    }
+    if (300 as i16) * (300 as i16) != (24464 as i16) {
+        return 9;
+    }
+    u16 x = 0xFF80 as u16;
+    u16 y = 3 as u16;
+    if x + y != (0xFF83 as u16) {
+        return 10;
+    }
+    if x - y != (0xFF7D as u16) {
+        return 11;
+    }
+    if x / (2 as u16) != (0x7FC0 as u16) {
+        return 12;
+    }
+    if x % y != (2 as u16) {
+        return 13;
+    }
+    if x < y {
+        return 14;
+    }
+    if !(x > y) {
+        return 15;
+    }
+    if (0xFF00 as u16) * (0x100 as u16) != (0 as u16) {
+        return 16;
+    }
+    if (0 as u16) - x != (0x80 as u16) {
+        return 17;
+    }
+    i8 m = -100 as i8;
+    i8 n = 3 as i8;
+    if m + n != (-97 as i8) {
+        return 18;
+    }
+    if m - n != (-103 as i8) {
+        return 19;
+    }
+    if m / n != (-33 as i8) {
+        return 20;
+    }
+    if m % n != (-1 as i8) {
+        return 21;
+    }
+    if -m != (100 as i8) {
+        return 22;
+    }
+    if m > n {
+        return 23;
+    }
+    if (100 as i8) * (100 as i8) != (16 as i8) {
+        return 24;
+    }
+    u8 p = 0xF0 as u8;
+    u8 q = 3 as u8;
+    if p + q != (0xF3 as u8) {
+        return 25;
+    }
+    if p - q != (0xED as u8) {
+        return 26;
+    }
+    if p / q != (80 as u8) {
+        return 27;
+    }
+    if p % q != (0 as u8) {
+        return 28;
+    }
+    if p < q {
+        return 29;
+    }
+    if (200 as u8) * (200 as u8) != (64 as u8) {
+        return 30;
+    }
+    i16 c = a + b;
+    i32 w = c as i32;
+    if w != -293 {
+        return 31;
+    }
+    i32 z = x as i32;
+    if z != 65408 {
+        return 32;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+RUN-EXIT: 0
