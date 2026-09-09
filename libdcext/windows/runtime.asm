@@ -22,3 +22,29 @@ __chkstk:
 .globl _fltused
 _fltused:
     .long 0
+
+.text
+.globl memcpy
+memcpy:
+    push %rdi
+    push %rsi
+    mov %rcx, %rax
+    mov %rcx, %rdi
+    mov %rdx, %rsi
+    mov %r8, %rcx
+    rep movsb
+    pop %rsi
+    pop %rdi
+    ret
+
+.globl memset
+memset:
+    push %rdi
+    mov %rcx, %r11
+    mov %rcx, %rdi
+    mov %r8, %rcx
+    mov %rdx, %rax
+    rep stosb
+    mov %r11, %rax
+    pop %rdi
+    ret

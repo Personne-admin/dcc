@@ -2,6 +2,7 @@ include $(RULES_MK)
 
 TARGET ?= x86_64-linux
 BACKEND ?= llvm
+LIBDCEXT_OPT ?= O2
 DCC ?= $(NATIVE_BUILD_DIR)/bin/dcc
 MINGW_SYSROOT ?= /opt/llvm-mingw
 MINGW_TARGET ?= x86_64-w64-mingw32
@@ -90,7 +91,7 @@ $(DC_OBJS): $(DC_SRCS)
 $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	@mkdir -p $(dir $@)
 	$(call MSG,DCC,$<)
-	$(Q)$(DCC) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -I$(TOPLEVEL)/libdcext -o $@ $<
+	$(Q)$(DCC) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
 
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
@@ -112,7 +113,7 @@ compdb-fragment:
 compdb-fragment-one:
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
 		--cxx "$(DCC)" \
-		--cxxflags "-c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -I$(TOPLEVEL)/libdcext" \
+		--cxxflags "-c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-dc.json" \
 		$(DC_SRCS)
