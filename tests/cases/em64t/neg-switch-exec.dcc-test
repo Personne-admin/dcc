@@ -1,0 +1,94 @@
+=== FILE: test.dc ===
+module test;
+enum Dense32 : i32 {
+    A = -8,
+    B = -7,
+    C = -6,
+    D = -5,
+    E = -4,
+    F = -3,
+    G = -2,
+    H = -1,
+}
+enum Chain32 : i32 {
+    A = -8,
+    B = -7,
+    C = -6,
+    D = -5,
+    E = -4,
+}
+enum Dense8 {
+    A = -8,
+    B = -7,
+    C = -6,
+    D = -5,
+    E = -4,
+    F = -3,
+    G = -2,
+    H = -1,
+}
+i32 dense(Dense32 v) {
+    return match v {
+        Dense32::A => 1,
+        Dense32::B => 2,
+        Dense32::C => 3,
+        Dense32::D => 4,
+        Dense32::E => 5,
+        Dense32::F => 6,
+        Dense32::G => 7,
+        Dense32::H => 8,
+    };
+}
+i32 chain(Chain32 v) {
+    return match v {
+        Chain32::A => 1,
+        Chain32::B => 2,
+        Chain32::C => 3,
+        Chain32::D => 4,
+        Chain32::E => 5,
+    };
+}
+i32 narrow(Dense8 v) {
+    return match v {
+        Dense8::A => 1,
+        Dense8::B => 2,
+        Dense8::C => 3,
+        Dense8::D => 4,
+        Dense8::E => 5,
+        Dense8::F => 6,
+        Dense8::G => 7,
+        Dense8::H => 8,
+    };
+}
+@nomangle
+public i32 dcc_main() {
+    if dense(Dense32::A) != 1 {
+        return 1;
+    }
+    if dense(Dense32::H) != 8 {
+        return 2;
+    }
+    if dense(Dense32::D) != 4 {
+        return 3;
+    }
+    if chain(Chain32::A) != 1 {
+        return 4;
+    }
+    if chain(Chain32::E) != 5 {
+        return 5;
+    }
+    if narrow(Dense8::A) != 1 {
+        return 6;
+    }
+    if narrow(Dense8::H) != 8 {
+        return 7;
+    }
+    if narrow(Dense8::E) != 5 {
+        return 8;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+RUN-EXIT: 0
