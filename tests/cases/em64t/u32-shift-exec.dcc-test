@@ -1,0 +1,37 @@
+=== FILE: test.dc ===
+module test;
+u16 htons(u16 v) {
+    return (((v & 0xFF) << 8) | ((v >> 8) & 0xFF)) as u16;
+}
+u32 htonl(u32 v) {
+    u32 a = ((v & 0xFF) << 24) | (((v >> 8) & 0xFF) << 16);
+    u32 b = (((v >> 16) & 0xFF) << 8) | ((v >> 24) & 0xFF);
+    return a | b;
+}
+i32 ashr_probes(i32 v, i32 n) {
+    return (v >> n) + (v >> 31);
+}
+@nomangle
+public i32 dcc_main() {
+    if htons(0x1234) != 0x3412 {
+        return 1;
+    }
+    if htonl(0x7F000001) != 0x0100007F {
+        return 2;
+    }
+    if htonl(htonl(0x12345678)) != 0x12345678 {
+        return 3;
+    }
+    if htonl(0xFFFFFFFF) != 0xFFFFFFFF {
+        return 4;
+    }
+    if ashr_probes(-8, 2) != -3 {
+        return 5;
+    }
+    if ashr_probes(-1, 31) != -2 {
+        return 6;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
