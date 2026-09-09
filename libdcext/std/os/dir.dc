@@ -432,12 +432,12 @@ public Result(Metadata, Error) stat_at(Iterator* self, const Entry* entry) {
         full.units[dir_len + tail_path.len] = 0;
         full.len = dir_len + tail_path.len;
 
-        u8[592] found_raw;
-        win::abi::Win32FindDataW* found = &found_raw[0] as win::abi::Win32FindDataW*;
+        win::abi::Win32FindDataW found_data;
         win::abi::Handle h = win::imports::FindFirstFileW(
             path::wide_ptr(&full),
-            found
+            &found_data
         );
+        win::abi::Win32FindDataW* found = &found_data;
 
         if h as isize == win::abi::INVALID_HANDLE_VALUE {
             return Result::Err(error::from_win32(win::imports::GetLastError()));
