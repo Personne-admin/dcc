@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    u8[16] raw = {10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160};
+    []u8 bs = raw[0..16];
+    []u64 ws = bs as []u64;
+    if ws.len != 16 { return 1; }
+    if ws[0] != 0x50463c32281e140a as u64 { return 2; }
+    if ws[1] != 0xa0968c82786e645a as u64 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
