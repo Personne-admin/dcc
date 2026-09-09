@@ -1808,7 +1808,11 @@ namespace dcc::backend::em64t
                         ctx.append_instr(mov);
                     }
                     else
+                    {
                         emit_mov(ctx, ret_vreg, ret_phys);
+                        if (unsigned const ret_narrow = narrow_bits(result_type); ret_narrow != 0)
+                            ret_vreg = trunc_to_narrow(ctx, ret_vreg, ret_narrow);
+                    }
 
                     cl.return_vreg = ret_vreg;
                 }
@@ -3005,18 +3009,35 @@ namespace dcc::backend::em64t
                             mi.ops[0] = MOp::from_reg(dst);
                             mi.ops[1] = MOp::from_reg(op_vreg);
                             ctx.append_instr(mi);
+                            if (inst->kind == IrNodeKind::FpToI)
+                            {
+                                if (unsigned const fptoi_narrow = narrow_bits(inst->type); fptoi_narrow != 0)
+                                    dst = trunc_to_narrow(ctx, dst, fptoi_narrow);
+                            }
                             ctx.set_vreg(inst, dst);
                             break;
                         }
                         case IrNodeKind::IToFp: {
                             auto dst_bits = (inst->type && inst->type->kind == IrTypeKind::Float) ? static_cast<IrFloatType const*>(inst->type)->bits : 64u;
+                            IrType const* src_ty = operand ? operand->type : nullptr;
+                            unsigned const src_bits = src_ty ? ctx.type_bits(src_ty) : 64;
+                            unsigned const src_narrow = narrow_bits(src_ty);
+                            VReg src = op_vreg;
+                            MOpc conv = (dst_bits == 32) ? MOpc::CVTSI2SSrr : MOpc::CVTSI2SDrr;
+                            if (src_narrow != 0)
+                            {
+                                if (int_is_signed(src_ty))
+                                    src = extend_narrow_to_32(ctx, src, src_narrow);
+                            }
+                            else if (src_bits > 32 || (src_bits == 32 && !int_is_signed(src_ty)))
+                                conv = (dst_bits == 32) ? MOpc::CVTSI2SS64rr : MOpc::CVTSI2SD64rr;
                             VReg dst = ctx.mfunc.new_vreg();
                             MInstr mi;
-                            mi.opc = (dst_bits == 32) ? MOpc::CVTSI2SSrr : MOpc::CVTSI2SDrr;
+                            mi.opc = conv;
                             mi.num_ops = 2;
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(dst);
-                            mi.ops[1] = MOp::from_reg(op_vreg);
+                            mi.ops[1] = MOp::from_reg(src);
                             ctx.append_instr(mi);
                             ctx.set_vreg(inst, dst);
                             break;
@@ -3269,7 +3290,14 @@ namespace dcc::backend::em64t
                     if (addr.is_valid() && val.is_valid())
                     {
                         MInstr xchg;
+                        unsigned const st_width = as->value && as->value->type ? static_cast<unsigned>(as->value->type->byte_size) : 8;
                         xchg.opc = MOpc::LOCK_XCHG;
+                        if (st_width <= 1)
+                            xchg.opc = MOpc::LOCK_XCHG8mr;
+                        else if (st_width == 2)
+                            xchg.opc = MOpc::LOCK_XCHG16mr;
+                        else if (st_width == 4)
+                            xchg.opc = MOpc::LOCK_XCHG32mr;
                         xchg.num_ops = 2;
                         xchg.num_defs = 0;
                         xchg.ops[0] = MOp::from_mem(MMem::make_base_disp(addr));
@@ -3317,6 +3345,31 @@ namespace dcc::backend::em64t
                         case IrAtomicRmwOp::Xor:
                             lock_opc = MOpc::LOCK_XOR;
                             break;
+                    }
+
+                    unsigned const rmw_width = ar->value && ar->value->type ? static_cast<unsigned>(ar->value->type->byte_size) : 8;
+                    if (rmw_width <= 1 || rmw_width == 2 || rmw_width == 4)
+                    {
+                        auto pick = [&](MOpc o32, MOpc o16, MOpc o8) { return (rmw_width == 4) ? o32 : ((rmw_width == 2) ? o16 : o8); };
+                        switch (ar->op)
+                        {
+                            case IrAtomicRmwOp::Xchg:
+                                lock_opc = pick(MOpc::LOCK_XCHG32mr, MOpc::LOCK_XCHG16mr, MOpc::LOCK_XCHG8mr);
+                                break;
+                            case IrAtomicRmwOp::Add:
+                            case IrAtomicRmwOp::Sub:
+                                lock_opc = pick(MOpc::LOCK_XADD32mr, MOpc::LOCK_XADD16mr, MOpc::LOCK_XADD8mr);
+                                break;
+                            case IrAtomicRmwOp::And:
+                                lock_opc = pick(MOpc::LOCK_AND32mr, MOpc::LOCK_AND16mr, MOpc::LOCK_AND8mr);
+                                break;
+                            case IrAtomicRmwOp::Or:
+                                lock_opc = pick(MOpc::LOCK_OR32mr, MOpc::LOCK_OR16mr, MOpc::LOCK_OR8mr);
+                                break;
+                            case IrAtomicRmwOp::Xor:
+                                lock_opc = pick(MOpc::LOCK_XOR32mr, MOpc::LOCK_XOR16mr, MOpc::LOCK_XOR8mr);
+                                break;
+                        }
                     }
 
                     VReg result = ctx.mfunc.new_vreg();
@@ -3922,6 +3975,11 @@ namespace dcc::backend::em64t
                     ld.ops[0] = MOp::from_reg(v);
                     ld.ops[1] = MOp::from_mem(MMem::make_base_disp(rbp, disp));
                     ld.opc = (!loc.by_reference && ctx.is_float_type(param_ty)) ? MOpc::MOVSDrm : MOpc::MOV64rm;
+                    if (ld.opc == MOpc::MOV64rm)
+                    {
+                        if (unsigned const stack_narrow = narrow_bits(param_ty); stack_narrow != 0)
+                            ld.opc = (stack_narrow == 8) ? MOpc::MOVZX64rm8 : MOpc::MOVZX64rm16;
+                    }
                     ctx.append_instr(ld);
 
                     if (loc.by_reference)
@@ -3972,7 +4030,12 @@ namespace dcc::backend::em64t
                 }
 
                 if (param_piece_regs[param_idx][0].is_valid())
-                    ctx.set_vreg(param, param_piece_regs[param_idx][0]);
+                {
+                    VReg pv = param_piece_regs[param_idx][0];
+                    if (unsigned const param_narrow = narrow_bits(param_ty); param_narrow != 0)
+                        pv = trunc_to_narrow(ctx, pv, param_narrow);
+                    ctx.set_vreg(param, pv);
+                }
             }
         }
 
