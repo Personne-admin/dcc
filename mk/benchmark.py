@@ -152,7 +152,7 @@ def main():
     p.add_argument('--valgrind', default=shutil.which('valgrind'))
     p.add_argument('--cpu', type=int)
     p.add_argument('--compiler-build', default=os.environ.get('BUILD_TYPE', 'unknown'))
-    p.add_argument('--library-opt', choices=['O0', 'O1', 'O2', 'Os'], help='build private archives at this level; default uses shipped O0 archives')
+    p.add_argument('--library-opt', choices=['O0', 'O1', 'O2', 'Os'], help='build private archives at this level; default uses shipped O2 archives')
     p.add_argument('--allow-broken', action='store_true')
     p.add_argument('--perf', help='path to perf for hardware counters')
     args = p.parse_args()
