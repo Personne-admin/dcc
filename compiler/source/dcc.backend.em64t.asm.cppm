@@ -1355,6 +1355,13 @@ namespace
                     out += "; ucomisd unrecognized\n";
                 break;
 
+            case MOpc::CVTSI2SD64rr:
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
+                    out += "cvtsi2sd " + std::string{phys_reg_name(ops[0].reg.phys_reg())} + ", " + std::string{reg64(ops[1].reg.phys_reg())} + "\n";
+                else
+                    out += "; cvtsi2sd unrecognized\n";
+                break;
+
             case MOpc::CVTSI2SD_r:
             case MOpc::CVTSI2SDrr:
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
@@ -1473,6 +1480,13 @@ namespace
                     out += "; ucomiss unrecognized\n";
                 break;
 
+            case MOpc::CVTSI2SS64rr:
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
+                    out += "cvtsi2ss " + std::string{phys_reg_name(ops[0].reg.phys_reg())} + ", " + std::string{reg64(ops[1].reg.phys_reg())} + "\n";
+                else
+                    out += "; cvtsi2ss unrecognized\n";
+                break;
+
             case MOpc::CVTSI2SS_r:
             case MOpc::CVTSI2SSrr:
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
@@ -1529,13 +1543,28 @@ namespace
 
             case MOpc::LOCK_XADD64mr:
             case MOpc::LOCK_XADD32mr:
+            case MOpc::LOCK_XADD16mr:
+            case MOpc::LOCK_XADD8mr:
             case MOpc::LOCK_XCHG64mr:
+            case MOpc::LOCK_XCHG32mr:
+            case MOpc::LOCK_XCHG16mr:
+            case MOpc::LOCK_XCHG8mr:
+            case MOpc::LOCK_AND32mr:
+            case MOpc::LOCK_AND16mr:
+            case MOpc::LOCK_AND8mr:
+            case MOpc::LOCK_OR32mr:
+            case MOpc::LOCK_OR16mr:
+            case MOpc::LOCK_OR8mr:
+            case MOpc::LOCK_XOR32mr:
+            case MOpc::LOCK_XOR16mr:
+            case MOpc::LOCK_XOR8mr:
             case MOpc::LOCK_XADD:
             case MOpc::LOCK_XCHG:
             case MOpc::LOCK_AND:
             case MOpc::LOCK_OR:
             case MOpc::LOCK_XOR: {
                 std::string mnem;
+                RegWidth lw = w;
                 if (opc == MOpc::LOCK_XADD64mr || opc == MOpc::LOCK_XADD32mr || opc == MOpc::LOCK_XADD)
                     mnem = "lock xadd";
                 else if (opc == MOpc::LOCK_XCHG64mr || opc == MOpc::LOCK_XCHG)
@@ -1544,10 +1573,27 @@ namespace
                     mnem = "lock and";
                 else if (opc == MOpc::LOCK_OR)
                     mnem = "lock or";
+                else if (opc == MOpc::LOCK_XADD16mr || opc == MOpc::LOCK_XCHG16mr || opc == MOpc::LOCK_AND16mr || opc == MOpc::LOCK_OR16mr ||
+                         opc == MOpc::LOCK_XOR16mr)
+                {
+                    lw = RegWidth::Bits16;
+                    mnem = (opc == MOpc::LOCK_XADD16mr) ? "lock xadd" : (opc == MOpc::LOCK_XCHG16mr) ? "lock xchg" : (opc == MOpc::LOCK_AND16mr) ? "lock and" : (opc == MOpc::LOCK_OR16mr) ? "lock or" : "lock xor";
+                }
+                else if (opc == MOpc::LOCK_XADD8mr || opc == MOpc::LOCK_XCHG8mr || opc == MOpc::LOCK_AND8mr || opc == MOpc::LOCK_OR8mr ||
+                         opc == MOpc::LOCK_XOR8mr)
+                {
+                    lw = RegWidth::Bits8;
+                    mnem = (opc == MOpc::LOCK_XADD8mr) ? "lock xadd" : (opc == MOpc::LOCK_XCHG8mr) ? "lock xchg" : (opc == MOpc::LOCK_AND8mr) ? "lock and" : (opc == MOpc::LOCK_OR8mr) ? "lock or" : "lock xor";
+                }
+                else if (opc == MOpc::LOCK_XCHG32mr || opc == MOpc::LOCK_AND32mr || opc == MOpc::LOCK_OR32mr || opc == MOpc::LOCK_XOR32mr)
+                {
+                    lw = RegWidth::Bits32;
+                    mnem = (opc == MOpc::LOCK_XCHG32mr) ? "lock xchg" : (opc == MOpc::LOCK_AND32mr) ? "lock and" : (opc == MOpc::LOCK_OR32mr) ? "lock or" : "lock xor";
+                }
                 else
                     mnem = "lock xor";
                 if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
-                    out += mnem + " " + format_op(ctx, ops[0], w, true) + ", " + std::string{rn(ops[1].reg.phys_reg())} + "\n";
+                    out += mnem + " " + format_op(ctx, ops[0], lw, true) + ", " + std::string{reg_name_f(ops[1].reg.phys_reg(), lw)} + "\n";
                 else
                     out += "; lock atomic unrecognized\n";
                 break;

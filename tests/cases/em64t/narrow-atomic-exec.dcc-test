@@ -1,0 +1,46 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+@nomangle
+public i32 dcc_main() {
+    core::atomic::Atomic(i16) c = { value = 10 };
+    i16 guard = 0x1234 as i16;
+    i16 old = core::atomic::atomic_fetch_add(&c, 5 as i16, core::atomic::MemoryOrder::SeqCst);
+    if old != (10 as i16) {
+        return 1;
+    }
+    if guard != (0x1234 as i16) {
+        return 2;
+    }
+    i16 cur = core::atomic::atomic_load(&c, core::atomic::MemoryOrder::SeqCst);
+    if cur != (15 as i16) {
+        return 3;
+    }
+    core::atomic::atomic_store(&c, 7 as i16, core::atomic::MemoryOrder::SeqCst);
+    if core::atomic::atomic_load(&c, core::atomic::MemoryOrder::SeqCst) != (7 as i16) {
+        return 4;
+    }
+    if guard != (0x1234 as i16) {
+        return 5;
+    }
+    core::atomic::Atomic(i8) b = { value = 20 };
+    i8 bold = core::atomic::atomic_fetch_add(&b, 5 as i8, core::atomic::MemoryOrder::SeqCst);
+    if bold != (20 as i8) {
+        return 6;
+    }
+    if core::atomic::atomic_load(&b, core::atomic::MemoryOrder::SeqCst) != (25 as i8) {
+        return 7;
+    }
+    if guard != (0x1234 as i16) {
+        return 8;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-ASM ===
+-CONTAINS: lock xadd word
+-CONTAINS: lock xadd byte
+-CONTAINS: lock xchg word

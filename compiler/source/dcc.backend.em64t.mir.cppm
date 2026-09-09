@@ -450,6 +450,7 @@ export namespace dcc::backend::em64t
         UCOMISDrr,
         CVTSI2SD_r,
         CVTSI2SDrr,
+        CVTSI2SD64rr,
         CVTTSD2SI_r,
         CVTSD2SIrr,
         CVTSD2SI64rr,
@@ -478,6 +479,7 @@ export namespace dcc::backend::em64t
         UCOMISSrr,
         CVTSI2SS_r,
         CVTSI2SSrr,
+        CVTSI2SS64rr,
         CVTTSS2SI_r,
         CVTSS2SIrr,
         CVTSS2SI64rr,
@@ -490,10 +492,24 @@ export namespace dcc::backend::em64t
 
         LOCK_XADD64mr,
         LOCK_XADD32mr,
+        LOCK_XADD16mr,
+        LOCK_XADD8mr,
         LOCK_XCHG64mr,
+        LOCK_XCHG32mr,
+        LOCK_XCHG16mr,
+        LOCK_XCHG8mr,
         LOCK_AND64mi32,
+        LOCK_AND32mr,
+        LOCK_AND16mr,
+        LOCK_AND8mr,
         LOCK_OR64mi32,
+        LOCK_OR32mr,
+        LOCK_OR16mr,
+        LOCK_OR8mr,
         LOCK_XOR64mi32,
+        LOCK_XOR32mr,
+        LOCK_XOR16mr,
+        LOCK_XOR8mr,
         LOCK_XADD,
         LOCK_XCHG,
         LOCK_AND,
@@ -572,14 +588,28 @@ export namespace dcc::backend::em64t
                 case MOpc::LOCK_XADD:
                 case MOpc::LOCK_XADD64mr:
                 case MOpc::LOCK_XADD32mr:
+                case MOpc::LOCK_XADD16mr:
+                case MOpc::LOCK_XADD8mr:
                 case MOpc::LOCK_XCHG:
                 case MOpc::LOCK_XCHG64mr:
+                case MOpc::LOCK_XCHG32mr:
+                case MOpc::LOCK_XCHG16mr:
+                case MOpc::LOCK_XCHG8mr:
                 case MOpc::LOCK_AND:
                 case MOpc::LOCK_AND64mi32:
+                case MOpc::LOCK_AND32mr:
+                case MOpc::LOCK_AND16mr:
+                case MOpc::LOCK_AND8mr:
                 case MOpc::LOCK_OR:
                 case MOpc::LOCK_OR64mi32:
+                case MOpc::LOCK_OR32mr:
+                case MOpc::LOCK_OR16mr:
+                case MOpc::LOCK_OR8mr:
                 case MOpc::LOCK_XOR:
                 case MOpc::LOCK_XOR64mi32:
+                case MOpc::LOCK_XOR32mr:
+                case MOpc::LOCK_XOR16mr:
+                case MOpc::LOCK_XOR8mr:
                 case MOpc::MFENCE:
                 case MOpc::LFENCE:
                 case MOpc::SFENCE:
@@ -706,10 +736,7 @@ export namespace dcc::backend::em64t
 
         std::uint32_t next_copy_group{1};
 
-        [[nodiscard]] std::uint32_t new_copy_group()
-        {
-            return next_copy_group++;
-        }
+        [[nodiscard]] std::uint32_t new_copy_group() { return next_copy_group++; }
 
         [[nodiscard]] std::uint32_t new_frame_slot(std::uint32_t size, std::uint32_t align, bool is_spill = false)
         {
@@ -1200,6 +1227,8 @@ export namespace dcc::backend::em64t
                 return "CVTSI2SD_r"sv;
             case MOpc::CVTSI2SDrr:
                 return "CVTSI2SDrr"sv;
+            case MOpc::CVTSI2SD64rr:
+                return "CVTSI2SD64rr"sv;
             case MOpc::CVTTSD2SI_r:
                 return "CVTTSD2SI_r"sv;
             case MOpc::CVTSD2SIrr:
@@ -1255,6 +1284,8 @@ export namespace dcc::backend::em64t
                 return "CVTSI2SS_r"sv;
             case MOpc::CVTSI2SSrr:
                 return "CVTSI2SSrr"sv;
+            case MOpc::CVTSI2SS64rr:
+                return "CVTSI2SS64rr"sv;
             case MOpc::CVTTSS2SI_r:
                 return "CVTTSS2SI_r"sv;
             case MOpc::CVTSS2SIrr:
@@ -1277,14 +1308,42 @@ export namespace dcc::backend::em64t
                 return "LOCK_XADD64mr"sv;
             case MOpc::LOCK_XADD32mr:
                 return "LOCK_XADD32mr"sv;
+            case MOpc::LOCK_XADD16mr:
+                return "LOCK_XADD16mr"sv;
+            case MOpc::LOCK_XADD8mr:
+                return "LOCK_XADD8mr"sv;
             case MOpc::LOCK_XCHG64mr:
                 return "LOCK_XCHG64mr"sv;
+            case MOpc::LOCK_XCHG32mr:
+                return "LOCK_XCHG32mr"sv;
+            case MOpc::LOCK_XCHG16mr:
+                return "LOCK_XCHG16mr"sv;
+            case MOpc::LOCK_XCHG8mr:
+                return "LOCK_XCHG8mr"sv;
             case MOpc::LOCK_AND64mi32:
                 return "LOCK_AND64mi32"sv;
+            case MOpc::LOCK_AND32mr:
+                return "LOCK_AND32mr"sv;
+            case MOpc::LOCK_AND16mr:
+                return "LOCK_AND16mr"sv;
+            case MOpc::LOCK_AND8mr:
+                return "LOCK_AND8mr"sv;
             case MOpc::LOCK_OR64mi32:
                 return "LOCK_OR64mi32"sv;
+            case MOpc::LOCK_OR32mr:
+                return "LOCK_OR32mr"sv;
+            case MOpc::LOCK_OR16mr:
+                return "LOCK_OR16mr"sv;
+            case MOpc::LOCK_OR8mr:
+                return "LOCK_OR8mr"sv;
             case MOpc::LOCK_XOR64mi32:
                 return "LOCK_XOR64mi32"sv;
+            case MOpc::LOCK_XOR32mr:
+                return "LOCK_XOR32mr"sv;
+            case MOpc::LOCK_XOR16mr:
+                return "LOCK_XOR16mr"sv;
+            case MOpc::LOCK_XOR8mr:
+                return "LOCK_XOR8mr"sv;
             case MOpc::LOCK_XADD:
                 return "LOCK_XADD"sv;
             case MOpc::LOCK_XCHG:

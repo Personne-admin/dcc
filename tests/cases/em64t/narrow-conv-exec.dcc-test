@@ -1,0 +1,97 @@
+=== FILE: test.dc ===
+module test;
+i32 sext16(i16 v) {
+    return v as i32;
+}
+i32 sext8(i8 v) {
+    return v as i32;
+}
+i64 sext32(i32 v) {
+    return v as i64;
+}
+i32 zext16(u16 v) {
+    return v as u32 as i32;
+}
+i32 zext8(u8 v) {
+    return v as u32 as i32;
+}
+i64 zext32(u32 v) {
+    return v as u64 as i64;
+}
+i16 trunc32(i32 v) {
+    return v as i16;
+}
+i8 trunc16(i16 v) {
+    return v as i8;
+}
+f64 conv16(i16 v) {
+    return v as f64;
+}
+f64 convu16(u16 v) {
+    return v as f64;
+}
+f32 conv8(i8 v) {
+    return v as f32;
+}
+f64 conv64(i64 v) {
+    return v as f64;
+}
+f64 convu32(u32 v) {
+    return v as f64;
+}
+i16 fconv(f64 v) {
+    return v as i16;
+}
+f64 round16(i16 v) {
+    return v as f64;
+}
+@nomangle
+public i32 dcc_main() {
+    if sext16(-300 as i16) != -300 {
+        return 1;
+    }
+    if sext8(-100 as i8) != -100 {
+        return 2;
+    }
+    if sext32(-8) != -8 as i64 {
+        return 3;
+    }
+    if zext16(0xFF80 as u16) != 65408 {
+        return 4;
+    }
+    if zext8(0xF0 as u8) != 240 {
+        return 5;
+    }
+    if zext32(0xFFFFFFFF as u32) != (4294967295 as i64) {
+        return 6;
+    }
+    if trunc32(70000) != (4464 as i16) {
+        return 7;
+    }
+    if trunc16(0x1F8 as i16) != (-8 as i8) {
+        return 8;
+    }
+    if conv16(-300 as i16) != -300.0 {
+        return 9;
+    }
+    if convu16(0xFF80 as u16) != 65408.0 {
+        return 10;
+    }
+    if conv8(-100 as i8) != (-100.0 as f32) {
+        return 11;
+    }
+    if conv64(0x100000000 as i64) != 4294967296.0 {
+        return 12;
+    }
+    if convu32(0xFFFFFFFF as u32) != 4294967295.0 {
+        return 13;
+    }
+    if fconv(round16(-300 as i16)) != (-300 as i16) {
+        return 14;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+RUN-EXIT: 0

@@ -2292,6 +2292,21 @@ namespace
                     goto ud2_lbl;
                 break;
             }
+            case MOpc::CVTSI2SD64rr: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg)
+                {
+                    auto d = resolve_phys_reg(ops[0], wrn, "CVTSI2SD64");
+                    auto s = resolve_phys_reg(ops[1], wrn, "CVTSI2SD64");
+                    emit_u8(buf, 0xF2);
+                    emit_rex_if_extended(buf, true, d, s);
+                    emit_u8(buf, 0x0F);
+                    emit_u8(buf, 0x2A);
+                    emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
             case MOpc::CVTSD2SIrr:
             case MOpc::CVTTSD2SI_r: {
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg)
@@ -2496,7 +2511,6 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "UCOMISS");
                     auto s = resolve_phys_reg(ops[1], wrn, "UCOMISS");
-                    emit_u8(buf, 0x66);
                     emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2E);
@@ -2515,6 +2529,21 @@ namespace
                     auto s = resolve_phys_reg(ops[1], wrn, "CVTSI2SS");
                     emit_u8(buf, 0xF3);
                     emit_rex_if_extended(buf, false, d, s);
+                    emit_u8(buf, 0x0F);
+                    emit_u8(buf, 0x2A);
+                    emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::CVTSI2SS64rr: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg)
+                {
+                    auto d = resolve_phys_reg(ops[0], wrn, "CVTSI2SS64");
+                    auto s = resolve_phys_reg(ops[1], wrn, "CVTSI2SS64");
+                    emit_u8(buf, 0xF3);
+                    emit_rex_if_extended(buf, true, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2A);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -2706,6 +2735,176 @@ namespace
                         emit_rex(buf, true, se, ie, be);
                         emit_u8(buf, 0x87);
                         emit_mem(buf, m, reg_low3(s), wrn, "LOCK_XCHG64");
+                    }
+                    else
+                        goto ud2_lbl;
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::LOCK_XADD16mr: {
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
+                {
+                    auto const& m = ops[0].mem;
+                    auto s = resolve_phys_reg(ops[1], wrn, "LOCK_XADD16");
+                    if (m.base.is_physical())
+                    {
+                        auto b = m.base.phys_reg();
+                        bool se = reg_is_extended(s);
+                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                        bool be = reg_is_extended(b);
+                        emit_u8(buf, 0x66);
+                        emit_u8(buf, 0xF0);
+                        if (se || ie || be)
+                            emit_rex(buf, false, se, ie, be);
+                        emit_u8(buf, 0x0F);
+                        emit_u8(buf, 0xC1);
+                        emit_mem(buf, m, reg_low3(s), wrn, "LOCK_XADD16");
+                    }
+                    else
+                        goto ud2_lbl;
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::LOCK_XCHG16mr: {
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
+                {
+                    auto const& m = ops[0].mem;
+                    auto s = resolve_phys_reg(ops[1], wrn, "LOCK_XCHG16");
+                    if (m.base.is_physical())
+                    {
+                        auto b = m.base.phys_reg();
+                        bool se = reg_is_extended(s);
+                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                        bool be = reg_is_extended(b);
+                        emit_u8(buf, 0x66);
+                        emit_u8(buf, 0xF0);
+                        if (se || ie || be)
+                            emit_rex(buf, false, se, ie, be);
+                        emit_u8(buf, 0x87);
+                        emit_mem(buf, m, reg_low3(s), wrn, "LOCK_XCHG16");
+                    }
+                    else
+                        goto ud2_lbl;
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::LOCK_AND16mr:
+            case MOpc::LOCK_OR16mr:
+            case MOpc::LOCK_XOR16mr: {
+                std::uint8_t ob16 = (instr.opc == MOpc::LOCK_AND16mr) ? 0x21 : ((instr.opc == MOpc::LOCK_OR16mr) ? 0x09 : 0x31);
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
+                {
+                    auto const& m = ops[0].mem;
+                    auto s = resolve_phys_reg(ops[1], wrn, "LOCK16alu");
+                    if (m.base.is_physical())
+                    {
+                        auto b = m.base.phys_reg();
+                        bool se = reg_is_extended(s);
+                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                        bool be = reg_is_extended(b);
+                        emit_u8(buf, 0x66);
+                        emit_u8(buf, 0xF0);
+                        if (se || ie || be)
+                            emit_rex(buf, false, se, ie, be);
+                        emit_u8(buf, ob16);
+                        emit_mem(buf, m, reg_low3(s), wrn, "LOCK16alu");
+                    }
+                    else
+                        goto ud2_lbl;
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::LOCK_XADD8mr:
+            case MOpc::LOCK_XCHG8mr:
+            case MOpc::LOCK_AND8mr:
+            case MOpc::LOCK_OR8mr:
+            case MOpc::LOCK_XOR8mr: {
+                std::uint8_t ob8 = 0xC0;
+                std::uint8_t ex8 = 0xC0;
+                switch (instr.opc)
+                {
+                    case MOpc::LOCK_XCHG8mr:
+                        ob8 = 0x86;
+                        ex8 = 0x00;
+                        break;
+                    case MOpc::LOCK_AND8mr:
+                        ob8 = 0x20;
+                        ex8 = 0x00;
+                        break;
+                    case MOpc::LOCK_OR8mr:
+                        ob8 = 0x08;
+                        ex8 = 0x00;
+                        break;
+                    case MOpc::LOCK_XOR8mr:
+                        ob8 = 0x30;
+                        ex8 = 0x00;
+                        break;
+                    default:
+                        break;
+                }
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
+                {
+                    auto const& m = ops[0].mem;
+                    auto s = resolve_phys_reg(ops[1], wrn, "LOCK8");
+                    if (m.base.is_physical())
+                    {
+                        auto b = m.base.phys_reg();
+                        bool se = reg_is_extended(s);
+                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                        bool be = reg_is_extended(b);
+                        emit_u8(buf, 0xF0);
+                        if (se || ie || be || reg_low3(s) >= 4)
+                            emit_rex(buf, false, se, ie, be);
+                        if (ex8 != 0x00)
+                        {
+                            emit_u8(buf, 0x0F);
+                            emit_u8(buf, ex8);
+                        }
+                        else
+                            emit_u8(buf, ob8);
+                        emit_mem(buf, m, reg_low3(s), wrn, "LOCK8");
+                    }
+                    else
+                        goto ud2_lbl;
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::LOCK_XCHG32mr:
+            case MOpc::LOCK_AND32mr:
+            case MOpc::LOCK_OR32mr:
+            case MOpc::LOCK_XOR32mr: {
+                std::uint8_t ob32 = 0x87;
+                if (instr.opc == MOpc::LOCK_AND32mr)
+                    ob32 = 0x21;
+                else if (instr.opc == MOpc::LOCK_OR32mr)
+                    ob32 = 0x09;
+                else if (instr.opc == MOpc::LOCK_XOR32mr)
+                    ob32 = 0x31;
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
+                {
+                    auto const& m = ops[0].mem;
+                    auto s = resolve_phys_reg(ops[1], wrn, "LOCK32");
+                    if (m.base.is_physical())
+                    {
+                        auto b = m.base.phys_reg();
+                        bool se = reg_is_extended(s);
+                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                        bool be = reg_is_extended(b);
+                        emit_u8(buf, 0xF0);
+                        if (se || ie || be)
+                            emit_rex(buf, false, se, ie, be);
+                        emit_u8(buf, ob32);
+                        emit_mem(buf, m, reg_low3(s), wrn, "LOCK32");
                     }
                     else
                         goto ud2_lbl;

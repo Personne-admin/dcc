@@ -66,6 +66,7 @@ namespace dcc::backend::em64t
                 case MOpc::UCOMISDrr:
                 case MOpc::CVTSI2SD_r:
                 case MOpc::CVTSI2SDrr:
+                case MOpc::CVTSI2SD64rr:
                 case MOpc::CVTSD2SS_r:
                 case MOpc::CVTSS2SD_r:
                 case MOpc::MOVSS_rr:
@@ -90,6 +91,7 @@ namespace dcc::backend::em64t
                 case MOpc::UCOMISSrr:
                 case MOpc::CVTSI2SS_r:
                 case MOpc::CVTSI2SSrr:
+                case MOpc::CVTSI2SS64rr:
                 case MOpc::XORPSrr:
                 case MOpc::XORPDrr:
                 case MOpc::MOVAPSrr:
