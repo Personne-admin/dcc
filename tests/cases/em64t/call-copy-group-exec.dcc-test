@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+enum Result(T, E) {
+    Ok(T),
+    Err(E),
+}
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+bool is_err(T, E)(const Result(T, E)* self) {
+    return !self.is_ok();
+}
+@nomangle
+public i32 dcc_main() {
+    Result(usize, u8) r = Result::Ok(41);
+    if r.is_err() {
+        return 1;
+    }
+    if !r.is_ok() {
+        return 2;
+    }
+    Result(usize, u8) e = Result::Err(7);
+    if !e.is_err() {
+        return 3;
+    }
+    if e.is_ok() {
+        return 4;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

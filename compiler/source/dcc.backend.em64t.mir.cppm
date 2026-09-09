@@ -517,6 +517,7 @@ export namespace dcc::backend::em64t
         std::uint64_t implicit_defs = 0;
         std::uint64_t implicit_uses = 0;
         std::uint32_t src_line = 0;
+        std::uint32_t copy_group = 0;
 
         [[nodiscard]] bool has_side_effects() const noexcept
         {
@@ -701,6 +702,13 @@ export namespace dcc::backend::em64t
             VReg v = VReg::virt(next_vreg_id);
             ++next_vreg_id;
             return v;
+        }
+
+        std::uint32_t next_copy_group{1};
+
+        [[nodiscard]] std::uint32_t new_copy_group()
+        {
+            return next_copy_group++;
         }
 
         [[nodiscard]] std::uint32_t new_frame_slot(std::uint32_t size, std::uint32_t align, bool is_spill = false)

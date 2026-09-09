@@ -255,7 +255,6 @@ namespace dcc::backend::em64t
                         merge_block_movris[mi.ops[0].reg] = mi;
                     }
                 }
-
                 for (auto& [pred_id, copies] : pred_groups)
                 {
                     if (copies.empty())
@@ -691,6 +690,7 @@ namespace dcc::backend::em64t
             auto xmms = regs.xmms;
 
             std::unordered_set<VReg> setcc_defs;
+            std::unordered_set<VReg> shift_dsts;
             std::unordered_map<PhysReg, std::vector<std::uint32_t>> clobbers;
             for (auto const& blk : func.blocks)
             {
@@ -700,6 +700,23 @@ namespace dcc::backend::em64t
                     auto const& instr = blk.instrs[ii];
                     if (is_setcc(instr.opc) && instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_virtual())
                         setcc_defs.insert(instr.ops[0].reg);
+                    switch (instr.opc)
+                    {
+                        case MOpc::SHL64rcl:
+                        case MOpc::SHR64rcl:
+                        case MOpc::SAR64rcl:
+                        case MOpc::SHL64rCL:
+                        case MOpc::SHR64rCL:
+                        case MOpc::SAR64rCL:
+                        case MOpc::SHL32rCL:
+                        case MOpc::SHR32rCL:
+                        case MOpc::SAR32rCL:
+                            if (instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_virtual())
+                                shift_dsts.insert(instr.ops[0].reg);
+                            break;
+                        default:
+                            break;
+                    }
 
                     auto pp = base_pp + static_cast<std::uint32_t>(ii);
                     for (std::uint8_t oi = 0; oi < instr.num_defs && oi < instr.num_ops; ++oi)
@@ -725,6 +742,8 @@ namespace dcc::backend::em64t
                 auto const& avail = (range.reg_class == RegClass::XMM) ? xmms : gprs;
                 auto reg_is_allowed = [&](PhysReg reg) {
                     if (setcc_defs.contains(range.vreg) && (reg == PhysReg::RSI || reg == PhysReg::RDI))
+                        return false;
+                    if (shift_dsts.contains(range.vreg) && reg == PhysReg::RCX)
                         return false;
 
                     auto it = clobbers.find(reg);
@@ -1340,6 +1359,7 @@ namespace dcc::backend::em64t
                         bool has_src{};
                         std::size_t reload_at{};
                         bool has_reload{};
+                        std::uint32_t copy_group{};
                     };
 
                     std::vector<Item> items;
@@ -1362,6 +1382,7 @@ namespace dcc::backend::em64t
                         Item it{};
                         it.dst = c.ops[0].reg;
                         it.src = c.ops[1].reg;
+                        it.copy_group = c.copy_group;
                         if (auto found = pending_reload.find(it.src); found != pending_reload.end())
                         {
                             it.has_reload = true;
@@ -1376,6 +1397,36 @@ namespace dcc::backend::em64t
 
                     if (!usable || !pending_reload.empty() || items.size() < 2)
                         continue;
+
+                    {
+                        bool has_reloaded_item = false;
+                        for (auto const& it : items)
+                            has_reloaded_item = has_reloaded_item || it.has_reload;
+                        if (has_reloaded_item)
+                            continue;
+                    }
+
+                    {
+                        std::uint32_t span_group = 0;
+                        bool single_group = true;
+                        for (auto const& it : items)
+                        {
+                            if (it.copy_group == 0)
+                            {
+                                single_group = false;
+                                break;
+                            }
+                            if (span_group == 0)
+                                span_group = it.copy_group;
+                            else if (span_group != it.copy_group)
+                            {
+                                single_group = false;
+                                break;
+                            }
+                        }
+                        if (!single_group)
+                            continue;
+                    }
 
                     std::vector<Item> plain;
                     std::vector<Item> reloaded;
@@ -1460,13 +1511,14 @@ namespace dcc::backend::em64t
 
                     std::vector<MInstr> out;
                     out.reserve(ii - span_start);
-                    for (auto const& it : ordered)
-                        out.push_back(make_reg_move(it.dst, it.src));
+
                     for (auto const& it : reloaded)
                     {
                         out.push_back(blk.instrs[it.reload_at]);
                         out.push_back(make_reg_move(it.dst, blk.instrs[it.reload_at].ops[0].reg));
                     }
+                    for (auto const& it : ordered)
+                        out.push_back(make_reg_move(it.dst, it.src));
 
                     blk.instrs.erase(blk.instrs.begin() + static_cast<std::ptrdiff_t>(span_start), blk.instrs.begin() + static_cast<std::ptrdiff_t>(ii));
                     blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(span_start), out.begin(), out.end());
@@ -1534,20 +1586,27 @@ namespace dcc::backend::em64t
                     {
                         VReg dst;
                         VReg src;
+                        std::uint32_t group = 0;
                     };
                     auto reg_is_xmm = [](VReg r) { return r.is_physical() && reg_class(r.phys_reg()) == RegClass::XMM; };
 
-                    std::vector<Move> moves_gpr;
-                    std::vector<Move> moves_xmm;
+                    std::vector<Move> moves;
                     for (std::size_t j = run_start; j < run_end; ++j)
                     {
                         auto const& c = blk.instrs[j];
                         if (c.ops[0].reg == c.ops[1].reg)
                             continue;
-                        (reg_is_xmm(c.ops[0].reg) ? moves_xmm : moves_gpr).push_back({c.ops[0].reg, c.ops[1].reg});
+                        moves.push_back({c.ops[0].reg, c.ops[1].reg, c.copy_group});
+                    }
+                    if (std::getenv("DCC_DEBUG_GRP") != nullptr)
+                    {
+                        std::string line = std::format("GRP func={}:", func.owned_name);
+                        for (auto const& m : moves)
+                            line += std::format(" [v{}>v{} g{}]", m.dst.id, m.src.id, m.group);
+                        std::println(std::cerr, "{}", line);
                     }
 
-                    if (moves_gpr.size() + moves_xmm.size() < 2)
+                    if (moves.size() < 2)
                     {
                         ++ii;
                         continue;
@@ -1782,33 +1841,65 @@ namespace dcc::backend::em64t
                         }
                     };
 
-                    bool gpr_ok = true;
-                    bool xmm_ok = true;
-                    bool gpr_changed = false;
-                    bool xmm_changed = false;
+                    std::vector<std::vector<Move>> segments;
+                    for (auto const& m : moves)
+                    {
+                        if (m.group != 0 && !segments.empty() && !segments.back().empty() && segments.back().front().group == m.group)
+                            segments.back().push_back(m);
+                        else
+                            segments.push_back({m});
+                    }
+
+                    struct ResMove
+                    {
+                        Move mv;
+                        bool is_gpr;
+                    };
+                    std::vector<ResMove> result;
+                    bool all_ok = true;
+                    bool any_changed = false;
                     std::uint32_t gpr_temp_slot = std::uint32_t(-1);
                     std::uint32_t xmm_temp_slot = std::uint32_t(-1);
-                    auto res_gpr = resolve_group(moves_gpr, scratch_gpr, gpr_ok, gpr_changed, gpr_temp_slot);
-                    auto res_xmm = resolve_group(moves_xmm, scratch_xmm, xmm_ok, xmm_changed, xmm_temp_slot);
+                    for (auto const& seg : segments)
+                    {
+                        std::vector<Move> seg_gpr;
+                        std::vector<Move> seg_xmm;
+                        for (auto const& m : seg)
+                            (reg_is_xmm(m.dst) ? seg_xmm : seg_gpr).push_back(m);
 
-                    if (!gpr_ok || !xmm_ok || (!gpr_changed && !xmm_changed))
+                        bool seg_gpr_ok = true;
+                        bool seg_xmm_ok = true;
+                        bool seg_gpr_changed = false;
+                        bool seg_xmm_changed = false;
+                        auto res_gpr = resolve_group(seg_gpr, scratch_gpr, seg_gpr_ok, seg_gpr_changed, gpr_temp_slot);
+                        auto res_xmm = resolve_group(seg_xmm, scratch_xmm, seg_xmm_ok, seg_xmm_changed, xmm_temp_slot);
+
+                        if (!seg_gpr_ok || !seg_xmm_ok)
+                        {
+                            all_ok = false;
+                            break;
+                        }
+                        any_changed = any_changed || seg_gpr_changed || seg_xmm_changed;
+                        for (auto const& m : res_gpr)
+                            result.push_back({m, true});
+                        for (auto const& m : res_xmm)
+                            result.push_back({m, false});
+                    }
+
+                    if (!all_ok || !any_changed)
                     {
                         ++ii;
                         continue;
                     }
 
-                    std::size_t gpr_result_size = res_gpr.size();
-                    std::vector<Move> result = res_gpr;
-                    result.insert(result.end(), res_xmm.begin(), res_xmm.end());
-
                     blk.instrs.erase(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start), blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_end));
 
                     for (std::size_t ri = 0; ri < result.size(); ++ri)
                     {
-                        auto const& mv = result[ri];
+                        auto const& mv = result[ri].mv;
                         if (!mv.dst.is_valid())
                         {
-                            bool is_gpr = ri < gpr_result_size;
+                            bool is_gpr = result[ri].is_gpr;
                             std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
                             MInstr store;
                             store.opc = is_gpr ? MOpc::MOV64mr : MOpc::MOVSDmr;
@@ -1820,7 +1911,7 @@ namespace dcc::backend::em64t
                         }
                         else if (!mv.src.is_valid())
                         {
-                            bool is_gpr = ri < gpr_result_size;
+                            bool is_gpr = result[ri].is_gpr;
                             std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
                             MInstr load;
                             load.opc = is_gpr ? MOpc::MOV64rm : MOpc::MOVSD_rm;

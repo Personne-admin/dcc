@@ -490,9 +490,10 @@ namespace dcc::backend::em64t
             } while (changed);
         }
 
-        void emit_mov(IselCtx& ctx, VReg dst, VReg src)
+        void emit_mov(IselCtx& ctx, VReg dst, VReg src, std::uint32_t copy_group = 0)
         {
             auto mi = make_copy(dst, src);
+            mi.copy_group = copy_group;
             ctx.append_instr(mi);
         }
 
@@ -529,10 +530,17 @@ namespace dcc::backend::em64t
             return dst;
         }
 
-        void emit_cmp(IselCtx& ctx, VReg lhs, VReg rhs)
+        [[nodiscard]] static unsigned int_width(IselCtx& ctx, dcc::ir::IrType const* t) noexcept
+        {
+            if (t && t->byte_size == 4 && !ctx.is_float_type(t))
+                return 4;
+            return 8;
+        }
+
+        void emit_cmp(IselCtx& ctx, VReg lhs, VReg rhs, unsigned bits = 8)
         {
             MInstr mi;
-            mi.opc = MOpc::CMP64rr;
+            mi.opc = (bits == 4) ? MOpc::CMP32rr : MOpc::CMP64rr;
             mi.num_ops = 2;
             mi.num_defs = 0;
             mi.ops[0] = MOp::from_reg(lhs);
@@ -915,7 +923,7 @@ namespace dcc::backend::em64t
             ctx.append_instr(mi);
         }
 
-        [[nodiscard]] std::pair<VReg, VReg> emit_idiv(IselCtx& ctx, VReg dividend, VReg divisor, bool is_signed)
+        [[nodiscard]] std::pair<VReg, VReg> emit_idiv(IselCtx& ctx, VReg dividend, VReg divisor, bool is_signed, unsigned bits = 8)
         {
             VReg rax = VReg::phys(PhysReg::RAX);
             VReg rdx = VReg::phys(PhysReg::RDX);
@@ -924,13 +932,13 @@ namespace dcc::backend::em64t
 
             if (is_signed)
             {
-                MInstr cqo;
-                cqo.opc = MOpc::CQO;
-                cqo.num_ops = 0;
-                cqo.num_defs = 0;
-                ctx.add_implicit_defs(cqo, std::array{PhysReg::RDX});
-                ctx.add_implicit_uses(cqo, std::array{PhysReg::RAX});
-                ctx.append_instr(cqo);
+                MInstr ext;
+                ext.opc = (bits == 4) ? MOpc::CDQ : MOpc::CQO;
+                ext.num_ops = 0;
+                ext.num_defs = 0;
+                ctx.add_implicit_defs(ext, std::array{PhysReg::RDX});
+                ctx.add_implicit_uses(ext, std::array{PhysReg::RAX});
+                ctx.append_instr(ext);
             }
             else
             {
@@ -945,7 +953,7 @@ namespace dcc::backend::em64t
             }
 
             MInstr divi;
-            divi.opc = is_signed ? MOpc::IDIV64r : MOpc::DIV64r;
+            divi.opc = (bits == 4) ? (is_signed ? MOpc::IDIV32r : MOpc::DIV32r) : (is_signed ? MOpc::IDIV64r : MOpc::DIV64r);
             divi.num_ops = 1;
             divi.num_defs = 0;
             divi.ops[0] = MOp::from_reg(divisor);
@@ -968,6 +976,7 @@ namespace dcc::backend::em64t
             emit_mov(ctx, cl, rhs);
 
             VReg dst = ctx.mfunc.new_vreg();
+            emit_mov(ctx, dst, lhs);
             MInstr mi;
             mi.opc = cl_opc;
             mi.num_ops = 2;
@@ -1575,6 +1584,8 @@ namespace dcc::backend::em64t
             if (cl.has_sret)
                 emit_mov(ctx, VReg::phys(int_regs[0]), sret_addr);
 
+            std::uint32_t const arg_group = ctx.mfunc.new_copy_group();
+
             for (std::size_t i = 0; i < args.size(); ++i)
             {
                 auto const& loc = arg_locs[i];
@@ -1591,7 +1602,7 @@ namespace dcc::backend::em64t
                     switch (piece.cls)
                     {
                         case ArgClass::Integer:
-                            emit_mov(ctx, VReg::phys(int_regs[piece.reg_idx]), av);
+                            emit_mov(ctx, VReg::phys(int_regs[piece.reg_idx]), av, arg_group);
                             break;
                         case ArgClass::Sse: {
                             MInstr mov;
@@ -1600,6 +1611,7 @@ namespace dcc::backend::em64t
                             mov.num_defs = 1;
                             mov.ops[0] = MOp::from_reg(VReg::phys(float_regs[piece.reg_idx]));
                             mov.ops[1] = MOp::from_reg(av);
+                            mov.copy_group = arg_group;
                             ctx.append_instr(mov);
                             break;
                         }
@@ -2431,38 +2443,40 @@ namespace dcc::backend::em64t
                     MOpc opc = MOpc::NOP;
 
                     bool is_f32 = false;
+                    bool is_i32 = false;
                     auto set_binop = [&](auto const* bin_inst) {
                         lhs = bin_inst->lhs;
                         rhs = bin_inst->rhs;
                         is_float = ctx.is_float_type(bin_inst->type);
                         is_f32 = is_float && static_cast<IrFloatType const*>(bin_inst->type)->bits == 32;
+                        is_i32 = !is_float && int_width(ctx, bin_inst->type) == 4;
                     };
 
                     switch (inst->kind)
                     {
                         case IrNodeKind::Add:
                             set_binop(static_cast<IrAddInst const*>(inst));
-                            opc = is_float ? (is_f32 ? MOpc::ADDSSrr : MOpc::ADDSDrr) : MOpc::ADD64rr;
+                            opc = is_float ? (is_f32 ? MOpc::ADDSSrr : MOpc::ADDSDrr) : (is_i32 ? MOpc::ADD32rr : MOpc::ADD64rr);
                             break;
                         case IrNodeKind::Sub:
                             set_binop(static_cast<IrSubInst const*>(inst));
-                            opc = is_float ? (is_f32 ? MOpc::SUBSSrr : MOpc::SUBSDrr) : MOpc::SUB64rr;
+                            opc = is_float ? (is_f32 ? MOpc::SUBSSrr : MOpc::SUBSDrr) : (is_i32 ? MOpc::SUB32rr : MOpc::SUB64rr);
                             break;
                         case IrNodeKind::Mul:
                             set_binop(static_cast<IrMulInst const*>(inst));
-                            opc = is_float ? (is_f32 ? MOpc::MULSSrr : MOpc::MULSDrr) : MOpc::IMUL64rr;
+                            opc = is_float ? (is_f32 ? MOpc::MULSSrr : MOpc::MULSDrr) : (is_i32 ? MOpc::IMUL32rr : MOpc::IMUL64rr);
                             break;
                         case IrNodeKind::And:
                             set_binop(static_cast<IrAndInst const*>(inst));
-                            opc = MOpc::AND64rr;
+                            opc = is_i32 ? MOpc::AND32rr : MOpc::AND64rr;
                             break;
                         case IrNodeKind::Or:
                             set_binop(static_cast<IrOrInst const*>(inst));
-                            opc = MOpc::OR64rr;
+                            opc = is_i32 ? MOpc::OR32rr : MOpc::OR64rr;
                             break;
                         case IrNodeKind::Xor:
                             set_binop(static_cast<IrXorInst const*>(inst));
-                            opc = MOpc::XOR64rr;
+                            opc = is_i32 ? MOpc::XOR32rr : MOpc::XOR64rr;
                             break;
                         default:
                             break;
@@ -2530,7 +2544,7 @@ namespace dcc::backend::em64t
                     VReg rhs_v = ctx.try_materialize(rhs);
                     if (lhs_v.is_valid() && rhs_v.is_valid())
                     {
-                        auto [quot, rem] = emit_idiv(ctx, lhs_v, rhs_v, is_signed);
+                        auto [quot, rem] = emit_idiv(ctx, lhs_v, rhs_v, is_signed, lhs ? int_width(ctx, lhs->type) : 8);
                         bool want_rem = (inst->kind == IrNodeKind::SRem || inst->kind == IrNodeKind::URem);
                         ctx.set_vreg(inst, want_rem ? rem : quot);
                     }
@@ -2618,6 +2632,15 @@ namespace dcc::backend::em64t
                     VReg rhs_v = ctx.try_materialize(rhs);
                     if (lhs_v.is_valid() && rhs_v.is_valid())
                     {
+                        if (inst->type && inst->type->byte_size == 4)
+                        {
+                            if (cl_opc == MOpc::SHL64rcl)
+                                cl_opc = MOpc::SHL32rCL;
+                            else if (cl_opc == MOpc::SHR64rcl)
+                                cl_opc = MOpc::SHR32rCL;
+                            else if (cl_opc == MOpc::SAR64rcl)
+                                cl_opc = MOpc::SAR32rCL;
+                        }
                         VReg dst = emit_shift(ctx, cl_opc, lhs_v, rhs_v);
                         ctx.set_vreg(inst, dst);
                     }
@@ -2708,7 +2731,7 @@ namespace dcc::backend::em64t
                             ctx.append_instr((ucom));
                         }
                         else
-                            emit_cmp(ctx, lhs_v, rhs_v);
+                            emit_cmp(ctx, lhs_v, rhs_v, lhs ? int_width(ctx, lhs->type) : 8);
 
                         VReg result = emit_setcc(ctx, set_opc);
                         ctx.set_vreg(inst, result);
@@ -2741,7 +2764,8 @@ namespace dcc::backend::em64t
                             }
                             else
                             {
-                                VReg dst = emit_unary_op(ctx, MOpc::NEG64r, op);
+                                MOpc neg_opc = (n->type && int_width(ctx, n->type) == 4) ? MOpc::NEG32r : MOpc::NEG64r;
+                                VReg dst = emit_unary_op(ctx, neg_opc, op);
                                 ctx.set_vreg(inst, dst);
                             }
                         }
@@ -2758,7 +2782,8 @@ namespace dcc::backend::em64t
                         {
                             VReg all_ones = ctx.mfunc.new_vreg();
                             emit_mov_ri(ctx, all_ones, -1, 64);
-                            VReg dst = emit_binary_op(ctx, MOpc::XOR64rr, op, all_ones);
+                            MOpc xor_opc = (n->type && int_width(ctx, n->type) == 4) ? MOpc::XOR32rr : MOpc::XOR64rr;
+                            VReg dst = emit_binary_op(ctx, xor_opc, op, all_ones);
                             ctx.set_vreg(inst, dst);
                         }
                     }
@@ -3030,31 +3055,39 @@ namespace dcc::backend::em64t
                         break;
 
                     VReg result = ctx.mfunc.new_vreg();
-                    auto phi = make_phi();
-                    phi.num_ops = 1;
-                    phi.num_defs = 1;
-                    phi.ops[0] = MOp::from_reg(result);
-
-                    for (auto const& inc : p->incoming)
+                    constexpr std::size_t kMaxPhiInputs = 15;
+                    for (std::size_t first = 0; first < p->incoming.size();)
                     {
-                        VReg val = ctx.try_materialize(inc.value);
-                        if (!val.is_valid())
-                            continue;
+                        auto phi = make_phi();
+                        phi.num_ops = 1;
+                        phi.num_defs = 1;
+                        phi.ops[0] = MOp::from_reg(result);
 
-                        if (phi.num_ops + 2 <= phi.ops.size())
+                        std::size_t last = std::min(first + kMaxPhiInputs, p->incoming.size());
+                        for (std::size_t k = first; k < last; ++k)
                         {
-                            phi.ops[static_cast<std::size_t>(phi.num_ops)] = MOp::from_reg(val);
-                            phi.num_ops++;
-                            auto it = ctx.ir_bb_to_mblock.find(inc.block);
-                            if (it != ctx.ir_bb_to_mblock.end())
+                            auto const& inc = p->incoming[k];
+                            VReg val = ctx.try_materialize(inc.value);
+                            if (!val.is_valid())
+                                continue;
+
+                            if (phi.num_ops + 2 <= phi.ops.size())
                             {
-                                phi.ops[static_cast<std::size_t>(phi.num_ops)] = MOp::from_label(it->second);
+                                phi.ops[static_cast<std::size_t>(phi.num_ops)] = MOp::from_reg(val);
                                 phi.num_ops++;
+                                auto it = ctx.ir_bb_to_mblock.find(inc.block);
+                                if (it != ctx.ir_bb_to_mblock.end())
+                                {
+                                    phi.ops[static_cast<std::size_t>(phi.num_ops)] = MOp::from_label(it->second);
+                                    phi.num_ops++;
+                                }
                             }
                         }
+
+                        ctx.append_instr((phi));
+                        first = last;
                     }
 
-                    ctx.append_instr((phi));
                     ctx.set_vreg(inst, result);
                     break;
                 }
@@ -3236,7 +3269,7 @@ namespace dcc::backend::em64t
                         auto* cmp = static_cast<IrCmpEqInst const*>(bc->condition);
                         VReg lhs = ctx.try_materialize(cmp->lhs);
                         VReg rhs = ctx.try_materialize(cmp->rhs);
-                        emit_cmp(ctx, lhs, rhs);
+                        emit_cmp(ctx, lhs, rhs, cmp->lhs ? int_width(ctx, cmp->lhs->type) : 8);
                         emit_jcc(ctx, fused->second, ctx.ir_bb_to_mblock.at(bc->true_target));
                         emit_jmp(ctx, ctx.ir_bb_to_mblock.at(bc->false_target));
                         break;
@@ -3670,6 +3703,8 @@ namespace dcc::backend::em64t
 
             std::vector<std::array<VReg, 2>> param_piece_regs(func.entry_block->params.size());
 
+            std::uint32_t const prologue_group = ctx.mfunc.new_copy_group();
+
             for (std::size_t param_idx = 0; param_idx < func.entry_block->params.size(); ++param_idx)
             {
                 auto* param = func.entry_block->params[param_idx];
@@ -3691,13 +3726,14 @@ namespace dcc::backend::em64t
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(v);
                             mi.ops[1] = MOp::from_reg(VReg::phys(in_float_regs[piece.reg_idx]));
+                            mi.copy_group = prologue_group;
                             ctx.append_instr(mi);
                             param_piece_regs[param_idx][pi] = v;
                             break;
                         }
                         case ArgClass::Integer: {
                             VReg v = mfunc.new_vreg();
-                            emit_mov(ctx, v, VReg::phys(in_int_regs[piece.reg_idx]));
+                            emit_mov(ctx, v, VReg::phys(in_int_regs[piece.reg_idx]), prologue_group);
                             param_piece_regs[param_idx][pi] = v;
                             break;
                         }
