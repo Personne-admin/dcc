@@ -1,0 +1,28 @@
+module main;
+import std::result;
+using std::result::Result;
+Result(i32, u8) step(i32 x) {
+    if x < 0 { return Result::Err(7); }
+    return Result::Ok(x + 1);
+}
+Result(i32, u8) chain(i32 x) {
+    i32 a = step(x)?;
+    i32 b = step(a)?;
+    i32 c = step(b)?;
+    return step(c);
+}
+i32 workload() {
+    for i32 i = 0; i < 100; i++ {
+        Result(i32, u8) r = chain(i);
+        if !r.is_ok() || r.unwrap() != i + 4 { return 1; }
+    }
+    if chain(-1).unwrap_err() != 7 { return 2; }
+    return 0;
+}
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

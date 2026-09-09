@@ -65,7 +65,7 @@ namespace dcc::backend
                 ir::IrModule const* input_module = &module;
                 ir::IrContext opt_ctx{256 * 1024, &opts.target};
                 // TODO: honor opts.target.cpu baseline for instruction selection
-                if (opts.opt_level > dcc::ir::pass::OptLevel::O0)
+                if (opts.opt_level > dcc::ir::pass::OptLevel::O0 && !std::getenv("DCC_BENCH_SKIP_IR_PASSES"))
                     input_module = dcc::ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
 
                 if (auto mismatch = find_bad_global_initializer(*input_module))

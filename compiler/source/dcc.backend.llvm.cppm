@@ -1132,7 +1132,7 @@ namespace dcc::backend
 
                 dcc::ir::IrModule const* input_module = &module;
                 dcc::ir::IrContext opt_ctx{256 * 1024, &opts.target};
-                if (opts.opt_level > dcc::ir::pass::OptLevel::O0)
+                if (opts.opt_level > dcc::ir::pass::OptLevel::O0 && !std::getenv("DCC_BENCH_SKIP_IR_PASSES"))
                     input_module = dcc::ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
 
                 bool has_unsupported = precheck_module(*input_module, diags);

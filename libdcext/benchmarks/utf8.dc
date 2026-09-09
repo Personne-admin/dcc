@@ -1,0 +1,46 @@
+module main;
+import std::result;
+import std::slice;
+import std::utf8;
+import std::math;
+import std::hash;
+import std::sort;
+import std::mem;
+import std::prelude;
+import std::fmt;
+
+bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+
+i32 workload() {
+    u8[5] data = {1, 2, 3, 2, 1};
+    [] u8 view = std::slice::from_raw(&data[0], 5);
+    [] const u8 cview = std::slice::from_raw_const(&data[0], 5);
+    if !std::slice::is_empty(cview[0..0]) { return 6; }
+    if view.first().unwrap_some() != 1 || cview.last().unwrap_some() != 1 || view.at(2).unwrap_some() != &data[2] { return 7; }
+    u8[3] middle = {2, 3, 2}; u8[2] prefix = {1, 2}; u8[2] suffix = {2, 1}; u8[2] pattern = {3, 2};
+    if !std::slice::eq(cview[1..4], middle[0..3]) || !cview.starts_with(prefix[0..2]) || !cview.ends_with(suffix[0..2]) { return 8; }
+    if cview.index_of(2).unwrap_some() != 1 || cview.last_index_of(2).unwrap_some() != 3 || cview.find(pattern[0..2]).unwrap_some() != 2 { return 9; }
+    view.rotate_left(2);
+    if view[0] != 3 || view[4] != 2 { return 10; }
+    view.reverse();
+    if view[0] != 2 || view[4] != 3 { return 11; }
+
+    u8[1] ascii = {65}; u8[2] two = {0xC3, 0xA9}; u8[3] three = {0xE2, 0x82, 0xAC}; u8[4] four = {0xF0, 0x9F, 0x98, 0x80};
+    u8[1] bad_start = {0x80}; u8[2] bad_cont = {0xC2, 65}; u8[3] overlong = {0xE0, 0x80, 0x80}; u8[3] surrogate = {0xED, 0xA0, 0x80}; u8[4] out_of_range = {0xF4, 0x90, 0x80, 0x80}; u8[2] truncated = {0xE2, 0x82};
+    if std::utf8::decode(ascii[0..1]).unwrap().codepoint != 65 || std::utf8::decode(two[0..2]).unwrap().codepoint != 233 { return 12; }
+    if std::utf8::decode(three[0..3]).unwrap().codepoint != 8364 || std::utf8::decode(four[0..4]).unwrap().codepoint != 128512 { return 13; }
+    if std::utf8::decode(bad_start[0..1]).is_ok() || std::utf8::decode(bad_cont[0..2]).is_ok() || std::utf8::decode(overlong[0..3]).is_ok() { return 14; }
+    if std::utf8::decode(surrogate[0..3]).is_ok() || std::utf8::decode(out_of_range[0..4]).is_ok() || std::utf8::decode(truncated[0..2]).is_ok() { return 15; }
+    u8[4] encoded;
+    if std::utf8::encode(0x1F600, encoded[0..4]).unwrap() != 4 || !std::utf8::is_valid(encoded[0..4]) || std::utf8::count_codepoints(encoded[0..4]) != 1 { return 16; }
+    if std::utf8::validate(bad_start[0..1]).is_none() || std::utf8::boundary_before(two[0..2], 1) != 0 { return 17; }
+
+return 0;
+}
+public i32 main() {
+    for usize round = 0; round < 100000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

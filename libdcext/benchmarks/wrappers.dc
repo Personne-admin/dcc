@@ -1,0 +1,43 @@
+module main;
+import std::result;
+import std::slice;
+import std::utf8;
+import std::math;
+import std::hash;
+import std::sort;
+import std::mem;
+import std::prelude;
+import std::fmt;
+
+bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+
+i32 workload(i32 x) {
+    std::result::Result(i32, u8) ok = std::result::Result::Ok(x);
+    std::result::Result(i32, u8) err = std::result::Result::Err(3);
+    std::result::Status(u8) status_ok = std::result::Status::Ok;
+    std::result::Status(u8) status_err = std::result::Status::Err(9);
+    std::result::Optional(i32) some = std::result::Optional::Some(4);
+    std::result::Optional(i32) none = std::result::Optional::None;
+    if !ok.is_ok() || ok.is_err() || ok.unwrap() != x || ok.unwrap_or(1) != x { return 1; }
+    if !err.is_err() || err.is_ok() || err.unwrap_err() != 3 || err.unwrap_or(8) != 8 { return 2; }
+    if !status_ok.is_ok() || status_err.is_ok() || status_err.unwrap_err() != 9 { return 3; }
+    if !some.is_some() || some.is_none() || some.unwrap_some() != 4 || some.some_or(1) != 4 { return 4; }
+    if !none.is_none() || none.is_some() || none.some_or(6) != 6 { return 5; }
+
+return 0;
+}
+i32 batch() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload((round % 97) as i32);
+        if status != 0 { return status; }
+    }
+    return 0;
+}
+
+public i32 main() {
+    for usize round = 0; round < 100; round++ {
+        i32 status = batch();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

@@ -1,0 +1,86 @@
+module main;
+import std::array;
+import std::mem;
+import std::result;
+
+i32 workload() {
+    u8[512] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..512]);
+    std::mem::Allocator a = fb.allocator();
+
+    std::array::Array(i32) arr = std::array::new_array(a);
+    if !arr.is_empty() || arr.len() != 0 { return 1; }
+    if arr.at(0).is_some() || arr.last().is_some() || arr.pop().is_some() { return 2; }
+
+    usize i = 0;
+    while i < 20 {
+        if !arr.push(i as i32).is_ok() { return 3; }
+        i = i + 1;
+    }
+    if arr.len() != 20 { return 4; }
+    [] i32 e0 = arr.items();
+    if e0[0] != 0 || e0[19] != 19 { return 4; }
+    std::result::Optional(i32*) a0 = arr.at(0);
+    if a0.is_none() { return 4; }
+    i32* a0p = a0.unwrap_some();
+    if *a0p != 0 { return 4; }
+    if arr.last().unwrap_some() != 19 { return 5; }
+
+    if !arr.insert(0, -1).is_ok() { return 6; }
+    if !arr.insert(10, -2).is_ok() { return 7; }
+    if !arr.insert(arr.len(), -3).is_ok() { return 8; }
+    if arr.len() != 23 { return 9; }
+    [] i32 e1 = arr.items();
+    if e1[0] != -1 || e1[10] != -2 || e1[22] != -3 { return 9; }
+    std::result::Optional(i32*) a10 = arr.at(10);
+    if a10.is_none() { return 10; }
+    i32* a10p = a10.unwrap_some();
+    if *a10p != -2 { return 10; }
+
+    if arr.remove(0).unwrap_some() != -1 { return 11; }
+    if arr.swap_remove(9).unwrap_some() != -2 { return 12; }
+    if arr.len() != 21 { return 13; }
+
+    if arr.pop().unwrap_some() != 19 { return 14; }
+    if arr.len() != 20 { return 15; }
+
+    i32[3] extra = {100, 101, 102};
+    if !arr.append_slice(extra[0..3]).is_ok() { return 16; }
+    if arr.len() != 23 || arr.last().unwrap_some() != 102 { return 17; }
+
+    if !arr.resize(25).is_ok() { return 18; }
+    if arr.len() != 25 { return 19; }
+    if !arr.shrink_to_fit().is_ok() { return 20; }
+    if arr.capacity() != arr.len() { return 21; }
+
+    arr.clear();
+    if !arr.is_empty() { return 22; }
+
+    std::result::Result(std::array::Array(i32), std::mem::AllocError) cap_r = std::array::with_capacity(a, 16);
+    if cap_r.is_err() { return 23; }
+    std::array::Array(i32) cap = cap_r.unwrap();
+    if cap.capacity() < 16 { cap.deinit(); return 24; }
+    cap.deinit();
+
+    i32[4] seed = {4, 3, 2, 1};
+    std::result::Result(std::array::Array(i32), std::mem::AllocError) cp_r = std::array::from_slice(a, seed[0..4]);
+    if cp_r.is_err() { return 25; }
+    std::array::Array(i32) cp = cp_r.unwrap();
+    [] i32 cpe = cp.items();
+    if cp.len() != 4 || cpe[0] != 4 { cp.deinit(); return 26; }
+    std::result::Result([] i32, std::mem::AllocError) own_r = cp.to_owned_slice();
+    if own_r.is_err() { cp.deinit(); return 27; }
+    [] i32 owned = own_r.unwrap();
+    if owned.len != 4 || owned[3] != 1 { cp.deinit(); return 28; }
+    cp.deinit();
+    arr.deinit();
+    return 0;
+}
+
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

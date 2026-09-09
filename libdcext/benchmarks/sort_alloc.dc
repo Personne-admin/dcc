@@ -1,0 +1,43 @@
+module main;
+import std::sort;
+import std::mem;
+import std::result;
+
+i32 descending(const i32* a, const i32* b) {
+    i32 x = *a;
+    i32 y = *b;
+    if x < y { return 1; }
+    if x > y { return -1; }
+    return 0;
+}
+
+i32 workload() {
+    u8[1024] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..1024]);
+    std::mem::Allocator a = fb.allocator();
+
+    i32[8] values = {5, 1, 4, 1, 3, 2, 8, 0};
+    if !std::sort::sort_stable_alloc(&a, values[0..8], descending).is_ok() { return 1; }
+    if values[0] != 8 || values[7] != 0 { return 2; }
+    if !std::sort::is_sorted_by(values[0..8], descending) { return 3; }
+
+    std::sort::sort(values[0..8]);
+    if !std::sort::is_sorted_by(values[0..8], std::sort::compare_default) { return 4; }
+    if values[0] != 0 || values[7] != 8 { return 5; }
+
+    i32 key4 = 4;
+    if std::sort::lower_bound_by(values[0..8], &key4, std::sort::compare_default) != 5 { return 6; }
+    if std::sort::upper_bound_by(values[0..8], &key4, std::sort::compare_default) != 6 { return 7; }
+    std::result::Optional(usize) bs = std::sort::binary_search(values[0..8], 3);
+    if bs.is_none() || bs.unwrap_some() != 4 { return 8; }
+    if std::sort::binary_search(values[0..8], 9).is_some() { return 9; }
+    return 0;
+}
+
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

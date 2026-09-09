@@ -1,0 +1,75 @@
+module main;
+import std::map;
+import std::mem;
+import std::result;
+
+i32 workload() {
+    u8[8192] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..8192]);
+    std::mem::Allocator a = fb.allocator();
+
+    std::map::Map(u64, u64) m = std::map::new_map(a);
+    if !m.is_empty() || m.len() != 0 { return 1; }
+    if m.get(1).is_some() || m.contains(1) { return 2; }
+    if m.remove(1).is_some() { return 3; }
+
+    usize k = 1;
+    while k <= 50 {
+        if m.put(k as u64, (k as u64) * (10 as u64)).is_err() { return 4; }
+        k = k + 1;
+    }
+    if m.len() != 50 { return 5; }
+
+    std::result::Optional(u64) g = m.get(7);
+    if g.is_none() || g.unwrap_some() != 70 { return 6; }
+    if !m.contains(50) || m.contains(51) { return 7; }
+
+    std::result::Result(std::result::Optional(u64), std::mem::AllocError) rep = m.put(7, 777);
+    if rep.is_err() { return 8; }
+    std::result::Optional(u64) prev = rep.unwrap();
+    if prev.is_none() || prev.unwrap_some() != 70 { return 9; }
+    std::result::Optional(u64) g2 = m.get(7);
+    if g2.is_none() || g2.unwrap_some() != 777 { return 10; }
+    if m.len() != 50 { return 11; }
+
+    std::result::Result(u64*, std::mem::AllocError) gp = m.get_or_put(51, 510);
+    if gp.is_err() { return 12; }
+    u64* pp = gp.unwrap();
+    if *pp != 510 { return 13; }
+    *pp = 511;
+    std::result::Optional(u64) g3 = m.get(51);
+    if g3.is_none() || g3.unwrap_some() != 511 { return 14; }
+
+    std::map::Iterator(u64, u64) it = m.iterate();
+    u64 sum = 0;
+    usize seen = 0;
+    while true {
+        std::result::Optional(std::map::Entry(u64, u64)) e = it.next();
+        if e.is_none() { break; }
+        std::map::Entry(u64, u64) ent = e.unwrap_some();
+        sum = sum + *ent.value;
+        seen = seen + 1;
+    }
+    if seen != 51 { return 15; }
+    u64 want = (10 as u64) * ((50 as u64) * (51 as u64) / (2 as u64)) + (777 as u64) - (70 as u64) + (511 as u64);
+    if sum != want { return 16; }
+
+    std::result::Optional(u64) r = m.remove(7);
+    if r.is_none() || r.unwrap_some() != 777 { return 17; }
+    if m.len() != 50 || m.contains(7) { return 18; }
+
+    m.clear();
+    if !m.is_empty() || m.len() != 0 { return 19; }
+    if m.put(1, 1).is_err() { m.deinit(); return 20; }
+    if m.len() != 1 { m.deinit(); return 21; }
+    m.deinit();
+    return 0;
+}
+
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

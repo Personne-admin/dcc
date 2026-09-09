@@ -157,6 +157,8 @@ help:
 	@echo "  driver         Build the dcc binary"
 	@echo "  libdcext       Build the extended library"
 	@echo "  test           Build and run the test suite"
+	@echo "  benchmark      Collect correctness-gated compiler benchmarks (BENCH_ARGS=...)"
+	@echo "  test-benchmark Check benchmark correctness gating"
 	@echo "  test-linux     Run native Linux OS integration tests and ABI audit"
 	@echo "  test-win       Run Win64 OS integration tests under Wine and ABI audit"
 	@echo "  install        Install to PREFIX (default: /usr/local)"
@@ -173,3 +175,13 @@ help:
 	@echo ""
 
 include $(COMPDB_MK)
+
+.PHONY: benchmark
+benchmark: driver
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=llvm
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=em64t
+	$(Q)$(PYTHON) $(TOPLEVEL)/mk/benchmark.py $(BENCH_ARGS)
+
+.PHONY: test-benchmark
+test-benchmark:
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/benchmark_runner.py

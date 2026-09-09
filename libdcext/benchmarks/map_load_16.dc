@@ -1,0 +1,30 @@
+module main;
+import std::map;
+import std::mem;
+import std::result;
+i32 workload() {
+    u8[16384] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
+    std::map::Map(u64, u64) m = std::map::new_map(fb.allocator());
+    if !m.ensure_capacity(80).is_ok() { return 1; }
+    for usize k = 0; k < 16; k++ {
+        if !m.put(k as u64, (k*3) as u64).is_ok() { return 2; }
+    }
+    if m.capacity() != 128 { return 3; }
+    u64 sum = 0;
+    for usize k = 0; k < 16; k++ {
+        if !m.get(k as u64).is_some() { return 4; }
+        sum += m.get(k as u64).unwrap_some();
+        if m.remove(k as u64).unwrap_some() != (k*3) as u64 { return 5; }
+    }
+    if sum != 360 || m.len() != 0 { return 6; }
+    m.deinit();
+    return 0;
+}
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}
