@@ -869,6 +869,7 @@ namespace dcc::backend::em64t
             VReg scratch_xmm = VReg::phys(PhysReg::XMM15);
 
             std::unordered_map<PhysReg, std::uint32_t> scratch_slots;
+            std::unordered_map<PhysReg, std::uint32_t> xmm_scratch_slots;
 
             for (auto& blk : func.blocks)
             {
@@ -986,6 +987,8 @@ namespace dcc::backend::em64t
 
                     std::unordered_map<VReg, VReg> memory_scratch;
                     std::vector<std::pair<PhysReg, std::uint32_t>> saved_scratch;
+                    std::unordered_map<VReg, VReg> xmm_scratch;
+                    std::vector<std::pair<PhysReg, std::uint32_t>> saved_xmm_scratch;
                     bool has_memory = false;
                     std::uint64_t occupied = instr.implicit_defs | instr.implicit_uses;
                     auto occupy = [&](VReg reg) {
@@ -1011,6 +1014,67 @@ namespace dcc::backend::em64t
                             occupy(op.mem.index);
                         }
                     }
+                    auto pick_xmm_scratch = [&](VReg vreg) -> VReg {
+                        auto found = xmm_scratch.find(vreg);
+                        if (found != xmm_scratch.end())
+                            return found->second;
+                        PhysReg chosen = PhysReg::XMM15;
+                        for (auto candidate : {PhysReg::XMM15, PhysReg::XMM14, PhysReg::XMM13, PhysReg::XMM12, PhysReg::XMM11,
+                                               PhysReg::XMM10, PhysReg::XMM9, PhysReg::XMM8})
+                            if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
+                            {
+                                chosen = candidate;
+                                break;
+                            }
+                        if (chosen != PhysReg::XMM15)
+                        {
+                            auto [slot, inserted] = xmm_scratch_slots.try_emplace(chosen, 0);
+                            if (inserted)
+                                slot->second = func.new_frame_slot(8, 8, true);
+                            MInstr save;
+                            save.opc = MOpc::MOVSD_mr;
+                            save.num_ops = 2;
+                            save.ops[0] = MOp::from_frame_slot(slot->second);
+                            save.ops[1] = MOp::from_reg(VReg::phys(chosen));
+                            new_instrs.push_back(save);
+                            saved_xmm_scratch.emplace_back(chosen, slot->second);
+                        }
+                        occupied |= 1ULL << static_cast<unsigned>(chosen);
+                        VReg result = VReg::phys(chosen);
+                        xmm_scratch.emplace(vreg, result);
+                        return result;
+                    };
+                    auto pick_gpr_scratch = [&](VReg vreg) -> VReg {
+                        auto found = memory_scratch.find(vreg);
+                        if (found != memory_scratch.end())
+                            return found->second;
+                        PhysReg chosen = PhysReg::R11;
+                        for (auto candidate : {PhysReg::R11, PhysReg::R10, PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8,
+                                               PhysReg::R9, PhysReg::RSI, PhysReg::RDI, PhysReg::RBX, PhysReg::R12, PhysReg::R13,
+                                               PhysReg::R14, PhysReg::R15})
+                            if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
+                            {
+                                chosen = candidate;
+                                break;
+                            }
+                        if (chosen != PhysReg::R11)
+                        {
+                            auto [slot, inserted] = scratch_slots.try_emplace(chosen, 0);
+                            if (inserted)
+                                slot->second = func.new_frame_slot(8, 8, true);
+                            MInstr save;
+                            save.opc = MOpc::MOV64mr;
+                            save.num_ops = 2;
+                            save.ops[0] = MOp::from_frame_slot(slot->second);
+                            save.ops[1] = MOp::from_reg(VReg::phys(chosen));
+                            new_instrs.push_back(save);
+                            saved_scratch.emplace_back(chosen, slot->second);
+                        }
+                        occupied |= 1ULL << static_cast<unsigned>(chosen);
+                        VReg result = VReg::phys(chosen);
+                        memory_scratch.emplace(vreg, result);
+                        return result;
+                    };
                     if (has_memory)
                     {
                         for (auto const& rl : reloads_needed)
@@ -1054,9 +1118,10 @@ namespace dcc::backend::em64t
                         if (lr.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
                             continue;
 
-                        VReg scratch = (lr.reg_class == RegClass::XMM)            ? scratch_xmm
+                        VReg scratch = (lr.reg_class == RegClass::XMM)            ? pick_xmm_scratch(rl.spilled_vreg)
                                        : memory_scratch.contains(rl.spilled_vreg) ? memory_scratch.at(rl.spilled_vreg)
-                                                                                  : VReg::phys(use_scratch);
+                                       : is_jump_table                            ? VReg::phys(use_scratch)
+                                                                                  : pick_gpr_scratch(rl.spilled_vreg);
 
                         MInstr reload;
                         if (lr.reg_class == RegClass::XMM)
@@ -1087,7 +1152,7 @@ namespace dcc::backend::em64t
                         if (it == range_map.end())
                             continue;
 
-                        VReg scratch = (it->second->reg_class == RegClass::XMM) ? scratch_xmm : scratch_gpr;
+                        VReg scratch = (it->second->reg_class == RegClass::XMM) ? pick_xmm_scratch(v) : pick_gpr_scratch(v);
                         new_instr.ops[idx].reg = scratch;
                     }
 
@@ -1103,8 +1168,13 @@ namespace dcc::backend::em64t
                                 {
                                     if (it->second->spilled)
                                     {
-                                        VReg scratch = (it->second->reg_class == RegClass::XMM) ? scratch_xmm : jt_scratch_gpr;
-                                        op.reg = memory_scratch.contains(op.reg) ? memory_scratch.at(op.reg) : scratch;
+                                        if (it->second->reg_class == RegClass::XMM && xmm_scratch.contains(op.reg))
+                                            op.reg = xmm_scratch.at(op.reg);
+                                        else
+                                        {
+                                            VReg scratch = (it->second->reg_class == RegClass::XMM) ? scratch_xmm : jt_scratch_gpr;
+                                            op.reg = memory_scratch.contains(op.reg) ? memory_scratch.at(op.reg) : scratch;
+                                        }
                                     }
                                     else if (it->second->assigned != PhysReg::None)
                                         op.reg = VReg::phys(it->second->assigned);
@@ -1177,7 +1247,10 @@ namespace dcc::backend::em64t
                             continue;
 
                         auto const& lr = *it->second;
-                        VReg scratch = (lr.reg_class == RegClass::XMM) ? scratch_xmm : scratch_gpr;
+                        VReg scratch = (lr.reg_class == RegClass::XMM && xmm_scratch.contains(v)) ? xmm_scratch.at(v)
+                                       : (lr.reg_class == RegClass::XMM)                           ? scratch_xmm
+                                       : memory_scratch.contains(v)                               ? memory_scratch.at(v)
+                                                                                                  : scratch_gpr;
 
                         MInstr spill;
                         if (lr.reg_class == RegClass::XMM)
@@ -1202,6 +1275,16 @@ namespace dcc::backend::em64t
                     {
                         MInstr restore;
                         restore.opc = MOpc::MOV64rm;
+                        restore.num_ops = 2;
+                        restore.num_defs = 1;
+                        restore.ops[0] = MOp::from_reg(VReg::phys(reg));
+                        restore.ops[1] = MOp::from_frame_slot(slot);
+                        new_instrs.push_back(restore);
+                    }
+                    for (auto const& [reg, slot] : saved_xmm_scratch)
+                    {
+                        MInstr restore;
+                        restore.opc = MOpc::MOVSD_rm;
                         restore.num_ops = 2;
                         restore.num_defs = 1;
                         restore.ops[0] = MOp::from_reg(VReg::phys(reg));
