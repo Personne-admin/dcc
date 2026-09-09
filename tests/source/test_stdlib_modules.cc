@@ -935,3 +935,25 @@ TEST_CASE("implicit function pointer pack deduction executes on both backends at
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
+
+TEST_CASE("constants materialized per block execute on both backends at O0, O1 and O2")
+{
+    auto fixture = std::filesystem::path{"cases/em64t/const-cross-block-exec.dcc-test"};
+    if (!std::filesystem::exists(fixture))
+        fixture = std::filesystem::path{"tests"} / fixture;
+    std::ifstream input{fixture};
+    REQUIRE(input.good());
+    std::string contents{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+    auto start = contents.find('\n') + 1;
+    auto end = contents.find("=== EXPECT-");
+    auto source = contents.substr(start, end - start);
+    auto entry = source.find("@nomangle\npublic i32 dcc_main()");
+    REQUIRE(entry != std::string::npos);
+    source.replace(entry, std::string_view{"@nomangle\npublic i32 dcc_main()"}.size(), "public i32 main()");
+    auto mod = source.find("module test;");
+    if (mod != std::string::npos)
+        source.replace(mod, std::string_view{"module test;"}.size(), "module main;");
+    for (auto backend : {"llvm", "em64t"})
+        for (auto optimization : {"-O0", "-O1", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}

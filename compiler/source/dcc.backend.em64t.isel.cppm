@@ -4050,6 +4050,16 @@ namespace dcc::backend::em64t
 
             ctx.current_block_id = mbb_it->second;
 
+            for (auto it = ctx.value_map.begin(); it != ctx.value_map.end();)
+            {
+                IrNodeKind const k = it->first->kind;
+                if (k == IrNodeKind::IntConstant || k == IrNodeKind::FloatConstant || k == IrNodeKind::BoolConstant ||
+                    k == IrNodeKind::NullConstant || k == IrNodeKind::StringConstant || k == IrNodeKind::GlobalRef)
+                    it = ctx.value_map.erase(it);
+                else
+                    ++it;
+            }
+
             for (auto* inst : ir_bb->instructions)
             {
                 if (!inst)
