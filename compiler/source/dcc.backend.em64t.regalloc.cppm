@@ -706,12 +706,18 @@ namespace dcc::backend::em64t
             std::unordered_set<VReg> setcc_defs;
             std::unordered_set<VReg> shift_dsts;
             std::unordered_map<PhysReg, std::vector<std::uint32_t>> clobbers;
+            std::unordered_map<PhysReg, std::vector<std::uint32_t>> phys_reads;
             for (auto const& blk : func.blocks)
             {
                 std::uint32_t base_pp = blk.id * kBlockStride;
                 for (std::size_t ii = 0; ii < blk.instrs.size(); ++ii)
                 {
                     auto const& instr = blk.instrs[ii];
+                    if ((instr.opc == MOpc::COPY || instr.opc == MOpc::MOVSDrr || instr.opc == MOpc::MOVSSrr || instr.opc == MOpc::MOVAPSrr) &&
+                        instr.num_ops >= 2)
+                        for (std::uint8_t oi = instr.num_defs; oi < instr.num_ops; ++oi)
+                            if (instr.ops[oi].kind == MOpKind::Reg && instr.ops[oi].reg.is_physical())
+                                phys_reads[instr.ops[oi].reg.phys_reg()].push_back(base_pp + static_cast<std::uint32_t>(ii));
                     if (is_setcc(instr.opc) && instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_virtual())
                         setcc_defs.insert(instr.ops[0].reg);
                     switch (instr.opc)
@@ -761,9 +767,12 @@ namespace dcc::backend::em64t
                         return false;
 
                     auto it = clobbers.find(reg);
-                    if (it == clobbers.end())
+                    if (it != clobbers.end() && !std::ranges::none_of(it->second, [&](std::uint32_t pp) { return pp > range.start && pp < range.end; }))
+                        return false;
+                    auto rd = phys_reads.find(reg);
+                    if (rd == phys_reads.end())
                         return true;
-                    return std::ranges::none_of(it->second, [&](std::uint32_t pp) { return pp > range.start && pp < range.end; });
+                    return std::ranges::none_of(rd->second, [&](std::uint32_t pp) { return pp > range.start && pp < range.end; });
                 };
 
                 std::unordered_set<PhysReg> occupied;
