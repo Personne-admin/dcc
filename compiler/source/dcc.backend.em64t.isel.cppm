@@ -3163,8 +3163,19 @@ namespace dcc::backend::em64t
                         }
                         case IrNodeKind::PtrToI:
                         case IrNodeKind::IToPtr:
-                        case IrNodeKind::Bitcast:
                         case IrNodeKind::Segcast: {
+                            VReg dst = emit_unary_op(ctx, MOpc::MOV64rr, op_vreg);
+                            ctx.set_vreg(inst, dst);
+                            break;
+                        }
+                        case IrNodeKind::Bitcast: {
+                            VReg addr = is_memory_type(inst->type) ? memory_value_addr(ctx, operand) : VReg{};
+                            if (addr.is_valid())
+                            {
+                                ctx.memory_addr_values.insert(inst);
+                                ctx.set_vreg(inst, addr);
+                                break;
+                            }
                             VReg dst = emit_unary_op(ctx, MOpc::MOV64rr, op_vreg);
                             ctx.set_vreg(inst, dst);
                             break;
