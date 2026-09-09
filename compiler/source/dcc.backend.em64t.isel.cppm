@@ -3559,6 +3559,15 @@ namespace dcc::backend::em64t
                     if (!val.is_valid())
                         break;
 
+                    unsigned const sw_narrow =
+                        (sw->value && sw->value->type && sw->value->type->kind == IrTypeKind::Int) ? narrow_bits(sw->value->type) : 0;
+                    bool const sw_wide32 = sw_narrow != 0 || (sw->value && int_width(ctx, sw->value->type) == 4);
+                    VReg sw_val = val;
+                    if (sw_narrow != 0 && int_is_signed(sw->value->type))
+                        sw_val = extend_narrow_to_32(ctx, val, sw_narrow);
+                    unsigned const sw_imm_bits = sw_wide32 ? 32 : 64;
+                    unsigned const sw_cmp_bits = sw_wide32 ? 4 : 8;
+
                     auto def_it = ctx.ir_bb_to_mblock.find(sw->default_target);
                     if (def_it == ctx.ir_bb_to_mblock.end())
                         break;
@@ -3620,12 +3629,12 @@ namespace dcc::backend::em64t
                         std::string sym_name = std::format(".Ljt_{}_{}", sanitized, jt_id);
 
                         VReg index_vreg = ctx.mfunc.new_vreg();
-                        emit_mov(ctx, index_vreg, val);
+                        emit_mov(ctx, index_vreg, sw_val);
 
                         if (cmp_min != 0)
                         {
                             MInstr sub;
-                            sub.opc = MOpc::SUB64ri32;
+                            sub.opc = sw_wide32 ? MOpc::SUB32ri : MOpc::SUB64ri32;
                             sub.num_ops = 2;
                             sub.num_defs = 1;
                             sub.ops[0] = MOp::from_reg(index_vreg);
@@ -3638,8 +3647,8 @@ namespace dcc::backend::em64t
                         if (span_minus_one > 0)
                         {
                             VReg cmp_reg = ctx.mfunc.new_vreg();
-                            emit_mov_ri(ctx, cmp_reg, span_minus_one, 64);
-                            emit_cmp(ctx, index_vreg, cmp_reg);
+                            emit_mov_ri(ctx, cmp_reg, span_minus_one, sw_imm_bits);
+                            emit_cmp(ctx, index_vreg, cmp_reg, sw_cmp_bits);
                             emit_jcc(ctx, MOpc::JA, def_it->second);
                         }
                         else if (span_minus_one == 0)
@@ -3705,8 +3714,8 @@ namespace dcc::backend::em64t
                             if (c.start == c.end)
                             {
                                 VReg cmp_val = ctx.mfunc.new_vreg();
-                                emit_mov_ri(ctx, cmp_val, c.start, 64);
-                                emit_cmp(ctx, val, cmp_val);
+                                emit_mov_ri(ctx, cmp_val, c.start, sw_imm_bits);
+                                emit_cmp(ctx, sw_val, cmp_val, sw_cmp_bits);
                                 emit_jcc(ctx, MOpc::JE, case_it->second);
                             }
                             else
@@ -3717,17 +3726,17 @@ namespace dcc::backend::em64t
 
                                 VReg sub_result = ctx.mfunc.new_vreg();
                                 MInstr sub;
-                                sub.opc = MOpc::SUB64rr;
+                                sub.opc = sw_wide32 ? MOpc::SUB32rr : MOpc::SUB64rr;
                                 sub.num_ops = 3;
                                 sub.num_defs = 1;
                                 sub.ops[0] = MOp::from_reg(sub_result);
-                                sub.ops[1] = MOp::from_reg(val);
+                                sub.ops[1] = MOp::from_reg(sw_val);
                                 sub.ops[2] = MOp::from_imm(low);
                                 ctx.append_instr(sub);
 
                                 VReg range_reg = ctx.mfunc.new_vreg();
-                                emit_mov_ri(ctx, range_reg, range, 64);
-                                emit_cmp(ctx, sub_result, range_reg);
+                                emit_mov_ri(ctx, range_reg, range, sw_imm_bits);
+                                emit_cmp(ctx, sub_result, range_reg, sw_cmp_bits);
                                 emit_jcc(ctx, MOpc::JBE, case_it->second);
                             }
                         }
