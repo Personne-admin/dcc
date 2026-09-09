@@ -1,0 +1,51 @@
+=== FILE: test.dc ===
+module test;
+@nomangle
+public i32 dcc_main() {
+    u16 x = 0xFF80 as u16;
+    if (x << (4 as u16)) != (0xF800 as u16) {
+        return 1;
+    }
+    if (x >> (4 as u16)) != (0x0FF8 as u16) {
+        return 2;
+    }
+    if (x << (8 as u16)) != (0x8000 as u16) {
+        return 3;
+    }
+    if (x >> (8 as u16)) != (0x00FF as u16) {
+        return 4;
+    }
+    i16 s = -256 as i16;
+    if (s >> (2 as i16)) != (-64 as i16) {
+        return 5;
+    }
+    if (s << (4 as i16)) != (-4096 as i16) {
+        return 6;
+    }
+    if (s >> (8 as i16)) != (-1 as i16) {
+        return 7;
+    }
+    u8 q = 0xF0 as u8;
+    if (q << (2 as u8)) != (0xC0 as u8) {
+        return 8;
+    }
+    if (q >> (2 as u8)) != (0x3C as u8) {
+        return 9;
+    }
+    i8 m = -128 as i8;
+    if (m >> (7 as i8)) != (-1 as i8) {
+        return 10;
+    }
+    if (m << (1 as i8)) != (0 as i8) {
+        return 11;
+    }
+    u16 y = 0x1234 as u16;
+    if (((y & 0xFF as u16) << (8 as u16)) | ((y >> (8 as u16)) & (0xFF as u16))) != (0x3412 as u16) {
+        return 12;
+    }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+RUN-EXIT: 0

@@ -73,8 +73,7 @@ namespace
             rex |= 0x02;
         if (b)
             rex |= 0x01;
-        if (rex != 0x40)
-            buf.push_back(rex);
+        buf.push_back(rex);
     }
 
     static std::uint8_t reg_x86_num(PhysReg r)
@@ -896,7 +895,19 @@ namespace
                 break;
             }
 
-            case MOpc::MOVZX64_32rr:
+            case MOpc::MOVZX64_32rr: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg)
+                {
+                    auto d = resolve_phys_reg(ops[0], wrn, "MOVZX64_32");
+                    auto s = resolve_phys_reg(ops[1], wrn, "MOVZX64_32");
+                    emit_rex_if_extended(buf, false, s, d);
+                    emit_u8(buf, 0x89);
+                    emit_modrm(buf, 3, reg_low3(s), reg_low3(d));
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
             case MOpc::MOVZX32rr8:
             case MOpc::MOVZX32_8rr:
             case MOpc::MOVZX64rr8: {
@@ -905,7 +916,10 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOVZX8");
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVZX8");
-                    emit_rex_if_extended(buf, w64, d, s);
+                    auto dv = reg_x86_num(d);
+                    auto sv = reg_x86_num(s);
+                    if (w64 || dv >= 8 || sv >= 4)
+                        emit_rex(buf, w64, dv >= 8, false, sv >= 8);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0xB6);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
@@ -1024,7 +1038,10 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOVSX8");
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVSX8");
-                    emit_rex_if_extended(buf, w64, d, s);
+                    auto dv = reg_x86_num(d);
+                    auto sv = reg_x86_num(s);
+                    if (w64 || dv >= 8 || sv >= 4)
+                        emit_rex(buf, w64, dv >= 8, false, sv >= 8);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0xBE);
                     emit_modrm(buf, 3, reg_low3(d), reg_low3(s));
