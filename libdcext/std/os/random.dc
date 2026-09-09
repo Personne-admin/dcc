@@ -1,0 +1,88 @@
+//!!
+//!! Operating-system entropy
+//!!
+//!! `fill` draws from the host generator (`getrandom` on Linux,
+//!! `SystemFunction036` on Windows) and blocks until the pool is ready.
+//!! There is no PRNG here: no state, no seeding, nothing to deinit.
+//!!
+
+module std::os::random;
+
+import core;
+import core::target;
+import std::slice;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+public import std::os::error;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using result::{ Result, Status, Optional };
+using error::Error;
+
+//!
+//! Fill
+//!
+
+/// fills `buf` with entropy. blocks until the pool is ready, retries
+/// short reads and interrupts inside, so `Ok` means the whole buffer.
+/// bytes written before a failure stay written.
+public Status(Error) fill([] u8 buf) {
+    static if core::target::OS == core::target::Os::Windows {
+        u32 cap = 0xFFFFFFFF;
+        usize limit = cap as usize;
+        usize done = 0;
+
+        while done < buf.len {
+            usize rest = buf.len - done;
+            u32 n = if rest > limit {
+                cap
+            } else {
+                rest as u32
+            };
+
+            [] u8 chunk = slice::from_raw(&buf[done], n as usize);
+            win::abi::Byte ok = win::imports::SystemFunction036(
+                chunk.ptr as void*,
+                n
+            );
+
+            if ok == 0 {
+                Error e = error::from_win32(win::imports::GetLastError());
+                if e == Error::Interrupted {
+                    continue;
+                }
+
+                return Status::Err(e);
+            }
+
+            done += n as usize;
+        }
+
+        return Status::Ok;
+    } else static if core::target::OS == core::target::Os::Linux {
+        usize done = 0;
+
+        while done < buf.len {
+            isize ret = linux::syscall::getrandom(buf[done..buf.len], 0);
+            if linux::abi::is_error(ret) {
+                Error e = error::from_syscall(ret);
+                if e == Error::Interrupted {
+                    continue;
+                }
+
+                return Status::Err(e);
+            }
+
+            done += ret as usize;
+        }
+
+        return Status::Ok;
+    } else {
+        core::compile_error("std::os::random has no backend for this target");
+        return Status::Err(Error::Unexpected);
+    }
+}
