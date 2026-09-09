@@ -1,0 +1,85 @@
+module main;
+import core;
+import core::target;
+import std::slice;
+import std::mem;
+import std::os::random;
+import std::os::error;
+import std::result;
+import std::sys::linux::abi;
+import std::sys::win::abi;
+
+using std::os::{ random, error };
+using std::{ mem, slice, result };
+using error::Error;
+
+struct Blob {
+    u64 a;
+    u32 b;
+    u8 tag;
+}
+
+Status(Error) fill_any(T)(T* value) {
+    [] u8 bytes = mem::as_bytes_mut(value);
+    return random::fill(bytes);
+}
+
+public i32 main() {
+    u8[1] one;
+    if !random::fill(one[0..0]).is_ok() {
+        return 1;
+    }
+
+    u8[1] tiny;
+    u8[7] odd;
+    u8[1000] big;
+    if !random::fill(tiny[0..1]).is_ok() {
+        return 2;
+    }
+    if !random::fill(odd[0..7]).is_ok() {
+        return 3;
+    }
+    if !random::fill(big[0..1000]).is_ok() {
+        return 4;
+    }
+
+    u8[64] a;
+    u8[64] b;
+    if !random::fill(a[0..64]).is_ok() {
+        return 5;
+    }
+    if !random::fill(b[0..64]).is_ok() {
+        return 6;
+    }
+    if mem::equal(a[0..64], b[0..64]) {
+        return 7;
+    }
+
+    Blob x;
+    Blob y;
+    if !fill_any(&x).is_ok() {
+        return 8;
+    }
+    if !fill_any(&y).is_ok() {
+        return 9;
+    }
+    if mem::equal(mem::as_bytes(&x), mem::as_bytes(&y)) {
+        return 10;
+    }
+
+    static if core::target::OS == core::target::Os::Linux {
+        if error::from_errno(std::sys::linux::abi::EINTR) != Error::Interrupted {
+            return 11;
+        }
+        [] u8 bad = slice::from_raw(null as u8*, 16);
+        if random::fill(bad).unwrap_err() != Error::InvalidArgument {
+            return 12;
+        }
+    } else static if core::target::OS == core::target::Os::Windows {
+        if error::from_win32(std::sys::win::abi::WSAEINTR) != Error::Interrupted {
+            return 11;
+        }
+    }
+
+    return 0;
+}

@@ -23,6 +23,11 @@ TEST_CASE("shared file, heap, clock and process contracts")
     CHECK(r.err.contains("stderr ok"));
 }
 
+TEST_CASE("os::random fills buffers from OS entropy")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("random.dc"), windows()).status, 0);
+}
+
 TEST_CASE("exit and explicit panic handler in child processes")
 {
     CHECK_EQ(os_test::run("module main; import std::os::process; public i32 main() { std::os::process::exit(42); return 1; }", windows()).status, 42);
