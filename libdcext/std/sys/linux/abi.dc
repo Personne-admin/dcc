@@ -336,6 +336,19 @@ public using i32 SHUT_RD = 0;
 public using i32 SHUT_WR = 1;
 public using i32 SHUT_RDWR = 2;
 
+public struct Pollfd {
+    Fd fd;
+    i16 events;
+    i16 revents;
+}
+
+public using i16 POLLIN = 1;
+public using i16 POLLPRI = 2;
+public using i16 POLLOUT = 4;
+public using i16 POLLERR = 8;
+public using i16 POLLHUP = 16;
+public using i16 POLLNVAL = 32;
+
 public struct SockaddrIn {
     u16 family;
     u16 port;

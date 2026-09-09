@@ -9,14 +9,12 @@ import tempfile
 
 root = Path(__file__).resolve().parents[2]
 checks = [
-    ('linux', ['clang'], '#define _GNU_SOURCE\n#include <errno.h>\n#include <fcntl.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <netinet/tcp.h>\n#include <sys/prctl.h>\n#include <dirent.h>\n#include <sys/mman.h>\n#include <sys/stat.h>\n#include <signal.h>\n#include <time.h>\n#include <sys/random.h>\n',
+    ('linux', ['clang'], '#define _GNU_SOURCE\n#include <errno.h>\n#include <fcntl.h>\n#include <sched.h>\n#include <linux/futex.h>\n#include <sys/wait.h>\n#include <sys/socket.h>\n#include <netinet/in.h>\n#include <netinet/tcp.h>\n#include <sys/prctl.h>\n#include <dirent.h>\n#include <sys/mman.h>\n#include <sys/stat.h>\n#include <signal.h>\n#include <time.h>\n#include <sys/random.h>\n#include <poll.h>\n',
      {'MAX_ERRNO', 'PAGE_SIZE', 'DEFAULT_FILE_MODE', 'DEFAULT_DIR_MODE', 'STDIN', 'STDOUT', 'STDERR', 'CLOCK_PROCESS_CPUTIME', 'CLOCK_THREAD_CPUTIME'}),
     ('win', [str(Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw')) / 'bin/x86_64-w64-mingw32-clang')], '#include <winsock2.h>\n#include <ws2tcpip.h>\n#include <windows.h>\n',
      {'PAGE_SIZE', 'ALLOCATION_GRANULARITY', 'FILETIME_UNIX_EPOCH'}),
 ]
 
-# The platforms declare different sets of constants; assertion totals need not match.
-# Each entry covers every declared field: D name, SDK name, offset, byte width.
 win_layouts = {
     'Overlapped': ('OVERLAPPED', 32, [
         ('internal', 'Internal', 0, 8), ('internal_high', 'InternalHigh', 8, 8),
@@ -110,6 +108,10 @@ win_layouts = {
         ('process_id', 'dwProcessId', 16, 4),
         ('thread_id', 'dwThreadId', 20, 4),
     ]),
+    'Wsapollfd': ('WSAPOLLFD', 16, [
+        ('fd', 'fd', 0, 8), ('events', 'events', 8, 2),
+        ('revents', 'revents', 10, 2),
+    ]),
     'SrwLock': ('SRWLOCK', 8, [('ptr', 'Ptr', 0, 8)]),
     'ConditionVariable': ('CONDITION_VARIABLE', 8, [('ptr', 'Ptr', 0, 8)]),
     'InitOnce': ('INIT_ONCE', 8, [('ptr', 'Ptr', 0, 8)]),
@@ -148,7 +150,6 @@ def win_field_assertions(source, directory):
                 dc_type = kind if kind in primitives else f'abi::{kind}'
                 dc_check(f'sizeof({dc_type}) == {width}', f'{name}.{field} width')
 
-    # D's u64 offset represents the SDK's Offset/OffsetHigh union storage.
     c_checks += ['_Static_assert(__builtin_offsetof(OVERLAPPED, Offset) == 16, "Offset");',
                  '_Static_assert(__builtin_offsetof(OVERLAPPED, OffsetHigh) == 20, "OffsetHigh");']
     dc_checks.append('}')
@@ -170,8 +171,6 @@ with tempfile.TemporaryDirectory(prefix='dcc-abi-') as tmp:
             declared = set(re.findall(r'public using \w+ (\w+) =', source))
             numeric = set(re.findall(r'public using \w+ (\w+) = -?(?:0x[0-9A-Fa-f]+|[0-9]+);', source))
             assert declared == numeric, 'uncovered non-numeric Win32 constant'
-            # PAGE_SIZE and ALLOCATION_GRANULARITY are checked by GetSystemInfo
-            # in integration.dc; FILETIME_UNIX_EPOCH is derived below.
         for name, value in re.findall(r'public using \w+ (\w+) = (-?(?:0x[0-9A-Fa-f]+|[0-9]+));', source):
             if name in excluded:
                 continue

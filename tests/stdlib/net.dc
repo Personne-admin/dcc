@@ -1,0 +1,105 @@
+module main;
+import std::mem;
+import std::os::error;
+import std::os::heap;
+import std::os::net;
+import std::result;
+import std::slice;
+
+using std::os::{ error, heap, net };
+using net::PollFd;
+using std::{ mem, result, slice };
+
+public i32 main() {
+    net::SocketAddrV4 any;
+    any.ip = net::IPV4_LOOPBACK;
+    any.port = 0;
+
+    net::TcpListener listener = net::bind(any).unwrap();
+    net::SocketAddrV4 addr = listener.local_addr().unwrap();
+    if addr.port == 0 {
+        return 1;
+    }
+    if addr.ip != net::IPV4_LOOPBACK {
+        return 2;
+    }
+
+    if net::poll_one(listener.handle, net::POLL_IN, 50).unwrap() != 0 {
+        return 3;
+    }
+
+    net::TcpStream client = net::connect(addr).unwrap();
+
+    mem::Allocator alloc = heap::allocator();
+    Result([] u8, mem::AllocError) slot = alloc.raw_alloc(
+        2 * sizeof (net::PollFd),
+        8
+    );
+    if slot.is_err() {
+        return 4;
+    }
+    [] u8 scratch = slot.unwrap();
+    PollFd* pair = scratch.ptr as PollFd*;
+    pair[0].handle = listener.handle;
+    pair[0].events = net::POLL_IN;
+    pair[0].revents = 0;
+    pair[1].handle = client.handle;
+    pair[1].events = net::POLL_IN;
+    pair[1].revents = 0;
+    [] PollFd watch = slice::from_raw!PollFd(pair, 2);
+    if net::poll(watch, 2000).unwrap() != 1 {
+        heap::raw_free(&alloc, scratch, 8);
+        return 5;
+    }
+    if (pair[0].revents & net::POLL_IN) == 0 {
+        heap::raw_free(&alloc, scratch, 8);
+        return 6;
+    }
+    if pair[1].revents != 0 {
+        heap::raw_free(&alloc, scratch, 8);
+        return 7;
+    }
+    if net::poll(watch[0..0], 10).unwrap() != 0 {
+        heap::raw_free(&alloc, scratch, 8);
+        return 8;
+    }
+    heap::raw_free(&alloc, scratch, 8);
+
+    net::TcpStream server = listener.accept().unwrap();
+    client.write_all("hello").unwrap();
+
+    u8[5] buf;
+    if server.read_all(buf[0..5]).unwrap() != 5 {
+        return 9;
+    }
+    if !std::mem::equal(buf[0..5], "hello") {
+        return 10;
+    }
+
+    server.write_all("world").unwrap();
+    if net::poll_one(client.handle, net::POLL_IN, 2000).unwrap() == 0 {
+        return 11;
+    }
+
+    u8[5] back;
+    if client.read_all(back[0..5]).unwrap() != 5 {
+        return 12;
+    }
+    if !std::mem::equal(back[0..5], "world") {
+        return 13;
+    }
+
+    u16 port = addr.port;
+    listener.close();
+    server.close();
+    client.close();
+
+    net::SocketAddrV4 dead;
+    dead.ip = net::IPV4_LOOPBACK;
+    dead.port = port;
+    if net::connect(dead).unwrap_err() != error::Error::ConnectionRefused {
+        return 14;
+    }
+
+    return 0;
+}

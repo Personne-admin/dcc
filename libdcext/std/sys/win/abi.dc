@@ -250,6 +250,19 @@ public struct SockaddrIn6 {
     Dword scope_id;
 }
 
+public struct Wsapollfd {
+    Socket fd;
+    i16 events;
+    i16 revents;
+}
+
+public using i16 POLLIN = 0x0300;
+public using i16 POLLPRI = 0x0400;
+public using i16 POLLOUT = 0x0010;
+public using i16 POLLERR = 0x0001;
+public using i16 POLLHUP = 0x0002;
+public using i16 POLLNVAL = 0x0004;
+
 public struct Wsadata {
     Word version;
     Word high_version;

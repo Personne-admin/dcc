@@ -331,6 +331,11 @@ using abi::{ Bool, Byte, Dword, Handle, Socket, Wchar, Word };
     abi::Sockaddr* name,
     i32* name_len
 );
+@[import, nomangle] public extern i32 WSAPoll(
+    abi::Wsapollfd* fds,
+    u32 nfds,
+    i32 timeout_ms
+);
 
 //!
 //! Randomness
