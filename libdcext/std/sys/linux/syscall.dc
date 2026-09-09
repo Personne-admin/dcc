@@ -91,6 +91,7 @@ public using usize NR_RECVFROM = 45;
 public using usize NR_SHUTDOWN = 48;
 public using usize NR_SETSOCKOPT = 54;
 public using usize NR_GETSOCKOPT = 55;
+public using usize NR_POLL = 7;
 public using usize NR_GETTID = 186;
 public using usize NR_PRCTL = 157;
 public using usize NR_SCHED_GETAFFINITY = 204;
@@ -579,5 +580,14 @@ public isize getsockopt(
         arg_i32(name),
         value as usize,
         value_len as usize
+    );
+}
+
+public isize poll(abi::Pollfd* fds, usize nfds, i32 timeout_ms) {
+    return raw3(
+        NR_POLL,
+        fds as usize,
+        nfds,
+        arg_i32(timeout_ms)
     );
 }

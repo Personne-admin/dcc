@@ -1,0 +1,650 @@
+//!!
+//!! TCP sockets and readiness
+//!!
+//!! A portable façade over whichever `sys::` layer the target implies. It
+//!! is a convenience, not a gate: code that needs socket options, datagrams,
+//!! or address resolution this module does not model imports the `sys::`
+//!! layer directly and is not second-class for doing so.
+//!!
+//!! Only IPv4 is modeled and every operation blocks. On Windows the first
+//!! socket creation initializes Winsock for the process; no cleanup runs.
+
+module std::os::net;
+
+import core;
+import core::target;
+import std::mem;
+import std::os::heap;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::win::imports;
+public import std::os::error;
+public import std::result;
+
+using sys::linux;
+using sys::win;
+using result::{ Result, Status, Optional };
+using error::Error;
+using mem::AllocError;
+
+//!
+//! Addresses and handles
+//!
+//! `Handle` is `isize` on every target. A Linux descriptor widens into it
+//! and a Winsock `SOCKET` is already pointer-sized, so the invalid value is
+//! -1 either way and no conditional type alias is needed.
+//!
+//! `SocketAddrV4` stores both parts in host byte order: `ip` is the dotted
+//! quad packed most-significant byte first (`0x7F000001` is loopback) and
+//! `port` is the plain port number. The module converts to network order
+//! where the address crosses into the `sys::` layer.
+//!
+
+public using Handle = isize;
+public using Handle INVALID_HANDLE = -1;
+
+public using u32 IPV4_ANY = 0;
+public using u32 IPV4_LOOPBACK = 0x7F000001;
+
+public struct SocketAddrV4 {
+    u32 ip;
+    u16 port;
+}
+
+public struct TcpListener {
+    Handle handle;
+}
+
+public struct TcpStream {
+    Handle handle;
+}
+
+public struct PollFd {
+    Handle handle;
+    i16 events;
+    i16 revents;
+}
+
+public using i16 POLL_IN = 1;
+public using i16 POLL_OUT = 4;
+public using i16 POLL_ERR = 8;
+public using i16 POLL_HUP = 16;
+
+u16 htons(u16 v) {
+    return (((v & 0xFF) << 8) | ((v >> 8) & 0xFF)) as u16;
+}
+
+u32 htonl(u32 v) {
+    u32 a = ((v & 0xFF) << 24) | (((v >> 8) & 0xFF) << 16);
+    u32 b = (((v >> 16) & 0xFF) << 8) | ((v >> 24) & 0xFF);
+    return a | b;
+}
+
+//!
+//! Listeners
+//!
+
+/// creates, binds, and listens. the socket takes `SO_REUSEADDR` so a test
+/// that binds the same port twice in a row does not trip over `TIME_WAIT`.
+/// a port of 0 lets the OS pick; read it back with `local_addr`.
+public Result(TcpListener, Error) bind(SocketAddrV4 addr) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Wsadata data;
+        i32 init = win::imports::WSAStartup(0x0202 as win::abi::Word, &data);
+        if init != 0 {
+            return Result::Err(error::from_win32(init as u32));
+        }
+
+        win::imports::Socket s = win::imports::socket(
+            win::abi::AF_INET as i32,
+            win::abi::SOCK_STREAM as i32,
+            win::abi::IPPROTO_TCP as i32
+        );
+        if s == win::abi::INVALID_SOCKET {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        i32 one = 1;
+        win::imports::setsockopt(
+            s,
+            win::abi::SOL_SOCKET as i32,
+            win::abi::SO_REUSEADDR as i32,
+            &one as const void*,
+            4
+        );
+
+        win::abi::SockaddrIn name;
+        name.family = win::abi::AF_INET as win::abi::Word;
+        name.port = htons(addr.port);
+        name.addr = htonl(addr.ip);
+        for usize zi = 0; zi < 8; zi++ {
+            name.zero[zi] = 0;
+        }
+
+        i32 bound = win::imports::bind(
+            s,
+            &name as const win::abi::Sockaddr*,
+            sizeof (win::abi::SockaddrIn) as i32
+        );
+        if bound == win::abi::SOCKET_ERROR {
+            win::imports::closesocket(s);
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        i32 hearing = win::imports::listen(s, 16);
+        if hearing == win::abi::SOCKET_ERROR {
+            win::imports::closesocket(s);
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        TcpListener out;
+        out.handle = s as Handle;
+        return Result::Ok(out);
+    } else {
+        isize raw = linux::syscall::socket(
+            linux::abi::AF_INET,
+            linux::abi::SOCK_STREAM | linux::abi::SOCK_CLOEXEC,
+            linux::abi::IPPROTO_TCP
+        );
+        if linux::abi::is_error(raw) {
+            return Result::Err(error::from_syscall(raw));
+        }
+        linux::abi::Fd fd = raw as linux::abi::Fd;
+
+        i32 one = 1;
+        linux::syscall::setsockopt(
+            fd,
+            linux::abi::SOL_SOCKET,
+            linux::abi::SO_REUSEADDR,
+            &one as const u8*,
+            4
+        );
+
+        linux::abi::SockaddrIn name;
+        name.family = linux::abi::AF_INET as u16;
+        name.port = htons(addr.port);
+        name.addr = htonl(addr.ip);
+        for usize zi = 0; zi < 8; zi++ {
+            name.zero[zi] = 0;
+        }
+
+        isize bound = linux::syscall::bind(
+            fd,
+            &name as const u8*,
+            sizeof (linux::abi::SockaddrIn) as u32
+        );
+        if linux::abi::is_error(bound) {
+            linux::syscall::close(fd);
+            return Result::Err(error::from_syscall(bound));
+        }
+
+        isize hearing = linux::syscall::listen(fd, 16);
+        if linux::abi::is_error(hearing) {
+            linux::syscall::close(fd);
+            return Result::Err(error::from_syscall(hearing));
+        }
+
+        TcpListener out;
+        out.handle = fd as Handle;
+        return Result::Ok(out);
+    }
+}
+
+/// reports the address the listener is bound to. this is how a caller
+/// learns the ephemeral port after binding port 0.
+public Result(SocketAddrV4, Error) local_addr(TcpListener* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::SockaddrIn name;
+        i32 len = sizeof (win::abi::SockaddrIn) as i32;
+        i32 got = win::imports::getsockname(
+            self.handle as win::imports::Socket,
+            &name as win::abi::Sockaddr*,
+            &len
+        );
+        if got == win::abi::SOCKET_ERROR {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        SocketAddrV4 out;
+        out.ip = htonl(name.addr);
+        out.port = htons(name.port);
+        return Result::Ok(out);
+    } else {
+        linux::abi::SockaddrIn name;
+        u32 len = sizeof (linux::abi::SockaddrIn) as u32;
+        isize got = linux::syscall::getsockname(
+            self.handle as linux::abi::Fd,
+            &name as u8*,
+            &len
+        );
+        if linux::abi::is_error(got) {
+            return Result::Err(error::from_syscall(got));
+        }
+
+        SocketAddrV4 out;
+        out.ip = htonl(name.addr);
+        out.port = htons(name.port);
+        return Result::Ok(out);
+    }
+}
+
+/// accepts the next pending connection. blocks until one arrives; poll
+/// the listener first when blocking is not acceptable.
+public Result(TcpStream, Error) accept(TcpListener* self) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::Socket s = win::imports::accept(
+            self.handle as win::imports::Socket,
+            null as win::abi::Sockaddr*,
+            null as i32*
+        );
+        if s == win::abi::INVALID_SOCKET {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        TcpStream out;
+        out.handle = s as Handle;
+        return Result::Ok(out);
+    } else {
+        isize raw = linux::syscall::accept4(
+            self.handle as linux::abi::Fd,
+            null as u8*,
+            null as u32*,
+            linux::abi::SOCK_CLOEXEC
+        );
+        if linux::abi::is_error(raw) {
+            return Result::Err(error::from_syscall(raw));
+        }
+
+        TcpStream out;
+        out.handle = raw as Handle;
+        return Result::Ok(out);
+    }
+}
+
+//!
+//! Streams
+//!
+
+/// connects to `addr`. blocks until the handshake completes or fails.
+public Result(TcpStream, Error) connect(SocketAddrV4 addr) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Wsadata data;
+        i32 init = win::imports::WSAStartup(0x0202 as win::abi::Word, &data);
+        if init != 0 {
+            return Result::Err(error::from_win32(init as u32));
+        }
+
+        win::imports::Socket s = win::imports::socket(
+            win::abi::AF_INET as i32,
+            win::abi::SOCK_STREAM as i32,
+            win::abi::IPPROTO_TCP as i32
+        );
+        if s == win::abi::INVALID_SOCKET {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        win::abi::SockaddrIn name;
+        name.family = win::abi::AF_INET as win::abi::Word;
+        name.port = htons(addr.port);
+        name.addr = htonl(addr.ip);
+        for usize zi = 0; zi < 8; zi++ {
+            name.zero[zi] = 0;
+        }
+
+        i32 joined = win::imports::connect(
+            s,
+            &name as const win::abi::Sockaddr*,
+            sizeof (win::abi::SockaddrIn) as i32
+        );
+        if joined == win::abi::SOCKET_ERROR {
+            win::imports::closesocket(s);
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        TcpStream out;
+        out.handle = s as Handle;
+        return Result::Ok(out);
+    } else {
+        isize raw = linux::syscall::socket(
+            linux::abi::AF_INET,
+            linux::abi::SOCK_STREAM | linux::abi::SOCK_CLOEXEC,
+            linux::abi::IPPROTO_TCP
+        );
+        if linux::abi::is_error(raw) {
+            return Result::Err(error::from_syscall(raw));
+        }
+        linux::abi::Fd fd = raw as linux::abi::Fd;
+
+        linux::abi::SockaddrIn name;
+        name.family = linux::abi::AF_INET as u16;
+        name.port = htons(addr.port);
+        name.addr = htonl(addr.ip);
+        for usize zi = 0; zi < 8; zi++ {
+            name.zero[zi] = 0;
+        }
+
+        isize joined = linux::syscall::connect(
+            fd,
+            &name as const u8*,
+            sizeof (linux::abi::SockaddrIn) as u32
+        );
+        if linux::abi::is_error(joined) {
+            linux::syscall::close(fd);
+            return Result::Err(error::from_syscall(joined));
+        }
+
+        TcpStream out;
+        out.handle = fd as Handle;
+        return Result::Ok(out);
+    }
+}
+
+i32 clamp_i32(usize n) {
+    return if n > 0x7FFFFFFF {
+        0x7FFFFFFF as i32
+    } else {
+        n as i32
+    };
+}
+
+/// reads up to `buf.len` bytes. returns 0 only on orderly shutdown.
+public Result(usize, Error) read(TcpStream* self, [] u8 buf) {
+    if buf.len == 0 {
+        return Result::Ok(0 as usize);
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        i32 got = win::imports::recv(
+            self.handle as win::imports::Socket,
+            buf.ptr as void*,
+            clamp_i32(buf.len),
+            0
+        );
+        if got == win::abi::SOCKET_ERROR {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        return Result::Ok(got as usize);
+    } else {
+        while true {
+            isize got = linux::syscall::recvfrom(
+                self.handle as linux::abi::Fd,
+                buf,
+                0,
+                null as u8*,
+                null as u32*
+            );
+            if !linux::abi::is_error(got) {
+                return Result::Ok(got as usize);
+            }
+
+            if linux::abi::errno_of(got) != linux::abi::EINTR {
+                return Result::Err(error::from_syscall(got));
+            }
+        }
+    }
+}
+
+/// writes up to `buf.len` bytes.
+public Result(usize, Error) write(TcpStream* self, [] const u8 buf) {
+    if buf.len == 0 {
+        return Result::Ok(0 as usize);
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        i32 put = win::imports::send(
+            self.handle as win::imports::Socket,
+            buf.ptr as const void*,
+            clamp_i32(buf.len),
+            0
+        );
+        if put == win::abi::SOCKET_ERROR {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        return Result::Ok(put as usize);
+    } else {
+        while true {
+            isize put = linux::syscall::sendto(
+                self.handle as linux::abi::Fd,
+                buf,
+                0,
+                null as const u8*,
+                0
+            );
+            if !linux::abi::is_error(put) {
+                return Result::Ok(put as usize);
+            }
+
+            if linux::abi::errno_of(put) != linux::abi::EINTR {
+                return Result::Err(error::from_syscall(put));
+            }
+        }
+    }
+}
+
+/// writes every byte or fails. a short write with no error means the peer
+/// went away, so it is reported rather than retried forever.
+public Status(Error) write_all(TcpStream* self, [] const u8 buf) {
+    usize sent = 0;
+
+    while sent < buf.len {
+        Result(usize, Error) step = write(self, buf[sent..buf.len]);
+        if step.is_err() {
+            return Status::Err(step.unwrap_err());
+        }
+
+        usize n = step.unwrap();
+        if n == 0 {
+            return Error::ConnectionReset;
+        }
+
+        sent = sent + n;
+    }
+
+    return Status::Ok;
+}
+
+/// fills `buf` or stops at orderly shutdown. returns the bytes read.
+public Result(usize, Error) read_all(TcpStream* self, [] u8 buf) {
+    usize got = 0;
+
+    while got < buf.len {
+        Result(usize, Error) step = read(self, buf[got..buf.len]);
+        if step.is_err() {
+            return Result::Err(step.unwrap_err());
+        }
+
+        usize n = step.unwrap();
+        if n == 0 {
+            return Result::Ok(got);
+        }
+
+        got = got + n;
+    }
+
+    return Result::Ok(got);
+}
+
+//!
+//! Readiness
+//!
+//! `poll` waits until at least one handle is ready or the timeout in
+//! milliseconds expires. A negative timeout waits indefinitely. Each
+//! entry's `revents` is filled with what was observed; the return value
+//! counts the entries with nonzero `revents`. An empty set is never ready
+//! and returns 0 without waiting. The set is copied into page-allocated
+//! scratch because its layout differs per target; `poll_one` waits on a
+//! single handle with no allocation.
+//!
+
+/// waits on a single handle. returns the observed `revents`, so a zero
+/// result means the wait timed out. this covers the common case without
+/// forcing every caller through the page allocator for a one-entry set.
+public Result(i16, Error) poll_one(
+    Handle handle,
+    i16 events,
+    i32 timeout_ms
+) {
+    static if core::target::OS == core::target::Os::Windows {
+        win::abi::Wsapollfd pfd;
+        pfd.fd = handle as win::imports::Socket;
+        pfd.events = events;
+        pfd.revents = 0;
+
+        i32 ready = win::imports::WSAPoll(&pfd, 1, timeout_ms);
+        if ready == win::abi::SOCKET_ERROR {
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        return Result::Ok(pfd.revents);
+    } else {
+        linux::abi::Pollfd pfd;
+        pfd.fd = handle as linux::abi::Fd;
+        pfd.events = events;
+        pfd.revents = 0;
+
+        while true {
+            isize ready = linux::syscall::poll(&pfd, 1, timeout_ms);
+            if !linux::abi::is_error(ready) {
+                return Result::Ok(pfd.revents);
+            }
+
+            if linux::abi::errno_of(ready) != linux::abi::EINTR {
+                return Result::Err(error::from_syscall(ready));
+            }
+        }
+    }
+}
+
+/// waits for readiness. `revents` is updated in place.
+public Result(usize, Error) poll([] PollFd fds, i32 timeout_ms) {
+    if fds.len == 0 {
+        return Result::Ok(0 as usize);
+    }
+
+    mem::Allocator alloc = heap::allocator();
+
+    static if core::target::OS == core::target::Os::Windows {
+        usize n = fds.len;
+        Result([] u8, AllocError) slot = alloc.raw_alloc(
+            n * sizeof (win::abi::Wsapollfd),
+            8
+        );
+        if slot.is_err() {
+            return Error::OutOfMemory;
+        }
+        [] u8 mem = slot.unwrap();
+        win::abi::Wsapollfd* native = mem.ptr as win::abi::Wsapollfd*;
+        for usize i = 0; i < n; i++ {
+            native[i].fd = fds[i].handle as win::imports::Socket;
+            native[i].events = fds[i].events;
+            native[i].revents = 0;
+        }
+
+        i32 ready = win::imports::WSAPoll(native, n as u32, timeout_ms);
+        if ready == win::abi::SOCKET_ERROR {
+            heap::raw_free(&alloc, mem, 8);
+            return Result::Err(
+                error::from_win32(win::imports::WSAGetLastError() as u32)
+            );
+        }
+
+        for usize i = 0; i < n; i++ {
+            fds[i].revents = native[i].revents;
+        }
+        heap::raw_free(&alloc, mem, 8);
+
+        return Result::Ok(ready as usize);
+    } else {
+        usize n = fds.len;
+        Result([] u8, AllocError) slot = alloc.raw_alloc(
+            n * sizeof (linux::abi::Pollfd),
+            8
+        );
+        if slot.is_err() {
+            return Error::OutOfMemory;
+        }
+        [] u8 mem = slot.unwrap();
+        linux::abi::Pollfd* native = mem.ptr as linux::abi::Pollfd*;
+        for usize i = 0; i < n; i++ {
+            native[i].fd = fds[i].handle as linux::abi::Fd;
+            native[i].events = fds[i].events;
+            native[i].revents = 0;
+        }
+
+        while true {
+            isize ready = linux::syscall::poll(native, n, timeout_ms);
+            if !linux::abi::is_error(ready) {
+                for usize i = 0; i < n; i++ {
+                    fds[i].revents = native[i].revents;
+                }
+                heap::raw_free(&alloc, mem, 8);
+
+                return Result::Ok(ready as usize);
+            }
+
+            if linux::abi::errno_of(ready) != linux::abi::EINTR {
+                heap::raw_free(&alloc, mem, 8);
+                return Result::Err(error::from_syscall(ready));
+            }
+        }
+    }
+}
+
+//!
+//! Closing
+//!
+
+/// closes the listener. errors are dropped: there is nothing a caller can
+/// usefully do about a failing close, and retrying it is unsafe.
+public void close(TcpListener* self) {
+    if self.handle == INVALID_HANDLE {
+        return;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::closesocket(self.handle as win::imports::Socket);
+    } else {
+        linux::syscall::close(self.handle as linux::abi::Fd);
+    }
+
+    self.handle = INVALID_HANDLE;
+}
+
+/// closes the stream. errors are dropped: there is nothing a caller can
+/// usefully do about a failing close, and retrying it is unsafe.
+public void close(TcpStream* self) {
+    if self.handle == INVALID_HANDLE {
+        return;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        win::imports::closesocket(self.handle as win::imports::Socket);
+    } else {
+        linux::syscall::close(self.handle as linux::abi::Fd);
+    }
+
+    self.handle = INVALID_HANDLE;
+}
