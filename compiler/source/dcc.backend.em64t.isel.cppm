@@ -1764,13 +1764,43 @@ namespace dcc::backend::em64t
                         {
                             VReg val = (caller_int_idx == 0) ? rax_v : rdx_v;
                             ++caller_int_idx;
-                            MInstr st;
-                            st.opc = (piece_size <= 4) ? MOpc::MOV32mr : MOpc::MOV64mr;
-                            st.num_ops = 2;
-                            st.num_defs = 0;
-                            st.ops[0] = MOp::from_mem(MMem::make_base_disp(slot_addr, piece_off));
-                            st.ops[1] = MOp::from_reg(val);
-                            ctx.append_instr(st);
+                            std::uint64_t remaining = piece_size;
+                            std::int32_t chunk_off = piece_off;
+                            while (remaining > 0)
+                            {
+                                std::uint64_t chunk = 8;
+                                while (chunk > 1 && chunk > remaining)
+                                    chunk /= 2;
+                                VReg chunk_val = val;
+                                if (chunk_off != piece_off)
+                                {
+                                    VReg shifted = ctx.mfunc.new_vreg();
+                                    MInstr shr;
+                                    shr.opc = MOpc::SHR64ri;
+                                    shr.num_ops = 3;
+                                    shr.num_defs = 1;
+                                    shr.ops[0] = MOp::from_reg(shifted);
+                                    shr.ops[1] = MOp::from_reg(val);
+                                    shr.ops[2] = MOp::from_imm(static_cast<std::int64_t>(chunk_off - piece_off) * 8);
+                                    ctx.append_instr(shr);
+                                    chunk_val = shifted;
+                                }
+                                MInstr st;
+                                st.opc = MOpc::MOV64mr;
+                                if (chunk == 4)
+                                    st.opc = MOpc::MOV32mr;
+                                else if (chunk == 2)
+                                    st.opc = MOpc::MOV16mr;
+                                else if (chunk == 1)
+                                    st.opc = MOpc::MOV8mr;
+                                st.num_ops = 2;
+                                st.num_defs = 0;
+                                st.ops[0] = MOp::from_mem(MMem::make_base_disp(slot_addr, chunk_off));
+                                st.ops[1] = MOp::from_reg(chunk_val);
+                                ctx.append_instr(st);
+                                chunk_off += static_cast<std::int32_t>(chunk);
+                                remaining -= chunk;
+                            }
                         }
                         else
                         {
