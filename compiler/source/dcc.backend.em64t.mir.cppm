@@ -678,6 +678,7 @@ export namespace dcc::backend::em64t
     struct MFunction
     {
         ir::CallingConv conv{ir::CallingConv::Cdecl};
+        ir::Linkage linkage{ir::Linkage::External};
         bool is_variadic{false};
         std::vector<MBlock> blocks;
         std::vector<MFrameSlot> frame_slots;

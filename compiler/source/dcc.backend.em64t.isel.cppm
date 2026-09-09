@@ -3588,6 +3588,7 @@ namespace dcc::backend::em64t
         MFunction mfunc;
         mfunc.owned_name = func.name.empty() ? "<unnamed>" : std::string{func.name};
         mfunc.src_line = static_cast<std::int32_t>(func.decl_line);
+        mfunc.linkage = func.linkage;
 
         IselCtx ctx(mfunc, target);
         ctx.asm_diags = diags;

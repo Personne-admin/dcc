@@ -72,12 +72,14 @@ MSI_OUT := $(TOPLEVEL)/build-windows/dcc-$(MSI_VERSION)-x86_64.msi
 GEN_WXS_SCRIPT := $(TOPLEVEL)/mk/gen_wxs.py
 
 msi: tools-windows
-	@$(MAKE) libdcext TARGET=x86_64-windows
+	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=llvm
+	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=em64t
 	@rm -rf $(MSI_STAGE_DIR)
 	@mkdir -p $(MSI_STAGE_DIR)/bin $(MSI_STAGE_DIR)/lib
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dcc.exe $(MSI_STAGE_DIR)/bin/
 	$(Q)cp $(TOPLEVEL)/build-windows/bin/dccd.exe $(MSI_STAGE_DIR)/bin/
-	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-llvm.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-em64t.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp -r $(NATIVE_BUILD_DIR)/include $(MSI_STAGE_DIR)/include
 	$(Q)cp $(TOPLEVEL)/LICENSE $(MSI_STAGE_DIR)/
 	@mkdir -p $(dir $(MSI_OUT))
@@ -92,11 +94,13 @@ test: compiler driver libdcext dccd
 
 .PHONY: test-linux test-win
 test-linux: compiler driver dccd
-	@$(MAKE) libdcext TARGET=x86_64-linux
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=llvm
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=em64t
 	@$(MAKE) -C tests test-linux
 
 test-win: compiler driver dccd
-	@$(MAKE) libdcext TARGET=x86_64-windows
+	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=llvm
+	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=em64t
 	@$(MAKE) -C tests test-win
 
 install: driver dccd libdcext
@@ -108,9 +112,9 @@ install: driver dccd libdcext
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dccd $(DESTDIR)$(BINDIR)/dccd
 
-	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext.a)
+	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext-*.a)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
-	$(Q)$(INSTALL) -m 644 $(BUILD_DIR)/lib/libdcext.a $(DESTDIR)$(LIBDIR)/libdcext.a
+	$(Q)$(INSTALL) -m 644 $(BUILD_DIR)/lib/libdcext-*.a $(DESTDIR)$(LIBDIR)/
 	$(call MSG,INSTALL,$(DESTDIR)$(INCLUDEDIR)/)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)
 	$(Q)cp -r $(BUILD_DIR)/include/* $(DESTDIR)$(INCLUDEDIR)/
@@ -123,6 +127,7 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/dcc
 	rm -f $(DESTDIR)$(BINDIR)/dccd
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext.a
+	rm -f $(DESTDIR)$(LIBDIR)/libdcext-*.a
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
 	rm -f $(DESTDIR)$(DOCDIR)/LICENSE
 

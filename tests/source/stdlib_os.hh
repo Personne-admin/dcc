@@ -60,7 +60,7 @@ namespace os_test
             auto env = std::getenv("MINGW_SYSROOT");
             auto mingw = std::filesystem::path{env ? env : "/opt/llvm-mingw"};
             command = quote(mingw / "bin/x86_64-w64-mingw32-clang") + " -nostdlib -Wl,--entry,_start -Wl,--subsystem,console -o " + quote(exe) + " " +
-                      quote(obj) + " " + quote(root / "lib/libdcext.a") + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
+                      quote(obj) + " " + quote(root / "lib/libdcext-windows-llvm.a") + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
 
             if (std::system(command.c_str()) != 0)
                 return {-1, {}, "link failed"};

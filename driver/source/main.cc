@@ -1574,7 +1574,7 @@ auto main(int argc, char** argv) -> int
                 (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
             {
                 backend_opts.library_paths.push_back((prefix / "lib").string());
-                backend_opts.libraries.push_back("dcext");
+                backend_opts.libraries.push_back(std::format("dcext-{}-{}", dcc::target::os_name(target.os), opts.backend_name));
             }
 
             if (opts.backend_name == "llvm")
