@@ -1,0 +1,16 @@
+module main;
+import std::sort;
+i32 workload() {
+    i32[256] values;
+    for usize i = 0; i < 256; i++ { values[i] = (i) as i32; }
+    std::sort::sort(values[0..256]);
+    for usize i = 0; i < 256; i++ { if values[i] != (i) as i32 { return 1; } }
+    return 0;
+}
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

@@ -99,7 +99,11 @@ export namespace dcc::session
                 (file->kind() == sm::FileKind::InMemory || file->kind() == sm::FileKind::Synthetic) ? parser::ParseMode::Interactive : parser::ParseMode::Batch;
 
             parser::Parser parser{lexer, ast, d, mode};
+            bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
+            auto parse_start = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             auto* tu = parser.parse();
+            if (measure)
+                m_bench_parse_seconds += std::chrono::duration<double>(std::chrono::steady_clock::now() - parse_start).count();
 
             if (m_prelude_enabled && tu && file->path() == m_entry_path && !is_std_prelude(tu))
             {
@@ -116,6 +120,7 @@ export namespace dcc::session
 
         CompileResult analyze_entry(std::filesystem::path const& entry_path, CompileOptions const& opts)
         {
+            m_bench_parse_seconds = 0;
             m_entry_path = entry_path;
             m_prelude_enabled = opts.inject_libdcext_prelude;
 
@@ -134,6 +139,8 @@ export namespace dcc::session
             m_sema = std::make_unique<sema::SemaContext>(m_sm, m_diag, *m_ast_ctx, std::move(parse), std::move(sopts));
 
             auto* module = m_sema->analyze_entry(entry_path);
+            if (std::getenv("DCC_BENCH_STATS"))
+                std::println(std::cerr, "DCC_BENCH phase parse {}", m_bench_parse_seconds);
 
             return CompileResult{
                 .module = module,
@@ -159,6 +166,7 @@ export namespace dcc::session
 
         std::filesystem::path m_entry_path;
         bool m_prelude_enabled{false};
+        double m_bench_parse_seconds{0};
     };
 
 } // namespace dcc::session

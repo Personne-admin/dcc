@@ -1,0 +1,65 @@
+module main;
+import std::mem;
+import std::result;
+
+i32 workload() {
+    u8[16384] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
+    std::mem::Allocator a = fb.allocator();
+
+    std::result::Result([] u32, std::mem::AllocError) zr = a.alloc_zeroed(4);
+    if zr.is_err() { return 1; }
+    [] u32 z = zr.unwrap();
+    if z.len != 4 || z[0] != 0 || z[3] != 0 { return 2; }
+    z[1] = 11;
+    a.free(z);
+
+    std::result::Result(u64*, std::mem::AllocError) cr = a.create();
+    if cr.is_err() { return 3; }
+    u64* p = cr.unwrap();
+    *p = 0xDEADBEEF as u64;
+    if *p != 0xDEADBEEF as u64 { a.destroy(p); return 4; }
+    a.destroy(p);
+
+    u32[3] src = {7, 8, 9};
+    std::result::Result([] u32, std::mem::AllocError) dr = a.dupe(src[0..3]);
+    if dr.is_err() { return 5; }
+    [] u32 d = dr.unwrap();
+    if d.len != 3 || d[0] != 7 || d[2] != 9 { a.free(d); return 6; }
+    a.free(d);
+
+    std::result::Result([] u8, std::mem::AllocError) rr = a.raw_alloc(64, 8);
+    if rr.is_err() { return 7; }
+    [] u8 raw = rr.unwrap();
+    if !a.raw_resize(raw, 32, 8) { a.raw_free(raw, 8); return 8; }
+    a.raw_free(raw[0..32], 8);
+
+    std::result::Result([] u32, std::mem::AllocError) oor = a.alloc(1000000);
+    if oor.is_ok() { return 9; }
+    if oor.unwrap_err() != std::mem::AllocError::OutOfMemory { return 10; }
+
+    fb.reset();
+
+    std::mem::Arena ar = std::mem::new_arena(a);
+    std::mem::Allocator al = ar.allocator();
+    std::result::Result([] u64, std::mem::AllocError) ar1 = al.alloc(100);
+    if ar1.is_err() { ar.deinit(); return 11; }
+    [] u64 block = ar1.unwrap();
+    block[0] = 1;
+    block[99] = 2;
+    std::result::Result([] u64, std::mem::AllocError) ar2 = al.alloc(100);
+    if ar2.is_err() { ar.deinit(); return 12; }
+    [] u64 block2 = ar2.unwrap();
+    if block[0] != 1 || block[99] != 2 { ar.deinit(); return 13; }
+    block2[0] = 3;
+    ar.deinit();
+    return 0;
+}
+
+public i32 main() {
+    for usize round = 0; round < 20000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}

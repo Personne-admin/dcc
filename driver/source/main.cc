@@ -1486,7 +1486,16 @@ auto main(int argc, char** argv) -> int
 
     compile_opts.inject_libdcext_prelude = opts.libdcext;
 
+    bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
+    auto phase_start = std::chrono::steady_clock::now();
+    auto phase = [&](std::string_view name) {
+        auto now = std::chrono::steady_clock::now();
+        if (measure)
+            std::println(std::cerr, "DCC_BENCH phase {} {}", name, std::chrono::duration<double>(now - phase_start).count());
+        phase_start = now;
+    };
     auto result = session.analyze_entry(input_path, compile_opts);
+    phase("frontend");
     auto* module = result.module;
 
     if (result.has_errors)
@@ -1516,11 +1525,16 @@ auto main(int argc, char** argv) -> int
                                                                  &sema->types(), opts.restricted_check);
         auto* ir_mod = lowerer->lower_module(*module);
 
+        phase("lowering");
+        if (measure)
+            dcc::ir::pass::benchmark_stats(*ir_mod, "before");
+
         if (opts.dump_ir)
             std::println("{}", dcc::ir::IrSerializer::dump(ir_mod));
 
         if (need_backend)
         {
+            phase_start = std::chrono::steady_clock::now();
             dcc::target::TargetConfig target = resolve_target_or_exit(opts);
 
             target.no_red_zone = opts.no_red_zone;
@@ -1606,6 +1620,7 @@ auto main(int argc, char** argv) -> int
 
                 auto backend = dcc::backend::make_llvm_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
+                phase("backend");
                 std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);
 
                 if (!artifact.diagnostics.empty())
@@ -1665,6 +1680,7 @@ auto main(int argc, char** argv) -> int
 
                 auto backend = dcc::backend::make_em64t_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
+                phase("backend");
                 std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);
 
                 if (!artifact.diagnostics.empty())

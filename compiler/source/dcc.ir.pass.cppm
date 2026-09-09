@@ -88,6 +88,70 @@ export namespace dcc::ir::pass
         bool (*run)(IrModule& mod, IrContext& ctx, OptLevel level) = nullptr;
     };
 
+    void benchmark_stats(IrModule const& mod, std::string_view stage)
+    {
+        std::unordered_map<IrValue const*, std::size_t> sizes;
+        std::size_t instructions = 0;
+        std::size_t calls = 0;
+        std::size_t small_calls = 0;
+        std::size_t expansion = 0;
+        std::size_t loads = 0;
+        std::size_t stores = 0;
+        std::size_t allocas = 0;
+        std::size_t branches = 0;
+        std::size_t phis = 0;
+        for (auto* f : mod.functions)
+        {
+            std::size_t n = 0;
+            for (auto* b : f->blocks)
+                n += b->instructions.size() + (b->terminator != nullptr);
+
+            sizes[f] = n;
+            instructions += n;
+            if (n)
+                std::println(std::cerr, "DCC_BENCH function {} {} {}", stage, n, f->name);
+        }
+
+        for (auto* f : mod.functions)
+            for (auto* b : f->blocks)
+            {
+                if (b->terminator && (b->terminator->kind == IrNodeKind::BrCond || b->terminator->kind == IrNodeKind::Switch))
+                    ++branches;
+
+                for (auto* i : b->instructions)
+                {
+                    loads += i->kind == IrNodeKind::Load;
+                    stores += i->kind == IrNodeKind::Store;
+                    allocas += i->kind == IrNodeKind::Alloca;
+                    phis += i->kind == IrNodeKind::Phi;
+
+                    IrValue const* callee = nullptr;
+                    if (auto* c = ir_cast<IrCallInst>(i))
+                        callee = c->callee;
+
+                    if (auto* c = ir_cast<IrCallTailInst>(i))
+                        callee = c->callee;
+
+                    if (!callee)
+                        continue;
+
+                    ++calls;
+                    if (auto* ref = ir_cast<IrGlobalRef const>(callee))
+                        callee = ref->function;
+
+                    auto it = sizes.find(callee);
+                    if (it != sizes.end() && it->second > 0 && it->second <= 20)
+                    {
+                        ++small_calls;
+                        expansion += it->second - 1;
+                    }
+                }
+            }
+
+        std::println(std::cerr, "DCC_BENCH static {} {} {} {} {}", stage, instructions, calls, small_calls, expansion);
+        std::println(std::cerr, "DCC_BENCH memory {} {} {} {} {} {}", stage, loads, stores, allocas, branches, phis);
+    }
+
     class PassManager
     {
     public:
@@ -96,6 +160,18 @@ export namespace dcc::ir::pass
 
         [[nodiscard]] IrModule* run(IrModule const& input, IrContext& output_ctx, OptLevel level)
         {
+            bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
+            auto count = [](IrModule const& mod) {
+                std::size_t n = 0;
+                for (auto* f : mod.functions)
+                    for (auto* b : f->blocks)
+                        n += b->instructions.size() + (b->terminator != nullptr);
+
+                return n;
+            };
+
+            auto start = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+            std::unordered_map<std::string_view, double> times;
             if (level == OptLevel::O0)
                 return const_cast<IrModule*>(&input);
 
@@ -118,13 +194,27 @@ export namespace dcc::ir::pass
 
                     for (auto& fp : m_func_passes)
                         if (level >= fp.min_level && fp.run)
+                        {
+                            auto t = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
                             if (fp.run(fctx))
                                 any_changed = true;
+                            if (measure)
+                                times[fp.name] += std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
+                        }
                 }
                 if (!any_changed)
                     break;
             }
 
+            if (measure)
+            {
+                auto pipeline_seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
+                benchmark_stats(*cloned, "after");
+                std::println(std::cerr, "DCC_BENCH ir {} {}", count(input), count(*cloned));
+                std::println(std::cerr, "DCC_BENCH phase pipeline {}", pipeline_seconds);
+                for (auto const& [name, seconds] : times)
+                    std::println(std::cerr, "DCC_BENCH phase {} {}", name, seconds);
+            }
             return cloned;
         }
 

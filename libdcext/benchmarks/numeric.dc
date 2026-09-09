@@ -1,0 +1,30 @@
+module main;
+import std::math;
+i32 workload() {
+    f64 trig_sum = 0.0;
+    f64 exp_sum = 0.0;
+    for usize i = 1; i <= 100; i++ {
+        f64 x = (i as f64) / 100.0;
+        f64 e = std::math::exp(x);
+        f64 l = std::math::log(e);
+        f64 r = std::math::sqrt(x * x);
+        f64 s = std::math::sin(x);
+        f64 c = std::math::cos(x);
+        trig_sum += s + c;
+        exp_sum += e;
+        if !std::math::is_finite(l + r + s + c) { return 1; }
+        if std::math::fabs(l - x) > 0.00001 { return 2; }
+        if std::math::fabs(r - x) > 0.00001 { return 3; }
+        if std::math::fabs(s*s + c*c - 1.0) > 0.00001 { return 4; }
+    }
+    if std::math::fabs(trig_sum - 130.30667023027405) > 0.0001 { return 5; }
+    if std::math::fabs(exp_sum - 172.68875565927127) > 0.0001 { return 6; }
+    return 0;
+}
+public i32 main() {
+    for usize round = 0; round < 5000; round++ {
+        i32 status = workload();
+        if status != 0 { return status; }
+    }
+    return 0;
+}
