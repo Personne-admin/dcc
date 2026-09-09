@@ -138,10 +138,16 @@ namespace dcc::backend::em64t
             }
         }
 
-        [[nodiscard]] bool is_gpr_dest_xmm_opc(MOpc opc) noexcept
+        [[nodiscard]] bool is_gpr_src_xmm_opc(MOpc opc) noexcept
         {
-            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr || opc == MOpc::CVTSS2SIrr ||
-                   opc == MOpc::MOVQ64rr_rev;
+            return opc == MOpc::CVTSI2SD_r || opc == MOpc::CVTSI2SDrr || opc == MOpc::CVTSI2SD64rr || opc == MOpc::CVTSI2SS_r ||
+                   opc == MOpc::CVTSI2SSrr || opc == MOpc::CVTSI2SS64rr;
+        }
+
+        [[nodiscard]] bool is_xmm_src_gpr_opc(MOpc opc) noexcept
+        {
+            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr ||
+                   opc == MOpc::CVTSS2SIrr || opc == MOpc::CVTTSS2SI_r || opc == MOpc::MOVQ64rr_rev;
         }
 
         [[nodiscard]] RegClass infer_reg_class(MFunction const& func, VReg vreg, target::TargetConfig const& target)
@@ -150,9 +156,15 @@ namespace dcc::backend::em64t
             {
                 for (auto const& instr : blk.instrs)
                 {
-                    if (is_xmm_opc(instr.opc))
+                    if (is_xmm_opc(instr.opc) || is_xmm_src_gpr_opc(instr.opc))
                     {
-                        if (is_gpr_dest_xmm_opc(instr.opc))
+                        if (is_gpr_src_xmm_opc(instr.opc))
+                        {
+                            for (std::uint8_t i = 0; i < instr.num_defs; ++i)
+                                if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg == vreg)
+                                    return RegClass::XMM;
+                        }
+                        else if (is_xmm_src_gpr_opc(instr.opc))
                         {
                             for (std::uint8_t i = instr.num_defs; i < instr.num_ops; ++i)
                                 if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg == vreg)
