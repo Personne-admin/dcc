@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+public struct St { u8 a; u8 b; }
+St mk(u8 x, u8 y) {
+    return St {a = x, b = y};
+}
+u8 use(St s) {
+    return s.a + s.b;
+}
+@nomangle
+public i32 dcc_main() {
+    u8[16] backing;
+    for usize i = 0; i < 16; i++ { backing[i] = 170 as u8; }
+    [] u8 view = backing;
+    u8 r = use(mk(7 as u8, 8 as u8));
+    if r != 15 as u8 { return 1; }
+    if view[0] != 170 as u8 { return 2; }
+    if view[1] != 170 as u8 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
