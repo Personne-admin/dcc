@@ -404,8 +404,7 @@ namespace dcc::backend::em64t
                                 ok = operand(1, scale);
                                 break;
                             case MOpc::MOV32ri:
-                                ok = inst.ops[1].kind == MOpKind::Imm64 &&
-                                     offset(expanded, static_cast<std::uint32_t>(inst.ops[1].imm), scale);
+                                ok = inst.ops[1].kind == MOpKind::Imm64 && offset(expanded, static_cast<std::uint32_t>(inst.ops[1].imm), scale);
                                 break;
                             case MOpc::ADD64rr:
                                 ok = inst.num_ops == 3 && operand(1, scale) && operand(2, scale);
@@ -435,8 +434,7 @@ namespace dcc::backend::em64t
                                 {
                                     auto const& mem = inst.ops[1].mem;
                                     if (scale * mem.scale <= 8)
-                                        ok = offset(expanded, mem.disp, scale) &&
-                                             self(self, expanded, mem.base, scale, depth + 1) &&
+                                        ok = offset(expanded, mem.disp, scale) && self(self, expanded, mem.base, scale, depth + 1) &&
                                              self(self, expanded, mem.index, scale * mem.scale, depth + 1);
                                 }
                                 break;
@@ -473,16 +471,15 @@ namespace dcc::backend::em64t
                             continue;
                         Match match;
                         match.mem.disp = op.mem.disp;
-                        if (match_reg(match_reg, match, op.mem.base, 1, 0) &&
-                            match_reg(match_reg, match, op.mem.index, op.mem.scale, 0) &&
+                        if (match_reg(match_reg, match, op.mem.base, 1, 0) && match_reg(match_reg, match, op.mem.index, op.mem.scale, 0) &&
                             (match.mem.base.is_valid() || match.mem.index.is_valid()))
                         {
                             op.mem = match.mem;
                             folded.insert(match.folded.begin(), match.folded.end());
                         }
                     }
-                    if (inst.num_defs == 1 && inst.ops[0].kind == MOpKind::Reg && inst.ops[0].reg.is_virtual() &&
-                        definitions[inst.ops[0].reg.id] == 1 && inst.implicit_defs == 0 && inst.implicit_uses == 0)
+                    if (inst.num_defs == 1 && inst.ops[0].kind == MOpKind::Reg && inst.ops[0].reg.is_virtual() && definitions[inst.ops[0].reg.id] == 1 &&
+                        inst.implicit_defs == 0 && inst.implicit_uses == 0)
                         available[inst.ops[0].reg.id] = &inst;
                 }
             }
@@ -507,9 +504,9 @@ namespace dcc::backend::em64t
                 changed = false;
                 for (auto& block : func.blocks)
                     changed |= std::erase_if(block.instrs, [&](MInstr const& inst) {
-                        return inst.num_defs == 1 && inst.ops[0].kind == MOpKind::Reg && folded.contains(inst.ops[0].reg.id) &&
-                               !used.contains(inst.ops[0].reg.id);
-                    }) != 0;
+                                   return inst.num_defs == 1 && inst.ops[0].kind == MOpKind::Reg && folded.contains(inst.ops[0].reg.id) &&
+                                          !used.contains(inst.ops[0].reg.id);
+                               }) != 0;
             } while (changed);
         }
 
@@ -930,9 +927,17 @@ namespace dcc::backend::em64t
             for (std::size_t i = 0; i < agg->values.size(); ++i)
             {
                 auto const* member = agg->values[i];
-                VReg val = is_memory_type(member ? member->type : nullptr) ? memory_value_addr(ctx, member) : ctx.try_materialize(member);
-                if (!val.is_valid())
+                if (!member)
                     continue;
+
+                VReg val = is_memory_type(member->type) ? memory_value_addr(ctx, member) : ctx.try_materialize(member);
+                if (!val.is_valid())
+                {
+                    std::println(std::cerr,
+                                 "em64t isel: cannot materialize member {} of {}-member aggregate in `{}`; refusing to emit partially-initialized aggregate", i,
+                                 agg->values.size(), ctx.mfunc.name());
+                    std::abort();
+                }
 
                 auto index = static_cast<std::uint32_t>(i);
                 std::int32_t member_offset = is_memory_type(agg_type) ? member_offset_of(ctx, agg_type, index) : static_cast<std::int32_t>(i * 8);
@@ -2910,8 +2915,8 @@ namespace dcc::backend::em64t
                             unsigned const cmp_narrow = (lhs && lhs->type && lhs->type->kind == IrTypeKind::Int) ? narrow_bits(lhs->type) : 0;
                             if (cmp_narrow != 0)
                             {
-                                bool const cmp_signed = inst->kind == IrNodeKind::CmpLt || inst->kind == IrNodeKind::CmpLe ||
-                                                        inst->kind == IrNodeKind::CmpGt || inst->kind == IrNodeKind::CmpGe;
+                                bool const cmp_signed = inst->kind == IrNodeKind::CmpLt || inst->kind == IrNodeKind::CmpLe || inst->kind == IrNodeKind::CmpGt ||
+                                                        inst->kind == IrNodeKind::CmpGe;
                                 if (cmp_signed)
                                 {
                                     lhs_v = extend_narrow_to_32(ctx, lhs_v, cmp_narrow);
@@ -3341,9 +3346,9 @@ namespace dcc::backend::em64t
                             {
                                 if (auto* agg_in = ir_cast<IrAggregateInst>(inc.value))
                                 {
-                                    if (auto pit = ctx.ir_bb_to_mblock.find(inc.block);
-                                        pit != ctx.ir_bb_to_mblock.end() && ctx.lowered_blocks.contains(inc.block) &&
-                                        phi_operand_available_in(ctx, agg_in, inc.block, ctx.ir_entry_block))
+                                    if (auto pit = ctx.ir_bb_to_mblock.find(inc.block); pit != ctx.ir_bb_to_mblock.end() &&
+                                                                                        ctx.lowered_blocks.contains(inc.block) &&
+                                                                                        phi_operand_available_in(ctx, agg_in, inc.block, ctx.ir_entry_block))
                                     {
                                         auto* pred_mb = ctx.mfunc.block_by_id(pit->second);
                                         if (pred_mb)
@@ -3605,8 +3610,7 @@ namespace dcc::backend::em64t
                         auto* cmp = static_cast<IrCmpEqInst const*>(bc->condition);
                         VReg lhs = ctx.try_materialize(cmp->lhs);
                         VReg rhs = ctx.try_materialize(cmp->rhs);
-                        unsigned const fused_narrow =
-                            (cmp->lhs && cmp->lhs->type && cmp->lhs->type->kind == IrTypeKind::Int) ? narrow_bits(cmp->lhs->type) : 0;
+                        unsigned const fused_narrow = (cmp->lhs && cmp->lhs->type && cmp->lhs->type->kind == IrTypeKind::Int) ? narrow_bits(cmp->lhs->type) : 0;
                         if (fused_narrow != 0)
                         {
                             auto ck = bc->condition->kind;
@@ -3778,8 +3782,7 @@ namespace dcc::backend::em64t
                     if (!val.is_valid())
                         break;
 
-                    unsigned const sw_narrow =
-                        (sw->value && sw->value->type && sw->value->type->kind == IrTypeKind::Int) ? narrow_bits(sw->value->type) : 0;
+                    unsigned const sw_narrow = (sw->value && sw->value->type && sw->value->type->kind == IrTypeKind::Int) ? narrow_bits(sw->value->type) : 0;
                     bool const sw_wide32 = sw_narrow != 0 || (sw->value && int_width(ctx, sw->value->type) == 4);
                     VReg sw_val = val;
                     if (sw_narrow != 0 && int_is_signed(sw->value->type))
@@ -3993,10 +3996,17 @@ namespace dcc::backend::em64t
             auto* term = block->terminator;
             switch (term->kind)
             {
-                case IrNodeKind::BrCond: ++terminator_uses[static_cast<IrBrCondInst const*>(term)->condition]; break;
-                case IrNodeKind::Ret: ++terminator_uses[static_cast<IrRetInst const*>(term)->value]; break;
-                case IrNodeKind::Switch: ++terminator_uses[static_cast<IrSwitchInst const*>(term)->value]; break;
-                default: break;
+                case IrNodeKind::BrCond:
+                    ++terminator_uses[static_cast<IrBrCondInst const*>(term)->condition];
+                    break;
+                case IrNodeKind::Ret:
+                    ++terminator_uses[static_cast<IrRetInst const*>(term)->value];
+                    break;
+                case IrNodeKind::Switch:
+                    ++terminator_uses[static_cast<IrSwitchInst const*>(term)->value];
+                    break;
+                default:
+                    break;
             }
         }
         for (auto* block : func.blocks)
@@ -4229,8 +4239,8 @@ namespace dcc::backend::em64t
             for (auto it = ctx.value_map.begin(); it != ctx.value_map.end();)
             {
                 IrNodeKind const k = it->first->kind;
-                if (k == IrNodeKind::IntConstant || k == IrNodeKind::FloatConstant || k == IrNodeKind::BoolConstant ||
-                    k == IrNodeKind::NullConstant || k == IrNodeKind::StringConstant || k == IrNodeKind::GlobalRef)
+                if (k == IrNodeKind::IntConstant || k == IrNodeKind::FloatConstant || k == IrNodeKind::BoolConstant || k == IrNodeKind::NullConstant ||
+                    k == IrNodeKind::StringConstant || k == IrNodeKind::GlobalRef)
                     it = ctx.value_map.erase(it);
                 else
                     ++it;
