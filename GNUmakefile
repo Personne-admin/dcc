@@ -90,6 +90,7 @@ msi: tools-windows
 	$(call MSG,MSI,$(MSI_OUT))
 
 test: compiler driver libdcext dccd
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=em64t
 	@$(MAKE) -C tests
 
 .PHONY: test-linux test-win
