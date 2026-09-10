@@ -184,6 +184,7 @@ namespace
         bool restricted_check{false};
         bool pic{false};
         bool shared_link{false};
+        bool link_std{false};
         std::string target_triple;
         std::vector<RequiredRela> required_relas;
         std::vector<RequiredRelaAddend> required_rela_addends;
@@ -574,6 +575,11 @@ namespace
                         {
                             auto val_str = trim(std::string_view{tl}.substr(12));
                             e.shared_link = (val_str == "ok" || val_str == "true");
+                        }
+                        else if (starts_with(tl, "LINK-STD:"))
+                        {
+                            auto val_str = trim(std::string_view{tl}.substr(9));
+                            e.link_std = (val_str == "ok" || val_str == "true" || val_str == "1");
                         }
                         else if (starts_with(tl, "TARGET:"))
                         {
@@ -1277,6 +1283,21 @@ namespace
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
         opts.injected_decls = fx.injected_decls;
+
+        bool const needs_std = std::ranges::any_of(fx.em64t_object_blocks, [](auto const& b) { return b.link_std; });
+        if (needs_std)
+        {
+            char const* std_root = std::getenv("DCC_TEST_LIBDCEXT_SRC");
+            std::error_code std_ec;
+            bool const have_root = std_root && fs::is_directory(fs::path{std_root}, std_ec);
+            if (!have_root)
+            {
+                ++stats.failed;
+                std::println(std::cerr, "    FAIL  LINK-STD requested but DCC_TEST_LIBDCEXT_SRC is missing or not a directory  ({}:1)", path.string());
+                return false;
+            }
+            opts.import_roots.push_back(std_root);
+        }
 
         dcc::sema::SemaContext sema{sm, diag, ast_ctx, parse_fn, std::move(opts)};
         sema.analyze_entry(sb->root / fx.entry);
@@ -2995,9 +3016,25 @@ namespace
                     continue;
                 }
 
+                std::string std_lib;
+                if (exp.link_std)
+                {
+                    char const* std_archive = std::getenv("DCC_TEST_LIBDCEXT_A");
+                    std::error_code lib_ec;
+                    if (!std_archive || !fs::is_regular_file(fs::path{std_archive}, lib_ec))
+                    {
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: LINK-STD requested but DCC_TEST_LIBDCEXT_A is missing or not a file  ({}:{})",
+                                     path.string(), exp.base_line);
+                        fs::remove_all(run_dir, ec);
+                        continue;
+                    }
+                    std_lib = std::string{" "} + std_archive;
+                }
+
                 auto link_cmd = std::format("ld.lld --static --no-dynamic-linker --fatal-warnings "
-                                            "-e _start -o {} {} {} 2>/dev/null",
-                                            exe_path.string(), obj_path.string(), harness_obj_path.string());
+                                            "-e _start -o {} {} {}{} 2>/dev/null",
+                                            exe_path.string(), obj_path.string(), harness_obj_path.string(), std_lib);
                 int link_rc = std::system(link_cmd.c_str());
                 if (link_rc != 0)
                 {

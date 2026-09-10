@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+import std::mem;
+import std::result;
+
+@nomangle
+public i32 dcc_main() {
+    u8[64] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..64]);
+    std::mem::Allocator a = fb.allocator();
+    u32[3] src = {7, 8, 9};
+    std::result::Result([] u32, std::mem::AllocError) dr = a.dupe(src[0..3]);
+    if dr.is_err() { return 5; }
+    [] u32 d = dr.unwrap();
+    if d[0] != 7 { return 6; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
