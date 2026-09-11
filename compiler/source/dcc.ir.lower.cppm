@@ -2685,6 +2685,12 @@ export namespace dcc::ir::lower
             if (direct_target && direct_target->sema.is_intrinsic)
                 return lower_intrinsic_call(direct_target, call);
 
+            auto* call_type = get_sema_resolved_type(call);
+            if (call->sema.const_value && call->sema.const_value->type && call->sema.const_value->type == call_type &&
+                direct_target && !direct_target->sema.is_intrinsic && !call->sema.is_runtime &&
+                !direct_target->sema.is_runtime)
+                return materialize_comptime(*call->sema.const_value, call_type);
+
             if (direct_target)
             {
                 auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(direct_target));
