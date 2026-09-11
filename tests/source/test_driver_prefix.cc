@@ -124,6 +124,13 @@ TEST_CASE("--print-include-dir matches build/include")
     CHECK_EQ(inc_dir, expected.string());
 }
 
+TEST_CASE("--version exits 0 and reports the release version")
+{
+    auto version = run_driver_flag("--version");
+    REQUIRE(!version.empty());
+    CHECK(version.find("0.3.0") != std::string::npos);
+}
+
 SECTION("Driver -flibdcext");
 
 #if DCC_ENABLE_LLVM
