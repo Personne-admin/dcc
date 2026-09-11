@@ -1,0 +1,18 @@
+=== FILE: test.dc ===
+module test;
+
+struct GlobalFloat { f64 value; }
+
+f64 g_value = 2.5;
+
+@nomangle
+public i32 dcc_main() {
+    GlobalFloat current = { value = g_value };
+    if current.value != 2.5 {
+        return 1;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

@@ -2108,7 +2108,23 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOVSDrm");
                     auto const& m = ops[1].mem;
-                    if (m.base.is_physical())
+                    if (!m.symbol.empty())
+                    {
+                        bool de = reg_is_extended(d);
+                        emit_u8(buf, 0xF2);
+                        emit_rex(buf, false, de, false, false);
+                        emit_u8(buf, 0x0F);
+                        emit_u8(buf, 0x10);
+                        emit_modrm(buf, 0, reg_low3(d), 5);
+                        Reloc rel;
+                        rel.offset = static_cast<std::uint32_t>(buf.size());
+                        rel.symbol = m.symbol;
+                        rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
+                        rel.addend = m.disp - 4;
+                        relocs.push_back(rel);
+                        emit_u32_le(buf, 0);
+                    }
+                    else if (m.base.is_physical())
                     {
                         auto b = m.base.phys_reg();
                         bool de = reg_is_extended(d);
@@ -2391,7 +2407,23 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOVSSrm");
                     auto const& m = ops[1].mem;
-                    if (m.base.is_physical())
+                    if (!m.symbol.empty())
+                    {
+                        bool de = reg_is_extended(d);
+                        emit_u8(buf, 0xF3);
+                        emit_rex(buf, false, de, false, false);
+                        emit_u8(buf, 0x0F);
+                        emit_u8(buf, 0x10);
+                        emit_modrm(buf, 0, reg_low3(d), 5);
+                        Reloc rel;
+                        rel.offset = static_cast<std::uint32_t>(buf.size());
+                        rel.symbol = m.symbol;
+                        rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
+                        rel.addend = m.disp - 4;
+                        relocs.push_back(rel);
+                        emit_u32_le(buf, 0);
+                    }
+                    else if (m.base.is_physical())
                     {
                         auto b = m.base.phys_reg();
                         bool de = reg_is_extended(d), ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg()),
