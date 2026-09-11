@@ -1,0 +1,92 @@
+=== FILE: test.dc ===
+module test;
+
+import std::map;
+import std::mem;
+import std::result;
+import std::sort;
+
+struct Record { u64 key; f64 weight; u64 flags; f64 score; }
+
+i32 compare_records(const Record* a, const Record* b) {
+    if (*a).key < (*b).key {
+        return -1;
+    }
+    if (*b).key < (*a).key {
+        return 1;
+    }
+    if (*a).weight < (*b).weight {
+        return -1;
+    }
+    if (*b).weight < (*a).weight {
+        return 1;
+    }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[8192] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..8192]);
+    std::mem::Allocator alloc = fb.allocator();
+    Record[12] source = {
+        { key = 41, weight = 4.5, flags = 11, score = 0.5 },
+        { key = 7, weight = 9.25, flags = 13, score = 1.5 },
+        { key = 19, weight = 2.75, flags = 17, score = 2.5 },
+        { key = 3, weight = 8.125, flags = 19, score = 3.5 },
+        { key = 29, weight = 1.5, flags = 23, score = 4.5 },
+        { key = 11, weight = 7.75, flags = 29, score = 5.5 },
+        { key = 47, weight = 3.25, flags = 31, score = 6.5 },
+        { key = 5, weight = 6.5, flags = 37, score = 7.5 },
+        { key = 23, weight = 5.125, flags = 41, score = 8.5 },
+        { key = 13, weight = 10.75, flags = 43, score = 9.5 },
+        { key = 37, weight = 0.75, flags = 47, score = 10.5 },
+        { key = 17, weight = 11.5, flags = 53, score = 11.5 }
+    };
+    std::result::Result([] Record, std::mem::AllocError) records_result = alloc.dupe(source[0..12]);
+    if records_result.is_err() {
+        return 4;
+    }
+    [] Record records = records_result.unwrap();
+    std::sort::sort_by(records, compare_records);
+    std::map::Map(u64, Record) entries = std::map::new_map(alloc);
+    usize i = 0;
+    while i < records.len {
+        Record record = records[i];
+        record.score = record.score + (i as f64);
+        records[i] = record;
+        if entries.put(record.key, record).is_err() {
+            return 5;
+        }
+        i = i + 1;
+    }
+    if entries.remove(19).is_none() {
+        return 6;
+    }
+    if records[0].key != 3 {
+        return 7;
+    }
+    if records[11].key != 47 {
+        return 8;
+    }
+    Record seventh = entries.get(7).unwrap_some();
+    if seventh.flags != 13 {
+        return 9;
+    }
+    if seventh.score != 3.5 {
+        return 10;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0

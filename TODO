@@ -8,5 +8,6 @@
 - [x] exec coverage of -fbounds-check / -frestricted-check failure paths.
 - [ ] no runtime provides the synthetic `assert::__assert` the compiler emits for -fbounds-check / -frestricted-check, so a normal hosted link of such a program fails with an undefined symbol; only the test/differential stubs resolve it.
 - [ ] llvm emits no trap for the IR `unreachable` after the check-failure `__assert` call (its generated .text ends at the call), so an assert implementation that returns falls through; em64t emits `ud2` (SIGILL). Either mark the synthetic call noreturn or force a trap on the failure path.
-- [ ] LINK-STD harness coverage is narrower than its bug class: only the allocator-dupe shape exercises it; no freestanding trigger found for the physreg-reuse bug (u64/struct/f64 shuffle candidates all pass pre-fix)
+- [ ] LINK-STD harness coverage is narrower than its bug class: allocator-dupe plus the newer map-record and dupe-sort shapes exercise it; no freestanding trigger found for the physreg-reuse bug (u64/struct/f64 shuffle candidates all pass pre-fix)
+- [ ] Re-check RIP-relative float/vector relocation coverage if isel grows packed memory operands or memory-operand FP arithmetic/conversion forms; the completed audit applies only to current isel.
 - [x] compiler hash drift resolved: historical build recompiled isel, current tree changes lower, and same-content lower rebuild reproduces its outputs exactly.
