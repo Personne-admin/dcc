@@ -1,0 +1,693 @@
+=== FILE: test.dc ===
+module test;
+
+enum FmtError : u8 {
+    OutOfSpace,
+    SinkFailed,
+    BadFormat,
+}
+
+enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+T default_of(T)() {
+    T zero;
+    return zero;
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+bool is_err(T, E)(const Result(T, E)* self) {
+    return !self.is_ok();
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(v) => v,
+        _ => default_of(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(e) => e,
+        _ => default_of(),
+    };
+}
+
+usize scan([] const u8 s) {
+    usize i = 0;
+    while i < s.len {
+        if s[i] == 123 as u8 { return i; }
+        i++;
+    }
+    return i;
+}
+
+Result(usize, FmtError) checked(bool ok) {
+    if !ok { return Result::Err(FmtError::BadFormat); }
+    return Result::Ok(scan("hello {} world"));
+}
+
+Result(usize, FmtError) question(bool ok) {
+    usize n = checked(ok)?;
+    return Result::Ok(n + 1);
+}
+
+Result(usize, FmtError) chain(bool ok) {
+    usize n = question(ok)?;
+    usize m = checked(ok)?;
+    return Result::Ok(n + m);
+}
+
+Result(usize, FmtError) acc_question(bool ok) {
+    usize acc = 10;
+    acc += checked(ok)?;
+    return Result::Ok(acc);
+}
+
+FmtError first_err(bool ok) {
+    checked(ok)?;
+    return FmtError::OutOfSpace;
+}
+
+const Result(usize, FmtError) Q_OK = question(true);
+const Result(usize, FmtError) Q_ERR = question(false);
+const Result(usize, FmtError) C_OK = chain(true);
+const Result(usize, FmtError) C_ERR = chain(false);
+const Result(usize, FmtError) A_OK = acc_question(true);
+const Result(usize, FmtError) A_ERR = acc_question(false);
+
+void verify_first_err() {
+    static if first_err(true) != FmtError::OutOfSpace {
+        incorrect_first_err_ok();
+    }
+    static if first_err(false) != FmtError::BadFormat {
+        incorrect_first_err_err();
+    }
+}
+
+@nomangle
+public i32 dcc_main() {
+    if !Q_OK.is_ok() { return 1; }
+    if Q_OK.unwrap() != 7 as usize { return 2; }
+    if !Q_ERR.is_err() { return 3; }
+    if Q_ERR.unwrap_err() != FmtError::BadFormat { return 4; }
+    if !C_OK.is_ok() { return 5; }
+    if C_OK.unwrap() != 13 as usize { return 6; }
+    if !C_ERR.is_err() { return 7; }
+    if C_ERR.unwrap_err() != FmtError::BadFormat { return 8; }
+    if !A_OK.is_ok() { return 9; }
+    if A_OK.unwrap() != 16 as usize { return 10; }
+    if !A_ERR.is_err() { return 11; }
+    if A_ERR.unwrap_err() != FmtError::BadFormat { return 12; }
+    Result(usize, FmtError) r1 = question(true);
+    if !r1.is_ok() || r1.unwrap() != 7 as usize { return 13; }
+    Result(usize, FmtError) r2 = question(false);
+    if !r2.is_err() { return 14; }
+    const FmtError e_ok = first_err(true);
+    const FmtError e_err = first_err(false);
+    if e_ok != FmtError::OutOfSpace { return 15; }
+    if e_err != FmtError::BadFormat { return 16; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i8, [7 x i8], [8 x i8] }
+
+$_DC0S1.4.test10.default_of0IuX1tIu = comdat any
+
+$_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0. = comdat any
+
+@_DC0G1.4.test4.Q_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\07\00\00\00\00\00\00\00" }
+@_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
+@_DC0G1.4.test4.C_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\0D\00\00\00\00\00\00\00" }
+@_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
+@_DC0G1.4.test4.A_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\10\00\00\00\00\00\00\00" }
+@_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
+@.str.0 = internal constant [14 x i8] c"hello {} world"
+
+define i64 @_DC0F1.4.test4.scan1SCqi8uIu({ ptr, i64 } %s) {
+entry:
+  %"0" = alloca { ptr, i64 }, align 8
+  store { ptr, i64 } %s, ptr %"0", align 8
+  %"1" = alloca i64, align 8
+  store i64 0, ptr %"1", align 4
+  br label %while.cond1
+
+while.cond1:                                      ; preds = %if.merge6, %entry
+  %"2" = load i64, ptr %"1", align 4
+  %"3" = getelementptr { ptr, i64 }, ptr %"0", i32 0, i32 1
+  %"4" = load i64, ptr %"3", align 4
+  %"5" = icmp ult i64 %"2", %"4"
+  br i1 %"5", label %while.body2, label %while.exit3
+
+while.body2:                                      ; preds = %while.cond1
+  %"6" = load { ptr, i64 }, ptr %"0", align 8
+  %"7" = load i64, ptr %"1", align 4
+  %"8" = extractvalue { ptr, i64 } %"6", 0
+  %"9" = extractvalue { ptr, i64 } %"6", 1
+  %"10" = getelementptr i8, ptr %"8", i64 %"7"
+  %"11" = load i8, ptr %"10", align 1
+  %"12" = icmp eq i8 %"11", 123
+  br i1 %"12", label %if.then4, label %if.else5
+
+while.exit3:                                      ; preds = %while.cond1
+  %"16" = load i64, ptr %"1", align 4
+  ret i64 %"16"
+
+if.then4:                                         ; preds = %while.body2
+  %"13" = load i64, ptr %"1", align 4
+  ret i64 %"13"
+
+if.else5:                                         ; preds = %while.body2
+  br label %if.merge6
+
+if.merge6:                                        ; preds = %if.else5
+  %"14" = load i64, ptr %"1", align 4
+  %"15" = add i64 %"14", 1
+  store i64 %"15", ptr %"1", align 4
+  br label %while.cond1
+}
+
+define %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+entry:
+  %"0" = icmp eq i1 %ok, false
+  br i1 %"0", label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  %"2" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"2", align 1
+  store i8 2, ptr %"2", align 1
+  %"3" = load [8 x i8], ptr %"2", align 1
+  %"4" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"3", 2
+  ret %0 %"4"
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2
+  %"5" = call i64 @_DC0F1.4.test4.scan1SCqi8uIu({ ptr, i64 } { ptr @.str.0, i64 14 })
+  %"7" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"7", align 1
+  store i64 %"5", ptr %"7", align 4
+  %"8" = load [8 x i8], ptr %"7", align 1
+  %"9" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"8", 2
+  ret %0 %"9"
+}
+
+define %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+entry:
+  %"0" = alloca i64, align 8
+  %"1" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %"2" = alloca %0, align 8
+  store %0 %"1", ptr %"2", align 1
+  %"3" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"2")
+  br i1 %"3", label %unwrap.is_ok1, label %unwrap.fail2
+
+unwrap.is_ok1:                                    ; preds = %entry
+  %"4" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"2")
+  br label %unwrap.merge3
+
+unwrap.fail2:                                     ; preds = %entry
+  %"5" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %"2")
+  %"7" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"7", align 1
+  store i8 %"5", ptr %"7", align 1
+  %"8" = load [8 x i8], ptr %"7", align 1
+  %"9" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"8", 2
+  ret %0 %"9"
+
+unwrap.merge3:                                    ; preds = %unwrap.is_ok1
+  %"10" = phi i64 [ %"4", %unwrap.is_ok1 ]
+  store i64 %"10", ptr %"0", align 4
+  %"11" = load i64, ptr %"0", align 4
+  %"12" = add i64 %"11", 1
+  %"14" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"14", align 1
+  store i64 %"12", ptr %"14", align 4
+  %"15" = load [8 x i8], ptr %"14", align 1
+  %"16" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"15", 2
+  ret %0 %"16"
+}
+
+define %0 @_DC0F1.4.test5.chain1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+entry:
+  %"0" = alloca i64, align 8
+  %"1" = call %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %"2" = alloca %0, align 8
+  store %0 %"1", ptr %"2", align 1
+  %"3" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"2")
+  br i1 %"3", label %unwrap.is_ok1, label %unwrap.fail2
+
+unwrap.is_ok1:                                    ; preds = %entry
+  %"4" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"2")
+  br label %unwrap.merge3
+
+unwrap.fail2:                                     ; preds = %entry
+  %"5" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %"2")
+  %"7" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"7", align 1
+  store i8 %"5", ptr %"7", align 1
+  %"8" = load [8 x i8], ptr %"7", align 1
+  %"9" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"8", 2
+  ret %0 %"9"
+
+unwrap.merge3:                                    ; preds = %unwrap.is_ok1
+  %"10" = phi i64 [ %"4", %unwrap.is_ok1 ]
+  store i64 %"10", ptr %"0", align 4
+  %"11" = alloca i64, align 8
+  %"12" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %"13" = alloca %0, align 8
+  store %0 %"12", ptr %"13", align 1
+  %"14" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"13")
+  br i1 %"14", label %unwrap.is_ok4, label %unwrap.fail5
+
+unwrap.is_ok4:                                    ; preds = %unwrap.merge3
+  %"15" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"13")
+  br label %unwrap.merge6
+
+unwrap.fail5:                                     ; preds = %unwrap.merge3
+  %"16" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %"13")
+  %"18" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"18", align 1
+  store i8 %"16", ptr %"18", align 1
+  %"19" = load [8 x i8], ptr %"18", align 1
+  %"20" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"19", 2
+  ret %0 %"20"
+
+unwrap.merge6:                                    ; preds = %unwrap.is_ok4
+  %"21" = phi i64 [ %"15", %unwrap.is_ok4 ]
+  store i64 %"21", ptr %"11", align 4
+  %"22" = load i64, ptr %"0", align 4
+  %"23" = load i64, ptr %"11", align 4
+  %"24" = add i64 %"22", %"23"
+  %"26" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"26", align 1
+  store i64 %"24", ptr %"26", align 4
+  %"27" = load [8 x i8], ptr %"26", align 1
+  %"28" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"27", 2
+  ret %0 %"28"
+}
+
+define %0 @_DC0F1.4.test12.acc_question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+entry:
+  %"0" = alloca i64, align 8
+  store i64 10, ptr %"0", align 4
+  %"1" = load i64, ptr %"0", align 4
+  %"2" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %"3" = alloca %0, align 8
+  store %0 %"2", ptr %"3", align 1
+  %"4" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"3")
+  br i1 %"4", label %unwrap.is_ok1, label %unwrap.fail2
+
+unwrap.is_ok1:                                    ; preds = %entry
+  %"5" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"3")
+  br label %unwrap.merge3
+
+unwrap.fail2:                                     ; preds = %entry
+  %"6" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %"3")
+  %"8" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"8", align 1
+  store i8 %"6", ptr %"8", align 1
+  %"9" = load [8 x i8], ptr %"8", align 1
+  %"10" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"9", 2
+  ret %0 %"10"
+
+unwrap.merge3:                                    ; preds = %unwrap.is_ok1
+  %"11" = phi i64 [ %"5", %unwrap.is_ok1 ]
+  %"12" = add i64 %"1", %"11"
+  store i64 %"12", ptr %"0", align 4
+  %"13" = load i64, ptr %"0", align 4
+  %"15" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"15", align 1
+  store i64 %"13", ptr %"15", align 4
+  %"16" = load [8 x i8], ptr %"15", align 1
+  %"17" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"16", 2
+  ret %0 %"17"
+}
+
+define i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 %ok) {
+entry:
+  %"0" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %"1" = alloca %0, align 8
+  store %0 %"0", ptr %"1", align 1
+  %"2" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"1")
+  br i1 %"2", label %unwrap.is_ok1, label %unwrap.fail2
+
+unwrap.is_ok1:                                    ; preds = %entry
+  %"3" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"1")
+  br label %unwrap.merge3
+
+unwrap.fail2:                                     ; preds = %entry
+  %"4" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %"1")
+  ret i8 %"4"
+
+unwrap.merge3:                                    ; preds = %unwrap.is_ok1
+  %"5" = phi i64 [ %"3", %unwrap.is_ok1 ]
+  ret i8 0
+}
+
+define void @_DC0F1.4.test16.verify_first_err0v() {
+entry:
+  ret void
+}
+
+define i32 @dcc_main() {
+entry:
+  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.Q_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"1" = icmp eq i1 %"0", false
+  br i1 %"1", label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  ret i32 1
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2
+  %"2" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.Q_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"3" = icmp ne i64 %"2", 7
+  br i1 %"3", label %if.then4, label %if.else5
+
+if.then4:                                         ; preds = %if.merge3
+  ret i32 2
+
+if.else5:                                         ; preds = %if.merge3
+  br label %if.merge6
+
+if.merge6:                                        ; preds = %if.else5
+  %"4" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"5" = icmp eq i1 %"4", false
+  br i1 %"5", label %if.then7, label %if.else8
+
+if.then7:                                         ; preds = %if.merge6
+  ret i32 3
+
+if.else8:                                         ; preds = %if.merge6
+  br label %if.merge9
+
+if.merge9:                                        ; preds = %if.else8
+  %"6" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"7" = icmp ne i8 %"6", 2
+  br i1 %"7", label %if.then10, label %if.else11
+
+if.then10:                                        ; preds = %if.merge9
+  ret i32 4
+
+if.else11:                                        ; preds = %if.merge9
+  br label %if.merge12
+
+if.merge12:                                       ; preds = %if.else11
+  %"8" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.C_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"9" = icmp eq i1 %"8", false
+  br i1 %"9", label %if.then13, label %if.else14
+
+if.then13:                                        ; preds = %if.merge12
+  ret i32 5
+
+if.else14:                                        ; preds = %if.merge12
+  br label %if.merge15
+
+if.merge15:                                       ; preds = %if.else14
+  %"10" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.C_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"11" = icmp ne i64 %"10", 13
+  br i1 %"11", label %if.then16, label %if.else17
+
+if.then16:                                        ; preds = %if.merge15
+  ret i32 6
+
+if.else17:                                        ; preds = %if.merge15
+  br label %if.merge18
+
+if.merge18:                                       ; preds = %if.else17
+  %"12" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"13" = icmp eq i1 %"12", false
+  br i1 %"13", label %if.then19, label %if.else20
+
+if.then19:                                        ; preds = %if.merge18
+  ret i32 7
+
+if.else20:                                        ; preds = %if.merge18
+  br label %if.merge21
+
+if.merge21:                                       ; preds = %if.else20
+  %"14" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"15" = icmp ne i8 %"14", 2
+  br i1 %"15", label %if.then22, label %if.else23
+
+if.then22:                                        ; preds = %if.merge21
+  ret i32 8
+
+if.else23:                                        ; preds = %if.merge21
+  br label %if.merge24
+
+if.merge24:                                       ; preds = %if.else23
+  %"16" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.A_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"17" = icmp eq i1 %"16", false
+  br i1 %"17", label %if.then25, label %if.else26
+
+if.then25:                                        ; preds = %if.merge24
+  ret i32 9
+
+if.else26:                                        ; preds = %if.merge24
+  br label %if.merge27
+
+if.merge27:                                       ; preds = %if.else26
+  %"18" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.A_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"19" = icmp ne i64 %"18", 16
+  br i1 %"19", label %if.then28, label %if.else29
+
+if.then28:                                        ; preds = %if.merge27
+  ret i32 10
+
+if.else29:                                        ; preds = %if.merge27
+  br label %if.merge30
+
+if.merge30:                                       ; preds = %if.else29
+  %"20" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"21" = icmp eq i1 %"20", false
+  br i1 %"21", label %if.then31, label %if.else32
+
+if.then31:                                        ; preds = %if.merge30
+  ret i32 11
+
+if.else32:                                        ; preds = %if.merge30
+  br label %if.merge33
+
+if.merge33:                                       ; preds = %if.else32
+  %"22" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"23" = icmp ne i8 %"22", 2
+  br i1 %"23", label %if.then34, label %if.else35
+
+if.then34:                                        ; preds = %if.merge33
+  ret i32 12
+
+if.else35:                                        ; preds = %if.merge33
+  br label %if.merge36
+
+if.merge36:                                       ; preds = %if.else35
+  %"24" = alloca %0, align 8
+  %"25" = call %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 true)
+  store %0 %"25", ptr %"24", align 1
+  %"26" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"24")
+  %"27" = icmp eq i1 %"26", false
+  br i1 %"27", label %sc.merge41, label %sc.rhs40
+
+if.then37:                                        ; preds = %sc.merge41
+  ret i32 13
+
+if.else38:                                        ; preds = %sc.merge41
+  br label %if.merge39
+
+if.merge39:                                       ; preds = %if.else38
+  %"31" = alloca %0, align 8
+  %"32" = call %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 false)
+  store %0 %"32", ptr %"31", align 1
+  %"33" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"31")
+  %"34" = icmp eq i1 %"33", false
+  br i1 %"34", label %if.then42, label %if.else43
+
+sc.rhs40:                                         ; preds = %if.merge36
+  %"28" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"24")
+  %"29" = icmp ne i64 %"28", 7
+  br label %sc.merge41
+
+sc.merge41:                                       ; preds = %sc.rhs40, %if.merge36
+  %"30" = phi i1 [ true, %if.merge36 ], [ %"29", %sc.rhs40 ]
+  br i1 %"30", label %if.then37, label %if.else38
+
+if.then42:                                        ; preds = %if.merge39
+  ret i32 14
+
+if.else43:                                        ; preds = %if.merge39
+  br label %if.merge44
+
+if.merge44:                                       ; preds = %if.else43
+  %"35" = alloca i8, align 1
+  %"36" = call i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 true)
+  store i8 %"36", ptr %"35", align 1
+  %"37" = alloca i8, align 1
+  %"38" = call i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 false)
+  store i8 %"38", ptr %"37", align 1
+  %"39" = load i8, ptr %"35", align 1
+  %"40" = icmp ne i8 %"39", 0
+  br i1 %"40", label %if.then45, label %if.else46
+
+if.then45:                                        ; preds = %if.merge44
+  ret i32 15
+
+if.else46:                                        ; preds = %if.merge44
+  br label %if.merge47
+
+if.merge47:                                       ; preds = %if.else46
+  %"41" = load i8, ptr %"37", align 1
+  %"42" = icmp ne i8 %"41", 2
+  br i1 %"42", label %if.then48, label %if.else49
+
+if.then48:                                        ; preds = %if.merge47
+  ret i32 16
+
+if.else49:                                        ; preds = %if.merge47
+  br label %if.merge50
+
+if.merge50:                                       ; preds = %if.else49
+  ret i32 0
+}
+
+define linkonce_odr i64 @_DC0S1.4.test10.default_of0IuX1tIu() comdat {
+entry:
+  %"0" = alloca i64, align 8
+  %"1" = load i64, ptr %"0", align 4
+  ret i64 %"1"
+}
+
+define linkonce_odr i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.() comdat {
+entry:
+  %"0" = alloca i8, align 1
+  %"1" = load i8, ptr %"0", align 1
+  ret i8 %"1"
+}
+
+define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+entry:
+  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self)
+  %"1" = icmp eq i1 %"0", false
+  ret i1 %"1"
+}
+
+define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+entry:
+  %"0" = load %0, ptr %self, align 1
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
+  %"3" = phi i1 [ true, %match.arm0.body4 ], [ false, %match.arm1.body6 ]
+  ret i1 %"3"
+
+match.fail2:                                      ; No predecessors!
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"1" = extractvalue %0 %"0", 0
+  %"2" = icmp eq i8 %"1", 0
+  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  br label %match.merge1
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  br label %match.arm1.body6
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  br label %match.merge1
+}
+
+define linkonce_odr i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+entry:
+  %"0" = load %0, ptr %self, align 1
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
+  %"8" = phi i64 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
+  ret i64 %"8"
+
+match.fail2:                                      ; No predecessors!
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"1" = extractvalue %0 %"0", 0
+  %"2" = icmp eq i8 %"1", 0
+  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  %"3" = extractvalue %0 %"0", 2
+  %"5" = alloca [8 x i8], align 1
+  store [8 x i8] %"3", ptr %"5", align 1
+  %"6" = load i64, ptr %"5", align 4
+  br label %match.merge1
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  br label %match.arm1.body6
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  %"7" = call i64 @_DC0S1.4.test10.default_of0IuX1tIu()
+  br label %match.merge1
+}
+
+define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+entry:
+  %"0" = load %0, ptr %self, align 1
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
+  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
+  ret i8 %"8"
+
+match.fail2:                                      ; No predecessors!
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"1" = extractvalue %0 %"0", 0
+  %"2" = icmp eq i8 %"1", 1
+  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  %"3" = extractvalue %0 %"0", 2
+  %"5" = alloca [8 x i8], align 1
+  store [8 x i8] %"3", ptr %"5", align 1
+  %"6" = load i8, ptr %"5", align 1
+  br label %match.merge1
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  br label %match.arm1.body6
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
+  br label %match.merge1
+}
