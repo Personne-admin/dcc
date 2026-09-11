@@ -1179,8 +1179,12 @@ export namespace dcc::ctfe
                 }
             }
 
-            if (op != expr.op && r.value)
+            if (op != expr.op)
+            {
+                if (r.flow != Flow::Normal || !r.value)
+                    return r;
                 return store(*expr.lhs, std::move(*r.value));
+            }
             return r;
         }
 
@@ -1348,6 +1352,117 @@ export namespace dcc::ctfe
             return result;
         }
 
+        Result invoke_unwrap_callee(ast::FuncDecl const* fn, ast::UfcsReceiverAdjust adjust, comptime::ValuePtr slot,
+                                    sm::SourceRange site)
+        {
+            if (!fn || fn->params.empty())
+                return failure("unwrap-propagate target is unresolved");
+            if (fn->sema.is_runtime)
+                return failure("call to runtime-only function in constant expression");
+            for (auto const& a : fn->attrs)
+                if (a.name == "runtime")
+                    return failure("call to runtime-only function in constant expression");
+            if (!fn->body || fn->is_extern || fn->sema.is_intrinsic)
+                return failure("external, indirect or runtime-only call");
+            if (m_frames.size() > m_context.recursion_limit)
+                return failure("recursion limit exceeded", true);
+            if (fn->sema.storage == ast::StorageClass::Unresolved || !fn->template_params.empty())
+                return failure("call requires a resolved function and materialized arguments");
+            if (m_context.prepare_function && !m_context.prepare_function(*fn))
+                return failure("function body is not available at compile time");
+            auto* param_type = type_of(fn->params.front().type);
+            std::vector<comptime::Value> args;
+            switch (adjust)
+            {
+                case ast::UfcsReceiverAdjust::AutoRef:
+                case ast::UfcsReceiverAdjust::AutoRefConst:
+                case ast::UfcsReceiverAdjust::AutoRefQualMismatch:
+                    args.push_back(comptime::Value::make_pointer_to(slot, param_type));
+                    break;
+                case ast::UfcsReceiverAdjust::Exact: {
+                    auto v = read(slot);
+                    if (v.flow != Flow::Normal || !v.value)
+                        return v;
+                    args.push_back(std::move(*v.value));
+                    break;
+                }
+                case ast::UfcsReceiverAdjust::AutoDeref: {
+                    auto v = read(slot);
+                    if (v.flow != Flow::Normal || !v.value)
+                        return v;
+                    comptime::ValuePtr target;
+                    auto found = pointer_of(*v.value, target);
+                    if (found.flow != Flow::Normal)
+                        return found;
+                    auto d = read(target);
+                    if (d.flow != Flow::Normal || !d.value)
+                        return d;
+                    args.push_back(std::move(*d.value));
+                    break;
+                }
+                default:
+                    return failure("unsupported unwrap-propagate receiver");
+            }
+            if (args.size() != fn->params.size())
+                return failure("call requires a resolved function and materialized arguments");
+            m_frames.push_back(Frame{Call{fn, site}, {}, {}});
+            auto result = enter(*fn, std::move(args));
+            for (auto allocation : m_frames.back().allocations)
+                m_heap.end_lifetime(allocation);
+            m_frames.pop_back();
+            return result;
+        }
+
+        Result question(ast::PostfixExpr const& e)
+        {
+            auto* is_ok_fn = e.unwrap_is_ok_callee;
+            auto* unwrap_fn = e.unwrap_unwrap_callee;
+            auto* unwrap_err_fn = e.unwrap_unwrap_err_callee;
+            if (!is_ok_fn || !unwrap_fn || !unwrap_err_fn)
+                return failure("unwrap-propagate is unresolved");
+            auto r = expression(*e.operand);
+            if (r.flow != Flow::Normal || !r.value)
+                return r;
+            auto* fn = m_frames.empty() ? nullptr : m_frames.back().call.function;
+            if (!fn)
+                return failure("unwrap-propagate outside a function");
+            if (m_cells++ >= m_context.memory_limit)
+                return failure("memory limit exceeded", true);
+            auto slot = m_heap.allocate(std::move(*r.value), true);
+            m_frames.back().allocations.push_back(slot.allocation);
+            auto ok = invoke_unwrap_callee(is_ok_fn, e.unwrap_is_ok_receiver_adjust, slot, e.range);
+            if (ok.flow != Flow::Normal || !ok.value)
+                return ok;
+            auto truth = ok.value->const_to_bool();
+            if (!truth)
+                return failure("unwrap-propagate condition has no compile-time value");
+            if (*truth)
+            {
+                auto v = invoke_unwrap_callee(unwrap_fn, e.unwrap_unwrap_receiver_adjust, slot, e.range);
+                if (v.flow != Flow::Normal || !v.value)
+                    return v;
+                return folded(std::move(*v.value));
+            }
+            auto err = invoke_unwrap_callee(unwrap_err_fn, e.unwrap_unwrap_err_receiver_adjust, slot, e.range);
+            if (err.flow != Flow::Normal || !err.value)
+                return err;
+            std::optional<comptime::Value> out = std::move(*err.value);
+            if (e.unwrap_err_needs_implicit_enum && e.unwrap_err_constructed_variant)
+            {
+                auto* ret_type = fn->return_type ? type_of(fn->return_type) : nullptr;
+                auto const* ret_enum = ret_type ? types::type_cast<types::EnumType>(ret_type) : nullptr;
+                if (!ret_enum || !ret_enum->is_tagged || !ret_enum->tagged_layout)
+                    return failure("unwrap-propagate error type cannot be constructed");
+                std::vector<comptime::Value> elements;
+                elements.push_back(comptime::Value::make_int(e.unwrap_err_constructed_variant->discriminant,
+                                                             ret_enum->tagged_layout->discriminant_type));
+                if (!e.unwrap_err_constructed_variant->payload.empty())
+                    elements.push_back(std::move(*out));
+                out = comptime::Value::make_aggregate(std::move(elements), ret_type);
+            }
+            return {Flow::Return, std::move(out), {}, {}};
+        }
+
         Result loop(ast::Expr const* condition, ast::Block const& body, ast::Expr const* update, bool first)
         {
             for (;;)
@@ -1486,6 +1601,8 @@ export namespace dcc::ctfe
                     return binary(static_cast<ast::BinaryExpr const&>(expr));
                 case ast::ExprKind::Postfix: {
                     auto const& e = static_cast<ast::PostfixExpr const&>(expr);
+                    if (e.op == lex::TokenKind::Question)
+                        return question(e);
                     if (e.op != lex::TokenKind::Increment && e.op != lex::TokenKind::Decrement)
                         return unsupported();
                     return adjust(*e.operand, e.op == lex::TokenKind::Increment, false);
