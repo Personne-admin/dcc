@@ -1,0 +1,46 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pad {
+    u8 a;
+    u8 b;
+    u64 c;
+}
+
+struct Out {
+    u64 x0;
+    u64 x1;
+    u64 x2;
+}
+
+enum Shape {
+    Rec(Pad), Point,
+}
+
+Out vals_of(Shape s) {
+    return match s {
+        Shape::Rec(Pad { a, b, c }) => {x0 = a as u64, x1 = b as u64, x2 = c},
+        Shape::Point => {x0 = 0, x1 = 0, x2 = 0},
+    };
+}
+
+@nomangle
+public i32 dcc_main() {
+    Out v = vals_of(Shape::Rec({1, 2, 3}));
+    if v.x0 != 1 {
+        return 1;
+    }
+
+    if v.x1 != 2 {
+        return 2;
+    }
+
+    if v.x2 != 3 {
+        return 3;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
