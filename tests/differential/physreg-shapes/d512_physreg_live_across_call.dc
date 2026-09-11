@@ -1,0 +1,74 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+u64 g_a = 13;
+u64 g_b = 29;
+u64 g_c = 43;
+u64 g_d = 67;
+u64 g_e = 83;
+u64 g_f = 97;
+
+@noinline u64 add_three(u64 x, u64 y, u64 z) {
+    return x + y * 2 + z * 3;
+}
+
+@noinline u64 multiply_add(u64 x, u64 y) {
+    return x * 5 + y * 7 + 11;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    u64 a = g_a;
+    u64 b = g_b;
+    u64 c = g_c;
+    u64 d = g_d;
+    u64 e = g_e;
+    u64 f = g_f;
+    u64 first = add_three(a, b, c);
+    u64 second = multiply_add(d, e);
+    u64 third = add_three(first, second, f);
+    u64 fourth = multiply_add(first, second);
+    print_u64(&out, a);
+    print_u64(&out, b);
+    print_u64(&out, c);
+    print_u64(&out, d);
+    print_u64(&out, e);
+    print_u64(&out, f);
+    print_u64(&out, first);
+    print_u64(&out, second);
+    print_u64(&out, third);
+    print_u64(&out, fourth);
+    return 0;
+}

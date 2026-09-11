@@ -1,0 +1,52 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+enum Opt(T) {
+    Some(T),
+    None,
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    u64[4] arr = {10, 20, 30, 40};
+    u64 acc = 0;
+
+    u64 k = 0;
+    while k < 4 {
+        Opt(u64) o = Opt::Some(k);
+        Opt(u64) r = match o {
+            Opt::Some(i) => Opt::Some(arr[i]),
+            Opt::None => Opt::None,
+        };
+        acc = acc + match r {
+            Opt::Some(v) => v,
+            Opt::None => 1000,
+        };
+        k = k + 1;
+    }
+
+    print_u64(&out, acc);
+    return 0;
+}

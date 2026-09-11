@@ -1,0 +1,75 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+struct Pt {
+    u64 x;
+    u64 y;
+}
+
+struct Box {
+    Pt lo;
+    Pt hi;
+}
+
+Result(Box, u64) build(u64 i) {
+    if i == 5 {
+        return Result::Err(0x55);
+    }
+
+    Pt lo = {x = i, y = i + 1};
+    Pt hi = {x = i * 2, y = i * 3};
+    Box b = {lo = lo, hi = hi};
+    return Result::Ok(b);
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Box acc = {lo = {x = 0, y = 0}, hi = {x = 0, y = 0}};
+
+    u64 i = 0;
+    while i < 9 {
+        Result(Box, u64) r = build(i);
+        match r {
+            Result::Ok(b) => {
+                acc.lo.x += b.lo.x;
+                acc.lo.y += b.lo.y;
+                acc.hi.x += b.hi.x;
+                acc.hi.y += b.hi.y;
+            },
+            Result::Err(e) => {
+                acc.lo.x += e;
+                acc.hi.y += e;
+            },
+        }
+
+        print_u64(&out, acc.lo.x);
+        print_u64(&out, acc.lo.y);
+        print_u64(&out, acc.hi.x);
+        print_u64(&out, acc.hi.y);
+        i = i + 1;
+    }
+
+    return 0;
+}

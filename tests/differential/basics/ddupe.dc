@@ -1,0 +1,54 @@
+module main;
+
+import std::mem;
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+public i32 main() {
+    u8[1024] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..1024]);
+    std::mem::Allocator a = fb.allocator();
+    std::os::file::File out = std::os::file::stdout();
+    u32[5] src = {7, 77, 777, 7777, 77777};
+
+    std::result::Result([] u32, std::mem::AllocError) dr = a.dupe(src[0..5]);
+    if dr.is_err() {
+        return 5;
+    }
+
+    [] u32 d = dr.unwrap();
+    print_u64(&out, d.len as u64);
+    print_u64(&out, d[0] as u64);
+    print_u64(&out, d[4] as u64);
+
+    std::result::Result([] u64, std::mem::AllocError) zr = a.alloc_zeroed(3);
+    if zr.is_err() {
+        return 1;
+    }
+
+    [] u64 z = zr.unwrap();
+    z[2] = 0xABCDEF as u64;
+    print_u64(&out, z[0]);
+    print_u64(&out, z[2]);
+    return 0;
+}

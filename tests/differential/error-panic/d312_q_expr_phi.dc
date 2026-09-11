@@ -1,0 +1,54 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+Result(u64, u64) maybe(u64 x) {
+    if x == 0 {
+        return Result::Err(3);
+    }
+
+    return Result::Ok(x * 10);
+}
+
+Result(u64, u64) combine(u64 x) {
+    u64 a = maybe(x) ?;
+    u64 b = maybe(x + 1) ?;
+    return Result::Ok(a * 1000 + b);
+}
+
+void report(std::os::file::File* out, Result(u64, u64) r) {
+    match r {
+        Result::Ok(v) => print_u64(out, v),
+        Result::Err(e) => print_u64(out, 0xCAFE0000 + e),
+    }
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    report(&out, combine(2));
+    report(&out, combine(9));
+    report(&out, combine(0));
+    report(&out, combine(1));
+    return 0;
+}

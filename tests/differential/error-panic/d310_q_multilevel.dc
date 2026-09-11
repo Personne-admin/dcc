@@ -1,0 +1,78 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+struct Pair {
+    u64 a;
+    u64 b;
+}
+
+struct Triple {
+    Pair p;
+    u64 c;
+}
+
+Result(Pair, u64) inner(u64 x) {
+    if x == 0 {
+        return Result::Err(0xE0);
+    }
+
+    if x == 1 {
+        return Result::Err(0xE1);
+    }
+
+    Pair r = {a = x * 2, b = x * 3};
+    return Result::Ok(r);
+}
+
+Result(Triple, u64) middle(u64 x) {
+    Pair p = inner(x) ?;
+    Triple t = {p = p, c = x + 100};
+    return Result::Ok(t);
+}
+
+Result(Triple, u64) outer(u64 x) {
+    Triple t = middle(x) ?;
+    return Result::Ok(t);
+}
+
+void report(std::os::file::File* out, Result(Triple, u64) r) {
+    match r {
+        Result::Ok(t) => {
+            print_u64(out, t.p.a);
+            print_u64(out, t.p.b);
+            print_u64(out, t.c);
+        },
+        Result::Err(e) => print_u64(out, 0xDEAD0000 + e),
+    }
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    report(&out, outer(2));
+    report(&out, outer(0));
+    report(&out, outer(1));
+    report(&out, outer(7));
+    return 0;
+}

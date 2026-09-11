@@ -1,0 +1,13 @@
+// DCCFLAGS: -frestricted-check
+module main;
+
+using Small = i8{-100..100};
+
+i32 g_v = 50;
+
+public i32 main() {
+    Small s = g_v as Small;
+    i8 raw = s;
+    if raw != 50 { return 1; }
+    return 0;
+}

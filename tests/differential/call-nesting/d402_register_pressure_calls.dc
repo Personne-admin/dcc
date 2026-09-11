@@ -1,0 +1,202 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Envelope {
+    u64 folded;
+    f64 shaped;
+    u64 check;
+    f64 audit;
+}
+
+u64 g_seed = 977;
+f64 g_tune = 2.25;
+
+u64 fold_integers(
+    u64 i0,
+    u64 i1,
+    u64 i2,
+    u64 i3,
+    u64 i4,
+    u64 i5,
+    u64 i6,
+    u64 i7
+) {
+    u64 folded = i0;
+    folded = folded * 5 + i1;
+    folded = folded * 5 + i2;
+    folded = folded * 5 + i3;
+    folded = folded * 5 + i4;
+    folded = folded * 5 + i5;
+    folded = folded * 5 + i6;
+    folded = folded * 5 + i7;
+    return folded;
+}
+
+f64 fold_floats(
+    f64 f0,
+    f64 f1,
+    f64 f2,
+    f64 f3,
+    f64 f4,
+    f64 f5,
+    f64 f6,
+    f64 f7,
+    f64 f8
+) {
+    f64 shaped = f0;
+    shaped = shaped * 1.5 + f1;
+    shaped = shaped * 1.5 + f2;
+    shaped = shaped * 1.5 + f3;
+    shaped = shaped * 1.5 + f4;
+    shaped = shaped * 1.5 + f5;
+    shaped = shaped * 1.5 + f6;
+    shaped = shaped * 1.5 + f7;
+    shaped = shaped * 1.5 + f8;
+    return shaped;
+}
+
+Envelope pressure_frame(
+    Envelope state,
+    u64 i0,
+    u64 i1,
+    u64 i2,
+    u64 i3,
+    u64 i4,
+    u64 i5,
+    u64 i6,
+    u64 i7,
+    f64 f0,
+    f64 f1,
+    f64 f2,
+    f64 f3,
+    f64 f4,
+    f64 f5,
+    f64 f6,
+    f64 f7,
+    f64 f8
+) {
+    u64 folded = fold_integers(
+        i0,
+        i1 + state.folded,
+        i2,
+        i3,
+        i4,
+        i5,
+        i6,
+        i7 + state.check
+    );
+
+    f64 shaped = fold_floats(
+        f0,
+        f1,
+        f2 + state.shaped,
+        f3,
+        f4,
+        f5,
+        f6,
+        f7,
+        f8 + state.audit
+    );
+
+    Envelope next = {folded = folded, shaped = shaped, check = folded ^ (shaped as u64), audit = shaped + (folded as f64)};
+    return next;
+}
+
+Envelope pressure_envelope(Envelope state, u64 salt, f64 tune) {
+    Envelope first = pressure_frame(
+        state,
+        salt,
+        salt + 1,
+        salt + 2,
+        salt + 3,
+        salt + 4,
+        salt + 5,
+        salt + 6,
+        salt + 7,
+        tune,
+        tune + 1.0,
+        tune + 2.0,
+        tune + 3.0,
+        tune + 4.0,
+        tune + 5.0,
+        tune + 6.0,
+        tune + 7.0,
+        tune + 8.0
+    );
+
+    Envelope second = pressure_frame(
+        first,
+        state.check,
+        state.folded,
+        salt + 31,
+        salt + 37,
+        salt + 41,
+        salt + 43,
+        salt + 47,
+        salt + 53,
+        state.audit,
+        tune + 11.0,
+        tune + 13.0,
+        state.shaped,
+        tune + 17.0,
+        tune + 19.0,
+        tune + 23.0,
+        tune + 29.0,
+        tune + 31.0
+    );
+
+    Envelope result = {folded = first.folded + second.folded, shaped = first.shaped + second.shaped, check = first.check ^ second.check, audit = first.audit * 1.125 + second.audit};
+    return result;
+}
+
+Envelope pressure_root(Envelope state, u64 salt, f64 tune) {
+    Envelope first = pressure_envelope(state, salt, tune);
+    Envelope second = pressure_envelope(first, salt + 101, tune + 0.75);
+    Envelope result = {folded = first.folded ^ second.check, shaped = first.shaped + second.audit, check = first.check + second.folded, audit = first.audit + second.shaped};
+
+    return result;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Envelope state = {folded = g_seed, shaped = g_tune, check = g_seed ^ 305419896, audit = g_tune * 4.0};
+    Envelope result = pressure_root(state, 41, 3.5);
+    print_u64(&out, result.folded);
+    print_u64(&out, f64bits(result.shaped));
+    print_u64(&out, result.check);
+    print_u64(&out, f64bits(result.audit));
+
+    return 0;
+}

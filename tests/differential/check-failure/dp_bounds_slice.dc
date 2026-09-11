@@ -1,0 +1,13 @@
+// DCCFLAGS: -fbounds-check
+module main;
+
+i32 g_idx = 40;
+
+public i32 main() {
+    u8[16] raw;
+    for usize i = 0; i < 16; i++ { raw[i] = i as u8; }
+    []u8 s = raw[0..16];
+    u8 v = s[g_idx as usize];
+    if v == 0 { return 1; }
+    return 0;
+}

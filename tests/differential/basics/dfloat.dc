@@ -1,0 +1,55 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+f64 fmix(f64 x, f64 y, f64 z) {
+    return x + y * 2.0 + z * 3.0;
+}
+
+f32 fmix32(f32 x, f32 y) {
+    return x * 1.5 + y;
+}
+
+struct FPair {
+    f64 a;
+    f64 b;
+}
+
+FPair fmk(f64 x, f64 y) {
+    return {a = x, b = y};
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    print_u64(&out, fmix(1.0, 2.0, 3.0) as u64);
+    print_u64(&out, fmix(0.5, 0.25, 0.125) as u64);
+    print_u64(&out, fmix32(2.0, 4.0) as u64);
+    FPair p = fmk(1.5, 2.5);
+    print_u64(&out, (p.a + p.b) as u64);
+    FPair q = fmk(p.b, p.a);
+    print_u64(&out, (q.a * 2.0 + q.b) as u64);
+    f64[4] fa = {1.0, 2.0, 4.0, 8.0};
+    print_u64(&out, (fa[0] + fa[1] + fa[2] + fa[3]) as u64);
+    return 0;
+}

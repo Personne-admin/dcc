@@ -1,0 +1,74 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+u64 g_selector = 7;
+u64 g_left = 123;
+u64 g_right = 456;
+f64 g_weight = 9.5;
+
+u64 live_path(u64 value) {
+    return value * 4 + 9;
+}
+
+u64 dead_path(u64 value) {
+    return value * 8 + 27;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    u64 acc = 0;
+    f64 observed = 0.0;
+
+    u64 i = 0;
+    while i < 10 {
+        u64 selector = g_selector + i;
+        u64 kept = live_path(g_left + i);
+        u64 pruned = dead_path(g_right + i);
+        if selector % 2 == 0 {
+            acc = acc + kept;
+            observed = observed + g_weight;
+        } else {
+            acc = acc + kept + 1;
+            observed = observed + g_weight + 0.25;
+        }
+
+        print_u64(&out, acc);
+        print_u64(&out, f64bits(observed));
+        print_u64(&out, pruned ^ acc);
+        i = i + 1;
+    }
+
+    return 0;
+}

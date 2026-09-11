@@ -1,0 +1,62 @@
+module main;
+
+import std::map;
+import std::mem;
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+public i32 main() {
+    u8[8192] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..8192]);
+    std::mem::Allocator a = fb.allocator();
+    std::os::file::File out = std::os::file::stdout();
+    std::map::Map(u64, u64) m = std::map::new_map(a);
+
+    usize k = 1;
+    while k <= 30 {
+        if m.put(k as u64, (k as u64) * 3).is_err() {
+            return 4;
+        }
+
+        k = k + 1;
+    }
+
+    std::map::Iterator(u64, u64) it = m.iterate();
+    u64 sum = 0;
+
+    u64 n = 0;
+    while true {
+        std::result::Optional(std::map::Entry(u64, u64)) e = it.next();
+        if e.is_none() {
+            break;
+        }
+
+        std::map::Entry(u64, u64) ent = e.unwrap_some();
+        sum = sum + *ent.value;
+        n = n + 1;
+    }
+
+    print_u64(&out, n);
+    print_u64(&out, sum);
+    return 0;
+}

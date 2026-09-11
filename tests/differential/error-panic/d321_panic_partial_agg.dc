@@ -1,0 +1,64 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+import std::debug;
+
+struct Big {
+    u64 a;
+    u64 b;
+    u64 c;
+    u64 d;
+}
+
+Big partial(u64 x) {
+    Big b = {a = x, b = x + 1, c = 0, d = 0};
+    b.c = x + 2;
+    return b;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Big acc = {a = 0, b = 0, c = 0, d = 0};
+
+    u64 i = 0;
+    while i < 12 {
+        Big p = partial(i);
+        acc.a += p.a;
+        acc.b += p.b;
+        acc.c += p.c;
+        acc.d += p.d;
+        print_u64(&out, acc.a);
+        print_u64(&out, acc.b);
+        print_u64(&out, acc.c);
+        print_u64(&out, acc.d);
+        if i == 8 {
+            std::debug::assert(acc.d == 0x999999, "acc self-check failed");
+        }
+
+        i = i + 1;
+    }
+
+    return 0;
+}
