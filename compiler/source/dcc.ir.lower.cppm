@@ -6662,6 +6662,94 @@ export namespace dcc::ir::lower
             }
         }
 
+        static bool flatten_const_to_bytes(IrValue const* v, std::uint8_t* out, std::uint64_t size)
+        {
+            if (!v || !v->type)
+                return false;
+            switch (v->kind)
+            {
+                case IrNodeKind::BoolConstant:
+                    if (size < 1)
+                        return false;
+                    out[0] = static_cast<std::uint8_t>(static_cast<IrBoolConstant const*>(v)->value ? 1 : 0);
+                    return true;
+                case IrNodeKind::IntConstant: {
+                    auto bytes = v->type->byte_size;
+                    if (bytes > size)
+                        return false;
+                    auto bits = static_cast<std::uint64_t>(static_cast<IrIntConstant const*>(v)->value);
+                    for (std::uint64_t i = 0; i < bytes; ++i)
+                        out[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(bits >> (i * 8));
+                    return true;
+                }
+                case IrNodeKind::FloatConstant: {
+                    auto bytes = v->type->byte_size;
+                    if (bytes > size || (bytes != 4 && bytes != 8))
+                        return false;
+                    if (bytes == 4)
+                    {
+                        auto f = static_cast<float>(static_cast<IrFloatConstant const*>(v)->value);
+                        std::uint32_t bits = 0;
+                        std::memcpy(&bits, &f, static_cast<std::size_t>(4));
+                        for (std::uint64_t i = 0; i < 4; ++i)
+                            out[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(bits >> (i * 8));
+                    }
+                    else
+                    {
+                        auto d = static_cast<IrFloatConstant const*>(v)->value;
+                        std::uint64_t bits = 0;
+                        std::memcpy(&bits, &d, static_cast<std::size_t>(8));
+                        for (std::uint64_t i = 0; i < 8; ++i)
+                            out[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(bits >> (i * 8));
+                    }
+                    return true;
+                }
+                case IrNodeKind::NullConstant: {
+                    auto bytes = v->type->byte_size;
+                    if (bytes > size)
+                        return false;
+                    std::memset(out, 0, static_cast<std::size_t>(bytes));
+                    return true;
+                }
+                case IrNodeKind::Aggregate: {
+                    auto const* agg = static_cast<IrAggregateInst const*>(v);
+                    if (auto const* at = ir_type_cast<IrAggregateType>(v->type))
+                    {
+                        if (at->members.size() != agg->values.size() || at->byte_size > size)
+                            return false;
+                        for (std::size_t i = 0; i < agg->values.size(); ++i)
+                        {
+                            auto off = i < at->member_offsets.size() ? at->member_offsets[i] : 0;
+                            if (off + at->members[i]->byte_size > size)
+                                return false;
+                            if (!flatten_const_to_bytes(agg->values[i], out + static_cast<std::size_t>(off),
+                                                        size - off))
+                                return false;
+                        }
+                        return true;
+                    }
+                    if (auto const* arr = ir_type_cast<IrArrayType>(v->type))
+                    {
+                        if (static_cast<std::uint64_t>(agg->values.size()) != arr->count || arr->byte_size > size)
+                            return false;
+                        for (std::uint64_t i = 0; i < arr->count; ++i)
+                        {
+                            auto off = i * arr->element->byte_size;
+                            if (off + arr->element->byte_size > size)
+                                return false;
+                            if (!flatten_const_to_bytes(agg->values[static_cast<std::size_t>(i)],
+                                                        out + static_cast<std::size_t>(off), size - off))
+                                return false;
+                        }
+                        return true;
+                    }
+                    return false;
+                }
+                default:
+                    return false;
+            }
+        }
+
         IrValue* materialize_comptime(dcc::comptime::Value const& cv, dcc::types::TypePtr target_type)
         {
             switch (cv.kind())
@@ -6780,7 +6868,15 @@ export namespace dcc::ir::lower
                                 if (cv.size() > 1)
                                 {
                                     auto* payload_val = materialize_comptime(cv.at(1), nullptr);
-                                    agg->values.push_back(payload_val);
+                                    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(layout->payload_size), 0);
+                                    if (!flatten_const_to_bytes(payload_val, bytes.data(), layout->payload_size))
+                                        lower_panic("tagged enum payload is not materializable as bytes");
+                                    auto* ir_byte = m_ctx.int_t(8, false);
+                                    auto* ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
+                                    auto* payload_arr = m_ctx.aggregate(ir_payload_arr_ty);
+                                    for (auto b : bytes)
+                                        payload_arr->values.push_back(m_ctx.int_const(ir_byte, static_cast<std::int64_t>(b)));
+                                    agg->values.push_back(payload_arr);
                                 }
                                 else
                                 {

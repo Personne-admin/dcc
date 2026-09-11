@@ -18,7 +18,7 @@ public Result get_ok() { return g_ok; }
 === EXPECT-IR ===
 module "test"
 
-global @_DC0G1.4.test4.g_okD1.4.test6.Result0. : {@0 u8, @8 [16 x u8]} = aggregate {@0 u8, @8 [16 x u8]}, #0, aggregate {@0 i64, @8 i64}, #1, #2
+global @_DC0G1.4.test4.g_okD1.4.test6.Result0. : {@0 u8, @8 [16 x u8]} = aggregate {@0 u8, @8 [16 x u8]}, #0, aggregate [16 x u8], #1, #0, #0, #0, #0, #0, #0, #0, #2, #0, #0, #0, #0, #0, #0, #0
 
 
 {@0 u8, @8 [16 x u8]}@_DC0F1.4.test6.get_ok0D1.4.test6.Result0.() {

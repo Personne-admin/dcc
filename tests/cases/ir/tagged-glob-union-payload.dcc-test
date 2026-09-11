@@ -18,7 +18,7 @@ public UnionOption get_some() { return g_some; }
 === EXPECT-IR ===
 module "test"
 
-global @_DC0G1.4.test6.g_someD1.4.test11.UnionOption0. : {@0 u8, @8 [8 x u8]} = aggregate {@0 u8, @8 [8 x u8]}, #1, aggregate {@0 i32, @0 f64}, #42, #0
+global @_DC0G1.4.test6.g_someD1.4.test11.UnionOption0. : {@0 u8, @8 [8 x u8]} = aggregate {@0 u8, @8 [8 x u8]}, #1, aggregate [8 x u8], #0, #0, #0, #0, #0, #0, #0, #0
 
 
 {@0 u8, @8 [8 x u8]}@_DC0F1.4.test8.get_some0D1.4.test11.UnionOption0.() {
