@@ -181,6 +181,7 @@ namespace
         bool verify_sections{true};
         std::optional<int> run_exit_code;
         int opt_level{0};
+        bool bounds_check{false};
         bool restricted_check{false};
         bool pic{false};
         bool shared_link{false};
@@ -544,6 +545,8 @@ namespace
                         e.opt_level = 2;
                     else if (flags_str.find("-O1") != std::string::npos || flags_str.find("OPT-LEVEL: 1") != std::string::npos)
                         e.opt_level = 1;
+                    if (flags_str.find("-fbounds-check") != std::string::npos)
+                        e.bounds_check = true;
                     if (flags_str.find("-frestricted-check") != std::string::npos)
                         e.restricted_check = true;
                 }
@@ -2249,8 +2252,8 @@ namespace
                 target = dcc::target::TargetConfig::host_default();
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
-            auto lowerer =
-                std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types(), exp.restricted_check);
+            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
+                                                                     exp.restricted_check);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             if (exp.pic)
@@ -2994,7 +2997,10 @@ namespace
                        << "    call dcc_main\n"
                        << "    mov %eax, %edi\n"
                        << "    mov $60, %eax\n"
-                       << "    syscall\n";
+                       << "    syscall\n"
+                       << ".weak _DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv\n"
+                       << "_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv:\n"
+                       << "    ret\n";
                 }
 
                 auto harness_obj_path = run_dir / "start.o";
@@ -3054,7 +3060,7 @@ namespace
                 if (WIFEXITED(run_rc))
                     actual_exit = WEXITSTATUS(run_rc);
                 else
-                    actual_exit = -1;
+                    actual_exit = WIFSIGNALED(run_rc) ? 128 + WTERMSIG(run_rc) : -1;
 #endif
 
                 if (actual_exit != *exp.run_exit_code)
