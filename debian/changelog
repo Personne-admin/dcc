@@ -1,3 +1,16 @@
+dcc (0.3.0-1) unstable; urgency=medium
+
+  * New upstream release v0.3.0.
+  * em64t backend correctness sweep: narrow-integer codegen, aggregates,
+    register allocation, and floating-point relocation fixes.
+  * Runtime failure-path coverage for -fbounds-check and
+    -frestricted-check.
+  * New standard library OS modules (dir, thread, pipe, process, random,
+    net) with Linux and Windows backends.
+  * Cross-backend differential test corpus (make differential).
+
+ -- personne-admin <personneadmin@protonmail.com>  Fri, 11 Sep 2026 16:29:26 +0200
+
 dcc (0.2.0-1) unstable; urgency=medium
 
   * New upstream release v0.2.0.
