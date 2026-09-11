@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module test;
+
+f32 g_value = 0.0;
+
+@nomangle
+public i32 dcc_main() {
+    f32 value = 2.5;
+    g_value = value;
+    if g_value != 2.5 {
+        return 1;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
