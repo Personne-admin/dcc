@@ -1,0 +1,120 @@
+module main;
+
+import std::map;
+import std::mem;
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+import std::array;
+import std::sort;
+
+struct Envelope {
+    u64 folded;
+    f64 shaped;
+    u64 check;
+    f64 audit;
+}
+
+i32 compare_envelopes(const Envelope* a, const Envelope* b) {
+    if a.folded < b.folded {
+        return -1;
+    }
+
+    if b.folded < a.folded {
+        return 1;
+    }
+
+    if a.shaped < b.shaped {
+        return -1;
+    }
+
+    if b.shaped < a.shaped {
+        return 1;
+    }
+
+    return 0;
+}
+
+Envelope make_envelope(u64 seed) {
+    Envelope envelope = {
+        folded = seed * 5 + 11,
+        shaped = (seed as f64) * 1.625 + 0.75,
+        check = seed ^ 305419896,
+        audit = (seed as f64) * -0.5 + 9.0
+    };
+
+    return envelope;
+}
+
+public i32 main() {
+    u8[16384] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
+    std::mem::Allocator alloc = fb.allocator();
+    std::os::file::File out = std::os::file::stdout();
+    std::array::Array(Envelope) envelopes = std::array::new_array(alloc);
+
+    usize i = 0;
+    while i < 24 {
+        if !envelopes.push(make_envelope((i * 13 + 7) as u64)).is_ok() {
+            return 4;
+        }
+
+        i = i + 1;
+    }
+
+    [] Envelope items = envelopes.items();
+    std::sort::sort_by(items, compare_envelopes);
+
+    Envelope* middle = envelopes.at(12).unwrap_some();
+    middle.shaped = middle.shaped * 2.0;
+    middle.audit = middle.audit + 4.25;
+    if envelopes.remove(5).is_none() {
+        return 5;
+    }
+
+    if envelopes.swap_remove(7).is_none() {
+        return 6;
+    }
+
+    Envelope first = envelopes.items()[0];
+    Envelope last = envelopes.items()[envelopes.len() - 1];
+    Envelope* updated_middle = envelopes.at(11).unwrap_some();
+    print_u64(&out, envelopes.len() as u64);
+    print_u64(&out, first.folded);
+    print_u64(&out, f64bits(first.shaped));
+    print_u64(&out, last.folded);
+    print_u64(&out, f64bits(last.audit));
+    print_u64(&out, updated_middle.folded);
+    print_u64(&out, f64bits(updated_middle.shaped));
+    return 0;
+}

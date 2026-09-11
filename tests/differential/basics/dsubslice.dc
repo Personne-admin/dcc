@@ -1,0 +1,45 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+[] u64 narrow([] u8 raw, u64 n) {
+    return (raw as [] u64)[0..n];
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    u8[24] raw;
+
+    u64 i = 0;
+    while i < 24 {
+        raw[i] = (i + 1) as u8;
+        i = i + 1;
+    }
+
+    [] u64 w = narrow(raw[0..24], 3);
+    print_u64(&out, w.len as u64);
+    print_u64(&out, w[0]);
+    print_u64(&out, w[2]);
+    return 0;
+}

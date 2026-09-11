@@ -1,0 +1,124 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Payload {
+    u64 count;
+    f64 gain;
+    u64 code;
+    f64 bias;
+}
+
+struct Packet {
+    Payload head;
+    u64 tag;
+    Payload tail;
+}
+
+u64 g_salt = 2027;
+f64 g_tune = 1.375;
+
+u64 leaf_adjust(Packet* packet, u64 salt, f64 tune) {
+    packet.tag = packet.tag + salt;
+    packet.head.count = packet.head.count + salt;
+    packet.head.gain = packet.head.gain + tune;
+    packet.tail.code = packet.tail.code ^ (salt * 6148914691236517205);
+    packet.tail.bias = packet.tail.bias - tune;
+
+    return packet.tag + packet.head.count + packet.tail.code;
+}
+
+Payload branch_adjust(Packet* first, Packet* second, u64 salt, f64 tune) {
+    u64 first_receipt = leaf_adjust(first, salt, tune);
+    u64 second_receipt = leaf_adjust(second, salt + 91, tune + 0.25);
+
+    Payload result = {
+        count = first.head.count + second.head.count + first_receipt,
+        gain = first.head.gain + second.tail.gain,
+        code = first.tail.code
+            ^ second.head.code
+            ^ second_receipt,
+        bias = first.tail.bias + second.tail.bias
+    };
+
+    return result;
+}
+
+Packet middle_adjust(Packet* first, Packet* second, u64 salt, f64 tune) {
+    Payload combined = branch_adjust(first, second, salt, tune);
+    Payload alternate = branch_adjust(second, first, salt + 331, tune * 1.5);
+    Packet result = {
+        head = {count = combined.count + alternate.count, gain = combined.gain + alternate.gain, code = combined.code, bias = alternate.bias},
+        tag = first.tag + second.tag,
+        tail = {count = alternate.count, gain = combined.gain, code = alternate.code ^ combined.code, bias = combined.bias}
+    };
+
+    return result;
+}
+
+Packet root_adjust(Packet* first, Packet* second, u64 salt, f64 tune) {
+    Packet middle = middle_adjust(first, second, salt, tune);
+    Payload final_branch = branch_adjust(
+        first,
+        second,
+        salt + 775,
+        tune - 0.375
+    );
+
+    Packet result = {head = middle.head, tag = middle.tag ^ final_branch.count, tail = final_branch};
+    first.head = result.head;
+    second.tail = result.tail;
+    return result;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Payload primary_seed = {count = g_salt, gain = g_tune, code = g_salt ^ 734287, bias = g_tune * 2.0};
+    Payload shadow_seed = {count = g_salt + 5, gain = g_tune + 1.0, code = g_salt ^ 192837, bias = g_tune * 5.0};
+    Packet primary = {head = primary_seed, tag = g_salt >> 3, tail = shadow_seed};
+    Packet shadow = {head = shadow_seed, tag = g_salt >> 5, tail = primary_seed};
+    Packet result = root_adjust(&primary, &shadow, 131, 2.5);
+    print_u64(&out, result.head.count);
+    print_u64(&out, f64bits(result.head.gain));
+    print_u64(&out, result.head.code);
+    print_u64(&out, f64bits(result.head.bias));
+    print_u64(&out, result.tag);
+    print_u64(&out, result.tail.count);
+    print_u64(&out, f64bits(result.tail.gain));
+    print_u64(&out, result.tail.code);
+    print_u64(&out, f64bits(result.tail.bias));
+    print_u64(&out, primary.tag);
+    print_u64(&out, shadow.tag);
+    return 0;
+}

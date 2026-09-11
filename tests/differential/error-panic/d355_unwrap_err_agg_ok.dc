@@ -1,0 +1,55 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Big {
+    u64 a;
+    f64 f;
+    u64 b;
+    u64 c;
+}
+
+Big mk(u64 x) {
+    Big b = {a = x, f = (x as f64) * 3.5, b = x + 1, c = x + 2};
+    return b;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    print_u64(&out, 0x5A5A);
+    Result(Big, u64) r = Result::Ok(mk(42));
+    u64 e = r.unwrap_err();
+    print_u64(&out, e);
+    return 0;
+}

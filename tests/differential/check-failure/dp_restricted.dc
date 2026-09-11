@@ -1,0 +1,13 @@
+// DCCFLAGS: -frestricted-check
+module main;
+
+using Percent = u8{0..100};
+
+i32 g_v = 200;
+
+public i32 main() {
+    Percent p = g_v as Percent;
+    u8 raw = p;
+    if raw == 0 { return 1; }
+    return 0;
+}

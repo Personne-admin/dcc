@@ -1,0 +1,109 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Frame {
+    u64 tag;
+    u64 total;
+    f64 weight;
+    f64 audit;
+}
+
+u64 g_seed = 1237;
+f64 g_tune = 1.625;
+
+u64 fold_window([] u64 window) {
+    u64 folded = 0;
+    usize i = 0;
+    while i < window.len {
+        folded = folded * 31 + window[i];
+        i = i + 1;
+    }
+
+    return folded;
+}
+
+u64 build_window(u64 seed) {
+    u64[4] lanes = {seed, seed + 1, seed + 2, seed + 3};
+
+    return fold_window(lanes[0..4]);
+}
+
+f64 shape_windows(u64 seed, f64 tune) {
+    u64 first = build_window(seed);
+    u64 second = build_window(seed + 11);
+    u64 masked = (first & 65535) + ((second & 65535) * 3);
+
+    return (masked as f64) * tune;
+}
+
+Frame assemble_frame(u64 seed, f64 tune) {
+    u64 total = build_window(seed) + build_window(seed + 101);
+    f64 weight = shape_windows(seed, tune);
+    f64 audit = shape_windows(seed + 1009, tune + 0.5);
+
+    Frame frame = {tag = seed ^ (total & 1048575), total = total, weight = weight, audit = audit};
+    return frame;
+}
+
+Frame route_frame(u64 seed, f64 tune) {
+    Frame first = assemble_frame(seed, tune);
+    Frame second = assemble_frame(seed + 211, tune * 1.25);
+    Frame frame = {
+        tag = first.tag + second.tag,
+        total = first.total ^ second.total,
+        weight = first.weight + second.audit,
+        audit = first.audit + second.weight
+    };
+
+    return frame;
+}
+
+Frame root_frame(u64 seed, f64 tune) {
+    Frame first = route_frame(seed, tune);
+    Frame second = route_frame(first.total & 4095, first.weight + 0.75);
+    Frame frame = {tag = first.tag ^ second.tag, total = first.total + second.total, weight = first.weight + second.weight, audit = first.audit + second.audit};
+
+    return frame;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Frame frame = root_frame(g_seed, g_tune);
+    print_u64(&out, frame.tag);
+    print_u64(&out, frame.total);
+    print_u64(&out, f64bits(frame.weight));
+    print_u64(&out, f64bits(frame.audit));
+    return 0;
+}

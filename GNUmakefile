@@ -159,6 +159,7 @@ help:
 	@echo "  libdcext       Build the extended library"
 	@echo "  test           Build and run the test suite"
 	@echo "  benchmark      Collect correctness-gated compiler benchmarks (BENCH_ARGS=...)"
+	@echo "  differential   Run cross-backend differential corpus (DIFF_ARGS=...)"
 	@echo "  test-benchmark Check benchmark correctness gating"
 	@echo "  test-linux     Run native Linux OS integration tests and ABI audit"
 	@echo "  test-win       Run Win64 OS integration tests under Wine and ABI audit"
@@ -182,6 +183,12 @@ benchmark: driver
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=llvm
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=em64t
 	$(Q)$(PYTHON) $(TOPLEVEL)/mk/benchmark.py $(BENCH_ARGS)
+
+.PHONY: differential
+differential: driver
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=llvm
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=em64t
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/differential/diffrun.py $(DIFF_ARGS) $(TOPLEVEL)/tests/differential
 
 .PHONY: test-benchmark
 test-benchmark:

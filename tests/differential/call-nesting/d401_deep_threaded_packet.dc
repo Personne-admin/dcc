@@ -1,0 +1,112 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Payload {
+    u64 count;
+    f64 gain;
+    u64 code;
+    f64 bias;
+}
+
+struct Packet {
+    Payload head;
+    u64 tag;
+    Payload tail;
+}
+
+u64 g_seed = 81985526977598975;
+f64 g_tune = 1.75;
+
+Payload leaf_transform(Payload input, u64 salt, f64 tune) {
+    Payload made = {
+        count = input.count + salt,
+        gain = input.gain * tune + (salt as f64),
+        code = input.code ^ (salt * 6148914691236517205),
+        bias = input.bias - tune
+    };
+
+    return made;
+}
+
+Packet combine_children(Packet packet, u64 salt, f64 tune) {
+    Payload left = leaf_transform(packet.head, salt, tune);
+    Payload right = leaf_transform(packet.tail, salt + 17, tune + 0.5);
+    Packet result = {head = left, tag = packet.tag + salt, tail = right};
+
+    return result;
+}
+
+Packet route_packet(Packet packet, u64 salt, f64 tune) {
+    Packet first = combine_children(packet, salt, tune);
+    Packet second = combine_children(first, salt + 257, tune * 1.25);
+    Payload merged_head = {
+        count = first.head.count + second.head.count,
+        gain = first.head.gain + second.tail.gain,
+        code = first.tail.code ^ second.head.code,
+        bias = first.tail.bias + second.tail.bias
+    };
+    Packet result = {head = merged_head, tag = first.tag + second.tag, tail = second.tail};
+
+    return result;
+}
+
+Packet root_packet(Packet packet, u64 salt, f64 tune) {
+    Packet first = route_packet(packet, salt, tune);
+    Packet second = route_packet(first, salt + 65521, tune - 0.125);
+    Packet result = {
+        head = second.head,
+        tag = first.tag ^ second.tag,
+        tail = {count = first.tail.count, gain = second.tail.gain, code = second.tail.code, bias = first.tail.bias}
+    };
+
+    return result;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Payload seed = {count = g_seed, gain = g_tune, code = g_seed ^ 424673462, bias = g_tune * 3.0};
+    Packet packet = {head = seed, tag = g_seed >> 7, tail = leaf_transform(seed, 97, 0.75)};
+    Packet result = root_packet(packet, 1009, 1.5);
+    print_u64(&out, result.head.count);
+    print_u64(&out, f64bits(result.head.gain));
+    print_u64(&out, result.head.code);
+    print_u64(&out, f64bits(result.head.bias));
+    print_u64(&out, result.tag);
+    print_u64(&out, result.tail.count);
+    print_u64(&out, f64bits(result.tail.gain));
+    print_u64(&out, result.tail.code);
+    print_u64(&out, f64bits(result.tail.bias));
+    return 0;
+}

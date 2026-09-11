@@ -1,0 +1,53 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+struct Vec4 {
+    u64[4] e;
+}
+
+Vec4 vmk(u64 a, u64 b, u64 c, u64 d) {
+    u64[4] arr = {a, b, c, d};
+    return {e = arr};
+}
+
+u64 vsum(Vec4 v) {
+    return v.e[0] + v.e[1] + v.e[2] + v.e[3];
+}
+
+Vec4 vrev(Vec4 v) {
+    u64[4] r = {v.e[3], v.e[2], v.e[1], v.e[0]};
+    return {e = r};
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Vec4 v = vmk(1, 2, 3, 4);
+    print_u64(&out, vsum(v));
+    Vec4 w = vrev(v);
+    print_u64(&out, vsum(w));
+    print_u64(&out, w.e[0]);
+    print_u64(&out, vsum(v));
+    return 0;
+}

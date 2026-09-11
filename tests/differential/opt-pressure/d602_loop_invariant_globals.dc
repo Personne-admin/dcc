@@ -1,0 +1,62 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+u64 g_base = 1009;
+u64 g_step = 37;
+f64 g_factor = 1.375;
+f64 g_offset = 2.5;
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    u64 total = 0;
+    f64 weighted = 0.0;
+    u64 preserved_base = g_base;
+    f64 preserved_factor = g_factor;
+
+    u64 i = 0;
+    while i < 20 {
+        u64 invariant = preserved_base * 7 + 13;
+        f64 scaled = preserved_factor * 2.0 + g_offset;
+        total = total + invariant + i * g_step;
+        weighted = weighted + scaled + (i as f64);
+        print_u64(&out, total);
+        print_u64(&out, f64bits(weighted));
+        i = i + 1;
+    }
+
+    print_u64(&out, g_base);
+    print_u64(&out, f64bits(g_factor));
+    return 0;
+}

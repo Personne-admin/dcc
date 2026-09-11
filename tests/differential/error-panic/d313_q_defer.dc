@@ -1,0 +1,65 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+import std::debug;
+
+u64 g_log = 0;
+
+void note(u64 x) {
+    g_log = g_log * 10 + x;
+}
+
+Result(u64, u64) inner(u64 x) {
+    if x == 0 {
+        return Result::Err(7);
+    }
+
+    return Result::Ok(x * 2);
+}
+
+Result(u64, u64) outer(u64 x) {
+    defer note(1);
+    u64 v = inner(x) ?;
+    defer note(2);
+    return Result::Ok(v + 3);
+}
+
+void report(std::os::file::File* out, Result(u64, u64) r) {
+    match r {
+        Result::Ok(v) => print_u64(out, v),
+        Result::Err(e) => print_u64(out, 0xF00D0000 + e),
+    }
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    g_log = 0;
+    report(&out, outer(4));
+    print_u64(&out, g_log);
+    g_log = 0;
+    report(&out, outer(0));
+    print_u64(&out, g_log);
+    return 0;
+}

@@ -1,0 +1,73 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+struct Rect {
+    u64 w;
+    u64 h;
+}
+
+enum Shape {
+    Circle(u64),
+    Rect(Rect),
+    Point,
+}
+
+struct Dims {
+    u64 w;
+    u64 h;
+}
+
+Dims dims_of(Shape s) {
+    return match s {
+        Shape::Circle(r) => {w = r * 2, h = r * 2},
+        Shape::Rect(Rect { w, h => height }) => {w = w, h = height},
+        Shape::Point => {w = 0, h = 0},
+    };
+}
+
+u64 area_code(i32 code) {
+    return match code {
+        1 | 2 => 100,
+        3 => 200,
+        4 | 5 | 6 => 300,
+        _ => 999,
+    } as u64;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Dims a = dims_of(Shape::Circle(7));
+    print_u64(&out, a.w);
+    print_u64(&out, a.h);
+    Dims b = dims_of(Shape::Rect({3, 9}));
+    print_u64(&out, b.w);
+    print_u64(&out, b.h);
+    Dims c = dims_of(Shape::Point);
+    print_u64(&out, c.w + c.h);
+    print_u64(&out, area_code(1));
+    print_u64(&out, area_code(5));
+    print_u64(&out, area_code(42));
+    return 0;
+}

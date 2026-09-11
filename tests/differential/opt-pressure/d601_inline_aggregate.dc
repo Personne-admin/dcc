@@ -1,0 +1,67 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Pair {
+    u64 first;
+    f64 second;
+}
+
+u64 g_seed = 101;
+f64 g_tune = 3.75;
+
+Pair make_pair(u64 first, f64 second) {
+    Pair pair = {first = first * 3 + 7, second = second * 1.25 + 0.5};
+    return pair;
+}
+
+Pair remix_pair(Pair pair) {
+    Pair next = {first = pair.first ^ 305419896, second = pair.second * 2.0 - 1.0};
+    return next;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Pair acc = make_pair(g_seed, g_tune);
+
+    u64 i = 0;
+    while i < 12 {
+        acc = remix_pair(make_pair(acc.first + i, acc.second + (i as f64)));
+        print_u64(&out, acc.first);
+        print_u64(&out, f64bits(acc.second));
+        i = i + 1;
+    }
+
+    return 0;
+}

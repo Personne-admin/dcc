@@ -1,0 +1,65 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+struct Inner {
+    u64 a;
+    u64 b;
+}
+
+struct Outer {
+    Inner head;
+    u64 tag;
+    Inner tail;
+}
+
+Outer build(u64 x, u64 y, u64 z) {
+    Inner h = {a = x, b = y};
+    Inner t = {a = y, b = z};
+
+    return {head = h, tag = x + z, tail = t};
+}
+
+u64 fold(Outer o) {
+    return o.head.a + o.head.b * 2 + o.tag * 3 + o.tail.a * 4 + o.tail.b * 5;
+}
+
+Outer swap_heads(Outer o) {
+    Inner h = o.tail;
+    Inner t = o.head;
+
+    return {head = h, tag = o.tag, tail = t};
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Outer o = build(1, 2, 3);
+    print_u64(&out, fold(o));
+    Outer s = swap_heads(o);
+    print_u64(&out, fold(s));
+    print_u64(&out, fold(o));
+    Outer z = build(0, 0, 0);
+    print_u64(&out, fold(z));
+    return 0;
+}

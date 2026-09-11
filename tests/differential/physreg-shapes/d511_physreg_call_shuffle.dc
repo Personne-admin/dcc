@@ -1,0 +1,93 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+struct Pair {
+    u64 first;
+    u64 second;
+}
+
+struct Triple {
+    u64 first;
+    f64 second;
+    u64 third;
+}
+
+u64 g_a = 11;
+u64 g_b = 23;
+u64 g_c = 37;
+u64 g_d = 51;
+f64 g_e = 1.5;
+f64 g_f = 2.5;
+
+@noinline u64 shift_one(u64 value) {
+    return value + 7;
+}
+
+@noinline u64 shift_two(u64 value) {
+    return value * 3 + 5;
+}
+
+@noinline Pair make_pair(u64 first, u64 second) {
+    Pair pair = {first = first + 1, second = second + 2};
+    return pair;
+}
+
+@noinline Triple make_triple(u64 first, f64 second, u64 third) {
+    Triple triple = {first = first + 3, second = second + 4.0, third = third + 5};
+    return triple;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    u64 a = g_a;
+    u64 b = g_b;
+    u64 c = g_c;
+    u64 d = g_d;
+    f64 e = g_e;
+    f64 f = g_f;
+    Pair pair = make_pair(a, b);
+    u64 shifted_c = shift_one(c);
+    u64 shifted_d = shift_two(d);
+    Triple triple = make_triple(shifted_c, e + f, shifted_d);
+    print_u64(&out, a + b + c + d);
+    print_u64(&out, pair.first);
+    print_u64(&out, pair.second);
+    print_u64(&out, shifted_c);
+    print_u64(&out, shifted_d);
+    print_u64(&out, triple.first);
+    print_u64(&out, f64bits(triple.second));
+    print_u64(&out, triple.third);
+    return 0;
+}
