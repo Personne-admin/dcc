@@ -26,7 +26,7 @@ entry:
   %"1" = load %0, ptr %"0", align 1
   br label %match.arm0.test3
 
-match.merge1:                                     ; preds = %match.guard0.pass9, %match.arm2.body8, %match.arm1.body6
+match.merge1:                                     ; preds = %match.arm2.body8, %match.arm1.body6, %match.guard0.pass9
   %"18" = phi i32 [ %"7", %match.guard0.pass9 ], [ 0, %match.arm1.body6 ], [ -1, %match.arm2.body8 ]
   ret i32 %"18"
 
