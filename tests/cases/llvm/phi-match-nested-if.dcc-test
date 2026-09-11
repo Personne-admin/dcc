@@ -18,7 +18,7 @@ define i32 @f(i32 %v) {
 entry:
   br label %match.arm0.test3
 
-match.merge1:                                     ; preds = %if.merge9, %match.arm1.body6
+match.merge1:                                     ; preds = %match.arm1.body6, %if.merge9
   %"2" = phi i32 [ %"1", %if.merge9 ], [ 99, %match.arm1.body6 ]
   ret i32 %"2"
 
