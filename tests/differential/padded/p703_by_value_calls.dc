@@ -1,0 +1,78 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+union F32Bits {
+    f32 f;
+    u32 u;
+}
+
+u64 f32bits(f32 x) {
+    F32Bits b = {f = x};
+    return b.u as u64;
+}
+
+struct Pad {
+    u8 a;
+    u8 b;
+    u64 c;
+}
+
+Pad shift_pad(Pad p, u64 salt) {
+    Pad q = {a = p.a + (salt as u8), b = p.b + ((salt >> 8) as u8), c = p.c + salt};
+    return q;
+}
+
+Pad route_pad(Pad p, u64 salt) {
+    Pad first = shift_pad(p, salt);
+    return shift_pad(first, salt + 1000);
+}
+
+u64 read_back(Pad* p) {
+    return p.a as u64 + (p.b as u64) * 256 + p.c;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Pad p = {a = 1, b = 2, c = 3};
+    Pad q = route_pad(p, 7);
+    print_u64(&out, q.a as u64);
+    print_u64(&out, q.b as u64);
+    print_u64(&out, q.c);
+    print_u64(&out, read_back(&q));
+    print_u64(&out, p.a as u64);
+    print_u64(&out, p.b as u64);
+    print_u64(&out, p.c);
+    return 0;
+}

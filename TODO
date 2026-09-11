@@ -13,3 +13,4 @@
 - [x] compiler hash drift resolved: historical build recompiled isel, current tree changes lower, and same-content lower rebuild reproduces its outputs exactly.
 - [x] Corrected differential record: earlier 48/48 and 59-program ALL-OK figures came from runs that discovered zero programs; the true figure then was 59 total, 58 ran, 1 diverged (dmatch2 on LLVM).
 - [x] Differential-runner invariant enforced: make differential fails loudly on an empty corpus and reports programs that build nowhere as BROKEN instead of folding them into OK.
+- [x] padded/mixed-width aggregate layouts covered by tests/differential/padded/ (u8/u16/u32/u64/f32/f64 mixes, enum payloads, by-value calls, containers, sizeof/alignof).

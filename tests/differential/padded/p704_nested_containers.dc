@@ -1,0 +1,93 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+union F32Bits {
+    f32 f;
+    u32 u;
+}
+
+u64 f32bits(f32 x) {
+    F32Bits b = {f = x};
+    return b.u as u64;
+}
+
+import std::map;
+import std::mem;
+
+struct Pad {
+    u8 a;
+    u8 b;
+    u64 c;
+}
+
+struct Wrap {
+    Pad inner;
+    u64 tag;
+    Pad tail;
+}
+
+public i32 main() {
+    u8[16384] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
+    std::mem::Allocator alloc = fb.allocator();
+    std::os::file::File out = std::os::file::stdout();
+    std::map::Map(u64, Pad) entries = std::map::new_map(alloc);
+
+    usize i = 1;
+    while i <= 24 {
+        Pad record = {a = i as u8, b = (i + 1) as u8, c = (i * 3) as u64};
+        if entries.put(i as u64, record).is_err() {
+            return 4;
+        }
+
+        i = i + 1;
+    }
+
+    Pad got = entries.get(7).unwrap_some();
+    print_u64(&out, got.a as u64);
+    print_u64(&out, got.b as u64);
+    print_u64(&out, got.c);
+
+    Pad[4] slots = {{a = 10, b = 20, c = 30}, {a = 11, b = 21, c = 31}, {a = 12, b = 22, c = 32}, {a = 13, b = 23, c = 33}};
+    Wrap w = {inner = slots[1], tag = 99, tail = slots[3]};
+    print_u64(&out, w.inner.a as u64);
+    print_u64(&out, w.inner.b as u64);
+    print_u64(&out, w.inner.c);
+    print_u64(&out, w.tag);
+    print_u64(&out, w.tail.a as u64);
+    print_u64(&out, w.tail.b as u64);
+    print_u64(&out, w.tail.c);
+    return 0;
+}
