@@ -1,0 +1,79 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+union F64Bits {
+    f64 f;
+    u64 u;
+}
+
+u64 f64bits(f64 x) {
+    F64Bits b = {f = x};
+    return b.u;
+}
+
+union F32Bits {
+    f32 f;
+    u32 u;
+}
+
+u64 f32bits(f32 x) {
+    F32Bits b = {f = x};
+    return b.u as u64;
+}
+
+struct Fa {
+    u8 tag;
+    f64 value;
+}
+
+struct Fb {
+    f32 first;
+    u8 tag;
+    f64 second;
+}
+
+struct Fc {
+    u8 a;
+    f32 b;
+    u8 c;
+    f64 d;
+}
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    Fa a = {tag = 1, value = 1.5};
+    print_u64(&out, a.tag as u64);
+    print_u64(&out, f64bits(a.value));
+    Fb b = {first = 2.5, tag = 3, second = 4.75};
+    print_u64(&out, f32bits(b.first));
+    print_u64(&out, b.tag as u64);
+    print_u64(&out, f64bits(b.second));
+    Fc c = {a = 5, b = 6.25, c = 7, d = 8.5};
+    print_u64(&out, c.a as u64);
+    print_u64(&out, f32bits(c.b));
+    print_u64(&out, c.c as u64);
+    print_u64(&out, f64bits(c.d));
+    return 0;
+}
