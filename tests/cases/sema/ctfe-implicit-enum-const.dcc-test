@@ -1,0 +1,75 @@
+=== FILE: main.dc ===
+module implicit_enum_const;
+
+enum FmtError : u8 {
+    OutOfSpace,
+    SinkFailed,
+    BadFormat,
+}
+
+enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+T default_of(T)() {
+    T zero;
+    return zero;
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+bool is_err(T, E)(const Result(T, E)* self) {
+    return !self.is_ok();
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(v) => v,
+        _ => default_of(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(e) => e,
+        _ => default_of(),
+    };
+}
+
+Result(usize, FmtError) implicit_bad(bool ok) {
+    if !ok { return FmtError::BadFormat; }
+    return Result::Ok(7 as usize);
+}
+
+Result(usize, FmtError) explicit_bad(bool ok) {
+    if !ok { return Result::Err(FmtError::BadFormat); }
+    return Result::Ok(7 as usize);
+}
+
+const Result(usize, FmtError) A = implicit_bad(false);
+const Result(usize, FmtError) B = implicit_bad(true);
+const Result(usize, FmtError) C = explicit_bad(false);
+const Result(usize, FmtError) D = explicit_bad(true);
+
+void verify() {
+    static if !A.is_err() || A.unwrap_err() != FmtError::BadFormat {
+        incorrect_implicit_err();
+    }
+    static if !B.is_ok() || B.unwrap() != 7 as usize {
+        incorrect_implicit_ok();
+    }
+    static if !C.is_err() || C.unwrap_err() != FmtError::BadFormat {
+        incorrect_explicit_err();
+    }
+    static if !D.is_ok() || D.unwrap() != 7 as usize {
+        incorrect_explicit_ok();
+    }
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

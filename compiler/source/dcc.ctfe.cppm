@@ -660,6 +660,23 @@ export namespace dcc::ctfe
 
         Result convert(ast::Expr const& expr, types::TypePtr target)
         {
+            if (expr.sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && expr.sema.constructed_variant && target &&
+                expr.kind != ast::ExprKind::Call)
+            {
+                auto const* enum_type = types::type_cast<types::EnumType>(target);
+                if (enum_type && enum_type->is_tagged && enum_type->tagged_layout)
+                {
+                    auto const* variant = expr.sema.constructed_variant;
+                    auto r = expression(expr);
+                    if (r.flow != Flow::Normal || !r.value)
+                        return r;
+                    std::vector<comptime::Value> elements;
+                    elements.push_back(comptime::Value::make_int(variant->discriminant, enum_type->tagged_layout->discriminant_type));
+                    if (!variant->payload.empty())
+                        elements.push_back(std::move(*r.value));
+                    return folded(comptime::Value::make_aggregate(std::move(elements), target));
+                }
+            }
             auto const* array = types::type_cast<types::ArrayType>(type_of(expr));
             bool to_slice = types::type_cast<types::SliceType>(target) != nullptr;
             bool to_pointer = types::type_cast<types::PointerType>(target) != nullptr;
