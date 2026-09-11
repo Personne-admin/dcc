@@ -2485,6 +2485,10 @@ namespace dcc::backend::em64t
                     IrType const* cur_type = nullptr;
                     if (g->base && g->base->type && g->base->type->kind == IrTypeKind::Pointer)
                         cur_type = static_cast<IrPointerType const*>(g->base->type)->pointee;
+                    else if (g->base && g->base->type && g->base->type->kind == IrTypeKind::Aggregate)
+                        cur_type = g->base->type;
+                    else if (g->base && g->base->type && g->base->type->kind == IrTypeKind::Array)
+                        cur_type = g->base->type;
 
                     std::int64_t static_offset = 0;
 
