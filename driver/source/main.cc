@@ -193,6 +193,18 @@ namespace
                 std::exit(0);
             }
 
+            if (arg == "--version")
+            {
+#ifndef DCC_VERSION
+#define DCC_VERSION "unknown"
+#endif
+#ifndef DCC_GIT_HASH
+#define DCC_GIT_HASH "unknown"
+#endif
+                std::println("dcc {} ({})", DCC_VERSION, DCC_GIT_HASH);
+                std::exit(0);
+            }
+
             if (arg == "-fdump-ast")
             {
                 opts.dump_ast = true;
@@ -607,6 +619,7 @@ namespace
                        {"-farch <cpu>", "target CPU baseline (pentium, i686, generic, native, ...)"},
                        {"-target <triple>", "target triple: x86_64-elf, x86-elf, x86_64-coff, x86-coff"},
                        {"-h, --help", "show this help"},
+                       {"--version", "print compiler version"},
                        {"-fomit-frame-pointer | -fno-omit-frame-pointer", "toggle frame pointer omission"}};
 
         int const term_width = get_terminal_width();

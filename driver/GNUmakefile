@@ -1,6 +1,8 @@
 include $(RULES_MK)
 
-LOCAL_CXXFLAGS := -I$(TOPLEVEL)/compiler/source $(LLVM_DEFS) $(LLVM_CXXFLAGS)
+DCC_VERSION ?= 0.3.0
+DCC_GIT_HASH ?= $(shell git -C $(TOPLEVEL) rev-parse --short HEAD 2>/dev/null || echo unknown)
+LOCAL_CXXFLAGS := -I$(TOPLEVEL)/compiler/source $(LLVM_DEFS) $(LLVM_CXXFLAGS) -DDCC_VERSION="$(DCC_VERSION)" -DDCC_GIT_HASH="$(DCC_GIT_HASH)"
 DRIVER_LDFLAGS := $(LLVM_LDFLAGS)
 
 .PHONY: all install clean
