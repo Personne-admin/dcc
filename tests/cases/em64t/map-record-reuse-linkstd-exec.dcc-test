@@ -1,0 +1,75 @@
+=== FILE: test.dc ===
+module test;
+
+import std::map;
+import std::mem;
+import std::result;
+
+struct Record { u64 key; f64 weight; u64 flags; f64 score; }
+
+Record make_record(u64 key) {
+    Record record = {
+        key = key,
+        weight = (key as f64) * 1.75 + 0.5,
+        flags = key ^ 3735928559,
+        score = (key as f64) * -0.375 + 4.0
+    };
+    return record;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[16384] backing;
+    std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..16384]);
+    std::mem::Allocator alloc = fb.allocator();
+    std::map::Map(u64, Record) entries = std::map::new_map(alloc);
+    usize i = 1;
+    while i <= 48 {
+        Record record = make_record((i * 7 + 3) as u64);
+        if entries.put(record.key, record).is_err() {
+            return 4;
+        }
+        i = i + 1;
+    }
+    Record replacement = { key = 52, weight = 101.5, flags = 3735928504, score = -13.5 };
+    if entries.put(52, replacement).is_err() {
+        return 5;
+    }
+    Record* slot = entries.get_ptr(59).unwrap_some();
+    (*slot).weight = (*slot).weight * 3.0;
+    (*slot).score = (*slot).score - 1.5;
+    if entries.remove(66).is_none() {
+        return 6;
+    }
+    std::map::Iterator(u64, Record) cursor = entries.iterate();
+    u64 iterated = 0;
+    u64 key_total = 0;
+    while true {
+        std::result::Optional(std::map::Entry(u64, Record)) entry = cursor.next();
+        if entry.is_none() {
+            break;
+        }
+        std::map::Entry(u64, Record) current = entry.unwrap_some();
+        iterated = iterated + 1;
+        key_total = key_total + *current.key;
+    }
+    if iterated != 47 {
+        return 7;
+    }
+    if key_total != 8310 {
+        return 8;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
