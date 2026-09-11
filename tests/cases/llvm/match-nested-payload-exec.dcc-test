@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+struct Rect { u64 w; u64 h; }
+struct Dims { u64 w; u64 h; }
+enum Shape { Rect(Rect), Point, }
+
+Dims dims_of(Shape s) {
+    return match s {
+        Shape::Rect(Rect { w => rw, h => rh }) => {w = rw, h = rh},
+        Shape::Point => {w = 0, h = 0},
+    };
+}
+
+@nomangle
+public void _start() {
+    Dims d = dims_of(Shape::Rect({3, 9}));
+    if d.w == 3 {
+    }
+    while (true) { }
+}
+
+=== EXPECT-EXECUTABLE-VALID ===

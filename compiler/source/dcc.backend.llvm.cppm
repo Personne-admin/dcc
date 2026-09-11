@@ -2215,9 +2215,80 @@ namespace dcc::backend
                 auto* builder = LLVMCreateBuilderInContext(ctx);
                 LlvmBuilderGuard bld_guard{builder};
 
+                std::vector<IrBasicBlock*> emit_order;
+                {
+                    std::unordered_map<IrBasicBlock const*, std::size_t> position;
+                    for (std::size_t i = 0; i < func->blocks.size(); ++i)
+                        if (func->blocks[i])
+                            position[func->blocks[i]] = i;
+                    auto block_successors = [&](IrBasicBlock* bb) {
+                        std::vector<IrBasicBlock*> successors;
+                        if (bb && bb->terminator)
+                        {
+                            switch (bb->terminator->kind)
+                            {
+                                case IrNodeKind::Br:
+                                    successors.push_back(static_cast<IrBrInst*>(bb->terminator)->target);
+                                    break;
+                                case IrNodeKind::BrCond: {
+                                    auto* branch = static_cast<IrBrCondInst*>(bb->terminator);
+                                    successors.push_back(branch->true_target);
+                                    successors.push_back(branch->false_target);
+                                    break;
+                                }
+                                case IrNodeKind::Switch: {
+                                    auto* sw = static_cast<IrSwitchInst*>(bb->terminator);
+                                    successors.push_back(sw->default_target);
+                                    for (auto& c : sw->cases)
+                                        successors.push_back(c.target);
+                                    break;
+                                }
+                                default:
+                                    break;
+                            }
+                        }
+                        auto rank = [&](IrBasicBlock* b) {
+                            auto it = position.find(b);
+                            return it != position.end() ? it->second : std::numeric_limits<std::size_t>::max();
+                        };
+                        std::ranges::sort(successors, [&](IrBasicBlock* a, IrBasicBlock* b) { return rank(a) > rank(b); });
+                        return successors;
+                    };
+                    std::unordered_set<IrBasicBlock const*> visited;
+                    std::vector<std::pair<IrBasicBlock*, std::size_t>> stack;
+                    std::vector<IrBasicBlock*> finished;
+                    if (func->entry_block && position.contains(func->entry_block))
+                    {
+                        visited.insert(func->entry_block);
+                        stack.emplace_back(func->entry_block, 0);
+                    }
+                    while (!stack.empty())
+                    {
+                        auto& [current, next] = stack.back();
+                        auto successors = block_successors(current);
+                        if (next < successors.size())
+                        {
+                            auto* follower = successors[next++];
+                            if (follower && visited.insert(follower).second)
+                                stack.emplace_back(follower, 0);
+                        }
+                        else
+                        {
+                            finished.push_back(current);
+                            stack.pop_back();
+                        }
+                    }
+                    std::ranges::reverse(finished);
+                    std::unordered_set<IrBasicBlock const*> seen(finished.begin(), finished.end());
+                    emit_order.assign(finished.begin(), finished.end());
+                    for (auto* bb : func->blocks)
+                        if (bb && !seen.contains(bb))
+                            emit_order.push_back(bb);
+                }
+
                 std::uint32_t instruction_index = 0;
 
-                for (auto* bb : func->blocks)
+                for (auto* bb : emit_order)
                 {
                     if (!bb)
                         continue;
@@ -2593,6 +2664,44 @@ namespace dcc::backend
                         auto* base_ptr = lookup(g->base);
                         if (!base_ptr)
                             return false;
+
+                        if (g->base && g->base->type && g->base->type->kind == IrTypeKind::Aggregate)
+                        {
+                            auto* base_agg = static_cast<IrAggregateType const*>(g->base->type);
+                            if (g->indices.size() != 1 || g->indices[0].kind != IrGepInst::IndexKind::Field)
+                                return false;
+                            auto const field = g->indices[0].field_index;
+                            if (field >= base_agg->members.size() || field >= base_agg->member_offsets.size())
+                                return false;
+                            auto* slot_ty = llvm_type_cached(tc, g->base->type);
+                            if (!slot_ty)
+                                return false;
+                            if (LLVMGetTypeKind(LLVMTypeOf(base_ptr)) != LLVMPointerTypeKind)
+                            {
+                                auto* slot = LLVMBuildAlloca(builder, slot_ty, "");
+                                LLVMBuildStore(builder, base_ptr, slot);
+                                base_ptr = slot;
+                            }
+                            LLVMValueRef field_ptr = nullptr;
+                            if (tc.uses_byte_storage(g->base->type))
+                            {
+                                auto const offset = base_agg->member_offsets[field];
+                                field_ptr = base_ptr;
+                                if (offset != 0)
+                                {
+                                    LLVMValueRef offset_value = LLVMConstInt(LLVMInt64TypeInContext(ctx), offset, false);
+                                    field_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), base_ptr, &offset_value, 1, "");
+                                }
+                            }
+                            else
+                            {
+                                auto const llvm_idx = tc.get_llvm_field_index(base_agg, field);
+                                field_ptr = LLVMBuildStructGEP2(builder, slot_ty, base_ptr, llvm_idx, "");
+                            }
+                            set_name(field_ptr);
+                            val_map[inst] = field_ptr;
+                            break;
+                        }
 
                         IrType const* source_elem = nullptr;
                         if (g->base && g->base->type && g->base->type->kind == IrTypeKind::Pointer)
