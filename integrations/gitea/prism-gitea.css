@@ -1,0 +1,357 @@
+code.language-dc,
+code.language-dcc,
+pre.language-dc,
+pre.language-dcc,
+span.code-inner.language-dc,
+span.code-inner.language-dcc {
+  color: #383a42;
+}
+
+code.language-dc .token.comment,
+code.language-dcc .token.comment,
+pre.language-dc .token.comment,
+pre.language-dcc .token.comment {
+  color: #a0a1a7;
+  font-style: italic;
+}
+
+code.language-dc .token.keyword,
+code.language-dcc .token.keyword,
+pre.language-dc .token.keyword,
+pre.language-dcc .token.keyword {
+  color: #a626a8;
+  font-weight: 700;
+}
+
+code.language-dc .token.string,
+code.language-dcc .token.string,
+code.language-dc .token.char,
+code.language-dcc .token.char,
+pre.language-dc .token.string,
+pre.language-dcc .token.string,
+pre.language-dc .token.char,
+pre.language-dcc .token.char {
+  color: #50a14f;
+}
+
+code.language-dc .token.escape,
+code.language-dcc .token.escape,
+pre.language-dc .token.escape,
+pre.language-dcc .token.escape {
+  color: #0184bc;
+}
+
+code.language-dc .token.number,
+code.language-dcc .token.number,
+code.language-dc .token.boolean,
+code.language-dcc .token.boolean,
+pre.language-dc .token.number,
+pre.language-dcc .token.number,
+pre.language-dc .token.boolean,
+pre.language-dcc .token.boolean {
+  color: #986801;
+}
+
+code.language-dc .token.function,
+code.language-dcc .token.function,
+pre.language-dc .token.function,
+pre.language-dcc .token.function {
+  color: #4078f2;
+}
+
+code.language-dc .token.builtin,
+code.language-dcc .token.builtin,
+code.language-dc .token.class-name,
+code.language-dcc .token.class-name,
+pre.language-dc .token.builtin,
+pre.language-dcc .token.builtin,
+pre.language-dc .token.class-name,
+pre.language-dcc .token.class-name {
+  color: #c18401;
+}
+
+code.language-dc .token.annotation,
+code.language-dcc .token.annotation,
+pre.language-dc .token.annotation,
+pre.language-dcc .token.annotation {
+  color: #986801;
+  font-style: italic;
+}
+
+code.language-dc .token.operator,
+code.language-dcc .token.operator,
+code.language-dc .token.punctuation,
+code.language-dcc .token.punctuation,
+pre.language-dc .token.operator,
+pre.language-dcc .token.operator,
+pre.language-dc .token.punctuation,
+pre.language-dcc .token.punctuation {
+  color: #383a42;
+}
+
+code.language-dc .token.prefix,
+code.language-dcc .token.prefix,
+pre.language-dc .token.prefix,
+pre.language-dcc .token.prefix {
+  color: #0184bc;
+}
+
+td.lines-code span.code-inner.language-dc,
+td.lines-code span.code-inner.language-dcc {
+  background: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+
+  code.language-dc,
+  code.language-dcc,
+  pre.language-dc,
+  pre.language-dcc,
+  span.code-inner.language-dc,
+  span.code-inner.language-dcc {
+    color: #abb2bf;
+  }
+
+  code.language-dc .token.comment,
+  code.language-dcc .token.comment,
+  pre.language-dc .token.comment,
+  pre.language-dcc .token.comment {
+    color: #7f848e;
+  }
+
+  code.language-dc .token.keyword,
+  code.language-dcc .token.keyword,
+  pre.language-dc .token.keyword,
+  pre.language-dcc .token.keyword {
+    color: #c678dd;
+  }
+
+  code.language-dc .token.string,
+  code.language-dcc .token.string,
+  code.language-dc .token.char,
+  code.language-dcc .token.char,
+  pre.language-dc .token.string,
+  pre.language-dcc .token.string,
+  pre.language-dc .token.char,
+  pre.language-dcc .token.char {
+    color: #98c379;
+  }
+
+  code.language-dc .token.escape,
+  code.language-dcc .token.escape,
+  pre.language-dc .token.escape,
+  pre.language-dcc .token.escape {
+    color: #56b6c2;
+  }
+
+  code.language-dc .token.number,
+  code.language-dcc .token.number,
+  code.language-dc .token.boolean,
+  code.language-dcc .token.boolean,
+  pre.language-dc .token.number,
+  pre.language-dcc .token.number,
+  pre.language-dc .token.boolean,
+  pre.language-dcc .token.boolean {
+    color: #d19a66;
+  }
+
+  code.language-dc .token.function,
+  code.language-dcc .token.function,
+  pre.language-dc .token.function,
+  pre.language-dcc .token.function {
+    color: #61afef;
+  }
+
+  code.language-dc .token.builtin,
+  code.language-dcc .token.builtin,
+  code.language-dc .token.class-name,
+  code.language-dcc .token.class-name,
+  pre.language-dc .token.builtin,
+  pre.language-dcc .token.builtin,
+  pre.language-dc .token.class-name,
+  pre.language-dcc .token.class-name {
+    color: #e5c07b;
+  }
+
+  code.language-dc .token.annotation,
+  code.language-dcc .token.annotation,
+  pre.language-dc .token.annotation,
+  pre.language-dcc .token.annotation {
+    color: #d19a66;
+  }
+
+  code.language-dc .token.operator,
+  code.language-dcc .token.operator,
+  code.language-dc .token.punctuation,
+  code.language-dcc .token.punctuation,
+  pre.language-dc .token.operator,
+  pre.language-dcc .token.operator,
+  pre.language-dc .token.punctuation,
+  pre.language-dcc .token.punctuation {
+    color: #abb2bf;
+  }
+
+  code.language-dc .token.prefix,
+  code.language-dcc .token.prefix,
+  pre.language-dc .token.prefix,
+  pre.language-dcc .token.prefix {
+    color: #56b6c2;
+  }
+}
+
+html[data-theme*="dark"] code.language-dc,
+html[data-theme*="dark"] code.language-dcc,
+html[data-theme*="dark"] pre.language-dc,
+html[data-theme*="dark"] pre.language-dcc,
+html[data-theme="arc-green"] code.language-dc,
+html[data-theme="arc-green"] code.language-dcc,
+html[data-theme="arc-green"] pre.language-dc,
+html[data-theme="arc-green"] pre.language-dcc,
+html.dark-theme code.language-dc,
+html.dark-theme code.language-dcc,
+body.dark code.language-dc,
+body.dark code.language-dcc {
+  color: #abb2bf;
+}
+
+html[data-theme*="dark"] code.language-dc .token.comment,
+html[data-theme*="dark"] code.language-dcc .token.comment,
+html[data-theme*="dark"] pre.language-dc .token.comment,
+html[data-theme*="dark"] pre.language-dcc .token.comment,
+html[data-theme="arc-green"] code.language-dc .token.comment,
+html[data-theme="arc-green"] code.language-dcc .token.comment,
+html.dark-theme code.language-dc .token.comment,
+html.dark-theme code.language-dcc .token.comment,
+body.dark code.language-dc .token.comment,
+body.dark code.language-dcc .token.comment {
+  color: #7f848e;
+  font-style: italic;
+}
+
+html[data-theme*="dark"] code.language-dc .token.keyword,
+html[data-theme*="dark"] code.language-dcc .token.keyword,
+html[data-theme*="dark"] pre.language-dc .token.keyword,
+html[data-theme*="dark"] pre.language-dcc .token.keyword,
+html[data-theme="arc-green"] code.language-dc .token.keyword,
+html[data-theme="arc-green"] code.language-dcc .token.keyword,
+html.dark-theme code.language-dc .token.keyword,
+html.dark-theme code.language-dcc .token.keyword,
+body.dark code.language-dc .token.keyword,
+body.dark code.language-dcc .token.keyword {
+  color: #c678dd;
+  font-weight: 700;
+}
+
+html[data-theme*="dark"] code.language-dc .token.string,
+html[data-theme*="dark"] code.language-dcc .token.string,
+html[data-theme*="dark"] code.language-dc .token.char,
+html[data-theme*="dark"] code.language-dcc .token.char,
+html[data-theme*="dark"] pre.language-dc .token.string,
+html[data-theme*="dark"] pre.language-dc .token.char,
+html[data-theme="arc-green"] code.language-dc .token.string,
+html[data-theme="arc-green"] code.language-dcc .token.string,
+html[data-theme="arc-green"] code.language-dc .token.char,
+html[data-theme="arc-green"] code.language-dcc .token.char,
+html.dark-theme code.language-dc .token.string,
+html.dark-theme code.language-dc .token.char,
+html.dark-theme code.language-dcc .token.string,
+html.dark-theme code.language-dcc .token.char,
+body.dark code.language-dc .token.string,
+body.dark code.language-dc .token.char {
+  color: #98c379;
+}
+
+html[data-theme*="dark"] code.language-dc .token.escape,
+html[data-theme*="dark"] code.language-dcc .token.escape,
+html[data-theme*="dark"] pre.language-dc .token.escape,
+html[data-theme*="dark"] pre.language-dcc .token.escape,
+html[data-theme="arc-green"] code.language-dc .token.escape,
+html[data-theme="arc-green"] code.language-dcc .token.escape,
+html.dark-theme code.language-dc .token.escape,
+html.dark-theme code.language-dcc .token.escape,
+body.dark code.language-dc .token.escape,
+body.dark code.language-dcc .token.escape {
+  color: #56b6c2;
+}
+
+html[data-theme*="dark"] code.language-dc .token.number,
+html[data-theme*="dark"] code.language-dcc .token.number,
+html[data-theme*="dark"] code.language-dc .token.boolean,
+html[data-theme*="dark"] code.language-dcc .token.boolean,
+html[data-theme*="dark"] pre.language-dc .token.number,
+html[data-theme*="dark"] pre.language-dc .token.boolean,
+html[data-theme="arc-green"] code.language-dc .token.number,
+html[data-theme="arc-green"] code.language-dcc .token.number,
+html[data-theme="arc-green"] code.language-dc .token.boolean,
+html[data-theme="arc-green"] code.language-dcc .token.boolean,
+html.dark-theme code.language-dc .token.number,
+html.dark-theme code.language-dcc .token.number,
+html.dark-theme code.language-dc .token.boolean,
+html.dark-theme code.language-dcc .token.boolean,
+body.dark code.language-dc .token.number,
+body.dark code.language-dc .token.boolean {
+  color: #d19a66;
+}
+
+html[data-theme*="dark"] code.language-dc .token.function,
+html[data-theme*="dark"] code.language-dcc .token.function,
+html[data-theme*="dark"] pre.language-dc .token.function,
+html[data-theme*="dark"] pre.language-dcc .token.function,
+html[data-theme="arc-green"] code.language-dc .token.function,
+html[data-theme="arc-green"] code.language-dcc .token.function,
+html.dark-theme code.language-dc .token.function,
+html.dark-theme code.language-dcc .token.function,
+body.dark code.language-dc .token.function,
+body.dark code.language-dcc .token.function {
+  color: #61afef;
+}
+
+html[data-theme*="dark"] code.language-dc .token.builtin,
+html[data-theme*="dark"] code.language-dcc .token.builtin,
+html[data-theme*="dark"] code.language-dc .token.class-name,
+html[data-theme*="dark"] code.language-dcc .token.class-name,
+html[data-theme*="dark"] pre.language-dc .token.builtin,
+html[data-theme*="dark"] pre.language-dc .token.class-name,
+html[data-theme="arc-green"] code.language-dc .token.builtin,
+html[data-theme="arc-green"] code.language-dcc .token.builtin,
+html[data-theme="arc-green"] code.language-dc .token.class-name,
+html[data-theme="arc-green"] code.language-dcc .token.class-name,
+html.dark-theme code.language-dc .token.builtin,
+html.dark-theme code.language-dcc .token.builtin,
+html.dark-theme code.language-dc .token.class-name,
+html.dark-theme code.language-dcc .token.class-name,
+body.dark code.language-dc .token.builtin,
+body.dark code.language-dc .token.class-name {
+  color: #e5c07b;
+}
+
+html[data-theme*="dark"] code.language-dc .token.annotation,
+html[data-theme*="dark"] code.language-dcc .token.annotation,
+html[data-theme*="dark"] pre.language-dc .token.annotation,
+html[data-theme*="dark"] pre.language-dcc .token.annotation,
+html[data-theme="arc-green"] code.language-dc .token.annotation,
+html[data-theme="arc-green"] code.language-dcc .token.annotation,
+html.dark-theme code.language-dc .token.annotation,
+html.dark-theme code.language-dcc .token.annotation,
+body.dark code.language-dc .token.annotation,
+body.dark code.language-dcc .token.annotation {
+  color: #d19a66;
+  font-style: italic;
+}
+
+html[data-theme*="dark"] code.language-dc .token.operator,
+html[data-theme*="dark"] code.language-dcc .token.operator,
+html[data-theme*="dark"] code.language-dc .token.punctuation,
+html[data-theme*="dark"] code.language-dcc .token.punctuation,
+html[data-theme*="dark"] code.language-dc .token.prefix,
+html[data-theme*="dark"] code.language-dcc .token.prefix,
+html[data-theme*="dark"] pre.language-dc .token.operator,
+html[data-theme*="dark"] pre.language-dc .token.punctuation,
+html[data-theme="arc-green"] code.language-dc .token.operator,
+html[data-theme="arc-green"] code.language-dcc .token.operator,
+html.dark-theme code.language-dc .token.operator,
+html.dark-theme code.language-dcc .token.operator,
+body.dark code.language-dc .token.operator,
+body.dark code.language-dc .token.punctuation {
+  color: #abb2bf;
+}
