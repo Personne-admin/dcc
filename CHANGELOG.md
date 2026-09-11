@@ -3,7 +3,7 @@
 All notable changes to dcc are documented here. The format follows
 Keep a Changelog 1.1.0.
 
-## [Unreleased] - planned as v0.3.0
+## [0.3.0] - 2026-09-11
 
 ### Fixed - em64t backend correctness sweep
 
