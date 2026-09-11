@@ -1852,6 +1852,27 @@ export namespace dcc::ir::lower
             if (!value_type || value_type->kind != IrTypeKind::Int)
                 return;
 
+            auto const* underlying = rt.underlying;
+            auto* underlying_ir = m_ctx.int_t(underlying->bits, underlying->is_signed);
+            if (value_type != underlying_ir)
+            {
+                auto const* src_int = static_cast<IrIntType const*>(value_type);
+                IrValue* converted = nullptr;
+                if (src_int->bits > underlying->bits)
+                    converted = m_ctx.trunc(underlying_ir, value);
+                else if (src_int->bits < underlying->bits)
+                    converted = src_int->is_signed ? static_cast<IrValue*>(m_ctx.sext(underlying_ir, value))
+                                                   : static_cast<IrValue*>(m_ctx.zext(underlying_ir, value));
+                else
+                    converted = m_ctx.bitcast(underlying_ir, value);
+
+                auto name = ident_name();
+                converted->name = m_name_pool.back();
+                append_inst(converted);
+                value = converted;
+                value_type = value->type;
+            }
+
             auto const* int_ty = static_cast<IrIntType const*>(value_type);
 
             IrValue* ord = value;
