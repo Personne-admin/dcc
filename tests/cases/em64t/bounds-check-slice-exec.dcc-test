@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+i32 g_idx = 40;
+
+@nomangle
+public i32 dcc_main() {
+    u8[16] raw;
+    for usize i = 0; i < 16; i++ {
+        raw[i] = i as u8;
+    }
+
+    [] u8 s = raw[0..16];
+    u8 v = s[g_idx as usize];
+    if v == 0 {
+        return 1;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -fbounds-check -no-section-check ===
+RUN-EXIT: 132
