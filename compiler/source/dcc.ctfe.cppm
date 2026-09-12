@@ -971,8 +971,12 @@ export namespace dcc::ctfe
             if (types::type_cast<types::SliceType>(type_of(*expr.object)))
             {
                 auto object = expression(*expr.object);
-                if (object.flow != Flow::Normal || !object.value || object.value->kind() != Kind::Slice)
+                if (object.flow != Flow::Normal || !object.value)
                     return object;
+                if (object.value->kind() == Kind::Unknown)
+                    return folded(comptime::Value::make_unknown(type_of(expr)));
+                if (object.value->kind() != Kind::Slice)
+                    return failure("slice field has no compile-time value");
                 if (expr.field == "len")
                     return folded(comptime::Value::make_int(static_cast<std::int64_t>(object.value->slice_length()), type_of(expr)));
                 if (expr.field == "ptr" && object.value->slice_is_ref())
