@@ -1,0 +1,106 @@
+=== FILE: test.dc ===
+module test;
+
+enum FmtError : u8 {
+    OutOfSpace,
+    SinkFailed,
+    BadFormat,
+}
+
+enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+T default_of(T)() {
+    T zero;
+    return zero;
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+bool is_err(T, E)(const Result(T, E)* self) {
+    return !self.is_ok();
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(v) => v,
+        _ => default_of(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(e) => e,
+        _ => default_of(),
+    };
+}
+
+struct Wrap {
+    i32 n;
+}
+
+i32 get(const Wrap* self) {
+    return self.n;
+}
+
+Wrap make_wrap(i32 n) {
+    Wrap w;
+    w.n = n;
+    return w;
+}
+
+Result(Wrap, FmtError) get_wrap(bool ok) {
+    if !ok { return Result::Err(FmtError::BadFormat); }
+    return Result::Ok(make_wrap(11));
+}
+
+Result(i32, FmtError) ufcs_direct() {
+    Wrap w;
+    w.n = 8;
+    return Result::Ok(w.get());
+}
+
+Result(i32, FmtError) ufcs_rvalue() {
+    return Result::Ok(make_wrap(42).get());
+}
+
+Result(i32, FmtError) ufcs_guarded(bool ok) {
+    Wrap w = get_wrap(ok)?;
+    return Result::Ok(w.get());
+}
+
+const Result(i32, FmtError) U_DIRECT = ufcs_direct();
+const Result(i32, FmtError) U_RV = ufcs_rvalue();
+const Result(i32, FmtError) U_OK = ufcs_guarded(true);
+const Result(i32, FmtError) U_ERR = ufcs_guarded(false);
+
+@nomangle
+public i32 dcc_main() {
+    if !U_DIRECT.is_ok() { return 1; }
+    if U_DIRECT.unwrap() != 8 { return 2; }
+    if !U_RV.is_ok() { return 3; }
+    if U_RV.unwrap() != 42 { return 4; }
+    if !U_OK.is_ok() { return 5; }
+    if U_OK.unwrap() != 11 { return 6; }
+    if !U_ERR.is_err() { return 7; }
+    if U_ERR.unwrap_err() != FmtError::BadFormat { return 8; }
+    Result(i32, FmtError) r = ufcs_guarded(true);
+    if !r.is_ok() || r.unwrap() != 11 { return 9; }
+    if make_wrap(1).get() != 1 { return 10; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===
