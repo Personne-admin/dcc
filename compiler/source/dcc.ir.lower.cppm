@@ -80,6 +80,7 @@ export namespace dcc::ir::lower
             std::string last_reason;
             std::map<std::string, std::uint64_t> fallback_reasons;
             std::map<std::string, std::uint64_t> succeeded_callees;
+            std::map<std::string, std::uint64_t> attempted_callees;
         };
 
         SpecializeStats const& specialize_stats() const { return m_specialize_stats; }
@@ -3107,6 +3108,7 @@ export namespace dcc::ir::lower
             if (!saw_const)
                 return std::nullopt;
             ++m_specialize_stats.attempts;
+            ++m_specialize_stats.attempted_callees[specialize_callee_key(direct_target)];
             std::unordered_set<ast::FuncDecl const*> in_progress;
             dcc::ctfe::Context context;
             context.types = m_type_ctx;
@@ -3214,6 +3216,8 @@ export namespace dcc::ir::lower
                 std::println(std::cerr, "DCC_BENCH partial_reason {} {}", count, reason);
             for (auto const& [callee, count] : stats.succeeded_callees)
                 std::println(std::cerr, "DCC_BENCH partial_callee {} {}", count, callee);
+            for (auto const& [callee, count] : stats.attempted_callees)
+                std::println(std::cerr, "DCC_BENCH partial_attempt {} {}", count, callee);
         }
 
         IrValue* lower_residual(std::size_t index)
