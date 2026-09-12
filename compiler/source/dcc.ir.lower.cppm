@@ -51,6 +51,9 @@ export namespace dcc::ir::lower
             build_all_function_shells(mod);
             lower_all_function_bodies();
 
+            if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
+                emit_specialize_stats();
+
             return m_module;
         }
 
@@ -75,6 +78,8 @@ export namespace dcc::ir::lower
             std::uint64_t succeeded{};
             std::uint64_t fallbacks{};
             std::string last_reason;
+            std::map<std::string, std::uint64_t> fallback_reasons;
+            std::map<std::string, std::uint64_t> succeeded_callees;
         };
 
         SpecializeStats const& specialize_stats() const { return m_specialize_stats; }
@@ -3042,6 +3047,7 @@ export namespace dcc::ir::lower
         {
             auto fallback = [&](std::string reason) -> std::optional<IrValue*> {
                 ++m_specialize_stats.fallbacks;
+                ++m_specialize_stats.fallback_reasons[reason];
                 m_specialize_stats.last_reason = std::move(reason);
                 return std::nullopt;
             };
@@ -3184,7 +3190,30 @@ export namespace dcc::ir::lower
             }
             m_residual_trace = nullptr;
             ++m_specialize_stats.succeeded;
+            ++m_specialize_stats.succeeded_callees[specialize_callee_key(direct_target)];
             return out;
+        }
+
+        std::string specialize_callee_key(ast::FuncDecl const* fn) const
+        {
+            std::string name{fn ? fn->name : std::string_view{}};
+            std::string file{"?"};
+            if (fn && fn->range.valid() && m_source_manager)
+            {
+                if (auto const* source = m_source_manager->get(fn->range.begin.fileId))
+                    file = source->path().string();
+            }
+            return name + " @ " + file;
+        }
+
+        void emit_specialize_stats() const
+        {
+            auto const& stats = m_specialize_stats;
+            std::println(std::cerr, "DCC_BENCH partial {} {} {}", stats.attempts, stats.succeeded, stats.fallbacks);
+            for (auto const& [reason, count] : stats.fallback_reasons)
+                std::println(std::cerr, "DCC_BENCH partial_reason {} {}", count, reason);
+            for (auto const& [callee, count] : stats.succeeded_callees)
+                std::println(std::cerr, "DCC_BENCH partial_callee {} {}", count, callee);
         }
 
         IrValue* lower_residual(std::size_t index)
