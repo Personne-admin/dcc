@@ -1782,6 +1782,8 @@ export namespace dcc::ctfe
             m_frames.push_back(Frame{Call{m_context.function, m_context.call_site}, {}, {}});
 
             auto r = expression(expr);
+            if (r.flow == Flow::Return || r.flow == Flow::Break || r.flow == Flow::Continue)
+                return failure("control flow escaping a constant expression", true);
             if (r.flow == Flow::Normal && r.value)
                 r = detach(std::move(*r.value));
             if (m_mode == Mode::Opportunistic && r.failed())
