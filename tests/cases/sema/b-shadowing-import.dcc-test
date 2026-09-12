@@ -25,5 +25,5 @@ Module a
   Func test_shadow diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=foo]
+        Call [type=i32 const=1 constant decl=foo]
           Ident foo [type=<unresolved> const=<none>]

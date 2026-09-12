@@ -1,21 +1,25 @@
 === FILE: test.dc ===
 module test;
 
+i64 arg_sink;
+
 public struct Point {
     i64 x;
     i64 y;
 }
-
 public i64 sum(Point p) {
     return p.x + p.y;
 }
-
 public i64 test() {
-    return sum({x = 10, y = 20});
+    return sum({x = arg_sink, y = 20});
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki64s : i64
+
+
 i64@_DC0F1.4.test3.sum1D1.4.test5.Point0.i64s({@0 i64, @8 i64}) {
 %entry({@0 i64, @8 i64} %p):
   %0 = alloca {@0 i64, @8 i64}
@@ -30,7 +34,8 @@ i64@_DC0F1.4.test3.sum1D1.4.test5.Point0.i64s({@0 i64, @8 i64}) {
 
 i64@_DC0F1.4.test4.test0i64s() {
 %entry:
-  %0 = aggregate {@0 i64, @8 i64}, #10, #20
-  %1 = call fn(@_DC0F1.4.test3.sum1D1.4.test5.Point0.i64s)({@0 i64, @8 i64} %0) -> i64
-  ret i64 %1
+  %0 = load i64, ptr<i64> @_DC0G1.4.test8.arg_sinki64s
+  %1 = aggregate {@0 i64, @8 i64}, %0, #20
+  %2 = call fn(@_DC0F1.4.test3.sum1D1.4.test5.Point0.i64s)({@0 i64, @8 i64} %1) -> i64
+  ret i64 %2
 }

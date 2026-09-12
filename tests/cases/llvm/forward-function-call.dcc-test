@@ -1,14 +1,15 @@
 === FILE: test.dc ===
 module test;
 
-@nomangle
-public i32 main() {
-    return helper();
-}
+i32 arg_sink;
 
 @nomangle
-i32 helper() {
-    return 42;
+public i32 main() {
+    return helper(arg_sink);
+}
+@nomangle
+i32 helper(i32 x) {
+    return 42 + x;
 }
 
 === EXPECT-LLVM FLAGS: -verify ===
@@ -16,13 +17,17 @@ i32 helper() {
 source_filename = "test"
 target triple = "x86_64-elf"
 
+@_DC0G1.4.test8.arg_sinki32s = global i32 0
+
 define i32 @main() {
 entry:
-  %"0" = call i32 @helper()
-  ret i32 %"0"
+  %"0" = load i32, ptr @_DC0G1.4.test8.arg_sinki32s, align 4
+  %"1" = call i32 @helper(i32 %"0")
+  ret i32 %"1"
 }
 
-define i32 @helper() {
+define i32 @helper(i32 %x) {
 entry:
-  ret i32 42
+  %"0" = add i32 42, %x
+  ret i32 %"0"
 }

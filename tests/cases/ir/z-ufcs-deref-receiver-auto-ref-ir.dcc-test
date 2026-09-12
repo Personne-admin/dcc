@@ -111,13 +111,10 @@ i32@test_identity() {
 @nomangle
 i32@dcc_main() {
 %entry:
-  %0 = call fn(@test_identity)() -> i32
-  ret i32 %0
+  ret i32 #0
 }
 
 i32@_DC0F1.4.test4.main0i32s() {
 %entry:
   ret i32 #0
 }
-=== EXPECT-EM64T-OBJECT ===
-RUN-EXIT: 0

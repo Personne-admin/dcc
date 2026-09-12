@@ -1,23 +1,30 @@
 === FILE: test.dc ===
 module test;
 
+u64 arg_sink;
+
 T testt(T)(T x) {
     return x + 2;
 }
 
 void main() {
-    u64 u = 0;
+    u64 u = arg_sink;
     u.testt();
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki64u : u64
+
+
 void@_DC0F1.4.test4.main0v() {
 %entry:
   %0 = alloca u64
-  store u64 #0, ptr<u64> %0
-  %1 = load u64, ptr<u64> %0
-  %2 = call fn(@_DC0S1.4.test5.testt1i64ui64uX1ti64u)(u64 %1) -> u64
+  %1 = load u64, ptr<u64> @_DC0G1.4.test8.arg_sinki64u
+  store u64 %1, ptr<u64> %0
+  %2 = load u64, ptr<u64> %0
+  %3 = call fn(@_DC0S1.4.test5.testt1i64ui64uX1ti64u)(u64 %2) -> u64
   ret void
 }
 

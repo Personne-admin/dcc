@@ -29,7 +29,7 @@ Module main
   Func test diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=identity spec=identity]
+        Call [type=i32 const=1 constant decl=identity spec=identity]
           TemplateInst [type=i32(*)(i32) const=<none> decl=identity spec=identity]
             Path lib::gen::identity [type=T(*)(T) const=<none> decl=identity]
           IntLiteral 1 [type=i32 const=1 constant]

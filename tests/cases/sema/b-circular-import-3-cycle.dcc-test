@@ -56,7 +56,7 @@ Module a
   Func f_a diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=f_b]
+        Call [type=i32 const=3 constant decl=f_b]
           Path b::f_b [type=<unresolved> const=<none>]
 
 === EXPECT-BODY FOR: b ===
@@ -64,7 +64,7 @@ Module b
   Func f_b diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=f_c]
+        Call [type=i32 const=3 constant decl=f_c]
           Path c::f_c [type=<unresolved> const=<none>]
 
 === EXPECT-BODY FOR: c ===

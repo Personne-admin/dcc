@@ -55,7 +55,7 @@ Module a
   Func a_through_b diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=b_get]
+        Call [type=i32 const=2 constant decl=b_get]
           Path b::b_get [type=<unresolved> const=<none>]
 
 === EXPECT-BODY FOR: b ===
@@ -67,5 +67,5 @@ Module b
   Func b_through_a diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=a_get]
+        Call [type=i32 const=1 constant decl=a_get]
           Path a::a_get [type=<unresolved> const=<none>]

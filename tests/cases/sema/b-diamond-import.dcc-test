@@ -39,8 +39,8 @@ Module a
   Func a_func diverging=true
     Body
       Return
-        Binary + [type=i32 const=<none>]
-          Call [type=i32 const=<none> decl=base]
+        Binary + [type=i32 const=84 constant]
+          Call [type=i32 const=42 constant decl=base]
             Path b::base [type=<unresolved> const=<none>]
-          Call [type=i32 const=<none> decl=other]
+          Call [type=i32 const=42 constant decl=other]
             Path c::other [type=<unresolved> const=<none>]

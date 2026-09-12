@@ -1,15 +1,21 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_sink;
+
 public i32 inc(i32 x) { return x + 1; }
 
 public i32 test_ufcs() {
-    i32 x = 41;
+    i32 x = arg_sink;
     return x.inc();
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 i32@_DC0F1.4.test3.inc1i32si32s(i32) {
 %entry(i32 %x):
   %0 = add i32 %x, i32 #1
@@ -19,8 +25,9 @@ i32@_DC0F1.4.test3.inc1i32si32s(i32) {
 i32@_DC0F1.4.test9.test_ufcs0i32s() {
 %entry:
   %0 = alloca i32
-  store i32 #41, ptr<i32> %0
-  %1 = load i32, ptr<i32> %0
-  %2 = call fn(@_DC0F1.4.test3.inc1i32si32s)(i32 %1) -> i32
-  ret i32 %2
+  %1 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  store i32 %1, ptr<i32> %0
+  %2 = load i32, ptr<i32> %0
+  %3 = call fn(@_DC0F1.4.test3.inc1i32si32s)(i32 %2) -> i32
+  ret i32 %3
 }

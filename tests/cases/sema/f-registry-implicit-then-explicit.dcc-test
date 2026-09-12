@@ -24,7 +24,7 @@ Module main
         Ident x [type=<unresolved> const=<none>]
   Func a diverging=false
     Body
-      Call [type=i32 const=<none> decl=id spec=id]
+      Call [type=i32 const=1 constant decl=id spec=id]
         Ident id [type=<unresolved> const=<none>]
         IntLiteral 1 [type=i32 const=1 constant]
   Func b diverging=false

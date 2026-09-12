@@ -1,19 +1,25 @@
 === FILE: test.dc ===
 module test;
 
+u8 arg_sink;
+
 u64 sz_three(u16 vals...)(u8 x) {
     return sizeof...(vals);
 }
-
 void caller() {
-    sz_three!(1, 2, 3)(0);
+    sz_three!(1, 2, 3)(arg_sink);
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki8u : u8
+
+
 void@_DC0F1.4.test6.caller0v() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test8.sz_three1i8ui64uX3vIi16u1vIi16u2vIi16u3)(u8 #0) -> u64
+  %0 = load u8, ptr<u8> @_DC0G1.4.test8.arg_sinki8u
+  %1 = call fn(@_DC0S1.4.test8.sz_three1i8ui64uX3vIi16u1vIi16u2vIi16u3)(u8 %0) -> u64
   ret void
 }
 

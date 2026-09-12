@@ -1,15 +1,20 @@
 === FILE: test.dc ===
 module test;
-
-public i32 make_val() { return 42; }
-
+i32 arg_sink;
+public i32 make_val() { return 42 + arg_sink; }
 public void discard() { make_val(); }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 i32@_DC0F1.4.test8.make_val0i32s() {
 %entry:
-  ret i32 #42
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %1 = add i32 #42, i32 %0
+  ret i32 %1
 }
 
 void@_DC0F1.4.test7.discard0v() {

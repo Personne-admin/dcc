@@ -37,7 +37,7 @@ Module main
         Ident copy_n [type=T(*)(T) const=<none> decl=copy_n]
   Func b diverging=false
     Body
-      Call [type=i64 const=<none> decl=copy_n spec=copy_n]
+      Call [type=i64 const=30 constant decl=copy_n spec=copy_n]
         TemplateInst [type=i64(*)(i64) const=<none> decl=copy_n spec=copy_n]
           Ident copy_n [type=T(*)(T) const=<none> decl=copy_n]
         IntLiteral 30 [type=i64 const=30 constant]

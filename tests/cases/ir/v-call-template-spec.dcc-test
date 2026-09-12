@@ -1,16 +1,23 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_sink;
+
 T identity(T)(T x) { return x; }
 
-public i32 use_template() { return identity(42); }
+public i32 use_template() { return identity(arg_sink); }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 i32@_DC0F1.4.test12.use_template0i32s() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test8.identity1i32si32sX1ti32s)(i32 #42) -> i32
-  ret i32 %0
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %1 = call fn(@_DC0S1.4.test8.identity1i32si32sX1ti32s)(i32 %0) -> i32
+  ret i32 %1
 }
 
 linkonce_odr i32@_DC0S1.4.test8.identity1i32si32sX1ti32s(i32) {

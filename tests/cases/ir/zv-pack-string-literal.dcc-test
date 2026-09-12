@@ -1,23 +1,24 @@
 === FILE: test.dc ===
 module test;
 
-i32 take_slice([]const char v) { return 42; }
+i32 arg_sink;
 
+i32 take_slice([]const char v) { return 42 + arg_sink; }
 i32 fmt_char(T...)(T args) {
     i32 result = 0;
     static for arg in args {
         result = take_slice(arg);
     }
-
     return result;
 }
-
 public i32 test_char() {
     return fmt_char("hello");
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
 
 const global @.str.0 : [5 x u8] = aggregate [5 x u8], #104, #101, #108, #108, #111
 
@@ -26,7 +27,9 @@ i32@_DC0F1.4.test10.take_slice1SCqci32s([]u8) {
 %entry([]u8 %v):
   %0 = alloca []u8
   store []u8 %v, ptr<[]u8> %0
-  ret i32 #42
+  %1 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %2 = add i32 #42, i32 %1
+  ret i32 %2
 }
 
 i32@_DC0F1.4.test9.test_char0i32s() {

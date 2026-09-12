@@ -7728,6 +7728,112 @@ export namespace dcc::sema
             return result;
         }
 
+        static ast::FuncDecl const* direct_fold_callee(ast::CallExpr const& call)
+        {
+            auto const* fn = call.sema.resolved_specialization;
+            if (!fn && call.callee)
+                fn = call.callee->sema.resolved_specialization;
+            if (!fn)
+                fn = ast::node_cast<ast::FuncDecl>(call.sema.resolved_decl);
+            if (!fn && call.callee)
+                fn = ast::node_cast<ast::FuncDecl>(call.callee->sema.resolved_decl);
+            if (!fn)
+                fn = ast::node_cast<ast::FuncDecl>(call.sema.ufcs_callee);
+            return fn;
+        }
+
+        static bool fold_value_has_unknown(comptime::Value const& value)
+        {
+            if (value.is_unknown())
+                return true;
+            if (value.kind() == comptime::Value::Kind::Aggregate ||
+                (value.kind() == comptime::Value::Kind::Slice && !value.slice_is_ref()))
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    if (fold_value_has_unknown(value.at(i)))
+                        return true;
+            }
+            return false;
+        }
+
+        static bool callee_body_within_fold_budget(ast::FuncDecl const& fn)
+        {
+            struct Counter : ast::RecursiveAstVisitor
+            {
+                enum : std::size_t { kBudget = 8192 };
+                std::size_t count{};
+                bool over{};
+                void visitStmt(ast::Stmt const* stmt) override
+                {
+                    if (over || !stmt)
+                        return;
+                    if (++count > kBudget)
+                    {
+                        over = true;
+                        return;
+                    }
+                    RecursiveAstVisitor::visitStmt(stmt);
+                }
+                void visitExpr(ast::Expr const* expr) override
+                {
+                    if (over || !expr)
+                        return;
+                    if (++count > kBudget)
+                    {
+                        over = true;
+                        return;
+                    }
+                    RecursiveAstVisitor::visitExpr(expr);
+                }
+                void visitBlock(ast::Block const& block) override
+                {
+                    if (over)
+                        return;
+                    RecursiveAstVisitor::visitBlock(block);
+                }
+            };
+            if (!fn.body)
+                return false;
+            Counter counter;
+            counter.visitBlock(*fn.body);
+            return !counter.over;
+        }
+
+        [[nodiscard]] static bool call_fold_candidate(ast::CallExpr const& call)
+        {
+            if (call.sema.construction_kind != ast::ExprSema::ConstructionKind::None)
+                return false;
+            auto const* fn = direct_fold_callee(call);
+            if (!fn)
+                return false;
+            if (fn->is_extern || fn->sema.is_intrinsic)
+                return false;
+            if (fn->sema.is_runtime)
+                return false;
+            for (auto const& attr : fn->attrs)
+                if (attr.name == "runtime")
+                    return false;
+            if (!fn->body || !fn->template_params.empty())
+                return false;
+            if (call.sema.call_argument_offset > call.args.size())
+                return false;
+            std::size_t first_arg = call.sema.call_argument_offset;
+            if (call.sema.ufcs_callee)
+            {
+                auto const* field = ast::node_cast<ast::FieldAccessExpr>(call.callee);
+                if (!field || !field->object || !field->object->sema.const_value)
+                    return false;
+                if (fn->params.empty() || 1 + (call.args.size() - first_arg) != fn->params.size())
+                    return false;
+            }
+            else if (call.args.size() - first_arg != fn->params.size())
+                return false;
+            for (std::size_t i = first_arg; i < call.args.size(); ++i)
+                if (!call.args[i] || !call.args[i]->sema.const_value)
+                    return false;
+            return callee_body_within_fold_budget(*fn);
+        }
+
         void analyze_function(ModuleInfo& mod, ast::FuncDecl& fn)
         {
             if (fn.sema.storage != ast::StorageClass::Unresolved)
@@ -9934,15 +10040,19 @@ export namespace dcc::sema
                     expr.sema.is_constant = false;
                 }
             }
-            if (expr.kind == ast::ExprKind::Call && !fn && !out.constant && !has_error(out.type) && !expr.sema.is_runtime)
+            if (expr.kind == ast::ExprKind::Call && !out.constant && !has_error(out.type) && !expr.sema.is_runtime)
             {
-                auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic);
-                if (result.flow == ctfe::Flow::Normal && result.value)
+                auto const& call = static_cast<ast::CallExpr const&>(expr);
+                if (!fn || call_fold_candidate(call))
                 {
-                    out.constant = make_value(std::move(*result.value));
-                    out.is_constant = true;
-                    expr.sema.const_value = out.constant;
-                    expr.sema.is_constant = true;
+                    auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic);
+                    if (result.flow == ctfe::Flow::Normal && result.value && !fold_value_has_unknown(*result.value))
+                    {
+                        out.constant = make_value(std::move(*result.value));
+                        out.is_constant = true;
+                        expr.sema.const_value = out.constant;
+                        expr.sema.is_constant = true;
+                    }
                 }
             }
             return out;

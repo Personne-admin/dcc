@@ -82,7 +82,7 @@ Module m
   Func call_with_brace diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=test_func_arg]
+        Call [type=i32 const=1 constant decl=test_func_arg]
           Ident test_func_arg [type=<unresolved> const=<none>]
           StructLiteral [type=SinglePayload const=agg(0, 99) constant]
             IntLiteral 99 [type=i32 const=99 constant]

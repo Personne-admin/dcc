@@ -1,19 +1,25 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_sink;
+
 u64 sz_multi(T...)(T x) {
     return sizeof...(T);
 }
-
 void caller() {
-    sz_multi!(i32, i64)(0, 1);
+    sz_multi!(i32, i64)(arg_sink, 1);
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 void@_DC0F1.4.test6.caller0v() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test8.sz_multi2i32si64si64uX2ti32sti64s)(i32 #0, i64 #1) -> u64
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %1 = call fn(@_DC0S1.4.test8.sz_multi2i32si64si64uX2ti32sti64s)(i32 %0, i64 #1) -> u64
   ret void
 }
 

@@ -32,7 +32,7 @@ Module main
         Ident first [type=i32(*)(i32) const=<none> decl=first]
   Func b diverging=false
     Body
-      Call [type=i32 const=<none> decl=first spec=first]
+      Call [type=i32 const=30 constant decl=first spec=first]
         TemplateInst [type=i32(*)(i32) const=<none> decl=first spec=first]
           Ident first [type=i32(*)(i32) const=<none> decl=first]
         IntLiteral 30 [type=i32 const=30 constant]

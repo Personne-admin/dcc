@@ -50,7 +50,7 @@ Module m
       StaticFor name=item
   Func caller diverging=false
     Body
-      Call [type=u64 const=<none> decl=sz_return spec=sz_return]
+      Call [type=u64 const=1 constant decl=sz_return spec=sz_return]
         TemplateInst [type=u64(*)(i32) const=<none> decl=sz_return spec=sz_return]
           Ident sz_return [type=u64(*)(T) const=<none> decl=sz_return]
         IntLiteral 42 [type=i32 const=42 constant]
@@ -59,7 +59,7 @@ Module m
           Ident sz_expr [type=void(*)(T) const=<none> decl=sz_expr]
         IntLiteral 0 [type=i32 const=0 constant]
         IntLiteral 1 [type=i64 const=1 constant]
-      Call [type=bool const=<none> decl=sz_cmp spec=sz_cmp]
+      Call [type=bool const=false constant decl=sz_cmp spec=sz_cmp]
         TemplateInst [type=bool(*)(i32, i64, f64) const=<none> decl=sz_cmp spec=sz_cmp]
           Ident sz_cmp [type=bool(*)(T) const=<none> decl=sz_cmp]
         IntLiteral 0 [type=i32 const=0 constant]

@@ -44,7 +44,7 @@ Module m
   Func test_char_slice_beats_u8_slice diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=pick]
+        Call [type=i32 const=1 constant decl=pick]
           Ident pick [type=<unresolved> const=<none>]
           StringLiteral hello [type=[]const char const="hello" constant]
   Func pick2 diverging=true
@@ -60,7 +60,7 @@ Module m
   Func test_slice_beats_pointer diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=pick2]
+        Call [type=i32 const=1 constant decl=pick2]
           Ident pick2 [type=<unresolved> const=<none>]
           StringLiteral hello [type=[]const char const="hello" constant]
   Func pick3 diverging=true
@@ -76,7 +76,7 @@ Module m
   Func test_const_slice_beats_mutable diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=pick3]
+        Call [type=i32 const=1 constant decl=pick3]
           Ident pick3 [type=<unresolved> const=<none>]
           StringLiteral hello [type=[]const char const="hello" constant]
   Func pick4 diverging=true
@@ -92,6 +92,6 @@ Module m
   Func test_u8_slice_beats_u8_pointer diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=pick4]
+        Call [type=i32 const=1 constant decl=pick4]
           Ident pick4 [type=<unresolved> const=<none>]
           StringLiteral hello [type=[]const u8 const="hello" constant]
