@@ -84,6 +84,8 @@ const Result(usize, FmtError) C_OK = chain(true);
 const Result(usize, FmtError) C_ERR = chain(false);
 const Result(usize, FmtError) A_OK = acc_question(true);
 const Result(usize, FmtError) A_ERR = acc_question(false);
+const FmtError E_OK = first_err(true);
+const FmtError E_ERR = first_err(false);
 
 void verify_first_err() {
     static if first_err(true) != FmtError::OutOfSpace {
@@ -116,6 +118,8 @@ public i32 dcc_main() {
     const FmtError e_err = first_err(false);
     if e_ok != FmtError::OutOfSpace { return 15; }
     if e_err != FmtError::BadFormat { return 16; }
+    if E_OK != FmtError::OutOfSpace { return 17; }
+    if E_ERR != FmtError::BadFormat { return 18; }
     return 0;
 }
 
@@ -150,6 +154,8 @@ $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.te
 @_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
 @_DC0G1.4.test4.A_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\10\00\00\00\00\00\00\00" }
 @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
+@_DC0G1.4.test4.E_OKD1.4.test8.FmtError0. = constant i8 0
+@_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0. = constant i8 2
 @.str.0 = internal constant [14 x i8] c"hello {} world"
 
 define i64 @_DC0F1.4.test4.scan1SCqi8uIu({ ptr, i64 } %s) {
@@ -577,6 +583,28 @@ if.else49:                                        ; preds = %if.merge47
   br label %if.merge50
 
 if.merge50:                                       ; preds = %if.else49
+  %"43" = load i8, ptr @_DC0G1.4.test4.E_OKD1.4.test8.FmtError0., align 1
+  %"44" = icmp ne i8 %"43", 0
+  br i1 %"44", label %if.then51, label %if.else52
+
+if.then51:                                        ; preds = %if.merge50
+  ret i32 17
+
+if.else52:                                        ; preds = %if.merge50
+  br label %if.merge53
+
+if.merge53:                                       ; preds = %if.else52
+  %"45" = load i8, ptr @_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0., align 1
+  %"46" = icmp ne i8 %"45", 2
+  br i1 %"46", label %if.then54, label %if.else55
+
+if.then54:                                        ; preds = %if.merge53
+  ret i32 18
+
+if.else55:                                        ; preds = %if.merge53
+  br label %if.merge56
+
+if.merge56:                                       ; preds = %if.else55
   ret i32 0
 }
 
