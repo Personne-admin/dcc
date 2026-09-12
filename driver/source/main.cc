@@ -137,6 +137,7 @@ namespace
         bool shared_library{false};
         bool bounds_check{false};
         bool restricted_check{false};
+        bool partial_eval{false};
         bool emit_debug_info{false};
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
         bool help{false};
@@ -264,6 +265,13 @@ namespace
             if (arg == "-frestricted-check")
             {
                 opts.restricted_check = true;
+                ++i;
+                continue;
+            }
+
+            if (arg == "-fpartial-eval")
+            {
+                opts.partial_eval = true;
                 ++i;
                 continue;
             }
@@ -602,6 +610,7 @@ namespace
                        {"-fdump-mir", "dump em64t MIR"},
                        {"-flibdcext [os]", "link with libdcext for a hosted os (linux, windows, freestanding; default: host)"},
                        {"-fbounds-check", "enable bounds checking"},
+                       {"-fpartial-eval", "enable call-site partial evaluation"},
                        {"-frestricted-check", "enable restricted-value cast checks"},
                        {"-fbackend <name>", "select backend (llvm, em64t)"},
                        {"-O0|-O1|-O2|-Os", "optimization level"},
@@ -1535,7 +1544,7 @@ auto main(int argc, char** argv) -> int
 
         dcc::ir::IrContext ir_ctx{256 * 1024, &compile_opts.target};
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
-                                                                 &sema->types(), opts.restricted_check);
+                                                                 &sema->types(), opts.restricted_check, opts.partial_eval);
         auto* ir_mod = lowerer->lower_module(*module);
 
         phase("lowering");

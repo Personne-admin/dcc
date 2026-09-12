@@ -116,6 +116,7 @@ export namespace dcc::ctfe
         comptime::Value value{};
         ast::Expr const* node{};
         std::vector<std::size_t> children{};
+        bool is_prologue{false};
     };
 
     struct Trace
@@ -145,6 +146,7 @@ export namespace dcc::ctfe
         Trace m_trace;
         std::vector<std::size_t> m_seq_stack;
         std::unordered_set<types::TypePtr> m_question_operand_types;
+        std::size_t m_unwrap_depth{};
         std::optional<sm::SourceRange> m_default_argument_call_site;
 
         struct DefaultArgumentCallSiteGuard
@@ -278,8 +280,10 @@ export namespace dcc::ctfe
 
         std::optional<std::size_t> append_emit(ast::Expr const& node, std::vector<std::size_t> children)
         {
-            for (auto child : children)
+            for (auto child : children) {
                 assert(child < m_trace.nodes.size());
+                std::ignore = child;
+            }
             Residual residual;
             residual.kind = Residual::Kind::Emit;
             residual.node = &node;
@@ -291,6 +295,12 @@ export namespace dcc::ctfe
         {
             if (value.kind() == Kind::Unknown)
                 return value.unknown_origin();
+            if (value.kind() == Kind::Slice || value.kind() == Kind::Aggregate)
+            {
+                auto detached = detach(value);
+                if (detached.flow == Flow::Normal && detached.value)
+                    return append_value(*detached.value);
+            }
             return append_value(value);
         }
 
@@ -329,12 +339,18 @@ export namespace dcc::ctfe
             m_seq_stack.pop_back();
         }
 
-        void poison_all(std::size_t cause)
+        void poison_reachable(std::size_t cause, std::vector<comptime::Value> const& args, std::optional<comptime::Value> const& callee)
         {
             std::unordered_set<std::size_t> pinned;
             for (auto const& entry : m_constants)
                 pinned.insert(entry.second.allocation);
-            m_heap.poison_all(cause, pinned);
+            std::vector<comptime::Value const*> roots;
+            roots.reserve(args.size() + 1);
+            if (callee)
+                roots.push_back(&*callee);
+            for (auto const& arg : args)
+                roots.push_back(&arg);
+            m_heap.poison_reachable(cause, roots, pinned);
         }
 
         Result residual_call(ast::CallExpr const& call, std::vector<comptime::Value> args, std::optional<comptime::Value> callee)
@@ -362,7 +378,7 @@ export namespace dcc::ctfe
             auto index = append_emit(call, std::move(children));
             if (!index)
                 return abandoned(AbandonReason::TraceExhausted);
-            poison_all(*index);
+            poison_reachable(*index, args, callee);
             m_constants.clear();
             return {Flow::Normal, comptime::Value::make_unknown(type_of(call), *index), {}, {}};
         }
@@ -1215,7 +1231,7 @@ export namespace dcc::ctfe
                     return scrutinee;
                 if (contains_unknown(*scrutinee.value))
                     return abandoned(AbandonReason::UnknownCondition);
-                if (contains_tainted(*scrutinee.value) && question_operand_seen(scrutinee.value->type))
+                if (m_unwrap_depth == 0 && contains_tainted(*scrutinee.value) && question_operand_seen(scrutinee.value->type))
                     return abandoned(AbandonReason::UnsupportedEffect);
             }
 
@@ -1487,7 +1503,8 @@ export namespace dcc::ctfe
                 return emitted;
             }
 
-            if (specializing() && (op == K::EqEq || op == K::BangEq) && (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
+            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) &&
+                (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
                 return abandoned(AbandonReason::UnsupportedEffect);
 
             Result r{};
@@ -1841,7 +1858,9 @@ export namespace dcc::ctfe
                 }
                 scoped = true;
             }
+            ++m_unwrap_depth;
             auto result = enter(*fn, std::move(args));
+            --m_unwrap_depth;
             if (scoped)
                 seq_end();
             for (auto allocation : m_frames.back().allocations)
@@ -2282,7 +2301,39 @@ export namespace dcc::ctfe
 
         Trace const& trace() const { return m_trace; }
 
-        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args)
+        std::optional<comptime::Value> attach_value(comptime::Value const& value)
+        {
+            auto r = attach(value);
+            if (r.flow != Flow::Normal || !r.value)
+                return std::nullopt;
+            return std::move(*r.value);
+        }
+
+        std::optional<comptime::Value> convert_value(comptime::Value value, types::TypePtr target)
+        {
+            auto* slice_target = target ? types::type_cast<types::SliceType>(target) : nullptr;
+            if (value.kind() == Kind::String)
+                return attach_value(value);
+            if (!target || !value.type || target == value.type)
+                return std::move(value);
+            if (slice_target && slice_target->element && value.kind() == Kind::Aggregate)
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                {
+                    if (!value.at(i).type || value.at(i).type != slice_target->element)
+                        return std::nullopt;
+                }
+                std::vector<comptime::Value> elements;
+                elements.reserve(value.size());
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    elements.push_back(std::move(value.at(i)));
+                return attach_value(comptime::Value::make_slice(std::move(elements), target));
+            }
+            return const_eval::fold_cast(std::move(value), target);
+        }
+
+        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args,
+                          std::vector<ast::Expr const*> const& arg_sources = {})
         {
             m_steps = 0;
             m_cells = 0;
@@ -2298,6 +2349,33 @@ export namespace dcc::ctfe
                 return abandoned(AbandonReason::RecursionExhausted);
             if (!seq_begin())
                 return abandoned(AbandonReason::TraceExhausted);
+            if (!arg_sources.empty())
+            {
+                assert(arg_sources.size() == args.size());
+                for (std::size_t i = 0; i < args.size(); ++i)
+                {
+                    auto* target = i < fn.params.size() && fn.params[i].type ? type_of(fn.params[i].type) : nullptr;
+                    if (!args[i].is_unknown())
+                    {
+                        if (auto converted = convert_value(std::move(args[i]), target))
+                            args[i] = std::move(*converted);
+                        else if (arg_sources[i])
+                            args[i] = comptime::Value::make_unknown(target, 0);
+                        else
+                            return failure("call argument is not convertible", true);
+                    }
+                    if (!args[i].is_unknown() || !arg_sources[i])
+                        continue;
+                    Residual prologue;
+                    prologue.kind = Residual::Kind::Emit;
+                    prologue.node = arg_sources[i];
+                    prologue.is_prologue = true;
+                    auto index = append_trace(std::move(prologue));
+                    if (!index)
+                        return abandoned(AbandonReason::TraceExhausted);
+                    args[i] = comptime::Value::make_unknown(args[i].type ? args[i].type : target, *index);
+                }
+            }
             if (m_context.specializing)
                 m_context.specializing->insert(&fn);
             m_frames.push_back(Frame{Call{&fn, m_context.call_site}, {}, {}});

@@ -1,15 +1,21 @@
 import std;
 import dcc.ast;
+import dcc.backend;
 import dcc.comptime;
 import dcc.ctfe;
 import dcc.diag;
+import dcc.ir;
 import dcc.ir.lower;
 import dcc.lex;
 import dcc.parser;
 import dcc.sema;
 import dcc.si;
 import dcc.sm;
+import dcc.target;
 import dcc.types;
+#if DCC_ENABLE_LLVM
+import dcc.backend.llvm;
+#endif
 
 #include "harness.hh"
 
@@ -24,6 +30,9 @@ namespace sema = dcc::sema;
 namespace si = dcc::si;
 namespace sm = dcc::sm;
 namespace types = dcc::types;
+namespace irc = dcc::ir;
+namespace backend = dcc::backend;
+namespace target = dcc::target;
 
 namespace
 {
@@ -364,7 +373,7 @@ TEST_CASE("residual call trace validates")
 {
     auto trace = extern_trace(41);
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(trace, always, true, 1);
+    auto check = lower::Lowerer::validate_residual_trace(trace, always, true);
     CHECK(check.ok);
 }
 
@@ -380,7 +389,7 @@ TEST_CASE("truncated children fail validation")
         }
     }
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(trace, always, true, 1);
+    auto check = lower::Lowerer::validate_residual_trace(trace, always, true);
     CHECK(!check.ok);
 }
 
@@ -396,7 +405,7 @@ TEST_CASE("forward references fail validation")
         }
     }
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(trace, always, true, 1);
+    auto check = lower::Lowerer::validate_residual_trace(trace, always, true);
     CHECK(!check.ok);
 }
 
@@ -417,7 +426,7 @@ void feed() {
     auto spec = run_specialize(fx, fn, std::move(args));
     REQUIRE(spec.result.flow == ctfe::Flow::Normal);
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(spec.trace, always, true, 1);
+    auto check = lower::Lowerer::validate_residual_trace(spec.trace, always, true);
     CHECK(!check.ok);
 }
 
@@ -442,7 +451,7 @@ R feedp(R r) {
     auto spec = run_specialize(fx, fn, std::move(args));
     REQUIRE(spec.result.flow == ctfe::Flow::Normal);
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(spec.trace, always, true, 1);
+    auto check = lower::Lowerer::validate_residual_trace(spec.trace, always, true);
     CHECK(!check.ok);
 }
 
@@ -471,7 +480,7 @@ void bump(i32 x) {
     emit.node = post;
     trace.nodes.push_back(std::move(emit));
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(trace, always, true, 1);
+    auto check = lower::Lowerer::validate_residual_trace(trace, always, true);
     CHECK(!check.ok);
 }
 
@@ -491,10 +500,10 @@ i32 f() {
     auto spec = run_specialize(fx, fn, std::move(args));
     REQUIRE(spec.result.flow == ctfe::Flow::Normal);
     auto never = [](ast::Decl const*) { return false; };
-    auto denied = lower::Lowerer::validate_residual_trace(spec.trace, never, true, 1);
+    auto denied = lower::Lowerer::validate_residual_trace(spec.trace, never, true);
     CHECK(!denied.ok);
     auto always = [](ast::Decl const*) { return true; };
-    auto allowed = lower::Lowerer::validate_residual_trace(spec.trace, always, true, 1);
+    auto allowed = lower::Lowerer::validate_residual_trace(spec.trace, always, true);
     CHECK(allowed.ok);
 }
 
@@ -516,7 +525,7 @@ R pass(R r) {
     auto spec = run_specialize(fx, fn, std::move(args));
     REQUIRE(spec.result.flow == ctfe::Flow::Normal);
     auto always = [](ast::Decl const*) { return true; };
-    auto check = lower::Lowerer::validate_residual_trace(spec.trace, always, false, 1);
+    auto check = lower::Lowerer::validate_residual_trace(spec.trace, always, false);
     CHECK(!check.ok);
 }
 
@@ -564,4 +573,357 @@ TEST_CASE("offset calls map from offset")
     CHECK_EQ(mapping->arg_count, 2u);
 }
 
+SECTION("residual: argument prologue");
+
+ast::Expr const* find_global_init(Fixture& fx, std::string_view name)
+{
+    if (!fx.mod || !fx.mod->tu)
+        return nullptr;
+    for (auto* d : fx.mod->tu->decls)
+    {
+        auto* v = ast::node_cast<ast::VarDecl>(d);
+        if (v && v->name == name)
+            return v->init;
+    }
+    return nullptr;
+}
+
+TEST_CASE("prologue binds unknowns to argument residuals")
+{
+    Fixture fx(R"dc(
+i32 gval = 41;
+
+i32 add1(i32 x) {
+    return x + 1;
+}
+)dc");
+    REQUIRE(fx.ok());
+    auto const* fn = fx.find("add1");
+    REQUIRE(fn != nullptr);
+    auto t = fx.param_type(fn, 0);
+    REQUIRE(t != nullptr);
+    auto const* source = find_global_init(fx, "gval");
+    REQUIRE(source != nullptr);
+    std::vector<comptime::Value> args;
+    args.push_back(comptime::Value::make_unknown(t, 0));
+    ctfe::Context ctx;
+    ctx.types = &fx.sema->types();
+    ctx.source_manager = &fx.sm;
+    ctfe::Evaluator ev(std::move(ctx), ctfe::Mode::Specialize);
+    std::vector<ast::Expr const*> sources{source};
+    auto result = ev.specialize(*fn, std::move(args), sources);
+    CHECK_EQ(result.flow, ctfe::Flow::Normal);
+    REQUIRE(result.value.has_value());
+    CHECK(result.value->is_unknown());
+    auto const& trace = ev.trace();
+    REQUIRE(trace.nodes.size() >= 2u);
+    CHECK_EQ(trace.nodes[0].kind, ctfe::Residual::Kind::Seq);
+    CHECK_EQ(trace.nodes[1].kind, ctfe::Residual::Kind::Emit);
+    CHECK_EQ(trace.nodes[1].node, source);
+    CHECK(trace.nodes[1].children.empty());
+    bool references_prologue = false;
+    for (auto const& node : trace.nodes)
+    {
+        if (node.kind != ctfe::Residual::Kind::Emit)
+            continue;
+        for (auto child : node.children)
+            references_prologue = references_prologue || child == 1u;
+    }
+    CHECK(references_prologue);
+}
+
+TEST_CASE("unsourced unknowns keep zero origin")
+{
+    Fixture fx(R"dc(
+i32 add1(i32 x) {
+    return x + 1;
+}
+)dc");
+    REQUIRE(fx.ok());
+    auto const* fn = fx.find("add1");
+    REQUIRE(fn != nullptr);
+    auto t = fx.param_type(fn, 0);
+    REQUIRE(t != nullptr);
+    std::vector<comptime::Value> args;
+    args.push_back(comptime::Value::make_unknown(t, 0));
+    auto spec = run_specialize(fx, fn, std::move(args));
+    CHECK_EQ(spec.result.flow, ctfe::Flow::Normal);
+    REQUIRE(spec.result.value.has_value());
+    CHECK(spec.result.value->is_unknown());
+    bool references_external = false;
+    for (auto const& node : spec.trace.nodes)
+    {
+        if (node.kind != ctfe::Residual::Kind::Emit)
+            continue;
+        for (auto child : node.children)
+            references_external = references_external || child == 0u;
+    }
+    CHECK(references_external);
+}
+
+SECTION("residual: reachable poisoning");
+
+TEST_CASE("unreachable locals survive residual calls")
+{
+    Fixture fx(R"dc(
+extern i32 ext(i32 x);
+
+i32 f(i32 x) {
+    i32 k = 7;
+    ext(x);
+    return k + 0;
+}
+)dc");
+    REQUIRE(fx.ok());
+    auto const* fn = fx.find("f");
+    REQUIRE(fn != nullptr);
+    auto t = fx.param_type(fn, 0);
+    REQUIRE(t != nullptr);
+    std::vector<comptime::Value> args;
+    args.push_back(comptime::Value::make_int(3, t));
+    auto spec = run_specialize(fx, fn, std::move(args));
+    CHECK_EQ(spec.result.flow, ctfe::Flow::Normal);
+    REQUIRE(spec.result.value.has_value());
+    CHECK(!spec.result.value->is_unknown());
+    CHECK_EQ(spec.result.value->get_int(), 7);
+}
+
 } // namespace
+
+namespace
+{
+
+constexpr std::string_view kMoneySnippet = R"dc(
+module test;
+import std::fmt;
+
+std::fmt::Status(std::fmt::FmtError) do_format(const std::fmt::Writer* w) {
+    return std::fmt::format(w, "hello {} world", 42);
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[64] backing;
+    std::fmt::BufferWriter bw = std::fmt::new_buffer_writer(backing[0..64]);
+    std::fmt::Writer w = std::fmt::writer(&bw);
+    match do_format(&w) {
+        std::fmt::Status::Ok => {},
+        _ => return 1,
+    }
+    [] const u8 got = std::fmt::written_slice(&bw);
+    [] const u8 want = "hello 42 world";
+    if got.len != want.len {
+        return 2;
+    }
+    usize i = 0;
+    while i < got.len {
+        if got[i] != want[i] {
+            return 3;
+        }
+        i = i + 1;
+    }
+    return 0;
+}
+)dc";
+
+struct MoneyFixture
+{
+    sm::SourceManager sm;
+    std::ostringstream diags;
+    diag::DiagnosticEngine engine;
+    ast::AstContext ast_ctx;
+    si::string_interner interner;
+    std::filesystem::path dir;
+    std::unique_ptr<sema::SemaContext> sema;
+    sema::ModuleInfo* mod = nullptr;
+
+    MoneyFixture() : engine(sm, diags)
+    {
+        static int counter = 2000;
+        ++counter;
+        dir = std::filesystem::temp_directory_path() / ("dcc-money-" + std::to_string(counter));
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        std::ofstream out{dir / "test.dc"};
+        out << kMoneySnippet;
+        out.close();
+
+        auto parse_fn = [this](sm::FileId fid, ast::AstContext& ctx, diag::DiagnosticEngine& d) -> ast::TranslationUnit* {
+            auto const* file = sm.get(fid);
+            if (!file)
+                return nullptr;
+            lex::Lexer lexer{*file, interner};
+            parser::Parser p{lexer, ctx, d, parser::ParseMode::Batch};
+            return p.parse();
+        };
+
+        char const* std_root = std::getenv("DCC_TEST_LIBDCEXT_SRC");
+        sema::SemaOptions opts;
+        opts.import_roots.push_back(dir);
+        if (std_root)
+            opts.import_roots.push_back(std_root);
+        opts.interner = &interner;
+        sema = std::make_unique<sema::SemaContext>(sm, engine, ast_ctx, std::move(parse_fn), std::move(opts));
+        mod = sema->analyze_entry(dir / "test.dc");
+    }
+
+    ~MoneyFixture()
+    {
+        std::error_code ec;
+        std::filesystem::remove_all(dir, ec);
+    }
+
+    bool ok() const
+    {
+        if (!mod)
+            return false;
+        for (auto const& d : engine.diagnostics())
+            if (d.severity() == diag::Severity::Error)
+                return false;
+        return true;
+    }
+};
+
+std::string money_ir_text(MoneyFixture& fx, bool partial, std::uint64_t& attempts, std::uint64_t& succeeded)
+{
+    irc::IrContext ir_ctx;
+    lower::Lowerer lowerer(ir_ctx, &fx.sema->spec_registry(), &fx.sema->graph(), false, &fx.sm, &fx.sema->types(), false, partial);
+    auto* ir_mod = lowerer.lower_module(*fx.mod);
+    attempts = lowerer.specialize_stats().attempts;
+    succeeded = lowerer.specialize_stats().succeeded;
+    return irc::IrSerializer::dump(ir_mod);
+}
+
+std::string slice_function_region(std::string const& dump, std::string_view name)
+{
+    std::istringstream lines{dump};
+    std::string line;
+    std::string region;
+    bool inside = false;
+    while (std::getline(lines, line))
+    {
+        if (!inside)
+        {
+            if (line.find(name) != std::string::npos && line.find("(") != std::string::npos)
+                inside = true;
+            else
+                continue;
+        }
+        region += line + "\n";
+        if (line == "}")
+            break;
+    }
+    return region;
+}
+
+std::size_t count_substr(std::string const& haystack, std::string_view needle)
+{
+    std::size_t count = 0;
+    std::size_t pos = 0;
+    while ((pos = haystack.find(needle, pos)) != std::string::npos)
+    {
+        ++count;
+        pos += needle.size();
+    }
+    return count;
+}
+
+bool region_calls_fmt(std::string const& region)
+{
+    std::istringstream lines{region};
+    std::string line;
+    while (std::getline(lines, line))
+    {
+        if (line.find("call fn(@") == std::string::npos)
+            continue;
+        auto at = line.find("@");
+        auto tail = line.substr(at);
+        if (tail.find("is_ok") != std::string::npos || tail.find("unwrap") != std::string::npos)
+            continue;
+        if (tail.find(".fmt") != std::string::npos)
+            return true;
+    }
+    return false;
+}
+
+} // namespace
+
+SECTION("residual: money test");
+
+TEST_CASE("prologue call argument lowers once")
+{
+    Fixture fx(R"dc(
+extern i32 ext2(i32 x);
+
+i32 add2(i32 x, i32 y) {
+    return x + y;
+}
+
+i32 caller() {
+    return add2(ext2(7), 41);
+}
+)dc");
+    REQUIRE(fx.ok());
+    irc::IrContext ir_ctx;
+    lower::Lowerer lowerer(ir_ctx, &fx.sema->spec_registry(), &fx.sema->graph(), false, &fx.sm, &fx.sema->types(), false, true);
+    auto* ir_mod = lowerer.lower_module(*fx.mod);
+    auto text = irc::IrSerializer::dump(ir_mod);
+    auto region = slice_function_region(text, "caller");
+    REQUIRE(!region.empty());
+    CHECK(count_substr(region, "call fn(@") == 1u);
+    CHECK(region.find("ext2") != std::string::npos);
+    CHECK(region.find("add2") == std::string::npos);
+    CHECK(region.find("add ") != std::string::npos);
+    CHECK(lowerer.specialize_stats().succeeded > 0u);
+}
+
+TEST_CASE("partial aggregate result falls back without panic")
+{
+    Fixture fx(with_taint_prelude(R"dc(
+R pass2(R r) {
+    i32 v = r?;
+    return R::Ok(v);
+}
+
+R mid(R r, i32 k) {
+    R w = pass2(r);
+    i32 z = k + 0;
+    return w;
+}
+
+R entry3(R r) {
+    return mid(r, 1);
+}
+)dc"));
+    REQUIRE(fx.ok());
+    irc::IrContext ir_ctx;
+    lower::Lowerer lowerer(ir_ctx, &fx.sema->spec_registry(), &fx.sema->graph(), false, &fx.sm, &fx.sema->types(), false, true);
+    auto* ir_mod = lowerer.lower_module(*fx.mod);
+    (void)ir_mod;
+    CHECK_EQ(lowerer.specialize_stats().attempts, 1u);
+    CHECK_EQ(lowerer.specialize_stats().succeeded, 0u);
+    CHECK_EQ(lowerer.specialize_stats().fallbacks, 1u);
+}
+
+TEST_CASE("money format over literal specializes to straight-line writes")
+{
+    REQUIRE(std::getenv("DCC_TEST_LIBDCEXT_SRC") != nullptr);
+    MoneyFixture fx;
+    REQUIRE(fx.ok());
+    std::uint64_t off_attempts = 0;
+    std::uint64_t off_succeeded = 0;
+    auto off_text = money_ir_text(fx, false, off_attempts, off_succeeded);
+    CHECK_EQ(off_attempts, 0u);
+    auto off_region = slice_function_region(off_text, "do_format");
+    REQUIRE(!off_region.empty());
+    CHECK(region_calls_fmt(off_region));
+    std::uint64_t on_attempts = 0;
+    std::uint64_t on_succeeded = 0;
+    auto on_text = money_ir_text(fx, true, on_attempts, on_succeeded);
+    CHECK(on_attempts > 0u);
+    CHECK(on_succeeded > 0u);
+    auto on_region = slice_function_region(on_text, "do_format");
+    REQUIRE(!on_region.empty());
+    CHECK(!region_calls_fmt(on_region));
+    CHECK(count_substr(on_region, "call fn(%") >= 3u);
+}

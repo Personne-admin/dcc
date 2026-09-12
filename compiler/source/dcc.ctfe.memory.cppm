@@ -97,16 +97,43 @@ export namespace dcc::ctfe
                 m_allocations[p.allocation].poisoned = false;
         }
 
-        void poison_all(std::uint64_t cause, std::unordered_set<std::size_t> const& pinned)
+        void poison_reachable(std::uint64_t cause, std::vector<comptime::Value const*> const& roots,
+                              std::unordered_set<std::size_t> const& pinned)
         {
             std::unordered_set<std::size_t> skip = pinned;
             for (auto const& entry : m_literals)
                 skip.insert(entry.second);
-            for (std::size_t i = 0; i < m_allocations.size(); ++i)
+            std::unordered_set<std::size_t> reached;
+            std::vector<comptime::Value const*> worklist = roots;
+            auto visit_ptr = [&](comptime::ValuePtr const& p) {
+                if (p.is_null || p.allocation >= m_allocations.size())
+                    return;
+                auto& allocation = m_allocations[p.allocation];
+                if (!allocation.live || !reached.insert(p.allocation).second)
+                    return;
+                for (auto const& element : allocation.elements)
+                    worklist.push_back(&element);
+            };
+            while (!worklist.empty())
             {
-                auto& allocation = m_allocations[i];
-                if (!allocation.live || skip.contains(i))
+                auto const* value = worklist.back();
+                worklist.pop_back();
+                if (value->kind() == comptime::Value::Kind::Pointer)
+                    visit_ptr(value->get_pointer());
+                else if (value->kind() == comptime::Value::Kind::Slice && value->slice_is_ref())
+                    visit_ptr(value->slice_base());
+                else if (value->kind() == comptime::Value::Kind::Aggregate ||
+                         (value->kind() == comptime::Value::Kind::Slice && !value->slice_is_ref()))
+                {
+                    for (std::size_t i = 0; i < value->size(); ++i)
+                        worklist.push_back(&value->at(i));
+                }
+            }
+            for (auto id : reached)
+            {
+                if (skip.contains(id))
                     continue;
+                auto& allocation = m_allocations[id];
                 allocation.poisoned = true;
                 for (auto& element : allocation.elements)
                     poison_value(element, cause);

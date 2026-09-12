@@ -86,6 +86,7 @@ namespace
         std::size_t base_line{};
         bool bounds_check{false};
         bool restricted_check{false};
+        bool partial_eval{false};
     };
 
     struct ExpectLlvm
@@ -105,6 +106,7 @@ namespace
         bool omit_frame_pointer{true};
         bool bounds_check{false};
         bool restricted_check{false};
+        bool partial_eval{false};
     };
 
     struct ExpectRegistry
@@ -183,6 +185,7 @@ namespace
         int opt_level{0};
         bool bounds_check{false};
         bool restricted_check{false};
+        bool partial_eval{false};
         bool pic{false};
         bool shared_link{false};
         bool link_std{false};
@@ -402,6 +405,8 @@ namespace
                         e.bounds_check = true;
                     if (flags_str.find("-frestricted-check") != std::string::npos)
                         e.restricted_check = true;
+                    if (flags_str.find("-fpartial-eval") != std::string::npos)
+                        e.partial_eval = true;
                 }
                 fx.ir_blocks.push_back(std::move(e));
             }
@@ -460,6 +465,8 @@ namespace
                         e.bounds_check = true;
                     if (flags_str.find("-frestricted-check") != std::string::npos)
                         e.restricted_check = true;
+                    if (flags_str.find("-fpartial-eval") != std::string::npos)
+                        e.partial_eval = true;
                     if (flags_str.find("-fno-red-zone") != std::string::npos)
                         e.no_red_zone = true;
                     if (flags_str.find("-fno-simd") != std::string::npos)
@@ -549,6 +556,8 @@ namespace
                         e.bounds_check = true;
                     if (flags_str.find("-frestricted-check") != std::string::npos)
                         e.restricted_check = true;
+                    if (flags_str.find("-fpartial-eval") != std::string::npos)
+                        e.partial_eval = true;
                 }
 
                 if (!sec.body.empty())
@@ -1950,7 +1959,7 @@ namespace
 
             dcc::ir::IrContext ir_ctx;
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
-                                                                     exp.restricted_check);
+                                                                     exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
             auto actual = dcc::ir::IrSerializer::dump(ir_mod);
             auto a = normalize(actual);
@@ -1991,7 +2000,7 @@ namespace
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
-                                                                     exp.restricted_check);
+                                                                     exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             target.no_red_zone = exp.no_red_zone;
@@ -2253,7 +2262,7 @@ namespace
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
-                                                                     exp.restricted_check);
+                                                                     exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
 
             if (exp.pic)
