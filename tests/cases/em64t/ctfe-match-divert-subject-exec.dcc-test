@@ -1,0 +1,92 @@
+=== FILE: test.dc ===
+module test;
+
+enum FmtError : u8 {
+    OutOfSpace,
+    SinkFailed,
+    BadFormat,
+}
+
+enum Result(T, E) {
+    Ok(T),
+    @implicit_construction Err(E),
+}
+
+T default_of(T)() {
+    T zero;
+    return zero;
+}
+
+bool is_ok(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(_) => true,
+        _ => false,
+    };
+}
+
+bool is_err(T, E)(const Result(T, E)* self) {
+    return !self.is_ok();
+}
+
+T unwrap(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Ok(v) => v,
+        _ => default_of(),
+    };
+}
+
+E unwrap_err(T, E)(const Result(T, E)* self) {
+    return match *self {
+        Result::Err(e) => e,
+        _ => default_of(),
+    };
+}
+
+Result(usize, FmtError) get_idx(bool ok) {
+    if !ok { return Result::Err(FmtError::BadFormat); }
+    return Result::Ok(1 as usize);
+}
+
+Result(i32, FmtError) match_index(bool ok) {
+    i32[3] vals = {65, 66, 67};
+    return Result::Ok(match vals[get_idx(ok)?] {
+        66 => 10,
+        _ => 20,
+    });
+}
+
+i32 make_i32(i32 x) {
+    return x;
+}
+
+i32 match_rvalue() {
+    return match make_i32(7) {
+        7 => 100,
+        _ => 200,
+    };
+}
+
+const Result(i32, FmtError) M_OK = match_index(true);
+const Result(i32, FmtError) M_ERR = match_index(false);
+const i32 M_RV = match_rvalue();
+
+@nomangle
+public i32 dcc_main() {
+    if !M_OK.is_ok() { return 1; }
+    if M_OK.unwrap() != 10 { return 2; }
+    if !M_ERR.is_err() { return 3; }
+    if M_ERR.unwrap_err() != FmtError::BadFormat { return 4; }
+    if M_RV != 100 { return 5; }
+    Result(i32, FmtError) r = match_index(true);
+    if !r.is_ok() || r.unwrap() != 10 { return 6; }
+    if match_rvalue() != 100 { return 7; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===

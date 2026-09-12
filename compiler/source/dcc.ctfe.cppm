@@ -773,9 +773,8 @@ export namespace dcc::ctfe
         Result subject_place(ast::Expr const& expr, comptime::ValuePtr& out)
         {
             auto r = place(expr, out);
-            if (r.flow == Flow::Normal || r.flow == Flow::Error)
+            if (r.flow != Flow::NotEvaluatable)
                 return r;
-
             r = expression(expr);
             if (r.flow != Flow::Normal || !r.value)
                 return r;
@@ -1204,6 +1203,8 @@ export namespace dcc::ctfe
                 {
                     comptime::ValuePtr object;
                     receiver = place(*field->object, object);
+                    if (receiver.flow != Flow::Normal && receiver.flow != Flow::NotEvaluatable)
+                        return receiver;
                     if (receiver.flow != Flow::Normal)
                     {
                         auto expr_res = expression(*field->object);
