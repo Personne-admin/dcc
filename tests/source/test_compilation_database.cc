@@ -1,4 +1,5 @@
 import std;
+import dcc.session;
 import dcc.target;
 import dccd.compilation_database;
 
@@ -267,4 +268,64 @@ TEST_CASE("backend and output operands are ignored in the projection")
     CHECK_EQ(analysis->target->triple, "x86-elf");
     CHECK(analysis->import_roots.empty());
     CHECK(analysis->injected_decls.empty());
+}
+
+TEST_CASE("x86-elf resolves to 32-bit x86 and accepts control registers")
+{
+    std::vector<std::vector<std::string>> spellings = {
+        {"dcc", "-target", "x86-elf", "-c", "main.dc", "-o", "main.o"},
+        {"dcc", "--target", "x86-elf", "-c", "main.dc", "-o", "main.o"},
+        {"dcc", "-target=x86-elf", "-c", "main.dc", "-o", "main.o"},
+        {"dcc", "--target=x86-elf", "-c", "main.dc", "-o", "main.o"},
+    };
+
+    std::optional<dcc::target::TargetConfig> resolved;
+    for (auto const& argv : spellings)
+    {
+        TempDir td;
+        std::string args;
+        for (auto const& arg : argv)
+        {
+            if (!args.empty())
+                args += ",";
+            args += "\"" + arg + "\"";
+        }
+        write_file(td.path / "compile_commands.json", "[{\"directory\":\"" + td.path.string() + "\",\"file\":\"main.dc\",\"arguments\":[" +
+                                                           args + "]}]");
+
+        std::ostringstream log;
+        dccd::CompilationDatabase db;
+        REQUIRE(db.load(td.path / "compile_commands.json", log));
+        auto* cmd = db.command_for(td.path / "main.dc");
+        REQUIRE(cmd != nullptr);
+        auto analysis = dccd::project_analysis_command(*cmd, log);
+        REQUIRE(analysis.has_value());
+        REQUIRE(analysis->target.has_value());
+        CHECK(analysis->target->arch == dcc::target::Arch::X86);
+        CHECK(analysis->target->arch != dcc::target::Arch::X86_64);
+        CHECK_EQ(analysis->target->triple, "x86-elf");
+        CHECK(analysis->target->pointer_bits == 32);
+        resolved = *analysis->target;
+    }
+
+    REQUIRE(resolved.has_value());
+    TempDir td;
+    write_file(td.path / "main.dc",
+               "module main;\n"
+               "usize read_cr3() {\n"
+               "    usize v = asm @[output(usize in eax)] { \"mov %%cr3, %0\" };\n"
+               "    return v;\n"
+               "}\n"
+               "void write_cr3(usize v) {\n"
+               "    asm @[inputs(v in eax = v)] { \"mov %0, %%cr3\" };\n"
+               "}\n");
+
+    dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+    dcc::session::CompileOptions copts;
+    copts.target = *resolved;
+    copts.import_roots.push_back(td.path);
+    auto result = session.analyze_entry(td.path / "main.dc", copts);
+    REQUIRE(result.module != nullptr);
+    CHECK(!result.has_errors);
+    CHECK(!session.diagnostics().has_errors());
 }

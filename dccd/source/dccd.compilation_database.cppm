@@ -303,7 +303,7 @@ namespace dccd
         {
             std::string_view arg{argv[i]};
 
-            if (arg == "-target" && i + 1 < argv.size())
+            if ((arg == "-target" || arg == "--target") && i + 1 < argv.size())
             {
                 triple_str = argv[i + 1];
                 ++i;
@@ -312,6 +312,11 @@ namespace dccd
             if (arg.starts_with("--target="))
             {
                 triple_str = arg.substr(9);
+                continue;
+            }
+            if (arg.starts_with("-target="))
+            {
+                triple_str = arg.substr(8);
                 continue;
             }
 

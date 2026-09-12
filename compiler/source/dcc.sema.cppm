@@ -45,6 +45,7 @@ export namespace dcc::sema
         SemaContext& operator=(SemaContext const&) = delete;
 
         [[nodiscard]] ModuleGraph& graph() noexcept { return m_graph; }
+        [[nodiscard]] dcc::target::TargetConfig const& target() const noexcept { return m_opts.target; }
         [[nodiscard]] types::TypeContext& types() noexcept { return m_types; }
         [[nodiscard]] SpecializationRegistry& spec_registry() noexcept { return m_spec_registry; }
         [[nodiscard]] std::pmr::polymorphic_allocator<> allocator() noexcept { return m_alloc; }

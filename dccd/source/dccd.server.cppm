@@ -1236,8 +1236,9 @@ export namespace dccd
                                 break;
                             }
                             case dcc::ast::AsmPlaceholderSpan::Kind::RegLiteral: {
-                                // TODO(asm): use actual arch from session's TargetConfig
-                                auto arch = dcc::target::TargetConfig::host_default().arch;
+                                dcc::target::Arch arch = dcc::target::TargetConfig::host_default().arch;
+                                if (auto* sema_ctx = m_session->sema_context())
+                                    arch = sema_ctx->target().arch;
                                 auto const* reg = dcc::target::lookup_register(arch, span.name);
                                 if (reg)
                                 {
