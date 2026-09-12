@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+
+@inline
+i32 clamp(i32 x) {
+    if x < 0 { return 0; }
+    if x > 100 { return 100; }
+    return x;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if clamp(-5) != 0 { return 1; }
+    if clamp(500) != 100 { return 2; }
+    if clamp(42) != 42 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+RUN-EXIT: 0
