@@ -18,6 +18,11 @@ namespace
         return ctx.int_t(32, true);
     }
 
+    types::TypePtr u64(types::TypeContext& ctx)
+    {
+        return ctx.int_t(64, false);
+    }
+
     types::TypePtr f64(types::TypeContext& ctx)
     {
         return ctx.float_t(64);
@@ -507,6 +512,33 @@ TEST_CASE("fold_int_cmp")
     auto gt = comptime::Value::fold_int_cmp(comptime::BinaryOp::Gt, 5, 3, t);
     REQUIRE(gt.has_value());
     CHECK(gt->get_bool());
+}
+
+TEST_CASE("fold_cmp unsigned integers compare unsigned")
+{
+    types::TypeContext ctx;
+    auto u64t = u64(ctx);
+    auto t = ctx.m_boolt();
+
+    auto max = comptime::Value::make_int(-1, u64t);
+    auto one = comptime::Value::make_int(1, u64t);
+
+    auto lt = dcc::const_eval::fold_cmp(dcc::lex::TokenKind::Lt, max, one, t);
+    REQUIRE(lt.has_value());
+    CHECK(!lt->get_bool());
+
+    auto gt = dcc::const_eval::fold_cmp(dcc::lex::TokenKind::Gt, max, one, t);
+    REQUIRE(gt.has_value());
+    CHECK(gt->get_bool());
+
+    auto le = dcc::const_eval::fold_cmp(dcc::lex::TokenKind::LtEq, one, max, t);
+    REQUIRE(le.has_value());
+    CHECK(le->get_bool());
+
+    auto signed_lt = dcc::const_eval::fold_cmp(dcc::lex::TokenKind::Lt, comptime::Value::make_int(-1, i32(ctx)),
+                                               comptime::Value::make_int(1, i32(ctx)), t);
+    REQUIRE(signed_lt.has_value());
+    CHECK(signed_lt->get_bool());
 }
 
 SECTION("comptime: fold_unary");

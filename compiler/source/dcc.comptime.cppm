@@ -655,6 +655,37 @@ export namespace dcc::comptime
             return std::nullopt;
         }
 
+        [[nodiscard]] static std::optional<Value> fold_uint_cmp(BinaryOp op, std::uint64_t lhs, std::uint64_t rhs, types::TypePtr out_type)
+        {
+            std::optional<bool> result;
+            switch (op)
+            {
+                case BinaryOp::Eq:
+                    result = lhs == rhs;
+                    break;
+                case BinaryOp::Ne:
+                    result = lhs != rhs;
+                    break;
+                case BinaryOp::Lt:
+                    result = lhs < rhs;
+                    break;
+                case BinaryOp::Le:
+                    result = lhs <= rhs;
+                    break;
+                case BinaryOp::Gt:
+                    result = lhs > rhs;
+                    break;
+                case BinaryOp::Ge:
+                    result = lhs >= rhs;
+                    break;
+                default:
+                    return std::nullopt;
+            }
+            if (result)
+                return make_bool(*result, out_type);
+            return std::nullopt;
+        }
+
         [[nodiscard]] std::optional<Value> fold_unary(UnaryOp op, types::TypePtr out_type) const
         {
             if (kind() == Kind::Unknown)

@@ -149,6 +149,11 @@ export namespace dcc::const_eval
             if (!lv || !rv)
                 return std::nullopt;
 
+            if (auto const* lhs_int = types::type_cast<types::IntType>(lhs.type))
+            {
+                if (!lhs_int->is_signed)
+                    return comptime::Value::fold_uint_cmp(*bop, static_cast<std::uint64_t>(*lv), static_cast<std::uint64_t>(*rv), out_type);
+            }
             return fold_int_cmp(op, *lv, *rv, out_type);
         }
 
