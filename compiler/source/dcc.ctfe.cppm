@@ -1,5 +1,7 @@
 module;
 
+#include <cassert>
+
 export module dcc.ctfe;
 
 import std;
@@ -16,7 +18,8 @@ export namespace dcc::ctfe
     enum class Mode : std::uint8_t
     {
         Required,
-        Opportunistic
+        Opportunistic,
+        Specialize
     };
 
     enum class Flow : std::uint8_t
@@ -26,8 +29,48 @@ export namespace dcc::ctfe
         Break,
         Continue,
         NotEvaluatable,
-        Error
+        Error,
+        Abandoned
     };
+
+    enum class AbandonReason : std::uint8_t
+    {
+        None,
+        UnknownCondition,
+        UnknownIndex,
+        UnsupportedEffect,
+        StepExhausted,
+        CellExhausted,
+        TraceExhausted,
+        RecursionExhausted,
+        CompilesBlocked
+    };
+
+    [[nodiscard]] inline std::string_view abandon_message(AbandonReason reason)
+    {
+        switch (reason)
+        {
+            case AbandonReason::None:
+                return "no abandonment";
+            case AbandonReason::UnknownCondition:
+                return "specialization abandoned: unknown branch condition";
+            case AbandonReason::UnknownIndex:
+                return "specialization abandoned: unknown index";
+            case AbandonReason::UnsupportedEffect:
+                return "specialization abandoned: unsupported effect";
+            case AbandonReason::StepExhausted:
+                return "specialization abandoned: step limit exceeded";
+            case AbandonReason::CellExhausted:
+                return "specialization abandoned: memory limit exceeded";
+            case AbandonReason::TraceExhausted:
+                return "specialization abandoned: trace limit exceeded";
+            case AbandonReason::RecursionExhausted:
+                return "specialization abandoned: recursion limit exceeded";
+            case AbandonReason::CompilesBlocked:
+                return "specialization abandoned: undecided compiles";
+        }
+        return "specialization abandoned";
+    }
 
     struct Context
     {
@@ -38,7 +81,9 @@ export namespace dcc::ctfe
         std::size_t step_limit{100000};
         std::size_t recursion_limit{128};
         std::size_t memory_limit{1 << 20};
+        std::size_t trace_limit{4096};
         std::function<bool(ast::FuncDecl const&)> prepare_function;
+        std::unordered_set<ast::FuncDecl const*>* specializing{};
     };
 
     struct Call
@@ -53,8 +98,29 @@ export namespace dcc::ctfe
         std::optional<comptime::Value> value;
         std::string message;
         std::vector<Call> calls;
+        AbandonReason abandon_reason{AbandonReason::None};
 
         [[nodiscard]] bool failed() const { return flow == Flow::NotEvaluatable || flow == Flow::Error; }
+    };
+
+    struct Residual
+    {
+        enum class Kind : std::uint8_t
+        {
+            Value,
+            Emit,
+            Seq
+        };
+
+        Kind kind{Kind::Value};
+        comptime::Value value{};
+        ast::Expr const* node{};
+        std::vector<std::size_t> children{};
+    };
+
+    struct Trace
+    {
+        std::vector<Residual> nodes{};
     };
 
     class Evaluator
@@ -75,6 +141,8 @@ export namespace dcc::ctfe
         std::vector<Frame> m_frames;
         std::unordered_map<comptime::Value const*, comptime::ValuePtr> m_constants;
         Heap m_heap;
+        Trace m_trace;
+        std::vector<std::size_t> m_seq_stack;
         std::optional<sm::SourceRange> m_default_argument_call_site;
 
         struct DefaultArgumentCallSiteGuard
@@ -100,7 +168,7 @@ export namespace dcc::ctfe
         }
 
         bool step() { return ++m_steps <= m_context.step_limit; }
-        Result exhausted() { return failure("step limit exceeded", true); }
+        Result exhausted() { return limited(AbandonReason::StepExhausted, "step limit exceeded", true); }
         Result expired() { return failure("reference to storage that has gone out of scope"); }
         Result unsupported() { return failure("operation is unavailable at compile time"); }
 
@@ -108,7 +176,159 @@ export namespace dcc::ctfe
         {
             if (!value)
                 return unsupported();
+            if (specializing() && value->kind() == Kind::Unknown)
+                return {Flow::Normal, std::move(value), {}, {}};
+            if (specializing() && !append_value(*value))
+                return abandoned(AbandonReason::TraceExhausted);
             return {Flow::Normal, std::move(value), {}, {}};
+        }
+
+        bool specializing() const { return m_mode == Mode::Specialize; }
+
+        Result abandoned(AbandonReason reason)
+        {
+            Result r{Flow::Abandoned, {}, std::string{abandon_message(reason)}, {}, reason};
+            for (auto const& frame : m_frames)
+                if (frame.call.function)
+                    r.calls.push_back(frame.call);
+            return r;
+        }
+
+        Result limited(AbandonReason reason, std::string message, bool hard)
+        {
+            if (specializing())
+                return abandoned(reason);
+            return failure(std::move(message), hard);
+        }
+
+        static bool contains_unknown(comptime::Value const& value)
+        {
+            if (value.kind() == Kind::Unknown)
+                return true;
+            if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    if (contains_unknown(value.at(i)))
+                        return true;
+            }
+            return false;
+        }
+
+        static bool converts_cleanly(comptime::Value const& value, types::TypePtr target)
+        {
+            return value.kind() != Kind::Unknown || !target || !value.type || target == value.type;
+        }
+
+        Result require_truth(comptime::Value const* value, std::string message)
+        {
+            if (specializing() && value && contains_unknown(*value))
+                return abandoned(AbandonReason::UnknownCondition);
+            return failure(std::move(message));
+        }
+
+        std::optional<std::size_t> append_trace(Residual node)
+        {
+            assert(!m_seq_stack.empty());
+            if (m_trace.nodes.size() >= m_context.trace_limit)
+                return std::nullopt;
+            auto index = m_trace.nodes.size();
+            m_trace.nodes.push_back(std::move(node));
+            m_trace.nodes[m_seq_stack.back()].children.push_back(index);
+            return index;
+        }
+
+        std::optional<std::size_t> append_value(comptime::Value const& value)
+        {
+            Residual node;
+            node.kind = Residual::Kind::Value;
+            node.value = value;
+            return append_trace(std::move(node));
+        }
+
+        std::optional<std::size_t> append_emit(ast::Expr const& node, std::vector<std::size_t> children)
+        {
+            for (auto child : children)
+                assert(child < m_trace.nodes.size());
+            Residual residual;
+            residual.kind = Residual::Kind::Emit;
+            residual.node = &node;
+            residual.children = std::move(children);
+            return append_trace(std::move(residual));
+        }
+
+        std::optional<std::size_t> trace_ref(comptime::Value const& value)
+        {
+            if (value.kind() == Kind::Unknown)
+                return value.unknown_origin();
+            return append_value(value);
+        }
+
+        Result emit_residual(ast::Expr const& node, std::vector<std::size_t> children, types::TypePtr type)
+        {
+            auto index = append_emit(node, std::move(children));
+            if (!index)
+                return abandoned(AbandonReason::TraceExhausted);
+            return {Flow::Normal, comptime::Value::make_unknown(type, *index), {}, {}};
+        }
+
+        Result reoriginate(ast::Expr const& expr, Result r)
+        {
+            if (specializing() && r.flow == Flow::Normal && r.value && r.value->kind() == Kind::Unknown)
+                return emit_residual(expr, {}, type_of(expr));
+            return r;
+        }
+
+        std::optional<std::size_t> seq_begin()
+        {
+            if (m_trace.nodes.size() >= m_context.trace_limit)
+                return std::nullopt;
+            Residual seq;
+            seq.kind = Residual::Kind::Seq;
+            auto index = m_trace.nodes.size();
+            m_trace.nodes.push_back(std::move(seq));
+            if (!m_seq_stack.empty())
+                m_trace.nodes[m_seq_stack.back()].children.push_back(index);
+            m_seq_stack.push_back(index);
+            return index;
+        }
+
+        void seq_end()
+        {
+            assert(!m_seq_stack.empty());
+            m_seq_stack.pop_back();
+        }
+
+        void poison_all(std::size_t cause)
+        {
+            std::unordered_set<std::size_t> pinned;
+            for (auto const& entry : m_constants)
+                pinned.insert(entry.second.allocation);
+            m_heap.poison_all(cause, pinned);
+        }
+
+        Result residual_call(ast::CallExpr const& call, std::vector<comptime::Value> args, std::optional<comptime::Value> callee)
+        {
+            std::vector<std::size_t> children;
+            if (callee)
+            {
+                auto index = trace_ref(*callee);
+                if (!index)
+                    return abandoned(AbandonReason::TraceExhausted);
+                children.push_back(*index);
+            }
+            for (auto const& arg : args)
+            {
+                auto index = trace_ref(arg);
+                if (!index)
+                    return abandoned(AbandonReason::TraceExhausted);
+                children.push_back(*index);
+            }
+            auto index = append_emit(call, std::move(children));
+            if (!index)
+                return abandoned(AbandonReason::TraceExhausted);
+            poison_all(*index);
+            m_constants.clear();
+            return {Flow::Normal, comptime::Value::make_unknown(type_of(call), *index), {}, {}};
         }
 
         static types::TypePtr type_of(ast::Expr const& expr) { return reinterpret_cast<types::TypePtr>(expr.sema.resolved_type); }
@@ -268,7 +488,7 @@ export namespace dcc::ctfe
             if (value.flow != Flow::Normal || !value.value)
                 return value;
             if (m_cells++ >= m_context.memory_limit)
-                return failure("memory limit exceeded", true);
+                return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
 
             out = m_heap.allocate(std::move(*value.value), false);
             m_constants.emplace(constant, out);
@@ -278,7 +498,7 @@ export namespace dcc::ctfe
         Result bind(ast::Decl const* decl, comptime::Value object)
         {
             if (m_cells++ >= m_context.memory_limit)
-                return failure("memory limit exceeded", true);
+                return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
 
             auto& frame = m_frames.back();
             if (auto it = frame.locals.find(decl); it != frame.locals.end())
@@ -286,6 +506,7 @@ export namespace dcc::ctfe
                 if (auto* slot = m_heap.write_target(it->second))
                 {
                     *slot = std::move(object);
+                    m_heap.mark_clean(it->second);
                     return {};
                 }
             }
@@ -379,7 +600,11 @@ export namespace dcc::ctfe
                 return r;
             auto index = r.value->const_to_int();
             if (!index)
+            {
+                if (specializing() && contains_unknown(*r.value))
+                    return abandoned(AbandonReason::UnknownIndex);
                 return failure("index has no compile-time value");
+            }
             out = *index;
             return {};
         }
@@ -477,6 +702,7 @@ export namespace dcc::ctfe
             if (!slot)
                 return m_heap.is_mutable(ptr) ? failure("write outside the bounds of a compile-time object") : failure("write to read-only storage");
             *slot = value;
+            m_heap.mark_clean(ptr);
             return folded(std::move(value));
         }
 
@@ -639,7 +865,11 @@ export namespace dcc::ctfe
                 if (r.flow != Flow::Normal || !r.value)
                     return r;
                 if (r.value->kind() != Kind::Slice)
+                {
+                    if (specializing() && contains_unknown(*r.value))
+                        return abandoned(AbandonReason::UnknownIndex);
                     return failure("slice has no compile-time storage");
+                }
                 base = r.value->slice_base();
                 length = r.value->slice_length();
             }
@@ -658,7 +888,7 @@ export namespace dcc::ctfe
             return folded(comptime::Value::make_slice_ref(std::move(*first), end - start, type_of(expr)));
         }
 
-        Result convert(ast::Expr const& expr, types::TypePtr target)
+        Result convert(ast::Expr const& expr, types::TypePtr target, bool explicit_cast = false)
         {
             if (expr.sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && expr.sema.constructed_variant && target &&
                 expr.kind != ast::ExprKind::Call)
@@ -681,7 +911,12 @@ export namespace dcc::ctfe
             bool to_slice = types::type_cast<types::SliceType>(target) != nullptr;
             bool to_pointer = types::type_cast<types::PointerType>(target) != nullptr;
             if (!array || (!to_slice && !to_pointer))
-                return expression(expr);
+            {
+                auto r = expression(expr);
+                if (specializing() && !explicit_cast && r.flow == Flow::Normal && r.value && !converts_cleanly(*r.value, target))
+                    return abandoned(AbandonReason::UnsupportedEffect);
+                return r;
+            }
 
             if (array->count == 0 && to_slice)
                 return folded(comptime::Value::make_slice({}, target));
@@ -779,7 +1014,7 @@ export namespace dcc::ctfe
             if (r.flow != Flow::Normal || !r.value)
                 return r;
             if (m_cells++ >= m_context.memory_limit)
-                return failure("memory limit exceeded", true);
+                return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
 
             out = m_heap.allocate(std::move(*r.value), true);
             m_frames.back().allocations.push_back(out.allocation);
@@ -937,6 +1172,14 @@ export namespace dcc::ctfe
             auto r = subject_place(*expr.operand, subject);
             if (r.flow != Flow::Normal)
                 return r;
+            if (specializing())
+            {
+                auto scrutinee = read(subject);
+                if (scrutinee.flow != Flow::Normal || !scrutinee.value)
+                    return scrutinee;
+                if (contains_unknown(*scrutinee.value))
+                    return abandoned(AbandonReason::UnknownCondition);
+            }
 
             for (auto const& arm : expr.arms)
             {
@@ -957,7 +1200,7 @@ export namespace dcc::ctfe
                         return guard;
                     auto truth = guard.value ? guard.value->const_to_bool() : std::nullopt;
                     if (!truth)
-                        return failure("match guard has no compile-time value");
+                        return require_truth(guard.value ? &*guard.value : nullptr, "match guard has no compile-time value");
                     if (!*truth)
                         continue;
                 }
@@ -974,7 +1217,14 @@ export namespace dcc::ctfe
                 if (object.flow != Flow::Normal || !object.value)
                     return object;
                 if (object.value->kind() == Kind::Unknown)
-                    return folded(comptime::Value::make_unknown(type_of(expr)));
+                {
+                    if (!specializing())
+                        return folded(comptime::Value::make_unknown(type_of(expr)));
+                    auto base = trace_ref(*object.value);
+                    if (!base)
+                        return abandoned(AbandonReason::TraceExhausted);
+                    return emit_residual(expr, {*base}, type_of(expr));
+                }
                 if (object.value->kind() != Kind::Slice)
                     return failure("slice field has no compile-time value");
                 if (expr.field == "len")
@@ -987,8 +1237,20 @@ export namespace dcc::ctfe
             comptime::ValuePtr member;
             auto r = field_place(expr, member);
             if (r.flow != Flow::Normal)
+            {
+                if (specializing() && r.flow == Flow::NotEvaluatable)
+                {
+                    auto base = expression(*expr.object);
+                    if (base.flow != Flow::Normal || !base.value)
+                        return base;
+                    auto ref = trace_ref(*base.value);
+                    if (!ref)
+                        return abandoned(AbandonReason::TraceExhausted);
+                    return emit_residual(expr, {*ref}, type_of(expr));
+                }
                 return r;
-            return read(member);
+            }
+            return reoriginate(expr, read(member));
         }
 
         Result element_value(ast::IndexExpr const& expr)
@@ -1000,7 +1262,7 @@ export namespace dcc::ctfe
             auto r = element_place(expr, element);
             if (r.flow != Flow::Normal)
                 return r;
-            return read(element);
+            return reoriginate(expr, read(element));
         }
 
         Result offset_pointer(comptime::Value const& pointer, std::int64_t delta)
@@ -1072,6 +1334,24 @@ export namespace dcc::ctfe
             if (old.flow != Flow::Normal || !old.value)
                 return old;
 
+            if (specializing() && contains_unknown(*old.value))
+            {
+                auto operand = trace_ref(*old.value);
+                if (!operand)
+                    return abandoned(AbandonReason::TraceExhausted);
+                auto emitted = emit_residual(target, {*operand}, old.value->type);
+                if (emitted.flow != Flow::Normal || !emitted.value)
+                    return emitted;
+                auto* slot = m_heap.write_target(ptr);
+                if (!slot)
+                    return failure("write to read-only storage");
+                *slot = *emitted.value;
+                m_heap.mark_clean(ptr);
+                if (prefix)
+                    return emitted;
+                return {Flow::Normal, std::move(*old.value), {}, {}};
+            }
+
             std::int64_t delta = increment ? 1 : -1;
             std::optional<comptime::Value> next;
             switch (old.value->kind())
@@ -1100,6 +1380,7 @@ export namespace dcc::ctfe
             if (!slot)
                 return failure("write to read-only storage");
             *slot = *next;
+            m_heap.mark_clean(ptr);
             return prefix ? folded(std::move(next)) : folded(std::move(old.value));
         }
 
@@ -1152,7 +1433,7 @@ export namespace dcc::ctfe
             {
                 auto truth = lhs.value->const_to_bool();
                 if (!truth)
-                    return failure("condition has no compile-time value");
+                    return require_truth(lhs.value ? &*lhs.value : nullptr, "condition has no compile-time value");
                 if (*truth == (expr.op == K::PipePipe))
                     return folded(comptime::Value::make_bool(*truth, type_of(expr)));
                 return expression(*expr.rhs);
@@ -1164,6 +1445,22 @@ export namespace dcc::ctfe
 
             auto op = compound_base(expr.op);
             auto out_type = op == expr.op ? type_of(expr) : type_of(*expr.lhs);
+
+            if (specializing() && (contains_unknown(*lhs.value) || contains_unknown(*rhs.value)))
+            {
+                if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer)
+                    return abandoned(AbandonReason::UnsupportedEffect);
+                auto first = trace_ref(*lhs.value);
+                auto second = trace_ref(*rhs.value);
+                if (!first || !second)
+                    return abandoned(AbandonReason::TraceExhausted);
+                auto emitted = emit_residual(expr, {*first, *second}, out_type);
+                if (emitted.flow != Flow::Normal || !emitted.value)
+                    return emitted;
+                if (op != expr.op)
+                    return store(*expr.lhs, std::move(*emitted.value));
+                return emitted;
+            }
 
             Result r{};
             if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer)
@@ -1215,7 +1512,7 @@ export namespace dcc::ctfe
                         if (expr_res.flow != Flow::Normal || !expr_res.value)
                             return expr_res;
                         if (m_cells++ >= m_context.memory_limit)
-                            return failure("memory limit exceeded", true);
+                            return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
                         object = m_heap.allocate(std::move(*expr_res.value), true);
                         if (!m_frames.empty())
                             m_frames.back().allocations.push_back(object.allocation);
@@ -1305,6 +1602,9 @@ export namespace dcc::ctfe
                         is_runtime = true;
             }
 
+            if (specializing())
+                return specialize_call(call, fn, is_runtime);
+
             if (is_runtime)
                 return failure("call to runtime-only function in constant expression");
 
@@ -1315,7 +1615,7 @@ export namespace dcc::ctfe
             if (!fn || fn->is_extern || fn->sema.is_intrinsic || !fn->body)
                 return failure("external, indirect or runtime-only call");
             if (m_frames.size() > m_context.recursion_limit)
-                return failure("recursion limit exceeded", true);
+                return limited(AbandonReason::RecursionExhausted, "recursion limit exceeded", true);
             if (call.sema.call_argument_offset > call.args.size())
                 return failure("call argument mapping is unresolved");
 
@@ -1331,7 +1631,82 @@ export namespace dcc::ctfe
                 return failure("call requires a resolved function and materialized arguments");
 
             m_frames.push_back(Frame{Call{fn, call.range}, {}, {}});
+            bool scoped = false;
+            if (specializing())
+            {
+                if (!seq_begin())
+                {
+                    for (auto allocation : m_frames.back().allocations)
+                        m_heap.end_lifetime(allocation);
+                    m_frames.pop_back();
+                    return abandoned(AbandonReason::TraceExhausted);
+                }
+                scoped = true;
+            }
             auto result = enter(*fn, std::move(args));
+            if (scoped)
+                seq_end();
+            for (auto allocation : m_frames.back().allocations)
+                m_heap.end_lifetime(allocation);
+            m_frames.pop_back();
+            return result;
+        }
+
+        Result specialize_call(ast::CallExpr const& call, ast::FuncDecl const* fn, bool is_runtime)
+        {
+            if (m_frames.size() > m_context.recursion_limit)
+                return abandoned(AbandonReason::RecursionExhausted);
+            std::vector<comptime::Value> args;
+            std::optional<comptime::Value> callee;
+            if (fn)
+            {
+                auto r = callee_arguments(call, *fn, args);
+                if (r.flow != Flow::Normal)
+                    return r;
+            }
+            else
+            {
+                if (!call.callee)
+                    return failure("indirect call");
+                auto c = expression(*call.callee);
+                if (c.flow != Flow::Normal || !c.value)
+                    return c;
+                callee = std::move(*c.value);
+                for (std::size_t i = call.sema.call_argument_offset; i < call.args.size(); ++i)
+                {
+                    auto r = convert(*call.args[i], nullptr);
+                    if (r.flow != Flow::Normal || !r.value)
+                        return r;
+                    args.push_back(std::move(*r.value));
+                }
+            }
+
+            if (is_runtime)
+                return residual_call(call, args, callee);
+            if (!fn)
+                return residual_call(call, args, callee);
+            if (fn->is_extern || fn->sema.is_intrinsic || !fn->body)
+                return residual_call(call, args, callee);
+            if (call.sema.call_argument_offset > call.args.size())
+                return failure("call argument mapping is unresolved");
+            if (m_context.prepare_function && !m_context.prepare_function(*fn))
+                return residual_call(call, args, callee);
+            if (fn->sema.storage == ast::StorageClass::Unresolved || !fn->template_params.empty() || args.size() != fn->params.size())
+                return failure("call requires a resolved function and materialized arguments");
+            if (m_context.specializing && m_context.specializing->contains(fn))
+                return residual_call(call, args, callee);
+
+            m_frames.push_back(Frame{Call{fn, call.range}, {}, {}});
+            auto seq = seq_begin();
+            if (!seq)
+            {
+                for (auto allocation : m_frames.back().allocations)
+                    m_heap.end_lifetime(allocation);
+                m_frames.pop_back();
+                return abandoned(AbandonReason::TraceExhausted);
+            }
+            auto result = enter(*fn, std::move(args));
+            seq_end();
             for (auto allocation : m_frames.back().allocations)
                 m_heap.end_lifetime(allocation);
             m_frames.pop_back();
@@ -1357,8 +1732,7 @@ export namespace dcc::ctfe
             return result;
         }
 
-        Result invoke_unwrap_callee(ast::FuncDecl const* fn, ast::UfcsReceiverAdjust adjust, comptime::ValuePtr slot,
-                                    sm::SourceRange site)
+        Result invoke_unwrap_callee(ast::FuncDecl const* fn, ast::UfcsReceiverAdjust adjust, comptime::ValuePtr slot, sm::SourceRange site)
         {
             if (!fn || fn->params.empty())
                 return failure("unwrap-propagate target is unresolved");
@@ -1370,7 +1744,7 @@ export namespace dcc::ctfe
             if (!fn->body || fn->is_extern || fn->sema.is_intrinsic)
                 return failure("external, indirect or runtime-only call");
             if (m_frames.size() > m_context.recursion_limit)
-                return failure("recursion limit exceeded", true);
+                return limited(AbandonReason::RecursionExhausted, "recursion limit exceeded", true);
             if (fn->sema.storage == ast::StorageClass::Unresolved || !fn->template_params.empty())
                 return failure("call requires a resolved function and materialized arguments");
             if (m_context.prepare_function && !m_context.prepare_function(*fn))
@@ -1411,7 +1785,21 @@ export namespace dcc::ctfe
             if (args.size() != fn->params.size())
                 return failure("call requires a resolved function and materialized arguments");
             m_frames.push_back(Frame{Call{fn, site}, {}, {}});
+            bool scoped = false;
+            if (specializing())
+            {
+                if (!seq_begin())
+                {
+                    for (auto allocation : m_frames.back().allocations)
+                        m_heap.end_lifetime(allocation);
+                    m_frames.pop_back();
+                    return abandoned(AbandonReason::TraceExhausted);
+                }
+                scoped = true;
+            }
             auto result = enter(*fn, std::move(args));
+            if (scoped)
+                seq_end();
             for (auto allocation : m_frames.back().allocations)
                 m_heap.end_lifetime(allocation);
             m_frames.pop_back();
@@ -1431,8 +1819,15 @@ export namespace dcc::ctfe
             auto* fn = m_frames.empty() ? nullptr : m_frames.back().call.function;
             if (!fn)
                 return failure("unwrap-propagate outside a function");
+            if (specializing() && r.value->kind() == Kind::Unknown)
+            {
+                auto operand = trace_ref(*r.value);
+                if (!operand)
+                    return abandoned(AbandonReason::TraceExhausted);
+                return emit_residual(e, {*operand}, type_of(e));
+            }
             if (m_cells++ >= m_context.memory_limit)
-                return failure("memory limit exceeded", true);
+                return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
             auto slot = m_heap.allocate(std::move(*r.value), true);
             m_frames.back().allocations.push_back(slot.allocation);
             auto ok = invoke_unwrap_callee(is_ok_fn, e.unwrap_is_ok_receiver_adjust, slot, e.range);
@@ -1440,7 +1835,7 @@ export namespace dcc::ctfe
                 return ok;
             auto truth = ok.value->const_to_bool();
             if (!truth)
-                return failure("unwrap-propagate condition has no compile-time value");
+                return require_truth(ok.value ? &*ok.value : nullptr, "unwrap-propagate condition has no compile-time value");
             if (*truth)
             {
                 auto v = invoke_unwrap_callee(unwrap_fn, e.unwrap_unwrap_receiver_adjust, slot, e.range);
@@ -1459,8 +1854,7 @@ export namespace dcc::ctfe
                 if (!ret_enum || !ret_enum->is_tagged || !ret_enum->tagged_layout)
                     return failure("unwrap-propagate error type cannot be constructed");
                 std::vector<comptime::Value> elements;
-                elements.push_back(comptime::Value::make_int(e.unwrap_err_constructed_variant->discriminant,
-                                                             ret_enum->tagged_layout->discriminant_type));
+                elements.push_back(comptime::Value::make_int(e.unwrap_err_constructed_variant->discriminant, ret_enum->tagged_layout->discriminant_type));
                 if (!e.unwrap_err_constructed_variant->payload.empty())
                     elements.push_back(std::move(*out));
                 out = comptime::Value::make_aggregate(std::move(elements), ret_type);
@@ -1481,13 +1875,22 @@ export namespace dcc::ctfe
                         return r;
                     auto truth = r.value ? r.value->const_to_bool() : std::nullopt;
                     if (!truth)
-                        return failure("loop condition has no compile-time value");
+                        return require_truth(r.value ? &*r.value : nullptr, "loop condition has no compile-time value");
                     if (!*truth)
                         return {};
                 }
                 first = false;
 
+                bool scoped = false;
+                if (specializing())
+                {
+                    if (!seq_begin())
+                        return abandoned(AbandonReason::TraceExhausted);
+                    scoped = true;
+                }
                 auto r = block(body);
+                if (scoped)
+                    seq_end();
                 if (r.flow == Flow::Break)
                     return {};
                 if (r.flow != Flow::Normal && r.flow != Flow::Continue)
@@ -1505,7 +1908,11 @@ export namespace dcc::ctfe
         {
             auto* var = ast::node_cast<ast::VarDecl>(decl);
             if (!var)
+            {
+                if (specializing())
+                    return abandoned(AbandonReason::UnsupportedEffect);
                 return failure("unsupported compile-time declaration");
+            }
             if (volatile_decl(var))
                 return failure("volatile access");
 
@@ -1568,6 +1975,8 @@ export namespace dcc::ctfe
                     return failure("static if has not been resolved");
                 }
                 default:
+                    if (specializing())
+                        return abandoned(AbandonReason::UnsupportedEffect);
                     return failure("statement is unavailable at compile time");
             }
         }
@@ -1594,11 +2003,28 @@ export namespace dcc::ctfe
             {
                 case ast::ExprKind::Ident:
                 case ast::ExprKind::PathExpr: {
+                    if (specializing())
+                    {
+                        auto* decl = expr.sema.resolved_decl;
+                        if (volatile_decl(decl))
+                            return emit_residual(expr, {}, type_of(expr));
+                        if (!local(decl) && !constant_of(decl, expr))
+                        {
+                            if (!decl && !expr.sema.const_value)
+                                return failure("read of non-constant storage");
+                            return emit_residual(expr, {}, type_of(expr));
+                        }
+                    }
                     comptime::ValuePtr object;
                     auto r = named_place(expr, object);
                     if (r.flow != Flow::Normal)
                         return r;
-                    return read(object);
+                    auto v = read(object);
+                    if (v.flow != Flow::Normal || !v.value)
+                        return v;
+                    if (specializing() && v.value->kind() == Kind::Unknown && !m_heap.poisoned(object))
+                        return v;
+                    return reoriginate(expr, v);
                 }
                 case ast::ExprKind::Call:
                     return call(static_cast<ast::CallExpr const&>(expr));
@@ -1630,18 +2056,39 @@ export namespace dcc::ctfe
                         auto r = place(expr, object);
                         if (r.flow != Flow::Normal)
                             return r;
-                        return read(object);
+                        auto v = read(object);
+                        if (v.flow != Flow::Normal || !v.value)
+                            return v;
+                        if (specializing() && v.value->kind() == Kind::Unknown && !m_heap.poisoned(object))
+                            return v;
+                        return reoriginate(expr, v);
                     }
                     auto r = expression(*e.operand);
                     if (r.flow != Flow::Normal || !r.value)
                         return r;
+                    if (specializing() && contains_unknown(*r.value))
+                    {
+                        auto operand = trace_ref(*r.value);
+                        if (!operand)
+                            return abandoned(AbandonReason::TraceExhausted);
+                        return emit_residual(e, {*operand}, type_of(expr));
+                    }
                     return folded(const_eval::fold_unary(e.op, *r.value, type_of(expr)));
                 }
                 case ast::ExprKind::Cast: {
                     auto const& e = static_cast<ast::CastExpr const&>(expr);
-                    auto r = convert(*e.operand, type_of(expr));
+                    auto r = convert(*e.operand, type_of(expr), true);
                     if (r.flow != Flow::Normal || !r.value)
                         return r;
+                    if (specializing() && r.value->kind() == Kind::Unknown)
+                    {
+                        if (converts_cleanly(*r.value, type_of(expr)))
+                            return r;
+                        auto operand = trace_ref(*r.value);
+                        if (!operand)
+                            return abandoned(AbandonReason::TraceExhausted);
+                        return emit_residual(e, {*operand}, type_of(expr));
+                    }
                     if (r.value->type == type_of(expr))
                         return r;
                     return folded(const_eval::fold_cast(*r.value, type_of(expr)));
@@ -1655,7 +2102,7 @@ export namespace dcc::ctfe
                         return r;
                     auto truth = r.value ? r.value->const_to_bool() : std::nullopt;
                     if (!truth)
-                        return failure("condition has no compile-time value");
+                        return require_truth(r.value ? &*r.value : nullptr, "condition has no compile-time value");
                     return *truth ? block(e.then_block) : e.else_branch ? expression(*e.else_branch) : Result{};
                 }
                 case ast::ExprKind::StructLiteral:
@@ -1681,6 +2128,8 @@ export namespace dcc::ctfe
                 case ast::ExprKind::U16StringLiteral:
                     if (expr.sema.const_value)
                         return attach(*expr.sema.const_value);
+                    if (specializing() && expr.kind == ast::ExprKind::Compiles)
+                        return abandoned(AbandonReason::CompilesBlocked);
                     return failure("expression has no resolved compile-time value");
                 default:
                     return unsupported();
@@ -1771,6 +2220,36 @@ export namespace dcc::ctfe
 
     public:
         explicit Evaluator(Context context = {}, Mode mode = Mode::Required) : m_context(std::move(context)), m_mode(mode) {}
+
+        Trace const& trace() const { return m_trace; }
+
+        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args)
+        {
+            m_steps = 0;
+            m_cells = 0;
+            m_frames.clear();
+            m_constants.clear();
+            m_heap = Heap{};
+            m_trace = Trace{};
+            m_seq_stack.clear();
+            if (!fn.body || !fn.template_params.empty() || args.size() != fn.params.size())
+                return failure("call requires a resolved function and materialized arguments");
+            if (m_context.specializing && m_context.specializing->contains(&fn))
+                return abandoned(AbandonReason::RecursionExhausted);
+            if (!seq_begin())
+                return abandoned(AbandonReason::TraceExhausted);
+            if (m_context.specializing)
+                m_context.specializing->insert(&fn);
+            m_frames.push_back(Frame{Call{&fn, m_context.call_site}, {}, {}});
+            auto result = enter(fn, std::move(args));
+            seq_end();
+            for (auto allocation : m_frames.back().allocations)
+                m_heap.end_lifetime(allocation);
+            m_frames.pop_back();
+            if (m_context.specializing)
+                m_context.specializing->erase(&fn);
+            return result;
+        }
 
         Result evaluate(ast::Expr const& expr)
         {

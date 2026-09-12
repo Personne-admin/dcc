@@ -13,6 +13,7 @@ export namespace dcc::ctfe
         std::vector<comptime::Value> elements;
         bool is_mutable{true};
         bool live{true};
+        bool poisoned{false};
     };
 
     class Heap
@@ -85,6 +86,56 @@ export namespace dcc::ctfe
 
         [[nodiscard]] comptime::Value const* read(comptime::ValuePtr const& p) const { return locate(*this, p); }
 
+        [[nodiscard]] bool poisoned(comptime::ValuePtr const& p) const
+        {
+            return !p.is_null && p.allocation < m_allocations.size() && m_allocations[p.allocation].live && m_allocations[p.allocation].poisoned;
+        }
+
+        void mark_clean(comptime::ValuePtr const& p)
+        {
+            if (!p.is_null && p.allocation < m_allocations.size())
+                m_allocations[p.allocation].poisoned = false;
+        }
+
+        void poison_all(std::uint64_t cause, std::unordered_set<std::size_t> const& pinned)
+        {
+            std::unordered_set<std::size_t> skip = pinned;
+            for (auto const& entry : m_literals)
+                skip.insert(entry.second);
+            for (std::size_t i = 0; i < m_allocations.size(); ++i)
+            {
+                auto& allocation = m_allocations[i];
+                if (!allocation.live || skip.contains(i))
+                    continue;
+                allocation.poisoned = true;
+                for (auto& element : allocation.elements)
+                    poison_value(element, cause);
+            }
+        }
+
+        static void poison_value(comptime::Value& value, std::uint64_t cause)
+        {
+            if (!value.type)
+                return;
+            if (value.kind() == comptime::Value::Kind::Pointer)
+                return;
+            if (value.kind() == comptime::Value::Kind::Unknown)
+                return;
+            if (value.kind() == comptime::Value::Kind::Aggregate)
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    poison_value(value.at(i), cause);
+                return;
+            }
+            if (value.kind() == comptime::Value::Kind::Slice && !value.slice_is_ref())
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    poison_value(value.at(i), cause);
+                return;
+            }
+            value = comptime::Value::make_unknown(value.type, cause);
+        }
+
         [[nodiscard]] comptime::Value* write_target(comptime::ValuePtr const& p) { return is_mutable(p) ? locate(*this, p) : nullptr; }
 
         [[nodiscard]] std::optional<std::size_t> container_length(comptime::ValuePtr const& p) const
@@ -132,4 +183,4 @@ export namespace dcc::ctfe
             return out;
         }
     };
-}
+} // namespace dcc::ctfe
