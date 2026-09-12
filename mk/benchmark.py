@@ -59,6 +59,18 @@ def metrics(stderr):
             result.setdefault('functions_'+fields[2], {})[fields[4]] = int(fields[3])
         elif fields[:2] == ['DCC_BENCH', 'ir']:
             result['ir_after'] = int(fields[3])
+        elif fields[:2] == ['DCC_BENCH', 'partial']:
+            for key, val in zip(['partial_attempts', 'partial_succeeded', 'partial_fallbacks'], map(int, fields[2:5])):
+                result[key] = result.get(key, 0) + val
+        elif fields[:2] == ['DCC_BENCH', 'partial_reason']:
+            bucket = result.setdefault('partial_reasons', {})
+            reason = ' '.join(fields[3:])
+            bucket[reason] = bucket.get(reason, 0) + int(fields[2])
+        elif fields[:2] == ['DCC_BENCH', 'partial_callee']:
+            bucket = result.setdefault('partial_callees', {})
+            name, _, path = ' '.join(fields[3:]).partition(' @ ')
+            key = name + ' @ ' + path
+            bucket[key] = bucket.get(key, 0) + int(fields[2])
 
     if 'ir_before' in result:
         result.setdefault('ir_after', result['ir_before'])
@@ -154,6 +166,7 @@ def main():
     p.add_argument('--compiler-build', default=os.environ.get('BUILD_TYPE', 'unknown'))
     p.add_argument('--library-opt', choices=['O0', 'O1', 'O2', 'Os'], help='build private archives at this level; default uses shipped O2 archives')
     p.add_argument('--allow-broken', action='store_true')
+    p.add_argument('--extra-compile-flags', default='', help='extra flags appended to each dcc compile command')
     p.add_argument('--perf', help='path to perf for hardware counters')
     args = p.parse_args()
 
@@ -227,7 +240,7 @@ def main():
             directory = work/name/config.replace(':', '-')
             directory.mkdir(parents=True, exist_ok=True)
             obj, exe = directory/'program.o', directory/'program'
-            command = [compiler, '-flibdcext', '-target', 'x86_64-elf', '-fbackend='+backend, '-'+opt, '-c', '-o', obj, source]
+            command = [compiler, '-flibdcext', '-target', 'x86_64-elf', '-fbackend='+backend, '-'+opt, *args.extra_compile_flags.split(), '-c', '-o', obj, source]
             link = ['ld.lld', '-e', '_start', '-u', '_start', obj, runtime, libraries[backend], '-o', exe]
             r = dict(benchmark=name, config=config, status='compile_error', command=list(map(str, command)))
             rc, _, stdout, stderr = run(command, env=env)
