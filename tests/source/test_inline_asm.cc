@@ -212,6 +212,19 @@ TEST_CASE("llvm lowering rewrites numbering and constraints")
     REQUIRE(lowered.input_operand_indices[0] == 1);
 }
 
+TEST_CASE("llvm lowering emits att literal registers with a single percent")
+{
+    AsmFixture fx;
+    auto* u64 = fx.ctx.int_t(64, false);
+    std::vector<IrAsmOperand> operands;
+    operands.push_back(fx.reg_operand(IrAsmOperand::Direction::Out, "rax", u64));
+    auto* inst = fx.build("mov %%rbx, %0", std::move(operands), IrAsmDialect::Att, {{"%0", 0}});
+    auto lowered = prepare_llvm_asm(*inst);
+    REQUIRE(lowered.error.empty());
+    REQUIRE(lowered.template_str == "mov %rbx, $0");
+    REQUIRE(lowered.constraints == "=&{rax}");
+}
+
 TEST_CASE("llvm lowering ties inout and passes memory addresses twice")
 {
     AsmFixture fx;
