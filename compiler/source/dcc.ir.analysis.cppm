@@ -284,7 +284,11 @@ export namespace dcc::ir::analysis
         static UseDef build(IrFunction const& func)
         {
             UseDef ud;
-
+            std::size_t estimate = 0;
+            for (auto* bb : func.blocks)
+                if (bb)
+                    estimate += bb->instructions.size() + 1;
+            ud.uses.reserve(estimate * 2 + 16);
             auto record_use = [&](IrValue const* val, IrValue* user) {
                 if (val)
                     ud.uses[val].push_back(user);
@@ -399,9 +403,97 @@ export namespace dcc::ir::analysis
                     case IrNodeKind::CmpULe:
                     case IrNodeKind::CmpUGt:
                     case IrNodeKind::CmpUGe: {
-                        auto* rep = static_cast<IrCmpEqInst const*>(inst);
-                        record_use(rep->lhs, const_cast<IrValue*>(inst));
-                        record_use(rep->rhs, const_cast<IrValue*>(inst));
+                        IrValue const* lhs = nullptr;
+                        IrValue const* rhs = nullptr;
+                        switch (kind)
+                        {
+                            case IrNodeKind::CmpEq: {
+                                auto* ci = static_cast<IrCmpEqInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpNe: {
+                                auto* ci = static_cast<IrCmpNeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpLt: {
+                                auto* ci = static_cast<IrCmpLtInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpLe: {
+                                auto* ci = static_cast<IrCmpLeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpGt: {
+                                auto* ci = static_cast<IrCmpGtInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpGe: {
+                                auto* ci = static_cast<IrCmpGeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpOLt: {
+                                auto* ci = static_cast<IrCmpOLtInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpOLe: {
+                                auto* ci = static_cast<IrCmpOLeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpOGt: {
+                                auto* ci = static_cast<IrCmpOGtInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpOGe: {
+                                auto* ci = static_cast<IrCmpOGeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpULt: {
+                                auto* ci = static_cast<IrCmpULtInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpULe: {
+                                auto* ci = static_cast<IrCmpULeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            case IrNodeKind::CmpUGt: {
+                                auto* ci = static_cast<IrCmpUGtInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                            default: {
+                                auto* ci = static_cast<IrCmpUGeInst const*>(inst);
+                                lhs = ci->lhs;
+                                rhs = ci->rhs;
+                                break;
+                            }
+                        }
+                        record_use(lhs, const_cast<IrValue*>(inst));
+                        record_use(rhs, const_cast<IrValue*>(inst));
                         break;
                     }
 
@@ -705,11 +797,82 @@ export namespace dcc::ir::analysis
                             case IrNodeKind::CmpULe:
                             case IrNodeKind::CmpUGt:
                             case IrNodeKind::CmpUGe: {
-                                auto* ci = static_cast<IrCmpEqInst const*>(n);
-                                if (!kill_set.contains(ci->lhs))
-                                    gen_set.insert(ci->lhs);
-                                if (!kill_set.contains(ci->rhs))
-                                    gen_set.insert(ci->rhs);
+                                IrValue const* lhs = nullptr;
+                                IrValue const* rhs = nullptr;
+                                if (auto* ci = ir_cast<IrCmpEqInst const>(n))
+                                {
+                                    lhs = ci->lhs;
+                                    rhs = ci->rhs;
+                                }
+                                else if (auto* ci_ne = ir_cast<IrCmpNeInst const>(n))
+                                {
+                                    lhs = ci_ne->lhs;
+                                    rhs = ci_ne->rhs;
+                                }
+                                else if (auto* ci_lt = ir_cast<IrCmpLtInst const>(n))
+                                {
+                                    lhs = ci_lt->lhs;
+                                    rhs = ci_lt->rhs;
+                                }
+                                else if (auto* ci_le = ir_cast<IrCmpLeInst const>(n))
+                                {
+                                    lhs = ci_le->lhs;
+                                    rhs = ci_le->rhs;
+                                }
+                                else if (auto* ci_gt = ir_cast<IrCmpGtInst const>(n))
+                                {
+                                    lhs = ci_gt->lhs;
+                                    rhs = ci_gt->rhs;
+                                }
+                                else if (auto* ci_ge = ir_cast<IrCmpGeInst const>(n))
+                                {
+                                    lhs = ci_ge->lhs;
+                                    rhs = ci_ge->rhs;
+                                }
+                                else if (auto* ci_olt = ir_cast<IrCmpOLtInst const>(n))
+                                {
+                                    lhs = ci_olt->lhs;
+                                    rhs = ci_olt->rhs;
+                                }
+                                else if (auto* ci_ole = ir_cast<IrCmpOLeInst const>(n))
+                                {
+                                    lhs = ci_ole->lhs;
+                                    rhs = ci_ole->rhs;
+                                }
+                                else if (auto* ci_ogt = ir_cast<IrCmpOGtInst const>(n))
+                                {
+                                    lhs = ci_ogt->lhs;
+                                    rhs = ci_ogt->rhs;
+                                }
+                                else if (auto* ci_oge = ir_cast<IrCmpOGeInst const>(n))
+                                {
+                                    lhs = ci_oge->lhs;
+                                    rhs = ci_oge->rhs;
+                                }
+                                else if (auto* ci_ult = ir_cast<IrCmpULtInst const>(n))
+                                {
+                                    lhs = ci_ult->lhs;
+                                    rhs = ci_ult->rhs;
+                                }
+                                else if (auto* ci_ule = ir_cast<IrCmpULeInst const>(n))
+                                {
+                                    lhs = ci_ule->lhs;
+                                    rhs = ci_ule->rhs;
+                                }
+                                else if (auto* ci_ugt = ir_cast<IrCmpUGtInst const>(n))
+                                {
+                                    lhs = ci_ugt->lhs;
+                                    rhs = ci_ugt->rhs;
+                                }
+                                else if (auto* ci_uge = ir_cast<IrCmpUGeInst const>(n))
+                                {
+                                    lhs = ci_uge->lhs;
+                                    rhs = ci_uge->rhs;
+                                }
+                                if (lhs && !kill_set.contains(lhs))
+                                    gen_set.insert(lhs);
+                                if (rhs && !kill_set.contains(rhs))
+                                    gen_set.insert(rhs);
                                 break;
                             }
                             case IrNodeKind::Alloca: {
