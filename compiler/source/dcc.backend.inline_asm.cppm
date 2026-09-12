@@ -2151,7 +2151,20 @@ namespace dcc::backend
 
             append_gap(std::string_view(assembly.template_str).substr(cursor, part.offset - cursor));
             if (part.operand == 0xFFFFFFFFU)
-                rewritten += std::string_view(assembly.template_str).substr(part.offset, part.length);
+            {
+                if (assembly.dialect == IrAsmDialect::Intel)
+                {
+                    auto start = part.offset + part.length;
+                    auto end = start;
+                    while (end < assembly.template_str.size() && std::isalnum(static_cast<unsigned char>(assembly.template_str[end])))
+                        ++end;
+                    auto name = std::string_view(assembly.template_str).substr(start, end - start);
+                    if (!target::lookup_register(target::Arch::X86_64, name) && !target::lookup_register(target::Arch::X86, name))
+                        rewritten += '%';
+                }
+                else
+                    rewritten += '%';
+            }
             else
             {
                 if (part.operand >= assembly.operands.size())

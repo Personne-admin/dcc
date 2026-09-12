@@ -413,6 +413,13 @@ export namespace dcc::target
             {"fs"sv, PhysRegClass::Seg, 16, true},       {"gs"sv, PhysRegClass::Seg, 16, true},     {"ss"sv, PhysRegClass::Seg, 16, true},
 
             {"eflags"sv, PhysRegClass::Flags, 32, true},
+
+            {"cr0"sv, PhysRegClass::GPR, 32, false},      {"cr2"sv, PhysRegClass::GPR, 32, false},   {"cr3"sv, PhysRegClass::GPR, 32, false},
+            {"cr4"sv, PhysRegClass::GPR, 32, false},
+
+            {"dr0"sv, PhysRegClass::GPR, 32, false},      {"dr1"sv, PhysRegClass::GPR, 32, false},   {"dr2"sv, PhysRegClass::GPR, 32, false},
+            {"dr3"sv, PhysRegClass::GPR, 32, false},      {"dr4"sv, PhysRegClass::GPR, 32, false},   {"dr5"sv, PhysRegClass::GPR, 32, false},
+            {"dr6"sv, PhysRegClass::GPR, 32, false},      {"dr7"sv, PhysRegClass::GPR, 32, false},
         };
 
     } // namespace detail
