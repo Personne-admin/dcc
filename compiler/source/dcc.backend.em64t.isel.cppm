@@ -253,6 +253,11 @@ namespace dcc::backend::em64t
                                 return false;
                             });
                         }
+                        for (auto& entry : value_map)
+                        {
+                            if (entry.first != ir_val && entry.second == placeholder)
+                                entry.second = vreg;
+                        }
                     }
                 }
 
@@ -4233,7 +4238,6 @@ namespace dcc::backend::em64t
         {
             if (!ir_bb)
                 continue;
-
             auto mbb_it = ctx.ir_bb_to_mblock.find(ir_bb);
             if (mbb_it == ctx.ir_bb_to_mblock.end())
                 continue;
@@ -4286,5 +4290,6 @@ namespace dcc::backend::em64t
         fold_addresses(mfunc);
         return mfunc;
     }
+
 
 } // namespace dcc::backend::em64t
