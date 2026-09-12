@@ -15,10 +15,18 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT/'build/benchmarks/inlining.json')
     parser.add_argument('--filter', default='^(array|map|fmt|generic_sort|numeric|question|wrappers|utf8_stream)$')
     parser.add_argument('--cpu', type=int)
+    parser.add_argument('--modes', default='default,no-small-inline,no-inline')
+    parser.add_argument('--model-sets', type=Path, help='JSON mapping benchmark name to kept-inlineable symbol list for model mode')
     args = parser.parse_args()
     if args.cpu is not None:
         os.sched_setaffinity(0, {args.cpu})
     baseline = json.loads(args.baseline.read_text())
+    modes = args.modes.split(',')
+    if any(m not in ('default', 'no-small-inline', 'no-inline', 'model') for m in modes):
+        raise RuntimeError('unknown mode in --modes')
+    model_sets = json.loads(args.model_sets.read_text()) if args.model_sets else None
+    if 'model' in modes and model_sets is None:
+        raise RuntimeError('model mode requires --model-sets')
     work = args.output.resolve().parent/(args.output.stem+'-artifacts')
     work.mkdir(parents=True, exist_ok=True)
     runtime = work/'runtime.o'
@@ -46,15 +54,21 @@ def main():
             raise RuntimeError('Alwaysinline requires an explicit policy for this experiment')
         (directory/'input.ll').write_text(ir)
         sizes = original['functions_before']
-        for mode in ['default', 'no-small-inline', 'no-inline']:
+        keep = (model_sets or {}).get(name, [])
+        for mode in args.modes.split(','):
             text = ir
             changed = []
             if mode != 'default':
-                def disable(match):
+                def disable(match, mode=mode):
                     line = match.group(0)
                     symbol = re.search(r'@([^ (]+)\(', line).group(1)
                     if mode == 'no-small-inline' and not 1 <= sizes.get(symbol, 0) <= 20:
                         return line
+                    if mode == 'model':
+                        if symbol in keep:
+                            return line
+                        if not 1 <= sizes.get(symbol, 0) <= 20:
+                            return line
                     changed.append(symbol)
                     if ' comdat' in line:
                         return line.replace(' comdat', ' noinline comdat', 1)
