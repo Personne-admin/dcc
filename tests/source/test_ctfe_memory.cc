@@ -188,3 +188,60 @@ TEST_CASE("a scalar allocation behaves as a single element")
     CHECK(heap.read(*end) == nullptr);
     CHECK(!heap.offset(object, 2).has_value());
 }
+
+SECTION("ctfe memory: unknown provenance");
+
+TEST_CASE("a stored unknown loads back as unknown")
+{
+    types::TypeContext ctx;
+    ctfe::Heap heap;
+
+    auto object = heap.allocate(comptime::Value::make_unknown(i32(ctx), 11), true);
+    auto const* value = heap.read(object);
+    REQUIRE(value != nullptr);
+    CHECK(value->is_unknown());
+    CHECK_EQ(value->type, i32(ctx));
+    CHECK_EQ(value->unknown_origin(), 11u);
+}
+
+TEST_CASE("overwriting storage with unknown poisons later loads")
+{
+    types::TypeContext ctx;
+    ctfe::Heap heap;
+
+    auto object = heap.allocate(comptime::Value::make_int(5, i32(ctx)), true);
+    REQUIRE(heap.read(object) != nullptr);
+    CHECK(!heap.read(object)->is_unknown());
+    *heap.write_target(object) = comptime::Value::make_unknown(i32(ctx), 12);
+    auto const* value = heap.read(object);
+    REQUIRE(value != nullptr);
+    CHECK(value->is_unknown());
+    CHECK(!value->const_to_int().has_value());
+}
+
+TEST_CASE("partially unknown aggregates survive the heap")
+{
+    types::TypeContext ctx;
+    ctfe::Heap heap;
+
+    std::vector<comptime::Value> elems;
+    elems.push_back(comptime::Value::make_int(1, i32(ctx)));
+    elems.push_back(comptime::Value::make_unknown(i32(ctx), 13));
+    auto t = ctx.array_t(i32(ctx), 2);
+    auto object = heap.allocate(comptime::Value::make_aggregate(std::move(elems), t), true);
+    auto first = heap.subobject(object, 0);
+    auto second = heap.subobject(object, 1);
+    REQUIRE(first.has_value());
+    REQUIRE(second.has_value());
+    CHECK_EQ(heap.read(*first)->get_int(), 1);
+    CHECK(heap.read(*second)->is_unknown());
+}
+
+TEST_CASE("subobjects of a wholly unknown value have no address")
+{
+    types::TypeContext ctx;
+    ctfe::Heap heap;
+
+    auto object = heap.allocate(comptime::Value::make_unknown(ctx.array_t(i32(ctx), 2), 14), true);
+    CHECK(!heap.subobject(object, 0).has_value());
+}

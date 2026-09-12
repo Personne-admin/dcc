@@ -1,6 +1,8 @@
 import std;
 import dcc.types;
 import dcc.comptime;
+import dcc.const_eval;
+import dcc.lex.tokens;
 
 #include "harness.hh"
 
@@ -808,4 +810,239 @@ TEST_CASE("std::hash works")
     auto v = comptime::Value::make_int(99, i32(ctx));
     std::hash<comptime::Value> h;
     CHECK_EQ(h(v), v.hash());
+}
+
+SECTION("comptime: unknown construction");
+
+TEST_CASE("make_unknown carries type and origin")
+{
+    types::TypeContext ctx;
+    auto v = comptime::Value::make_unknown(i32(ctx), 7);
+    CHECK_EQ(v.kind(), comptime::Value::Kind::Unknown);
+    CHECK(v.is_unknown());
+    CHECK_EQ(v.type, i32(ctx));
+    CHECK_EQ(v.unknown_origin(), 7u);
+}
+
+TEST_CASE("make_unknown defaults to an unspecified origin")
+{
+    types::TypeContext ctx;
+    auto v = comptime::Value::make_unknown(i32(ctx));
+    CHECK(v.is_unknown());
+    CHECK_EQ(v.unknown_origin(), 0u);
+}
+
+TEST_CASE("known values are not unknown")
+{
+    types::TypeContext ctx;
+    CHECK(!comptime::Value::make_int(1, i32(ctx)).is_unknown());
+    CHECK(!comptime::Value::make_float(1.0, f64(ctx)).is_unknown());
+    CHECK(!comptime::Value::make_bool(true, ctx.m_boolt()).is_unknown());
+    CHECK(!comptime::Value::make_null(ctx.m_nullt()).is_unknown());
+}
+
+TEST_CASE("unknown equality compares type and origin")
+{
+    types::TypeContext ctx;
+    auto a = comptime::Value::make_unknown(i32(ctx), 1);
+    auto b = comptime::Value::make_unknown(i32(ctx), 1);
+    auto c = comptime::Value::make_unknown(i32(ctx), 2);
+    auto d = comptime::Value::make_unknown(f64(ctx), 1);
+    CHECK_EQ(a, b);
+    CHECK_NE(a, c);
+    CHECK_NE(a, d);
+    CHECK_NE(a, comptime::Value::make_int(0, i32(ctx)));
+}
+
+TEST_CASE("unknown has no scalar conversion")
+{
+    types::TypeContext ctx;
+    auto v = comptime::Value::make_unknown(i32(ctx), 1);
+    CHECK(!v.const_to_int().has_value());
+    CHECK(!v.const_to_float().has_value());
+    CHECK(!v.const_to_bool().has_value());
+    CHECK(!v.const_to_bits().has_value());
+}
+
+TEST_CASE("equal unknowns hash equally")
+{
+    types::TypeContext ctx;
+    auto a = comptime::Value::make_unknown(i32(ctx), 3);
+    auto b = comptime::Value::make_unknown(i32(ctx), 3);
+    auto c = comptime::Value::make_unknown(i32(ctx), 4);
+    CHECK_EQ(a.hash(), b.hash());
+    CHECK_NE(a.hash(), c.hash());
+}
+
+SECTION("comptime: unknown scalar propagation");
+
+TEST_CASE("unknown int poisons binary operands")
+{
+    types::TypeContext ctx;
+    auto known = comptime::Value::make_int(10, i32(ctx));
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 1);
+    auto r1 = known.fold_binary(comptime::BinaryOp::Add, unknown, i32(ctx));
+    REQUIRE(r1.has_value());
+    CHECK(r1->is_unknown());
+    CHECK_EQ(r1->type, i32(ctx));
+    auto r2 = unknown.fold_binary(comptime::BinaryOp::Add, known, i32(ctx));
+    REQUIRE(r2.has_value());
+    CHECK(r2->is_unknown());
+}
+
+TEST_CASE("unknown times zero stays unknown")
+{
+    types::TypeContext ctx;
+    auto zero = comptime::Value::make_int(0, i32(ctx));
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 1);
+    auto r = unknown.fold_binary(comptime::BinaryOp::Mul, zero, i32(ctx));
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+}
+
+TEST_CASE("unknown float poisons binary operands")
+{
+    types::TypeContext ctx;
+    auto known = comptime::Value::make_float(1.5, f64(ctx));
+    auto unknown = comptime::Value::make_unknown(f64(ctx), 2);
+    auto r = known.fold_binary(comptime::BinaryOp::Mul, unknown, f64(ctx));
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    CHECK_EQ(r->type, f64(ctx));
+}
+
+TEST_CASE("unknown comparison yields unknown")
+{
+    types::TypeContext ctx;
+    auto known = comptime::Value::make_int(1, i32(ctx));
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 1);
+    auto r = known.fold_binary(comptime::BinaryOp::Eq, unknown, ctx.m_boolt());
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    CHECK_EQ(r->type, ctx.m_boolt());
+}
+
+TEST_CASE("unknown poisons unary folds")
+{
+    types::TypeContext ctx;
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 1);
+    auto r = unknown.fold_unary(comptime::UnaryOp::Minus, i32(ctx));
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    CHECK_EQ(r->type, i32(ctx));
+    auto bunknown = comptime::Value::make_unknown(ctx.m_boolt(), 2);
+    auto rb = bunknown.fold_unary(comptime::UnaryOp::Not, ctx.m_boolt());
+    REQUIRE(rb.has_value());
+    CHECK(rb->is_unknown());
+}
+
+TEST_CASE("unknown poisons casts")
+{
+    types::TypeContext ctx;
+    auto v = comptime::Value::make_unknown(i32(ctx), 1);
+    auto r = v.fold_cast(ctx.m_boolt());
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    CHECK_EQ(r->type, ctx.m_boolt());
+}
+
+TEST_CASE("const_eval binary folds propagate unknown")
+{
+    types::TypeContext ctx;
+    auto known = comptime::Value::make_int(3, i32(ctx));
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 5);
+    auto r = dcc::const_eval::fold_binary(dcc::lex::TokenKind::Plus, known, unknown, i32(ctx));
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    auto q = dcc::const_eval::fold_binary(dcc::lex::TokenKind::Slash, unknown, known, i32(ctx));
+    REQUIRE(q.has_value());
+    CHECK(q->is_unknown());
+}
+
+TEST_CASE("const_eval compare folds propagate unknown")
+{
+    types::TypeContext ctx;
+    auto known = comptime::Value::make_int(3, i32(ctx));
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 5);
+    auto r = dcc::const_eval::fold_binary(dcc::lex::TokenKind::Lt, known, unknown, ctx.m_boolt());
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    CHECK_EQ(r->type, ctx.m_boolt());
+}
+
+TEST_CASE("const_eval unary folds propagate unknown")
+{
+    types::TypeContext ctx;
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 5);
+    auto r = dcc::const_eval::fold_unary(dcc::lex::TokenKind::Minus, unknown, i32(ctx));
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+}
+
+TEST_CASE("const_eval cast folds propagate unknown")
+{
+    types::TypeContext ctx;
+    auto unknown = comptime::Value::make_unknown(i32(ctx), 5);
+    auto r = dcc::const_eval::fold_cast(unknown, f64(ctx));
+    REQUIRE(r.has_value());
+    CHECK(r->is_unknown());
+    CHECK_EQ(r->type, f64(ctx));
+}
+
+TEST_CASE("known folds are unaffected by unknown handling")
+{
+    types::TypeContext ctx;
+    auto lhs = comptime::Value::make_int(6, i32(ctx));
+    auto rhs = comptime::Value::make_int(7, i32(ctx));
+    auto r = dcc::const_eval::fold_binary(dcc::lex::TokenKind::Star, lhs, rhs, i32(ctx));
+    REQUIRE(r.has_value());
+    CHECK(!r->is_unknown());
+    CHECK_EQ(r->get_int(), 42);
+}
+
+SECTION("comptime: unknown in aggregates");
+
+TEST_CASE("aggregates hold partially unknown elements")
+{
+    types::TypeContext ctx;
+    auto t = ctx.array_t(i32(ctx), 3);
+    std::vector<comptime::Value> elems;
+    elems.push_back(comptime::Value::make_int(1, i32(ctx)));
+    elems.push_back(comptime::Value::make_unknown(i32(ctx), 9));
+    elems.push_back(comptime::Value::make_int(3, i32(ctx)));
+    auto v = comptime::Value::make_aggregate(std::move(elems), t);
+    CHECK(!v.is_unknown());
+    CHECK_EQ(v.size(), 3u);
+    CHECK(!v.at(0).is_unknown());
+    CHECK_EQ(v.at(0).get_int(), 1);
+    CHECK(v.at(1).is_unknown());
+    CHECK_EQ(v.at(1).type, i32(ctx));
+    CHECK(!v.at(2).is_unknown());
+    CHECK_EQ(v.at(2).get_int(), 3);
+}
+
+TEST_CASE("aggregate equality distinguishes unknown origins")
+{
+    types::TypeContext ctx;
+    auto t = ctx.array_t(i32(ctx), 2);
+    auto mk = [&](std::uint64_t origin) {
+        std::vector<comptime::Value> elems;
+        elems.push_back(comptime::Value::make_int(1, i32(ctx)));
+        elems.push_back(comptime::Value::make_unknown(i32(ctx), origin));
+        return comptime::Value::make_aggregate(std::move(elems), t);
+    };
+    CHECK_EQ(mk(1), mk(1));
+    CHECK_NE(mk(1), mk(2));
+}
+
+TEST_CASE("slices hold partially unknown elements")
+{
+    types::TypeContext ctx;
+    auto t = ctx.slice_t(i32(ctx), types::Qual::None);
+    std::vector<comptime::Value> elems;
+    elems.push_back(comptime::Value::make_unknown(i32(ctx), 4));
+    elems.push_back(comptime::Value::make_int(2, i32(ctx)));
+    auto v = comptime::Value::make_slice(std::move(elems), t);
+    CHECK(v.at(0).is_unknown());
+    CHECK_EQ(v.at(1).get_int(), 2);
 }
