@@ -1,0 +1,222 @@
+=== FILE: test.dc ===
+module test;
+
+u8 gu8 = 5;
+u16 gu16 = 1000;
+u32 gu32 = 100000;
+i32 gi32 = -7;
+i8 gi8 = -100 as i8;
+i16 gi16 = -30000 as i16;
+bool gb = true;
+
+@nomangle
+public i32 dcc_main() {
+    if gu8 != 5 as u8 { return 1; }
+    if gu16 != 1000 as u16 { return 2; }
+    if gu32 != 100000 as u32 { return 3; }
+    if gi32 != -7 { return 4; }
+    if gi8 != (-100 as i8) { return 5; }
+    if gi16 != (-30000 as i16) { return 6; }
+    if !gb { return 7; }
+    gu8 = 6 as u8;
+    gu16 = 1001 as u16;
+    gu32 = 100001 as u32;
+    gi32 = -8;
+    gi8 = -99 as i8;
+    gi16 = -29999 as i16;
+    gb = false;
+    if gu8 != 6 as u8 { return 8; }
+    if gu16 != 1001 as u16 { return 9; }
+    if gu32 != 100001 as u32 { return 10; }
+    if gi32 != -8 { return 11; }
+    if gi8 != (-99 as i8) { return 12; }
+    if gi16 != (-29999 as i16) { return 13; }
+    if gb { return 14; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+@_DC0G1.4.test3.gu8i8u = global i8 5
+@_DC0G1.4.test4.gu16i16u = global i16 1000
+@_DC0G1.4.test4.gu32i32u = global i32 100000
+@_DC0G1.4.test4.gi32i32s = global i32 -7
+@_DC0G1.4.test3.gi8i8s = global i8 -100
+@_DC0G1.4.test4.gi16i16s = global i16 -30000
+@_DC0G1.4.test2.gbb = global i8 1
+
+define i32 @dcc_main() {
+entry:
+  %"0" = load i8, ptr @_DC0G1.4.test3.gu8i8u, align 1
+  %"1" = icmp ne i8 %"0", 5
+  br i1 %"1", label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  ret i32 1
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2
+  %"2" = load i16, ptr @_DC0G1.4.test4.gu16i16u, align 2
+  %"3" = icmp ne i16 %"2", 1000
+  br i1 %"3", label %if.then4, label %if.else5
+
+if.then4:                                         ; preds = %if.merge3
+  ret i32 2
+
+if.else5:                                         ; preds = %if.merge3
+  br label %if.merge6
+
+if.merge6:                                        ; preds = %if.else5
+  %"4" = load i32, ptr @_DC0G1.4.test4.gu32i32u, align 4
+  %"5" = icmp ne i32 %"4", 100000
+  br i1 %"5", label %if.then7, label %if.else8
+
+if.then7:                                         ; preds = %if.merge6
+  ret i32 3
+
+if.else8:                                         ; preds = %if.merge6
+  br label %if.merge9
+
+if.merge9:                                        ; preds = %if.else8
+  %"6" = load i32, ptr @_DC0G1.4.test4.gi32i32s, align 4
+  %"8" = icmp ne i32 %"6", -7
+  br i1 %"8", label %if.then10, label %if.else11
+
+if.then10:                                        ; preds = %if.merge9
+  ret i32 4
+
+if.else11:                                        ; preds = %if.merge9
+  br label %if.merge12
+
+if.merge12:                                       ; preds = %if.else11
+  %"9" = load i8, ptr @_DC0G1.4.test3.gi8i8s, align 1
+  %"10" = icmp ne i8 %"9", -100
+  br i1 %"10", label %if.then13, label %if.else14
+
+if.then13:                                        ; preds = %if.merge12
+  ret i32 5
+
+if.else14:                                        ; preds = %if.merge12
+  br label %if.merge15
+
+if.merge15:                                       ; preds = %if.else14
+  %"11" = load i16, ptr @_DC0G1.4.test4.gi16i16s, align 2
+  %"12" = icmp ne i16 %"11", -30000
+  br i1 %"12", label %if.then16, label %if.else17
+
+if.then16:                                        ; preds = %if.merge15
+  ret i32 6
+
+if.else17:                                        ; preds = %if.merge15
+  br label %if.merge18
+
+if.merge18:                                       ; preds = %if.else17
+  %0 = load i8, ptr @_DC0G1.4.test2.gbb, align 1
+  %"13" = trunc i8 %0 to i1
+  %"14" = icmp eq i1 %"13", false
+  br i1 %"14", label %if.then19, label %if.else20
+
+if.then19:                                        ; preds = %if.merge18
+  ret i32 7
+
+if.else20:                                        ; preds = %if.merge18
+  br label %if.merge21
+
+if.merge21:                                       ; preds = %if.else20
+  store i8 6, ptr @_DC0G1.4.test3.gu8i8u, align 1
+  store i16 1001, ptr @_DC0G1.4.test4.gu16i16u, align 2
+  store i32 100001, ptr @_DC0G1.4.test4.gu32i32u, align 4
+  store i32 -8, ptr @_DC0G1.4.test4.gi32i32s, align 4
+  store i8 -99, ptr @_DC0G1.4.test3.gi8i8s, align 1
+  store i16 -29999, ptr @_DC0G1.4.test4.gi16i16s, align 2
+  store i8 0, ptr @_DC0G1.4.test2.gbb, align 1
+  %"16" = load i8, ptr @_DC0G1.4.test3.gu8i8u, align 1
+  %"17" = icmp ne i8 %"16", 6
+  br i1 %"17", label %if.then22, label %if.else23
+
+if.then22:                                        ; preds = %if.merge21
+  ret i32 8
+
+if.else23:                                        ; preds = %if.merge21
+  br label %if.merge24
+
+if.merge24:                                       ; preds = %if.else23
+  %"18" = load i16, ptr @_DC0G1.4.test4.gu16i16u, align 2
+  %"19" = icmp ne i16 %"18", 1001
+  br i1 %"19", label %if.then25, label %if.else26
+
+if.then25:                                        ; preds = %if.merge24
+  ret i32 9
+
+if.else26:                                        ; preds = %if.merge24
+  br label %if.merge27
+
+if.merge27:                                       ; preds = %if.else26
+  %"20" = load i32, ptr @_DC0G1.4.test4.gu32i32u, align 4
+  %"21" = icmp ne i32 %"20", 100001
+  br i1 %"21", label %if.then28, label %if.else29
+
+if.then28:                                        ; preds = %if.merge27
+  ret i32 10
+
+if.else29:                                        ; preds = %if.merge27
+  br label %if.merge30
+
+if.merge30:                                       ; preds = %if.else29
+  %"22" = load i32, ptr @_DC0G1.4.test4.gi32i32s, align 4
+  %"24" = icmp ne i32 %"22", -8
+  br i1 %"24", label %if.then31, label %if.else32
+
+if.then31:                                        ; preds = %if.merge30
+  ret i32 11
+
+if.else32:                                        ; preds = %if.merge30
+  br label %if.merge33
+
+if.merge33:                                       ; preds = %if.else32
+  %"25" = load i8, ptr @_DC0G1.4.test3.gi8i8s, align 1
+  %"26" = icmp ne i8 %"25", -99
+  br i1 %"26", label %if.then34, label %if.else35
+
+if.then34:                                        ; preds = %if.merge33
+  ret i32 12
+
+if.else35:                                        ; preds = %if.merge33
+  br label %if.merge36
+
+if.merge36:                                       ; preds = %if.else35
+  %"27" = load i16, ptr @_DC0G1.4.test4.gi16i16s, align 2
+  %"28" = icmp ne i16 %"27", -29999
+  br i1 %"28", label %if.then37, label %if.else38
+
+if.then37:                                        ; preds = %if.merge36
+  ret i32 13
+
+if.else38:                                        ; preds = %if.merge36
+  br label %if.merge39
+
+if.merge39:                                       ; preds = %if.else38
+  %1 = load i8, ptr @_DC0G1.4.test2.gbb, align 1
+  %"29" = trunc i8 %1 to i1
+  br i1 %"29", label %if.then40, label %if.else41
+
+if.then40:                                        ; preds = %if.merge39
+  ret i32 14
+
+if.else41:                                        ; preds = %if.merge39
+  br label %if.merge42
+
+if.merge42:                                       ; preds = %if.else41
+  ret i32 0
+}
