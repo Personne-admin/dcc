@@ -1,6 +1,9 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_sink;
+bool arg_flag;
+
 struct Box(T) {
     bool ok;
     T value;
@@ -15,15 +18,21 @@ i32 test_box(Box(i32) val) {
 }
 
 i32 test_ok() {
-    return test_box({ ok = true, value = 42 });
+    return test_box({ ok = true, value = arg_sink });
 }
 
 i32 test_err() {
-    return test_box({ ok = false, value = 7 });
+    return test_box({ ok = arg_flag, value = 7 });
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+global @_DC0G1.4.test8.arg_flagb : bool
+
+
 i32@_DC0F1.4.test8.test_box1D1.4.test3.Box1.i32si32s({@0 bool, @4 i32}) {
 %entry({@0 bool, @4 i32} %val):
   %0 = alloca {@0 bool, @4 i32}
@@ -44,16 +53,18 @@ i32@_DC0F1.4.test8.test_box1D1.4.test3.Box1.i32si32s({@0 bool, @4 i32}) {
 
 i32@_DC0F1.4.test7.test_ok0i32s() {
 %entry:
-  %0 = aggregate {@0 bool, @4 i32}, #true, #42
-  %1 = call fn(@_DC0F1.4.test8.test_box1D1.4.test3.Box1.i32si32s)({@0 bool, @4 i32} %0) -> i32
-  ret i32 %1
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %1 = aggregate {@0 bool, @4 i32}, #true, %0
+  %2 = call fn(@_DC0F1.4.test8.test_box1D1.4.test3.Box1.i32si32s)({@0 bool, @4 i32} %1) -> i32
+  ret i32 %2
 }
 
 i32@_DC0F1.4.test8.test_err0i32s() {
 %entry:
-  %0 = aggregate {@0 bool, @4 i32}, #false, #7
-  %1 = call fn(@_DC0F1.4.test8.test_box1D1.4.test3.Box1.i32si32s)({@0 bool, @4 i32} %0) -> i32
-  ret i32 %1
+  %0 = load bool, ptr<bool> @_DC0G1.4.test8.arg_flagb
+  %1 = aggregate {@0 bool, @4 i32}, %0, #7
+  %2 = call fn(@_DC0F1.4.test8.test_box1D1.4.test3.Box1.i32si32s)({@0 bool, @4 i32} %1) -> i32
+  ret i32 %2
 }
 
 linkonce_odr bool@_DC0S1.4.test5.is_ok1D1.4.test3.Box1.i32sbX1ti32s({@0 bool, @4 i32}) {

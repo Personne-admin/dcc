@@ -1,19 +1,23 @@
 === FILE: test.dc ===
 module test;
 
-void take_i32(i32 a) {}
+i32 arg_sink;
 
+void take_i32(i32 a) {}
 i32 f(T...)(T args) {
     take_i32(args.0);
     args.0
 }
-
 public void caller() {
-    take_i32(f!(i32, f64)(0, 1.0));
+    take_i32(f!(i32, f64)(arg_sink, 1.0));
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 void@_DC0F1.4.test8.take_i321i32sv(i32) {
 %entry(i32 %a):
   ret void
@@ -21,8 +25,9 @@ void@_DC0F1.4.test8.take_i321i32sv(i32) {
 
 void@_DC0F1.4.test6.caller0v() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test1.f2i32sf64.i32sX2ti32stf64.)(i32 #0, f64 #1) -> i32
-  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %0)
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %1 = call fn(@_DC0S1.4.test1.f2i32sf64.i32sX2ti32stf64.)(i32 %0, f64 #1) -> i32
+  call fn(@_DC0F1.4.test8.take_i321i32sv)(i32 %1)
   ret void
 }
 

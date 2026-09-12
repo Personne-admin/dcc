@@ -1,0 +1,349 @@
+=== FILE: test.dc ===
+module test;
+
+i64 work(i64 x) {
+    i64 sum = 0;
+    for i64 j = 0; j < 16; j++ {
+        if (j % 2) == 0 { sum += x + j; } else { sum += x - j; }
+    }
+    return sum;
+}
+
+i64 ident(i64 x) {
+    return x;
+}
+
+T pick(T)(T x) {
+    return x;
+}
+
+u64 counter = 0;
+
+i64 bumped(i64 x) {
+    counter = counter + 1;
+    return x;
+}
+
+@runtime i64 rtconst(i64 x) {
+    return x;
+}
+
+i64 apply(i64(*)(i64) f, i64 x) {
+    return f(x);
+}
+
+struct Pt {
+    i64 x;
+    i64 y;
+}
+
+i64 psum(const Pt* self) {
+    return self.x + self.y;
+}
+
+i64 dyn_seed = 3;
+
+i64 ret_call() {
+    return work(7);
+}
+
+i64 usel(u64 a, u64 b) {
+    return if a < b { 1 } else { 2 };
+}
+
+@nomangle
+public i32 dcc_main() {
+    i64 sum = 0;
+    sum += work(1);
+    if sum != 8 { return 1; }
+    i64 m = work(2);
+    if m != 24 { return 2; }
+    work(3);
+    if ret_call() != 104 { return 3; }
+    const Pt p = { x = 10, y = 20 };
+    if p.psum() != 30 { return 4; }
+    if pick(41 as i64) != 41 { return 5; }
+    i64 v = bumped(work(6));
+    if v != 88 { return 6; }
+    if counter != 1 as u64 { return 7; }
+    if rtconst(9) != 9 { return 8; }
+    if apply(ident, 11) != 11 { return 9; }
+    i64 unfolded = work(dyn_seed);
+    if unfolded != work(3) { return 10; }
+    if usel(0xffffffffffffffff, 1) != 2 { return 11; }
+    if usel(1, 0xffffffffffffffff) != 1 { return 12; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i64, i64 }
+
+$_DC0S1.4.test4.pick1i64si64sX1ti64s = comdat any
+
+@_DC0G1.4.test7.counteri64u = global i64 0
+@_DC0G1.4.test8.dyn_seedi64s = global i64 3
+
+define i64 @_DC0F1.4.test4.work1i64si64s(i64 %x) {
+entry:
+  %"0" = alloca i64, align 8
+  store i64 0, ptr %"0", align 4
+  %"1" = alloca i64, align 8
+  store i64 0, ptr %"1", align 4
+  br label %for.cond1
+
+for.cond1:                                        ; preds = %for.step3, %entry
+  %"2" = load i64, ptr %"1", align 4
+  %"3" = icmp slt i64 %"2", 16
+  br i1 %"3", label %for.body2, label %for.exit4
+
+for.body2:                                        ; preds = %for.cond1
+  %"4" = load i64, ptr %"1", align 4
+  %"5" = srem i64 %"4", 2
+  %"6" = icmp eq i64 %"5", 0
+  br i1 %"6", label %if.then5, label %if.else6
+
+for.step3:                                        ; preds = %if.merge7
+  %"15" = load i64, ptr %"1", align 4
+  %"16" = add i64 %"15", 1
+  store i64 %"16", ptr %"1", align 4
+  br label %for.cond1
+
+for.exit4:                                        ; preds = %for.cond1
+  %"17" = load i64, ptr %"0", align 4
+  ret i64 %"17"
+
+if.then5:                                         ; preds = %for.body2
+  %"7" = load i64, ptr %"0", align 4
+  %"8" = load i64, ptr %"1", align 4
+  %"9" = add i64 %x, %"8"
+  %"10" = add i64 %"7", %"9"
+  store i64 %"10", ptr %"0", align 4
+  br label %if.merge7
+
+if.else6:                                         ; preds = %for.body2
+  %"11" = load i64, ptr %"0", align 4
+  %"12" = load i64, ptr %"1", align 4
+  %"13" = sub i64 %x, %"12"
+  %"14" = add i64 %"11", %"13"
+  store i64 %"14", ptr %"0", align 4
+  br label %if.merge7
+
+if.merge7:                                        ; preds = %if.else6, %if.then5
+  br label %for.step3
+}
+
+define i64 @_DC0F1.4.test5.ident1i64si64s(i64 %x) {
+entry:
+  ret i64 %x
+}
+
+define i64 @_DC0F1.4.test6.bumped1i64si64s(i64 %x) {
+entry:
+  %"0" = load i64, ptr @_DC0G1.4.test7.counteri64u, align 4
+  %"1" = add i64 %"0", 1
+  store i64 %"1", ptr @_DC0G1.4.test7.counteri64u, align 4
+  ret i64 %x
+}
+
+; Function Attrs: noinline
+define i64 @_DC0F1.4.test7.rtconst1i64si64s(i64 %x) #0 {
+entry:
+  ret i64 %x
+}
+
+define i64 @_DC0F1.4.test5.apply2pi64s1i64si64si64s(ptr %f, i64 %x) {
+entry:
+  %"0" = call i64 %f(i64 %x)
+  ret i64 %"0"
+}
+
+define i64 @_DC0F1.4.test4.psum1PCqD1.4.test2.Pt0.i64s(ptr %self) {
+entry:
+  %"0" = getelementptr %0, ptr %self, i32 0, i32 0
+  %"1" = load i64, ptr %"0", align 4
+  %"2" = getelementptr %0, ptr %self, i32 0, i32 1
+  %"3" = load i64, ptr %"2", align 4
+  %"4" = add i64 %"1", %"3"
+  ret i64 %"4"
+}
+
+define i64 @_DC0F1.4.test8.ret_call0i64s() {
+entry:
+  ret i64 104
+}
+
+define i64 @_DC0F1.4.test4.usel2i64ui64ui64s(i64 %a, i64 %b) {
+entry:
+  %"0" = icmp ult i64 %a, %b
+  br i1 %"0", label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  br label %if.merge3
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2, %if.then1
+  %"1" = phi i64 [ 1, %if.then1 ], [ 2, %if.else2 ]
+  ret i64 %"1"
+}
+
+define i32 @dcc_main() {
+entry:
+  %"0" = alloca i64, align 8
+  store i64 0, ptr %"0", align 4
+  %"1" = load i64, ptr %"0", align 4
+  %"2" = add i64 %"1", 8
+  store i64 %"2", ptr %"0", align 4
+  %"3" = load i64, ptr %"0", align 4
+  %"4" = icmp ne i64 %"3", 8
+  br i1 %"4", label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  ret i32 1
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2
+  %"5" = alloca i64, align 8
+  store i64 24, ptr %"5", align 4
+  %"6" = load i64, ptr %"5", align 4
+  %"7" = icmp ne i64 %"6", 24
+  br i1 %"7", label %if.then4, label %if.else5
+
+if.then4:                                         ; preds = %if.merge3
+  ret i32 2
+
+if.else5:                                         ; preds = %if.merge3
+  br label %if.merge6
+
+if.merge6:                                        ; preds = %if.else5
+  br i1 false, label %if.then7, label %if.else8
+
+if.then7:                                         ; preds = %if.merge6
+  ret i32 3
+
+if.else8:                                         ; preds = %if.merge6
+  br label %if.merge9
+
+if.merge9:                                        ; preds = %if.else8
+  %"9" = alloca %0, align 8
+  store %0 { i64 10, i64 20 }, ptr %"9", align 4
+  br i1 false, label %if.then10, label %if.else11
+
+if.then10:                                        ; preds = %if.merge9
+  ret i32 4
+
+if.else11:                                        ; preds = %if.merge9
+  br label %if.merge12
+
+if.merge12:                                       ; preds = %if.else11
+  br i1 false, label %if.then13, label %if.else14
+
+if.then13:                                        ; preds = %if.merge12
+  ret i32 5
+
+if.else14:                                        ; preds = %if.merge12
+  br label %if.merge15
+
+if.merge15:                                       ; preds = %if.else14
+  %"13" = alloca i64, align 8
+  %"14" = call i64 @_DC0F1.4.test6.bumped1i64si64s(i64 88)
+  store i64 %"14", ptr %"13", align 4
+  %"15" = load i64, ptr %"13", align 4
+  %"16" = icmp ne i64 %"15", 88
+  br i1 %"16", label %if.then16, label %if.else17
+
+if.then16:                                        ; preds = %if.merge15
+  ret i32 6
+
+if.else17:                                        ; preds = %if.merge15
+  br label %if.merge18
+
+if.merge18:                                       ; preds = %if.else17
+  %"17" = load i64, ptr @_DC0G1.4.test7.counteri64u, align 4
+  %"18" = icmp ne i64 %"17", 1
+  br i1 %"18", label %if.then19, label %if.else20
+
+if.then19:                                        ; preds = %if.merge18
+  ret i32 7
+
+if.else20:                                        ; preds = %if.merge18
+  br label %if.merge21
+
+if.merge21:                                       ; preds = %if.else20
+  %"19" = call i64 @_DC0F1.4.test7.rtconst1i64si64s(i64 9) #0
+  %"20" = icmp ne i64 %"19", 9
+  br i1 %"20", label %if.then22, label %if.else23
+
+if.then22:                                        ; preds = %if.merge21
+  ret i32 8
+
+if.else23:                                        ; preds = %if.merge21
+  br label %if.merge24
+
+if.merge24:                                       ; preds = %if.else23
+  %"21" = call i64 @_DC0F1.4.test5.apply2pi64s1i64si64si64s(ptr @_DC0F1.4.test5.ident1i64si64s, i64 11)
+  %"22" = icmp ne i64 %"21", 11
+  br i1 %"22", label %if.then25, label %if.else26
+
+if.then25:                                        ; preds = %if.merge24
+  ret i32 9
+
+if.else26:                                        ; preds = %if.merge24
+  br label %if.merge27
+
+if.merge27:                                       ; preds = %if.else26
+  %"23" = alloca i64, align 8
+  %"24" = load i64, ptr @_DC0G1.4.test8.dyn_seedi64s, align 4
+  %"25" = call i64 @_DC0F1.4.test4.work1i64si64s(i64 %"24")
+  store i64 %"25", ptr %"23", align 4
+  %"26" = load i64, ptr %"23", align 4
+  %"27" = icmp ne i64 %"26", 40
+  br i1 %"27", label %if.then28, label %if.else29
+
+if.then28:                                        ; preds = %if.merge27
+  ret i32 10
+
+if.else29:                                        ; preds = %if.merge27
+  br label %if.merge30
+
+if.merge30:                                       ; preds = %if.else29
+  br i1 false, label %if.then31, label %if.else32
+
+if.then31:                                        ; preds = %if.merge30
+  ret i32 11
+
+if.else32:                                        ; preds = %if.merge30
+  br label %if.merge33
+
+if.merge33:                                       ; preds = %if.else32
+  br i1 false, label %if.then34, label %if.else35
+
+if.then34:                                        ; preds = %if.merge33
+  ret i32 12
+
+if.else35:                                        ; preds = %if.merge33
+  br label %if.merge36
+
+if.merge36:                                       ; preds = %if.else35
+  ret i32 0
+}
+
+define linkonce_odr i64 @_DC0S1.4.test4.pick1i64si64sX1ti64s(i64 %x) comdat {
+entry:
+  ret i64 %x
+}
+
+attributes #0 = { noinline }

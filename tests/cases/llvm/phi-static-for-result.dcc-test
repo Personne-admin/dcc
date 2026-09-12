@@ -1,27 +1,25 @@
 === FILE: test.dc ===
 module test;
 
-public enum Result(T, E) { Ok(T), Err(E), }
+i32 arg_sink;
 
+public enum Result(T, E) { Ok(T), Err(E), }
 public i32 unwrap_or(Result(i32, i32) x, i32 fallback) {
     return match x {
         Result::Ok(v) => v,
         Result::Err(_) => fallback,
     };
 }
-
 public i32 accumulate(T...)(T args) {
     i32 total = 0;
     static for arg in args {
         total = total + arg;
     }
-
     return total;
 }
-
 @nomangle
 public i32 test_caller() {
-    i32 a = accumulate(10, 20, 30);
+    i32 a = accumulate(arg_sink, 20, 30);
     return a;
 }
 
@@ -33,6 +31,8 @@ target triple = "x86_64-elf"
 %0 = type { i8, [3 x i8], [4 x i8] }
 
 $_DC0S1.4.test10.accumulate3i32si32si32si32sX3ti32sti32sti32s = comdat any
+
+@_DC0G1.4.test8.arg_sinki32s = global i32 0
 
 define i32 @_DC0F1.4.test9.unwrap_or2D1.4.test6.Result2.i32si32si32si32s(%0 %x, i32 %fallback) {
 entry:
@@ -72,10 +72,11 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
 define i32 @test_caller() {
 entry:
   %"0" = alloca i32, align 4
-  %"1" = call i32 @_DC0S1.4.test10.accumulate3i32si32si32si32sX3ti32sti32sti32s(i32 10, i32 20, i32 30)
-  store i32 %"1", ptr %"0", align 4
-  %"2" = load i32, ptr %"0", align 4
-  ret i32 %"2"
+  %"1" = load i32, ptr @_DC0G1.4.test8.arg_sinki32s, align 4
+  %"2" = call i32 @_DC0S1.4.test10.accumulate3i32si32si32si32sX3ti32sti32sti32s(i32 %"1", i32 20, i32 30)
+  store i32 %"2", ptr %"0", align 4
+  %"3" = load i32, ptr %"0", align 4
+  ret i32 %"3"
 }
 
 define linkonce_odr i32 @_DC0S1.4.test10.accumulate3i32si32si32si32sX3ti32sti32sti32s(i32 %args_0, i32 %args_1, i32 %args_2) comdat {

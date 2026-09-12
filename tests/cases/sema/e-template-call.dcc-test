@@ -19,10 +19,10 @@ Module m
         Ident x [type=<unresolved> const=<none>]
   Func f diverging=false
     Body
-      Call [type=i32 const=<none> decl=id spec=id]
+      Call [type=i32 const=1 constant decl=id spec=id]
         Ident id [type=<unresolved> const=<none>]
         IntLiteral 1 [type=i32 const=1 constant]
-      Call [type=i32 const=<none> decl=id spec=id]
+      Call [type=i32 const=2 constant decl=id spec=id]
         Ident id [type=<unresolved> const=<none>]
         Cast [type=i32 const=2 constant]
           IntLiteral 2 [type=i32 const=2 constant]

@@ -32,12 +32,12 @@ Module m
   Func direct_concrete diverging=true
     Body
       Return
-        Call [type=i64 const=<none> decl=show ufcs=show]
+        Call [type=i64 const=1 constant decl=show ufcs=show]
           FieldAccess show [type=<unresolved> const=<none> decl=show ufcs=show]
             IntLiteral 1 [type=i64 const=1 constant]
   Func direct_template diverging=true
     Body
       Return
-        Call [type=bool const=<none> decl=show spec=show ufcs=show]
+        Call [type=bool const=true constant decl=show spec=show ufcs=show]
           FieldAccess show [type=<unresolved> const=<none> decl=show ufcs=show]
             BoolLiteral true [type=bool const=true constant]

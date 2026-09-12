@@ -43,7 +43,7 @@ Module main
         Ident add_n [type=i32(*)(i32) const=<none> decl=add_n]
   Func c diverging=false
     Body
-      Call [type=i32 const=<none> decl=add_n spec=add_n]
+      Call [type=i32 const=14 constant decl=add_n spec=add_n]
         TemplateInst [type=i32(*)(i32) const=<none> decl=add_n spec=add_n]
           Ident add_n [type=i32(*)(i32) const=<none> decl=add_n]
         IntLiteral 10 [type=i32 const=10 constant]

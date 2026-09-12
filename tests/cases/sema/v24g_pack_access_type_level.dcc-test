@@ -35,7 +35,7 @@ Module m
           IntLiteral 0 [type=<unresolved> const=<none>]
   Func caller diverging=false
     Body
-      Call [type=i32 const=<none> decl=get_first spec=get_first]
+      Call [type=i32 const=0 constant decl=get_first spec=get_first]
         TemplateInst [type=i32(*)(i32, f64) const=<none> decl=get_first spec=get_first]
           Ident get_first [type=pack(T)(*)(T) const=<none> decl=get_first]
         IntLiteral 0 [type=i32 const=0 constant]

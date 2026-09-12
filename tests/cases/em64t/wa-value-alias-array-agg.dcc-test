@@ -44,7 +44,5 @@ entry:
 
 define i32 @dcc_main() {
 entry:
-  %"0" = call i64 @get_elem(i64 2)
-  %"1" = trunc i64 %"0" to i32
-  ret i32 %"1"
+  ret i32 30
 }

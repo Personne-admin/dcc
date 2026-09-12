@@ -1,0 +1,26 @@
+=== FILE: test.dc ===
+module test;
+
+extern i64 ext_add(i64 x);
+
+@nomangle
+public i32 dcc_main() {
+    return ext_add(40) as i32;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+declare i64 @_DC0F1.4.test7.ext_add1i64si64s(i64)
+
+define i32 @dcc_main() {
+entry:
+  %"0" = call i64 @_DC0F1.4.test7.ext_add1i64si64s(i64 40)
+  %"1" = trunc i64 %"0" to i32
+  ret i32 %"1"
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: call _DC0F1.4.test7.ext_add1i64si64s

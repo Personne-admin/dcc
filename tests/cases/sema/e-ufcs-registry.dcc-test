@@ -44,10 +44,10 @@ Module m
         StructLiteral [type=S const=agg(10) constant]
           IntLiteral 10 [type=i32 const=10 constant]
       Return
-        Binary + [type=i32 const=<none>]
-          Call [type=i32 const=<none> decl=double_val ufcs=double_val]
+        Binary + [type=i32 const=50 constant]
+          Call [type=i32 const=20 constant decl=double_val ufcs=double_val]
             FieldAccess double_val [type=<unresolved> const=<none> decl=double_val ufcs=double_val]
               Ident x [type=S const=agg(10) lvalue constant decl=x]
-          Call [type=i32 const=<none> decl=triple_val ufcs=triple_val]
+          Call [type=i32 const=30 constant decl=triple_val ufcs=triple_val]
             FieldAccess triple_val [type=<unresolved> const=<none> decl=triple_val ufcs=triple_val]
               Ident x [type=S const=agg(10) lvalue constant decl=x]

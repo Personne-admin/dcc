@@ -1,23 +1,26 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_sink;
+
 u64 sz_of(T...)(T x) {
     return sizeof...(T);
 }
-
 void target(i32 a) {}
-
 void forward(T...)(T x) {
     target(x...);
 }
-
 void caller() {
-    sz_of!(i32)(0);
-    forward!(i32)(0);
+    sz_of!(i32)(arg_sink);
+    forward!(i32)(arg_sink);
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 void@_DC0F1.4.test6.target1i32sv(i32) {
 %entry(i32 %a):
   ret void
@@ -25,8 +28,10 @@ void@_DC0F1.4.test6.target1i32sv(i32) {
 
 void@_DC0F1.4.test6.caller0v() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test5.sz_of1i32si64uX1ti32s)(i32 #0) -> u64
-  call fn(@_DC0S1.4.test7.forward1i32svX1ti32s)(i32 #0)
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  %1 = call fn(@_DC0S1.4.test5.sz_of1i32si64uX1ti32s)(i32 %0) -> u64
+  %2 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  call fn(@_DC0S1.4.test7.forward1i32svX1ti32s)(i32 %2)
   ret void
 }
 
@@ -40,4 +45,3 @@ linkonce_odr u64@_DC0S1.4.test5.sz_of1i32si64uX1ti32s(i32) {
 %entry(i32 %x):
   ret u64 #1
 }
-

@@ -33,7 +33,7 @@ Module m
         StructLiteral [type=i32[4] const=<none>]
           IntLiteral 10 [type=i32 const=10 constant]
           Ident local [type=i32 const=<none> lvalue decl=local]
-          Call [type=i32 const=<none> decl=get]
+          Call [type=i32 const=7 constant decl=get]
             Ident get [type=<unresolved> const=<none>]
           FieldAccess x [type=i32 const=<none> lvalue decl=Box]
             Ident p [type=Box const=<none> lvalue decl=p]

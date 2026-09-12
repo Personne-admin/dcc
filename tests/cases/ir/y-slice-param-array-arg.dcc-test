@@ -1,15 +1,20 @@
 === FILE: test.dc ===
 module test;
 
-public usize take_slice([]i64 s) { return s.len; }
+i64 arg_sink;
 
+public usize take_slice([]i64 s) { return s.len; }
 public usize test() {
-    i64[3] arr = {10, 20, 30};
+    i64[3] arr = {arg_sink, 20, 30};
     return take_slice(arr);
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki64s : i64
+
+
 usize@_DC0F1.4.test10.take_slice1Sqi64sIu([]i64) {
 %entry([]i64 %s):
   %0 = alloca []i64
@@ -22,13 +27,14 @@ usize@_DC0F1.4.test10.take_slice1Sqi64sIu([]i64) {
 usize@_DC0F1.4.test4.test0Iu() {
 %entry:
   %0 = alloca [3 x i64]
-  %1 = aggregate [3 x i64], #10, #20, #30
-  store [3 x i64] %1, ptr<[3 x i64]> %0
-  %2 = load [3 x i64], ptr<[3 x i64]> %0
-  %3 = alloca [3 x i64]
-  store [3 x i64] %2, ptr<[3 x i64]> %3
-  %4 = gep ptr<[3 x i64]> %3, #0
-  %5 = aggregate []i64, %4, #3
-  %6 = call fn(@_DC0F1.4.test10.take_slice1Sqi64sIu)([]i64 %5) -> usize
-  ret usize %6
+  %1 = load i64, ptr<i64> @_DC0G1.4.test8.arg_sinki64s
+  %2 = aggregate [3 x i64], %1, #20, #30
+  store [3 x i64] %2, ptr<[3 x i64]> %0
+  %3 = load [3 x i64], ptr<[3 x i64]> %0
+  %4 = alloca [3 x i64]
+  store [3 x i64] %3, ptr<[3 x i64]> %4
+  %5 = gep ptr<[3 x i64]> %4, #0
+  %6 = aggregate []i64, %5, #3
+  %7 = call fn(@_DC0F1.4.test10.take_slice1Sqi64sIu)([]i64 %6) -> usize
+  ret usize %7
 }

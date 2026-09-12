@@ -1,22 +1,26 @@
 === FILE: test.dc ===
 module test;
 
+i64 arg_sink;
+
 public struct Point {
     i64 x;
     i64 y;
 }
-
 public i64 get_x(Point p) {
     return p.x;
 }
-
 public i64 test() {
-    Point p = {x = 10, y = 20};
+    Point p = {x = arg_sink, y = 20};
     return p.get_x();
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki64s : i64
+
+
 i64@_DC0F1.4.test5.get_x1D1.4.test5.Point0.i64s({@0 i64, @8 i64}) {
 %entry({@0 i64, @8 i64} %p):
   %0 = alloca {@0 i64, @8 i64}
@@ -29,9 +33,10 @@ i64@_DC0F1.4.test5.get_x1D1.4.test5.Point0.i64s({@0 i64, @8 i64}) {
 i64@_DC0F1.4.test4.test0i64s() {
 %entry:
   %0 = alloca {@0 i64, @8 i64}
-  %1 = aggregate {@0 i64, @8 i64}, #10, #20
-  store {@0 i64, @8 i64} %1, ptr<{@0 i64, @8 i64}> %0
-  %2 = load {@0 i64, @8 i64}, ptr<{@0 i64, @8 i64}> %0
-  %3 = call fn(@_DC0F1.4.test5.get_x1D1.4.test5.Point0.i64s)({@0 i64, @8 i64} %2) -> i64
-  ret i64 %3
+  %1 = load i64, ptr<i64> @_DC0G1.4.test8.arg_sinki64s
+  %2 = aggregate {@0 i64, @8 i64}, %1, #20
+  store {@0 i64, @8 i64} %2, ptr<{@0 i64, @8 i64}> %0
+  %3 = load {@0 i64, @8 i64}, ptr<{@0 i64, @8 i64}> %0
+  %4 = call fn(@_DC0F1.4.test5.get_x1D1.4.test5.Point0.i64s)({@0 i64, @8 i64} %3) -> i64
+  ret i64 %4
 }

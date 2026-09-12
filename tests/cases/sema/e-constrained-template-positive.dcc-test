@@ -23,6 +23,6 @@ Module m
   Func use diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=sum spec=sum]
+        Call [type=i32 const=1 constant decl=sum spec=sum]
           Ident sum [type=<unresolved> const=<none>]
           IntLiteral 1 [type=i32 const=1 constant]

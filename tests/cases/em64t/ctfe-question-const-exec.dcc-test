@@ -156,7 +156,6 @@ $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.te
 @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
 @_DC0G1.4.test4.E_OKD1.4.test8.FmtError0. = constant i8 0
 @_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0. = constant i8 2
-@.str.0 = internal constant [14 x i8] c"hello {} world"
 
 define i64 @_DC0F1.4.test4.scan1SCqi8uIu({ ptr, i64 } %s) {
 entry:
@@ -218,13 +217,12 @@ if.else2:                                         ; preds = %entry
   br label %if.merge3
 
 if.merge3:                                        ; preds = %if.else2
-  %"5" = call i64 @_DC0F1.4.test4.scan1SCqi8uIu({ ptr, i64 } { ptr @.str.0, i64 14 })
-  %"7" = alloca [8 x i8], align 1
-  store [8 x i8] zeroinitializer, ptr %"7", align 1
-  store i64 %"5", ptr %"7", align 4
-  %"8" = load [8 x i8], ptr %"7", align 1
-  %"9" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"8", 2
-  ret %0 %"9"
+  %"6" = alloca [8 x i8], align 1
+  store [8 x i8] zeroinitializer, ptr %"6", align 1
+  store i64 6, ptr %"6", align 4
+  %"7" = load [8 x i8], ptr %"6", align 1
+  %"8" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"7", 2
+  ret %0 %"8"
 }
 
 define %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
@@ -386,9 +384,7 @@ entry:
 
 define i32 @dcc_main() {
 entry:
-  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.Q_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"1" = icmp eq i1 %"0", false
-  br i1 %"1", label %if.then1, label %if.else2
+  br i1 false, label %if.then1, label %if.else2
 
 if.then1:                                         ; preds = %entry
   ret i32 1
@@ -397,9 +393,7 @@ if.else2:                                         ; preds = %entry
   br label %if.merge3
 
 if.merge3:                                        ; preds = %if.else2
-  %"2" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.Q_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"3" = icmp ne i64 %"2", 7
-  br i1 %"3", label %if.then4, label %if.else5
+  br i1 false, label %if.then4, label %if.else5
 
 if.then4:                                         ; preds = %if.merge3
   ret i32 2
@@ -408,9 +402,7 @@ if.else5:                                         ; preds = %if.merge3
   br label %if.merge6
 
 if.merge6:                                        ; preds = %if.else5
-  %"4" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"5" = icmp eq i1 %"4", false
-  br i1 %"5", label %if.then7, label %if.else8
+  br i1 false, label %if.then7, label %if.else8
 
 if.then7:                                         ; preds = %if.merge6
   ret i32 3
@@ -419,9 +411,9 @@ if.else8:                                         ; preds = %if.merge6
   br label %if.merge9
 
 if.merge9:                                        ; preds = %if.else8
-  %"6" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"7" = icmp ne i8 %"6", 2
-  br i1 %"7", label %if.then10, label %if.else11
+  %"3" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"4" = icmp ne i8 %"3", 2
+  br i1 %"4", label %if.then10, label %if.else11
 
 if.then10:                                        ; preds = %if.merge9
   ret i32 4
@@ -430,9 +422,7 @@ if.else11:                                        ; preds = %if.merge9
   br label %if.merge12
 
 if.merge12:                                       ; preds = %if.else11
-  %"8" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.C_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"9" = icmp eq i1 %"8", false
-  br i1 %"9", label %if.then13, label %if.else14
+  br i1 false, label %if.then13, label %if.else14
 
 if.then13:                                        ; preds = %if.merge12
   ret i32 5
@@ -441,9 +431,7 @@ if.else14:                                        ; preds = %if.merge12
   br label %if.merge15
 
 if.merge15:                                       ; preds = %if.else14
-  %"10" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.C_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"11" = icmp ne i64 %"10", 13
-  br i1 %"11", label %if.then16, label %if.else17
+  br i1 false, label %if.then16, label %if.else17
 
 if.then16:                                        ; preds = %if.merge15
   ret i32 6
@@ -452,9 +440,7 @@ if.else17:                                        ; preds = %if.merge15
   br label %if.merge18
 
 if.merge18:                                       ; preds = %if.else17
-  %"12" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"13" = icmp eq i1 %"12", false
-  br i1 %"13", label %if.then19, label %if.else20
+  br i1 false, label %if.then19, label %if.else20
 
 if.then19:                                        ; preds = %if.merge18
   ret i32 7
@@ -463,9 +449,9 @@ if.else20:                                        ; preds = %if.merge18
   br label %if.merge21
 
 if.merge21:                                       ; preds = %if.else20
-  %"14" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"15" = icmp ne i8 %"14", 2
-  br i1 %"15", label %if.then22, label %if.else23
+  %"8" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.C_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"9" = icmp ne i8 %"8", 2
+  br i1 %"9", label %if.then22, label %if.else23
 
 if.then22:                                        ; preds = %if.merge21
   ret i32 8
@@ -474,9 +460,7 @@ if.else23:                                        ; preds = %if.merge21
   br label %if.merge24
 
 if.merge24:                                       ; preds = %if.else23
-  %"16" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.A_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"17" = icmp eq i1 %"16", false
-  br i1 %"17", label %if.then25, label %if.else26
+  br i1 false, label %if.then25, label %if.else26
 
 if.then25:                                        ; preds = %if.merge24
   ret i32 9
@@ -485,9 +469,7 @@ if.else26:                                        ; preds = %if.merge24
   br label %if.merge27
 
 if.merge27:                                       ; preds = %if.else26
-  %"18" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test4.A_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"19" = icmp ne i64 %"18", 16
-  br i1 %"19", label %if.then28, label %if.else29
+  br i1 false, label %if.then28, label %if.else29
 
 if.then28:                                        ; preds = %if.merge27
   ret i32 10
@@ -496,9 +478,7 @@ if.else29:                                        ; preds = %if.merge27
   br label %if.merge30
 
 if.merge30:                                       ; preds = %if.else29
-  %"20" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"21" = icmp eq i1 %"20", false
-  br i1 %"21", label %if.then31, label %if.else32
+  br i1 false, label %if.then31, label %if.else32
 
 if.then31:                                        ; preds = %if.merge30
   ret i32 11
@@ -507,9 +487,9 @@ if.else32:                                        ; preds = %if.merge30
   br label %if.merge33
 
 if.merge33:                                       ; preds = %if.else32
-  %"22" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
-  %"23" = icmp ne i8 %"22", 2
-  br i1 %"23", label %if.then34, label %if.else35
+  %"13" = call i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr @_DC0G1.4.test5.A_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0.)
+  %"14" = icmp ne i8 %"13", 2
+  br i1 %"14", label %if.then34, label %if.else35
 
 if.then34:                                        ; preds = %if.merge33
   ret i32 12
@@ -518,12 +498,9 @@ if.else35:                                        ; preds = %if.merge33
   br label %if.merge36
 
 if.merge36:                                       ; preds = %if.else35
-  %"24" = alloca %0, align 8
-  %"25" = call %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 true)
-  store %0 %"25", ptr %"24", align 1
-  %"26" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"24")
-  %"27" = icmp eq i1 %"26", false
-  br i1 %"27", label %sc.merge41, label %sc.rhs40
+  %"15" = alloca %0, align 8
+  store %0 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\07\00\00\00\00\00\00\00" }, ptr %"15", align 1
+  br i1 false, label %sc.merge41, label %sc.rhs40
 
 if.then37:                                        ; preds = %sc.merge41
   ret i32 13
@@ -532,21 +509,18 @@ if.else38:                                        ; preds = %sc.merge41
   br label %if.merge39
 
 if.merge39:                                       ; preds = %if.else38
-  %"31" = alloca %0, align 8
-  %"32" = call %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 false)
-  store %0 %"32", ptr %"31", align 1
-  %"33" = call i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"31")
-  %"34" = icmp eq i1 %"33", false
-  br i1 %"34", label %if.then42, label %if.else43
+  %"20" = alloca %0, align 8
+  store %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }, ptr %"20", align 1
+  br i1 false, label %if.then42, label %if.else43
 
 sc.rhs40:                                         ; preds = %if.merge36
-  %"28" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"24")
-  %"29" = icmp ne i64 %"28", 7
+  %"17" = call i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %"15")
+  %"18" = icmp ne i64 %"17", 7
   br label %sc.merge41
 
 sc.merge41:                                       ; preds = %sc.rhs40, %if.merge36
-  %"30" = phi i1 [ true, %if.merge36 ], [ %"29", %sc.rhs40 ]
-  br i1 %"30", label %if.then37, label %if.else38
+  %"19" = phi i1 [ true, %if.merge36 ], [ %"18", %sc.rhs40 ]
+  br i1 %"19", label %if.then37, label %if.else38
 
 if.then42:                                        ; preds = %if.merge39
   ret i32 14
@@ -555,15 +529,15 @@ if.else43:                                        ; preds = %if.merge39
   br label %if.merge44
 
 if.merge44:                                       ; preds = %if.else43
-  %"35" = alloca i8, align 1
-  %"36" = call i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 true)
-  store i8 %"36", ptr %"35", align 1
-  %"37" = alloca i8, align 1
-  %"38" = call i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 false)
-  store i8 %"38", ptr %"37", align 1
-  %"39" = load i8, ptr %"35", align 1
-  %"40" = icmp ne i8 %"39", 0
-  br i1 %"40", label %if.then45, label %if.else46
+  %"22" = alloca i8, align 1
+  %"23" = call i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 true)
+  store i8 %"23", ptr %"22", align 1
+  %"24" = alloca i8, align 1
+  %"25" = call i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 false)
+  store i8 %"25", ptr %"24", align 1
+  %"26" = load i8, ptr %"22", align 1
+  %"27" = icmp ne i8 %"26", 0
+  br i1 %"27", label %if.then45, label %if.else46
 
 if.then45:                                        ; preds = %if.merge44
   ret i32 15
@@ -572,9 +546,9 @@ if.else46:                                        ; preds = %if.merge44
   br label %if.merge47
 
 if.merge47:                                       ; preds = %if.else46
-  %"41" = load i8, ptr %"37", align 1
-  %"42" = icmp ne i8 %"41", 2
-  br i1 %"42", label %if.then48, label %if.else49
+  %"28" = load i8, ptr %"24", align 1
+  %"29" = icmp ne i8 %"28", 2
+  br i1 %"29", label %if.then48, label %if.else49
 
 if.then48:                                        ; preds = %if.merge47
   ret i32 16
@@ -583,9 +557,9 @@ if.else49:                                        ; preds = %if.merge47
   br label %if.merge50
 
 if.merge50:                                       ; preds = %if.else49
-  %"43" = load i8, ptr @_DC0G1.4.test4.E_OKD1.4.test8.FmtError0., align 1
-  %"44" = icmp ne i8 %"43", 0
-  br i1 %"44", label %if.then51, label %if.else52
+  %"30" = load i8, ptr @_DC0G1.4.test4.E_OKD1.4.test8.FmtError0., align 1
+  %"31" = icmp ne i8 %"30", 0
+  br i1 %"31", label %if.then51, label %if.else52
 
 if.then51:                                        ; preds = %if.merge50
   ret i32 17
@@ -594,9 +568,9 @@ if.else52:                                        ; preds = %if.merge50
   br label %if.merge53
 
 if.merge53:                                       ; preds = %if.else52
-  %"45" = load i8, ptr @_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0., align 1
-  %"46" = icmp ne i8 %"45", 2
-  br i1 %"46", label %if.then54, label %if.else55
+  %"32" = load i8, ptr @_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0., align 1
+  %"33" = icmp ne i8 %"32", 2
+  br i1 %"33", label %if.then54, label %if.else55
 
 if.then54:                                        ; preds = %if.merge53
   ret i32 18

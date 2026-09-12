@@ -1,22 +1,33 @@
 === FILE: test.dc ===
 module test;
 
-public bool cached() { return false; }
+bool flag_a;
+bool flag_b;
 
-public bool compute() { return true; }
+public bool cached() { return flag_a; }
+
+public bool compute() { return flag_b; }
 
 public bool test_sc() { return cached() || compute(); }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test6.flag_ab : bool
+
+global @_DC0G1.4.test6.flag_bb : bool
+
+
 bool@_DC0F1.4.test6.cached0b() {
 %entry:
-  ret bool #false
+  %0 = load bool, ptr<bool> @_DC0G1.4.test6.flag_ab
+  ret bool %0
 }
 
 bool@_DC0F1.4.test7.compute0b() {
 %entry:
-  ret bool #true
+  %0 = load bool, ptr<bool> @_DC0G1.4.test6.flag_bb
+  ret bool %0
 }
 
 bool@_DC0F1.4.test7.test_sc0b() {

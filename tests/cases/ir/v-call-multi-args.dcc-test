@@ -1,16 +1,22 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_sink;
+
 public i32 add(i32 a, i32 b) { return a + b; }
 
 public i32 get_one() { return 1; }
 
-public i32 get_two() { return 2; }
+public i32 get_two() { return arg_sink; }
 
 public i32 multi_call() { return add(get_one(), get_two()); }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test8.arg_sinki32s : i32
+
+
 i32@_DC0F1.4.test3.add2i32si32si32s(i32, i32) {
 %entry(i32 %a, i32 %b):
   %0 = add i32 %a, i32 %b
@@ -24,13 +30,13 @@ i32@_DC0F1.4.test7.get_one0i32s() {
 
 i32@_DC0F1.4.test7.get_two0i32s() {
 %entry:
-  ret i32 #2
+  %0 = load i32, ptr<i32> @_DC0G1.4.test8.arg_sinki32s
+  ret i32 %0
 }
 
 i32@_DC0F1.4.test10.multi_call0i32s() {
 %entry:
-  %0 = call fn(@_DC0F1.4.test7.get_one0i32s)() -> i32
-  %1 = call fn(@_DC0F1.4.test7.get_two0i32s)() -> i32
-  %2 = call fn(@_DC0F1.4.test3.add2i32si32si32s)(i32 %0, i32 %1) -> i32
-  ret i32 %2
+  %0 = call fn(@_DC0F1.4.test7.get_two0i32s)() -> i32
+  %1 = call fn(@_DC0F1.4.test3.add2i32si32si32s)(i32 #1, i32 %0) -> i32
+  ret i32 %1
 }

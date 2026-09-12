@@ -62,11 +62,13 @@ i64 accumulate_until(usize n) {
     return -1;
 }
 
+char dyn_ch = 'l';
+
 @nomangle
 public i32 dcc_main() {
     failures = 0;
 
-    if lfind_while("hello", 'l') != 2 { failures += 1; }
+    if lfind_while("hello", dyn_ch) != 2 { failures += 1; }
     if lfind_while("hello", 'z') != -1 as i64 { failures += 2; }
     if lfind_for("hello", 'l') != 2 { failures += 4; }
     if lfind_for("hello", 'h') != 0 { failures += 8; }

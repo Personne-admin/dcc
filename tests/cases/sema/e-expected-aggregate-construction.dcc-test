@@ -135,7 +135,7 @@ Module m
   Func rank_struct diverging=true
     Body
       Return
-        Call [type=i32 const=<none> decl=choose]
+        Call [type=i32 const=1 constant decl=choose]
           Ident choose [type=<unresolved> const=<none>]
           StructLiteral [type=Point const=agg(1, 2) constant]
             IntLiteral 1 [type=i32 const=1 constant]
@@ -143,7 +143,7 @@ Module m
   Func rank_array diverging=true
     Body
       Return
-        Call [type=i64 const=<none> decl=choose_seq]
+        Call [type=i64 const=2 constant decl=choose_seq]
           Ident choose_seq [type=<unresolved> const=<none>]
           StructLiteral [type=i32[2] const=agg(1, 2) constant]
             IntLiteral 1 [type=i32 const=1 constant]
@@ -151,7 +151,7 @@ Module m
   Func rank_slice diverging=true
     Body
       Return
-        Call [type=bool const=<none> decl=choose_slice]
+        Call [type=bool const=false constant decl=choose_slice]
           Ident choose_slice [type=<unresolved> const=<none>]
           StructLiteral [type=[]i32 const=slice(1, 2) constant]
             IntLiteral 1 [type=i32 const=1 constant]

@@ -41,7 +41,7 @@ Module main
         Ident id [type=T(*)(T) const=<none> decl=id]
   Func c diverging=false
     Body
-      Call [type=bool const=<none> decl=id spec=id]
+      Call [type=bool const=true constant decl=id spec=id]
         TemplateInst [type=bool(*)(bool) const=<none> decl=id spec=id]
           Ident id [type=T(*)(T) const=<none> decl=id]
         BoolLiteral true [type=bool const=true constant]

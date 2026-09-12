@@ -37,9 +37,5 @@ u64@get(u64) {
 @nomangle
 i32@dcc_main() {
 %entry:
-  %0 = call fn(@get)(u64 #3) -> u64
-  %1 = trunc u64 %0 to i32
-  ret i32 %1
+  ret i32 #40
 }
-
-=== EXPECT-LLVM FLAGS: -verify ===

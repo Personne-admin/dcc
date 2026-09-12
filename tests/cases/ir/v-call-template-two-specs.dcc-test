@@ -1,30 +1,37 @@
 === FILE: test.dc ===
 module test;
 
+i32 arg_i32;
+u32 arg_u32;
+
 T identity(T)(T x) { return x; }
 
-public i32 test_i32() { return identity(42); }
+public i32 test_i32() { return identity(arg_i32); }
 
 public u32 test_u32() {
-    u32 x = 42;
-    return identity(x);
+    return identity(arg_u32);
 }
 
 === EXPECT-IR ===
 module "test"
+
+global @_DC0G1.4.test7.arg_i32i32s : i32
+
+global @_DC0G1.4.test7.arg_u32i32u : u32
+
+
 i32@_DC0F1.4.test8.test_i320i32s() {
 %entry:
-  %0 = call fn(@_DC0S1.4.test8.identity1i32si32sX1ti32s)(i32 #42) -> i32
-  ret i32 %0
+  %0 = load i32, ptr<i32> @_DC0G1.4.test7.arg_i32i32s
+  %1 = call fn(@_DC0S1.4.test8.identity1i32si32sX1ti32s)(i32 %0) -> i32
+  ret i32 %1
 }
 
 u32@_DC0F1.4.test8.test_u320i32u() {
 %entry:
-  %0 = alloca u32
-  store u32 #42, ptr<u32> %0
-  %1 = load u32, ptr<u32> %0
-  %2 = call fn(@_DC0S1.4.test8.identity1i32ui32uX1ti32u)(u32 %1) -> u32
-  ret u32 %2
+  %0 = load u32, ptr<u32> @_DC0G1.4.test7.arg_u32i32u
+  %1 = call fn(@_DC0S1.4.test8.identity1i32ui32uX1ti32u)(u32 %0) -> u32
+  ret u32 %1
 }
 
 linkonce_odr u32@_DC0S1.4.test8.identity1i32ui32uX1ti32u(u32) {
@@ -36,7 +43,3 @@ linkonce_odr i32@_DC0S1.4.test8.identity1i32si32sX1ti32s(i32) {
 %entry(i32 %x):
   ret i32 %x
 }
-
-=== EXPECT-REGISTRY ===
-fn=identity args=[i32] state=2
-fn=identity args=[u32] state=2

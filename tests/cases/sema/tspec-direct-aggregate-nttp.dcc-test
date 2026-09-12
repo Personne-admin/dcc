@@ -34,7 +34,7 @@ Module main
         Ident add [type=i32(*)(i32) const=<none> decl=add]
   Func b diverging=false
     Body
-      Call [type=i32 const=<none> decl=add spec=add]
+      Call [type=i32 const=30 constant decl=add spec=add]
         TemplateInst [type=i32(*)(i32) const=<none> decl=add spec=add]
           Ident add [type=i32(*)(i32) const=<none> decl=add]
         IntLiteral 30 [type=i32 const=30 constant]
