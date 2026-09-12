@@ -71,6 +71,11 @@ def metrics(stderr):
             name, _, path = ' '.join(fields[3:]).partition(' @ ')
             key = name + ' @ ' + path
             bucket[key] = bucket.get(key, 0) + int(fields[2])
+        elif fields[:2] == ['DCC_BENCH', 'partial_attempt']:
+            bucket = result.setdefault('partial_attempted', {})
+            name, _, path = ' '.join(fields[3:]).partition(' @ ')
+            key = name + ' @ ' + path
+            bucket[key] = bucket.get(key, 0) + int(fields[2])
 
     if 'ir_before' in result:
         result.setdefault('ir_after', result['ir_before'])
