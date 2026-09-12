@@ -1,0 +1,9 @@
+=== FILE: main.dc ===
+module ctfe_control_flow_errors;
+
+const i32 escaped = {
+    return 1;
+};
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:3:21: initializer for global `escaped` is not a constant expression
