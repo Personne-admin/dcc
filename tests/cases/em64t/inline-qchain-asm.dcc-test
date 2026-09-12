@@ -1,0 +1,33 @@
+=== FILE: test.dc ===
+module test;
+struct Wrap {
+    u8 tag;
+}
+bool is_zero(const Wrap* self) {
+    u8 t = (*self).tag;
+    bool r = false;
+    if t == 0 { r = true; } else { r = false; }
+    return r;
+}
+u8 produce(i32 x) {
+    if x < 0 { return 7; }
+    return 0;
+}
+i32 neg_case(i32 x) {
+    Wrap v;
+    v.tag = produce(x);
+    if is_zero(&v) { return 1; }
+    return 0;
+}
+@nomangle
+public i32 dcc_main() {
+    i32 acc = 0;
+    for i32 i = -2; i < 3; i++ {
+        acc = acc + neg_case(i);
+    }
+    if acc != 3 { return 1; }
+    return 0;
+}
+
+=== EXPECT-EM64T-ASM FLAGS: -O1 ===
+CONTAINS: call _DC0F1.4.test7.is_zero1PCqD1.4.test4.Wrap0.b

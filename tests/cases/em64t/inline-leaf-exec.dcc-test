@@ -1,0 +1,19 @@
+=== FILE: test.dc ===
+module test;
+
+i32 add1(i32 x) { return x + 1; }
+
+i32 mid(i32 x) { return add1(x); }
+
+@nomangle
+public i32 dcc_main() {
+    i32 acc = 0;
+    for i32 i = 0; i < 50; i++ {
+        acc = mid(acc + i);
+    }
+    if acc != 1275 { return 1; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+RUN-EXIT: 0

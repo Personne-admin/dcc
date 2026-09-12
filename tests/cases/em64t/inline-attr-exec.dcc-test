@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+@inline
+i32 pick(i32 c, i32 a, i32 b) {
+    if c != 0 { return a; }
+    return b;
+}
+
+@noinline
+i32 ident(i32 x) { return x; }
+
+@nomangle
+public i32 dcc_main() {
+    if pick(1, 10, 20) != 10 { return 1; }
+    if pick(0, 10, 20) != 20 { return 2; }
+    if ident(7) != 7 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+RUN-EXIT: 0

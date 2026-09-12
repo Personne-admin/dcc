@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+i32 fib(i32 n) {
+    if n < 2 { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+i32 fill([]i32 buf, i32 v) {
+    for usize i = 0; i < buf.len; i++ { buf[i] = v; }
+    return buf[0] + buf[buf.len - 1];
+}
+
+@nomangle
+public i32 dcc_main() {
+    if fib(10) != 55 { return 1; }
+    i32[4] buf = {0, 0, 0, 0};
+    if fill(buf[0..4], 6) != 12 { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+RUN-EXIT: 0
