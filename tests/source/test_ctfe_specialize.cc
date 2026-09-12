@@ -834,7 +834,7 @@ i32 f(Pair p) {
         CHECK(saw_field);
     }
 
-    TEST_CASE("adjust on unknown residualizes")
+    TEST_CASE("adjust on unknown abandons")
     {
         Fixture fx(R"dc(
 void bump(i32 x) {
@@ -849,8 +849,8 @@ void bump(i32 x) {
         std::vector<comptime::Value> args;
         args.push_back(comptime::Value::make_unknown(t, 0));
         auto spec = run_specialize(fx, fn, std::move(args));
-        CHECK_EQ(spec.result.flow, ctfe::Flow::Normal);
-        CHECK(!emit_indices(spec.trace).empty());
+        CHECK_EQ(spec.result.flow, ctfe::Flow::Abandoned);
+        CHECK_EQ(spec.result.abandon_reason, ctfe::AbandonReason::UnsupportedEffect);
     }
 
     TEST_CASE("cast on unknown residualizes")

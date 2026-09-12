@@ -132,6 +132,7 @@ export namespace dcc::ctfe
             Call call;
             std::unordered_map<ast::Decl const*, comptime::ValuePtr> locals;
             std::vector<std::size_t> allocations;
+            bool saw_question{false};
         };
 
         Context m_context;
@@ -143,6 +144,7 @@ export namespace dcc::ctfe
         Heap m_heap;
         Trace m_trace;
         std::vector<std::size_t> m_seq_stack;
+        std::unordered_set<types::TypePtr> m_question_operand_types;
         std::optional<sm::SourceRange> m_default_argument_call_site;
 
         struct DefaultArgumentCallSiteGuard
@@ -213,6 +215,35 @@ export namespace dcc::ctfe
             }
             return false;
         }
+
+        static bool contains_tainted(comptime::Value const& value)
+        {
+            if (value.tainted)
+                return true;
+            if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    if (contains_tainted(value.at(i)))
+                        return true;
+            }
+            return false;
+        }
+
+        static void inherit_taint(comptime::Value& out, comptime::Value const& lhs, comptime::Value const& rhs) { out.tainted = lhs.tainted || rhs.tainted; }
+
+        static void inherit_taint(comptime::Value& out, comptime::Value const& operand) { out.tainted = operand.tainted; }
+
+        static void deep_taint(comptime::Value& value)
+        {
+            value.tainted = true;
+            if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    deep_taint(value.at(i));
+            }
+        }
+
+        bool question_operand_seen(types::TypePtr type) const { return type && m_question_operand_types.find(type) != m_question_operand_types.end(); }
 
         static bool converts_cleanly(comptime::Value const& value, types::TypePtr target)
         {
@@ -308,6 +339,11 @@ export namespace dcc::ctfe
 
         Result residual_call(ast::CallExpr const& call, std::vector<comptime::Value> args, std::optional<comptime::Value> callee)
         {
+            for (auto const& arg : args)
+            {
+                if (arg.kind() != Kind::Pointer && contains_tainted(arg) && question_operand_seen(arg.type))
+                    return abandoned(AbandonReason::UnsupportedEffect);
+            }
             std::vector<std::size_t> children;
             if (callee)
             {
@@ -1179,6 +1215,8 @@ export namespace dcc::ctfe
                     return scrutinee;
                 if (contains_unknown(*scrutinee.value))
                     return abandoned(AbandonReason::UnknownCondition);
+                if (contains_tainted(*scrutinee.value) && question_operand_seen(scrutinee.value->type))
+                    return abandoned(AbandonReason::UnsupportedEffect);
             }
 
             for (auto const& arm : expr.arms)
@@ -1335,22 +1373,7 @@ export namespace dcc::ctfe
                 return old;
 
             if (specializing() && contains_unknown(*old.value))
-            {
-                auto operand = trace_ref(*old.value);
-                if (!operand)
-                    return abandoned(AbandonReason::TraceExhausted);
-                auto emitted = emit_residual(target, {*operand}, old.value->type);
-                if (emitted.flow != Flow::Normal || !emitted.value)
-                    return emitted;
-                auto* slot = m_heap.write_target(ptr);
-                if (!slot)
-                    return failure("write to read-only storage");
-                *slot = *emitted.value;
-                m_heap.mark_clean(ptr);
-                if (prefix)
-                    return emitted;
-                return {Flow::Normal, std::move(*old.value), {}, {}};
-            }
+                return abandoned(AbandonReason::UnsupportedEffect);
 
             std::int64_t delta = increment ? 1 : -1;
             std::optional<comptime::Value> next;
@@ -1379,6 +1402,8 @@ export namespace dcc::ctfe
             auto* slot = m_heap.write_target(ptr);
             if (!slot)
                 return failure("write to read-only storage");
+            if (specializing() && next)
+                inherit_taint(*next, *old.value);
             *slot = *next;
             m_heap.mark_clean(ptr);
             return prefix ? folded(std::move(next)) : folded(std::move(old.value));
@@ -1462,21 +1487,26 @@ export namespace dcc::ctfe
                 return emitted;
             }
 
+            if (specializing() && (op == K::EqEq || op == K::BangEq) && (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
+                return abandoned(AbandonReason::UnsupportedEffect);
+
             Result r{};
             if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer)
                 r = pointer_binary(op, *lhs.value, *rhs.value, out_type);
             else
             {
                 r = folded(const_eval::fold_binary(op, *lhs.value, *rhs.value, out_type));
-                if (r.failed() && lhs.value->kind() == Kind::Int && rhs.value->kind() == Kind::Int)
-                {
-                    if ((op == K::Slash || op == K::Percent) && rhs.value->get_int() == 0)
-                        return failure("division by zero", true);
-                    if (op == K::Plus || op == K::Minus || op == K::Star || op == K::Slash || op == K::Percent)
-                        return failure("integer overflow", true);
-                    if (op == K::LtLt || op == K::GtGt)
-                        return failure("shift amount out of range", true);
-                }
+                if (specializing() && r.value)
+                    inherit_taint(*r.value, *lhs.value, *rhs.value);
+            }
+            if (r.failed() && lhs.value->kind() == Kind::Int && rhs.value->kind() == Kind::Int)
+            {
+                if ((op == K::Slash || op == K::Percent) && rhs.value->get_int() == 0)
+                    return failure("division by zero", true);
+                if (op == K::Plus || op == K::Minus || op == K::Star || op == K::Slash || op == K::Percent)
+                    return failure("integer overflow", true);
+                if (op == K::LtLt || op == K::GtGt)
+                    return failure("shift amount out of range", true);
             }
 
             if (op != expr.op)
@@ -1646,6 +1676,13 @@ export namespace dcc::ctfe
             auto result = enter(*fn, std::move(args));
             if (scoped)
                 seq_end();
+            if (specializing() && m_frames.back().saw_question)
+            {
+                if (m_frames.size() > 1)
+                    m_frames[m_frames.size() - 2].saw_question = true;
+                if (result.value)
+                    deep_taint(*result.value);
+            }
             for (auto allocation : m_frames.back().allocations)
                 m_heap.end_lifetime(allocation);
             m_frames.pop_back();
@@ -1707,6 +1744,13 @@ export namespace dcc::ctfe
             }
             auto result = enter(*fn, std::move(args));
             seq_end();
+            if (m_frames.back().saw_question)
+            {
+                if (m_frames.size() > 1)
+                    m_frames[m_frames.size() - 2].saw_question = true;
+                if (result.value)
+                    deep_taint(*result.value);
+            }
             for (auto allocation : m_frames.back().allocations)
                 m_heap.end_lifetime(allocation);
             m_frames.pop_back();
@@ -1819,11 +1863,15 @@ export namespace dcc::ctfe
             auto* fn = m_frames.empty() ? nullptr : m_frames.back().call.function;
             if (!fn)
                 return failure("unwrap-propagate outside a function");
+            if (specializing() && r.value->type)
+                m_question_operand_types.insert(r.value->type);
             if (specializing() && r.value->kind() == Kind::Unknown)
             {
                 auto operand = trace_ref(*r.value);
                 if (!operand)
                     return abandoned(AbandonReason::TraceExhausted);
+                if (!m_frames.empty())
+                    m_frames.back().saw_question = true;
                 return emit_residual(e, {*operand}, type_of(e));
             }
             if (m_cells++ >= m_context.memory_limit)
@@ -1933,8 +1981,13 @@ export namespace dcc::ctfe
 
             switch (stmt.kind)
             {
-                case ast::StmtKind::Expr:
-                    return expression(*static_cast<ast::ExprStmt const&>(stmt).expr);
+                case ast::StmtKind::Expr: {
+                    auto discarded = expression(*static_cast<ast::ExprStmt const&>(stmt).expr);
+                    if (specializing() && discarded.flow == Flow::Normal && discarded.value && contains_tainted(*discarded.value) &&
+                        question_operand_seen(discarded.value->type))
+                        return abandoned(AbandonReason::UnsupportedEffect);
+                    return discarded;
+                }
                 case ast::StmtKind::DeclStmt:
                     return declaration(static_cast<ast::DeclStmt const&>(stmt).decl);
                 case ast::StmtKind::Return: {
@@ -2073,7 +2126,10 @@ export namespace dcc::ctfe
                             return abandoned(AbandonReason::TraceExhausted);
                         return emit_residual(e, {*operand}, type_of(expr));
                     }
-                    return folded(const_eval::fold_unary(e.op, *r.value, type_of(expr)));
+                    auto folded_unary = folded(const_eval::fold_unary(e.op, *r.value, type_of(expr)));
+                    if (specializing() && folded_unary.value)
+                        inherit_taint(*folded_unary.value, *r.value);
+                    return folded_unary;
                 }
                 case ast::ExprKind::Cast: {
                     auto const& e = static_cast<ast::CastExpr const&>(expr);
@@ -2091,7 +2147,10 @@ export namespace dcc::ctfe
                     }
                     if (r.value->type == type_of(expr))
                         return r;
-                    return folded(const_eval::fold_cast(*r.value, type_of(expr)));
+                    auto folded_cast = folded(const_eval::fold_cast(*r.value, type_of(expr)));
+                    if (specializing() && folded_cast.value)
+                        inherit_taint(*folded_cast.value, *r.value);
+                    return folded_cast;
                 }
                 case ast::ExprKind::Block:
                     return block(static_cast<ast::BlockExpr const&>(expr).body);
@@ -2232,6 +2291,7 @@ export namespace dcc::ctfe
             m_heap = Heap{};
             m_trace = Trace{};
             m_seq_stack.clear();
+            m_question_operand_types.clear();
             if (!fn.body || !fn.template_params.empty() || args.size() != fn.params.size())
                 return failure("call requires a resolved function and materialized arguments");
             if (m_context.specializing && m_context.specializing->contains(&fn))

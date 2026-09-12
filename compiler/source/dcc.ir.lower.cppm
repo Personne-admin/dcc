@@ -12,6 +12,7 @@ import dcc.ir.mangle;
 import dcc.sema.scope;
 import dcc.sema.importer;
 import dcc.sema.instantiator;
+import dcc.ctfe;
 
 export namespace dcc::ir::lower
 {
@@ -51,6 +52,227 @@ export namespace dcc::ir::lower
             lower_all_function_bodies();
 
             return m_module;
+        }
+
+        struct ResidualCheck
+        {
+            bool ok{false};
+            std::string reason;
+        };
+
+        using StorageResolver = std::function<bool(ast::Decl const*)>;
+
+        struct CallEmitMapping
+        {
+            bool has_leading{false};
+            std::size_t arg_offset{};
+            std::size_t arg_count{};
+        };
+
+        static std::optional<CallEmitMapping> resolve_call_emit_mapping(bool is_ufcs, bool indirect, std::size_t arg_offset,
+                                                                         std::size_t nargs, std::size_t child_count)
+        {
+            if (arg_offset > nargs)
+                return std::nullopt;
+            auto expected = (is_ufcs || indirect ? std::size_t{1} : std::size_t{0}) + (nargs - arg_offset);
+            if (child_count != expected)
+                return std::nullopt;
+            return CallEmitMapping{(is_ufcs || indirect), arg_offset, nargs - arg_offset};
+        }
+
+        static ResidualCheck validate_residual_trace(dcc::ctfe::Trace const& trace, StorageResolver const& has_storage, bool in_function,
+                                                     std::size_t prologue_end)
+        {
+            auto fail = [](std::string reason) { return ResidualCheck{false, std::move(reason)}; };
+            auto const& nodes = trace.nodes;
+            for (std::size_t i = 0; i < nodes.size(); ++i)
+            {
+                for (auto child : nodes[i].children)
+                {
+                    if (child >= nodes.size())
+                        return fail("trace reference out of range");
+                    if (nodes[i].kind != dcc::ctfe::Residual::Kind::Seq && child >= i)
+                        return fail("trace reference points forward");
+                    if (nodes[i].kind == dcc::ctfe::Residual::Kind::Emit && nodes[child].kind == dcc::ctfe::Residual::Kind::Seq)
+                        return fail("trace reference points at scope");
+                }
+            }
+            std::vector<bool> referenced(nodes.size(), false);
+            for (auto const& node : nodes)
+            {
+                if (node.kind != dcc::ctfe::Residual::Kind::Emit)
+                    continue;
+                for (auto child : node.children)
+                    referenced[child] = true;
+            }
+            for (std::size_t i = 0; i < nodes.size(); ++i)
+            {
+                auto const& node = nodes[i];
+                if (node.kind != dcc::ctfe::Residual::Kind::Emit || i < prologue_end)
+                    continue;
+                if (!node.node)
+                    return fail("residual without source node");
+                auto* expr = node.node;
+                switch (expr->kind)
+                {
+                    case ast::ExprKind::Call: {
+                        auto* call = static_cast<ast::CallExpr const*>(expr);
+                        bool indirect = !call_emit_target(call);
+                        bool ufcs = call->sema.ufcs_callee != nullptr;
+                        if (!resolve_call_emit_mapping(ufcs, indirect, call->sema.call_argument_offset, call->args.size(), node.children.size()))
+                            return fail("call residual arity mismatch");
+                        break;
+                    }
+                    case ast::ExprKind::Binary: {
+                        auto* bin = static_cast<ast::BinaryExpr const*>(expr);
+                        if (node.children.size() != 2u)
+                            return fail("binary residual arity mismatch");
+                        if (bin->op == dcc::lex::TokenKind::Eq || bin->op == dcc::lex::TokenKind::AmpAmp ||
+                            bin->op == dcc::lex::TokenKind::PipePipe || is_compound_assign(bin->op))
+                            return fail("binary residual with control or store op");
+                        break;
+                    }
+                    case ast::ExprKind::Unary: {
+                        auto* un = static_cast<ast::UnaryExpr const*>(expr);
+                        if (un->op == dcc::lex::TokenKind::Increment || un->op == dcc::lex::TokenKind::Decrement)
+                            return fail("adjust residual has no runtime form");
+                        if (un->op == dcc::lex::TokenKind::Star)
+                        {
+                            if (!node.children.empty())
+                                return fail("deref residual with children");
+                            if (!read_resolves(expr, has_storage))
+                                return fail("deref residual without storage");
+                            break;
+                        }
+                        if (node.children.size() != 1u)
+                            return fail("unary residual arity mismatch");
+                        break;
+                    }
+                    case ast::ExprKind::Cast:
+                        if (node.children.size() != 1u)
+                            return fail("cast residual arity mismatch");
+                        break;
+                    case ast::ExprKind::Postfix: {
+                        auto* post = static_cast<ast::PostfixExpr const*>(expr);
+                        if (post->op != dcc::lex::TokenKind::Question)
+                            return fail("postfix residual is not a check");
+                        if (node.children.size() != 1u)
+                            return fail("check residual arity mismatch");
+                        if (!in_function)
+                            return fail("check residual outside a function");
+                        break;
+                    }
+                    case ast::ExprKind::FieldAccess:
+                        if (node.children.size() > 1u)
+                            return fail("field residual arity mismatch");
+                        if (node.children.empty() && !read_resolves(expr, has_storage))
+                            return fail("field residual without storage");
+                        break;
+                    case ast::ExprKind::Index:
+                        if (!node.children.empty())
+                            return fail("index residual with children");
+                        if (!read_resolves(expr, has_storage))
+                            return fail("index residual without storage");
+                        break;
+                    case ast::ExprKind::Ident:
+                    case ast::ExprKind::PathExpr:
+                        if (!node.children.empty())
+                            return fail("read residual with children");
+                        if (!read_resolves(expr, has_storage))
+                            return fail("read residual without storage");
+                        break;
+                    default:
+                        return fail("residual of unsupported kind");
+                }
+            }
+            for (std::size_t i = 0; i < nodes.size(); ++i)
+            {
+                auto const& node = nodes[i];
+                if (node.kind != dcc::ctfe::Residual::Kind::Value || !referenced[i])
+                    continue;
+                if (!residual_value_materializable(node.value))
+                    return fail("referenced value is not materializable");
+            }
+            return ResidualCheck{true, {}};
+        }
+
+        static ast::FuncDecl const* call_emit_target(ast::CallExpr const* call)
+        {
+            if (!call)
+                return nullptr;
+            if (auto* spec = call->sema.resolved_specialization)
+                return spec;
+            if (call->callee)
+            {
+                if (auto* fd = ast::node_cast<ast::FuncDecl>(call->callee->sema.resolved_decl))
+                    return fd;
+            }
+            if (call->sema.ufcs_callee)
+            {
+                if (auto* fd = ast::node_cast<ast::FuncDecl>(call->sema.ufcs_callee))
+                    return fd;
+            }
+            if (auto* fd = ast::node_cast<ast::FuncDecl>(call->sema.resolved_decl))
+                return fd;
+            return nullptr;
+        }
+
+        static bool read_resolves(ast::Expr const* node, StorageResolver const& has_storage)
+        {
+            if (!node)
+                return false;
+            switch (node->kind)
+            {
+                case ast::ExprKind::Ident: {
+                    auto* id = static_cast<ast::IdentExpr const*>(node);
+                    return id->sema.resolved_decl && has_storage(id->sema.resolved_decl);
+                }
+                case ast::ExprKind::PathExpr: {
+                    auto* pe = static_cast<ast::PathExpr const*>(node);
+                    auto* resolved = pe->sema.resolved_specialization
+                                         ? static_cast<ast::Decl const*>(pe->sema.resolved_specialization)
+                                         : pe->sema.resolved_decl;
+                    return resolved && has_storage(resolved);
+                }
+                case ast::ExprKind::FieldAccess:
+                    return read_resolves(static_cast<ast::FieldAccessExpr const*>(node)->object, has_storage);
+                case ast::ExprKind::Index: {
+                    auto* ix = static_cast<ast::IndexExpr const*>(node);
+                    return read_resolves(ix->object, has_storage) && read_resolves(ix->index, has_storage);
+                }
+                case ast::ExprKind::Unary: {
+                    auto* un = static_cast<ast::UnaryExpr const*>(node);
+                    if (un->op != dcc::lex::TokenKind::Star)
+                        return false;
+                    return read_resolves(un->operand, has_storage);
+                }
+                case ast::ExprKind::IntLiteral:
+                case ast::ExprKind::FloatLiteral:
+                case ast::ExprKind::BoolLiteral:
+                case ast::ExprKind::CharLiteral:
+                case ast::ExprKind::U16CharLiteral:
+                case ast::ExprKind::NullLiteral:
+                case ast::ExprKind::StringLiteral:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static bool residual_value_materializable(dcc::comptime::Value const& value)
+        {
+            using Kind = dcc::comptime::Value::Kind;
+            if (value.kind() == Kind::Unknown)
+                return false;
+            if (value.kind() == Kind::Pointer)
+                return value.is_null_ptr();
+            if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
+            {
+                for (std::size_t i = 0; i < value.size(); ++i)
+                    if (!residual_value_materializable(value.at(i)))
+                        return false;
+            }
+            return true;
         }
 
     private:

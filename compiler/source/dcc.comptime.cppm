@@ -67,8 +67,7 @@ export namespace dcc::comptime
 
     struct Value
     {
-        using Storage = std::variant<std::monostate, std::int64_t, double, bool, std::uint32_t, std::string, ValueAgg, ValueSlice, ValuePtr,
-                                         ValueUnknown>;
+        using Storage = std::variant<std::monostate, std::int64_t, double, bool, std::uint32_t, std::string, ValueAgg, ValueSlice, ValuePtr, ValueUnknown>;
 
         enum class Kind : std::uint8_t
         {
@@ -86,6 +85,7 @@ export namespace dcc::comptime
 
         types::TypePtr type{nullptr};
         Storage m_storage;
+        bool tainted{false};
 
         [[nodiscard]] Kind kind() const noexcept { return static_cast<Kind>(m_storage.index()); }
 
@@ -155,6 +155,8 @@ export namespace dcc::comptime
             assert(t);
             Value val;
             val.type = t;
+            for (auto const& elem : elems)
+                val.tainted = val.tainted || elem.tainted;
             val.m_storage.template emplace<ValueAgg>(ValueAgg{std::move(elems)});
             return val;
         }
@@ -164,6 +166,8 @@ export namespace dcc::comptime
             assert(t && t->kind == types::TypeKind::Slice);
             Value val;
             val.type = t;
+            for (auto const& elem : elems)
+                val.tainted = val.tainted || elem.tainted;
             auto count = elems.size();
             val.m_storage.template emplace<ValueSlice>(ValueSlice{std::move(elems), ValuePtr{}, count});
             return val;
