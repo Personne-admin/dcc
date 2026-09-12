@@ -32,6 +32,11 @@ export namespace dcc::comptime
         std::size_t length{};
     };
 
+    struct ValueUnknown
+    {
+        std::uint64_t origin{};
+    };
+
     enum class UnaryOp : std::uint8_t
     {
         Plus,
@@ -62,7 +67,8 @@ export namespace dcc::comptime
 
     struct Value
     {
-        using Storage = std::variant<std::monostate, std::int64_t, double, bool, std::uint32_t, std::string, ValueAgg, ValueSlice, ValuePtr>;
+        using Storage = std::variant<std::monostate, std::int64_t, double, bool, std::uint32_t, std::string, ValueAgg, ValueSlice, ValuePtr,
+                                         ValueUnknown>;
 
         enum class Kind : std::uint8_t
         {
@@ -75,6 +81,7 @@ export namespace dcc::comptime
             Aggregate = 6,
             Slice = 7,
             Pointer = 8,
+            Unknown = 9,
         };
 
         types::TypePtr type{nullptr};
@@ -188,6 +195,22 @@ export namespace dcc::comptime
             val.type = t;
             val.m_storage.template emplace<ValuePtr>(std::move(p));
             return val;
+        }
+
+        [[nodiscard]] static Value make_unknown(types::TypePtr t, std::uint64_t origin = 0)
+        {
+            Value val;
+            val.type = t;
+            val.m_storage.template emplace<ValueUnknown>(ValueUnknown{origin});
+            return val;
+        }
+
+        [[nodiscard]] bool is_unknown() const noexcept { return kind() == Kind::Unknown; }
+
+        [[nodiscard]] std::uint64_t unknown_origin() const
+        {
+            assert(kind() == Kind::Unknown);
+            return std::get<ValueUnknown>(m_storage).origin;
         }
 
         [[nodiscard]] std::int64_t get_int() const
@@ -366,6 +389,8 @@ export namespace dcc::comptime
                 }
                 case Kind::Pointer:
                     return std::get<ValuePtr>(m_storage) == std::get<ValuePtr>(other.m_storage);
+                case Kind::Unknown:
+                    return std::get<ValueUnknown>(m_storage).origin == std::get<ValueUnknown>(other.m_storage).origin;
             }
             return false;
         }
@@ -420,6 +445,9 @@ export namespace dcc::comptime
                 case Kind::Pointer:
                     h ^= hash_pointer(std::get<ValuePtr>(m_storage));
                     break;
+                case Kind::Unknown:
+                    h ^= std::hash<std::uint64_t>{}(std::get<ValueUnknown>(m_storage).origin);
+                    break;
             }
             return h;
         }
@@ -447,6 +475,7 @@ export namespace dcc::comptime
                 case Kind::Aggregate:
                 case Kind::Slice:
                 case Kind::Pointer:
+                case Kind::Unknown:
                     return std::nullopt;
             }
             return std::nullopt;
@@ -469,6 +498,7 @@ export namespace dcc::comptime
                 case Kind::Aggregate:
                 case Kind::Slice:
                 case Kind::Pointer:
+                case Kind::Unknown:
                     return std::nullopt;
             }
             return std::nullopt;
@@ -491,6 +521,7 @@ export namespace dcc::comptime
                 case Kind::Aggregate:
                 case Kind::Slice:
                 case Kind::Pointer:
+                case Kind::Unknown:
                     return std::nullopt;
             }
             return std::nullopt;
@@ -622,6 +653,8 @@ export namespace dcc::comptime
 
         [[nodiscard]] std::optional<Value> fold_unary(UnaryOp op, types::TypePtr out_type) const
         {
+            if (kind() == Kind::Unknown)
+                return make_unknown(out_type);
             switch (op)
             {
                 case UnaryOp::Plus:
@@ -654,6 +687,8 @@ export namespace dcc::comptime
 
         [[nodiscard]] std::optional<Value> fold_binary(BinaryOp op, Value const& rhs, types::TypePtr out_type) const
         {
+            if (kind() == Kind::Unknown || rhs.kind() == Kind::Unknown)
+                return make_unknown(out_type);
             auto const* ft = types::type_cast<types::FloatType>(out_type);
             auto const* it = types::type_cast<types::IntType>(out_type);
 
@@ -766,6 +801,8 @@ export namespace dcc::comptime
         {
             if (!dst)
                 return std::nullopt;
+            if (kind() == Kind::Unknown)
+                return make_unknown(dst);
 
             if (dst->kind == types::TypeKind::Bool)
             {

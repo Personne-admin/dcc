@@ -6964,6 +6964,8 @@ export namespace dcc::ir::lower
                         return m_ctx.null_const(lower_type(target_type ? target_type : cv.type));
                     lower_panic("non-null comptime pointer materialization not supported");
                 }
+                case dcc::comptime::Value::Kind::Unknown:
+                    lower_panic("unknown comptime value cannot be used as a constant");
             }
             lower_panic("unknown comptime value kind");
         }

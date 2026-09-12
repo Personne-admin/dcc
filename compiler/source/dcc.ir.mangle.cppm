@@ -737,6 +737,11 @@ namespace dcc::ir::mangle
                         }
                     }
                     return;
+                case dcc::comptime::Value::Kind::Unknown:
+                    out += 'U';
+                    encode_type(out, value.type, resolver);
+                    out += to_dec(value.unknown_origin());
+                    return;
             }
         }
 

@@ -109,6 +109,8 @@ export namespace dcc::const_eval
         auto bop = token_to_cmp_binop(op);
         if (!bop)
             return std::nullopt;
+        if (lhs.is_unknown() || rhs.is_unknown())
+            return comptime::Value::make_unknown(out_type);
 
         if (lhs.kind() == comptime::Value::Kind::Float && rhs.kind() == comptime::Value::Kind::Float)
         {
@@ -164,6 +166,8 @@ export namespace dcc::const_eval
     [[nodiscard]] std::optional<comptime::Value> fold_binary(lex::TokenKind op, comptime::Value const& lhs, comptime::Value const& rhs,
                                                                     types::TypePtr out_type)
     {
+        if (lhs.is_unknown() || rhs.is_unknown())
+            return comptime::Value::make_unknown(out_type);
         if (op == lex::TokenKind::Plus || op == lex::TokenKind::Minus || op == lex::TokenKind::Star || op == lex::TokenKind::Slash ||
             op == lex::TokenKind::Percent)
         {
