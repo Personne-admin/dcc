@@ -1,0 +1,28 @@
+=== FILE: test.dc ===
+module test;
+
+usize slen([]u8 s) {
+    return s.len;
+}
+
+u8 first_byte([]u8 s) {
+    return s.ptr[0];
+}
+
+const usize N = slen("hello");
+
+@nomangle
+public i32 dcc_main() {
+    if N != 5 { return 1; }
+    if slen("hello world") != 11 { return 2; }
+    if first_byte("hello") != 104 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-LLVM FLAGS: -verify ===
