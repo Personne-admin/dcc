@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+i32 f(i32 u) {
+    return u - u + (1 / 0);
+}
+
+@nomangle
+public i32 dcc_main() {
+    return f(5);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 136
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -fpartial-eval ===
+RUN-EXIT: 136
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 136
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 -fpartial-eval ===
+RUN-EXIT: 136

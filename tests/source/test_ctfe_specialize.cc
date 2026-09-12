@@ -280,7 +280,8 @@ i32 apply(Fn f, i32 x) {
         auto spec = run_specialize(fx, fn, std::move(args));
         CHECK_EQ(spec.result.flow, ctfe::Flow::Normal);
         REQUIRE(spec.result.value.has_value());
-        CHECK(spec.result.value->is_unknown());
+        CHECK(!spec.result.value->is_unknown());
+        CHECK_EQ(spec.result.value->get_int(), 7);
         auto emits = emit_indices(spec.trace);
         CHECK(!emits.empty());
         bool saw_call = false;
@@ -288,7 +289,6 @@ i32 apply(Fn f, i32 x) {
             if (spec.trace.nodes[i].node && spec.trace.nodes[i].node->kind == ast::ExprKind::Call)
                 saw_call = true;
         CHECK(saw_call);
-        CHECK_EQ(spec.result.value->unknown_origin(), emits.back());
     }
 
     TEST_CASE("extern calls residualize with nested emits")

@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+i32 g_y;
+
+i32 divw(i32 x, i32 y) {
+    return x / y;
+}
+
+@nomangle
+public i32 dcc_main() {
+    g_y = 0;
+    i32 r = divw(7, g_y);
+    return r;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 136
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -fpartial-eval ===
+RUN-EXIT: 136
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 136
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 -fpartial-eval ===
+RUN-EXIT: 136

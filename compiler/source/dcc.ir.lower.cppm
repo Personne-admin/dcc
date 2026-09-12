@@ -21,9 +21,9 @@ export namespace dcc::ir::lower
     public:
         explicit Lowerer(IrContext& ctx, sema::SpecializationRegistry const* spec_reg = nullptr, sema::ModuleGraph const* module_graph = nullptr,
                          bool bounds_check = false, sm::SourceManager const* source_manager = nullptr, dcc::types::TypeContext* type_ctx = nullptr,
-                         bool restricted_check = false)
+                         bool restricted_check = false, bool partial_eval = false)
             : m_ctx(ctx), m_spec_reg(spec_reg), m_module_graph(module_graph), m_type_ctx(type_ctx), m_bounds_check(bounds_check),
-              m_restricted_check(restricted_check), m_source_manager(source_manager)
+              m_restricted_check(restricted_check), m_source_manager(source_manager), m_partial_eval(partial_eval)
         {
         }
 
@@ -69,6 +69,16 @@ export namespace dcc::ir::lower
             std::size_t arg_count{};
         };
 
+        struct SpecializeStats
+        {
+            std::uint64_t attempts{};
+            std::uint64_t succeeded{};
+            std::uint64_t fallbacks{};
+            std::string last_reason;
+        };
+
+        SpecializeStats const& specialize_stats() const { return m_specialize_stats; }
+
         static std::optional<CallEmitMapping> resolve_call_emit_mapping(bool is_ufcs, bool indirect, std::size_t arg_offset,
                                                                          std::size_t nargs, std::size_t child_count)
         {
@@ -80,8 +90,7 @@ export namespace dcc::ir::lower
             return CallEmitMapping{(is_ufcs || indirect), arg_offset, nargs - arg_offset};
         }
 
-        static ResidualCheck validate_residual_trace(dcc::ctfe::Trace const& trace, StorageResolver const& has_storage, bool in_function,
-                                                     std::size_t prologue_end)
+        static ResidualCheck validate_residual_trace(dcc::ctfe::Trace const& trace, StorageResolver const& has_storage, bool in_function)
         {
             auto fail = [](std::string reason) { return ResidualCheck{false, std::move(reason)}; };
             auto const& nodes = trace.nodes;
@@ -108,7 +117,7 @@ export namespace dcc::ir::lower
             for (std::size_t i = 0; i < nodes.size(); ++i)
             {
                 auto const& node = nodes[i];
-                if (node.kind != dcc::ctfe::Residual::Kind::Emit || i < prologue_end)
+                if (node.kind != dcc::ctfe::Residual::Kind::Emit || node.is_prologue)
                     continue;
                 if (!node.node)
                     return fail("residual without source node");
@@ -2627,6 +2636,15 @@ export namespace dcc::ir::lower
 
             SourceRangeGuard guard(*this, expr->range);
 
+            if (!m_residual_env.empty())
+            {
+                for (auto it = m_residual_env.rbegin(); it != m_residual_env.rend(); ++it)
+                {
+                    if (it->first == expr)
+                        return lower_residual(it->second);
+                }
+            }
+
             if (expr->kind == ast::ExprKind::Ident)
                 return lower_ident_expr(static_cast<ast::IdentExpr const*>(expr));
 
@@ -2858,8 +2876,6 @@ export namespace dcc::ir::lower
                 }
             }
 
-            IrValue* callee_value = nullptr;
-
             auto* resolved_spec = call->sema.resolved_specialization;
             auto* callee_expr = call->callee;
 
@@ -2912,6 +2928,17 @@ export namespace dcc::ir::lower
                 direct_target && !direct_target->sema.is_intrinsic && !call->sema.is_runtime &&
                 !direct_target->sema.is_runtime)
                 return materialize_comptime(*call->sema.const_value, call_type);
+
+            if (auto specialized = try_specialize_call(call, direct_target))
+                return *specialized;
+
+            return lower_call_with_target(call, direct_target);
+        }
+
+        IrValue* lower_call_with_target(ast::CallExpr const* call, ast::FuncDecl const* direct_target)
+        {
+            IrValue* callee_value = nullptr;
+            auto* callee_expr = call->callee;
 
             if (direct_target)
             {
@@ -3009,6 +3036,641 @@ export namespace dcc::ir::lower
             append_inst(call_inst);
 
             return is_void_result ? nullptr : call_inst;
+        }
+
+        std::optional<IrValue*> try_specialize_call(ast::CallExpr const* call, ast::FuncDecl const* direct_target)
+        {
+            auto fallback = [&](std::string reason) -> std::optional<IrValue*> {
+                ++m_specialize_stats.fallbacks;
+                m_specialize_stats.last_reason = std::move(reason);
+                return std::nullopt;
+            };
+            if (!m_partial_eval || m_specialize_depth != 0 || !direct_target || !m_type_ctx)
+                return std::nullopt;
+            if (!direct_target->body || direct_target->sema.is_intrinsic || direct_target->is_extern)
+                return std::nullopt;
+            if (call->sema.is_runtime || direct_target->sema.is_runtime)
+                return std::nullopt;
+            bool is_ufcs = (call->sema.ufcs_callee != nullptr);
+            std::size_t param_offset = (is_ufcs && direct_target) ? 1 : 0;
+            if ((is_ufcs ? 1u : 0u) + call->args.size() != direct_target->params.size())
+                return std::nullopt;
+            std::vector<comptime::Value> bindings;
+            std::vector<ast::Expr const*> sources;
+            bindings.reserve(direct_target->params.size());
+            sources.reserve(direct_target->params.size());
+            bool saw_const = false;
+            for (std::size_t i = 0; i < direct_target->params.size(); ++i)
+            {
+                ast::Expr const* actual = nullptr;
+                if (is_ufcs && i == 0)
+                {
+                    auto* field_access = ast::node_cast<ast::FieldAccessExpr>(call->callee);
+                    if (!field_access)
+                        return std::nullopt;
+                    if (field_access->object->sema.implicit_addr_of || field_access->object->sema.implicit_deref)
+                        return std::nullopt;
+                    auto* first_param_type = get_canonical_type(direct_target->params[0].type);
+                    auto* obj_sema_type = get_sema_resolved_type(field_access->object);
+                    if (first_param_type && first_param_type->kind == dcc::types::TypeKind::Slice && obj_sema_type &&
+                        obj_sema_type->kind == dcc::types::TypeKind::Array)
+                        return std::nullopt;
+                    actual = field_access->object;
+                }
+                else
+                {
+                    if (i < param_offset || i - param_offset >= call->args.size())
+                        return std::nullopt;
+                    actual = call->args[i - param_offset];
+                }
+                auto* param_type = get_canonical_type(direct_target->params[i].type);
+                auto* actual_type = get_sema_resolved_type(actual);
+                if (actual_type && actual_type->kind == dcc::types::TypeKind::Void)
+                    return std::nullopt;
+                if (actual->sema.const_value && actual->sema.const_value->type == actual_type)
+                {
+                    saw_const = true;
+                    bindings.push_back(*actual->sema.const_value);
+                }
+                else
+                {
+                    bindings.push_back(dcc::comptime::Value::make_unknown(param_type, 0));
+                }
+                sources.push_back(actual);
+            }
+            if (!saw_const)
+                return std::nullopt;
+            ++m_specialize_stats.attempts;
+            std::unordered_set<ast::FuncDecl const*> in_progress;
+            dcc::ctfe::Context context;
+            context.types = m_type_ctx;
+            context.source_manager = m_source_manager;
+            context.specializing = &in_progress;
+            dcc::ctfe::Evaluator evaluator(std::move(context), dcc::ctfe::Mode::Specialize);
+            auto spec = evaluator.specialize(*direct_target, std::move(bindings), sources);
+            if (spec.flow != dcc::ctfe::Flow::Normal || !spec.value)
+            {
+                if (spec.flow == dcc::ctfe::Flow::Abandoned)
+                    return fallback(std::string{"evaluator abandoned: "} + std::string{dcc::ctfe::abandon_message(spec.abandon_reason)});
+                return fallback("evaluator failed");
+            }
+            auto const& trace = evaluator.trace();
+            auto storage_ok = [&](ast::Decl const* decl) { return residual_storage_visible(decl); };
+            auto check = validate_residual_trace(trace, storage_ok, m_current_func_decl != nullptr);
+            if (!check.ok)
+                return fallback("validation failed");
+            bool has_question = false;
+            for (auto const& node : trace.nodes)
+            {
+                if (node.kind != dcc::ctfe::Residual::Kind::Emit || !node.node)
+                    continue;
+                if (node.node->kind == ast::ExprKind::Postfix)
+                {
+                    auto* post = static_cast<ast::PostfixExpr const*>(node.node);
+                    if (post->op == dcc::lex::TokenKind::Question)
+                        has_question = true;
+                }
+            }
+            if (has_question && !call_use_transparent(call))
+                return fallback("opaque use of checked call");
+            bool progress = false;
+            for (auto const& node : trace.nodes)
+            {
+                if (node.kind == dcc::ctfe::Residual::Kind::Emit && !node.is_prologue)
+                {
+                    progress = true;
+                    break;
+                }
+            }
+            if (!progress)
+                return fallback("no folded constant");
+            if (spec.value && spec.value->kind() != dcc::comptime::Value::Kind::Unknown &&
+                !residual_value_materializable(*spec.value))
+                return fallback("unmaterializable result");
+            m_residual_trace = &trace;
+            m_residual_memo.clear();
+            m_residual_done.clear();
+            m_residual_env.clear();
+            m_residual_temps.clear();
+            m_residual_refcounts.assign(trace.nodes.size(), 0);
+            for (auto const& node : trace.nodes)
+            {
+                if (node.kind != dcc::ctfe::Residual::Kind::Emit)
+                    continue;
+                for (auto child : node.children)
+                    ++m_residual_refcounts[child];
+            }
+            if (spec.value && spec.value->kind() == dcc::comptime::Value::Kind::Unknown &&
+                spec.value->unknown_origin() >= trace.nodes.size())
+                return fallback("unresolved result");
+            ++m_specialize_depth;
+            interpret_residual_seq(0);
+            --m_specialize_depth;
+            IrValue* out = nullptr;
+            if (spec.value)
+            {
+                if (spec.value->kind() == dcc::comptime::Value::Kind::Unknown)
+                    out = lower_residual(spec.value->unknown_origin());
+                else
+                {
+                    auto* call_type = get_sema_resolved_type(call);
+                    if (!spec.value->type || spec.value->type != call_type)
+                    {
+                        m_residual_trace = nullptr;
+                        return fallback("result type mismatch");
+                    }
+                    out = materialize_comptime(*spec.value, call_type);
+                }
+            }
+            m_residual_trace = nullptr;
+            ++m_specialize_stats.succeeded;
+            return out;
+        }
+
+        IrValue* lower_residual(std::size_t index)
+        {
+            if (m_residual_done.contains(index))
+            {
+                auto it = m_residual_memo.find(index);
+                return it == m_residual_memo.end() ? nullptr : it->second;
+            }
+            auto const& node = m_residual_trace->nodes[index];
+            IrValue* out = nullptr;
+            if (node.kind == dcc::ctfe::Residual::Kind::Value)
+                out = materialize_comptime(node.value, node.value.type);
+            else if (node.kind == dcc::ctfe::Residual::Kind::Emit)
+            {
+                out = lower_residual_emit(index);
+            }
+            else
+            {
+                lower_panic("residual scope referenced as value");
+            }
+            m_residual_memo[index] = out;
+            m_residual_done.insert(index);
+            return out;
+        }
+
+        IrValue* residual_temp_address(std::size_t index, ast::Expr const* operand)
+        {
+            if (auto it = m_residual_temps.find(index); it != m_residual_temps.end())
+                return it->second;
+            auto* val = lower_residual(index);
+            if (!val)
+                lower_panic(operand, "address of void residual");
+            auto* sema_ty = get_sema_resolved_type(operand);
+            auto* ir_ty = lower_type(sema_ty);
+            auto* ptr_type = m_ctx.pointer_to(ir_ty, ir::Segment::None);
+            auto* alloca = m_ctx.alloca(ptr_type, ir_ty);
+            auto alloca_name = ident_name();
+            alloca->name = m_name_pool.back();
+            append_inst(alloca);
+            append_inst(m_ctx.store(val, alloca));
+            m_residual_temps[index] = alloca;
+            return alloca;
+        }
+
+        IrValue* lower_residual_emit(std::size_t index)
+        {
+            auto const& node = m_residual_trace->nodes[index];
+            auto* expr = node.node;
+            if (!expr)
+                lower_panic("residual without source node");
+            if (m_residual_trace->nodes[index].is_prologue)
+                return lower_expr(expr);
+            switch (expr->kind)
+            {
+                case ast::ExprKind::Binary: {
+                    auto* bin = static_cast<ast::BinaryExpr const*>(expr);
+                    if (node.children.size() != 2u)
+                        lower_panic(bin, "binary residual arity mismatch");
+                    if (bin->op == dcc::lex::TokenKind::Eq || bin->op == dcc::lex::TokenKind::AmpAmp ||
+                        bin->op == dcc::lex::TokenKind::PipePipe || is_compound_assign(bin->op))
+                        lower_panic(bin, "binary residual with control or store op");
+                    m_residual_env.emplace_back(bin->lhs, node.children[0]);
+                    m_residual_env.emplace_back(bin->rhs, node.children[1]);
+                    auto* out = lower_binary_expr(bin);
+                    m_residual_env.pop_back();
+                    m_residual_env.pop_back();
+                    return out;
+                }
+                case ast::ExprKind::Unary: {
+                    auto* un = static_cast<ast::UnaryExpr const*>(expr);
+                    if (un->op == dcc::lex::TokenKind::Increment || un->op == dcc::lex::TokenKind::Decrement)
+                        lower_panic(un, "adjust residual has no runtime form");
+                    if (un->op == dcc::lex::TokenKind::Star)
+                    {
+                        if (!node.children.empty())
+                            lower_panic(un, "deref residual with children");
+                        return lower_expr(expr);
+                    }
+                    if (node.children.size() != 1u)
+                        lower_panic(un, "unary residual arity mismatch");
+                    m_residual_env.emplace_back(un->operand, node.children[0]);
+                    auto* out = lower_unary_expr(un);
+                    m_residual_env.pop_back();
+                    return out;
+                }
+                case ast::ExprKind::Cast: {
+                    auto* cast = static_cast<ast::CastExpr const*>(expr);
+                    if (node.children.size() != 1u)
+                        lower_panic(cast, "cast residual arity mismatch");
+                    m_residual_env.emplace_back(cast->operand, node.children[0]);
+                    auto* out = lower_cast_expr(cast);
+                    m_residual_env.pop_back();
+                    return out;
+                }
+                case ast::ExprKind::Postfix: {
+                    auto* post = static_cast<ast::PostfixExpr const*>(expr);
+                    if (post->op != dcc::lex::TokenKind::Question)
+                        lower_panic(post, "postfix residual is not a check");
+                    if (node.children.size() != 1u)
+                        lower_panic(post, "check residual arity mismatch");
+                    m_residual_env.emplace_back(post->operand, node.children[0]);
+                    auto* out = lower_postfix_expr(post);
+                    m_residual_env.pop_back();
+                    return out;
+                }
+                case ast::ExprKind::Call: {
+                    auto* call = static_cast<ast::CallExpr const*>(expr);
+                    auto* target = call_emit_target(call);
+                    bool indirect = (target == nullptr);
+                    bool ufcs = call->sema.ufcs_callee != nullptr;
+                    auto mapping = resolve_call_emit_mapping(ufcs, indirect, call->sema.call_argument_offset, call->args.size(),
+                                                             node.children.size());
+                    if (!mapping)
+                        lower_panic(call, "call residual arity mismatch");
+                    std::size_t pushed = 0;
+                    if (mapping->has_leading)
+                    {
+                        if (indirect && call->callee)
+                            m_residual_env.emplace_back(call->callee, node.children[0]);
+                        else if (auto* field = ast::node_cast<ast::FieldAccessExpr>(call->callee))
+                            m_residual_env.emplace_back(field->object, node.children[0]);
+                        else
+                            lower_panic(call, "call residual receiver unresolved");
+                        ++pushed;
+                    }
+                    std::size_t base = pushed;
+                    for (std::size_t i = 0; i < mapping->arg_count; ++i)
+                    {
+                        m_residual_env.emplace_back(call->args[mapping->arg_offset + i], node.children[base + i]);
+                        ++pushed;
+                    }
+                    auto* out = lower_call_with_target(call, target);
+                    for (; pushed > 0; --pushed)
+                        m_residual_env.pop_back();
+                    return out;
+                }
+                case ast::ExprKind::FieldAccess: {
+                    if (node.children.size() > 1u)
+                        lower_panic(expr, "field residual arity mismatch");
+                    if (node.children.empty())
+                        return lower_expr(expr);
+                    auto* fa = static_cast<ast::FieldAccessExpr const*>(expr);
+                    m_residual_env.emplace_back(fa->object, node.children[0]);
+                    auto* out = lower_field_access_expr(fa);
+                    m_residual_env.pop_back();
+                    return out;
+                }
+                case ast::ExprKind::Index:
+                case ast::ExprKind::Ident:
+                case ast::ExprKind::PathExpr:
+                    if (!node.children.empty())
+                        lower_panic(expr, "read residual with children");
+                    return lower_expr(expr);
+                default:
+                    break;
+            }
+            lower_panic(expr, "residual of unsupported kind");
+        }
+
+        void interpret_residual_seq(std::size_t seq)
+        {
+            auto const& node = m_residual_trace->nodes[seq];
+            for (auto child : node.children)
+            {
+                auto const& item = m_residual_trace->nodes[child];
+                if (item.kind == dcc::ctfe::Residual::Kind::Seq)
+                {
+                    interpret_residual_seq(child);
+                    continue;
+                }
+                if (item.kind == dcc::ctfe::Residual::Kind::Value)
+                    continue;
+                if (!item.is_prologue && m_residual_refcounts[child] == 0 && item.node)
+                {
+                    bool pure = false;
+                    if (item.node->kind == ast::ExprKind::Binary)
+                    {
+                        auto* bin = static_cast<ast::BinaryExpr const*>(item.node);
+                        pure = (bin->op != dcc::lex::TokenKind::Slash && bin->op != dcc::lex::TokenKind::Percent);
+                    }
+                    else if (item.node->kind == ast::ExprKind::Cast)
+                    {
+                        pure = true;
+                    }
+                    else if (item.node->kind == ast::ExprKind::Unary)
+                    {
+                        auto* un = static_cast<ast::UnaryExpr const*>(item.node);
+                        pure = (un->op != dcc::lex::TokenKind::Star && un->op != dcc::lex::TokenKind::Increment &&
+                                un->op != dcc::lex::TokenKind::Decrement);
+                    }
+                    if (pure)
+                        continue;
+                }
+                lower_residual(child);
+            }
+        }
+
+        static bool residual_storage_visible(ast::Decl const* decl)
+        {
+            if (!decl)
+                return false;
+            if (ast::node_cast<ast::FuncDecl>(decl))
+                return true;
+            auto* vd = ast::node_cast<ast::VarDecl>(decl);
+            if (!vd)
+                return false;
+            return vd->sema.storage == ast::StorageClass::ModuleGlobal || vd->sema.storage == ast::StorageClass::Static ||
+                   vd->sema.storage == ast::StorageClass::Extern;
+        }
+
+        bool call_use_transparent(ast::CallExpr const* target)
+        {
+            if (!m_current_func_decl || !m_current_func_decl->body || !target)
+                return false;
+            enum class Link
+            {
+                Question,
+                Return,
+                BlockTail,
+                Lambda,
+                Opaque
+            };
+            std::vector<Link> chain;
+            std::size_t visited = 0;
+            constexpr std::size_t visit_cap = 100000;
+            std::function<bool(ast::Expr const*)> search_expr;
+            std::function<bool(ast::Stmt const*)> search_stmt;
+            std::function<bool(ast::Block const&)> search_block;
+            search_expr = [&](ast::Expr const* node) -> bool {
+                if (!node || ++visited > visit_cap)
+                    return false;
+                if (node == target)
+                    return true;
+                switch (node->kind)
+                {
+                    case ast::ExprKind::Postfix: {
+                        auto* post = static_cast<ast::PostfixExpr const*>(node);
+                        if (search_expr(post->operand))
+                        {
+                            chain.push_back(post->op == dcc::lex::TokenKind::Question ? Link::Question : Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Unary: {
+                        auto* un = static_cast<ast::UnaryExpr const*>(node);
+                        if (search_expr(un->operand))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Cast: {
+                        auto* cast = static_cast<ast::CastExpr const*>(node);
+                        if (search_expr(cast->operand))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Binary: {
+                        auto* bin = static_cast<ast::BinaryExpr const*>(node);
+                        if (search_expr(bin->lhs) || search_expr(bin->rhs))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Call: {
+                        auto* call = static_cast<ast::CallExpr const*>(node);
+                        if (call->callee && search_expr(call->callee))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        for (auto* arg : call->args)
+                        {
+                            if (search_expr(arg))
+                            {
+                                chain.push_back(Link::Opaque);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::FieldAccess: {
+                        auto* fa = static_cast<ast::FieldAccessExpr const*>(node);
+                        if (search_expr(fa->object))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Index: {
+                        auto* ix = static_cast<ast::IndexExpr const*>(node);
+                        if (search_expr(ix->object) || search_expr(ix->index))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::If: {
+                        auto* ifex = static_cast<ast::IfExpr const*>(node);
+                        if (search_expr(ifex->condition))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        if (search_block(ifex->then_block))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        if (ifex->else_branch && search_expr(ifex->else_branch))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Match: {
+                        auto* match = static_cast<ast::MatchExpr const*>(node);
+                        if (search_expr(match->operand))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        for (auto const& arm : match->arms)
+                        {
+                            if ((arm.guard && search_expr(arm.guard)) || (arm.body && search_expr(arm.body)))
+                            {
+                                chain.push_back(Link::Opaque);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Block: {
+                        auto* block = static_cast<ast::BlockExpr const*>(node);
+                        if (search_block(block->body))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::StructLiteral: {
+                        auto* lit = static_cast<ast::StructLiteralExpr const*>(node);
+                        for (auto const& field : lit->fields)
+                        {
+                            if (field.value && search_expr(field.value))
+                            {
+                                chain.push_back(Link::Opaque);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Range: {
+                        auto* range = static_cast<ast::RangeExpr const*>(node);
+                        if ((range->start && search_expr(range->start)) || (range->end && search_expr(range->end)))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::Lambda:
+                        return false;
+                    default:
+                        return false;
+                }
+            };
+            search_block = [&](ast::Block const& block) -> bool {
+                for (auto* stmt : block.stmts)
+                {
+                    if (search_stmt(stmt))
+                        return true;
+                }
+                if (block.tail && search_expr(block.tail))
+                {
+                    chain.push_back(Link::BlockTail);
+                    return true;
+                }
+                return false;
+            };
+            search_stmt = [&](ast::Stmt const* stmt) -> bool {
+                if (!stmt || ++visited > visit_cap)
+                    return false;
+                switch (stmt->kind)
+                {
+                    case ast::StmtKind::Return: {
+                        auto* ret = static_cast<ast::ReturnStmt const*>(stmt);
+                        if (ret->value && search_expr(ret->value))
+                        {
+                            chain.push_back(Link::Return);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::StmtKind::Expr: {
+                        auto* es = static_cast<ast::ExprStmt const*>(stmt);
+                        if (search_expr(es->expr))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::StmtKind::DeclStmt: {
+                        auto* ds = static_cast<ast::DeclStmt const*>(stmt);
+                        if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl))
+                        {
+                            if (vd->init && search_expr(vd->init))
+                            {
+                                chain.push_back(Link::Opaque);
+                                return true;
+                            }
+                        }
+                        return false;
+                    }
+                    case ast::StmtKind::While: {
+                        auto* ws = static_cast<ast::WhileStmt const*>(stmt);
+                        if ((ws->condition && search_expr(ws->condition)) || search_block(ws->body))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::StmtKind::For: {
+                        auto* fs = static_cast<ast::ForStmt const*>(stmt);
+                        if ((fs->init && search_stmt(fs->init)) || (fs->cond && search_expr(fs->cond)) ||
+                            (fs->update && search_expr(fs->update)) || search_block(fs->body))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::StmtKind::DoWhile: {
+                        auto* ds = static_cast<ast::DoWhileStmt const*>(stmt);
+                        if (search_block(ds->body) || (ds->condition && search_expr(ds->condition)))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::StmtKind::StaticIf: {
+                        auto* ss = static_cast<ast::StaticIfStmt const*>(stmt);
+                        if (search_block(ss->then_block) || (ss->else_branch && search_stmt(ss->else_branch)))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    default:
+                        return false;
+                }
+            };
+            if (!search_block(*m_current_func_decl->body))
+                return false;
+            for (auto it = chain.begin(); it != chain.end(); ++it)
+            {
+                switch (*it)
+                {
+                    case Link::Question:
+                        return true;
+                    case Link::Return:
+                        return true;
+                    case Link::BlockTail:
+                        continue;
+                    case Link::Lambda:
+                    case Link::Opaque:
+                        return false;
+                }
+            }
+            return true;
         }
 
         [[nodiscard]] IrMemoryOrdering extract_order_from_arg(IrValue* order_val, ast::CallExpr const* call) const
@@ -3354,6 +4016,15 @@ export namespace dcc::ir::lower
 
         IrValue* lower_addr_of(ast::Expr const* operand)
         {
+            if (!m_residual_env.empty())
+            {
+                for (auto it = m_residual_env.rbegin(); it != m_residual_env.rend(); ++it)
+                {
+                    if (it->first == operand)
+                        return residual_temp_address(it->second, operand);
+                }
+            }
+
             if (operand->kind == ast::ExprKind::Ident)
             {
                 auto* id = static_cast<ast::IdentExpr const*>(operand);
@@ -5938,6 +6609,15 @@ export namespace dcc::ir::lower
         bool m_bounds_check{false};
         bool m_restricted_check{false};
         sm::SourceManager const* m_source_manager{};
+        bool m_partial_eval{false};
+        std::size_t m_specialize_depth{};
+        dcc::ctfe::Trace const* m_residual_trace{};
+        std::unordered_map<std::size_t, IrValue*> m_residual_memo;
+        std::unordered_set<std::size_t> m_residual_done;
+        std::vector<std::pair<ast::Expr const*, std::size_t>> m_residual_env;
+        std::unordered_map<std::size_t, IrValue*> m_residual_temps;
+        std::vector<std::size_t> m_residual_refcounts;
+        SpecializeStats m_specialize_stats{};
 
         sm::SourceRange m_active_range{};
         std::uint32_t m_next_scope_id{};

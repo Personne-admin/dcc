@@ -1,0 +1,39 @@
+=== FILE: test.dc ===
+module test;
+import std::fmt;
+
+std::fmt::Status(std::fmt::FmtError) do_format_float(const std::fmt::Writer* w) {
+    return std::fmt::format(w, "{}", 1.5);
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[64] backing;
+    std::fmt::BufferWriter bw = std::fmt::new_buffer_writer(backing[0..64]);
+    std::fmt::Writer w = std::fmt::writer(&bw);
+    match do_format_float(&w) {
+        std::fmt::Status::Ok => {},
+        _ => return 1,
+    }
+    [] const u8 got = std::fmt::written_slice(&bw);
+    if got.len == 0 {
+        return 2;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -fpartial-eval ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 -fpartial-eval ===
+LINK-STD: true
+RUN-EXIT: 0
