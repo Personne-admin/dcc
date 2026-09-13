@@ -1220,6 +1220,12 @@ export namespace dccd
                                         case dcc::ast::AsmPlacementKind::Imm:
                                             place_str = "imm";
                                             break;
+                                        case dcc::ast::AsmPlacementKind::Family:
+                                            place_str = std::format("family[{}]", op.reg_name);
+                                            break;
+                                        case dcc::ast::AsmPlacementKind::FamilyPair:
+                                            place_str = std::format("familypair[{},{}]", op.reg_name, op.reg_name2);
+                                            break;
                                     }
 
                                     std::string type_str = "<unknown>";
