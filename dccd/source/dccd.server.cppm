@@ -19,6 +19,7 @@ import dcc.sema;
 import dcc.sema.type_helpers;
 import dcc.vfs;
 import dcc.target;
+import dcc.config;
 
 export namespace dccd
 {
@@ -186,6 +187,8 @@ export namespace dccd
         [[nodiscard]] dcc::sm::SourceManager& source_manager() noexcept { return m_session->source_manager(); }
         [[nodiscard]] dcc::sm::SourceManager const& source_manager() const noexcept { return m_session->source_manager(); }
 
+        void set_prefix_override(std::filesystem::path prefix) { m_prefix_override = std::move(prefix); }
+
     private:
         std::optional<dcc::session::CompilerSession> m_session;
         std::ostream& m_log{std::cerr};
@@ -199,6 +202,7 @@ export namespace dccd
         std::vector<std::filesystem::path> m_global_include_paths;
         std::optional<std::string> m_lsp_compilation_database;
         std::map<std::string, std::string, std::less<>> m_project_compilation_database;
+        std::optional<std::filesystem::path> m_prefix_override;
 
         struct WorkspaceCompilationDatabase
         {
@@ -2294,6 +2298,7 @@ export namespace dccd
             opts.arena_initial_size = 256 * 1024;
 
             std::vector<std::filesystem::path> roots;
+            bool want_libdcext = false;
 
             if (auto const* command = find_compile_command(*path))
             {
@@ -2305,6 +2310,7 @@ export namespace dccd
 
                     opts.injected_decls = std::move(analysis->injected_decls);
                     opts.inject_libdcext_prelude = analysis->inject_libdcext_prelude;
+                    want_libdcext = analysis->inject_libdcext_prelude;
                     roots = std::move(analysis->import_roots);
 
                     std::println(m_log, "[dccd] compile command: {} import roots, {} injected declarations, target={}", roots.size(),
@@ -2325,6 +2331,16 @@ export namespace dccd
 
             for (auto const& root : m_workspace_roots)
                 roots.push_back(root);
+
+            if (want_libdcext)
+            {
+                auto libdcext_include = active_prefix() / "include";
+                std::error_code include_ec;
+                if (std::filesystem::is_directory(libdcext_include, include_ec) && !include_ec)
+                    roots.push_back(std::move(libdcext_include));
+                else
+                    std::println(m_log, "[dccd] libdcext include not found, skipping: {}", libdcext_include.string());
+            }
 
             std::vector<std::filesystem::path> deduped;
             for (auto& r : roots)
@@ -2761,6 +2777,14 @@ export namespace dccd
             if (!wcd || wcd->database.empty())
                 return nullptr;
             return wcd->database.command_for(file);
+        }
+
+        [[nodiscard]] std::filesystem::path active_prefix() const
+        {
+            if (m_prefix_override)
+                return *m_prefix_override;
+
+            return dcc::config::current_prefix(nullptr).path;
         }
 
         [[nodiscard]] std::vector<std::filesystem::path> compute_import_roots() const
