@@ -7746,8 +7746,7 @@ export namespace dcc::sema
         {
             if (value.is_unknown())
                 return true;
-            if (value.kind() == comptime::Value::Kind::Aggregate ||
-                (value.kind() == comptime::Value::Kind::Slice && !value.slice_is_ref()))
+            if (value.kind() == comptime::Value::Kind::Aggregate || (value.kind() == comptime::Value::Kind::Slice && !value.slice_is_ref()))
             {
                 for (std::size_t i = 0; i < value.size(); ++i)
                     if (fold_value_has_unknown(value.at(i)))
@@ -7760,7 +7759,10 @@ export namespace dcc::sema
         {
             struct Counter : ast::RecursiveAstVisitor
             {
-                enum : std::size_t { kBudget = 8192 };
+                enum : std::size_t
+                {
+                    kBudget = 8192
+                };
                 std::size_t count{};
                 bool over{};
                 void visitStmt(ast::Stmt const* stmt) override
@@ -15095,11 +15097,72 @@ export namespace dcc::sema
             return ty->byte_size;
         }
 
+        struct AsmFamilyEntry
+        {
+            std::string_view family;
+            std::string_view regs[4];
+        };
+
+        static constexpr AsmFamilyEntry asm_families[] = {
+            {"accumulator", {"al", "ax", "eax", "rax"}}, {"base", {"bl", "bx", "ebx", "rbx"}},    {"counter", {"cl", "cx", "ecx", "rcx"}},
+            {"data", {"dl", "dx", "edx", "rdx"}},        {"source", {"sil", "si", "esi", "rsi"}}, {"destination", {"dil", "di", "edi", "rdi"}},
+        };
+
+        [[nodiscard]] static AsmFamilyEntry const* lookup_asm_family(std::string_view name) noexcept
+        {
+            for (auto const& entry : asm_families)
+                if (entry.family == name)
+                    return &entry;
+
+            return nullptr;
+        }
+
+        [[nodiscard]] static std::string_view asm_family_register(AsmFamilyEntry const* entry, std::uint64_t bytes) noexcept
+        {
+            if (!entry)
+                return {};
+
+            if (bytes == 1)
+                return entry->regs[0];
+
+            if (bytes == 2)
+                return entry->regs[1];
+
+            if (bytes == 4)
+                return entry->regs[2];
+
+            if (bytes == 8)
+                return entry->regs[3];
+
+            return {};
+        }
+
+        [[nodiscard]] static std::uint64_t asm_family_type_width(types::TypePtr ty) noexcept
+        {
+            if (!ty)
+                return 0;
+
+            using Kind = types::TypeKind;
+            if (ty->kind == Kind::Int || ty->kind == Kind::Bool || ty->kind == Kind::Pointer)
+                return type_byte_width(ty);
+
+            if (ty->kind == Kind::Enum)
+            {
+                auto* enum_ty = static_cast<types::EnumType const*>(ty);
+                if (!enum_ty || enum_ty->is_tagged)
+                    return 0;
+
+                return type_byte_width(enum_ty->backing);
+            }
+            return 0;
+        }
+
         static ast::Attribute const* find_asm_attr(std::pmr::vector<ast::Attribute> const& attrs, std::string_view name) noexcept
         {
             for (auto const& a : attrs)
                 if (a.name == name)
                     return &a;
+
             return nullptr;
         }
 
@@ -15107,8 +15170,10 @@ export namespace dcc::sema
         {
             if (attr.args.empty())
                 return {};
+
             if (auto* sl = ast::node_cast<ast::StringLiteralExpr>(attr.args[0]))
                 return sl->value;
+
             return {};
         }
 
@@ -15138,7 +15203,15 @@ export namespace dcc::sema
 
             std::unordered_set<std::string_view> names;
             std::unordered_set<std::string_view> registers;
-            for (auto const& op : node.operands)
+            struct AsmFamilyResolution
+            {
+                std::string_view concrete;
+                std::string_view spelling;
+                types::TypePtr type{};
+                sm::SourceRange range;
+            };
+            std::vector<AsmFamilyResolution> family_resolutions;
+            for (auto& op : node.operands)
             {
                 if (!op.placeholder.empty() && !names.insert(op.placeholder).second)
                     error(op.range, "duplicate asm operand name `{}`", op.placeholder);
@@ -15155,7 +15228,9 @@ export namespace dcc::sema
 
                 bool memory = op.placement_kind == ast::AsmPlacementKind::Mem;
                 bool immediate = op.placement_kind == ast::AsmPlacementKind::Imm;
-                bool pair = op.placement_kind == ast::AsmPlacementKind::RegPair;
+                bool is_family = op.placement_kind == ast::AsmPlacementKind::Family;
+                bool is_family_pair = op.placement_kind == ast::AsmPlacementKind::FamilyPair;
+                bool pair = op.placement_kind == ast::AsmPlacementKind::RegPair || is_family_pair;
                 bool input = op.direction == ast::AsmOperandDirection::In;
                 auto width = type_byte_width(ty);
 
@@ -15178,12 +15253,72 @@ export namespace dcc::sema
                         error(op.range, "asm immediate operand `{}` requires an integer constant", op.placeholder);
                     continue;
                 }
-                if (width == 0 || width > 8 ||
-                    (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool && ty->kind != types::TypeKind::Pointer &&
-                     ty->kind != types::TypeKind::Float))
+
+                bool resolved_family = false;
+                std::string_view family_spelling;
+                std::string_view family_spelling2;
+                if (is_family || is_family_pair)
+                {
+                    std::string placement_spelling = is_family ? std::string(op.reg_name) : std::format("{}:{}", op.reg_name, op.reg_name2);
+                    if (op.is_mem_writable)
+                    {
+                        error(op.range, "register family `{}` cannot be used with a memory operand; drop the `*` or the `in {}` placement", placement_spelling,
+                              placement_spelling);
+                        continue;
+                    }
+                    auto family_width = asm_family_type_width(ty);
+                    bool pair_width_ok = !is_family_pair || (family_width == 2 || family_width == 4 || family_width == 8);
+                    std::string_view halves[2] = {op.reg_name, op.reg_name2};
+                    std::string_view resolved[2] = {halves[0], halves[1]};
+                    std::string_view spellings[2];
+                    bool failed = false;
+                    for (int half = 0; half < (is_family_pair ? 2 : 1); ++half)
+                    {
+                        auto const* entry = lookup_asm_family(halves[half]);
+                        if (!entry)
+                            continue;
+                        spellings[half] = halves[half];
+                        std::uint64_t half_bytes = is_family_pair ? family_width / 2 : family_width;
+                        auto reg = pair_width_ok ? asm_family_register(entry, half_bytes) : std::string_view{};
+                        if (reg.empty())
+                        {
+                            if (is_family_pair)
+                                error(op.range,
+                                      "register family `{}` cannot be used in a register pair with type `{}` ({} bytes); pairs need an "
+                                      "integer, enum, bool, or pointer type of 2, 4, or 8 bytes",
+                                      halves[half], format_type_str(ty), type_byte_width(ty));
+                            else
+                                error(op.range,
+                                      "register family `{}` cannot be used with type `{}` ({} bytes); families need an integer, enum, bool, "
+                                      "or pointer type of 1, 2, 4, or 8 bytes",
+                                      halves[half], format_type_str(ty), type_byte_width(ty));
+                            failed = true;
+                        }
+                        resolved[half] = reg;
+                    }
+                    if (failed)
+                        continue;
+                    op.reg_name = resolved[0];
+                    family_spelling = spellings[0];
+                    if (is_family_pair)
+                    {
+                        op.reg_name2 = resolved[1];
+                        op.placement_kind = ast::AsmPlacementKind::RegPair;
+                        family_spelling2 = spellings[1];
+                    }
+                    else
+                        op.placement_kind = ast::AsmPlacementKind::Reg;
+                    resolved_family = true;
+                    for (int half = 0; half < (is_family_pair ? 2 : 1); ++half)
+                        if (!spellings[half].empty())
+                            family_resolutions.push_back({resolved[half], spellings[half], ty, op.range});
+                }
+                if (!resolved_family && (width == 0 || width > 8 ||
+                                         (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool && ty->kind != types::TypeKind::Pointer &&
+                                          ty->kind != types::TypeKind::Float)))
                     error(op.range, "asm register operand `{}` requires a scalar type of at most 8 bytes", op.placeholder);
 
-                auto check_register = [&](std::string_view name) -> PhysReg const* {
+                auto check_register = [&](std::string_view name, std::string_view family_name = {}) -> PhysReg const* {
                     if (name.empty())
                         return nullptr;
                     auto* reg = lookup_register(arch, name);
@@ -15197,11 +15332,32 @@ export namespace dcc::sema
                              name == "dh")
                         error(op.range, "unsupported asm register `{}` for type `{}`", name, format_type_str(ty));
                     if (!registers.insert(register_family(name)).second)
-                        error(op.range, "overlapping asm register placement `{}`; use one inout operand", name);
+                    {
+                        if (!family_name.empty())
+                            error(op.range, "overlapping asm register placement `{}` (register `{}` for type `{}`); use one inout operand", family_name, name,
+                                  format_type_str(ty));
+                        else
+                        {
+                            AsmFamilyResolution const* owner = nullptr;
+                            for (auto const& resolution : family_resolutions)
+                                if (register_family(resolution.concrete) == register_family(name))
+                                {
+                                    owner = &resolution;
+                                    break;
+                                }
+                            if (owner)
+                                error(op.range,
+                                      "overlapping asm register placement `{}` (register family `{}` resolves to `{}` for type `{}`); use one inout "
+                                      "operand",
+                                      name, owner->spelling, owner->concrete, format_type_str(owner->type));
+                            else
+                                error(op.range, "overlapping asm register placement `{}`; use one inout operand", name);
+                        }
+                    }
                     return reg;
                 };
-                auto* first = check_register(op.reg_name);
-                auto* second = pair ? check_register(op.reg_name2) : nullptr;
+                auto* first = check_register(op.reg_name, family_spelling);
+                auto* second = pair ? check_register(op.reg_name2, family_spelling2) : nullptr;
                 if (pair)
                 {
                     if (first && second &&
@@ -15269,6 +15425,20 @@ export namespace dcc::sema
                         error(node.template_range, "unsupported asm clobber register `{}`", clobber);
                     if (registers.contains(register_family(clobber)))
                     {
+                        auto family_hit = family_resolutions.end();
+                        for (auto it = family_resolutions.begin(); it != family_resolutions.end(); ++it)
+                            if (register_family(it->concrete) == register_family(clobber))
+                            {
+                                family_hit = it;
+                                break;
+                            }
+                        if (family_hit != family_resolutions.end())
+                        {
+                            error(family_hit->range,
+                                  "register family `{}` (register `{}` for type `{}`) is also listed in `clobbers`; remove the redundant entry",
+                                  family_hit->spelling, family_hit->concrete, format_type_str(family_hit->type));
+                            continue;
+                        }
                         warning(node.template_range, "register `{}` appears as both an operand placement and a clobber; the clobber entry is redundant",
                                 clobber);
                         continue;
