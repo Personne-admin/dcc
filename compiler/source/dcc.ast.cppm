@@ -849,7 +849,14 @@ export namespace dcc::ast
         RegPair,
         Mem,
         Imm,
+        Family,
+        FamilyPair,
     };
+
+    [[nodiscard]] constexpr bool is_asm_register_family(std::string_view name) noexcept
+    {
+        return name == "accumulator" || name == "base" || name == "counter" || name == "data" || name == "source" || name == "destination";
+    }
 
     enum class AsmDialect : std::uint8_t
     {

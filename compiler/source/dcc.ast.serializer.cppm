@@ -496,6 +496,12 @@ export namespace dcc::ast
                         case AsmPlacementKind::Imm:
                             plac = "imm";
                             break;
+                        case AsmPlacementKind::Family:
+                            plac = std::format("family({})", op.reg_name);
+                            break;
+                        case AsmPlacementKind::FamilyPair:
+                            plac = std::format("familypair({}:{})", op.reg_name, op.reg_name2);
+                            break;
                     }
                     line_fmt("AsmOperand dir={} place={} name={}", dir, plac, op.placeholder);
                     if (op.expr)
@@ -571,6 +577,12 @@ export namespace dcc::ast
                             break;
                         case AsmPlacementKind::Imm:
                             plac = "imm";
+                            break;
+                        case AsmPlacementKind::Family:
+                            plac = std::format("family({})", op.reg_name);
+                            break;
+                        case AsmPlacementKind::FamilyPair:
+                            plac = std::format("familypair({}:{})", op.reg_name, op.reg_name2);
                             break;
                     }
                     line_fmt("AsmOperand dir={} place={} name={}", dir, plac, op.placeholder);
