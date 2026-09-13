@@ -61,7 +61,8 @@ expressions) or from the bound variable.
 After an optional `in`, each operand selects a placement:
 
 - `in reg` — a general register. Either an explicit register (`in rax`,
-  `in al`, `in dx`) or compiler-selected (no register written).
+  `in al`, `in dx`), a register family (`in accumulator`, resolved from the
+  operand type width), or compiler-selected (no register written).
 - `in imm` — an immediate. The value must be a compile-time integer or
   boolean constant. Immediates must be inputs and consume no register.
 - `in mem` — memory, written `slot = *ptr`. The operand contributes the
@@ -75,6 +76,48 @@ instead). Reserved registers (`rsp`, `rbp`, …) cannot be operands or
 clobbers.
 
 A memory operand with a `const`-qualified pointee cannot be `inout`.
+
+### Register families
+
+`in accumulator` (likewise `base`, `counter`, `data`, `source`,
+`destination`) names a register *family* instead of a concrete register.
+Sema resolves the family from the operand type width after the type is
+known, per template instantiation:
+
+| family        | 8   | 16 | 32  | 64  |
+|---------------|-----|----|-----|-----|
+| `accumulator` | al  | ax | eax | rax |
+| `base`        | bl  | bx | ebx | rbx |
+| `counter`     | cl  | cx | ecx | rcx |
+| `data`        | dl  | dx | edx | rdx |
+| `source`      | sil | si | esi | rsi |
+| `destination` | dil | di | edi | rdi |
+
+The width comes from the operand type: integers and untagged enums by size,
+`bool` as 8-bit, pointers as their architectural size. Anything else is
+rejected naming the family, the type, and its size, as is any size other
+than 1/2/4/8. No conversion or extension is ever inserted: the resolved
+register always matches the operand width exactly, as with explicit
+registers.
+
+Register pairs accept families per half: `in data:accumulator` on `u64`
+resolves to `edx:eax`, with each half resolved from its split width.
+`ah`/`bh`/`ch`/`dh` are not reachable through families, and there are no
+families for `rsp`/`rbp` or `r8`-`r15` (those names keep their explicit
+meaning).
+
+Generic port I/O:
+
+```dc
+public void out(T)(u16 port, T value) {
+  asm @[intel, inputs(p in dx = port, v in accumulator = value)] {
+    "out %[p], %[v]"
+  };
+}
+```
+
+`out!u8` pins `v` to `al` and `out!u16` to `ax`: the same body instantiates
+at every width.
 
 ## Positional operands
 
@@ -120,7 +163,9 @@ rejected.
 before the asm and captures outputs afterwards; `inout` does both through
 the same register. Explicit registers Perform no implicit conversion: the
 operand type width must match the register width (`u32` with `eax`, `u64`
-with `rax`, `u8` with `al`).
+with `rax`, `u8` with `al`). For a width-polymorphic spelling, use a
+register family instead: `in accumulator` resolves to `al`/`ax`/`eax`/`rax`
+from the operand type.
 
 ## Immediates
 
@@ -240,6 +285,8 @@ on native.
 - `inc`/`dec` support 64-bit registers only.
 - Native `out`/`in`, `rdtsc`, atomics with `lock`, and control-flow
   instructions are rejected; several work through the LLVM backend.
+  Register families resolve before either backend, so backend coverage is
+  identical to explicit registers.
 - Inline asm cannot define labels, symbols, or relocations.
 
 ## Examples
