@@ -1,4 +1,5 @@
 import std;
+import dcc.config;
 import dccd.protocol;
 import dccd.server;
 import dccd.transport;
@@ -14,8 +15,36 @@ namespace
 
 } // anonymous namespace
 
-auto main() -> int
+auto main(int argc, char** argv) -> int
 {
+    for (int i = 1; i < argc; ++i)
+    {
+        std::string_view arg{argv[i]};
+        if (arg == "--print-prefix")
+        {
+            std::println("{}", dcc::config::current_prefix(argv).path.string());
+            return 0;
+        }
+
+        if (arg == "--print-prefix-source")
+        {
+            std::println("{}", dcc::config::to_string(dcc::config::current_prefix(argv).source));
+            return 0;
+        }
+
+        if (arg == "--print-lib-dir")
+        {
+            std::println("{}", (dcc::config::current_prefix(argv).path / "lib").string());
+            return 0;
+        }
+
+        if (arg == "--print-include-dir")
+        {
+            std::println("{}", (dcc::config::current_prefix(argv).path / "include").string());
+            return 0;
+        }
+    }
+
     std::ios::sync_with_stdio(false);
 
     auto registry = std::make_shared<dccd::transport::CancellationRegistry>();

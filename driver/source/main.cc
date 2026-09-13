@@ -13,6 +13,7 @@ import dcc.ir.pass;
 import dcc.ir.lower;
 
 import dcc.target;
+import dcc.config;
 import dcc.backend;
 import dcc.session;
 #if DCC_ENABLE_LLVM
@@ -35,93 +36,6 @@ import dcc.backend.em64t.objwriter;
 
 namespace
 {
-    [[nodiscard]] std::filesystem::path detect_exe_path(char** argv)
-    {
-#ifdef _WIN32
-        std::ignore = argv;
-        wchar_t buf[MAX_PATH];
-        DWORD len = ::GetModuleFileNameW(nullptr, buf, MAX_PATH);
-        if (len > 0 && len < MAX_PATH)
-            return std::filesystem::path{std::wstring{buf, len}};
-
-        return {};
-#else
-        std::error_code ec;
-
-        auto exe = std::filesystem::read_symlink("/proc/self/exe", ec);
-        if (!ec)
-        {
-            auto resolved = std::filesystem::weakly_canonical(exe, ec);
-            if (!ec)
-                return resolved;
-
-            return exe;
-        }
-
-        std::filesystem::path arg0{argv[0]};
-
-        if (arg0.is_absolute())
-        {
-            auto resolved = std::filesystem::weakly_canonical(arg0, ec);
-            if (!ec)
-                return resolved;
-
-            return arg0;
-        }
-
-        if (std::string_view{argv[0]}.find('/') != std::string_view::npos)
-        {
-            auto resolved = std::filesystem::absolute(arg0, ec);
-            if (!ec)
-            {
-                auto wk = std::filesystem::weakly_canonical(resolved, ec);
-                if (!ec)
-                    return wk;
-
-                return resolved;
-            }
-            return arg0;
-        }
-
-        auto const* path_env = std::getenv("PATH");
-        if (path_env)
-        {
-            std::string_view path_sv{path_env};
-            std::size_t pos = 0;
-            while (pos < path_sv.size())
-            {
-                auto colon = path_sv.find(':', pos);
-                auto dir = path_sv.substr(pos, colon - pos);
-                pos = (colon == std::string_view::npos) ? path_sv.size() : colon + 1;
-
-                if (dir.empty())
-                    continue;
-
-                auto candidate = std::filesystem::path{dir} / arg0;
-                if (std::filesystem::exists(candidate, ec))
-                {
-                    auto wk = std::filesystem::weakly_canonical(candidate, ec);
-                    if (!ec)
-                        return wk;
-
-                    auto abs = std::filesystem::absolute(candidate, ec);
-                    if (!ec)
-                        return abs;
-
-                    return candidate;
-                }
-            }
-        }
-
-        return arg0;
-#endif
-    }
-
-    [[nodiscard]] std::filesystem::path compute_prefix(std::filesystem::path const& exe_path)
-    {
-        return exe_path.parent_path().parent_path();
-    }
-
     struct Options
     {
         std::filesystem::path input_file;
@@ -175,22 +89,25 @@ namespace
 
             if (arg == "--print-prefix")
             {
-                auto exe = detect_exe_path(argv);
-                std::println("{}", compute_prefix(exe).string());
+                std::println("{}", dcc::config::current_prefix(argv).path.string());
+                std::exit(0);
+            }
+
+            if (arg == "--print-prefix-source")
+            {
+                std::println("{}", dcc::config::to_string(dcc::config::current_prefix(argv).source));
                 std::exit(0);
             }
 
             if (arg == "--print-lib-dir")
             {
-                auto exe = detect_exe_path(argv);
-                std::println("{}", (compute_prefix(exe) / "lib").string());
+                std::println("{}", (dcc::config::current_prefix(argv).path / "lib").string());
                 std::exit(0);
             }
 
             if (arg == "--print-include-dir")
             {
-                auto exe = detect_exe_path(argv);
-                std::println("{}", (compute_prefix(exe) / "include").string());
+                std::println("{}", (dcc::config::current_prefix(argv).path / "include").string());
                 std::exit(0);
             }
 
@@ -1486,7 +1403,7 @@ auto main(int argc, char** argv) -> int
 
     dcc::session::CompilerSession session;
 
-    auto prefix = compute_prefix(detect_exe_path(argv));
+    auto prefix = dcc::config::current_prefix(argv).path;
 
     dcc::session::CompileOptions compile_opts;
     compile_opts.arena_initial_size = 256 * 1024;

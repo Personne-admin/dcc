@@ -20,6 +20,9 @@ ifneq ($(strip $(MODULE_SRCS)),)
   include $(MODULES_MK)
 endif
 
+$(PCM_DIR)/dcc.config.pcm: $(PREFIX_STAMP)
+$(OBJ_DIR)/dcc.config.pcm.o: $(PREFIX_STAMP)
+
 CC_SRCS := $(call find-sources,$(TOPLEVEL)/compiler/source,cc)
 CC_OBJS := $(call objs-from-srcs,$(CC_SRCS))
 

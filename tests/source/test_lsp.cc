@@ -6117,3 +6117,146 @@ TEST_CASE("compilation database reloads on watched file change")
 
     CHECK(saw_unknown_name);
 }
+
+namespace
+{
+    std::filesystem::path make_stub_libdcext_prefix(std::filesystem::path const& root)
+    {
+        auto std_dir = root / "include" / "std";
+
+        std::filesystem::create_directories(std_dir);
+        {
+            std::ofstream out{std_dir / "prelude.dc"};
+            out << "module std::prelude;\n";
+        }
+
+        {
+            std::ofstream out{std_dir / "stubext.dc"};
+            out << "module std::stubext;\npublic i32 stubext_magic = 7;\n";
+        }
+
+        return root;
+    }
+
+    void write_libdcext_compdb(std::filesystem::path const& db_path, std::filesystem::path const& workspace, bool flag_a, bool flag_b)
+    {
+        std::ofstream out{db_path};
+        out << "[";
+
+        bool first = true;
+        auto entry = [&](std::string_view file, bool flag) {
+            if (!first)
+                out << ",";
+
+            first = false;
+            out << "{\"directory\":\"" << workspace.string() << "\",\"file\":\"" << file << "\",\"arguments\":[\"dcc\"";
+            if (flag)
+                out << ",\"-flibdcext\"";
+
+            out << ",\"" << file << "\"]}";
+        };
+
+        entry("a.dc", flag_a);
+        entry("b.dc", flag_b);
+        out << "]";
+    }
+
+    constexpr std::string_view kLibdcextMain = "module main;\nimport std::stubext;\npublic i32 test() { return std::stubext::stubext_magic; }\n";
+
+} // namespace
+
+SECTION("lsp: libdcext");
+
+TEST_CASE("tu with -flibdcext resolves a stub libdcext header")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    write_libdcext_compdb(workspace.path / "compile_commands.json", workspace.path, true, true);
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "a.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+    CHECK(publishes.empty());
+}
+
+TEST_CASE("tu without -flibdcext fails to resolve the same header")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    write_libdcext_compdb(workspace.path / "compile_commands.json", workspace.path, false, false);
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "a.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+    REQUIRE(publishes.size() == 1);
+    REQUIRE(!publishes[0].diagnostics.empty());
+    CHECK(publishes[0].diagnostics[0].message.find("could not resolve module") != std::string::npos);
+}
+
+TEST_CASE("two tus with different flags get different include paths")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    write_libdcext_compdb(workspace.path / "compile_commands.json", workspace.path, true, false);
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri_a = dcc::sm::SourceManager::to_file_uri(workspace.path / "a.dc");
+    auto uri_b = dcc::sm::SourceManager::to_file_uri(workspace.path / "b.dc");
+
+    {
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri_a, 1, std::string{kLibdcextMain}));
+        CHECK(publishes.empty());
+    }
+
+    {
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri_b, 1, std::string{kLibdcextMain}));
+        REQUIRE(publishes.size() == 1);
+        REQUIRE(!publishes[0].diagnostics.empty());
+        CHECK(publishes[0].diagnostics[0].message.find("could not resolve module") != std::string::npos);
+    }
+}
+
+TEST_CASE("compile_commands.json rewrite flips libdcext resolution")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    auto db_path = workspace.path / "compile_commands.json";
+    write_libdcext_compdb(db_path, workspace.path, false, false);
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "a.dc");
+    {
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+        REQUIRE(publishes.size() == 1);
+        REQUIRE(!publishes[0].diagnostics.empty());
+    }
+
+    write_libdcext_compdb(db_path, workspace.path, true, false);
+
+    auto publishes = send_and_collect_publishes(server, sink, make_watched_files_change(dcc::sm::SourceManager::to_file_uri(db_path)));
+    bool saw_cleared = false;
+    for (auto const& publish : publishes)
+        if (publish.uri == uri && publish.diagnostics.empty())
+            saw_cleared = true;
+    CHECK(saw_cleared);
+}

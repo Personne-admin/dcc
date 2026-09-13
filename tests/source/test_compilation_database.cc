@@ -290,8 +290,7 @@ TEST_CASE("x86-elf resolves to 32-bit x86 and accepts control registers")
                 args += ",";
             args += "\"" + arg + "\"";
         }
-        write_file(td.path / "compile_commands.json", "[{\"directory\":\"" + td.path.string() + "\",\"file\":\"main.dc\",\"arguments\":[" +
-                                                           args + "]}]");
+        write_file(td.path / "compile_commands.json", "[{\"directory\":\"" + td.path.string() + "\",\"file\":\"main.dc\",\"arguments\":[" + args + "]}]");
 
         std::ostringstream log;
         dccd::CompilationDatabase db;
@@ -310,15 +309,14 @@ TEST_CASE("x86-elf resolves to 32-bit x86 and accepts control registers")
 
     REQUIRE(resolved.has_value());
     TempDir td;
-    write_file(td.path / "main.dc",
-               "module main;\n"
-               "usize read_cr3() {\n"
-               "    usize v = asm @[output(usize in eax)] { \"mov %%cr3, %0\" };\n"
-               "    return v;\n"
-               "}\n"
-               "void write_cr3(usize v) {\n"
-               "    asm @[inputs(v in eax = v)] { \"mov %0, %%cr3\" };\n"
-               "}\n");
+    write_file(td.path / "main.dc", "module main;\n"
+                                    "usize read_cr3() {\n"
+                                    "    usize v = asm @[output(usize in eax)] { \"mov %%cr3, %0\" };\n"
+                                    "    return v;\n"
+                                    "}\n"
+                                    "void write_cr3(usize v) {\n"
+                                    "    asm @[inputs(v in eax = v)] { \"mov %0, %%cr3\" };\n"
+                                    "}\n");
 
     dcc::session::CompilerSession session{{.silent_diagnostics = true}};
     dcc::session::CompileOptions copts;
@@ -328,4 +326,56 @@ TEST_CASE("x86-elf resolves to 32-bit x86 and accepts control registers")
     REQUIRE(result.module != nullptr);
     CHECK(!result.has_errors);
     CHECK(!session.diagnostics().has_errors());
+}
+
+TEST_CASE("libdcext with separate os argument")
+{
+    auto out = dump_db(R"json([
+        {
+            "directory": "/project",
+            "file": "src/main.dc",
+            "arguments": [
+                "dcc",
+                "-flibdcext", "windows",
+                "src/main.dc"
+            ]
+        }
+    ])json");
+
+    REQUIRE(out.has_value());
+    CHECK(out->find("libdcext=1") != std::string::npos);
+    CHECK(out->find("triple=x86_64-coff") != std::string::npos);
+}
+
+TEST_CASE("libdcext flag matching is exact")
+{
+    auto out = dump_db(R"json([
+        {
+            "directory": "/project",
+            "file": "src/main.dc",
+            "arguments": [
+                "dcc",
+                "-flibdcextra",
+                "src/main.dc"
+            ]
+        }
+    ])json");
+
+    REQUIRE(out.has_value());
+    CHECK(out->find("libdcext=0") != std::string::npos);
+
+    auto negated = dump_db(R"json([
+        {
+            "directory": "/project",
+            "file": "src/main.dc",
+            "arguments": [
+                "dcc",
+                "-fno-libdcext",
+                "src/main.dc"
+            ]
+        }
+    ])json");
+
+    REQUIRE(negated.has_value());
+    CHECK(negated->find("libdcext=0") != std::string::npos);
 }

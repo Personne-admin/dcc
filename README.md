@@ -96,6 +96,10 @@ make test       # builds and runs the test suite
 make install    # installs dcc, dccd, and libdcext to PREFIX (default /usr/local)
 ```
 
+> Warning: If you wish to correctly install into a custom PREFIX, set the environment
+> variable for both the `make` and `make install` invocations to ensure that the compiler
+> has correct defaults.
+
 `ENABLE_LLVM`, `ENABLE_ASAN`, and `BUILD_TYPE` are overridable via
 `make VAR=value`; see `GNUmakefile` for the full list of targets.
 

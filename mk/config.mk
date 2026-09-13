@@ -76,7 +76,20 @@ endif
 
 STDLIB_FLAGS := -stdlib=libc++
 
+DCC_INSTALL_PREFIX ?= $(abspath $(PREFIX))
+PREFIX_STAMP := $(DEP_DIR)/dcc-prefix.stamp
+DCC_PREFIX_DEF := -DDCC_INSTALL_PREFIX='"$(DCC_INSTALL_PREFIX)"'
+
 BASE_CXXFLAGS := $(CXXSTD) $(WARNS) $(OPT_FLAGS) $(DEBUG_FLAGS) $(SAN_FLAGS) \
-                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="")
+                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(DCC_PREFIX_DEF) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="")
 
 BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) $(if $(filter windows,$(CROSS)),-static,-lc++abi)
+
+.DEFAULT_GOAL := all
+
+.PHONY: FORCE
+FORCE:
+
+$(PREFIX_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(DCC_INSTALL_PREFIX)" ]; then echo "$(DCC_INSTALL_PREFIX)" > $@; fi
