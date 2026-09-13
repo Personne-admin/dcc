@@ -1,0 +1,50 @@
+=== FILE: test.dc ===
+module test;
+
+void family_inputs(u16 port, u8 val) {
+    asm @[intel, inputs(p in data = port, v in accumulator = val)] { "out %[p], %[v]" };
+}
+
+u64 family_output(u64 x) {
+    u64 y = asm @[intel, output(u64 in accumulator), inputs(v in counter = x)] { "mov %0, %[v]" };
+    return y;
+}
+
+u64 family_output_named(u64 x) {
+    u64 y = 0;
+    asm @[intel, output(dst = y in accumulator), inputs(v in counter = x)] { "mov %[dst], %[v]" };
+    return y;
+}
+
+u64 family_deduced(u64 x) {
+    u64 y = asm @[output(accumulator), inputs(v = x)] { "mov %1, %0" };
+    return y;
+}
+
+u64 family_inout(u64 x) {
+    u64 acc = x;
+    asm @[inout(a = acc in accumulator)] { "inc %[a]" };
+    return acc;
+}
+
+u8 family_inout_bare(u8 x) {
+    u8 acc = x;
+    asm @[inout(acc in counter)] { "inc %[acc]" };
+    return acc;
+}
+
+void family_mixed(u32 a, u32 b) {
+    u32 r = 0;
+    asm @[intel, output(dst = r in ecx), inputs(x in accumulator = a, y in ebx = b)] { "mov %[dst], %[x]; add %1, %0" };
+}
+
+
+u64 family_pair() {
+    u64 t = asm @[output(u64 in data:accumulator)] { "rdtsc" };
+    return t;
+}
+
+u64 family_mixed_pair(u64 x) {
+    u64 t = asm @[output(u64 in edx:accumulator)] { "rdtsc" };
+    return t + x;
+}
