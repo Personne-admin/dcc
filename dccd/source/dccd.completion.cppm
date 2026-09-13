@@ -1085,6 +1085,12 @@ namespace dccd::completion
                     case dcc::ast::AsmPlacementKind::Imm:
                         detail += "imm";
                         break;
+                    case dcc::ast::AsmPlacementKind::Family:
+                        detail += std::format("family[{}]", op.reg_name);
+                        break;
+                    case dcc::ast::AsmPlacementKind::FamilyPair:
+                        detail += std::format("familypair[{},{}]", op.reg_name, op.reg_name2);
+                        break;
                 }
 
                 ItemOptions opts;
