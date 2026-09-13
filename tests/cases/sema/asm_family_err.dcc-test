@@ -1,0 +1,74 @@
+=== FILE: test.dc ===
+module test;
+
+void dup_family() {
+    u64 a = 0;
+    u64 b = 0;
+    asm @[intel, inputs(x in accumulator = a, y in accumulator = b)] { "mov %[x], %[y]" };
+}
+
+void family_vs_explicit() {
+    u32 a = 0;
+    u32 b = 0;
+    asm @[intel, inputs(x in accumulator = a, y in eax = b)] { "mov %[x], %[y]" };
+}
+
+void family_vs_subreg() {
+    u64 a = 0;
+    u8 b = 0;
+    asm @[intel, inputs(x in accumulator = a, y in al = b)] { "mov %[x], %[y]" };
+}
+
+void family_vs_clobber() {
+    u64 a = 0;
+    asm @[inputs(x in accumulator = a), clobbers(rax)] { "mov %[x], %[x]" };
+}
+
+void family_on_mem(u64* p) {
+    asm @[inout(slot = *p in accumulator)] { "mov %[slot], %[slot]" };
+}
+
+void family_on_float(f32 x) {
+    f32 r = x;
+    asm @[intel, inout(v = r in accumulator)] { "mov %[v], %[v]" };
+}
+
+struct Point {
+    u32 x;
+    u32 y;
+}
+
+void family_on_struct(Point p) {
+    Point r = p;
+    asm @[intel, inout(v = r in accumulator)] { "mov %[v], %[v]" };
+}
+
+void r8_is_explicit(u32 v) {
+    u32 r = 0;
+    asm @[intel, output(dst = r in eax), inputs(x in r8 = v)] { "mov %[dst], %[x]" };
+}
+
+void no_stack_family(u64 v) {
+    u64 r = 0;
+    asm @[intel, output(dst = r in stack), inputs(x = v)] { "mov %[dst], %[x]" };
+}
+
+void generic_dup(T)(T a, T b) {
+    asm @[intel, inputs(x in accumulator = a, y in accumulator = b)] { "mov %[x], %[y]" };
+}
+
+void drive_generic() {
+    generic_dup!u64(1, 2);
+}
+
+=== EXPECT-ERRORS ===
+test.dc:6: overlapping asm register placement `accumulator` (register `rax` for type `u64`); use one inout operand
+test.dc:12: overlapping asm register placement `eax` (register family `accumulator` resolves to `eax` for type `u32`); use one inout operand
+test.dc:18: overlapping asm register placement `al` (register family `accumulator` resolves to `rax` for type `u64`); use one inout operand
+test.dc:23: register family `accumulator` (register `rax` for type `u64`) is also listed in `clobbers`; remove the redundant entry
+test.dc:27: register family `accumulator` cannot be used with a memory operand; drop the `*` or the `in accumulator` placement
+test.dc:32: register family `accumulator` cannot be used with type `f32` (4 bytes); families need an integer, enum, bool, or pointer type of 1, 2, 4, or 8 bytes
+test.dc:42: register family `accumulator` cannot be used with type `Point` (8 bytes); families need an integer, enum, bool, or pointer type of 1, 2, 4, or 8 bytes
+test.dc:47: operand `x` type `u32` does not match register `r8` width
+test.dc:52: unknown register `stack` for target `x86_64`
+test.dc:56: overlapping asm register placement `accumulator` (register `rax` for type `u64`); use one inout operand

@@ -1,0 +1,18 @@
+=== FILE: test.dc ===
+module test;
+
+public void out(T)(u16 port, T value) {
+    asm @[intel, inputs(p in dx = port, v in accumulator = value)] {
+        "out %[p], %[v]"
+    };
+}
+
+public void drive8() {
+    out!u8(0x60, 0x42);
+}
+
+public void drive16() {
+    out!u16(0x60, 0x1234);
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

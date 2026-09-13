@@ -1,0 +1,80 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u8 round8(u8 x) {
+    u8 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(v in counter = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u16 round16(u16 x) {
+    u16 r = 0;
+    asm @[intel, output(dst = r in source), inputs(v in destination = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u32 round32(u32 x) {
+    u32 r = 0;
+    asm @[intel, output(dst = r in base), inputs(v in data = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u64 round64(u64 x) {
+    u64 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(v in base = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+T ident(T)(T v) {
+    T r = v;
+    asm @[intel, inout(x = r in accumulator)] { "mov %[x], %[x]" };
+    return r;
+}
+
+u64 shl_count(u64 x, u8 s) {
+    u64 n = x;
+    asm @[intel, inout(n = n in accumulator), inputs(c in counter = s)] { "shl %[n], %[c]" };
+    return n;
+}
+
+u64 square(u64 a) {
+    u64 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(x in counter = a)] { "mov %[dst], %[x]; imul %[dst], %[x]" };
+    return r;
+}
+
+enum Color : u8 { Red = 0, Green = 1, Blue = 2 }
+
+u8 round_color(u8 v) {
+    Color r = v as Color;
+    asm @[intel, inout(x = r in accumulator)] { "mov %[x], %[x]" };
+    return r as u8;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if round8(200) != 200 { return 1; }
+    if round16(60000) != 60000 { return 2; }
+    if round32(3000000000) != 3000000000 { return 3; }
+    if round64(7000000000) != 7000000000 { return 4; }
+    if ident!u8(11) != 11 { return 5; }
+    if ident!u16(1111) != 1111 { return 6; }
+    if ident!u32(3000000000) != 3000000000 { return 7; }
+    if ident!u64(9000000000) != 9000000000 { return 8; }
+    if shl_count(1, 4) != 16 { return 9; }
+    if square(12) != 144 { return 10; }
+    if round_color(2) != 2 { return 11; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

@@ -1,0 +1,72 @@
+=== FILE: test.dc ===
+module test;
+
+u8 round8(u8 x) {
+    u8 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(v in counter = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u16 round16(u16 x) {
+    u16 r = 0;
+    asm @[intel, output(dst = r in source), inputs(v in destination = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u32 round32(u32 x) {
+    u32 r = 0;
+    asm @[intel, output(dst = r in base), inputs(v in data = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+u64 round64(u64 x) {
+    u64 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(v in base = x)] { "mov %[dst], %[v]" };
+    return r;
+}
+
+T ident(T)(T v) {
+    T r = v;
+    asm @[intel, inout(x = r in accumulator)] { "mov %[x], %[x]" };
+    return r;
+}
+
+enum Color : u8 { Red = 0, Green = 1 }
+
+Color pick(Color c) {
+    Color r = c;
+    asm @[intel, inout(v = r in accumulator)] { "mov %[v], %[v]" };
+    return r;
+}
+
+bool flip(bool b) {
+    bool r = b;
+    asm @[intel, inout(v = r in counter)] { "mov %[v], %[v]" };
+    return r;
+}
+
+u64* keep(u64* p) {
+    u64* r = p;
+    asm @[intel, inout(v = r in source)] { "mov %[v], %[v]" };
+    return r;
+}
+
+u64 pair_tsc() {
+    u64 t = asm @[output(u64 in data:accumulator)] { "rdtsc" };
+    return t;
+}
+
+void drive(u64* p, Color c) {
+    ident!u8(1);
+    ident!u16(2);
+    ident!u32(3);
+    ident!u64(4);
+    round8(5);
+    round16(6);
+    round32(7);
+    round64(8);
+    flip(true);
+    keep(p);
+    pick(c);
+    pair_tsc();
+}

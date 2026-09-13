@@ -1,0 +1,56 @@
+=== FILE: test.dc ===
+module test;
+
+public u8 ident8(u8 v) {
+    u8 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(x in counter = v)] { "mov %[dst], %[x]" };
+    return r;
+}
+
+public u32 ident32(u32 v) {
+    u32 r = 0;
+    asm @[intel, output(dst = r in accumulator), inputs(x in counter = v)] { "mov %[dst], %[x]" };
+    return r;
+}
+
+public u64 bump(u64 v) {
+    u64 acc = v;
+    asm @[intel, inout(a = acc in accumulator)] { "add %[a], 1" };
+    return acc;
+}
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i8 @_DC0F1.4.test6.ident81i8ui8u(i8 %v) {
+entry:
+  %"0" = alloca i8, align 1
+  store i8 0, ptr %"0", align 1
+  %"1" = call i8 asm sideeffect inteldialect "mov $0, $1", "=&{al},{cl}"(i8 %v)
+  store i8 %"1", ptr %"0", align 1
+  %"2" = load i8, ptr %"0", align 1
+  ret i8 %"2"
+}
+
+define i32 @_DC0F1.4.test7.ident321i32ui32u(i32 %v) {
+entry:
+  %"0" = alloca i32, align 4
+  store i32 0, ptr %"0", align 4
+  %"1" = call i32 asm sideeffect inteldialect "mov $0, $1", "=&{eax},{ecx}"(i32 %v)
+  store i32 %"1", ptr %"0", align 4
+  %"2" = load i32, ptr %"0", align 4
+  ret i32 %"2"
+}
+
+define i64 @_DC0F1.4.test4.bump1i64ui64u(i64 %v) {
+entry:
+  %"0" = alloca i64, align 8
+  store i64 %v, ptr %"0", align 4
+  %"1" = load i64, ptr %"0", align 4
+  %"2" = call i64 asm sideeffect inteldialect "add $0, 1", "={rax},0"(i64 %"1")
+  store i64 %"2", ptr %"0", align 4
+  %"3" = load i64, ptr %"0", align 4
+  ret i64 %"3"
+}
