@@ -1713,9 +1713,14 @@ export namespace dcc::parser
                     if (reg2_tok.kind == TK::Identifier)
                     {
                         op.reg_name2 = reg2_tok.interned;
-                        op.placement_kind = ast::AsmPlacementKind::RegPair;
+                        if (ast::is_asm_register_family(op.reg_name) || ast::is_asm_register_family(op.reg_name2))
+                            op.placement_kind = ast::AsmPlacementKind::FamilyPair;
+                        else
+                            op.placement_kind = ast::AsmPlacementKind::RegPair;
                     }
                 }
+                else if (ast::is_asm_register_family(op.reg_name))
+                    op.placement_kind = ast::AsmPlacementKind::Family;
             }
         }
 
