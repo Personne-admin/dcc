@@ -61,6 +61,8 @@ export namespace dcc::sema
                     return "import";
                 case ast::DeclKind::StaticIfGroup:
                     return "static if";
+                case ast::DeclKind::ModuleAsm:
+                    return "asm";
             }
             return "<decl>";
         }
@@ -200,6 +202,7 @@ export namespace dcc::sema
                     case ast::DeclKind::Module:
                     case ast::DeclKind::Import:
                     case ast::DeclKind::StaticIfGroup:
+                    case ast::DeclKind::ModuleAsm:
                         break;
                 }
         }

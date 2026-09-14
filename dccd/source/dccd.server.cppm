@@ -1282,6 +1282,10 @@ export namespace dccd
                                 }
                                 break;
                             }
+                            case dcc::ast::AsmPlaceholderSpan::Kind::SymbolRef: {
+                                hover_text = std::format("symbol `{}`", span.name);
+                                break;
+                            }
                             case dcc::ast::AsmPlaceholderSpan::Kind::Unresolved: {
                                 hover_text = std::format("`{}` (unresolved placeholder)", span.name);
                                 break;

@@ -408,6 +408,8 @@ export namespace dcc::parser
                 return d;
             }
 
+            if (peek().kind == TK::KwAsm)
+                return parse_module_asm_decl(start, std::move(attrs), is_public);
             switch (peek().kind)
             {
                 case TK::KwStruct:
@@ -2038,6 +2040,97 @@ export namespace dcc::parser
             }
         }
 
+        void parse_module_asm_single_attr(ast::ModuleAsmDecl* node)
+        {
+            auto start = loc();
+            std::string_view name;
+            if (check(TK::Identifier))
+            {
+                auto tok = advance();
+                name = tok.interned;
+            }
+            else
+            {
+                error_at(single_range(), "expected asm attribute name");
+                return;
+            }
+            if (name == "intel")
+                node->dialect = ast::AsmDialect::Intel;
+            else if (name == "att")
+                node->dialect = ast::AsmDialect::Att;
+            else if (name == "arch")
+            {
+                expect(TK::LParen, "after 'arch'");
+                auto arch_str = expect(TK::StringLiteral, "in arch attribute");
+                expect(TK::RParen, "to close 'arch'");
+                ast::Attribute arch_attr(m_ctx.allocator());
+                arch_attr.name = "arch";
+                arch_attr.range = range_from(start);
+                if (arch_str.value)
+                    if (auto* sv = std::get_if<std::string>(&*arch_str.value))
+                    {
+                        auto* sl = m_ctx.make<ast::StringLiteralExpr>(arch_str.range, *sv, arch_str.interned);
+                        arch_attr.args.push_back(sl);
+                    }
+                node->attrs.push_back(std::move(arch_attr));
+            }
+            else if (name == "output" || name == "inputs" || name == "inout" || name == "clobbers" || name == "volatile" || name == "alignstack")
+            {
+                error_at(range_from(start), std::format("asm attribute `{}` is not allowed on module-scope asm", name));
+                if (check(TK::LParen))
+                {
+                    int depth = 0;
+                    do
+                    {
+                        if (check(TK::LParen))
+                            ++depth;
+                        else if (check(TK::RParen))
+                            --depth;
+                        advance();
+                    } while (depth > 0 && !eof());
+                }
+            }
+            else
+                error_at(range_from(start), std::format("unknown asm attribute `{}`", name));
+        }
+
+        void parse_module_asm_attributes(ast::ModuleAsmDecl* node)
+        {
+            if (!check(TK::At))
+                return;
+            advance();
+            if (match(TK::LBracket))
+            {
+                if (!check(TK::RBracket))
+                {
+                    do
+                        parse_module_asm_single_attr(node);
+                    while (match(TK::Comma));
+                }
+                expect(TK::RBracket, "to close asm attribute list");
+            }
+            else
+                parse_module_asm_single_attr(node);
+        }
+
+        ast::Decl* parse_module_asm_decl(sm::Location start, std::pmr::vector<ast::Attribute> attrs, bool is_public)
+        {
+            if (is_public)
+                error_at(single_range(), "module asm cannot be public");
+            if (!attrs.empty())
+                error_at(attrs.front().range, "attributes are not allowed on module asm");
+            auto kw_range = single_range();
+            advance();
+            auto* decl = m_ctx.make<ast::ModuleAsmDecl>(sm::SourceRange{}, m_ctx.allocator());
+            decl->asm_keyword_range = kw_range;
+            parse_module_asm_attributes(decl);
+            auto raw = parse_asm_template_body(decl);
+            scan_asm_placeholders(decl, raw);
+            expect(TK::Semicolon, "after module asm");
+            decl->range = range_from(start);
+            return decl;
+        }
+
         template <typename AsmNode> std::string_view parse_asm_template_body(AsmNode* node)
         {
             expect(TK::LBrace, "to begin asm template block");
@@ -2213,8 +2306,48 @@ export namespace dcc::parser
                     span.name = std::string_view(str).substr(name_start, i - name_start);
                     span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
                 }
+                else if (i < str.size() && str[i] == '{')
+                {
+                    auto name_start = ++i;
+                    while (i < str.size() && str[i] != '}')
+                        ++i;
+                    span.name = std::string_view(str).substr(name_start, i - name_start);
+                    if (i == str.size())
+                        problem = "unterminated asm symbol reference; expected '}'";
+                    else
+                    {
+                        ++i;
+                        bool ok = !span.name.empty();
+                        std::size_t pos = 0;
+                        while (ok && pos < span.name.size())
+                        {
+                            std::size_t seg = pos;
+                            if (!ident_start(span.name[seg]))
+                                ok = false;
+                            else
+                            {
+                                ++seg;
+                                while (seg < span.name.size() && ident(span.name[seg]))
+                                    ++seg;
+                                if (seg < span.name.size())
+                                {
+                                    if (seg + 1 >= span.name.size() || span.name[seg] != ':' || span.name[seg + 1] != ':')
+                                        ok = false;
+                                    else
+                                        pos = seg + 2;
+                                }
+                                else
+                                    pos = seg;
+                            }
+                        }
+                        if (!ok)
+                            problem = "invalid asm symbol name";
+                        else
+                            span.kind = ast::AsmPlaceholderSpan::Kind::SymbolRef;
+                    }
+                }
                 else
-                    problem = "invalid asm '%' escape; use %0, %[name], %c[name], %P[name], or %%";
+                    problem = "invalid asm '%' escape; use %0, %[name], %c[name], %P[name], %{name}, or %%";
 
                 span.byte_length = static_cast<std::uint32_t>(i - start);
                 if (mapped && i <= raw_segments.size())

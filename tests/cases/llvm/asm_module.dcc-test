@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+u64 first = 1;
+
+u64 second = 2;
+
+asm { ".quad %{first}" };
+
+asm { ".quad %{second}" };
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+module asm ".quad _DC0G1.4.test5.firsti64u"
+module asm ".quad _DC0G1.4.test6.secondi64u"
+
+@_DC0G1.4.test5.firsti64u = global i64 1
+@_DC0G1.4.test6.secondi64u = global i64 2
+@llvm.compiler.used = appending global [2 x ptr] [ptr @_DC0G1.4.test5.firsti64u, ptr @_DC0G1.4.test6.secondi64u], section "llvm.metadata"

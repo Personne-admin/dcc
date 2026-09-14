@@ -12,6 +12,7 @@ import dcc.ir.mangle;
 import dcc.sema.scope;
 import dcc.sema.importer;
 import dcc.sema.instantiator;
+import dcc.target;
 import dcc.ctfe;
 
 export namespace dcc::ir::lower
@@ -50,6 +51,7 @@ export namespace dcc::ir::lower
             lower_globals(mod);
             build_all_function_shells(mod);
             lower_all_function_bodies();
+            lower_module_asms(mod);
 
             if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
                 emit_specialize_stats();
@@ -6698,6 +6700,89 @@ export namespace dcc::ir::lower
         std::unordered_set<ast::VarDecl const*> m_const_expanding;
         std::vector<ast::VarDecl const*> m_const_expand_stack;
         std::vector<ast::VarDecl const*> m_global_order;
+
+        void lower_module_asms(sema::ModuleInfo const& mod)
+        {
+            if (!mod.tu)
+                return;
+            for (auto* d : mod.tu->decls)
+            {
+                auto* md = ast::node_cast<ast::ModuleAsmDecl>(d);
+                if (!md)
+                    continue;
+                std::string out;
+                std::size_t cursor = 0;
+                auto parts = md->placeholder_spans;
+                std::ranges::sort(parts, {}, &ast::AsmPlaceholderSpan::byte_offset);
+                std::pmr::vector<IrGlobal*> globals(m_ctx.allocator());
+                std::pmr::vector<IrFunction*> funcs(m_ctx.allocator());
+                bool failed = false;
+                for (auto const& part : parts)
+                {
+                    if (part.byte_offset < cursor || part.byte_offset + part.byte_length > md->template_str.size())
+                        continue;
+                    out += std::string_view(md->template_str).substr(cursor, part.byte_offset - cursor);
+                    if (part.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral)
+                    {
+                        if (md->dialect == ast::AsmDialect::Intel)
+                        {
+                            auto start = part.byte_offset + part.byte_length;
+                            auto end = start;
+                            while (end < md->template_str.size() && std::isalnum(static_cast<unsigned char>(md->template_str[end])))
+                                ++end;
+                            auto name = std::string_view(md->template_str).substr(start, end - start);
+                            if (!target::lookup_register(target::Arch::X86_64, name) && !target::lookup_register(target::Arch::X86, name))
+                                out += '%';
+                        }
+                        else
+                            out += '%';
+                    }
+                    else if (part.kind == ast::AsmPlaceholderSpan::Kind::SymbolRef)
+                    {
+                        auto* resolved = part.resolved;
+                        std::string_view mangled;
+                        if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
+                        {
+                            auto it = m_global_map.find(const_cast<ast::VarDecl*>(vd));
+                            if (it != m_global_map.end() && it->second)
+                            {
+                                mangled = it->second->name;
+                                globals.push_back(it->second);
+                            }
+                            else
+                                failed = true;
+                        }
+                        else if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
+                        {
+                            auto it = m_func_map.find(const_cast<ast::FuncDecl*>(fd));
+                            if (it != m_func_map.end() && it->second)
+                            {
+                                mangled = it->second->name;
+                                funcs.push_back(it->second);
+                            }
+                            else
+                                failed = true;
+                        }
+                        else
+                            failed = true;
+                        if (!failed)
+                            out += mangled;
+                    }
+                    cursor = part.byte_offset + part.byte_length;
+                }
+                out += std::string_view(md->template_str).substr(cursor);
+                if (failed)
+                    continue;
+                std::string final_text = out;
+                if (md->dialect == ast::AsmDialect::Intel)
+                    final_text = ".intel_syntax noprefix\n" + out + "\n.att_syntax prefix";
+                std::pmr::string stored(final_text, m_ctx.allocator());
+                auto* entry = m_ctx.make<IrModuleAsm>(std::move(stored), static_cast<IrAsmDialect>(md->dialect), md->range, m_ctx.allocator());
+                entry->globals = std::move(globals);
+                entry->funcs = std::move(funcs);
+                m_module->module_asms.push_back(entry);
+            }
+        }
 
         void lower_globals(sema::ModuleInfo const& mod)
         {

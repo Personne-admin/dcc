@@ -635,6 +635,8 @@ export namespace dcc::sema
                 case ast::DeclKind::StaticIfGroup:
                     collect_static_if_group(static_cast<ast::StaticIfGroup*>(d), flat);
                     return;
+                case ast::DeclKind::ModuleAsm:
+                    break;
                 case ast::DeclKind::Module:
                 case ast::DeclKind::Import:
                     break;

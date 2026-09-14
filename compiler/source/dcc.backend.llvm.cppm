@@ -1290,6 +1290,74 @@ namespace dcc::backend
                     }
                 }
 
+                for (auto* ma : input_module->module_asms)
+                {
+                    if (!ma)
+                        continue;
+                    LLVMAppendModuleInlineAsm(llvm_mod, ma->template_str.data(), ma->template_str.size());
+                }
+                if (!input_module->module_asms.empty())
+                {
+                    std::vector<LLVMValueRef> used_vals;
+                    for (auto* ma : input_module->module_asms)
+                    {
+                        if (!ma)
+                            continue;
+                        for (auto* g : ma->globals)
+                        {
+                            if (!g || g->is_declaration)
+                                continue;
+                            auto it = val_map.find(g);
+                            if (it == val_map.end() || !it->second)
+                                continue;
+                            bool seen = false;
+                            for (auto* v : used_vals)
+                            {
+                                if (v == it->second)
+                                {
+                                    seen = true;
+                                    break;
+                                }
+                            }
+                            if (!seen)
+                                used_vals.push_back(it->second);
+                        }
+                        for (auto* f : ma->funcs)
+                        {
+                            if (!f || f->blocks.empty())
+                                continue;
+                            auto it = val_map.find(f);
+                            if (it == val_map.end() || !it->second)
+                                continue;
+                            bool seen = false;
+                            for (auto* v : used_vals)
+                            {
+                                if (v == it->second)
+                                {
+                                    seen = true;
+                                    break;
+                                }
+                            }
+                            if (!seen)
+                                used_vals.push_back(it->second);
+                        }
+                    }
+                    if (!used_vals.empty() && !LLVMGetNamedGlobal(llvm_mod, "llvm.compiler.used"))
+                    {
+                        auto* ptr_ty = LLVMPointerTypeInContext(ctx, 0);
+                        std::vector<LLVMValueRef> casted;
+                        casted.reserve(used_vals.size());
+                        for (auto* v : used_vals)
+                            casted.push_back(LLVMConstBitCast(v, ptr_ty));
+                        auto* arr_ty = LLVMArrayType2(ptr_ty, static_cast<unsigned long long>(casted.size()));
+                        auto* arr_const = LLVMConstArray2(ptr_ty, casted.data(), static_cast<unsigned>(casted.size()));
+                        auto* used_gv = LLVMAddGlobal(llvm_mod, arr_ty, "llvm.compiler.used");
+                        LLVMSetLinkage(used_gv, LLVMAppendingLinkage);
+                        LLVMSetSection(used_gv, "llvm.metadata");
+                        LLVMSetInitializer(used_gv, arr_const);
+                    }
+                }
+
                 debug.finalize();
 
                 if (has_unsupported)

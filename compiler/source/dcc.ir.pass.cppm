@@ -857,6 +857,23 @@ namespace dcc::ir::pass
                 }
             }
 
+            for (auto* a : src->module_asms)
+            {
+                std::pmr::string tmpl(a->template_str, dst.allocator());
+                auto* fresh = dst.make<IrModuleAsm>(std::move(tmpl), a->dialect, a->range, dst.allocator());
+                for (auto* g : a->globals)
+                {
+                    auto it = cctx.global_map.find(g);
+                    fresh->globals.push_back(it != cctx.global_map.end() ? it->second : g);
+                }
+                for (auto* f : a->funcs)
+                {
+                    auto it = cctx.func_map.find(f);
+                    fresh->funcs.push_back(it != cctx.func_map.end() ? it->second : f);
+                }
+                mod->module_asms.push_back(fresh);
+            }
+
             return mod;
         }
 

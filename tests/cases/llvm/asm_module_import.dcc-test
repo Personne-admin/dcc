@@ -1,0 +1,25 @@
+=== FILE: a.dc ===
+module a;
+
+u64 marker = 99;
+
+asm { ".quad %{marker}" };
+
+=== FILE: b.dc ===
+module b;
+import a;
+
+void use() {
+}
+
+=== ENTRY: b.dc ===
+
+=== EXPECT-LLVM ===
+; ModuleID = 'b'
+source_filename = "b"
+target triple = "x86_64-elf"
+
+define void @_DC0F1.1.b3.use0v() {
+entry:
+  ret void
+}

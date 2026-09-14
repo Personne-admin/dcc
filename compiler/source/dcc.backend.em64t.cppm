@@ -73,6 +73,12 @@ namespace dcc::backend
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("em64t backend: malformed initializer for global `{}`", *mismatch)});
                     return artifact;
                 }
+                if (!input_module->module_asms.empty())
+                {
+                    auto* ma = input_module->module_asms.front();
+                    artifact.diagnostics.push_back(BackendDiagnostic{ma ? ma->range : decltype(ma->range){}, "em64t backend: module asm is not supported on the native backend"});
+                    return artifact;
+                }
 
                 std::vector<em64t::MFunction> mfuncs;
                 mfuncs.reserve(input_module->functions.size());

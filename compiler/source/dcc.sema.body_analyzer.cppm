@@ -107,6 +107,8 @@ export namespace dcc::sema
                     return "import";
                 case ast::DeclKind::StaticIfGroup:
                     return "static if";
+                case ast::DeclKind::ModuleAsm:
+                    return "asm";
             }
             return "<decl>";
         }
@@ -3076,6 +3078,7 @@ export namespace dcc::sema
                         }
                         case ast::DeclKind::Module:
                         case ast::DeclKind::Import:
+                        case ast::DeclKind::ModuleAsm:
                             break;
                     }
                 };
@@ -6777,6 +6780,11 @@ export namespace dcc::sema
                     analyze_union_fields(mod, *ud);
                 else if (auto* ed = ast::node_cast<ast::EnumDecl>(d))
                     analyze_enum_fields(mod, *ed);
+                else if (auto* md = ast::node_cast<ast::ModuleAsmDecl>(d))
+                {
+                    if (m_target)
+                        validate_module_asm(mod, *md);
+                }
 
             m_current_module_env = nullptr;
             m_current_module = nullptr;
@@ -15402,6 +15410,12 @@ export namespace dcc::sema
                     error(placeholder_source_range(node.template_range, span), "unknown register `{}` for target `{}`", span.name, arch_name);
                     continue;
                 }
+                if (span.kind == ast::AsmPlaceholderSpan::Kind::SymbolRef)
+                {
+                    auto range = placeholder_source_range(node.template_range, span);
+                    error(range, "symbol substitution requires module-scope asm");
+                    continue;
+                }
                 if (span.kind != ast::AsmPlaceholderSpan::Kind::OperandRef)
                     continue;
                 auto range = placeholder_source_range(node.template_range, span);
@@ -15477,6 +15491,84 @@ export namespace dcc::sema
                     clobbers.push_back(clobber);
             }
             node.clobbers = std::move(clobbers);
+        }
+
+        void validate_module_asm(ModuleInfo& mod, ast::ModuleAsmDecl& node)
+        {
+            using namespace target;
+            auto arch = m_target ? m_target->arch : Arch::X86_64;
+            auto arch_name = arch == Arch::X86_64 ? "x86_64" : "x86";
+            if (auto const* attr = find_asm_attr(node.attrs, "arch"))
+            {
+                auto required = get_asm_attr_string(*attr);
+                if (required != "x86" && required != "x86_64")
+                    error(attr->range, "unknown asm architecture `{}`", required);
+                else if (required != arch_name)
+                    error(attr->range, "asm block requires architecture `{}`, but target is `{}`", required, arch_name);
+            }
+            for (auto& span : node.placeholder_spans)
+            {
+                if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral && !span.name.empty() &&
+                    (span.name.front() == '_' || (span.name.front() >= 'a' && span.name.front() <= 'z') ||
+                     (span.name.front() >= 'A' && span.name.front() <= 'Z')) &&
+                    !lookup_register(arch, span.name))
+                {
+                    error(placeholder_source_range(node.template_range, span), "unknown register `{}` for target `{}`", span.name, arch_name);
+                    continue;
+                }
+                if (span.kind == ast::AsmPlaceholderSpan::Kind::OperandRef)
+                {
+                    auto range = placeholder_source_range(node.template_range, span);
+                    error(range, "module asm takes no operands");
+                    continue;
+                }
+                if (span.kind != ast::AsmPlaceholderSpan::Kind::SymbolRef)
+                    continue;
+                auto range = placeholder_source_range(node.template_range, span);
+                if (span.modifier != 0)
+                {
+                    error(range, "asm modifier `%{}` requires a symbolic or immediate operand", span.modifier);
+                    continue;
+                }
+                std::string_view last = span.name;
+                if (auto pos = last.rfind("::"); pos != std::string_view::npos)
+                    last = last.substr(pos + 2);
+                ast::Decl const* found = nullptr;
+                if (mod.tu)
+                {
+                    for (auto* d : mod.tu->decls)
+                    {
+                        if (auto* vd = ast::node_cast<ast::VarDecl>(d))
+                        {
+                            if (vd->name == last)
+                                found = vd;
+                        }
+                        else if (auto* fd = ast::node_cast<ast::FuncDecl>(d))
+                        {
+                            if (fd->name == last && fd->template_params.empty())
+                                found = fd;
+                        }
+                        if (found)
+                            break;
+                    }
+                }
+                if (!found)
+                {
+                    error(range, "undefined asm symbol `{}`", span.name);
+                    continue;
+                }
+                if (auto* vd = ast::node_cast<ast::VarDecl>(found))
+                {
+                    auto storage = vd->sema.storage;
+                    if (storage != ast::StorageClass::ModuleGlobal && storage != ast::StorageClass::Static && storage != ast::StorageClass::Extern &&
+                        storage != ast::StorageClass::Unresolved)
+                    {
+                        error(range, "asm symbol `{}` is not a global", span.name);
+                        continue;
+                    }
+                }
+                span.resolved = found;
+            }
         }
 
         void analyze_asm(ast::AsmExpr& expr, detail::ExprResult& out, types::TypePtr expected_type = nullptr)

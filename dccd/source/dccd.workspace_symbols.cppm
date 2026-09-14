@@ -131,6 +131,8 @@ namespace dccd::workspace_symbols
                     return protocol::SymbolKind::Module;
                 case dcc::ast::DeclKind::StaticIfGroup:
                     return protocol::SymbolKind::Namespace;
+                case dcc::ast::DeclKind::ModuleAsm:
+                    return protocol::SymbolKind::Object;
             }
             return protocol::SymbolKind::Variable;
         }
