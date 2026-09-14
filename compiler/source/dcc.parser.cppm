@@ -2306,6 +2306,11 @@ export namespace dcc::parser
                     span.name = std::string_view(str).substr(name_start, i - name_start);
                     span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
                 }
+                else if (i < str.size() && str[i] == '=')
+                {
+                    ++i;
+                    span.kind = ast::AsmPlaceholderSpan::Kind::UniqueStamp;
+                }
                 else if (i < str.size() && str[i] == '{')
                 {
                     auto name_start = ++i;
@@ -2347,7 +2352,7 @@ export namespace dcc::parser
                     }
                 }
                 else
-                    problem = "invalid asm '%' escape; use %0, %[name], %c[name], %P[name], %{name}, or %%";
+                    problem = "invalid asm '%' escape; use %0, %[name], %c[name], %P[name], %{name}, %=, or %%";
 
                 span.byte_length = static_cast<std::uint32_t>(i - start);
                 if (mapped && i <= raw_segments.size())

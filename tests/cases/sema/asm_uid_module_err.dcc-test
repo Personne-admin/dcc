@@ -1,0 +1,7 @@
+=== FILE: test.dc ===
+module test;
+
+asm { "jmp L%=\nL%=: nop" };
+
+=== EXPECT-ERRORS ===
+test.dc:3: not allowed on module-scope asm
