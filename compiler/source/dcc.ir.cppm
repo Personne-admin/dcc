@@ -1065,13 +1065,15 @@ export namespace dcc::ir
             RegPair,
             Mem,
             Imm,
-            Sym
+            Sym,
+            Flag
         };
 
         Direction direction{Direction::Out};
         PlacementKind placement_kind{PlacementKind::Reg};
         std::string_view reg_name{};
         std::string_view reg_name2{};
+        std::string_view flag_cond{};
         IrValue* value{};
         std::string_view placeholder{};
         IrType const* type{};

@@ -3969,6 +3969,20 @@ namespace dcc::backend
                         }
 
                         auto* ret_ty = llvm_type_cached(tc, inst->type);
+                        bool single_flag = false;
+                        if (inst->type && inst->type->kind == IrTypeKind::Bool)
+                        {
+                            for (auto const& op : ai->operands)
+                            {
+                                if (op.direction != IrAsmOperand::Direction::In && op.placement_kind == IrAsmOperand::PlacementKind::Flag)
+                                {
+                                    single_flag = true;
+                                    break;
+                                }
+                            }
+                            if (single_flag)
+                                ret_ty = LLVMInt8TypeInContext(ctx);
+                        }
                         if (!ret_ty)
                             ret_ty = LLVMVoidTypeInContext(ctx);
 
@@ -3999,8 +4013,17 @@ namespace dcc::backend
                             }
                         }
 
-                        set_name(call_inst);
-                        val_map[inst] = call_inst;
+                        if (single_flag)
+                        {
+                            auto* trunc = LLVMBuildTrunc(builder, call_inst, LLVMInt1TypeInContext(ctx), "");
+                            set_name(trunc);
+                            val_map[inst] = trunc;
+                        }
+                        else
+                        {
+                            set_name(call_inst);
+                            val_map[inst] = call_inst;
+                        }
                         break;
                     }
                     default:

@@ -664,6 +664,7 @@ namespace dcc::ir::pass
                         cloned_op.placement_kind = op.placement_kind;
                         cloned_op.reg_name = op.reg_name;
                         cloned_op.reg_name2 = op.reg_name2;
+                        cloned_op.flag_cond = op.flag_cond;
                         cloned_op.placeholder = op.placeholder;
                         cloned_op.type = clone_type_impl(op.type, dst, cctx);
                         if (op.value)

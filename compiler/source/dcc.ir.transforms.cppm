@@ -2895,6 +2895,7 @@ namespace dcc::ir::pass
                         fresh_op.placement_kind = op.placement_kind;
                         fresh_op.reg_name = op.reg_name;
                         fresh_op.reg_name2 = op.reg_name2;
+                        fresh_op.flag_cond = op.flag_cond;
                         fresh_op.placeholder = op.placeholder;
                         fresh_op.type = op.type;
                         if (op.value)

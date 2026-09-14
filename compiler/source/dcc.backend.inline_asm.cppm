@@ -165,7 +165,8 @@ namespace dcc::backend
 
                 bool memory = op.placement_kind == IrAsmOperand::PlacementKind::Mem;
                 resolved.has_memory_operands |= memory;
-                if (op.placement_kind == IrAsmOperand::PlacementKind::Imm || op.placement_kind == IrAsmOperand::PlacementKind::Sym)
+                if (op.placement_kind == IrAsmOperand::PlacementKind::Imm || op.placement_kind == IrAsmOperand::PlacementKind::Sym ||
+                    op.placement_kind == IrAsmOperand::PlacementKind::Flag)
                 {
                     resolved.registers.emplace_back();
                     continue;
@@ -2018,6 +2019,11 @@ namespace dcc::backend
                 plan.error = "symbolic operands are not supported on the native backend";
                 return plan;
             }
+            if (op.placement_kind == IrAsmOperand::PlacementKind::Flag)
+            {
+                plan.error = "flag outputs are not supported on the native backend";
+                return plan;
+            }
         }
         for (auto const& part : assembly.template_parts)
         {
@@ -2083,6 +2089,41 @@ namespace dcc::backend
         std::vector<std::string> output_constraints;
         std::vector<std::string> input_constraints;
         auto reg_class_for_type = [](IrType const* type) -> char { return (type && type->kind == IrTypeKind::Float) ? 'x' : 'r'; };
+        auto flag_code_for = [](std::string_view cond) -> std::string_view {
+            if (cond == "zero" || cond == "equal")
+                return "z";
+            if (cond == "not_zero" || cond == "not_equal")
+                return "nz";
+            if (cond == "carry" || cond == "below")
+                return "c";
+            if (cond == "not_carry" || cond == "above_equal")
+                return "nc";
+            if (cond == "above")
+                return "a";
+            if (cond == "below_equal")
+                return "be";
+            if (cond == "sign")
+                return "s";
+            if (cond == "not_sign")
+                return "ns";
+            if (cond == "overflow")
+                return "o";
+            if (cond == "not_overflow")
+                return "no";
+            if (cond == "parity_even")
+                return "p";
+            if (cond == "parity_odd")
+                return "np";
+            if (cond == "less")
+                return "l";
+            if (cond == "less_equal")
+                return "le";
+            if (cond == "greater")
+                return "g";
+            if (cond == "greater_equal")
+                return "ge";
+            return {};
+        };
         for (std::size_t i = 0; i < assembly.operands.size(); ++i)
         {
             auto const& op = assembly.operands[i];
@@ -2116,6 +2157,13 @@ namespace dcc::backend
                         return fail("immediate operands must be inputs");
                     case IrAsmOperand::PlacementKind::Sym:
                         return fail("symbolic operands must be inputs");
+                    case IrAsmOperand::PlacementKind::Flag: {
+                        auto code = flag_code_for(op.flag_cond);
+                        if (code.empty())
+                            return fail("unknown asm flag condition");
+                        out_constraint = "=@cc" + std::string(code);
+                        break;
+                    }
                     case IrAsmOperand::PlacementKind::RegPair:
                         return fail("register pairs must be split during lowering before backend emission");
                 }
@@ -2151,6 +2199,8 @@ namespace dcc::backend
                         in_constraint = "s";
                         break;
                     }
+                    case IrAsmOperand::PlacementKind::Flag:
+                        return fail("flag operands must be outputs");
                     case IrAsmOperand::PlacementKind::RegPair:
                         return fail("register pairs must be split during lowering before backend emission");
                 }

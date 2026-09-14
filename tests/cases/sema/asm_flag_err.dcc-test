@@ -1,0 +1,44 @@
+=== FILE: test.dc ===
+module test;
+
+void non_bool() {
+    u64 x = 0;
+    asm @[intel, output(x in flag zero)] { "cmp rax, rbx" };
+}
+
+void unknown_cond() {
+    bool b = false;
+    asm @[intel, output(b in flag sideways)] { "cmp rax, rbx" };
+}
+
+void cc_clash() {
+    bool b = false;
+    asm @[intel, output(b in flag zero), clobbers(cc)] { "cmp rax, rbx" };
+}
+
+void flag_input() {
+    bool b = false;
+    u64 x = 1;
+    asm @[intel, inputs(b in flag zero = x)] { "cmp rax, rbx" };
+}
+
+void imm_output() {
+    asm @[output(u64 in imm)] { "nop" };
+}
+
+void sym_output() {
+    asm @[output(u64 in sym)] { "nop" };
+}
+
+void mem_output() {
+    asm @[output(u64 in mem)] { "nop" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:5: requires a bool target
+test.dc:10: unknown asm flag condition
+test.dc:15: cannot be combined with clobbers(cc)
+test.dc:21: must be outputs
+test.dc:25: must be inputs
+test.dc:29: must be inputs
+test.dc:33: requires a pointer
