@@ -1088,6 +1088,9 @@ namespace dccd::completion
                     case dcc::ast::AsmPlacementKind::Sym:
                         detail += "sym";
                         break;
+                    case dcc::ast::AsmPlacementKind::Flag:
+                        detail += std::format("flag[{}]", op.flag_cond);
+                        break;
                     case dcc::ast::AsmPlacementKind::Family:
                         detail += std::format("family[{}]", op.reg_name);
                         break;

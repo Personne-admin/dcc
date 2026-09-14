@@ -15219,6 +15219,7 @@ export namespace dcc::sema
                 sm::SourceRange range;
             };
             std::vector<AsmFamilyResolution> family_resolutions;
+            bool has_flag_output = false;
             for (auto& op : node.operands)
             {
                 if (!op.placeholder.empty() && !names.insert(op.placeholder).second)
@@ -15237,6 +15238,7 @@ export namespace dcc::sema
                 bool memory = op.placement_kind == ast::AsmPlacementKind::Mem;
                 bool immediate = op.placement_kind == ast::AsmPlacementKind::Imm;
                 bool symbolic = op.placement_kind == ast::AsmPlacementKind::Sym;
+                bool flag = op.placement_kind == ast::AsmPlacementKind::Flag;
                 bool is_family = op.placement_kind == ast::AsmPlacementKind::Family;
                 bool is_family_pair = op.placement_kind == ast::AsmPlacementKind::FamilyPair;
                 bool pair = op.placement_kind == ast::AsmPlacementKind::RegPair || is_family_pair;
@@ -15260,6 +15262,25 @@ export namespace dcc::sema
                         error(op.range, "operand `{}` with `imm` placement requires a compile-time constant", op.placeholder);
                     if (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool)
                         error(op.range, "asm immediate operand `{}` requires an integer constant", op.placeholder);
+                    continue;
+                }
+                if (flag)
+                {
+                    if (op.direction != ast::AsmOperandDirection::Out)
+                        error(op.range, "asm flag operands must be outputs");
+                    if (!op.flag_cond.empty())
+                    {
+                        bool known = op.flag_cond == "zero" || op.flag_cond == "equal" || op.flag_cond == "not_zero" || op.flag_cond == "not_equal" ||
+                                   op.flag_cond == "carry" || op.flag_cond == "below" || op.flag_cond == "not_carry" || op.flag_cond == "above_equal" ||
+                                   op.flag_cond == "above" || op.flag_cond == "below_equal" || op.flag_cond == "sign" || op.flag_cond == "not_sign" ||
+                                   op.flag_cond == "overflow" || op.flag_cond == "not_overflow" || op.flag_cond == "parity_even" || op.flag_cond == "parity_odd" ||
+                                   op.flag_cond == "less" || op.flag_cond == "less_equal" || op.flag_cond == "greater" || op.flag_cond == "greater_equal";
+                        if (!known)
+                            error(op.range, "unknown asm flag condition `{}`", op.flag_cond);
+                    }
+                    if (ty->kind != types::TypeKind::Bool)
+                        error(op.range, "asm flag output `{}` requires a bool target", op.placeholder);
+                    has_flag_output = true;
                     continue;
                 }
                 if (symbolic)
@@ -15455,7 +15476,11 @@ export namespace dcc::sema
             for (auto clobber : node.clobbers)
             {
                 if (clobber == "cc" || clobber == "flags" || clobber == "eflags" || clobber == "rflags")
+                {
+                    if (has_flag_output)
+                        error(node.template_range, "asm flag output cannot be combined with clobbers(cc)");
                     clobber = "cc";
+                }
                 else if (clobber != "memory")
                 {
                     auto* reg = lookup_register(arch, clobber);

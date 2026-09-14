@@ -851,6 +851,7 @@ export namespace dcc::ast
         Mem,
         Imm,
         Sym,
+        Flag,
         Family,
         FamilyPair,
     };
@@ -872,6 +873,7 @@ export namespace dcc::ast
         AsmPlacementKind placement_kind{AsmPlacementKind::Reg};
         std::string_view reg_name;
         std::string_view reg_name2;
+        std::string_view flag_cond;
         std::string_view placeholder;
         ExprPtr expr{};
         TypePtr type_override{};

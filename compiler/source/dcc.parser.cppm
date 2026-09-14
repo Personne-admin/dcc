@@ -1749,6 +1749,15 @@ export namespace dcc::parser
                     op.placement_kind = ast::AsmPlacementKind::Sym;
                     return;
                 }
+                if (tok.interned == "flag")
+                {
+                    advance();
+                    op.placement_kind = ast::AsmPlacementKind::Flag;
+                    auto cond = expect(TK::Identifier, "in flag condition");
+                    if (cond.kind == TK::Identifier)
+                        op.flag_cond = cond.interned;
+                    return;
+                }
             }
 
             parse_reg_placement(op);
@@ -1774,7 +1783,7 @@ export namespace dcc::parser
             if (match(TK::KwIn))
             {
                 op.type_is_deduced = true;
-                parse_reg_placement(op);
+                parse_placement(op);
                 op.range = range_from(start);
                 node->operands.push_back(std::move(op));
                 return;
@@ -1788,7 +1797,7 @@ export namespace dcc::parser
                     op.type_override = type;
                     op.range = range_from(start);
                     if (match(TK::KwIn))
-                        parse_reg_placement(op);
+                        parse_placement(op);
 
                     node->operands.push_back(std::move(op));
                     return;
@@ -1832,7 +1841,7 @@ export namespace dcc::parser
                 op.expr = m_ctx.make<ast::IdentExpr>(tok.range, tok.interned);
                 op.range = range_from(start);
                 if (match(TK::KwIn))
-                    parse_reg_placement(op);
+                    parse_placement(op);
 
                 node->operands.push_back(std::move(op));
                 return;

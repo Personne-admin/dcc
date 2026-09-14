@@ -2595,6 +2595,7 @@ export namespace dcc::ir::lower
                     lowered.type = type;
                     lowered.value = input;
                     lowered.reg_name = reg;
+                    lowered.flag_cond = op.flag_cond;
                     lowered.placeholder = op.placeholder;
                     operands.push_back(lowered);
                     if (output)

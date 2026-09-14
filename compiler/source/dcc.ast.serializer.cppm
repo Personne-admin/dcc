@@ -499,6 +499,9 @@ export namespace dcc::ast
                         case AsmPlacementKind::Sym:
                             plac = "sym";
                             break;
+                        case AsmPlacementKind::Flag:
+                            plac = std::format("flag({})", op.flag_cond);
+                            break;
                         case AsmPlacementKind::Family:
                             plac = std::format("family({})", op.reg_name);
                             break;
@@ -583,6 +586,9 @@ export namespace dcc::ast
                             break;
                         case AsmPlacementKind::Sym:
                             plac = "sym";
+                            break;
+                        case AsmPlacementKind::Flag:
+                            plac = std::format("flag({})", op.flag_cond);
                             break;
                         case AsmPlacementKind::Family:
                             plac = std::format("family({})", op.reg_name);

@@ -409,6 +409,7 @@ namespace dcc::sema
                         cloned.placement_kind = op.placement_kind;
                         cloned.reg_name = op.reg_name;
                         cloned.reg_name2 = op.reg_name2;
+                        cloned.flag_cond = op.flag_cond;
                         cloned.placeholder = op.placeholder;
                         cloned.expr = clone_expr(op.expr);
                         cloned.type_override = clone_type(op.type_override);
@@ -566,6 +567,7 @@ namespace dcc::sema
                         cloned.placement_kind = op.placement_kind;
                         cloned.reg_name = op.reg_name;
                         cloned.reg_name2 = op.reg_name2;
+                        cloned.flag_cond = op.flag_cond;
                         cloned.placeholder = op.placeholder;
                         cloned.expr = clone_expr(op.expr);
                         cloned.type_override = clone_type(op.type_override);
