@@ -890,6 +890,7 @@ export namespace dcc::ast
             OperandRef,
             RegLiteral,
             SymbolRef,
+            UniqueStamp,
             Unresolved,
         };
         Kind kind{Kind::OperandRef};

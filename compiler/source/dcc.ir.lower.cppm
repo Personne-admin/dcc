@@ -2639,6 +2639,8 @@ export namespace dcc::ir::lower
                 }
                 else if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral)
                     assembly->template_parts.push_back({span.byte_offset, 2, 0xFFFFFFFFU, 0});
+                else if (span.kind == ast::AsmPlaceholderSpan::Kind::UniqueStamp)
+                    assembly->template_parts.push_back({span.byte_offset, span.byte_length, 0xFFFFFFFEU, 0});
             if (!result_types.empty())
             {
                 std::ignore = ident_name();

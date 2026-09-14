@@ -15522,6 +15522,12 @@ export namespace dcc::sema
                     error(range, "module asm takes no operands");
                     continue;
                 }
+                if (span.kind == ast::AsmPlaceholderSpan::Kind::UniqueStamp)
+                {
+                    auto range = placeholder_source_range(node.template_range, span);
+                    error(range, "`%=` is not allowed on module-scope asm");
+                    continue;
+                }
                 if (span.kind != ast::AsmPlaceholderSpan::Kind::SymbolRef)
                     continue;
                 auto range = placeholder_source_range(node.template_range, span);

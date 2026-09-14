@@ -2026,6 +2026,11 @@ namespace dcc::backend
                 plan.error = "operand modifiers are not supported on the native backend";
                 return plan;
             }
+            if (part.operand == 0xFFFFFFFEU)
+            {
+                plan.error = "unique stamps are not supported on the native backend";
+                return plan;
+            }
         }
         auto resolved = select_registers(assembly, target);
         if (!resolved.error.empty())
@@ -2191,6 +2196,12 @@ namespace dcc::backend
             }
             else
             {
+                if (part.operand == 0xFFFFFFFEU)
+                {
+                    rewritten += "${:uid}";
+                }
+                else
+                {
                 if (part.operand >= assembly.operands.size())
                     return fail("inline assembly IR operand reference out of range");
 
@@ -2209,6 +2220,7 @@ namespace dcc::backend
                     rewritten += "${" + std::to_string(number) + ":c}";
                 else
                     rewritten += "$" + std::to_string(number);
+                }
             }
             cursor = part.offset + part.length;
         }

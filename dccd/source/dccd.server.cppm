@@ -1286,6 +1286,10 @@ export namespace dccd
                                 hover_text = std::format("symbol `{}`", span.name);
                                 break;
                             }
+                            case dcc::ast::AsmPlaceholderSpan::Kind::UniqueStamp: {
+                                hover_text = "unique stamp";
+                                break;
+                            }
                             case dcc::ast::AsmPlaceholderSpan::Kind::Unresolved: {
                                 hover_text = std::format("`{}` (unresolved placeholder)", span.name);
                                 break;

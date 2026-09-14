@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+void uniq() {
+    asm @[intel] { "jmp L%=\nL%=: nop" };
+}
+
+void spin() {
+    asm @[intel] { "1: pause\n jne 1b" };
+}
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define void @_DC0F1.4.test4.uniq0v() {
+entry:
+  call void asm sideeffect inteldialect "jmp L${:uid}\0AL${:uid}: nop", ""()
+  ret void
+}
+
+define void @_DC0F1.4.test4.spin0v() {
+entry:
+  call void asm sideeffect inteldialect "1: pause\0A jne 1b", ""()
+  ret void
+}
