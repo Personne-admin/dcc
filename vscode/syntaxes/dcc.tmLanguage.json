@@ -120,7 +120,7 @@
                 },
                 {
                     "name": "keyword.other.dc",
-                    "match": "\\b(?:module|import|public|struct|enum|union|using|const|restrict|volatile|static|extern|sizeof|alignof|offsetof|compiles)\\b"
+                    "match": "\\b(?:module|import|public|struct|enum|union|using|const|restrict|volatile|static|extern|sizeof|alignof|offsetof|compiles|asm)\\b"
                 }
             ]
         },

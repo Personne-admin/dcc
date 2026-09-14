@@ -1312,3 +1312,24 @@ including calls to compile-time-evaluable functions. A message that cannot be
 evaluated to a string is an error (`compile_error message must be a compile-time
 string`, and similarly for warning and note). CTFE does not re-emit actions
 already performed by semantic analysis.
+
+---
+
+## 19. Inline Assembly
+
+An `asm` block embeds one assembly template in a function body (as a
+statement or an expression) or at module scope:
+
+```dc
+asm @[intel, output(dst = y in rax), inputs(v in rbx = x)] { "mov %[dst], %[v]" };
+```
+
+Operands are declared in `@[...]` clauses as `output` (written after the
+block runs), `inputs` (evaluated before), or `inout` (both, through one
+register), each pinned to an explicit register, a register family, a
+special placement (`mem`, `imm`, `sym`, `flag`, `any`), or left for the
+backend to choose. Templates address operands positionally (`%0`) or by
+name (`%[dst]`), with size views (`%[dst:byte]`), bare-symbol modifiers
+(`%c[...]`, `%P[...]`), and per-expansion unique stamps (`%=`).
+
+See the [full specifications](inline-assembly.md).

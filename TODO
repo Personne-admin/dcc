@@ -14,3 +14,7 @@
 - [x] Corrected differential record: earlier 48/48 and 59-program ALL-OK figures came from runs that discovered zero programs; the true figure then was 59 total, 58 ran, 1 diverged (dmatch2 on LLVM).
 - [x] Differential-runner invariant enforced: make differential fails loudly on an empty corpus and reports programs that build nowhere as BROKEN instead of folding them into OK.
 - [x] padded/mixed-width aggregate layouts covered by tests/differential/padded/ (u8/u16/u32/u64/f32/f64 mixes, enum payloads, by-value calls, containers, sizeof/alignof).
+- [ ] inline asm: no tied `rm` spelling, so `inout .. in any` is rejected.
+- [ ] inline asm: no test mode pins a sema diagnostic under an explicit non-host target (sema runs host-fixed in the harness); x86-only rejections like `esi:byte` are covered only via the LLVM-backend backstop test.
+- [ ] inline asm: module-scope `%{..}` resolves same-TU globals and non-generic functions only; imported/`extern` symbols need only correct mangling (assembler relocation, no `llvm.compiler.used`).
+- [ ] inline asm: native em64t lowering is gated to x86_64 (`select_registers` rejects all other arches); target-aware register/width validation in sema covers all four triples.
