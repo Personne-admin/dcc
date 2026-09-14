@@ -11,6 +11,7 @@ void outb() {
     asm @[inputs(val in al = val, port in dx = port)] { "outb %[val], %[port]" };
 }
 
-void non_volatile_nop() {
-    asm @[volatile(false)] { "nop" };
+u64 non_volatile_value() {
+    u64 y = asm @[volatile(false), output(u64 in rax)] { "mov $42, %0" };
+    return y;
 }

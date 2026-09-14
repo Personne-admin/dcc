@@ -5,8 +5,9 @@ void volatile_asm() {
     asm { "nop" };
 }
 
-void non_volatile_asm() {
-    asm @[volatile(false)] { "nop" };
+u64 non_volatile_value() {
+    u64 y = asm @[volatile(false), output(u64 in rax)] { "mov $42, %0" };
+    return y;
 }
 
 === EXPECT-LLVM FLAGS: -verify ===
