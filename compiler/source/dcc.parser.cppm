@@ -1749,6 +1749,12 @@ export namespace dcc::parser
                     op.placement_kind = ast::AsmPlacementKind::Sym;
                     return;
                 }
+                if (tok.interned == "any")
+                {
+                    advance();
+                    op.placement_kind = ast::AsmPlacementKind::Any;
+                    return;
+                }
                 if (tok.interned == "flag")
                 {
                     advance();

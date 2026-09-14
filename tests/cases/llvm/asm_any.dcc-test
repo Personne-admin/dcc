@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+u64 copy(u64 x) {
+    u64 y = asm @[intel, output(dst = y in any), inputs(v in any = x)] { "mov %[dst], %[v]" };
+    return y;
+}
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i64 @_DC0F1.4.test4.copy1i64ui64u(i64 %x) {
+entry:
+  %"0" = alloca i64, align 8
+  %"1" = call i64 asm sideeffect inteldialect "mov $0, $1", "=&rm,rm"(i64 %x)
+  store i64 %"1", ptr %"0", align 4
+  store i64 %"1", ptr %"0", align 4
+  %"2" = load i64, ptr %"0", align 4
+  ret i64 %"2"
+}

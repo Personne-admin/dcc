@@ -2026,7 +2026,8 @@ namespace dcc::backend::em64t
             {
                 auto const& op = ai->operands[i];
                 if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm ||
-                    op.placement_kind == IrAsmOperand::PlacementKind::Sym || op.placement_kind == IrAsmOperand::PlacementKind::Flag)
+                    op.placement_kind == IrAsmOperand::PlacementKind::Sym || op.placement_kind == IrAsmOperand::PlacementKind::Flag ||
+                    op.placement_kind == IrAsmOperand::PlacementKind::Any)
                     continue;
                 if (!op.value)
                 {
@@ -2054,7 +2055,7 @@ namespace dcc::backend::em64t
                 auto const& op = ai->operands[i];
                 if (op.direction == IrAsmOperand::Direction::In || op.placement_kind == IrAsmOperand::PlacementKind::Mem ||
                     op.placement_kind == IrAsmOperand::PlacementKind::Imm || op.placement_kind == IrAsmOperand::PlacementKind::Sym ||
-                    op.placement_kind == IrAsmOperand::PlacementKind::Flag)
+                    op.placement_kind == IrAsmOperand::PlacementKind::Flag || op.placement_kind == IrAsmOperand::PlacementKind::Any)
                     continue;
                 if (!pinned[i].is_valid())
                 {

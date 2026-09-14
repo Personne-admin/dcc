@@ -15239,6 +15239,7 @@ export namespace dcc::sema
                 bool immediate = op.placement_kind == ast::AsmPlacementKind::Imm;
                 bool symbolic = op.placement_kind == ast::AsmPlacementKind::Sym;
                 bool flag = op.placement_kind == ast::AsmPlacementKind::Flag;
+                bool any = op.placement_kind == ast::AsmPlacementKind::Any;
                 bool is_family = op.placement_kind == ast::AsmPlacementKind::Family;
                 bool is_family_pair = op.placement_kind == ast::AsmPlacementKind::FamilyPair;
                 bool pair = op.placement_kind == ast::AsmPlacementKind::RegPair || is_family_pair;
@@ -15302,6 +15303,25 @@ export namespace dcc::sema
                     }
                     if (!is_symbol)
                         error(op.range, "asm symbolic operand `{}` requires a global or function", op.placeholder);
+                    continue;
+                }
+                if (any)
+                {
+                    if (op.direction == ast::AsmOperandDirection::InOut)
+                        error(op.range, "inout operands cannot use `in any` placement");
+                    if (op.is_mem_writable || !op.reg_name.empty() || !op.reg_name2.empty())
+                        error(op.range, "`in any` placement takes no register");
+                    if (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool && ty->kind != types::TypeKind::Pointer &&
+                        ty->kind != types::TypeKind::Enum)
+                        error(op.range, "asm `in any` operand `{}` requires an integer, pointer, bool, or enum type", op.placeholder);
+                    else if (width == 0 || width > 8)
+                        error(op.range, "asm `in any` operand `{}` requires a scalar type of at most 8 bytes", op.placeholder);
+                    else if (ty->kind == types::TypeKind::Enum)
+                    {
+                        auto* enum_ty = static_cast<types::EnumType const*>(ty);
+                        if (!enum_ty || enum_ty->is_tagged)
+                            error(op.range, "asm `in any` operand `{}` requires an untagged enum", op.placeholder);
+                    }
                     continue;
                 }
 

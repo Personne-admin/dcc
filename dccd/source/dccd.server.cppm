@@ -1226,6 +1226,9 @@ export namespace dccd
                                         case dcc::ast::AsmPlacementKind::Flag:
                                             place_str = std::format("flag[{}]", op.flag_cond);
                                             break;
+                                        case dcc::ast::AsmPlacementKind::Any:
+                                            place_str = "any";
+                                            break;
                                         case dcc::ast::AsmPlacementKind::Family:
                                             place_str = std::format("family[{}]", op.reg_name);
                                             break;
