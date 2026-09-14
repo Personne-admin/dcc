@@ -2536,16 +2536,52 @@ export namespace dcc::ir::lower
             for (auto const& op : node.operands)
             {
                 indices.push_back(static_cast<std::uint32_t>(operands.size()));
+                bool is_sym = static_cast<IrAsmOperand::PlacementKind>(op.placement_kind) == IrAsmOperand::PlacementKind::Sym;
                 auto* ty = op.type_override ? get_canonical_type(op.type_override) : op.expr ? get_sema_resolved_type(op.expr) : expected;
                 auto* ir_type = lower_type(ty);
-                logical_types.push_back(ir_type);
                 auto direction = static_cast<IrAsmOperand::Direction>(op.direction);
                 auto placement = static_cast<IrAsmOperand::PlacementKind>(op.placement_kind);
+                IrValue* sym_value = nullptr;
+                if (is_sym && op.expr)
+                {
+                    ast::Expr const* target = op.expr;
+                    if (target->kind == ast::ExprKind::Unary && static_cast<ast::UnaryExpr const*>(target)->op == dcc::lex::TokenKind::Amp)
+                        target = static_cast<ast::UnaryExpr const*>(target)->operand;
+                    ast::Decl const* resolved = nullptr;
+                    if (target->kind == ast::ExprKind::Ident)
+                        resolved = static_cast<ast::IdentExpr const*>(target)->sema.resolved_decl;
+                    else if (target->kind == ast::ExprKind::PathExpr)
+                        resolved = static_cast<ast::PathExpr const*>(target)->sema.resolved_decl;
+                    else if (target->kind == ast::ExprKind::TemplateInst)
+                    {
+                        if (target->sema.resolved_specialization)
+                            resolved = static_cast<ast::Decl const*>(target->sema.resolved_specialization);
+                        else
+                            resolved = target->sema.resolved_decl;
+                    }
+                    if (auto* fd = ast::node_cast<ast::FuncDecl>(resolved))
+                    {
+                        auto* ir_func = get_or_create_func_ref(const_cast<ast::FuncDecl*>(fd));
+                        if (ir_func)
+                            sym_value = m_ctx.func_ref(ir_func);
+                    }
+                    else if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
+                    {
+                        auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
+                        if (global)
+                            sym_value = m_ctx.global_ref(global, m_ctx.pointer_to(global->type));
+                    }
+                    if (sym_value)
+                        ir_type = sym_value->type;
+                }
+                logical_types.push_back(ir_type);
                 bool output = direction != IrAsmOperand::Direction::In && placement != IrAsmOperand::PlacementKind::Mem;
                 IrValue* destination = output && op.expr ? lower_addr_of(op.expr) : nullptr;
                 destinations.push_back(destination);
                 IrValue* value = nullptr;
-                if (op.expr && direction != IrAsmOperand::Direction::Out)
+                if (is_sym)
+                    value = sym_value;
+                else if (op.expr && direction != IrAsmOperand::Direction::Out)
                     value = destination ? emit(m_ctx.load(ir_type, destination)) : lower_expr(op.expr);
                 else if (op.expr && placement == IrAsmOperand::PlacementKind::Mem)
                     value = lower_expr(op.expr);
@@ -2597,10 +2633,10 @@ export namespace dcc::ir::lower
                 {
                     if (span.operand_index >= indices.size())
                         continue;
-                    assembly->template_parts.push_back({span.byte_offset, span.byte_length, indices[span.operand_index]});
+                    assembly->template_parts.push_back({span.byte_offset, span.byte_length, indices[span.operand_index], span.modifier});
                 }
                 else if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral)
-                    assembly->template_parts.push_back({span.byte_offset, 2, 0xFFFFFFFFU});
+                    assembly->template_parts.push_back({span.byte_offset, 2, 0xFFFFFFFFU, 0});
             if (!result_types.empty())
             {
                 std::ignore = ident_name();

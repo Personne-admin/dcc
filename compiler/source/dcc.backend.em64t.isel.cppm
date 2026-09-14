@@ -2025,7 +2025,8 @@ namespace dcc::backend::em64t
             for (std::size_t i = 0; i < ai->operands.size(); ++i)
             {
                 auto const& op = ai->operands[i];
-                if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm ||
+                    op.placement_kind == IrAsmOperand::PlacementKind::Sym)
                     continue;
                 if (!op.value)
                 {
@@ -2052,7 +2053,7 @@ namespace dcc::backend::em64t
             {
                 auto const& op = ai->operands[i];
                 if (op.direction == IrAsmOperand::Direction::In || op.placement_kind == IrAsmOperand::PlacementKind::Mem ||
-                    op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                    op.placement_kind == IrAsmOperand::PlacementKind::Imm || op.placement_kind == IrAsmOperand::PlacementKind::Sym)
                     continue;
                 if (!pinned[i].is_valid())
                 {

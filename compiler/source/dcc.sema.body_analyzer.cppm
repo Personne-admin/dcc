@@ -15228,6 +15228,7 @@ export namespace dcc::sema
 
                 bool memory = op.placement_kind == ast::AsmPlacementKind::Mem;
                 bool immediate = op.placement_kind == ast::AsmPlacementKind::Imm;
+                bool symbolic = op.placement_kind == ast::AsmPlacementKind::Sym;
                 bool is_family = op.placement_kind == ast::AsmPlacementKind::Family;
                 bool is_family_pair = op.placement_kind == ast::AsmPlacementKind::FamilyPair;
                 bool pair = op.placement_kind == ast::AsmPlacementKind::RegPair || is_family_pair;
@@ -15251,6 +15252,27 @@ export namespace dcc::sema
                         error(op.range, "operand `{}` with `imm` placement requires a compile-time constant", op.placeholder);
                     if (ty->kind != types::TypeKind::Int && ty->kind != types::TypeKind::Bool)
                         error(op.range, "asm immediate operand `{}` requires an integer constant", op.placeholder);
+                    continue;
+                }
+                if (symbolic)
+                {
+                    if (!input)
+                        error(op.range, "asm symbolic operands must be inputs");
+                    bool is_symbol = false;
+                    if (op.expr)
+                    {
+                        auto* resolved = op.expr->sema.resolved_decl;
+                        if (resolved && resolved->kind == ast::DeclKind::Func)
+                            is_symbol = true;
+                        else if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
+                        {
+                            auto storage = vd->sema.storage;
+                            if (storage == ast::StorageClass::ModuleGlobal || storage == ast::StorageClass::Static || storage == ast::StorageClass::Extern)
+                                is_symbol = true;
+                        }
+                    }
+                    if (!is_symbol)
+                        error(op.range, "asm symbolic operand `{}` requires a global or function", op.placeholder);
                     continue;
                 }
 
@@ -15406,6 +15428,12 @@ export namespace dcc::sema
                     span.operand_index = static_cast<std::uint32_t>(index);
                     if (node.operands[index].placement_kind == ast::AsmPlacementKind::RegPair)
                         error(range, "asm register pairs have two registers; reference each literal register with %%");
+                    if (span.modifier != 0)
+                    {
+                        auto kind = node.operands[index].placement_kind;
+                        if (kind != ast::AsmPlacementKind::Sym && kind != ast::AsmPlacementKind::Imm)
+                            error(range, "asm modifier `%{}` requires a symbolic or immediate operand", span.modifier);
+                    }
                 }
             }
 

@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+u64 counter = 42;
+
+void use_plain() {
+    asm @[intel, inputs(c in sym = counter)] { "mov rax, %[c]" };
+}
+
+void use_c() {
+    asm @[intel, inputs(c in sym = counter)] { "mov rax, %c[c]" };
+}
+
+void use_P() {
+    asm @[intel, inputs(c in sym = counter)] { "mov rax, %P[c]" };
+}
+
+void target() {
+}
+
+void use_fn() {
+    asm @[intel, inputs(f in sym = target)] { "call %[f]" };
+}
+
+void use_fn_c() {
+    asm @[intel, inputs(f in sym = target)] { "call %c[f]" };
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===

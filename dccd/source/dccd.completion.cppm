@@ -1085,6 +1085,9 @@ namespace dccd::completion
                     case dcc::ast::AsmPlacementKind::Imm:
                         detail += "imm";
                         break;
+                    case dcc::ast::AsmPlacementKind::Sym:
+                        detail += "sym";
+                        break;
                     case dcc::ast::AsmPlacementKind::Family:
                         detail += std::format("family[{}]", op.reg_name);
                         break;

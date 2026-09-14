@@ -1741,6 +1741,12 @@ export namespace dcc::parser
                     op.placement_kind = ast::AsmPlacementKind::Imm;
                     return;
                 }
+                if (tok.interned == "sym")
+                {
+                    advance();
+                    op.placement_kind = ast::AsmPlacementKind::Sym;
+                    return;
+                }
             }
 
             parse_reg_placement(op);
@@ -2172,6 +2178,8 @@ export namespace dcc::parser
                 span.byte_offset = static_cast<std::uint32_t>(start);
                 span.kind = ast::AsmPlaceholderSpan::Kind::Unresolved;
                 std::string_view problem;
+                if (i + 1 < str.size() && (str[i] == 'c' || str[i] == 'P') && (str[i + 1] == '[' || std::isdigit(static_cast<unsigned char>(str[i + 1]))))
+                    span.modifier = str[i++];
                 if (i < str.size() && str[i] == '%')
                 {
                     auto name_start = ++i;
@@ -2206,7 +2214,7 @@ export namespace dcc::parser
                     span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
                 }
                 else
-                    problem = "invalid asm '%' escape; use %0, %[name], or %%";
+                    problem = "invalid asm '%' escape; use %0, %[name], %c[name], %P[name], or %%";
 
                 span.byte_length = static_cast<std::uint32_t>(i - start);
                 if (mapped && i <= raw_segments.size())
