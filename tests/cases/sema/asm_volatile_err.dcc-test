@@ -1,0 +1,13 @@
+=== FILE: test.dc ===
+module test;
+void bare_no_output() {
+    asm @[volatile(false)] { "nop" };
+}
+void inputs_only() {
+    u64 x = 1;
+    asm @[volatile(false), inputs(v = x)] { "nop" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:3: cannot use `volatile(false)`
+test.dc:7: cannot use `volatile(false)`

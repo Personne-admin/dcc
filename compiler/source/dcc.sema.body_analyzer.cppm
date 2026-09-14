@@ -15220,8 +15220,11 @@ export namespace dcc::sema
             };
             std::vector<AsmFamilyResolution> family_resolutions;
             bool has_flag_output = false;
+            bool has_output = false;
             for (auto& op : node.operands)
             {
+                if (op.direction != ast::AsmOperandDirection::In)
+                    has_output = true;
                 if (!op.placeholder.empty() && !names.insert(op.placeholder).second)
                     error(op.range, "duplicate asm operand name `{}`", op.placeholder);
 
@@ -15440,6 +15443,8 @@ export namespace dcc::sema
                 else if (first && first->cls == PhysRegClass::GPR && width != first->width / 8u)
                     error(op.range, "operand `{}` type `{}` does not match register `{}` width", op.placeholder, format_type_str(ty), op.reg_name);
             }
+            if (!node.is_volatile && !has_output)
+                error(node.template_range, "asm with no outputs cannot use `volatile(false)`");
 
             for (auto& span : node.placeholder_spans)
             {

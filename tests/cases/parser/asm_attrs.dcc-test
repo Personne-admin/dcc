@@ -2,7 +2,7 @@
 module test;
 
 void attrs_test() {
-    asm @[volatile(false)] { "nop" };
+    asm @[volatile(false), output(u64 in rax)] { "mov $42, %0" };
     asm @[intel] { "mov eax, 0" };
     asm @[arch("x86_64")] { "cpuid" };
     asm @[clobbers(rax, rcx, rdx)] { "cpuid" };
