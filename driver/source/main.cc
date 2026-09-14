@@ -34,11 +34,19 @@ import dcc.backend.em64t.objwriter;
 #include <windows.h>
 #endif
 
+#include <array>
+#include <cstdio>
+
+#ifdef _WIN32
+#define popen _popen
+#define pclose _pclose
+#endif
+
 namespace
 {
     struct Options
     {
-        std::filesystem::path input_file;
+        std::vector<std::filesystem::path> input_files;
         std::filesystem::path output_file;
         std::optional<std::filesystem::path> depfile;
         std::vector<std::filesystem::path> import_paths;
@@ -70,6 +78,7 @@ namespace
         std::vector<std::string> injected_decls;
         std::string backend_name = "llvm";
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
+        std::vector<std::string> compile_only_flags;
     };
 
     [[nodiscard]] auto parse_args(int argc, char** argv) -> Options
@@ -126,6 +135,7 @@ namespace
             if (arg == "-fdump-ast")
             {
                 opts.dump_ast = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -133,6 +143,7 @@ namespace
             if (arg == "-fdump-ir")
             {
                 opts.dump_ir = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -140,6 +151,7 @@ namespace
             if (arg == "-fdump-llvm")
             {
                 opts.dump_llvm = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -147,6 +159,7 @@ namespace
             if (arg == "-fdump-mir")
             {
                 opts.dump_mir = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -154,6 +167,7 @@ namespace
             if (arg == "-c")
             {
                 opts.compile_only = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -161,6 +175,7 @@ namespace
             if (arg == "-S")
             {
                 opts.emit_asm_only = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -168,6 +183,7 @@ namespace
             if (arg == "-shared")
             {
                 opts.shared_library = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -175,6 +191,7 @@ namespace
             if (arg == "-fbounds-check")
             {
                 opts.bounds_check = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -182,6 +199,7 @@ namespace
             if (arg == "-frestricted-check")
             {
                 opts.restricted_check = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -189,6 +207,7 @@ namespace
             if (arg == "-fpartial-eval")
             {
                 opts.partial_eval = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -228,6 +247,7 @@ namespace
             if (arg == "-fno-red-zone")
             {
                 opts.no_red_zone = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -235,6 +255,7 @@ namespace
             if (arg == "-fno-simd")
             {
                 opts.no_simd = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -242,6 +263,7 @@ namespace
             if (arg == "-fno-x87")
             {
                 opts.no_x87 = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -249,6 +271,7 @@ namespace
             if (arg == "-fno-stack-protector")
             {
                 opts.no_stack_protector = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -256,6 +279,7 @@ namespace
             if (arg == "-fno-stack-probe")
             {
                 opts.no_stack_probe = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -263,6 +287,7 @@ namespace
             if (arg == "-fomit-frame-pointer")
             {
                 opts.omit_frame_pointer = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -270,6 +295,7 @@ namespace
             if (arg == "-fno-omit-frame-pointer")
             {
                 opts.omit_frame_pointer = false;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -277,6 +303,7 @@ namespace
             if (arg == "-fPIC" || arg == "-fpic" || arg == "-fPIE")
             {
                 opts.position_independent_code = true;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -291,6 +318,7 @@ namespace
                 }
                 opts.code_model = *parsed;
                 i += 2;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 continue;
             }
 
@@ -305,12 +333,14 @@ namespace
                 }
                 opts.code_model = *parsed;
                 ++i;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 continue;
             }
 
             if (arg == "-farch" && i + 1 < argc)
             {
                 opts.target_cpu = argv[i + 1];
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 i += 2;
                 continue;
             }
@@ -318,6 +348,7 @@ namespace
             if (arg.starts_with("-farch="))
             {
                 opts.target_cpu = arg.substr(7);
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -346,6 +377,7 @@ namespace
             if (arg == "--depfile" && i + 1 < argc)
             {
                 opts.depfile = argv[++i];
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -353,6 +385,7 @@ namespace
             if (arg == "-I" && i + 1 < argc)
             {
                 opts.import_paths.emplace_back(argv[++i]);
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -360,6 +393,7 @@ namespace
             if (arg.starts_with("-I"))
             {
                 opts.import_paths.emplace_back(arg.substr(2));
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -367,6 +401,7 @@ namespace
             if ((arg == "-J" || arg == "--inject") && i + 1 < argc)
             {
                 opts.injected_decls.emplace_back(argv[++i]);
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -374,6 +409,7 @@ namespace
             if (arg.starts_with("-J"))
             {
                 opts.injected_decls.emplace_back(arg.substr(2));
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -381,6 +417,7 @@ namespace
             if (arg.starts_with("--inject="))
             {
                 opts.injected_decls.emplace_back(arg.substr(9));
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -388,6 +425,7 @@ namespace
             if (arg == "-g0" || arg == "-gnone")
             {
                 opts.emit_debug_info = false;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 opts.debug_format = dcc::backend::DebugFormat::None;
                 ++i;
                 continue;
@@ -397,6 +435,7 @@ namespace
             {
                 opts.emit_debug_info = true;
                 opts.debug_format = dcc::backend::DebugFormat::Auto;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -405,6 +444,7 @@ namespace
             {
                 opts.emit_debug_info = true;
                 opts.debug_format = dcc::backend::DebugFormat::Dwarf;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -413,6 +453,7 @@ namespace
             {
                 opts.emit_debug_info = true;
                 opts.debug_format = dcc::backend::DebugFormat::Pdb;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -440,6 +481,7 @@ namespace
             if (arg == "-O0")
             {
                 opts.opt_level = dcc::ir::pass::OptLevel::O0;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -447,6 +489,7 @@ namespace
             if (arg == "-O1")
             {
                 opts.opt_level = dcc::ir::pass::OptLevel::O1;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -454,6 +497,7 @@ namespace
             if (arg == "-O2")
             {
                 opts.opt_level = dcc::ir::pass::OptLevel::O2;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -461,6 +505,7 @@ namespace
             if (arg == "-Os")
             {
                 opts.opt_level = dcc::ir::pass::OptLevel::Os;
+                opts.compile_only_flags.emplace_back(std::string{arg});
                 ++i;
                 continue;
             }
@@ -471,7 +516,7 @@ namespace
                 std::exit(1);
             }
 
-            opts.input_file = arg;
+            opts.input_files.emplace_back(arg);
             ++i;
         }
 
@@ -552,7 +597,9 @@ namespace
         int const flag_col_width = 24;
         int const desc_col_width = std::max(20, term_width - flag_col_width - 4);
 
-        std::println("usage: dcc [options] <input-file>\n");
+        std::println("usage: dcc [options] <input-file>");
+        std::println("       dcc -o <output> <input1.o> [<input2.o> ...] [-flibdcext [os]] [-target <triple>] [-fbackend <name>]");
+        std::println("");
         std::println("options:");
 
         for (auto const& opt : options)
@@ -1335,16 +1382,200 @@ namespace
         return true;
     }
 
+    [[nodiscard]] bool is_object_file(std::filesystem::path const& p)
+    {
+        return p.extension() == ".o";
+    }
+
+    [[nodiscard]] std::string shell_quote(std::string const& s)
+    {
+#ifdef _WIN32
+        std::string out{""};
+        for (char c : s)
+        {
+            if (c == '"')
+                out += "\"";
+            out += c;
+        }
+        out += "";
+        return out;
+#else
+        std::string out{"'"};
+        for (char c : s)
+        {
+            if (c == '\'')
+                out += "'\''";
+            else
+                out += c;
+        }
+        out += "'";
+        return out;
+#endif
+    }
+
+    [[nodiscard]] std::string libdcext_library_name(dcc::target::TargetConfig const& target, std::string_view backend_name)
+    {
+        return std::format("dcext-{}-{}", dcc::target::os_name(target.os), backend_name);
+    }
+
+    int run_link_mode(Options const& opts, char** argv)
+    {
+        if (opts.compile_only)
+        {
+            std::println(std::cerr, "dcc: error: -c cannot be used in link mode (all inputs are object files); pass a .dc source to -c, or link without -c");
+            return 1;
+        }
+
+        if (opts.emit_asm_only)
+        {
+            std::println(std::cerr, "dcc: error: -S cannot be used in link mode (all inputs are already-compiled object files)");
+            return 1;
+        }
+
+        if (opts.shared_library)
+        {
+            std::println(std::cerr, "dcc: error: -shared is not supported in link mode; link mode produces executables only");
+            return 1;
+        }
+
+        if (!opts.compile_only_flags.empty())
+        {
+            std::string list;
+            for (std::size_t k = 0; k < opts.compile_only_flags.size(); ++k)
+            {
+                if (k)
+                    list += ", ";
+                list += opts.compile_only_flags[k];
+            }
+            std::println(std::cerr, "dcc: error: option(s) {} only apply when compiling sources and cannot be used in link mode", list);
+            return 1;
+        }
+
+        if (opts.backend_name != "llvm" && opts.backend_name != "em64t")
+        {
+            std::println(std::cerr, "dcc: error: unknown backend '{}'", opts.backend_name);
+            return 1;
+        }
+
+        dcc::target::TargetConfig target = resolve_target_or_exit(opts);
+
+        if (target.object_format == dcc::target::ObjectFormat::Coff)
+        {
+            std::println(std::cerr,
+                         "dcc: error: link mode does not support COFF targets (target: '{}'); executable linking is currently only supported for x86_64-elf",
+                         target.triple);
+            return 1;
+        }
+
+        if (target.triple != "x86_64-elf")
+        {
+            std::println(std::cerr, "dcc: error: executable linking is currently only supported for x86_64-elf (target: '{}')", target.triple);
+            return 1;
+        }
+
+        std::error_code ec;
+        std::vector<std::string> objects;
+        objects.reserve(opts.input_files.size());
+        for (auto const& in : opts.input_files)
+        {
+            auto canon = std::filesystem::canonical(in, ec);
+            if (ec)
+            {
+                std::println(std::cerr, "dcc: error: cannot find input file '{}'", in.string());
+                return 1;
+            }
+            objects.push_back(canon.string());
+        }
+
+        std::filesystem::path output_path;
+        if (!opts.output_file.empty())
+            output_path = opts.output_file;
+        else
+            output_path = std::filesystem::path{objects.front()}.replace_extension("").filename();
+
+        for (auto const& in : opts.input_files)
+        {
+            if (same_file_path(output_path, in))
+            {
+                std::println(std::cerr, "dcc: error: output file '{}' is the same as an input object file", output_path.string());
+                return 1;
+            }
+        }
+
+        auto prefix = dcc::config::current_prefix(argv).path;
+
+        std::string cmd = "ld.lld --static --no-dynamic-linker --fatal-warnings -o ";
+        cmd += shell_quote(output_path.string());
+        for (auto const& obj : objects)
+        {
+            cmd += " ";
+            cmd += shell_quote(obj);
+        }
+
+        if (opts.libdcext)
+        {
+            cmd += " -L";
+            cmd += shell_quote((prefix / "lib").string());
+            cmd += " -l";
+            cmd += libdcext_library_name(target, opts.backend_name);
+        }
+
+        cmd += " 2>&1";
+
+        std::array<char, 4096> buf{};
+        std::string captured;
+        auto* pipe = popen(cmd.c_str(), "r");
+        if (!pipe)
+        {
+            std::println(std::cerr, "dcc: error: failed to invoke linker");
+            return 1;
+        }
+        while (std::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
+            captured += buf.data();
+
+        int rc = pclose(pipe);
+        if (rc != 0)
+        {
+            if (!captured.empty())
+                std::println(std::cerr, "dcc: error: {}", std::string{"linking failed:"} + std::string(1, static_cast<char>(10)) + captured);
+            else
+                std::println(std::cerr, "dcc: error: linker failed with unknown error");
+            return 1;
+        }
+
+        std::filesystem::permissions(output_path, std::filesystem::perms::owner_exec | std::filesystem::perms::group_exec | std::filesystem::perms::others_exec,
+                                     std::filesystem::perm_options::add, ec);
+        return 0;
+    }
+
 } // anonymous namespace
 
 auto main(int argc, char** argv) -> int
 {
     auto opts = parse_args(argc, argv);
 
-    if (opts.help || opts.input_file.empty())
+    if (opts.help || opts.input_files.empty())
     {
         print_usage();
         return opts.help ? 0 : 1;
+    }
+
+    bool const any_object = std::ranges::any_of(opts.input_files, is_object_file);
+    bool const all_objects = std::ranges::all_of(opts.input_files, is_object_file);
+
+    if (any_object && !all_objects)
+    {
+        std::println(std::cerr, "dcc: error: cannot mix source files and object files in one invocation; compile sources with -c first, then link the objects");
+        return 1;
+    }
+
+    if (all_objects)
+        return run_link_mode(opts, argv);
+
+    if (opts.input_files.size() > 1)
+    {
+        std::println(std::cerr, "dcc: error: multiple input files are not supported in compile mode; compile each file with -c and link the objects");
+        return 1;
     }
 
     if (opts.compile_only && opts.emit_asm_only)
@@ -1375,10 +1606,10 @@ auto main(int argc, char** argv) -> int
     }
 
     std::error_code ec;
-    auto input_path = std::filesystem::canonical(opts.input_file, ec);
+    auto input_path = std::filesystem::canonical(opts.input_files.front(), ec);
     if (ec)
     {
-        std::println(std::cerr, "dcc: error: cannot find input file '{}'", opts.input_file.string());
+        std::println(std::cerr, "dcc: error: cannot find input file '{}'", opts.input_files.front().string());
         return 1;
     }
 
@@ -1527,7 +1758,7 @@ auto main(int argc, char** argv) -> int
                 (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
             {
                 backend_opts.library_paths.push_back((prefix / "lib").string());
-                backend_opts.libraries.push_back(std::format("dcext-{}-{}", dcc::target::os_name(target.os), opts.backend_name));
+                backend_opts.libraries.push_back(libdcext_library_name(target, opts.backend_name));
             }
 
             if (opts.backend_name == "llvm")
