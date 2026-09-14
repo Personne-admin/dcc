@@ -1,0 +1,833 @@
+//!!
+//!! SHA-1 and SHA-2
+//!!
+//!! Streaming implementations of SHA-1, SHA-224, SHA-256, SHA-384 and
+//!! SHA-512. Each hasher buffers a partial block internally, so `update`
+//!! may be called with arbitrary chunk boundaries.
+//!!
+//!! SHA-1 is kept for interoperability with existing formats only. It is
+//!! not collision resistant; do not use it for signatures or anything
+//!! else where an adversary picks the input.
+//!!
+
+module std::sha;
+
+import std::math;
+import std::mem;
+import std::slice;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+
+//!
+//! Errors and lengths
+//!
+
+public enum ShaError : u8 {
+    OutputTooSmall,
+}
+
+public using usize SHA1_DIGEST_LEN = 20;
+public using usize SHA224_DIGEST_LEN = 28;
+public using usize SHA256_DIGEST_LEN = 32;
+public using usize SHA384_DIGEST_LEN = 48;
+public using usize SHA512_DIGEST_LEN = 64;
+
+public using usize SHA1_BLOCK_LEN = 64;
+public using usize SHA256_BLOCK_LEN = 64;
+public using usize SHA512_BLOCK_LEN = 128;
+
+//!
+//! Word access
+//!
+
+public u32 rotl32(u32 v, u32 n) {
+    u32 k = n & 31;
+    if k == 0 {
+        return v;
+    }
+
+    return (v << k) | (v >> (32 - k));
+}
+
+public u32 rotr32(u32 v, u32 n) {
+    return rotl32(v, 32 - (n & 31));
+}
+
+u32 load_be32([] const u8 bytes, usize at) {
+    return ((bytes[at] as u32) << 24) | ((bytes[at + 1] as u32) << 16)
+        | ((bytes[at + 2] as u32) << 8)
+        | (bytes[at + 3] as u32);
+}
+
+u64 load_be64([] const u8 bytes, usize at) {
+    u64 v = 0;
+
+    for usize k = 0; k < 8; k++ {
+        v = (v << 8) | (bytes[at + k] as u64);
+    }
+
+    return v;
+}
+
+void store_be32([] u8 out, usize at, u32 v) {
+    out[at] = (v >> 24) as u8;
+    out[at + 1] = (v >> 16) as u8;
+    out[at + 2] = (v >> 8) as u8;
+    out[at + 3] = v as u8;
+}
+
+void store_be64([] u8 out, usize at, u64 v) {
+    for usize k = 0; k < 8; k++ {
+        out[at + k] = (v >> ((56 - k * 8) as u64)) as u8;
+    }
+}
+
+//!
+//! Constants
+//!
+
+u32[5] IV1 = {
+    0x67452301,
+    0xEFCDAB89,
+    0x98BADCFE,
+    0x10325476,
+    0xC3D2E1F0,
+};
+
+u32[8] IV224 = {
+    0xC1059ED8,
+    0x367CD507,
+    0x3070DD17,
+    0xF70E5939,
+    0xFFC00B31,
+    0x68581511,
+    0x64F98FA7,
+    0xBEFA4FA4,
+};
+
+u32[8] IV256 = {
+    0x6A09E667,
+    0xBB67AE85,
+    0x3C6EF372,
+    0xA54FF53A,
+    0x510E527F,
+    0x9B05688C,
+    0x1F83D9AB,
+    0x5BE0CD19,
+};
+
+u64[8] IV384 = {
+    0xCBBB9D5DC1059ED8,
+    0x629A292A367CD507,
+    0x9159015A3070DD17,
+    0x152FECD8F70E5939,
+    0x67332667FFC00B31,
+    0x8EB44A8768581511,
+    0xDB0C2E0D64F98FA7,
+    0x47B5481DBEFA4FA4,
+};
+
+u64[8] IV512 = {
+    0x6A09E667F3BCC908,
+    0xBB67AE8584CAA73B,
+    0x3C6EF372FE94F82B,
+    0xA54FF53A5F1D36F1,
+    0x510E527FADE682D1,
+    0x9B05688C2B3E6C1F,
+    0x1F83D9ABFB41BD6B,
+    0x5BE0CD19137E2179,
+};
+
+u32[64] K256 = {
+    0x428A2F98,
+    0x71374491,
+    0xB5C0FBCF,
+    0xE9B5DBA5,
+    0x3956C25B,
+    0x59F111F1,
+    0x923F82A4,
+    0xAB1C5ED5,
+    0xD807AA98,
+    0x12835B01,
+    0x243185BE,
+    0x550C7DC3,
+    0x72BE5D74,
+    0x80DEB1FE,
+    0x9BDC06A7,
+    0xC19BF174,
+    0xE49B69C1,
+    0xEFBE4786,
+    0x0FC19DC6,
+    0x240CA1CC,
+    0x2DE92C6F,
+    0x4A7484AA,
+    0x5CB0A9DC,
+    0x76F988DA,
+    0x983E5152,
+    0xA831C66D,
+    0xB00327C8,
+    0xBF597FC7,
+    0xC6E00BF3,
+    0xD5A79147,
+    0x06CA6351,
+    0x14292967,
+    0x27B70A85,
+    0x2E1B2138,
+    0x4D2C6DFC,
+    0x53380D13,
+    0x650A7354,
+    0x766A0ABB,
+    0x81C2C92E,
+    0x92722C85,
+    0xA2BFE8A1,
+    0xA81A664B,
+    0xC24B8B70,
+    0xC76C51A3,
+    0xD192E819,
+    0xD6990624,
+    0xF40E3585,
+    0x106AA070,
+    0x19A4C116,
+    0x1E376C08,
+    0x2748774C,
+    0x34B0BCB5,
+    0x391C0CB3,
+    0x4ED8AA4A,
+    0x5B9CCA4F,
+    0x682E6FF3,
+    0x748F82EE,
+    0x78A5636F,
+    0x84C87814,
+    0x8CC70208,
+    0x90BEFFFA,
+    0xA4506CEB,
+    0xBEF9A3F7,
+    0xC67178F2,
+};
+
+u64[80] K512 = {
+    0x428A2F98D728AE22,
+    0x7137449123EF65CD,
+    0xB5C0FBCFEC4D3B2F,
+    0xE9B5DBA58189DBBC,
+    0x3956C25BF348B538,
+    0x59F111F1B605D019,
+    0x923F82A4AF194F9B,
+    0xAB1C5ED5DA6D8118,
+    0xD807AA98A3030242,
+    0x12835B0145706FBE,
+    0x243185BE4EE4B28C,
+    0x550C7DC3D5FFB4E2,
+    0x72BE5D74F27B896F,
+    0x80DEB1FE3B1696B1,
+    0x9BDC06A725C71235,
+    0xC19BF174CF692694,
+    0xE49B69C19EF14AD2,
+    0xEFBE4786384F25E3,
+    0x0FC19DC68B8CD5B5,
+    0x240CA1CC77AC9C65,
+    0x2DE92C6F592B0275,
+    0x4A7484AA6EA6E483,
+    0x5CB0A9DCBD41FBD4,
+    0x76F988DA831153B5,
+    0x983E5152EE66DFAB,
+    0xA831C66D2DB43210,
+    0xB00327C898FB213F,
+    0xBF597FC7BEEF0EE4,
+    0xC6E00BF33DA88FC2,
+    0xD5A79147930AA725,
+    0x06CA6351E003826F,
+    0x142929670A0E6E70,
+    0x27B70A8546D22FFC,
+    0x2E1B21385C26C926,
+    0x4D2C6DFC5AC42AED,
+    0x53380D139D95B3DF,
+    0x650A73548BAF63DE,
+    0x766A0ABB3C77B2A8,
+    0x81C2C92E47EDAEE6,
+    0x92722C851482353B,
+    0xA2BFE8A14CF10364,
+    0xA81A664BBC423001,
+    0xC24B8B70D0F89791,
+    0xC76C51A30654BE30,
+    0xD192E819D6EF5218,
+    0xD69906245565A910,
+    0xF40E35855771202A,
+    0x106AA07032BBD1B8,
+    0x19A4C116B8D2D0C8,
+    0x1E376C085141AB53,
+    0x2748774CDF8EEB99,
+    0x34B0BCB5E19B48A8,
+    0x391C0CB3C5C95A63,
+    0x4ED8AA4AE3418ACB,
+    0x5B9CCA4F7763E373,
+    0x682E6FF3D6B2B8A3,
+    0x748F82EE5DEFB2FC,
+    0x78A5636F43172F60,
+    0x84C87814A1F0AB72,
+    0x8CC702081A6439EC,
+    0x90BEFFFA23631E28,
+    0xA4506CEBDE82BDE9,
+    0xBEF9A3F7B2C67915,
+    0xC67178F2E372532B,
+    0xCA273ECEEA26619C,
+    0xD186B8C721C0C207,
+    0xEADA7DD6CDE0EB1E,
+    0xF57D4F7FEE6ED178,
+    0x06F067AA72176FBA,
+    0x0A637DC5A2C898A6,
+    0x113F9804BEF90DAE,
+    0x1B710B35131C471B,
+    0x28DB77F523047D84,
+    0x32CAAB7B40C72493,
+    0x3C9EBE0A15C9BEBC,
+    0x431D67C49C100D4C,
+    0x4CC5D4BECB3E42B6,
+    0x597F299CFC657E2A,
+    0x5FCB6FAB3AD6FAEC,
+    0x6C44198C4A475817,
+};
+
+//!
+//! SHA-1
+//!
+
+public struct Sha1 {
+    u32[5] state;
+    u8[64] buffer;
+    usize buffered;
+    u64 length;
+}
+
+public Sha1 new_sha1() {
+    Sha1 self;
+    // Borrow explicitly as slices: implicit array decay copies, which
+    // would leave the state uninitialized.
+    mem::copy(self.state[0..5], IV1[0..5]);
+    self.buffered = 0;
+    self.length = 0;
+    return self;
+}
+public using Sha1::new = new_sha1;
+
+u32 sha1_f(usize round, u32 b, u32 c, u32 d) {
+    if round < 20 {
+        return (b & c) | (~b & d);
+    }
+
+    if round < 40 {
+        return b ^ c ^ d;
+    }
+
+    if round < 60 {
+        return (b & c) | (b & d) | (c & d);
+    }
+
+    return b ^ c ^ d;
+}
+
+u32 sha1_k(usize round) {
+    if round < 20 {
+        return 0x5A827999;
+    }
+
+    if round < 40 {
+        return 0x6ED9EBA1;
+    }
+
+    if round < 60 {
+        return 0x8F1BBCDC;
+    }
+
+    return 0xCA62C1D6;
+}
+
+void sha1_block(Sha1* self, [] const u8 block) {
+    u32[80] w;
+
+    for usize i = 0; i < 16; i++ {
+        w[i] = load_be32(block, i * 4);
+    }
+    for usize i = 16; i < 80; i++ {
+        w[i] = rotl32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
+    }
+
+    u32 a = self.state[0];
+    u32 b = self.state[1];
+    u32 c = self.state[2];
+    u32 d = self.state[3];
+    u32 e = self.state[4];
+
+    for usize i = 0; i < 80; i++ {
+        u32 t = rotl32(a, 5) + sha1_f(i, b, c, d) + e + sha1_k(i) + w[i];
+        e = d;
+        d = c;
+        c = rotl32(b, 30);
+        b = a;
+        a = t;
+    }
+
+    self.state[0] = self.state[0] + a;
+    self.state[1] = self.state[1] + b;
+    self.state[2] = self.state[2] + c;
+    self.state[3] = self.state[3] + d;
+    self.state[4] = self.state[4] + e;
+}
+
+public void update(Sha1* self, [] const u8 bytes) {
+    // Slice explicitly: initializing from the bare array would copy.
+    [] u8 buf = self.buffer[0..SHA1_BLOCK_LEN];
+    usize i = 0;
+
+    while i < bytes.len {
+        if self.buffered == 0 && bytes.len - i >= SHA1_BLOCK_LEN {
+            sha1_block(self, bytes[i..i + SHA1_BLOCK_LEN]);
+            i = i + SHA1_BLOCK_LEN;
+        } else {
+            usize take = math::min(
+                SHA1_BLOCK_LEN - self.buffered,
+                bytes.len - i
+            );
+
+            mem::copy(
+                buf[self.buffered..self.buffered + take],
+                bytes[i..i + take]
+            );
+            self.buffered = self.buffered + take;
+            i = i + take;
+
+            if self.buffered == SHA1_BLOCK_LEN {
+                sha1_block(self, buf);
+                self.buffered = 0;
+            }
+        }
+    }
+
+    self.length = self.length + bytes.len as u64;
+}
+
+/// appends the padding and writes the digest. the hasher must not be
+/// used again afterwards without being reset.
+public Status(ShaError) finish(Sha1* self, [] u8 out) {
+    if out.len < SHA1_DIGEST_LEN {
+        return ShaError::OutputTooSmall;
+    }
+
+    u64 bits = self.length * 8;
+
+    u8[1] mark = { 0x80 };
+    self.update(mark);
+
+    u8[1] pad = { 0x0 };
+    while self.buffered != 56 {
+        self.update(pad);
+    }
+
+    u8[8] tail;
+    store_be64(tail[0..8], 0, bits);
+    self.update(tail);
+
+    for usize i = 0; i < 5; i++ {
+        store_be32(out, i * 4, self.state[i]);
+    }
+
+    return Status::Ok;
+}
+
+public void reset(Sha1* self) {
+    *self = new_sha1();
+}
+
+//!
+//! SHA-224 and SHA-256
+//!
+
+public struct Sha256 {
+    u32[8] state;
+    u8[64] buffer;
+    usize buffered;
+    u64 length;
+    usize digest_len;
+}
+
+public Sha256 new_sha256() {
+    Sha256 self;
+    // See new_sha1: borrow explicitly so the copy lands in state.
+    mem::copy(self.state[0..8], IV256[0..8]);
+    self.buffered = 0;
+    self.length = 0;
+    self.digest_len = SHA256_DIGEST_LEN;
+    return self;
+}
+public using Sha256::new = new_sha256;
+
+/// SHA-224 shares the SHA-256 compression function.
+public Sha256 new_sha224() {
+    Sha256 self;
+    // See new_sha1: borrow explicitly so the copy lands in state.
+    mem::copy(self.state[0..8], IV224[0..8]);
+    self.buffered = 0;
+    self.length = 0;
+    self.digest_len = SHA224_DIGEST_LEN;
+    return self;
+}
+
+public usize digest_len(const Sha256* self) {
+    return self.digest_len;
+}
+
+void sha256_block(Sha256* self, [] const u8 block) {
+    u32[64] w;
+
+    for usize i = 0; i < 16; i++ {
+        w[i] = load_be32(block, i * 4);
+    }
+    for usize i = 16; i < 64; i++ {
+        u32 x = w[i - 15];
+        u32 y = w[i - 2];
+        u32 s0 = rotr32(x, 7) ^ rotr32(x, 18) ^ (x >> 3);
+        u32 s1 = rotr32(y, 17) ^ rotr32(y, 19) ^ (y >> 10);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+
+    u32 a = self.state[0];
+    u32 b = self.state[1];
+    u32 c = self.state[2];
+    u32 d = self.state[3];
+    u32 e = self.state[4];
+    u32 f = self.state[5];
+    u32 g = self.state[6];
+    u32 h = self.state[7];
+
+    for usize i = 0; i < 64; i++ {
+        u32 s1 = rotr32(e, 6) ^ rotr32(e, 11) ^ rotr32(e, 25);
+        u32 ch = (e & f) ^ (~e & g);
+        u32 t1 = h + s1 + ch + K256[i] + w[i];
+
+        u32 s0 = rotr32(a, 2) ^ rotr32(a, 13) ^ rotr32(a, 22);
+        u32 maj = (a & b) ^ (a & c) ^ (b & c);
+        u32 t2 = s0 + maj;
+
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2;
+    }
+
+    self.state[0] = self.state[0] + a;
+    self.state[1] = self.state[1] + b;
+    self.state[2] = self.state[2] + c;
+    self.state[3] = self.state[3] + d;
+    self.state[4] = self.state[4] + e;
+    self.state[5] = self.state[5] + f;
+    self.state[6] = self.state[6] + g;
+    self.state[7] = self.state[7] + h;
+}
+
+public void update(Sha256* self, [] const u8 bytes) {
+    // See Sha1::update: slice explicitly so buffered bytes are kept.
+    [] u8 buf = self.buffer[0..SHA256_BLOCK_LEN];
+    usize i = 0;
+
+    while i < bytes.len {
+        if self.buffered == 0 && bytes.len - i >= SHA256_BLOCK_LEN {
+            sha256_block(self, bytes[i..i + SHA256_BLOCK_LEN]);
+            i = i + SHA256_BLOCK_LEN;
+        } else {
+            usize take = math::min(
+                SHA256_BLOCK_LEN - self.buffered,
+                bytes.len - i
+            );
+
+            mem::copy(
+                buf[self.buffered..self.buffered + take],
+                bytes[i..i + take]
+            );
+            self.buffered = self.buffered + take;
+            i = i + take;
+
+            if self.buffered == SHA256_BLOCK_LEN {
+                sha256_block(self, buf);
+                self.buffered = 0;
+            }
+        }
+    }
+
+    self.length = self.length + bytes.len as u64;
+}
+
+public Status(ShaError) finish(Sha256* self, [] u8 out) {
+    if out.len < self.digest_len {
+        return ShaError::OutputTooSmall;
+    }
+
+    u64 bits = self.length * 8;
+
+    u8[1] mark = { 0x80 };
+    self.update(mark);
+
+    u8[1] pad = { 0x0 };
+    while self.buffered != 56 {
+        self.update(pad);
+    }
+
+    u8[8] tail;
+    store_be64(tail[0..8], 0, bits);
+    self.update(tail);
+
+    u8[32] full;
+    // Slice explicitly so the stores below land in `full`.
+    [] u8 view = full[0..32];
+    for usize i = 0; i < 8; i++ {
+        store_be32(view, i * 4, self.state[i]);
+    }
+
+    // SHA-224 keeps the leading 28 bytes of the same state
+    mem::copy(out[0..self.digest_len], view[0..self.digest_len]);
+    return Status::Ok;
+}
+
+public void reset(Sha256* self) {
+    usize want = self.digest_len;
+    *self = if want == SHA224_DIGEST_LEN {
+        new_sha224()
+    } else {
+        new_sha256()
+    };
+}
+
+//!
+//! SHA-384 and SHA-512
+//!
+
+public struct Sha512 {
+    u64[8] state;
+    u8[128] buffer;
+    usize buffered;
+    u64 length;
+    usize digest_len;
+}
+
+public Sha512 new_sha512() {
+    Sha512 self;
+    // See new_sha1: borrow explicitly so the copy lands in state.
+    mem::copy(self.state[0..8], IV512[0..8]);
+    self.buffered = 0;
+    self.length = 0;
+    self.digest_len = SHA512_DIGEST_LEN;
+    return self;
+}
+public using Sha512::new = new_sha512;
+
+public Sha512 new_sha384() {
+    Sha512 self;
+    // See new_sha1: borrow explicitly so the copy lands in state.
+    mem::copy(self.state[0..8], IV384[0..8]);
+    self.buffered = 0;
+    self.length = 0;
+    self.digest_len = SHA384_DIGEST_LEN;
+    return self;
+}
+
+public usize digest_len(const Sha512* self) {
+    return self.digest_len;
+}
+
+void sha512_block(Sha512* self, [] const u8 block) {
+    u64[80] w;
+
+    for usize i = 0; i < 16; i++ {
+        w[i] = load_be64(block, i * 8);
+    }
+    for usize i = 16; i < 80; i++ {
+        u64 x = w[i - 15];
+        u64 y = w[i - 2];
+        u64 s0 = math::rotr64(x, 1) ^ math::rotr64(x, 8) ^ (x >> 7);
+        u64 s1 = math::rotr64(y, 19) ^ math::rotr64(y, 61) ^ (y >> 6);
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1;
+    }
+
+    u64 a = self.state[0];
+    u64 b = self.state[1];
+    u64 c = self.state[2];
+    u64 d = self.state[3];
+    u64 e = self.state[4];
+    u64 f = self.state[5];
+    u64 g = self.state[6];
+    u64 h = self.state[7];
+
+    for usize i = 0; i < 80; i++ {
+        u64 s1 = math::rotr64(e, 14) ^ math::rotr64(e, 18) ^ math::rotr64(e, 41);
+        u64 ch = (e & f) ^ (~e & g);
+        u64 t1 = h + s1 + ch + K512[i] + w[i];
+
+        u64 s0 = math::rotr64(a, 28)
+            ^ math::rotr64(a, 34)
+            ^ math::rotr64(a, 39);
+        u64 maj = (a & b) ^ (a & c) ^ (b & c);
+        u64 t2 = s0 + maj;
+
+        h = g;
+        g = f;
+        f = e;
+        e = d + t1;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2;
+    }
+
+    self.state[0] = self.state[0] + a;
+    self.state[1] = self.state[1] + b;
+    self.state[2] = self.state[2] + c;
+    self.state[3] = self.state[3] + d;
+    self.state[4] = self.state[4] + e;
+    self.state[5] = self.state[5] + f;
+    self.state[6] = self.state[6] + g;
+    self.state[7] = self.state[7] + h;
+}
+
+public void update(Sha512* self, [] const u8 bytes) {
+    // See Sha1::update: slice explicitly so buffered bytes are kept.
+    [] u8 buf = self.buffer[0..SHA512_BLOCK_LEN];
+    usize i = 0;
+
+    while i < bytes.len {
+        if self.buffered == 0 && bytes.len - i >= SHA512_BLOCK_LEN {
+            sha512_block(self, bytes[i..i + SHA512_BLOCK_LEN]);
+            i = i + SHA512_BLOCK_LEN;
+        } else {
+            usize take = math::min(
+                SHA512_BLOCK_LEN - self.buffered,
+                bytes.len - i
+            );
+
+            mem::copy(
+                buf[self.buffered..self.buffered + take],
+                bytes[i..i + take]
+            );
+            self.buffered = self.buffered + take;
+            i = i + take;
+
+            if self.buffered == SHA512_BLOCK_LEN {
+                sha512_block(self, buf);
+                self.buffered = 0;
+            }
+        }
+    }
+
+    self.length = self.length + bytes.len as u64;
+}
+
+/// the length field is 128 bits wide; the byte counter is 64 bits, so
+/// the high half is always zero. inputs are limited to 2^61 - 1 bytes.
+public Status(ShaError) finish(Sha512* self, [] u8 out) {
+    if out.len < self.digest_len {
+        return ShaError::OutputTooSmall;
+    }
+
+    u64 bits = self.length * 8;
+
+    u8[1] mark = { 0x80 };
+    self.update(mark);
+
+    u8[1] pad = { 0x0 };
+    while self.buffered != 112 {
+        self.update(pad);
+    }
+
+    u8[16] tail;
+    store_be64(tail[0..16], 0, 0);
+    store_be64(tail[0..16], 8, bits);
+    self.update(tail);
+
+    u8[64] full;
+    // Slice explicitly so the stores below land in `full`.
+    [] u8 view = full[0..64];
+    for usize i = 0; i < 8; i++ {
+        store_be64(view, i * 8, self.state[i]);
+    }
+
+    mem::copy(out[0..self.digest_len], view[0..self.digest_len]);
+    return Status::Ok;
+}
+
+public void reset(Sha512* self) {
+    usize want = self.digest_len;
+    *self = if want == SHA384_DIGEST_LEN {
+        new_sha384()
+    } else {
+        new_sha512()
+    };
+}
+
+//!
+//! One-shot helpers
+//!
+
+public Status(ShaError) sha1([] const u8 data, [] u8 out) {
+    Sha1 h = Sha1::new();
+    h.update(data);
+    return h.finish(out);
+}
+
+public Status(ShaError) sha224([] const u8 data, [] u8 out) {
+    Sha256 h = new_sha224();
+    h.update(data);
+    return h.finish(out);
+}
+
+public Status(ShaError) sha256([] const u8 data, [] u8 out) {
+    Sha256 h = Sha256::new();
+    h.update(data);
+    return h.finish(out);
+}
+
+public Status(ShaError) sha384([] const u8 data, [] u8 out) {
+    Sha512 h = new_sha384();
+    h.update(data);
+    return h.finish(out);
+}
+
+public Status(ShaError) sha512([] const u8 data, [] u8 out) {
+    Sha512 h = Sha512::new();
+    h.update(data);
+    return h.finish(out);
+}
+
+//!
+//! Hex rendering
+//!
+
+u8 hex_digit(u8 nibble, bool uppercase) {
+    if nibble < 10 {
+        return ('0' as u8) + nibble;
+    }
+
+    return (
+        if uppercase {
+            'A' as u8
+        } else {
+            'a' as u8
+        }
+    ) + (nibble - 10);
+}
+
+/// writes `digest` as lowercase hex. `out` needs twice as many bytes.
+public Status(ShaError) hex_encode([] const u8 digest, [] u8 out) {
+    if out.len < digest.len * 2 {
+        return ShaError::OutputTooSmall;
+    }
+
+    for usize i = 0; i < digest.len; i++ {
+        out[i * 2] = hex_digit(digest[i] >> 4, false);
+        out[i * 2 + 1] = hex_digit(digest[i] & 0xF, false);
+    }
+
+    return Status::Ok;
+}
