@@ -1,0 +1,58 @@
+=== FILE: test.dc ===
+module test;
+
+u32 narrow(u32 x) {
+    u32 y = asm @[intel, output(dst = y in eax), inputs(v in ebx = x)] { "mov %[dst:dword], %[v:word]" };
+    return y;
+}
+
+void colon_after() {
+    u32 x = 1;
+    u32 y = 0;
+    asm @[intel, output(dst = y in eax), inputs(p in ebx = x)] { "%[p]: nop" };
+}
+
+void seg_prefix() {
+    u32 x = 1;
+    u32 y = 0;
+    asm @[intel, output(dst = y in eax), inputs(p in ebx = x)] { "mov eax, fs:[%[p]]" };
+}
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i32 @_DC0F1.4.test6.narrow1i32ui32u(i32 %x) {
+entry:
+  %"0" = alloca i32, align 4
+  %"1" = call i32 asm sideeffect inteldialect "mov ${0:k}, ${1:w}", "=&{eax},{ebx}"(i32 %x)
+  store i32 %"1", ptr %"0", align 4
+  store i32 %"1", ptr %"0", align 4
+  %"2" = load i32, ptr %"0", align 4
+  ret i32 %"2"
+}
+
+define void @_DC0F1.4.test11.colon_after0v() {
+entry:
+  %"0" = alloca i32, align 4
+  store i32 1, ptr %"0", align 4
+  %"1" = alloca i32, align 4
+  store i32 0, ptr %"1", align 4
+  %"2" = load i32, ptr %"0", align 4
+  %"3" = call i32 asm sideeffect inteldialect "$1: nop", "=&{eax},{ebx}"(i32 %"2")
+  store i32 %"3", ptr %"1", align 4
+  ret void
+}
+
+define void @_DC0F1.4.test10.seg_prefix0v() {
+entry:
+  %"0" = alloca i32, align 4
+  store i32 1, ptr %"0", align 4
+  %"1" = alloca i32, align 4
+  store i32 0, ptr %"1", align 4
+  %"2" = load i32, ptr %"0", align 4
+  %"3" = call i32 asm sideeffect inteldialect "mov eax, fs:[$1]", "=&{eax},{ebx}"(i32 %"2")
+  store i32 %"3", ptr %"1", align 4
+  ret void
+}

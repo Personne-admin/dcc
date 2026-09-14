@@ -3888,7 +3888,7 @@ namespace dcc::backend
                     }
                     case IrNodeKind::InlineAsm: {
                         auto* ai = static_cast<IrInlineAsmInst const*>(inst);
-                        auto lowered = dcc::backend::prepare_llvm_asm(*ai);
+                        auto lowered = dcc::backend::prepare_llvm_asm(*ai, target.arch);
                         if (!lowered.error.empty())
                         {
                             add_diag(diags, inst->range, std::format("LLVM backend: {}", lowered.error));

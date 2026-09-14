@@ -2636,7 +2636,7 @@ export namespace dcc::ir::lower
                 {
                     if (span.operand_index >= indices.size())
                         continue;
-                    assembly->template_parts.push_back({span.byte_offset, span.byte_length, indices[span.operand_index], span.modifier});
+                    assembly->template_parts.push_back({span.byte_offset, span.byte_length, indices[span.operand_index], span.modifier, span.view});
                 }
                 else if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral)
                     assembly->template_parts.push_back({span.byte_offset, 2, 0xFFFFFFFFU, 0});

@@ -36,7 +36,7 @@ export namespace dcc::backend
         std::string error;
     };
 
-    [[nodiscard]] InlineAsmLlvm prepare_llvm_asm(ir::IrInlineAsmInst const& assembly);
+    [[nodiscard]] InlineAsmLlvm prepare_llvm_asm(ir::IrInlineAsmInst const& assembly, target::Arch arch = target::Arch::X86_64);
 
     [[nodiscard]] em64t::PhysReg inline_asm_family_phys(std::string_view family) noexcept;
 
@@ -155,6 +155,22 @@ namespace dcc::backend
             for (auto family : literal_families)
                 resolved.literal_registers.emplace_back(family);
 
+            std::vector<char> need_byte(assembly.operands.size(), 0);
+            for (auto const& part : assembly.template_parts)
+            {
+                if (part.view == 'b' && part.operand < assembly.operands.size())
+                    need_byte[part.operand] = 1;
+            }
+            auto family_has_byte = [&](std::string_view family, target::TargetConfig const& target) {
+                for (auto const& cand : target::register_table(target.arch))
+                {
+                    if (cand.width == 8 && !cand.reserved && cand.name != "ah" && cand.name != "bh" && cand.name != "ch" && cand.name != "dh" &&
+                        target::register_family(cand.name) == family)
+                        return true;
+                }
+                return false;
+            };
+            std::size_t op_index = 0;
             for (auto const& op : assembly.operands)
             {
                 if (!op.type || op.placement_kind == IrAsmOperand::PlacementKind::RegPair)
@@ -177,6 +193,7 @@ namespace dcc::backend
                 {
                     auto width = memory ? 64U : static_cast<unsigned>(op.type->byte_size * 8);
                     bool floating = op.type->kind == IrTypeKind::Float && !memory;
+                    bool want_byte = op_index < need_byte.size() && need_byte[op_index] != 0;
                     for (auto const& reg : target::register_table(target.arch))
                     {
                         if (reg.reserved || occupied.contains(target::register_family(reg.name)))
@@ -188,20 +205,25 @@ namespace dcc::backend
                         {
                             if (literal_families.contains(target::register_family(reg.name)))
                                 continue;
-
+                            if (want_byte && !family_has_byte(target::register_family(reg.name), target))
+                                continue;
                             selected = reg.name;
                             break;
                         }
                     }
                     if (selected.empty())
                     {
-                        resolved.error = "too many inline assembly operands for the available registers";
+                        if (want_byte)
+                            resolved.error = "no byte-addressable register available for byte view";
+                        else
+                            resolved.error = "too many inline assembly operands for the available registers";
                         return resolved;
                     }
                 }
 
                 occupied.insert(target::register_family(selected));
                 resolved.registers.emplace_back(selected);
+                ++op_index;
             }
             return resolved;
         }
@@ -2032,6 +2054,11 @@ namespace dcc::backend
                 plan.error = "operand modifiers are not supported on the native backend";
                 return plan;
             }
+            if (part.view != 0)
+            {
+                plan.error = "width views are not supported on the native backend";
+                return plan;
+            }
             if (part.operand == 0xFFFFFFFEU)
             {
                 plan.error = "unique stamps are not supported on the native backend";
@@ -2076,9 +2103,40 @@ namespace dcc::backend
         return plan;
     }
 
-    InlineAsmLlvm prepare_llvm_asm(IrInlineAsmInst const& assembly)
+    InlineAsmLlvm prepare_llvm_asm(IrInlineAsmInst const& assembly, target::Arch arch)
     {
         InlineAsmLlvm result;
+        auto arch_name = arch == target::Arch::X86_64 ? "x86_64" : "x86";
+        for (auto const& part : assembly.template_parts)
+        {
+            if (part.view == 'b' && part.operand < assembly.operands.size())
+            {
+                auto reg_name = assembly.operands[part.operand].reg_name;
+                if (!reg_name.empty())
+                {
+                    auto* reg = target::lookup_register(arch, reg_name);
+                    bool has_byte = false;
+                    if (reg && reg->cls == target::PhysRegClass::GPR)
+                    {
+                        auto fam = target::register_family(reg_name);
+                        for (auto const& cand : target::register_table(arch))
+                        {
+                            if (cand.width == 8 && !cand.reserved && cand.name != "ah" && cand.name != "bh" && cand.name != "ch" &&
+                                cand.name != "dh" && target::register_family(cand.name) == fam)
+                            {
+                                has_byte = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!has_byte)
+                    {
+                        result.error = std::format("asm byte view is not available for register `{}` on target `{}`", reg_name, arch_name);
+                        return result;
+                    }
+                }
+            }
+        }
         auto fail = [&](std::string message) {
             result.error = std::move(message);
             return result;
@@ -2262,7 +2320,9 @@ namespace dcc::backend
                     number = output_count + in_position[part.operand];
                 else
                     return fail("inline assembly operand is neither an input nor an output");
-                if (part.modifier == 'c')
+                if (part.view == 'b' || part.view == 'w' || part.view == 'k' || part.view == 'q')
+                    rewritten += "${" + std::to_string(number) + ":" + std::string(1, part.view) + "}";
+                else if (part.modifier == 'c')
                     rewritten += "${" + std::to_string(number) + ":c}";
                 else if (part.modifier == 'P')
                     rewritten += "${" + std::to_string(number) + ":P}";

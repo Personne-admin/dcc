@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+void f() {
+    u32 x = 1;
+    u32 y = 0;
+    asm @[intel, output(dst = y in esi), inputs(v in ebx = x)] { "mov %[dst:byte], %[v:byte]" };
+}
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define void @_DC0F1.4.test1.f0v() {
+entry:
+  %"0" = alloca i32, align 4
+  store i32 1, ptr %"0", align 4
+  %"1" = alloca i32, align 4
+  store i32 0, ptr %"1", align 4
+  %"2" = load i32, ptr %"0", align 4
+  %"3" = call i32 asm sideeffect inteldialect "mov ${0:b}, ${1:b}", "=&{esi},{ebx}"(i32 %"2")
+  store i32 %"3", ptr %"1", align 4
+  ret void
+}
+
+=== EXPECT-LLVM-ERRORS FLAGS: -target x86-elf ===
+LLVM backend: asm byte view is not available for register `esi` on target `x86`
