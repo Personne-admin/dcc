@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+u64 counter = 1;
+
+asm { ".quad %{missing}" };
+
+asm @[inputs(x = 1)] { "nop" };
+
+asm @[arch("x86")] { "nop" };
+
+asm { "nop %[x]" };
+
+void fn() {
+    asm { "call %{counter}" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:5: undefined asm symbol
+test.dc:7: not allowed on module-scope asm
+test.dc:9: requires architecture
+test.dc:11: takes no operands
+test.dc:14: requires module-scope asm

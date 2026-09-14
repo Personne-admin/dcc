@@ -97,6 +97,7 @@ export namespace dcc::ast
         virtual void visitFuncDecl(FuncDecl const*) {}
         virtual void visitVarDecl(VarDecl const*) {}
         virtual void visitStaticIfGroup(StaticIfGroup const*) {}
+        virtual void visitModuleAsmDecl(ModuleAsmDecl const*) {}
 
         virtual void visitLiteralPattern(LiteralPattern const*) {}
         virtual void visitBindingPattern(BindingPattern const*) {}
@@ -193,6 +194,7 @@ export namespace dcc::ast
         void visitFuncDecl(FuncDecl const*) override;
         void visitVarDecl(VarDecl const*) override;
         void visitStaticIfGroup(StaticIfGroup const*) override;
+        void visitModuleAsmDecl(ModuleAsmDecl const*) override;
 
         void visitLiteralPattern(LiteralPattern const*) override;
         void visitBindingPattern(BindingPattern const*) override {}
@@ -923,6 +925,9 @@ namespace dcc::ast
             case DeclKind::StaticIfGroup:
                 visitStaticIfGroup(node_cast<StaticIfGroup>(decl));
                 break;
+            case DeclKind::ModuleAsm:
+                visitModuleAsmDecl(node_cast<ModuleAsmDecl>(decl));
+                break;
         }
     }
 
@@ -1020,5 +1025,7 @@ namespace dcc::ast
         if (g->else_group)
             visitStaticIfGroup(g->else_group);
     }
+
+    void RecursiveAstVisitor::visitModuleAsmDecl(ModuleAsmDecl const*) {}
 
 } // namespace dcc::ast

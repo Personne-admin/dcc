@@ -190,6 +190,7 @@ export namespace dcc::ast
         Func,
         Var,
         StaticIfGroup,
+        ModuleAsm,
     };
 
     enum class UsingKind : std::uint8_t
@@ -888,12 +889,14 @@ export namespace dcc::ast
         {
             OperandRef,
             RegLiteral,
+            SymbolRef,
             Unresolved,
         };
         Kind kind{Kind::OperandRef};
         std::string_view name;
         std::uint32_t operand_index{0xFFFFFFFFU};
         char modifier{};
+        Decl const* resolved{};
     };
 
     struct AsmExpr : Expr
@@ -1265,6 +1268,19 @@ export namespace dcc::ast
         std::int8_t taken_branch{-1};
 
         StaticIfGroup(sm::SourceRange r, ExprPtr cond, Allocator a) : Decl(Kind, r, a), condition(cond), then_decls(a) {}
+    };
+
+    struct ModuleAsmDecl : Decl
+    {
+        static constexpr auto Kind = DeclKind::ModuleAsm;
+        std::pmr::string template_str;
+        std::pmr::vector<AsmPlaceholderSpan> placeholder_spans;
+        std::pmr::vector<Attribute> attrs;
+        AsmDialect dialect{AsmDialect::Att};
+        sm::SourceRange asm_keyword_range;
+        sm::SourceRange template_range;
+
+        ModuleAsmDecl(sm::SourceRange r, Allocator a) : Decl(Kind, r, a), template_str(a), placeholder_spans(a), attrs(a) {}
     };
 
     struct TranslationUnit

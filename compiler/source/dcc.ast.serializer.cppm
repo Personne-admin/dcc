@@ -1045,6 +1045,13 @@ export namespace dcc::ast
             }
         }
 
+        void visitModuleAsmDecl(ModuleAsmDecl const* d) override
+        {
+            line_fmt("ModuleAsm dialect={}", d->dialect == AsmDialect::Intel ? "intel" : "att");
+            IndentScope is(m_indent_level);
+            line_fmt("Template \"{}\"", d->template_str);
+        }
+
     private:
         std::string m_out;
         std::size_t m_indent_level = 0;

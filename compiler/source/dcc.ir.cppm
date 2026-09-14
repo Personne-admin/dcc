@@ -1198,16 +1198,31 @@ export namespace dcc::ir
         }
     };
 
+    struct IrModuleAsm
+    {
+        std::pmr::string template_str;
+        IrAsmDialect dialect{IrAsmDialect::Att};
+        sm::SourceRange range;
+        std::pmr::vector<IrGlobal*> globals;
+        std::pmr::vector<IrFunction*> funcs;
+
+        IrModuleAsm(std::pmr::string t, IrAsmDialect d, sm::SourceRange r, std::pmr::polymorphic_allocator<> a)
+            : template_str(std::move(t), a), dialect(d), range(r), globals(a), funcs(a)
+        {
+        }
+    };
+
     struct IrModule
     {
         std::string_view name;
         std::pmr::vector<IrGlobal*> globals;
         std::pmr::vector<IrFunction*> functions;
+        std::pmr::vector<IrModuleAsm*> module_asms;
         std::uint32_t source_file_id{static_cast<std::uint32_t>(sm::FileId::Invalid)};
 
-        explicit IrModule(std::pmr::polymorphic_allocator<> a) : globals(a), functions(a) {}
+        explicit IrModule(std::pmr::polymorphic_allocator<> a) : globals(a), functions(a), module_asms(a) {}
 
-        IrModule(std::string_view n, std::pmr::polymorphic_allocator<> a) : name(n), globals(a), functions(a) {}
+        IrModule(std::string_view n, std::pmr::polymorphic_allocator<> a) : name(n), globals(a), functions(a), module_asms(a) {}
     };
 
     struct IrGlobalRef : IrValue

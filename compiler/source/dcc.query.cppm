@@ -996,6 +996,7 @@ namespace dcc::query
                 case ast::DeclKind::Module:
                 case ast::DeclKind::Import:
                 case ast::DeclKind::StaticIfGroup:
+                case ast::DeclKind::ModuleAsm:
                     break;
                 case ast::DeclKind::Using: {
                     auto* d = static_cast<ast::UsingDecl const*>(decl);
@@ -1577,6 +1578,8 @@ namespace dcc::query
             case ast::DeclKind::Using:
                 return static_cast<ast::UsingDecl const*>(decl)->name_range;
             case ast::DeclKind::StaticIfGroup:
+                return decl->range;
+            case ast::DeclKind::ModuleAsm:
                 return decl->range;
         }
         return {};
@@ -2194,6 +2197,8 @@ namespace dcc::query
                                ? std::string_view{}
                                : static_cast<ast::ImportDecl const*>(decl)->module_path.tail_name();
                 case ast::DeclKind::StaticIfGroup:
+                    return {};
+                case ast::DeclKind::ModuleAsm:
                     return {};
             }
             return {};
