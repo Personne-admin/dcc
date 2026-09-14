@@ -1220,6 +1220,9 @@ export namespace dccd
                                         case dcc::ast::AsmPlacementKind::Imm:
                                             place_str = "imm";
                                             break;
+                                        case dcc::ast::AsmPlacementKind::Sym:
+                                            place_str = "sym";
+                                            break;
                                         case dcc::ast::AsmPlacementKind::Family:
                                             place_str = std::format("family[{}]", op.reg_name);
                                             break;

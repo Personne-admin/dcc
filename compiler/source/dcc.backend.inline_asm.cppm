@@ -165,7 +165,7 @@ namespace dcc::backend
 
                 bool memory = op.placement_kind == IrAsmOperand::PlacementKind::Mem;
                 resolved.has_memory_operands |= memory;
-                if (op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                if (op.placement_kind == IrAsmOperand::PlacementKind::Imm || op.placement_kind == IrAsmOperand::PlacementKind::Sym)
                 {
                     resolved.registers.emplace_back();
                     continue;
@@ -2011,6 +2011,22 @@ namespace dcc::backend
     InlineAsmPlan prepare_inline_asm(IrInlineAsmInst const& assembly, target::TargetConfig const& target)
     {
         InlineAsmPlan plan;
+        for (auto const& op : assembly.operands)
+        {
+            if (op.placement_kind == IrAsmOperand::PlacementKind::Sym)
+            {
+                plan.error = "symbolic operands are not supported on the native backend";
+                return plan;
+            }
+        }
+        for (auto const& part : assembly.template_parts)
+        {
+            if (part.modifier != 0)
+            {
+                plan.error = "operand modifiers are not supported on the native backend";
+                return plan;
+            }
+        }
         auto resolved = select_registers(assembly, target);
         if (!resolved.error.empty())
         {
@@ -2093,6 +2109,8 @@ namespace dcc::backend
                         break;
                     case IrAsmOperand::PlacementKind::Imm:
                         return fail("immediate operands must be inputs");
+                    case IrAsmOperand::PlacementKind::Sym:
+                        return fail("symbolic operands must be inputs");
                     case IrAsmOperand::PlacementKind::RegPair:
                         return fail("register pairs must be split during lowering before backend emission");
                 }
@@ -2120,6 +2138,12 @@ namespace dcc::backend
                         if ((!ir_cast<IrIntConstant>(op.value) && !ir_cast<IrBoolConstant>(op.value)) || !op.value)
                             return fail("inline assembly immediate is not an integer constant");
                         in_constraint = "i";
+                        break;
+                    }
+                    case IrAsmOperand::PlacementKind::Sym: {
+                        if (!op.value || op.value->kind != IrNodeKind::GlobalRef)
+                            return fail("inline assembly symbolic operand has no symbol");
+                        in_constraint = "s";
                         break;
                     }
                     case IrAsmOperand::PlacementKind::RegPair:
@@ -2177,8 +2201,14 @@ namespace dcc::backend
                     number = output_count + in_position[part.operand];
                 else
                     return fail("inline assembly operand is neither an input nor an output");
-
-                rewritten += "$" + std::to_string(number);
+                if (part.modifier == 'c')
+                    rewritten += "${" + std::to_string(number) + ":c}";
+                else if (part.modifier == 'P')
+                    rewritten += "${" + std::to_string(number) + ":P}";
+                else if (assembly.operands[part.operand].placement_kind == IrAsmOperand::PlacementKind::Sym)
+                    rewritten += "${" + std::to_string(number) + ":c}";
+                else
+                    rewritten += "$" + std::to_string(number);
             }
             cursor = part.offset + part.length;
         }

@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+u64 counter = 42;
+
+void local_rejected() {
+    u64 x = 1;
+    asm @[inputs(c in sym = x)] { "mov rax, %[c]" };
+}
+
+void sym_must_be_input() {
+    asm @[intel, output(c = counter in sym)] { "mov %[c], rax" };
+}
+
+void modifier_needs_sym() {
+    u64 y = 0;
+    u64 x = 1;
+    asm @[intel, output(dst = y in rax), inputs(v in rbx = x)] { "mov %c[dst], %[v]" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:7: requires a global or function
+test.dc:11: must be inputs
+test.dc:17: requires a symbolic or immediate operand

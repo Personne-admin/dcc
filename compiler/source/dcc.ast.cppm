@@ -849,6 +849,7 @@ export namespace dcc::ast
         RegPair,
         Mem,
         Imm,
+        Sym,
         Family,
         FamilyPair,
     };
@@ -892,6 +893,7 @@ export namespace dcc::ast
         Kind kind{Kind::OperandRef};
         std::string_view name;
         std::uint32_t operand_index{0xFFFFFFFFU};
+        char modifier{};
     };
 
     struct AsmExpr : Expr

@@ -1064,7 +1064,8 @@ export namespace dcc::ir
             Reg,
             RegPair,
             Mem,
-            Imm
+            Imm,
+            Sym
         };
 
         Direction direction{Direction::Out};
@@ -1081,6 +1082,7 @@ export namespace dcc::ir
         std::uint32_t offset{};
         std::uint32_t length{};
         std::uint32_t operand{0xFFFFFFFFU};
+        char modifier{};
     };
 
     struct IrInlineAsmInst : IrValue
