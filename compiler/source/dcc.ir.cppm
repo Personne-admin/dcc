@@ -1085,6 +1085,7 @@ export namespace dcc::ir
         std::uint32_t length{};
         std::uint32_t operand{0xFFFFFFFFU};
         char modifier{};
+        char view{};
     };
 
     struct IrInlineAsmInst : IrValue

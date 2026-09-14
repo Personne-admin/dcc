@@ -2279,7 +2279,7 @@ export namespace dcc::parser
                 ast::AsmPlaceholderSpan span;
                 span.byte_offset = static_cast<std::uint32_t>(start);
                 span.kind = ast::AsmPlaceholderSpan::Kind::Unresolved;
-                std::string_view problem;
+                std::string problem;
                 if (i + 1 < str.size() && (str[i] == 'c' || str[i] == 'P') && (str[i + 1] == '[' || std::isdigit(static_cast<unsigned char>(str[i + 1]))))
                     span.modifier = str[i++];
                 if (i < str.size() && str[i] == '%')
@@ -2295,16 +2295,48 @@ export namespace dcc::parser
                     auto name_start = ++i;
                     while (i < str.size() && str[i] != ']')
                         ++i;
-                    span.name = std::string_view(str).substr(name_start, i - name_start);
+                    auto inside = std::string_view(str).substr(name_start, i - name_start);
                     if (i == str.size())
                         problem = "unterminated asm operand reference; expected ']'";
                     else
                     {
                         ++i;
-                        if (span.name.empty() || !ident_start(span.name.front()) || !std::ranges::all_of(span.name, ident))
+                        auto colon = inside.find(':');
+                        std::string_view view_part;
+                        if (colon != std::string_view::npos)
+                        {
+                            view_part = inside.substr(colon + 1);
+                            inside = inside.substr(0, colon);
+                        }
+                        bool digits = !inside.empty() && std::ranges::all_of(inside, [](char c) { return c >= '0' && c <= '9'; });
+                        if (inside.empty() || (!ident_start(inside.front()) && !digits) ||
+                            (!digits && !std::ranges::all_of(inside, ident)))
                             problem = "invalid asm operand name";
+                        else if (!view_part.empty())
+                        {
+                            char code = 0;
+                            if (view_part == "byte")
+                                code = 'b';
+                            else if (view_part == "word")
+                                code = 'w';
+                            else if (view_part == "dword")
+                                code = 'k';
+                            else if (view_part == "qword")
+                                code = 'q';
+                            else
+                                problem = std::string("unknown asm operand view `") + std::string(view_part) + "`";
+                            if (problem.empty())
+                            {
+                                span.view = code;
+                                span.name = inside;
+                                span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
+                            }
+                        }
                         else
+                        {
+                            span.name = inside;
                             span.kind = ast::AsmPlaceholderSpan::Kind::OperandRef;
+                        }
                     }
                 }
                 else if (i < str.size() && std::isdigit(static_cast<unsigned char>(str[i])))

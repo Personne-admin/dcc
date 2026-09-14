@@ -899,6 +899,7 @@ export namespace dcc::ast
         std::string_view name;
         std::uint32_t operand_index{0xFFFFFFFFU};
         char modifier{};
+        char view{};
         Decl const* resolved{};
     };
 

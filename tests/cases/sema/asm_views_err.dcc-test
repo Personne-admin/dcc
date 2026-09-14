@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+void view_mem() {
+    u32 x = 1;
+    u32* p = &x;
+    u32 y = 0;
+    asm @[intel, output(dst = y in eax), inputs(m in mem = p)] { "mov %[m:byte], %[dst]" };
+}
+void view_wider() {
+    u32 x = 1;
+    u32 y = 0;
+    asm @[intel, output(dst = y in eax), inputs(v in ebx = x)] { "mov %[dst:qword], %[v]" };
+}
+void view_float() {
+    f32 x = 1.0;
+    f32 y = 0.0;
+    asm @[intel, output(dst = y in xmm0), inputs(v in xmm1 = x)] { "mov %[dst:byte], %[v]" };
+}
+void mod_view() {
+    u32 x = 1;
+    u32 y = 0;
+    asm @[intel, output(dst = y in eax), inputs(v in ebx = x)] { "mov %c[dst:byte], %[v]" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:6: requires a register operand
+test.dc:11: is wider than operand
+test.dc:16: requires a general register
+test.dc:21: cannot be combined with modifier

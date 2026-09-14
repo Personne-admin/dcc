@@ -1244,7 +1244,13 @@ export namespace dccd
                                             type_str = format_dcc_type(resolved);
                                     }
 
-                                    hover_text = std::format("operand `{}`: {} (direction: {}, placement: {})", span.name, type_str, dir_str, place_str);
+                                    if (span.view == 'b' || span.view == 'w' || span.view == 'k' || span.view == 'q')
+                                    {
+                                        std::string_view vname = span.view == 'b' ? "byte" : span.view == 'w' ? "word" : span.view == 'k' ? "dword" : "qword";
+                                        hover_text = std::format("operand `{}`: {} (direction: {}, placement: {}, view: {})", span.name, type_str, dir_str, place_str, vname);
+                                    }
+                                    else
+                                        hover_text = std::format("operand `{}`: {} (direction: {}, placement: {})", span.name, type_str, dir_str, place_str);
                                 }
                                 else
                                     hover_text = std::format("operand `{}` (unresolved)", span.name);

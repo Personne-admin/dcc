@@ -15463,11 +15463,69 @@ export namespace dcc::sema
                     span.operand_index = static_cast<std::uint32_t>(index);
                     if (node.operands[index].placement_kind == ast::AsmPlacementKind::RegPair)
                         error(range, "asm register pairs have two registers; reference each literal register with %%");
-                    if (span.modifier != 0)
+                    if (span.view != 0 && span.modifier != 0)
+                        error(range, "asm width view cannot be combined with modifier");
+                    else if (span.modifier != 0)
                     {
                         auto kind = node.operands[index].placement_kind;
                         if (kind != ast::AsmPlacementKind::Sym && kind != ast::AsmPlacementKind::Imm)
                             error(range, "asm modifier `%{}` requires a symbolic or immediate operand", span.modifier);
+                    }
+                    if (span.view != 0 && node.operands[index].placement_kind != ast::AsmPlacementKind::RegPair)
+                    {
+                        auto kind = node.operands[index].placement_kind;
+                        if (kind != ast::AsmPlacementKind::Reg)
+                            error(range, "asm width view requires a register operand");
+                        else
+                        {
+                            auto* vty = unwrap_nominal(resolve_operand_type(node.operands[index]));
+                            std::uint64_t vbytes = 0;
+                            if (span.view == 'b')
+                                vbytes = 1;
+                            else if (span.view == 'w')
+                                vbytes = 2;
+                            else if (span.view == 'k')
+                                vbytes = 4;
+                            else if (span.view == 'q')
+                                vbytes = 8;
+                            std::string_view vname;
+                            if (span.view == 'b')
+                                vname = "byte";
+                            else if (span.view == 'w')
+                                vname = "word";
+                            else if (span.view == 'k')
+                                vname = "dword";
+                            else if (span.view == 'q')
+                                vname = "qword";
+                            if (vty && vty->kind == types::TypeKind::Float)
+                                error(range, "asm width view `{}` requires a general register", vname);
+                            else if (vty && vbytes > type_byte_width(vty))
+                                error(range, "asm view `{}` is wider than operand `{}`", vname, span.name);
+                            else if (span.view == 'b')
+                            {
+                                auto reg_name = node.operands[index].reg_name;
+                                if (!reg_name.empty())
+                                {
+                                    auto* reg = lookup_register(arch, reg_name);
+                                    bool has_byte = false;
+                                    if (reg && reg->cls == PhysRegClass::GPR)
+                                    {
+                                        auto fam = register_family(reg_name);
+                                        for (auto const& cand : register_table(arch))
+                                        {
+                                            if (cand.width == 8 && !cand.reserved && cand.name != "ah" && cand.name != "bh" && cand.name != "ch" &&
+                                                cand.name != "dh" && register_family(cand.name) == fam)
+                                            {
+                                                has_byte = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    if (!has_byte)
+                                        error(range, "asm byte view is not available for register `{}` on target `{}`", reg_name, arch_name);
+                                }
+                            }
+                        }
                     }
                 }
             }
