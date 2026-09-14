@@ -852,6 +852,7 @@ export namespace dcc::ast
         Imm,
         Sym,
         Flag,
+        Any,
         Family,
         FamilyPair,
     };

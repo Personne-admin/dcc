@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+void view_any() {
+    u64 x = 1;
+    u64 y = 0;
+    asm @[intel, output(dst = y in any), inputs(v in any = x)] { "mov %[dst:byte], %[v]" };
+}
+void inout_any() {
+    u64 a = 0;
+    asm @[intel, inout(v = a in any)] { "inc %[v]" };
+}
+void float_any() {
+    f64 x = 1.0;
+    f64 y = 0.0;
+    asm @[intel, output(dst = y in any), inputs(v in any = x)] { "mov %[dst], %[v]" };
+}
+
+=== EXPECT-ERRORS ===
+test.dc:5: requires a register operand
+test.dc:9: cannot use `in any`
+test.dc:14: requires an integer, pointer, bool, or enum type
+test.dc:14: requires an integer, pointer, bool, or enum type

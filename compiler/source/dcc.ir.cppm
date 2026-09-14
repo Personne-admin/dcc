@@ -1066,7 +1066,8 @@ export namespace dcc::ir
             Mem,
             Imm,
             Sym,
-            Flag
+            Flag,
+            Any
         };
 
         Direction direction{Direction::Out};

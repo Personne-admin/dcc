@@ -182,7 +182,7 @@ namespace dcc::backend
                 bool memory = op.placement_kind == IrAsmOperand::PlacementKind::Mem;
                 resolved.has_memory_operands |= memory;
                 if (op.placement_kind == IrAsmOperand::PlacementKind::Imm || op.placement_kind == IrAsmOperand::PlacementKind::Sym ||
-                    op.placement_kind == IrAsmOperand::PlacementKind::Flag)
+                    op.placement_kind == IrAsmOperand::PlacementKind::Flag || op.placement_kind == IrAsmOperand::PlacementKind::Any)
                 {
                     resolved.registers.emplace_back();
                     continue;
@@ -2046,6 +2046,11 @@ namespace dcc::backend
                 plan.error = "flag outputs are not supported on the native backend";
                 return plan;
             }
+            if (op.placement_kind == IrAsmOperand::PlacementKind::Any)
+            {
+                plan.error = "register-or-memory operands are not supported on the native backend";
+                return plan;
+            }
         }
         for (auto const& part : assembly.template_parts)
         {
@@ -2222,6 +2227,11 @@ namespace dcc::backend
                         out_constraint = "=@cc" + std::string(code);
                         break;
                     }
+                    case IrAsmOperand::PlacementKind::Any:
+                        if (op.direction == IrAsmOperand::Direction::InOut)
+                            return fail("inout with `in any` placement is not supported");
+                        out_constraint = "=&rm";
+                        break;
                     case IrAsmOperand::PlacementKind::RegPair:
                         return fail("register pairs must be split during lowering before backend emission");
                 }
@@ -2259,6 +2269,11 @@ namespace dcc::backend
                     }
                     case IrAsmOperand::PlacementKind::Flag:
                         return fail("flag operands must be outputs");
+                    case IrAsmOperand::PlacementKind::Any:
+                        if (op.direction == IrAsmOperand::Direction::InOut)
+                            return fail("inout with `in any` placement is not supported");
+                        in_constraint = "rm";
+                        break;
                     case IrAsmOperand::PlacementKind::RegPair:
                         return fail("register pairs must be split during lowering before backend emission");
                 }
