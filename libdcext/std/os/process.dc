@@ -13,6 +13,7 @@ import core;
 import core::target;
 import core::source_location;
 import std::fmt;
+import std::mem;
 import std::slice;
 import std::sys::linux::abi;
 import std::sys::linux::syscall;
@@ -134,6 +135,9 @@ public void install_panic_handler() {
 @nomangle public void __dc_rt_init(i32 argc, void** argv) {
     install_panic_handler();
 
+    saved_argc = argc;
+    saved_argv = argv as const u8**;
+
     static if core::target::OS == core::target::Os::Linux {
         // envp sits right after the argv NULL: argv[argc + 1].
         saved_envp = (
@@ -145,15 +149,302 @@ public void install_panic_handler() {
 }
 
 //!
+//! Command line and environment
+//!
+//! The entry stub hands `__dc_rt_init` the block the kernel set up, and
+//! it stays mapped for the life of the process, so the slices below
+//! borrow it rather than copying. On Windows the environment is a
+//! UTF-16 block that has to be transcoded, so there the iterator owns a
+//! buffer and each entry borrows it until the next `next`, exactly like
+//! `dir::Entry`. Treat every returned slice that way on both targets.
+//!
+
+i32 saved_argc;
+const u8** saved_argv;
+
+public using usize MAX_ENV_ENTRY = 4096;
+
+usize cstr_len(const u8* s, usize bound) {
+    usize n = 0;
+    while n < bound && s[n] != 0 {
+        n++;
+    }
+
+    return n;
+}
+
+/// the process arguments, argv[0] first. empty before `__dc_rt_init`
+/// runs, and on Windows, where the stub has no argv to pass on; use
+/// `command_line` there.
+public usize arg_count() {
+    if saved_argc < 0 {
+        return 0;
+    }
+
+    return saved_argc as usize;
+}
+
+public Optional([] const u8) arg(usize index) {
+    if index >= arg_count() || (saved_argv as usize) == 0 {
+        return Optional::None;
+    }
+
+    const u8* raw = saved_argv[index];
+    if (raw as usize) == 0 {
+        return Optional::None;
+    }
+
+    return Optional::Some(
+        slice::from_raw_const!u8(raw, cstr_len(raw, MAX_ENV_ENTRY))
+    );
+}
+
+public struct Var {
+    [] const u8 name;
+    [] const u8 value;
+}
+
+public struct Vars {
+    const u8** cursor;
+    void* block;
+    usize offset;
+    u8[4096] buffer;
+    bool done;
+}
+
+/// starts an iteration over the environment. call `close` when done;
+/// on Windows it releases the block the OS handed us.
+public Vars vars() {
+    Vars self;
+    self.offset = 0;
+    self.done = false;
+
+    static if core::target::OS == core::target::Os::Windows {
+        self.cursor = null as const u8**;
+        self.block = win::imports::GetEnvironmentStringsW() as void*;
+        if self.block == null {
+            self.done = true;
+        }
+    } else {
+        self.cursor = saved_envp;
+        self.block = null as void*;
+        if (self.cursor as usize) == 0 {
+            self.done = true;
+        }
+    }
+
+    return self;
+}
+
+Optional(Var) split_entry([] const u8 text) {
+    for usize i = 0; i < text.len; i++ {
+        if text[i] == ('=' as u8) {
+            // a leading `=` starts a Windows drive-cwd entry, not a name
+            if i == 0 {
+                return Optional::None;
+            }
+
+            Var out = {name = text[0..i], value = text[i + 1..text.len]};
+            return Optional::Some(out);
+        }
+    }
+
+    return Optional::None;
+}
+
+/// yields the next variable. malformed entries are skipped.
+public Optional(Var) next(Vars* self) {
+    if self.done {
+        return Optional::None;
+    }
+
+    static if core::target::OS == core::target::Os::Windows {
+        [] u8 view = slice::from_raw(&self.buffer[0], 4096);
+        const u16* units = self.block as const u16*;
+
+        while true {
+            if units[self.offset] == 0 {
+                self.done = true;
+                return Optional::None;
+            }
+
+            usize start = self.offset;
+            while units[self.offset] != 0 {
+                self.offset++;
+            }
+
+            [] const u16 wide = slice::from_raw_const!u16(
+                &units[start],
+                self.offset - start
+            );
+            self.offset++;
+
+            Result(usize, error::Error) text = path::from_wide(wide, view);
+            if text.is_err() {
+                continue;
+            }
+
+            Optional(Var) split = split_entry(view[0..text.unwrap()]);
+            if split.is_some() {
+                return split;
+            }
+        }
+    } else {
+        while true {
+            const u8* raw = self.cursor[self.offset];
+            if (raw as usize) == 0 {
+                self.done = true;
+                return Optional::None;
+            }
+
+            self.offset++;
+
+            Optional(Var) split = split_entry(
+                slice::from_raw_const!u8(raw, cstr_len(raw, MAX_ENV_ENTRY))
+            );
+
+            if split.is_some() {
+                return split;
+            }
+        }
+    }
+}
+
+public void close(Vars* self) {
+    self.done = true;
+
+    static if core::target::OS == core::target::Os::Windows {
+        if self.block != null {
+            win::imports::FreeEnvironmentStringsW(
+                self.block as win::abi::Wchar*
+            );
+
+            self.block = null as void*;
+        }
+    } else {
+        return;
+    }
+}
+
+/// copies the value of `name` into `out` and returns the written
+/// subslice. reports `NotFound` when the variable is unset. the copy is
+/// deliberate: it gives one lifetime rule on both targets.
+public Result([] const u8, Error) get_var([] const u8 name, [] u8 out) {
+    Vars it = vars();
+    defer close(&it);
+
+    while true {
+        Optional(Var) step = next(&it);
+        if step.is_none() {
+            break;
+        }
+
+        Var entry = step.unwrap_some();
+        if !mem::equal(entry.name, name) {
+            continue;
+        }
+
+        if entry.value.len > out.len {
+            return Error::NameTooLong;
+        }
+
+        mem::copy(out[0..entry.value.len], entry.value);
+        return Result::Ok(out[0..entry.value.len] as [] const u8);
+    }
+
+    return Error::NotFound;
+}
+
+public bool has_var([] const u8 name) {
+    u8[1] scratch;
+    Result([] const u8, Error) got = get_var(name, scratch[0..1]);
+
+    if got.is_ok() {
+        return true;
+    }
+
+    // a value too long for the probe buffer still means the name is set
+    return got.unwrap_err() == Error::NameTooLong;
+}
+
+//!
+//! Working directory
+//!
+//! Process-wide mutable state: changing it races with every other
+//! thread's relative path. Prefer resolving paths against a base you
+//! carry yourself.
+//!
+
+public Result([] const u8, Error) current_dir([] u8 out) {
+    static if core::target::OS == core::target::Os::Windows {
+        u16[4096] units;
+        win::abi::Dword got = win::imports::GetCurrentDirectoryW(
+            4096,
+            &units[0]
+        );
+
+        if got == 0 {
+            return Result::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        if got as usize >= 4096 {
+            return Error::NameTooLong;
+        }
+
+        [] const u16 wide = slice::from_raw_const!u16(&units[0], got as usize);
+        usize n = path::from_wide(wide, out) ?;
+        return Result::Ok(out[0..n] as [] const u8);
+    } else {
+        isize ret = linux::syscall::getcwd(out);
+        if linux::abi::is_error(ret) {
+            return Result::Err(error::from_syscall(ret));
+        }
+
+        // getcwd counts the terminator; the caller wants the name
+        usize n = ret as usize;
+        if n == 0 {
+            return Error::Unexpected;
+        }
+
+        return Result::Ok(out[0..n - 1] as [] const u8);
+    }
+}
+
+public Status(Error) set_current_dir([] const u8 name) {
+    static if core::target::OS == core::target::Os::Windows {
+        path::PathW p;
+        path::to_pathw(name, &p) ?;
+
+        win::abi::Bool ok = win::imports::SetCurrentDirectoryW(
+            path::wide_ptr(&p)
+        );
+
+        if !win::abi::succeeded(ok) {
+            return Status::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        return Status::Ok;
+    } else {
+        path::PathZ p;
+        path::to_pathz(name, &p) ?;
+
+        isize ret = linux::syscall::chdir(path::ptr(&p));
+        if linux::abi::is_error(ret) {
+            return Status::Err(error::from_syscall(ret));
+        }
+
+        return Status::Ok;
+    }
+}
+
+//!
 //! Spawning
 //!
 //! `Command` borrows everything: the caller owns the `PathZ` buffers for
-//! the program and its arguments. At most 16 arguments are accepted.
+//! the program and its arguments.
 //!
 
 public using file::Handle STDIO_INHERIT = -2;
-
-public using usize MAX_SPAWN_ARGS = 16;
 
 public struct Stdio {
     file::Handle input;
@@ -169,32 +460,23 @@ public Stdio inherit_stdio() {
     };
 }
 
+public using Arg = [] const u8;
+
 public struct Command {
-    path::PathZ* program;
-    path::PathZ*[16] argv;
-    usize argc;
+    [] const u8 program;
+    /// arguments after argv[0], which `spawn` fills in from `program`
+    [] const Arg args;
     Stdio stdio;
 }
 
-public void init_command(Command* self, path::PathZ* program) {
-    self.program = program;
-    self.argc = 0;
-    self.stdio = inherit_stdio();
-    for usize i = 0; i < 16; i++ {
-        self.argv[i] = null as path::PathZ*;
-    }
+public Command new_command([] const u8 program) {
+    return {
+        program = program,
+        args = slice::from_raw_const(null as const Arg*, 0),
+        stdio = inherit_stdio(),
+    };
 }
-
-/// appends one argument. the caller keeps owning the buffer.
-public Status(Error) push_arg(Command* self, path::PathZ* arg) {
-    if self.argc >= MAX_SPAWN_ARGS {
-        return Status::Err(Error::InvalidArgument);
-    }
-
-    self.argv[self.argc] = arg;
-    self.argc = self.argc + 1;
-    return Status::Ok;
-}
+public using Command::new = new_command;
 
 public struct ExitStatus {
     i32 code;
@@ -215,6 +497,93 @@ public struct Child {
 
 void* empty_env;
 const u8** saved_envp;
+
+bool has_nul([] const u8 text) {
+    for usize i = 0; i < text.len; i++ {
+        if text[i] == 0 {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+//!
+//! Windows argument quoting
+//!
+//! CreateProcessW takes one string and the C runtime splits it again, so
+//! an argument containing a space, tab or quote has to survive the round
+//! trip. Backslashes are only special in front of a quote, where they
+//! double; elsewhere they are literal.
+//!
+
+usize quote_bound([] const u8 arg) {
+    return arg.len * 2 + 3;
+}
+
+usize push_quoted([] u8 out, usize at, [] const u8 arg) {
+    usize n = at;
+    bool quote = arg.len == 0;
+
+    for usize i = 0; i < arg.len; i++ {
+        u8 b = arg[i];
+        if b == (' ' as u8) || b == ('\t' as u8) || b == ('"' as u8) {
+            quote = true;
+        }
+    }
+
+    if quote {
+        out[n] = '"' as u8;
+        n++;
+    }
+
+    usize i = 0;
+    while i < arg.len {
+        usize slashes = 0;
+        while i < arg.len && arg[i] == ('\\' as u8) {
+            slashes++;
+            i++;
+        }
+
+        if i == arg.len {
+            // trailing run: doubled only when a closing quote follows
+            usize repeat = if quote {
+                slashes * 2
+            } else {
+                slashes
+            };
+            for usize k = 0; k < repeat; k++ {
+                out[n] = '\\' as u8;
+                n++;
+            }
+        } else if arg[i] == ('"' as u8) {
+            for usize k = 0; k < slashes * 2 + 1; k++ {
+                out[n] = '\\' as u8;
+                n++;
+            }
+
+            out[n] = '"' as u8;
+            n++;
+            i++;
+        } else {
+            for usize k = 0; k < slashes; k++ {
+                out[n] = '\\' as u8;
+                n++;
+            }
+
+            out[n] = arg[i];
+            n++;
+            i++;
+        }
+    }
+
+    if quote {
+        out[n] = '"' as u8;
+        n++;
+    }
+
+    return n;
+}
 
 void redirect_fd(file::Handle fd, i32 target) {
     static if core::target::OS == core::target::Os::Windows {
@@ -237,87 +606,58 @@ void redirect_fd(file::Handle fd, i32 target) {
 /// child's standard streams; on Windows they must be inheritable (see
 /// `pipe::create_inheritable`). the parent keeps its own copies and must
 /// close the ends it does not use. the environment is inherited.
-public Result(Child, Error) spawn(Command* cmd) {
-    if (cmd.program as usize) == 0 {
+///
+/// `alloc` backs the argument vector only, and everything taken from it
+/// is released before this returns.
+public Result(Child, Error) spawn(
+    const mem::Allocator* alloc,
+    const Command* cmd
+) {
+    if cmd.program.len == 0 || has_nul(cmd.program) {
         return Result::Err(Error::InvalidArgument);
     }
 
-    if cmd.program.len == 0 || cmd.argc > MAX_SPAWN_ARGS {
-        return Result::Err(Error::InvalidArgument);
+    for usize i = 0; i < cmd.args.len; i++ {
+        if has_nul(cmd.args[i]) {
+            return Result::Err(Error::InvalidArgument);
+        }
     }
 
     static if core::target::OS == core::target::Os::Windows {
-        u8[2048] narrow;
-        usize n = 0;
-        bool full = false;
-
-        for usize a = 0; a < cmd.argc + 1; a++ {
-            path::PathZ* arg;
-
-            if a == 0 {
-                arg = cmd.program;
-            } else {
-                arg = cmd.argv[a - 1];
-            }
-
-            if a != 0 {
-                if n < 2048 {
-                    narrow[n] = ' ' as u8;
-                    n = n + 1;
-                } else {
-                    full = true;
-                }
-            }
-
-            [] const u8 text = slice::from_raw_const!u8(
-                &arg.bytes[0],
-                arg.len
-            );
-            bool quote = text.len == 0;
-
-            for usize i = 0; i < text.len; i++ {
-                u8 b = text[i];
-
-                if b == ' ' as u8 || b == '\t' as u8 || b == '"' as u8 {
-                    quote = true;
-                }
-            }
-
-            if quote {
-                if n < 2048 {
-                    narrow[n] = '"' as u8;
-                    n = n + 1;
-                } else {
-                    full = true;
-                }
-            }
-
-            for usize i = 0; i < text.len; i++ {
-                if n < 2048 {
-                    narrow[n] = text[i];
-                    n = n + 1;
-                } else {
-                    full = true;
-                }
-            }
-
-            if quote {
-                if n < 2048 {
-                    narrow[n] = '"' as u8;
-                    n = n + 1;
-                } else {
-                    full = true;
-                }
-            }
+        usize bound = quote_bound(cmd.program);
+        for usize i = 0; i < cmd.args.len; i++ {
+            bound = bound + quote_bound(cmd.args[i]) + 1;
         }
 
-        if full {
-            return Result::Err(Error::InvalidArgument);
+        Result([] u8, mem::AllocError) narrow_slot = alloc.raw_alloc(bound, 1);
+        if narrow_slot.is_err() {
+            return Error::OutOfMemory;
         }
 
-        path::PathW wide;
-        [] const u8 view = slice::from_raw_const!u8(&narrow[0], n);
-        path::to_pathw(view, &wide) ?;
+        [] u8 narrow = narrow_slot.unwrap();
+        defer alloc.raw_free(narrow, 1);
+
+        usize n = push_quoted(narrow, 0, cmd.program);
+        for usize i = 0; i < cmd.args.len; i++ {
+            narrow[n] = ' ' as u8;
+            n++;
+            n = push_quoted(narrow, n, cmd.args[i]);
+        }
+
+        // one UTF-16 unit per UTF-8 byte is always enough, plus the NUL
+        Result([] u8, mem::AllocError) wide_slot = alloc.raw_alloc(
+            (n + 1) * 2,
+            alignof (u16)
+        );
+        if wide_slot.is_err() {
+            return Error::OutOfMemory;
+        }
+
+        [] u8 wide_bytes = wide_slot.unwrap();
+        defer alloc.raw_free(wide_bytes, alignof (u16));
+
+        [] u16 wide = slice::from_raw(wide_bytes.ptr as u16*, n + 1);
+        path::to_wide(narrow[0..n], wide) ?;
 
         win::abi::StartupInfoW si;
         si.cb = sizeof (win::abi::StartupInfoW) as u32;
@@ -363,7 +703,7 @@ public Result(Child, Error) spawn(Command* cmd) {
         win::abi::ProcessInformation pi;
         win::abi::Bool ok = win::imports::CreateProcessW(
             null,
-            &wide.units[0],
+            &wide[0],
             null,
             null,
             win::abi::TRUE,
@@ -388,18 +728,51 @@ public Result(Child, Error) spawn(Command* cmd) {
         c.reserved = 0;
         return Result::Ok(c);
     } else {
-        void*[18] vec;
-        vec[0] = &cmd.program.bytes[0] as void*;
-
-        for usize i = 0; i < cmd.argc; i++ {
-            vec[i + 1] = &cmd.argv[i].bytes[0] as void*;
+        usize blob_len = cmd.program.len + 1;
+        for usize i = 0; i < cmd.args.len; i++ {
+            blob_len = blob_len + cmd.args[i].len + 1;
         }
 
-        vec[cmd.argc + 1] = null as void*;
+        Result([] u8, mem::AllocError) blob_slot = alloc.raw_alloc(blob_len, 1);
+        if blob_slot.is_err() {
+            return Error::OutOfMemory;
+        }
 
-        void** envp = saved_envp as void**;
+        [] u8 blob = blob_slot.unwrap();
+        defer alloc.raw_free(blob, 1);
+
+        Result([] u8, mem::AllocError) vec_slot = alloc.raw_alloc(
+            (cmd.args.len + 2) * sizeof (void*),
+            alignof (void*)
+        );
+        if vec_slot.is_err() {
+            return Error::OutOfMemory;
+        }
+
+        [] u8 vec_bytes = vec_slot.unwrap();
+        defer alloc.raw_free(vec_bytes, alignof (void*));
+
+        const u8** vec = vec_bytes.ptr as const u8**;
+
+        usize at = 0;
+        mem::copy(blob[at..at + cmd.program.len], cmd.program);
+        blob[at + cmd.program.len] = 0;
+        vec[0] = &blob[at] as const u8*;
+        at = at + cmd.program.len + 1;
+
+        for usize i = 0; i < cmd.args.len; i++ {
+            [] const u8 arg = cmd.args[i];
+            mem::copy(blob[at..at + arg.len], arg);
+            blob[at + arg.len] = 0;
+            vec[i + 1] = &blob[at] as const u8*;
+            at = at + arg.len + 1;
+        }
+
+        vec[cmd.args.len + 1] = null as const u8*;
+
+        const u8** envp = saved_envp;
         if (envp as usize) == 0 {
-            envp = &empty_env as void**;
+            envp = &empty_env as const u8**;
         }
 
         isize r = linux::syscall::clone(linux::abi::SIGCHLD, 0, 0, 0, 0);
@@ -408,13 +781,15 @@ public Result(Child, Error) spawn(Command* cmd) {
         }
 
         if r == 0 {
+            // the child reaches execve or exit_group, never a return, so
+            // the defers above are a parent-only concern
             redirect_fd(cmd.stdio.input, 0);
             redirect_fd(cmd.stdio.output, 1);
             redirect_fd(cmd.stdio.error, 2);
             linux::syscall::execve(
-                &cmd.program.bytes[0],
-                &vec[0] as const u8**,
-                envp as const u8**
+                vec[0],
+                vec,
+                envp
             );
             linux::syscall::exit_group(127);
 
