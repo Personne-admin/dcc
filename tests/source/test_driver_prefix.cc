@@ -177,4 +177,49 @@ TEST_CASE("-flibdcext produces a working executable")
     CHECK_EQ(rc, 0);
     CHECK(exe_exists);
 }
+
+TEST_CASE("DCC_WARN_ARRAY_DECAY warns on implicit array to slice copies")
+{
+    auto tmp_dir = std::filesystem::temp_directory_path();
+    auto src = tmp_dir / "test_array_decay.dc";
+    auto obj = tmp_dir / "test_array_decay.o";
+
+    {
+        std::ofstream f{src};
+        f << "module test;\n";
+        f << "void take([] u8 s) {}\n";
+        f << "public i32 main() {\n";
+        f << "    u8[4] buf;\n";
+        f << "    take(buf);\n";
+        f << "    [] u8 view = buf;\n";
+        f << "    take(view);\n";
+        f << "    return 0;\n";
+        f << "}\n";
+    }
+
+    auto dcc = dcc_path();
+    REQUIRE(!dcc.empty());
+    auto base = shell_quote(dcc) + " -flibdcext -c -target x86_64-elf -o " + shell_quote(obj) + " " + shell_quote(src);
+
+    auto run_with = [&](std::string const& env_prefix) {
+        auto* pipe = ::popen((env_prefix + base + " 2>&1").c_str(), "r");
+        std::string output;
+        char buf[4096];
+        while (pipe && std::fgets(buf, sizeof(buf), pipe))
+            output += buf;
+        int rc = pipe ? ::pclose(pipe) : -1;
+        return std::pair{WIFEXITED(rc) ? WEXITSTATUS(rc) : -1, output};
+    };
+
+    auto [rc_off, out_off] = run_with("");
+    CHECK_EQ(rc_off, 0);
+    CHECK(out_off.find("implicit copy") == std::string::npos);
+
+    auto [rc_on, out_on] = run_with("DCC_WARN_ARRAY_DECAY=1 ");
+    CHECK_EQ(rc_on, 0);
+    CHECK(out_on.find("implicit copy of array as slice") != std::string::npos);
+
+    std::filesystem::remove(src);
+    std::filesystem::remove(obj);
+}
 #endif
