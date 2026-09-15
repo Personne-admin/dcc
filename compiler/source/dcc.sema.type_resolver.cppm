@@ -929,15 +929,70 @@ export namespace dcc::sema
             return out;
         }
 
-        [[nodiscard]] std::optional<std::uint64_t> resolve_const_uint(ast::Expr* expr, ModuleInfo const&, detail::TemplateEnv const&)
+        [[nodiscard]] std::optional<std::uint64_t> resolve_const_uint(ast::Expr* expr, ModuleInfo const& mod, detail::TemplateEnv const&)
         {
-            if (!expr)
+            std::array<ast::UsingDecl const*, 16> chain{};
+            return resolve_const_uint_alias(expr, mod.own_scope, chain, 0);
+        }
+
+        [[nodiscard]] std::optional<std::uint64_t> resolve_const_uint_alias(ast::Expr* expr, Scope const* scope,
+                                                                            std::array<ast::UsingDecl const*, 16>& chain, std::size_t depth)
+        {
+            if (!expr || !scope || depth >= chain.size())
                 return std::nullopt;
 
             if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(expr); lit && lit->value >= 0)
                 return static_cast<std::uint64_t>(lit->value);
 
-            return std::nullopt;
+            // A bound may name a value alias (`using usize N = 4096;`),
+            // directly or qualified by its module. Follow the alias to its
+            // constant value so named extents work in array bounds.
+            ast::UsingDecl const* alias = nullptr;
+            Scope const* home = scope;
+            if (auto* id = ast::node_cast<ast::IdentExpr>(expr))
+            {
+                auto vs = scope->lookup_values(id->name);
+                if (!vs.empty() && vs.front().kind == SymbolKind::ValueAlias)
+                {
+                    alias = ast::node_cast<ast::UsingDecl>(vs.front().decl);
+                    if (vs.front().module && vs.front().module->own_scope)
+                        home = vs.front().module->own_scope;
+                }
+            }
+            else if (auto* pe = ast::node_cast<ast::PathExpr>(expr))
+            {
+                if (auto const* sym = resolve_value_path(*scope, pe->path))
+                    if (sym->kind == SymbolKind::ValueAlias)
+                    {
+                        alias = ast::node_cast<ast::UsingDecl>(sym->decl);
+                        if (sym->module && sym->module->own_scope)
+                            home = sym->module->own_scope;
+                    }
+            }
+            else if (auto* cast = ast::node_cast<ast::CastExpr>(expr))
+            {
+                return resolve_const_uint_alias(cast->operand, scope, chain, depth);
+            }
+
+            if (!alias || alias->using_kind != ast::UsingKind::ValueAlias)
+                return std::nullopt;
+
+            for (std::size_t i = 0; i < depth; ++i)
+                if (chain[i] == alias)
+                    return std::nullopt;
+
+            if (alias->value)
+            {
+                if (auto v = alias->value->const_to_int(); v && *v >= 0)
+                    return static_cast<std::uint64_t>(*v);
+
+                return std::nullopt;
+            }
+
+            // The alias target was written in the alias's home scope, so
+            // chained names resolve there rather than at the use site.
+            chain[depth] = alias;
+            return resolve_const_uint_alias(alias->target_expr, home, chain, depth + 1);
         }
 
         [[nodiscard]] std::string path_str(ast::Path const& p) const
