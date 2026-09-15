@@ -9687,7 +9687,7 @@ export namespace dcc::ir::lower
 
         IrValue* load_lvalue_pointer_layers(IrValue* addr, dcc::types::TypePtr obj_type)
         {
-            IrValue* cur = addr;
+            // Unwrap nominal aliases to find the object's true shape.
             while (obj_type)
             {
                 if (auto* nt = dcc::types::type_cast<dcc::types::NominalType>(obj_type))
@@ -9696,18 +9696,26 @@ export namespace dcc::ir::lower
                     continue;
                 }
 
-                if (obj_type->kind != dcc::types::TypeKind::Pointer)
-                    break;
+                break;
+            }
 
-                auto* pt = static_cast<dcc::types::PointerType const*>(obj_type);
+            // A pointer-typed object lives behind exactly one layer of
+            // storage: a single load yields the base pointer for indexing
+            // or field access. Loading further would dereference the
+            // pointee itself, which miscompiles multi-level pointers such
+            // as u8** (extra load plus pointee-sized GEP scale instead of
+            // pointer-sized). Non-pointer objects need no load at all.
+            if (obj_type && obj_type->kind == dcc::types::TypeKind::Pointer)
+            {
                 auto* ptr_val_ty = lower_type(obj_type);
-                cur = m_ctx.load(ptr_val_ty, cur);
+                IrValue* cur = m_ctx.load(ptr_val_ty, addr);
                 auto load_name = ident_name();
                 cur->name = m_name_pool.back();
                 append_inst(cur);
-                obj_type = pt->pointee;
+                return cur;
             }
-            return cur;
+
+            return addr;
         }
 
         IrValue* lower_field_lvalue(ast::FieldAccessExpr const* fa)

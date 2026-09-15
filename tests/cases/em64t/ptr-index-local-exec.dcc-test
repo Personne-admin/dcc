@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    u8* p0 = null as u8*;
+    u8* p1 = null as u8*;
+    u8*[4] arr;
+    arr[0] = p0;
+    arr[1] = p1;
+    u8** q = &arr[0];
+    u8[4] tmp;
+    tmp[0] = 65;
+    q[1] = &tmp[0];
+    if arr[1][0] != 65 {
+        return 1;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
