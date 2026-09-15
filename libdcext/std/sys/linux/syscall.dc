@@ -59,6 +59,8 @@ public using usize NR_FCNTL = 72;
 public using usize NR_FSYNC = 74;
 public using usize NR_FTRUNCATE = 77;
 public using usize NR_GETCWD = 79;
+public using usize NR_CHDIR = 80;
+public using usize NR_FCHDIR = 81;
 public using usize NR_READLINK = 89;
 public using usize NR_GETUID = 102;
 public using usize NR_GETGID = 104;
@@ -263,6 +265,14 @@ public isize readlink(const u8* path, [] u8 buf) {
 
 public isize getcwd([] u8 buf) {
     return raw2(NR_GETCWD, buf.ptr as usize, buf.len);
+}
+
+public isize chdir(const u8* path) {
+    return raw1(NR_CHDIR, path as usize);
+}
+
+public isize fchdir(abi::Fd fd) {
+    return raw1(NR_FCHDIR, arg_fd(fd));
 }
 
 public isize fstat(abi::Fd fd, abi::Stat* out) {
