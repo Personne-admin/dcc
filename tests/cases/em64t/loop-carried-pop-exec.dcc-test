@@ -55,3 +55,9 @@ RUN-EXIT: 0
 RUN-EXIT: 0
 === EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
 RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+ENV: DCC_DISABLE_PASS=dce
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+ENV: DCC_DISABLE_PASS=dce
+RUN-EXIT: 0
