@@ -1,0 +1,257 @@
+module main;
+
+import core::target;
+import std::os::path;
+import std::os::error;
+import std::mem;
+import std::slice;
+import std::result;
+
+using std::os::{ path, error };
+using std::{ mem, slice, result };
+using error::Error;
+
+bool same([] const u8 a, [] const u8 b) {
+    return mem::equal(a, b);
+}
+
+bool same16([] const u16 a, [] const u16 b) {
+    if a.len != b.len {
+        return false;
+    }
+    for usize i = 0; i < a.len; i++ {
+        if a[i] != b[i] {
+            return false;
+        }
+    }
+    return true;
+}
+
+i32 test_roundtrip_ascii() {
+    u16[16] wbuf;
+    [] u16 wout = slice::from_raw(&wbuf[0], 16);
+    u8[16] bbuf;
+    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    Result(usize, Error) r = path::to_wide("hello", wout);
+    if r.is_err() || r.unwrap() != 5 {
+        return 10;
+    }
+    if wbuf[0] != 104 || wbuf[4] != 111 || wbuf[5] != 0 {
+        return 11;
+    }
+    u16[6] expect = {104, 101, 108, 108, 111, 0};
+    if !same16(wout[0..5], expect[0..5]) {
+        return 12;
+    }
+    Result(usize, Error) back = path::from_wide(wout[0..6], bout);
+    if back.is_err() || back.unwrap() != 5 {
+        return 13;
+    }
+    if !same(bout[0..5], "hello") {
+        return 14;
+    }
+    return 0;
+}
+
+i32 test_roundtrip_bmp() {
+    u16[16] wbuf;
+    [] u16 wout = slice::from_raw(&wbuf[0], 16);
+    u8[16] bbuf;
+    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    // e-acute U+00E9
+    u8[2] e9 = {0xC3, 0xA9};
+    Result(usize, Error) r = path::to_wide(e9[0..2], wout);
+    if r.is_err() || r.unwrap() != 1 {
+        return 20;
+    }
+    if wbuf[0] != 233 || wbuf[1] != 0 {
+        return 21;
+    }
+    Result(usize, Error) back = path::from_wide(wout[0..2], bout);
+    if back.is_err() || back.unwrap() != 2 {
+        return 22;
+    }
+    if !same(bout[0..2], e9[0..2]) {
+        return 23;
+    }
+    // euro sign U+20AC
+    u8[3] euro = {0xE2, 0x82, 0xAC};
+    r = path::to_wide(euro[0..3], wout);
+    if r.unwrap() != 1 || wbuf[0] != 8364 {
+        return 24;
+    }
+    back = path::from_wide(wout[0..2], bout);
+    if back.unwrap() != 3 || !same(bout[0..3], euro[0..3]) {
+        return 25;
+    }
+    return 0;
+}
+
+i32 test_roundtrip_astral() {
+    u16[16] wbuf;
+    [] u16 wout = slice::from_raw(&wbuf[0], 16);
+    u8[16] bbuf;
+    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    // U+1F600
+    u8[4] smile = {0xF0, 0x9F, 0x98, 0x80};
+    Result(usize, Error) r = path::to_wide(smile[0..4], wout);
+    if r.is_err() || r.unwrap() != 2 {
+        return 30;
+    }
+    if wbuf[0] != 0xD83D || wbuf[1] != 0xDE00 || wbuf[2] != 0 {
+        return 31;
+    }
+    Result(usize, Error) back = path::from_wide(wout[0..3], bout);
+    if back.is_err() || back.unwrap() != 4 {
+        return 32;
+    }
+    if !same(bout[0..4], smile[0..4]) {
+        return 33;
+    }
+    return 0;
+}
+
+i32 test_invalid_utf8() {
+    u16[16] wbuf;
+    [] u16 wout = slice::from_raw(&wbuf[0], 16);
+    u8[1] cont = { 0x80 };
+    u8[2] overlong = {0xC0, 0xAF};
+    u8[2] truncated = {0xE2, 0x82};
+    u8[4] too_large = {0xF4, 0x90, 0x80, 0x80};
+    u8[3] surrogate = {0xED, 0xA0, 0x80};
+    if path::to_wide(cont[0..1], wout).unwrap_err() != Error::InvalidArgument {
+        return 40;
+    }
+    if path::to_wide(overlong[0..2], wout).unwrap_err() != Error::InvalidArgument {
+        return 41;
+    }
+    if path::to_wide(truncated[0..2], wout).unwrap_err() != Error::InvalidArgument {
+        return 42;
+    }
+    if path::to_wide(too_large[0..4], wout).unwrap_err() != Error::InvalidArgument {
+        return 43;
+    }
+    if path::to_wide(surrogate[0..3], wout).unwrap_err() != Error::InvalidArgument {
+        return 44;
+    }
+    return 0;
+}
+
+i32 test_unpaired_surrogate() {
+    u8[16] bbuf;
+    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    u16[2] high_alone = {0xD83D, 0};
+    u16[2] low_alone = {0xDE00, 0};
+    u16[3] high_bad = {0xD83D, 65, 0};
+    if path::from_wide(high_alone[0..2], bout).unwrap_err() != Error::InvalidArgument {
+        return 50;
+    }
+    if path::from_wide(low_alone[0..2], bout).unwrap_err() != Error::InvalidArgument {
+        return 51;
+    }
+    if path::from_wide(high_bad[0..3], bout).unwrap_err() != Error::InvalidArgument {
+        return 52;
+    }
+    return 0;
+}
+
+i32 test_small_buffers() {
+    // one unit too small in each direction
+    u16[1] tiny_w;
+    [] u16 tinyw = slice::from_raw(&tiny_w[0], 1);
+    if path::to_wide("A", tinyw).unwrap_err() != Error::NameTooLong {
+        return 60;
+    }
+    u16[2] ab = {65, 66};
+    u16[3] ab_nul = {65, 66, 0};
+    u8[2] tiny_b2;
+    [] u8 tinyb2 = slice::from_raw(&tiny_b2[0], 2);
+    // "AB" needs 2 bytes; 2-byte buffer succeeds, 1-byte fails
+    u8[1] tiny_b1;
+    [] u8 tinyb1 = slice::from_raw(&tiny_b1[0], 1);
+    if path::from_wide(ab_nul[0..3], tinyb1).unwrap_err() != Error::NameTooLong {
+        return 61;
+    }
+    // astral needs 4 bytes; 2-byte buffer fails
+    u16[3] smile_w = {0xD83D, 0xDE00, 0};
+    if path::from_wide(smile_w[0..3], tinyb2).unwrap_err() != Error::NameTooLong {
+        return 62;
+    }
+    // no write past the buffer on failure: small slice into a guarded backing
+    u16[8] wback;
+    for usize i = 0; i < 8; i++ {
+        wback[i] = 43981 as u16;
+    }
+    [] u16 wsmall = wback[0..1];
+    Result(usize, Error) r = path::to_wide("ABCDEF", wsmall);
+    if r.unwrap_err() != Error::NameTooLong {
+        return 63;
+    }
+    for usize i = 1; i < 8; i++ {
+        if wback[i] != 43981 as u16 {
+            return 64;
+        }
+    }
+    u8[8] bback;
+    for usize i = 0; i < 8; i++ {
+        bback[i] = 171 as u8;
+    }
+    [] u8 bsmall = bback[0..1];
+    if path::from_wide(smile_w[0..3], bsmall).unwrap_err() != Error::NameTooLong {
+        return 65;
+    }
+    for usize i = 1; i < 8; i++ {
+        if bback[i] != 171 as u8 {
+            return 66;
+        }
+    }
+    return 0;
+}
+
+i32 test_empty() {
+    u16[8] wbuf;
+    [] u16 wout = slice::from_raw(&wbuf[0], 8);
+    u8[8] bbuf;
+    [] u8 bout = slice::from_raw(&bbuf[0], 8);
+    Result(usize, Error) r = path::to_wide("", wout);
+    if r.is_err() || r.unwrap() != 0 {
+        return 70;
+    }
+    if wbuf[0] != 0 {
+        return 71;
+    }
+    u16[1] emptyw = { 0 };
+    Result(usize, Error) back = path::from_wide(emptyw[0..1], bout);
+    if back.is_err() || back.unwrap() != 0 {
+        return 72;
+    }
+    return 0;
+}
+
+public i32 main() {
+    i32 code = test_roundtrip_ascii();
+    if code != 0 {
+        return code;
+    }
+    code = test_roundtrip_bmp();
+    if code != 0 {
+        return code;
+    }
+    code = test_roundtrip_astral();
+    if code != 0 {
+        return code;
+    }
+    code = test_invalid_utf8();
+    if code != 0 {
+        return code;
+    }
+    code = test_unpaired_surrogate();
+    if code != 0 {
+        return code;
+    }
+    code = test_small_buffers();
+    if code != 0 {
+        return code;
+    }
+    return test_empty();
+}
