@@ -1,0 +1,56 @@
+=== FILE: bounds.dc ===
+module bounds;
+
+public using usize BOUND = 16;
+
+public using usize CHAINED = BOUND;
+
+=== FILE: test.dc ===
+module test;
+
+import bounds;
+
+public using usize LOCAL = 8;
+
+struct SameModule {
+    u8[LOCAL] bytes;
+    usize len;
+}
+
+struct Imported {
+    u8[bounds::BOUND] bytes;
+    usize len;
+}
+
+struct Chained {
+    u8[bounds::CHAINED] bytes;
+    usize len;
+}
+
+@nomangle
+public i32 dcc_main() {
+    if sizeof(SameModule) != 16 as usize {
+        return 1;
+    }
+    if sizeof(Imported) != 24 as usize {
+        return 2;
+    }
+    if sizeof(Chained) != 24 as usize {
+        return 3;
+    }
+    Imported w;
+    w.bytes[0] = 65;
+    w.bytes[15] = 90;
+    if w.bytes[0] != 65 {
+        return 4;
+    }
+    if w.bytes[15] != 90 {
+        return 5;
+    }
+    return 0;
+}
+
+=== ENTRY: test.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
