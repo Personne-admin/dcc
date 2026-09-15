@@ -1,0 +1,486 @@
+module main;
+
+import core::target;
+import std::os::time;
+import std::os::error;
+import std::mem;
+import std::slice;
+import std::result;
+
+using std::os::{ time, error };
+using std::{ mem, slice, result };
+using error::Error;
+
+i32 test_anchors() {
+    if time::days_from_civil(1970, 1, 1) != 0 {
+        return 1;
+    }
+    time::Date epoch = time::civil_from_days(0);
+    if epoch.year != 1970 || epoch.month != 1 || epoch.day != 1 {
+        return 2;
+    }
+    if time::weekday_from_days(0) != time::Weekday::Thursday {
+        return 3;
+    }
+    time::Date d0 = {year = 1970, month = 1, day = 1};
+    if time::day_of_week(&d0) != time::Weekday::Thursday {
+        return 4;
+    }
+    if time::days_from_civil(1969, 12, 31) != -1 as i64 {
+        return 5;
+    }
+    time::Date before = time::civil_from_days(-1);
+    if before.year != 1969 || before.month != 12 || before.day != 31 {
+        return 6;
+    }
+    // century leap boundaries: existence and validity
+    time::Date feb29_2000 = {year = 2000, month = 2, day = 29};
+    time::Date feb29_1900 = {year = 1900, month = 2, day = 29};
+    time::Date feb29_2024 = {year = 2024, month = 2, day = 29};
+    if !time::is_valid_date(&feb29_2000) {
+        return 7;
+    }
+    if time::is_valid_date(&feb29_1900) {
+        return 8;
+    }
+    if !time::is_valid_date(&feb29_2024) {
+        return 9;
+    }
+    // March 1 on either side of the century leap day round-trips
+    if time::days_from_civil(time::civil_from_days(time::days_from_civil(2000, 3, 1)).year, 3, 1) != time::days_from_civil(2000, 3, 1) {
+        return 10;
+    }
+    if time::days_from_civil(time::civil_from_days(time::days_from_civil(1900, 3, 1)).year, 3, 1) != time::days_from_civil(1900, 3, 1) {
+        return 11;
+    }
+    // 2038-01-19T03:14:07Z is 2^31 - 1
+    time::DateTime y2038 = {date = {year = 2038, month = 1, day = 19}, time = {hour = 3, minute = 14, second = 7, nanosecond = 0}, offset_minutes = 0};
+    if time::to_unix_seconds(&y2038) != 2147483647 as i64 {
+        return 12;
+    }
+    time::DateTime y2038_back = time::from_unix_seconds(2147483647, 0);
+    if y2038_back.date.year != 2038 || y2038_back.date.month != 1 || y2038_back.date.day != 19 {
+        return 13;
+    }
+    if y2038_back.time.hour != 3 || y2038_back.time.minute != 14 || y2038_back.time.second != 7 {
+        return 14;
+    }
+    return 0;
+}
+
+i32 test_leap_years() {
+    if !time::is_leap_year(1600) {
+        return 20;
+    }
+    if time::is_leap_year(1700) {
+        return 21;
+    }
+    if time::is_leap_year(1800) {
+        return 22;
+    }
+    if time::is_leap_year(1900) {
+        return 23;
+    }
+    if !time::is_leap_year(2000) {
+        return 24;
+    }
+    if time::is_leap_year(2100) {
+        return 25;
+    }
+    if !time::is_leap_year(2400) {
+        return 26;
+    }
+    if !time::is_leap_year(2024) {
+        return 27;
+    }
+    if time::is_leap_year(2023) {
+        return 28;
+    }
+    if time::is_leap_year(2001) {
+        return 29;
+    }
+    // days_in_month agrees with is_leap_year for February
+    i32[7] years = {1600, 1700, 1900, 2000, 2100, 2024, 2023};
+    for usize i = 0; i < 7; i++ {
+        i32 y = years[i];
+        u8 feb = time::days_in_month(y, 2);
+        u8 want = if time::is_leap_year(y) { 29 } else { 28 };
+        if feb != want {
+            return 30;
+        }
+    }
+    if time::days_in_month(2024, 1) != 31 {
+        return 31;
+    }
+    if time::days_in_month(2024, 3) != 31 {
+        return 32;
+    }
+    if time::days_in_month(2024, 4) != 30 {
+        return 33;
+    }
+    if time::days_in_month(2023, 2) != 28 {
+        return 34;
+    }
+    if time::days_in_month(2024, 2) != 29 {
+        return 35;
+    }
+    if time::days_in_month(2024, 12) != 31 {
+        return 36;
+    }
+    if time::days_in_month(2024, 0) != 0 {
+        return 37;
+    }
+    if time::days_in_month(2024, 13) != 0 {
+        return 38;
+    }
+    return 0;
+}
+
+i32 test_negative_timestamps() {
+    time::DateTime m1 = time::from_unix_seconds(-1, 0);
+    if m1.date.year != 1969 || m1.date.month != 12 || m1.date.day != 31 {
+        return 40;
+    }
+    if m1.time.hour != 23 || m1.time.minute != 59 || m1.time.second != 59 {
+        return 41;
+    }
+    if m1.time.nanosecond != 0 {
+        return 42;
+    }
+    if time::to_unix_seconds(&m1) != -1 as i64 {
+        return 43;
+    }
+    time::DateTime d1 = time::from_unix_seconds(-86400, 0);
+    if d1.date.year != 1969 || d1.date.month != 12 || d1.date.day != 31 {
+        return 44;
+    }
+    if d1.time.hour != 0 || d1.time.minute != 0 || d1.time.second != 0 {
+        return 45;
+    }
+    if time::to_unix_seconds(&d1) != -86400 as i64 {
+        return 46;
+    }
+    time::DateTime d2 = time::from_unix_seconds(-86401, 0);
+    if d2.date.year != 1969 || d2.date.month != 12 || d2.date.day != 30 {
+        return 47;
+    }
+    if d2.time.hour != 23 || d2.time.minute != 59 || d2.time.second != 59 {
+        return 48;
+    }
+    if time::to_unix_seconds(&d2) != -86401 as i64 {
+        return 49;
+    }
+    // pre-1900: 1899-12-31T23:59:59Z is -2208988801
+    time::DateTime pre = time::from_unix_seconds(-2208988801 as i64, 0);
+    if pre.date.year != 1899 || pre.date.month != 12 || pre.date.day != 31 {
+        return 50;
+    }
+    if pre.time.hour != 23 || pre.time.minute != 59 || pre.time.second != 59 {
+        return 51;
+    }
+    if time::to_unix_seconds(&pre) != -2208988801 as i64 {
+        return 52;
+    }
+    // time of day never wraps negative: sweep a few negatives
+    for i64 s = -200000; s < 0; s = s + 7919 {
+        time::DateTime dt = time::from_unix_seconds(s, 0);
+        if dt.time.hour >= 24 || dt.time.minute >= 60 || dt.time.second >= 60 {
+            return 53;
+        }
+        if time::to_unix_seconds(&dt) != s {
+            return 54;
+        }
+    }
+    return 0;
+}
+
+i32 test_offsets() {
+    time::DateTime base = {date = {year = 2024, month = 3, day = 1}, time = {hour = 12, minute = 0, second = 0, nanosecond = 0}, offset_minutes = 0};
+    i64 secs = time::to_unix_seconds(&base);
+    time::DateTime plus = time::with_offset(&base, 60 as i16);
+    if plus.offset_minutes != 60 as i16 {
+        return 60;
+    }
+    if time::to_unix_seconds(&plus) != secs {
+        return 61;
+    }
+    if plus.time.hour != 13 {
+        return 62;
+    }
+    time::DateTime minus = time::with_offset(&base, -300 as i16);
+    if minus.offset_minutes != -300 as i16 {
+        return 63;
+    }
+    if time::to_unix_seconds(&minus) != secs {
+        return 64;
+    }
+    if minus.time.hour != 7 {
+        return 65;
+    }
+    // positive offset pushing across midnight forward
+    time::DateTime late = {date = {year = 2024, month = 3, day = 1}, time = {hour = 23, minute = 30, second = 0, nanosecond = 0}, offset_minutes = 0};
+    i64 late_secs = time::to_unix_seconds(&late);
+    time::DateTime late_plus = time::with_offset(&late, 60 as i16);
+    if time::to_unix_seconds(&late_plus) != late_secs {
+        return 66;
+    }
+    if late_plus.date.day != 2 || late_plus.time.hour != 0 || late_plus.time.minute != 30 {
+        return 67;
+    }
+    // negative offset pushing across midnight backward
+    time::DateTime early = {date = {year = 2024, month = 3, day = 2}, time = {hour = 0, minute = 30, second = 0, nanosecond = 0}, offset_minutes = 0};
+    i64 early_secs = time::to_unix_seconds(&early);
+    time::DateTime early_minus = time::with_offset(&early, -60 as i16);
+    if time::to_unix_seconds(&early_minus) != early_secs {
+        return 68;
+    }
+    if early_minus.date.day != 1 || early_minus.time.hour != 23 || early_minus.time.minute != 30 {
+        return 69;
+    }
+    return 0;
+}
+
+i32 test_day_of_year() {
+    time::Date jan1 = {year = 2023, month = 1, day = 1};
+    time::Date dec31 = {year = 2023, month = 12, day = 31};
+    time::Date dec31_leap = {year = 2024, month = 12, day = 31};
+    time::Date jan1_leap = {year = 2024, month = 1, day = 1};
+    time::Date feb29 = {year = 2024, month = 2, day = 29};
+    if time::day_of_year(&jan1) != 1 {
+        return 80;
+    }
+    if time::day_of_year(&dec31) != 365 {
+        return 81;
+    }
+    if time::day_of_year(&dec31_leap) != 366 {
+        return 82;
+    }
+    if time::day_of_year(&jan1_leap) != 1 {
+        return 83;
+    }
+    if time::day_of_year(&feb29) != 60 {
+        return 84;
+    }
+    return 0;
+}
+
+i32 test_to_from_civil() {
+    time::DateTime dt = {date = {year = 2024, month = 5, day = 17}, time = {hour = 12, minute = 34, second = 56, nanosecond = 123456789}, offset_minutes = 0};
+    u64 ns = time::from_civil(&dt);
+    time::DateTime back = time::to_civil(ns);
+    if back.date.year != 2024 || back.date.month != 5 || back.date.day != 17 {
+        return 90;
+    }
+    if back.time.hour != 12 || back.time.minute != 34 || back.time.second != 56 {
+        return 91;
+    }
+    if back.time.nanosecond != 123456789 {
+        return 92;
+    }
+    if time::from_civil(&back) != ns {
+        return 93;
+    }
+    // pre-epoch clamps to zero
+    time::DateTime pre = {date = {year = 1969, month = 12, day = 31}, time = {hour = 23, minute = 59, second = 59, nanosecond = 0}, offset_minutes = 0};
+    if time::from_civil(&pre) != 0 {
+        return 94;
+    }
+    time::DateTime epoch = {date = {year = 1970, month = 1, day = 1}, time = {hour = 0, minute = 0, second = 0, nanosecond = 0}, offset_minutes = 0};
+    if time::from_civil(&epoch) != 0 {
+        return 95;
+    }
+    time::DateTime one = {date = {year = 1970, month = 1, day = 1}, time = {hour = 0, minute = 0, second = 1, nanosecond = 500}, offset_minutes = 0};
+    u64 one_ns = time::from_civil(&one);
+    if one_ns != 1000000500 {
+        return 96;
+    }
+    time::DateTime one_back = time::to_civil(one_ns);
+    if one_back.time.second != 1 || one_back.time.nanosecond != 500 {
+        return 97;
+    }
+    return 0;
+}
+
+i32 test_validators() {
+    time::Date m0 = {year = 2024, month = 0, day = 10};
+    time::Date m13 = {year = 2024, month = 13, day = 10};
+    time::Date d0 = {year = 2024, month = 5, day = 0};
+    time::Date feb30 = {year = 2024, month = 2, day = 30};
+    time::Date feb29_nonleap = {year = 2023, month = 2, day = 29};
+    time::Date feb29_leap = {year = 2024, month = 2, day = 29};
+    time::Date ok = {year = 2024, month = 12, day = 31};
+    if time::is_valid_date(&m0) {
+        return 100;
+    }
+    if time::is_valid_date(&m13) {
+        return 101;
+    }
+    if time::is_valid_date(&d0) {
+        return 102;
+    }
+    if time::is_valid_date(&feb30) {
+        return 103;
+    }
+    if time::is_valid_date(&feb29_nonleap) {
+        return 104;
+    }
+    if !time::is_valid_date(&feb29_leap) {
+        return 105;
+    }
+    if !time::is_valid_date(&ok) {
+        return 106;
+    }
+    time::Time h24 = {hour = 24, minute = 0, second = 0, nanosecond = 0};
+    time::Time m60 = {hour = 12, minute = 60, second = 0, nanosecond = 0};
+    time::Time s60 = {hour = 12, minute = 0, second = 60, nanosecond = 0};
+    time::Time big_ns = {hour = 12, minute = 0, second = 0, nanosecond = 1000000000};
+    time::Time good = {hour = 23, minute = 59, second = 59, nanosecond = 999999999};
+    time::Time midnight = {hour = 0, minute = 0, second = 0, nanosecond = 0};
+    if time::is_valid_time(&h24) {
+        return 107;
+    }
+    if time::is_valid_time(&m60) {
+        return 108;
+    }
+    if time::is_valid_time(&s60) {
+        return 109;
+    }
+    if time::is_valid_time(&big_ns) {
+        return 110;
+    }
+    if !time::is_valid_time(&good) {
+        return 111;
+    }
+    if !time::is_valid_time(&midnight) {
+        return 112;
+    }
+    return 0;
+}
+
+i32 test_roundtrip_dense() {
+    // every day across 1969-1973 plus one full 400-year cycle
+    i64 start = time::days_from_civil(1969, 1, 1);
+    i64 end = time::days_from_civil(1974, 1, 1);
+    for i64 d = start; d < end; d++ {
+        time::Date c = time::civil_from_days(d);
+        if time::days_from_civil(c.year, c.month, c.day) != d {
+            return 120;
+        }
+    }
+    // one 400-year cycle centered near the epoch
+    for i64 d = -73048; d <= 73048; d++ {
+        time::Date c = time::civil_from_days(d);
+        if time::days_from_civil(c.year, c.month, c.day) != d {
+            return 121;
+        }
+    }
+    return 0;
+}
+
+i32 test_roundtrip_sampled() {
+    // every 37th day across +/-150 years from the epoch
+    i64 lo = time::days_from_civil(1820, 1, 1);
+    i64 hi = time::days_from_civil(2120, 1, 1);
+    for i64 d = lo; d < hi; d = d + 37 {
+        time::Date c = time::civil_from_days(d);
+        if time::days_from_civil(c.year, c.month, c.day) != d {
+            return 130;
+        }
+        // weekday consistency with day_of_week
+        if time::weekday_from_days(d) != time::day_of_week(&c) {
+            return 131;
+        }
+    }
+    return 0;
+}
+
+i32 test_weekday_anchors() {
+    time::Date thu = {year = 1970, month = 1, day = 1};
+    time::Date wed = {year = 1969, month = 12, day = 31};
+    time::Date sat = {year = 2000, month = 1, day = 1};
+    time::Date tue = {year = 2024, month = 2, day = 29};
+    if time::day_of_week(&thu) != time::Weekday::Thursday {
+        return 140;
+    }
+    if time::day_of_week(&wed) != time::Weekday::Wednesday {
+        return 141;
+    }
+    if time::day_of_week(&sat) != time::Weekday::Saturday {
+        return 142;
+    }
+    if time::day_of_week(&tue) != time::Weekday::Thursday {
+        return 143;
+    }
+    if time::weekday_from_days(-1) != time::Weekday::Wednesday {
+        return 144;
+    }
+    return 0;
+}
+
+i32 test_now_utc() {
+    Result(time::DateTime, Error) r = time::now_utc();
+    if r.is_err() {
+        return 150;
+    }
+    time::DateTime now = r.unwrap();
+    if now.offset_minutes != 0 {
+        return 151;
+    }
+    // 2020-01-01 through 2100-01-01, same window as the clock test
+    time::DateTime lo = {date = {year = 2020, month = 1, day = 1}, time = {hour = 0, minute = 0, second = 0, nanosecond = 0}, offset_minutes = 0};
+    time::DateTime hi = {date = {year = 2100, month = 1, day = 1}, time = {hour = 0, minute = 0, second = 0, nanosecond = 0}, offset_minutes = 0};
+    i64 los = time::to_unix_seconds(&lo);
+    i64 his = time::to_unix_seconds(&hi);
+    i64 nows = time::to_unix_seconds(&now);
+    if nows < los || nows >= his {
+        return 152;
+    }
+    if time::SECONDS_PER_DAY != 86400 {
+        return 153;
+    }
+    return 0;
+}
+
+public i32 main() {
+    i32 code = test_anchors();
+    if code != 0 {
+        return code;
+    }
+    code = test_leap_years();
+    if code != 0 {
+        return code;
+    }
+    code = test_negative_timestamps();
+    if code != 0 {
+        return code;
+    }
+    code = test_offsets();
+    if code != 0 {
+        return code;
+    }
+    code = test_day_of_year();
+    if code != 0 {
+        return code;
+    }
+    code = test_to_from_civil();
+    if code != 0 {
+        return code;
+    }
+    code = test_validators();
+    if code != 0 {
+        return code;
+    }
+    code = test_roundtrip_dense();
+    if code != 0 {
+        return code;
+    }
+    code = test_roundtrip_sampled();
+    if code != 0 {
+        return code;
+    }
+    code = test_weekday_anchors();
+    if code != 0 {
+        return code;
+    }
+    return test_now_utc();
+}
