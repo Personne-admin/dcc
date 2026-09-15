@@ -88,6 +88,40 @@ export namespace dcc::ir::pass
         bool (*run)(IrModule& mod, IrContext& ctx, OptLevel level) = nullptr;
     };
 
+    [[nodiscard]] bool pass_list_contains(char const* env_var, std::string_view name)
+    {
+        char const* raw = std::getenv(env_var);
+        if (!raw || !*raw)
+            return false;
+
+        std::string_view rest{raw};
+        while (!rest.empty())
+        {
+            auto comma = rest.find(',');
+            std::string_view item = (comma == std::string_view::npos) ? rest : rest.substr(0, comma);
+            while (!item.empty() && (item.front() == ' ' || item.front() == '\t'))
+                item.remove_prefix(1);
+            while (!item.empty() && (item.back() == ' ' || item.back() == '\t'))
+                item.remove_suffix(1);
+            if (item == name)
+                return true;
+            if (comma == std::string_view::npos)
+                break;
+            rest.remove_prefix(comma + 1);
+        }
+        return false;
+    }
+
+    [[nodiscard]] bool pass_disabled(std::string_view name)
+    {
+        return pass_list_contains("DCC_DISABLE_PASS", name);
+    }
+
+    [[nodiscard]] bool pass_print_after(std::string_view name)
+    {
+        return pass_list_contains("DCC_PRINT_AFTER", name);
+    }
+
     void benchmark_stats(IrModule const& mod, std::string_view stage)
     {
         std::unordered_map<IrValue const*, std::size_t> sizes;
@@ -180,8 +214,12 @@ export namespace dcc::ir::pass
                 return const_cast<IrModule*>(&input);
 
             for (auto& mp : m_module_passes)
-                if (level >= mp.min_level && mp.run)
-                    mp.run(*cloned, output_ctx, level);
+                if (level >= mp.min_level && mp.run && !pass_disabled(mp.name))
+                {
+                    bool const changed = mp.run(*cloned, output_ctx, level);
+                    if (changed && pass_print_after(mp.name))
+                        std::println(std::cerr, ";;; after {} (module)\n{}", mp.name, IrSerializer::dump(cloned));
+                }
 
             for (int iter = 0; iter < 8; ++iter)
             {
@@ -193,11 +231,17 @@ export namespace dcc::ir::pass
                     fctx.ctx = &output_ctx;
 
                     for (auto& fp : m_func_passes)
-                        if (level >= fp.min_level && fp.run)
+                        if (level >= fp.min_level && fp.run && !pass_disabled(fp.name))
                         {
                             auto t = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
-                            if (fp.run(fctx))
+                            bool const changed = fp.run(fctx);
+                            if (changed)
+                            {
                                 any_changed = true;
+                                if (pass_print_after(fp.name))
+                                    std::println(std::cerr, ";;; after {} on {}\n{}", fp.name, fctx.func ? fctx.func->name : "?",
+                                                 IrSerializer::dump(fctx.func));
+                            }
                             if (measure)
                                 times[fp.name] += std::chrono::duration<double>(std::chrono::steady_clock::now() - t).count();
                         }
