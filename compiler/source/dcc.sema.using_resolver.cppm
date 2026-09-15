@@ -429,6 +429,7 @@ export namespace dcc::sema
                 s.name = name;
                 s.kind = SymbolKind::ValueAlias;
                 s.decl = &u;
+                s.module = &mod;
                 s.via_using = &u;
                 s.is_exported = u.is_public;
                 s.is_spilled = spill;
