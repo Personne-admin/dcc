@@ -19,6 +19,7 @@ import std::sys::linux::syscall;
 import std::sys::win::abi;
 import std::sys::win::imports;
 import std::os::path;
+import std::os::dir;
 public import std::os::error;
 public import std::result;
 
@@ -642,6 +643,207 @@ public Status(Error) remove_directory([] const u8 name) {
 
         return Status::Ok;
     }
+}
+
+/// renames `from` to `to`, replacing `to` if it exists. within one
+/// filesystem this is atomic, which is what makes write-temp-then-rename
+/// a safe way to update a file. across filesystems it fails rather than
+/// silently copying.
+public Status(Error) rename([] const u8 from, [] const u8 to) {
+    static if core::target::OS == core::target::Os::Windows {
+        path::PathW old_path;
+        path::PathW new_path;
+        path::to_pathw(from, &old_path) ?;
+        path::to_pathw(to, &new_path) ?;
+
+        win::abi::Bool ok = win::imports::MoveFileExW(
+            path::wide_ptr(&old_path),
+            path::wide_ptr(&new_path),
+            win::abi::MOVEFILE_REPLACE_EXISTING
+        );
+
+        if !win::abi::succeeded(ok) {
+            return Status::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        return Status::Ok;
+    } else {
+        path::PathZ old_path;
+        path::PathZ new_path;
+        path::to_pathz(from, &old_path) ?;
+        path::to_pathz(to, &new_path) ?;
+
+        isize ret = linux::syscall::renameat(
+            linux::abi::AT_FDCWD,
+            path::ptr(&old_path),
+            linux::abi::AT_FDCWD,
+            path::ptr(&new_path)
+        );
+
+        if linux::abi::is_error(ret) {
+            return Status::Err(error::from_syscall(ret));
+        }
+
+        return Status::Ok;
+    }
+}
+
+//!
+//! Metadata by path
+//!
+//! `dir::stat_at` needs an open iterator and `size` needs an open
+//! handle; these answer the same questions from a path alone. Symlinks
+//! are not followed on either target: on Windows the enumeration API
+//! reports the link itself, and matching that everywhere is less
+//! surprising than differing by platform.
+//!
+
+public Result(dir::Metadata, Error) metadata([] const u8 name) {
+    static if core::target::OS == core::target::Os::Windows {
+        path::PathW p;
+        path::to_pathw(name, &p) ?;
+
+        win::abi::Win32FindDataW found_data;
+        win::abi::Handle h = win::imports::FindFirstFileW(
+            path::wide_ptr(&p),
+            &found_data
+        );
+
+        if h as isize == win::abi::INVALID_HANDLE_VALUE {
+            return Result::Err(error::from_win32(win::imports::GetLastError()));
+        }
+
+        win::imports::FindClose(h);
+
+        win::abi::Win32FindDataW* found = &found_data;
+        u64 bytes = ((found.file_size_high as u64) << 32) | (found.file_size_low as u64);
+
+        dir::Metadata out = {
+            size = bytes,
+            kind = dir::kind_from_attributes(found.attributes),
+            id = 0,
+        };
+
+        return Result::Ok(out);
+    } else {
+        path::PathZ p;
+        path::to_pathz(name, &p) ?;
+
+        linux::abi::Stat info;
+        isize ret = linux::syscall::fstatat(
+            linux::abi::AT_FDCWD,
+            path::ptr(&p),
+            &info,
+            linux::abi::AT_SYMLINK_NOFOLLOW
+        );
+
+        if linux::abi::is_error(ret) {
+            return Result::Err(error::from_syscall(ret));
+        }
+
+        dir::Metadata out = {
+            size = info.size as u64,
+            kind = dir::kind_from_mode(info.mode),
+            id = info.ino,
+        };
+
+        return Result::Ok(out);
+    }
+}
+
+/// true when the name resolves to anything at all. a permission failure
+/// on a parent directory is reported as absence, because that is all the
+/// caller can observe.
+public bool exists([] const u8 name) {
+    static if core::target::OS == core::target::Os::Windows {
+        path::PathW p;
+        Status(Error) converted = path::to_pathw(name, &p);
+        if !converted.is_ok() {
+            return false;
+        }
+
+        win::abi::Dword attributes = win::imports::GetFileAttributesW(
+            path::wide_ptr(&p)
+        );
+
+        return attributes != win::abi::INVALID_FILE_ATTRIBUTES;
+    } else {
+        path::PathZ p;
+        Status(Error) converted = path::to_pathz(name, &p);
+        if !converted.is_ok() {
+            return false;
+        }
+
+        linux::abi::Stat info;
+        isize ret = linux::syscall::fstatat(
+            linux::abi::AT_FDCWD,
+            path::ptr(&p),
+            &info,
+            linux::abi::AT_SYMLINK_NOFOLLOW
+        );
+
+        return !linux::abi::is_error(ret);
+    }
+}
+
+public bool is_directory([] const u8 name) {
+    Result(dir::Metadata, Error) info = metadata(name);
+    if info.is_err() {
+        return false;
+    }
+
+    return info.unwrap().kind == dir::EntryKind::Directory;
+}
+
+public bool is_file([] const u8 name) {
+    Result(dir::Metadata, Error) info = metadata(name);
+    if info.is_err() {
+        return false;
+    }
+
+    return info.unwrap().kind == dir::EntryKind::File;
+}
+
+/// creates `name` and every missing parent. an existing directory is
+/// success; an existing non-directory is `AlreadyExists`.
+///
+/// the create-then-check order is deliberate: testing first and creating
+/// second loses to a concurrent creator, while a failed create followed
+/// by a directory check is correct whoever wins.
+public Status(Error) make_directory_all([] const u8 name) {
+    if name.len == 0 {
+        return Error::InvalidArgument;
+    }
+
+    usize root = path::root_len(name);
+    usize i = root;
+
+    while true {
+        while i < name.len && path::is_separator(name[i]) {
+            i++;
+        }
+
+        while i < name.len && !path::is_separator(name[i]) {
+            i++;
+        }
+
+        if i == root {
+            break;
+        }
+
+        [] const u8 prefix = name[0..i];
+        Status(Error) made = make_directory(prefix);
+
+        if !made.is_ok() && !is_directory(prefix) {
+            return made;
+        }
+
+        if i >= name.len {
+            break;
+        }
+    }
+
+    return Status::Ok;
 }
 
 //!

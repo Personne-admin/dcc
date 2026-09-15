@@ -1,0 +1,356 @@
+module main;
+
+import core::target;
+import std::os::file;
+import std::os::dir;
+import std::os::error;
+import std::os::process;
+import std::os::path;
+import std::mem;
+import std::slice;
+import std::result;
+
+using std::os::{ file, dir, error, process, path };
+using std::{ mem, slice, result };
+using error::Error;
+
+bool same([] const u8 a, [] const u8 b) {
+    return mem::equal(a, b);
+}
+
+i32 test_rename_new_target() {
+    file::File f = file::create("fops_new_src").unwrap();
+    if !f.write_all("rename-me").is_ok() {
+        return 10;
+    }
+    f.close();
+    if file::exists("fops_new_dst") {
+        file::delete_file("fops_new_dst");
+    }
+    if !file::rename("fops_new_src", "fops_new_dst").is_ok() {
+        return 11;
+    }
+    if file::exists("fops_new_src") {
+        return 12;
+    }
+    if !file::exists("fops_new_dst") {
+        return 13;
+    }
+    file::File g = file::open("fops_new_dst", file::read_only()).unwrap();
+    u8[32] buf;
+    usize n = g.read_all(buf[0..32]).unwrap();
+    g.close();
+    if !same(buf[0..n], "rename-me") {
+        file::delete_file("fops_new_dst");
+        return 14;
+    }
+    if !file::delete_file("fops_new_dst").is_ok() {
+        return 15;
+    }
+    return 0;
+}
+
+i32 test_rename_replace() {
+    file::File s = file::create("fops_rep_src").unwrap();
+    s.write_all("source-bytes").unwrap();
+    s.close();
+    file::File d = file::create("fops_rep_dst").unwrap();
+    d.write_all("old-bytes!!").unwrap();
+    d.close();
+    if !file::rename("fops_rep_src", "fops_rep_dst").is_ok() {
+        file::delete_file("fops_rep_src");
+        file::delete_file("fops_rep_dst");
+        return 20;
+    }
+    if file::exists("fops_rep_src") {
+        file::delete_file("fops_rep_dst");
+        return 21;
+    }
+    file::File g = file::open("fops_rep_dst", file::read_only()).unwrap();
+    u8[32] buf;
+    usize n = g.read_all(buf[0..32]).unwrap();
+    g.close();
+    if !same(buf[0..n], "source-bytes") {
+        file::delete_file("fops_rep_dst");
+        return 22;
+    }
+    if !file::delete_file("fops_rep_dst").is_ok() {
+        return 23;
+    }
+    return 0;
+}
+
+i32 test_rename_missing() {
+    if file::exists("fops_missing_src") {
+        file::delete_file("fops_missing_src");
+    }
+    if file::exists("fops_missing_dst") {
+        file::delete_file("fops_missing_dst");
+    }
+    if file::rename("fops_missing_src", "fops_missing_dst").unwrap_err() != Error::NotFound {
+        return 30;
+    }
+    return 0;
+}
+
+i32 test_make_directory_all_basic() {
+    if !file::make_directory_all("fops_tree/a/b/c").is_ok() {
+        return 40;
+    }
+    if !file::is_directory("fops_tree/a/b/c") {
+        file::remove_directory("fops_tree/a/b/c");
+        file::remove_directory("fops_tree/a/b");
+        file::remove_directory("fops_tree/a");
+        file::remove_directory("fops_tree");
+        return 41;
+    }
+    // second call is success, not AlreadyExists
+    if !file::make_directory_all("fops_tree/a/b/c").is_ok() {
+        return 42;
+    }
+    if !file::remove_directory("fops_tree/a/b/c").is_ok() {
+        return 43;
+    }
+    if !file::remove_directory("fops_tree/a/b").is_ok() {
+        return 44;
+    }
+    if !file::remove_directory("fops_tree/a").is_ok() {
+        return 45;
+    }
+    if !file::remove_directory("fops_tree").is_ok() {
+        return 46;
+    }
+    return 0;
+}
+
+i32 test_make_directory_all_file_conflict() {
+    file::File f = file::create("fops_conflict").unwrap();
+    f.close();
+    if file::make_directory_all("fops_conflict").is_ok() {
+        file::delete_file("fops_conflict");
+        return 50;
+    }
+    if file::make_directory_all("fops_conflict/sub").is_ok() {
+        file::delete_file("fops_conflict");
+        return 51;
+    }
+    if !file::delete_file("fops_conflict").is_ok() {
+        return 52;
+    }
+    return 0;
+}
+
+i32 test_make_directory_all_absolute() {
+    u8[512] cwd_store;
+    [] u8 cwd_view = slice::from_raw(&cwd_store[0], 512);
+    Result([] const u8, Error) cr = process::current_dir(cwd_view);
+    if cr.is_err() {
+        return 60;
+    }
+    [] const u8 cwd = cr.unwrap();
+    u8[1024] join_store;
+    [] u8 join_view = slice::from_raw(&join_store[0], 1024);
+    Result([] u8, Error) jr = path::join(cwd, "fops_abs/a/b", join_view);
+    if jr.is_err() {
+        return 61;
+    }
+    [] u8 abs_path = jr.unwrap();
+    // copy to owned buffer since join_view borrows join_store
+    u8[1024] owned;
+    for usize i = 0; i < abs_path.len; i++ {
+        owned[i] = abs_path[i];
+    }
+    [] const u8 abs_const = slice::from_raw_const!u8(&owned[0], abs_path.len);
+    // make_directory_all takes [] const u8; slice::from_raw gives [] u8 which coerces?
+    if !file::make_directory_all(abs_const).is_ok() {
+        return 62;
+    }
+    if !file::is_directory(abs_const) {
+        return 63;
+    }
+    if !file::remove_directory(abs_const).is_ok() {
+        return 64;
+    }
+    u8[1024] parent_store;
+    [] u8 parent_view = slice::from_raw(&parent_store[0], 1024);
+    Result([] u8, Error) pr = path::join(cwd, "fops_abs/a", parent_view);
+    if pr.is_err() {
+        return 65;
+    }
+    // cleanup parents via relative names
+    if !file::remove_directory("fops_abs/a").is_ok() {
+        return 66;
+    }
+    if !file::remove_directory("fops_abs").is_ok() {
+        return 67;
+    }
+    return 0;
+}
+
+i32 test_make_directory_all_trailing_dot() {
+    if !file::make_directory_all("fops_trail/a/b/").is_ok() {
+        return 70;
+    }
+    if !file::is_directory("fops_trail/a/b") {
+        return 71;
+    }
+    if !file::make_directory_all("fops_dot/./sub").is_ok() {
+        file::remove_directory("fops_trail/a/b");
+        file::remove_directory("fops_trail/a");
+        file::remove_directory("fops_trail");
+        return 72;
+    }
+    if !file::is_directory("fops_dot/sub") {
+        return 73;
+    }
+    if file::make_directory_all("").is_ok() {
+        return 74;
+    }
+    if file::make_directory_all("").unwrap_err() != Error::InvalidArgument {
+        return 75;
+    }
+    if !file::remove_directory("fops_trail/a/b").is_ok() {
+        return 76;
+    }
+    if !file::remove_directory("fops_trail/a").is_ok() {
+        return 77;
+    }
+    if !file::remove_directory("fops_trail").is_ok() {
+        return 78;
+    }
+    if !file::remove_directory("fops_dot/sub").is_ok() {
+        return 79;
+    }
+    if !file::remove_directory("fops_dot").is_ok() {
+        return 80;
+    }
+    return 0;
+}
+
+i32 test_exists_predicates() {
+    file::File f = file::create("fops_pred_file").unwrap();
+    f.close();
+    if !file::make_directory("fops_pred_dir").is_ok() {
+        file::delete_file("fops_pred_file");
+        return 90;
+    }
+    // on a file
+    if !file::exists("fops_pred_file") {
+        return 91;
+    }
+    if !file::is_file("fops_pred_file") {
+        return 92;
+    }
+    if file::is_directory("fops_pred_file") {
+        return 93;
+    }
+    // on a directory
+    if !file::exists("fops_pred_dir") {
+        return 94;
+    }
+    if file::is_file("fops_pred_dir") {
+        return 95;
+    }
+    if !file::is_directory("fops_pred_dir") {
+        return 96;
+    }
+    // on a nonexistent name
+    if file::exists("fops_pred_missing") {
+        return 97;
+    }
+    if file::is_file("fops_pred_missing") {
+        return 98;
+    }
+    if file::is_directory("fops_pred_missing") {
+        return 99;
+    }
+    if !file::delete_file("fops_pred_file").is_ok() {
+        return 100;
+    }
+    if !file::remove_directory("fops_pred_dir").is_ok() {
+        return 101;
+    }
+    return 0;
+}
+
+i32 test_metadata() {
+    file::File f = file::create("fops_meta").unwrap();
+    f.write_all("12345678").unwrap();
+    f.close();
+    Result(dir::Metadata, Error) m = file::metadata("fops_meta");
+    if m.is_err() {
+        file::delete_file("fops_meta");
+        return 110;
+    }
+    if m.unwrap().size != 8 {
+        file::delete_file("fops_meta");
+        return 111;
+    }
+    if m.unwrap().kind != dir::EntryKind::File {
+        file::delete_file("fops_meta");
+        return 112;
+    }
+    if !file::make_directory("fops_meta_dir").is_ok() {
+        file::delete_file("fops_meta");
+        return 113;
+    }
+    Result(dir::Metadata, Error) d = file::metadata("fops_meta_dir");
+    if d.is_err() || d.unwrap().kind != dir::EntryKind::Directory {
+        file::delete_file("fops_meta");
+        file::remove_directory("fops_meta_dir");
+        return 114;
+    }
+    if file::metadata("fops_meta_missing").is_ok() {
+        file::delete_file("fops_meta");
+        file::remove_directory("fops_meta_dir");
+        return 115;
+    }
+    if file::metadata("fops_meta_missing").unwrap_err() != Error::NotFound {
+        file::delete_file("fops_meta");
+        file::remove_directory("fops_meta_dir");
+        return 116;
+    }
+    if !file::delete_file("fops_meta").is_ok() {
+        return 117;
+    }
+    if !file::remove_directory("fops_meta_dir").is_ok() {
+        return 118;
+    }
+    return 0;
+}
+
+public i32 main() {
+    i32 code = test_rename_new_target();
+    if code != 0 {
+        return code;
+    }
+    code = test_rename_replace();
+    if code != 0 {
+        return code;
+    }
+    code = test_rename_missing();
+    if code != 0 {
+        return code;
+    }
+    code = test_make_directory_all_basic();
+    if code != 0 {
+        return code;
+    }
+    code = test_make_directory_all_file_conflict();
+    if code != 0 {
+        return code;
+    }
+    code = test_make_directory_all_absolute();
+    if code != 0 {
+        return code;
+    }
+    code = test_make_directory_all_trailing_dot();
+    if code != 0 {
+        return code;
+    }
+    code = test_exists_predicates();
+    if code != 0 {
+        return code;
+    }
+    return test_metadata();
+}
