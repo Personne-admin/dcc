@@ -1,0 +1,49 @@
+=== FILE: test.dc ===
+module test;
+
+public using Eq(T) = compiles (T a, T b) {
+    a == b;
+};
+
+public struct MS(T) {
+    [] const T rest;
+    T separator;
+}
+
+usize my_index_of(T)([] const T items, T needle) if Eq(T) {
+    for usize i = 0; i < items.len; i++ {
+        if items[i] == needle {
+            return i;
+        }
+    }
+    return items.len;
+}
+
+usize findsep(T)([] const T items, T sep) if Eq(T) {
+    return my_index_of(items, sep);
+}
+
+usize first_len(T)(MS(T)* self) {
+    return self.rest.len;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[5] data = {1, 2, 3, 2, 1};
+    MS(u8) sp;
+    sp.rest = data[0..5];
+    sp.separator = 2;
+    if first_len(&sp) != 5 {
+        return 1;
+    }
+    if findsep(data[0..5], 2 as u8) != 1 {
+        return 2;
+    }
+    if sp.rest[findsep(sp.rest, 2 as u8)] != 2 {
+        return 3;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
