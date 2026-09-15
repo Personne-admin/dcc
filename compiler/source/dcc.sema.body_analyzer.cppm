@@ -966,6 +966,7 @@ export namespace dcc::sema
         SpecializationRegistry& m_spec_registry;
         target::TargetConfig const* m_target{};
         bool m_suppress_errors{};
+        std::unordered_set<ast::Expr const*> m_warned_array_decay;
 
         std::uint32_t m_suppressed_error_count{};
         bool m_in_explicit_conversion{};
@@ -1241,15 +1242,19 @@ export namespace dcc::sema
         detail::ExprResult analyze_call_arg(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
                                             types::TypePtr expected_type, ConstEnv const* const_env, ast::FuncDecl const* default_owner)
         {
+            auto finish = [&](detail::ExprResult r) {
+                warn_implicit_array_copy(&expr, r.type, expected_type);
+                return r;
+            };
             if (default_owner)
             {
                 if (auto* defining_mod = find_defining_module(*default_owner))
                 {
                     auto* default_scope = make_scope(ScopeKind::Function, nullptr);
-                    return analyze_expr(*defining_mod, nullptr, *default_scope, expr, loop_depth, next_off, expected_type, const_env);
+                    return finish(analyze_expr(*defining_mod, nullptr, *default_scope, expr, loop_depth, next_off, expected_type, const_env));
                 }
             }
-            return analyze_expr(mod, fn, scope, expr, loop_depth, next_off, expected_type, const_env);
+            return finish(analyze_expr(mod, fn, scope, expr, loop_depth, next_off, expected_type, const_env));
         }
 
         template <typename... A> void error(sm::SourceRange range, std::format_string<A...> fmt, A&&... args)
@@ -1300,6 +1305,21 @@ export namespace dcc::sema
         {
             if (!m_suppress_errors)
                 m_diag.warning(range, fmt, std::forward<A>(args)...);
+        }
+
+        void warn_implicit_array_copy(ast::Expr const* expr, types::TypePtr actual, types::TypePtr expected)
+        {
+            if (!expr || !std::getenv("DCC_WARN_ARRAY_DECAY"))
+                return;
+            if (!m_warned_array_decay.insert(expr).second)
+                return;
+            if (!actual || !expected || has_error(actual) || has_error(expected))
+                return;
+            auto const* arr = types::type_cast<types::ArrayType>(actual);
+            auto const* sl = types::type_cast<types::SliceType>(expected);
+            if (!arr || !sl || arr->element != sl->element)
+                return;
+            warning(expr->range, "implicit copy of array as slice");
         }
 
         [[nodiscard]] static bool has_error(types::TypePtr ty) noexcept { return !ty || ty->kind == types::TypeKind::Error; }
@@ -6218,7 +6238,9 @@ export namespace dcc::sema
                 switch (match->first)
                 {
                     case UfcsReceiverMatch::Exact:
+                        break;
                     case UfcsReceiverMatch::ArrayToSlice:
+                        warn_implicit_array_copy(&object, receiver.type, param0);
                         break;
                     case UfcsReceiverMatch::AutoRef:
                     case UfcsReceiverMatch::AutoRefQualMismatch:
@@ -10929,6 +10951,8 @@ export namespace dcc::sema
                         return out;
                     }
                     bool ok = pointer_step || (b.op == lex::TokenKind::Eq ? can_assign_return(lhs_type, rhs.type) : (lhs_type == rhs.type));
+                    if (ok && b.op == lex::TokenKind::Eq)
+                        warn_implicit_array_copy(b.rhs, rhs.type, lhs_type);
                     if (ok && b.op == lex::TokenKind::Eq && value_alias_implicit_decay(rhs, lhs_type))
                     {
                         out.type = m_types.m_errort();
@@ -12143,6 +12167,7 @@ export namespace dcc::sema
                                 error(f.range, "field type mismatch");
                                 return std::nullopt;
                             }
+                            warn_implicit_array_copy(f.value, val.type, expected_field);
                         }
                     }
                 }
@@ -14678,6 +14703,7 @@ export namespace dcc::sema
                                 }
                                 else
                                 {
+                                    warn_implicit_array_copy(r.value, got.type, expected);
                                     ast::EnumVariant const* implicit_enum_var = nullptr;
                                     if (!can_assign_return(expected, got.type))
                                     {
@@ -15780,6 +15806,7 @@ export namespace dcc::sema
                     }
                     if (expected && !has_error(init.type) && init.type != expected)
                     {
+                        warn_implicit_array_copy(v->init, init.type, expected);
                         bool implicit_decay_ok = false;
                         if (auto const* exp_ptr = types::type_cast<types::PointerType>(expected))
                         {
