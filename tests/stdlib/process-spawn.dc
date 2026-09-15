@@ -1,0 +1,446 @@
+module main;
+
+import core::target;
+import std::os::process;
+import std::os::pipe;
+import std::os::file;
+import std::os::heap;
+import std::os::error;
+import std::mem;
+import std::slice;
+import std::result;
+
+using std::os::{ process, pipe, file, heap, error };
+using std::{ mem, slice, result };
+using error::Error;
+
+bool same([] const u8 a, [] const u8 b) {
+    return mem::equal(a, b);
+}
+
+struct CountState {
+    mem::Allocator parent;
+    usize live;
+    usize peak;
+}
+
+CountState g_count;
+
+Result([] u8, mem::AllocError) count_alloc(void* ctx, usize len, usize align) {
+    CountState* s = ctx as CountState*;
+    Result([] u8, mem::AllocError) r = s.parent.raw_alloc(len, align);
+    if r.is_ok() {
+        [] u8 b = r.unwrap();
+        s.live = s.live + b.len;
+        if s.live > s.peak {
+            s.peak = s.live;
+        }
+        return Result::Ok(b);
+    }
+    return r.unwrap_err();
+}
+
+bool count_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
+    CountState* s = ctx as CountState*;
+    return s.parent.raw_resize(buf, new_len, align);
+}
+
+void count_free(void* ctx, [] u8 buf, usize align) {
+    CountState* s = ctx as CountState*;
+    s.live = s.live - buf.len;
+    s.parent.raw_free(buf, align);
+}
+
+i32 child_echo() {
+    usize n = process::arg_count();
+    file::File out = file::stdout();
+    for usize i = 2; i < n; i++ {
+        result::Optional([] const u8) o = process::arg(i);
+        if o.is_none() {
+            return 90;
+        }
+        [] const u8 a = o.unwrap_some();
+        if !out.write_all(a).is_ok() {
+            return 91;
+        }
+        u8[1] nul = {0};
+        if !out.write_all(nul[0..1]).is_ok() {
+            return 92;
+        }
+    }
+    return 0;
+}
+
+// reads all bytes from reader until EOF, returns total
+i32 read_all_bytes(pipe::PipeReader* reader, [] u8 buf, usize* total_out) {
+    usize total = 0;
+    while true {
+        if total >= buf.len {
+            return 1;
+        }
+        Result(usize, Error) r = pipe::read(reader, buf[total..buf.len]);
+        if r.is_err() {
+            return 2;
+        }
+        usize got = r.unwrap();
+        if got == 0 {
+            break;
+        }
+        total = total + got;
+    }
+    *total_out = total;
+    return 0;
+}
+
+i32 test_echo_64() {
+    static if core::target::OS == core::target::Os::Windows {
+        // arg() is unimplemented on Windows; echo round-trip needs a helper
+        // binary convention the suite does not have. error cases below still run.
+        return 0;
+    } else {
+        result::Optional([] const u8) self = process::arg(0);
+        if self.is_none() {
+            return 100;
+        }
+        [] const u8 prog = self.unwrap_some();
+        mem::Allocator ha = heap::allocator();
+        pipe::Pipe p = pipe::create_inheritable().unwrap();
+        process::Command cmd = process::new_command(prog);
+        process::Arg[65] argv;
+        argv[0] = "--echo-child";
+        // 64 payload args: arg-00 .. arg-63 (array 64 of 8 bytes)
+        u8[8][64] stores;
+        for usize i = 0; i < 64; i++ {
+            stores[i][0] = 'a' as u8;
+            stores[i][1] = 'r' as u8;
+            stores[i][2] = 'g' as u8;
+            stores[i][3] = '-' as u8;
+            stores[i][4] = ('0' as u8 + ((i / 10) as u8));
+            stores[i][5] = ('0' as u8 + ((i % 10) as u8));
+            stores[i][6] = 0;
+            stores[i][7] = 0;
+            argv[i + 1] = stores[i][0..6];
+        }
+        cmd.args = argv[0..65];
+        cmd.stdio.output = p.writer.handle;
+        Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
+        if cr.is_err() {
+            p.writer.close();
+            p.reader.close();
+            return 101;
+        }
+        process::Child child = cr.unwrap();
+        p.writer.close();
+        u8[2048] buf;
+        [] u8 view = slice::from_raw(&buf[0], 2048);
+        usize total = 0;
+        if read_all_bytes(&p.reader, view, &total) != 0 {
+            p.reader.close();
+            return 102;
+        }
+        p.reader.close();
+        Result(process::ExitStatus, Error) wr = process::wait(&child);
+        if wr.is_err() || !wr.unwrap().success() {
+            return 103;
+        }
+        // split on NUL into 64 parts
+        usize pos = 0;
+        for usize i = 0; i < 64; i++ {
+            usize start = pos;
+            while pos < total && view[pos] != 0 {
+                pos++;
+            }
+            if pos >= total {
+                return 104;
+            }
+            [] u8 got = view[start..pos];
+            pos++;
+            // expected arg-XX
+            u8[6] want;
+            want[0] = 'a' as u8;
+            want[1] = 'r' as u8;
+            want[2] = 'g' as u8;
+            want[3] = '-' as u8;
+            want[4] = ('0' as u8 + ((i / 10) as u8));
+            want[5] = ('0' as u8 + ((i % 10) as u8));
+            if !same(got, want[0..6]) {
+                return 105;
+            }
+        }
+        if pos != total {
+            return 106;
+        }
+        return 0;
+    }
+}
+
+i32 test_echo_spaces() {
+    static if core::target::OS == core::target::Os::Windows {
+        return 0;
+    } else {
+        result::Optional([] const u8) self = process::arg(0);
+        if self.is_none() { return 110; }
+        [] const u8 prog = self.unwrap_some();
+        mem::Allocator ha = heap::allocator();
+        pipe::Pipe p = pipe::create_inheritable().unwrap();
+        process::Command cmd = process::new_command(prog);
+        process::Arg[3] argv;
+        argv[0] = "--echo-child";
+        argv[1] = "hello world";
+        argv[2] = "a  b";
+        cmd.args = argv[0..3];
+        cmd.stdio.output = p.writer.handle;
+        Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
+        if cr.is_err() { p.writer.close(); p.reader.close(); return 111; }
+        process::Child child = cr.unwrap();
+        p.writer.close();
+        u8[256] buf;
+        [] u8 view = slice::from_raw(&buf[0], 256);
+        usize total = 0;
+        if read_all_bytes(&p.reader, view, &total) != 0 { p.reader.close(); return 112; }
+        p.reader.close();
+        if !process::wait(&child).unwrap().success() { return 113; }
+        // expect "hello world\0a  b\0"
+        usize p0 = 0;
+        while p0 < total && view[p0] != 0 { p0++; }
+        if p0 >= total || !same(view[0..p0], "hello world") { return 114; }
+        usize p1 = p0 + 1;
+        usize q = p1;
+        while q < total && view[q] != 0 { q++; }
+        if q >= total || !same(view[p1..q], "a  b") { return 115; }
+        if q + 1 != total { return 116; }
+        return 0;
+    }
+}
+
+i32 test_echo_quote_backslash() {
+    static if core::target::OS == core::target::Os::Windows {
+        return 0;
+    } else {
+        result::Optional([] const u8) self = process::arg(0);
+        if self.is_none() { return 120; }
+        [] const u8 prog = self.unwrap_some();
+        mem::Allocator ha = heap::allocator();
+        pipe::Pipe p = pipe::create_inheritable().unwrap();
+        process::Command cmd = process::new_command(prog);
+        // exact bytes: a " b \ c  (a, quote, b, backslash, c)
+        u8[5] tricky = {97, 34, 98, 92, 99};
+        process::Arg[2] argv;
+        argv[0] = "--echo-child";
+        argv[1] = tricky[0..5];
+        cmd.args = argv[0..2];
+        cmd.stdio.output = p.writer.handle;
+        Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
+        if cr.is_err() { p.writer.close(); p.reader.close(); return 121; }
+        process::Child child = cr.unwrap();
+        p.writer.close();
+        u8[256] buf;
+        [] u8 view = slice::from_raw(&buf[0], 256);
+        usize total = 0;
+        if read_all_bytes(&p.reader, view, &total) != 0 { p.reader.close(); return 122; }
+        p.reader.close();
+        if !process::wait(&child).unwrap().success() { return 123; }
+        if total != 6 { return 124; }
+        if !same(view[0..5], tricky[0..5]) { return 125; }
+        if view[5] != 0 { return 126; }
+        return 0;
+    }
+}
+
+i32 test_zero_arg() {
+    result::Optional([] const u8) self = process::arg(0);
+    static if core::target::OS == core::target::Os::Windows {
+        // Windows arg() is empty; use fixed program name that fails fast?
+        // An empty-args spawn of a missing program still exercises the
+        // zero-arg vector path (argv[0] + NULL) without needing self.
+        mem::Allocator ha = heap::allocator();
+        process::Command cmd = process::new_command("___dcc_missing_zero_arg___");
+        Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
+        if cr.is_err() {
+            return 0;
+        }
+        process::Child child = cr.unwrap();
+        process::wait(&child);
+        return 0;
+    } else {
+        if self.is_none() { return 130; }
+        [] const u8 prog = self.unwrap_some();
+        file::File s = file::create("spawn_zero_sentinel").unwrap();
+        s.close();
+        mem::Allocator ha = heap::allocator();
+        process::Command cmd = process::new_command(prog);
+        // args stays empty
+        Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
+        if cr.is_err() {
+            file::delete_file("spawn_zero_sentinel");
+            return 131;
+        }
+        process::Child child = cr.unwrap();
+        Result(process::ExitStatus, Error) wr = process::wait(&child);
+        file::delete_file("spawn_zero_sentinel");
+        if wr.is_err() { return 132; }
+        if wr.unwrap().code != 7 { return 133; }
+        return 0;
+    }
+}
+
+i32 test_invalid_args() {
+    mem::Allocator ha = heap::allocator();
+    // empty program
+    process::Command empty = process::new_command("");
+    if process::spawn(&ha, &empty).unwrap_err() != Error::InvalidArgument {
+        return 140;
+    }
+    // NUL in program
+    u8[3] nul_prog = {97, 0, 98};
+    process::Command with_nul_prog = process::new_command(nul_prog[0..3]);
+    if process::spawn(&ha, &with_nul_prog).unwrap_err() != Error::InvalidArgument {
+        return 141;
+    }
+    // NUL in arg: must fail before any process is created
+    result::Optional([] const u8) self = process::arg(0);
+    static if core::target::OS == core::target::Os::Windows {
+        [] const u8 prog = "___dcc_missing_nul_arg___";
+        u8[3] nul_arg = {120, 0, 121};
+        process::Arg[1] argv;
+        argv[0] = nul_arg[0..3];
+        process::Command cmd = process::new_command(prog);
+        cmd.args = argv[0..1];
+        if process::spawn(&ha, &cmd).unwrap_err() != Error::InvalidArgument {
+            return 142;
+        }
+    } else {
+        if self.is_none() { return 143; }
+        [] const u8 prog = self.unwrap_some();
+        u8[3] nul_arg = {120, 0, 121};
+        process::Arg[1] argv;
+        argv[0] = nul_arg[0..3];
+        process::Command cmd = process::new_command(prog);
+        cmd.args = argv[0..1];
+        if process::spawn(&ha, &cmd).unwrap_err() != Error::InvalidArgument {
+            return 144;
+        }
+    }
+    return 0;
+}
+
+i32 test_allocator_oom() {
+    result::Optional([] const u8) self = process::arg(0);
+    static if core::target::OS == core::target::Os::Windows {
+        return 0;
+    } else {
+        if self.is_none() { return 150; }
+        [] const u8 prog = self.unwrap_some();
+        u8[32] backing;
+        mem::FixedBuffer fb = mem::new_fixed_buffer(backing[0..32]);
+        mem::Allocator fa = fb.allocator();
+        process::Command cmd = process::new_command(prog);
+        process::Arg[1] argv;
+        argv[0] = "--echo-child";
+        cmd.args = argv[0..1];
+        if process::spawn(&fa, &cmd).unwrap_err() != Error::OutOfMemory {
+            return 151;
+        }
+        return 0;
+    }
+}
+
+i32 test_allocator_reuse() {
+    static if core::target::OS == core::target::Os::Windows {
+        return 0;
+    } else {
+        result::Optional([] const u8) self = process::arg(0);
+        if self.is_none() { return 160; }
+        [] const u8 prog = self.unwrap_some();
+        g_count.parent = heap::allocator();
+        g_count.live = 0;
+        g_count.peak = 0;
+        mem::Allocator ca = {ctx = &g_count as void*, alloc_fn = count_alloc, resize_fn = count_resize, free_fn = count_free};
+        for usize i = 0; i < 200; i++ {
+            process::Command cmd = process::new_command(prog);
+            process::Arg[1] argv;
+            argv[0] = "--echo-child";
+            cmd.args = argv[0..1];
+            // inherit stdio; child echoes to our stdout? No, use inherit so no pipe needed.
+            // To avoid polluting test output, redirect child stdout to /dev/null via file?
+            // Instead spawn with output to a closed pipe that we drain? Simpler: spawn and wait
+            // with inherited stdio; the echo child writes "--echo-child"? No, echo child writes
+            // args after magic to stdout, which would pollute our stdout capture. Use a pipe.
+            pipe::Pipe p = pipe::create().unwrap();
+            cmd.stdio.output = p.writer.handle;
+            Result(process::Child, Error) cr = process::spawn(&ca, &cmd);
+            if cr.is_err() {
+                p.writer.close();
+                p.reader.close();
+                return 161;
+            }
+            process::Child child = cr.unwrap();
+            p.writer.close();
+            // drain
+            u8[64] tmp;
+            while true {
+                Result(usize, Error) rr = pipe::read(&p.reader, tmp[0..64]);
+                if rr.is_err() { p.reader.close(); return 162; }
+                if rr.unwrap() == 0 { break; }
+            }
+            p.reader.close();
+            Result(process::ExitStatus, Error) wr = process::wait(&child);
+            if wr.is_err() || !wr.unwrap().success() {
+                return 163;
+            }
+            if g_count.live != 0 {
+                return 164;
+            }
+        }
+        // peak should be bounded: two pages per spawn, not 200 pages
+        if g_count.peak > 65536 {
+            return 165;
+        }
+        return 0;
+    }
+}
+
+public i32 main() {
+    // child dispatches first
+    static if core::target::OS == core::target::Os::Linux {
+        if process::arg_count() >= 2 {
+            result::Optional([] const u8) m = process::arg(1);
+            if m.is_some() && same(m.unwrap_some(), "--echo-child") {
+                return child_echo();
+            }
+        }
+        if file::exists("spawn_zero_sentinel") {
+            return 7;
+        }
+    } else {
+        // Windows: arg() is empty; check sentinel only (echo tests skip)
+        if file::exists("spawn_zero_sentinel") {
+            return 7;
+        }
+    }
+    i32 code = test_echo_64();
+    if code != 0 {
+        return code;
+    }
+    code = test_echo_spaces();
+    if code != 0 {
+        return code;
+    }
+    code = test_echo_quote_backslash();
+    if code != 0 {
+        return code;
+    }
+    code = test_zero_arg();
+    if code != 0 {
+        return code;
+    }
+    code = test_invalid_args();
+    if code != 0 {
+        return code;
+    }
+    code = test_allocator_oom();
+    if code != 0 {
+        return code;
+    }
+    return test_allocator_reuse();
+}
