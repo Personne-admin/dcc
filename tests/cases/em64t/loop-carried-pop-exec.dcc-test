@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+
+usize runit([] const u8 path, [] u8 out) {
+    usize[8] starts;
+    usize depth = 0;
+    usize n = 0;
+    usize i = 0;
+    while i < path.len {
+        usize start = i;
+        while i < path.len && path[i] != 47 as u8 { i++; }
+        usize plen = i - start;
+        i++;
+        if plen == 0 { continue; }
+        bool up = plen == 2 && path[start] == 46 as u8 && path[start + 1] == 46 as u8;
+        if up && depth > 0 {
+            depth--;
+            n = starts[depth];
+            if out[n - 1] == 47 as u8 { n--; }
+            continue;
+        }
+        if n != 0 {
+            out[n] = 47 as u8; n++;
+        }
+        starts[depth] = n;
+        depth++;
+        out[n] = path[start]; n++;
+    }
+    return n;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[16] obuf;
+    [] u8 out = obuf[0..16];
+    usize n = runit("x/y/../z", out);
+    if n != 3 {
+        return 1;
+    }
+    if out[0] != 120 as u8 {
+        return 2;
+    }
+    if out[1] != 47 as u8 {
+        return 3;
+    }
+    if out[2] != 122 as u8 {
+        return 4;
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O1 ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0
