@@ -64,8 +64,14 @@ i32 test_normalize_cases() {
     if r.is_err() || !same(r.unwrap(), "/a/b") { return 22; }
     r = path::normalize("a///b//c", out);
     if r.is_err() || !same(r.unwrap(), "a/b/c") { return 23; }
-    // NOTE: consecutive ".." (e.g. "a/b/c/../../d" -> "a/d") is covered
-    // in path-double-dot.dc, gated to llvm (see docs/known-issues.md).
+    r = path::normalize("a/b/c/../../d", out);
+    if r.is_err() || !same(r.unwrap(), "a/d") { return 24; }
+    r = path::normalize("aa/bb/cc/../../dd", out);
+    if r.is_err() || !same(r.unwrap(), "aa/dd") { return 25; }
+    r = path::normalize("a/b/c/d/../../../e", out);
+    if r.is_err() || !same(r.unwrap(), "a/e") { return 26; }
+    r = path::normalize("a/b/c/../..", out);
+    if r.is_err() || !same(r.unwrap(), "a") { return 27; }
     return 0;
 }
 
