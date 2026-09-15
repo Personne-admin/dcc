@@ -267,28 +267,18 @@ public Split(T) split(T)([] const T items, T separator) if Eq(T) {
 
 /// yields each separator-delimited run, including empty ones.
 public Optional([] const T) next(T)(Split(T)* self) if Eq(T) {
-    // copy-operate-writeback: member access through the pointer does not
-    // substitute the element type while `T` is still generic.
-    Split(T) b = *self;
-    if b.done {
+    if self.done {
         return Optional::None;
     }
 
-    // linear search inline: calling the constrained `index_of` with the
-    // still-generic separator does not forward this function's own
-    // `Eq(T)` constraint to the callee during instantiation.
-    usize i = 0;
-    while i < b.rest.len {
-        if b.rest[i] == b.separator {
-            [] const T piece = b.rest[0.. i];
-            b.rest = b.rest[i + 1.. b.rest.len];
-            *self = b;
-            return Optional::Some(piece);
-        }
-        i++;
+    Optional(usize) at = index_of(self.rest, self.separator);
+    if at.is_none() {
+        self.done = true;
+        return Optional::Some(self.rest);
     }
 
-    b.done = true;
-    *self = b;
-    return Optional::Some(b.rest);
+    usize i = at.unwrap_some();
+    [] const T piece = self.rest[0.. i];
+    self.rest = self.rest[i + 1.. self.rest.len];
+    return Optional::Some(piece);
 }
