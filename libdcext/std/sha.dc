@@ -302,8 +302,8 @@ public struct Sha1 {
 
 public Sha1 new_sha1() {
     Sha1 self;
-    // Borrow explicitly as slices: implicit array decay copies, which
-    // would leave the state uninitialized.
+    // Borrow explicitly as slices: a T[N] value passed bare would copy
+    // (spec section 5), which would leave the state uninitialized.
     mem::copy(self.state[0..5], IV1[0..5]);
     self.buffered = 0;
     self.length = 0;
@@ -376,7 +376,7 @@ void sha1_block(Sha1* self, [] const u8 block) {
 }
 
 public void update(Sha1* self, [] const u8 bytes) {
-    // Slice explicitly: initializing from the bare array would copy.
+    // Slice explicitly: a bare T[N] is a value and would copy (spec 5).
     [] u8 buf = self.buffer[0..SHA1_BLOCK_LEN];
     usize i = 0;
 
