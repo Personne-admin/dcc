@@ -139,3 +139,285 @@ public void sleep_ns(u64 nanos) {
 public void sleep_ms(u64 millis) {
     sleep_ns(millis * NANOS_PER_MILLI);
 }
+
+//!
+//! Civil time
+//!
+//! Proleptic Gregorian, no leap seconds, no timezone database. A
+//! `DateTime` carries a fixed offset from UTC and nothing more: that is
+//! enough to read and write timestamps in config files, logs and archive
+//! formats, and stops well short of pretending to know what `Europe/Prague`
+//! meant on a given date.
+//!
+//! Year 0 is 1 BCE, so the arithmetic is uniform across the epoch rather
+//! than skipping a year the way the historical calendar does.
+//!
+
+public using i64 SECONDS_PER_DAY = 86400;
+
+public struct Date {
+    i32 year;
+    /// 1..12
+    u8 month;
+    /// 1..31
+    u8 day;
+}
+
+public struct Time {
+    u8 hour;
+    u8 minute;
+    u8 second;
+    u32 nanosecond;
+}
+
+public struct DateTime {
+    Date date;
+    Time time;
+    /// minutes east of UTC; 0 for UTC itself
+    i16 offset_minutes;
+}
+
+public enum Weekday : u8 {
+    Sunday,
+    Monday,
+    Tuesday,
+    Wednesday,
+    Thursday,
+    Friday,
+    Saturday,
+}
+
+public bool is_leap_year(i32 year) {
+    if year % 4 != 0 {
+        return false;
+    }
+
+    if year % 100 != 0 {
+        return true;
+    }
+
+    return year % 400 == 0;
+}
+
+public u8 days_in_month(i32 year, u8 month) {
+    return match month {
+        1 => 31,
+        2 => if is_leap_year(year) {
+            29
+        } else {
+            28
+        },
+        3 => 31,
+        4 => 30,
+        5 => 31,
+        6 => 30,
+        7 => 31,
+        8 => 31,
+        9 => 30,
+        10 => 31,
+        11 => 30,
+        12 => 31,
+        _ => 0,
+    };
+}
+
+public bool is_valid_date(const Date* self) {
+    if self.month < 1 || self.month > 12 {
+        return false;
+    }
+
+    return self.day >= 1 && self.day <= days_in_month(self.year, self.month);
+}
+
+public bool is_valid_time(const Time* self) {
+    return self.hour < 24
+        && self.minute < 60
+        && self.second < 60
+        && self.nanosecond < NANOS_PER_SECOND as u32;
+}
+
+//!
+//! Day arithmetic
+//!
+//! Hinnant's civil-from-days pair, shifted so the era starts in March
+//! and the leap day lands at the end of a year. Both directions are
+//! exact over the whole i64 day range and neither branches per month.
+//!
+
+/// days since 1970-01-01. negative before the epoch.
+public i64 days_from_civil(i32 year, u8 month, u8 day) {
+    i64 y = year as i64;
+    i64 m = month as i64;
+    i64 d = day as i64;
+
+    y = y - (
+        if m <= 2 {
+            1
+        } else {
+            0
+        }
+    );
+
+    i64 era = (
+        if y >= 0 {
+            y
+        } else {
+            y - 399
+        }
+    ) / 400;
+
+    i64 yoe = y - era * 400;
+
+    i64 mp = if m > 2 {
+        m - 3
+    } else {
+        m + 9
+    };
+
+    i64 doy = (153 * mp + 2) / 5 + d - 1;
+    i64 doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+
+    return era * 146097 + doe - 719468;
+}
+
+public Date civil_from_days(i64 days) {
+    i64 z = days + 719468;
+    i64 era = (
+        if z >= 0 {
+            z
+        } else {
+            z - 146096
+        }
+    ) / 146097;
+
+    i64 doe = z - era * 146097;
+    i64 yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    i64 y = yoe + era * 400;
+    i64 doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    i64 mp = (5 * doy + 2) / 153;
+    i64 d = doy - (153 * mp + 2) / 5 + 1;
+
+    i64 m = if mp < 10 {
+        mp + 3
+    } else {
+        mp - 9
+    };
+
+    i64 o = if m <= 2 {
+        1
+    } else {
+        0
+    };
+
+    return Date {
+        year = (y + o) as i32,
+        month = m as u8,
+        day = d as u8,
+    };
+}
+
+public Weekday weekday_from_days(i64 days) {
+    // 1970-01-01 was a Thursday
+    i64 w = (days + 4) % 7;
+    if w < 0 {
+        w = w + 7;
+    }
+
+    return match w {
+        0 => Weekday::Sunday,
+        1 => Weekday::Monday,
+        2 => Weekday::Tuesday,
+        3 => Weekday::Wednesday,
+        4 => Weekday::Thursday,
+        5 => Weekday::Friday,
+        _ => Weekday::Saturday,
+    };
+}
+
+public Weekday day_of_week(const Date* self) {
+    return weekday_from_days(
+        days_from_civil(self.year, self.month, self.day)
+    );
+}
+
+/// day of the year, 1..366.
+public u16 day_of_year(const Date* self) {
+    i64 start = days_from_civil(self.year, 1, 1);
+    i64 here = days_from_civil(self.year, self.month, self.day);
+    return (here - start + 1) as u16;
+}
+
+//!
+//! Conversion
+//!
+
+/// splits a Unix timestamp into UTC civil fields. `seconds` may be
+/// negative; the division floors so the time of day stays in range.
+public DateTime from_unix_seconds(i64 seconds, u32 nanosecond) {
+    i64 days = seconds / SECONDS_PER_DAY;
+    i64 rest = seconds % SECONDS_PER_DAY;
+
+    if rest < 0 {
+        days = days - 1;
+        rest = rest + SECONDS_PER_DAY;
+    }
+
+    return DateTime {
+        date = civil_from_days(days),
+        time = {
+            hour = (rest / 3600) as u8,
+            minute = ((rest % 3600) / 60) as u8,
+            second = (rest % 60) as u8,
+            nanosecond = nanosecond,
+        },
+        offset_minutes = 0,
+    };
+}
+
+/// the Unix timestamp `self` names, with its offset applied. a field
+/// outside its range is normalized by the day arithmetic rather than
+/// rejected; call `is_valid_date` first when that matters.
+public i64 to_unix_seconds(const DateTime* self) {
+    i64 days = days_from_civil(
+        self.date.year,
+        self.date.month,
+        self.date.day
+    );
+
+    i64 secs = days * SECONDS_PER_DAY
+        + (self.time.hour as i64) * 3600
+        + (self.time.minute as i64) * 60
+        + self.time.second as i64;
+
+    return secs - (self.offset_minutes as i64) * 60;
+}
+
+/// splits an epoch-nanosecond reading, as `realtime_ns` returns.
+public DateTime to_civil(u64 epoch_ns) {
+    return from_unix_seconds(
+        (epoch_ns / NANOS_PER_SECOND) as i64,
+        (epoch_ns % NANOS_PER_SECOND) as u32
+    );
+}
+
+public u64 from_civil(const DateTime* self) {
+    i64 secs = to_unix_seconds(self);
+    if secs < 0 {
+        return 0;
+    }
+
+    return (secs as u64) * NANOS_PER_SECOND + self.time.nanosecond as u64;
+}
+
+/// re-expresses `self` at a different UTC offset, naming the same
+/// instant.
+public DateTime with_offset(const DateTime* self, i16 offset_minutes) {
+    i64 secs = to_unix_seconds(self) + (offset_minutes as i64) * 60;
+    DateTime out = from_unix_seconds(secs, self.time.nanosecond);
+    out.offset_minutes = offset_minutes;
+    return out;
+}
+
+public Result(DateTime, Error) now_utc() {
+    return Result::Ok(to_civil(realtime_ns() ?));
+}
