@@ -771,6 +771,21 @@ namespace dcc::ir::pass
 
                     bool live = ud.has_uses(inst) || value_used_by_terminator(*ctx.func, inst);
 
+                    if (live && inst->kind == IrNodeKind::Phi)
+                    {
+                        bool self_only = true;
+                        for (auto* u : ud.uses_of(inst))
+                        {
+                            if (u && u != inst)
+                            {
+                                self_only = false;
+                                break;
+                            }
+                        }
+                        if (self_only && !value_used_by_terminator(*ctx.func, inst))
+                            live = false;
+                    }
+
                     if (!live)
                     {
                         it = insts.erase(it);
