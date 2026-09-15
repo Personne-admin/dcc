@@ -1,0 +1,329 @@
+module main;
+
+import core::target;
+import std::os::path;
+import std::os::error;
+import std::os::dir;
+import std::sys::linux::syscall;
+import std::sys::win::abi;
+import std::sys::linux::abi;
+import std::mem;
+import std::slice;
+import std::result;
+
+using std::os::{ path, error, dir };
+using std::sys::{ linux, win };
+using std::{ mem, slice, result };
+using error::Error;
+
+bool same([] const u8 a, [] const u8 b) {
+    return mem::equal(a, b);
+}
+
+i32 check_normalize([] const u8 input, [] const u8 want, u8* buf, usize cap) {
+    [] u8 out = slice::from_raw(buf, cap);
+    Result([] u8, Error) r = path::normalize(input, out);
+    if r.is_err() {
+        return 1;
+    }
+    if !same(r.unwrap(), want) {
+        return 2;
+    }
+    return 0;
+}
+
+i32 test_normalize_cases() {
+    u8[128] store;
+    [] u8 out = slice::from_raw(&store[0], 128);
+    Result([] u8, Error) r;
+    r = path::normalize("a/./b", out);
+    if r.is_err() || !same(r.unwrap(), "a/b") { return 10; }
+    r = path::normalize("a/b/../c", out);
+    if r.is_err() || !same(r.unwrap(), "a/c") { return 11; }
+    r = path::normalize("a//b", out);
+    if r.is_err() || !same(r.unwrap(), "a/b") { return 12; }
+    r = path::normalize("a/b/..", out);
+    if r.is_err() || !same(r.unwrap(), "a") { return 13; }
+    r = path::normalize(".", out);
+    if r.is_err() || !same(r.unwrap(), ".") { return 14; }
+    r = path::normalize("", out);
+    if r.is_err() || !same(r.unwrap(), ".") { return 15; }
+    r = path::normalize("..", out);
+    if r.is_err() || !same(r.unwrap(), "..") { return 16; }
+    r = path::normalize("../..", out);
+    if r.is_err() || !same(r.unwrap(), "../..") { return 17; }
+    r = path::normalize("a/../..", out);
+    if r.is_err() || !same(r.unwrap(), "..") { return 18; }
+    r = path::normalize("/..", out);
+    if r.is_err() || !same(r.unwrap(), "/") { return 19; }
+    r = path::normalize("/a/../..", out);
+    if r.is_err() || !same(r.unwrap(), "/") { return 20; }
+    r = path::normalize("a/b/", out);
+    if r.is_err() || !same(r.unwrap(), "a/b") { return 21; }
+    r = path::normalize("/a/b/", out);
+    if r.is_err() || !same(r.unwrap(), "/a/b") { return 22; }
+    r = path::normalize("a///b//c", out);
+    if r.is_err() || !same(r.unwrap(), "a/b/c") { return 23; }
+    // NOTE: consecutive ".." (e.g. "a/b/c/../../d" -> "a/d") is covered
+    // in path-double-dot.dc, gated to llvm (see docs/known-issues.md).
+    return 0;
+}
+
+i32 test_normalize_limits() {
+    if path::MAX_COMPONENTS != 128 {
+        return 30;
+    }
+    // more than MAX_COMPONENTS must fail rather than corrupt
+    u8[1024] big;
+    usize at = 0;
+    for usize i = 0; i < 129; i++ {
+        if i != 0 {
+            big[at] = '/' as u8;
+            at++;
+        }
+        big[at] = 'a' as u8;
+        at++;
+    }
+    [] u8 input = slice::from_raw(&big[0], at);
+    u8[1024] outb;
+    [] u8 out = slice::from_raw(&outb[0], 1024);
+    Result([] u8, Error) r = path::normalize(input, out);
+    if r.is_ok() {
+        return 31;
+    }
+    if r.unwrap_err() != Error::NameTooLong {
+        return 32;
+    }
+    // exactly MAX_COMPONENTS succeeds
+    at = 0;
+    for usize i = 0; i < 128; i++ {
+        if i != 0 {
+            big[at] = '/' as u8;
+            at++;
+        }
+        big[at] = 'a' as u8;
+        at++;
+    }
+    input = slice::from_raw(&big[0], at);
+    r = path::normalize(input, out);
+    if r.is_err() {
+        return 33;
+    }
+    // result too long for out must not write past the buffer
+    u8[32] backing;
+    for usize i = 0; i < 32; i++ {
+        backing[i] = 170 as u8;
+    }
+    [] u8 small = slice::from_raw(&backing[0], 4);
+    r = path::normalize("a/b/c/d", small);
+    if r.is_ok() {
+        return 34;
+    }
+    if r.unwrap_err() != Error::NameTooLong {
+        return 35;
+    }
+    for usize i = 4; i < 32; i++ {
+        if backing[i] != 170 as u8 {
+            return 36;
+        }
+    }
+    return 0;
+}
+
+i32 test_join() {
+    u8[64] store;
+    [] u8 out = slice::from_raw(&store[0], 64);
+    Result([] u8, Error) r;
+    r = path::join("a", "b", out);
+    if r.is_err() || !same(r.unwrap(), "a/b") { return 40; }
+    r = path::join("a", "/b", out);
+    if r.is_err() || !same(r.unwrap(), "/b") { return 41; }
+    r = path::join("", "b", out);
+    if r.is_err() || !same(r.unwrap(), "b") { return 42; }
+    r = path::join("a", "", out);
+    if r.is_err() || !same(r.unwrap(), "a") { return 43; }
+    r = path::join("a/", "b", out);
+    if r.is_err() || !same(r.unwrap(), "a/b") { return 44; }
+    r = path::join("", "", out);
+    if r.is_err() || !same(r.unwrap(), "") { return 45; }
+    // result too long for out
+    u8[4] tiny;
+    [] u8 tout = slice::from_raw(&tiny[0], 4);
+    r = path::join("aaa", "bbb", tout);
+    if r.is_ok() {
+        return 46;
+    }
+    if r.unwrap_err() != Error::NameTooLong {
+        return 47;
+    }
+    return 0;
+}
+
+i32 test_relative() {
+    u8[64] store;
+    [] u8 out = slice::from_raw(&store[0], 64);
+    Result([] u8, Error) r;
+    r = path::relative("a/b", "a/b", out);
+    if r.is_err() || !same(r.unwrap(), ".") { return 50; }
+    r = path::relative("a/b", "a/b/c", out);
+    if r.is_err() || !same(r.unwrap(), "c") { return 51; }
+    r = path::relative("a/b/c", "a/d", out);
+    if r.is_err() || !same(r.unwrap(), "../../d") { return 52; }
+    r = path::relative("/a/b", "/c/d", out);
+    if r.is_err() || !same(r.unwrap(), "../../c/d") { return 53; }
+    r = path::relative("/a", "b", out);
+    if r.is_ok() || r.unwrap_err() != Error::InvalidArgument { return 54; }
+    r = path::relative("a", "/b", out);
+    if r.is_ok() || r.unwrap_err() != Error::InvalidArgument { return 55; }
+    r = path::relative("a/./b", "a/b/../b/c", out);
+    if r.is_err() || !same(r.unwrap(), "c") { return 56; }
+    r = path::relative("/a/b", "/a/b/c/d", out);
+    if r.is_err() || !same(r.unwrap(), "c/d") { return 57; }
+    // small out
+    u8[1] tiny;
+    [] u8 tout = slice::from_raw(&tiny[0], 1);
+    r = path::relative("a", "a/b/c/d", tout);
+    if r.is_ok() || r.unwrap_err() != Error::NameTooLong { return 58; }
+    return 0;
+}
+
+i32 test_root_and_absolute() {
+    if path::root_len("/a") != 1 {
+        return 60;
+    }
+    if path::root_len("a") != 0 {
+        return 61;
+    }
+    if path::root_len("/") != 1 {
+        return 62;
+    }
+    if path::root_len("") != 0 {
+        return 63;
+    }
+    if !path::is_absolute("/a") {
+        return 64;
+    }
+    if path::is_absolute("a") {
+        return 65;
+    }
+    if path::is_absolute("") {
+        return 66;
+    }
+    static if core::target::OS == core::target::Os::Windows {
+        if path::root_len("C:\\x") != 3 {
+            return 67;
+        }
+        if path::root_len("\\\\server\\share") != 2 {
+            return 68;
+        }
+        if path::root_len("\\x") != 1 {
+            return 69;
+        }
+        if !path::is_absolute("C:\\x") {
+            return 70;
+        }
+        if path::is_absolute("relative") {
+            return 71;
+        }
+    } else {
+        if path::separator() != '/' as u8 {
+            return 72;
+        }
+        if path::is_separator('\\' as u8) {
+            return 73;
+        }
+    }
+    return 0;
+}
+
+i32 test_stem() {
+    if !same(path::stem("a.txt"), "a") { return 80; }
+    if !same(path::stem("a.tar.gz"), "a.tar") { return 81; }
+    if !same(path::stem("a"), "a") { return 82; }
+    if !same(path::stem(".hidden"), ".hidden") { return 83; }
+    if !same(path::stem("dir/a.txt"), "a") { return 84; }
+    if !same(path::stem("dir/.hidden"), ".hidden") { return 85; }
+    if !same(path::stem("dir/a"), "a") { return 86; }
+    if !same(path::stem("/a/b/c.tar.gz"), "c.tar") { return 87; }
+    return 0;
+}
+
+i32 test_kind_helpers() {
+    if dir::kind_from_linux(linux::abi::DT_REG) != dir::EntryKind::File {
+        return 90;
+    }
+    if dir::kind_from_linux(linux::abi::DT_DIR) != dir::EntryKind::Directory {
+        return 91;
+    }
+    if dir::kind_from_linux(linux::abi::DT_LNK) != dir::EntryKind::Symlink {
+        return 92;
+    }
+    if dir::kind_from_linux(linux::abi::DT_FIFO) != dir::EntryKind::Fifo {
+        return 93;
+    }
+    if dir::kind_from_linux(linux::abi::DT_SOCK) != dir::EntryKind::Socket {
+        return 94;
+    }
+    if dir::kind_from_linux(linux::abi::DT_UNKNOWN) != dir::EntryKind::Unknown {
+        return 95;
+    }
+    if dir::kind_from_mode(linux::abi::S_IFREG) != dir::EntryKind::File {
+        return 96;
+    }
+    if dir::kind_from_mode(linux::abi::S_IFDIR) != dir::EntryKind::Directory {
+        return 97;
+    }
+    if dir::kind_from_mode(linux::abi::S_IFLNK) != dir::EntryKind::Symlink {
+        return 98;
+    }
+    if dir::kind_from_mode(linux::abi::S_IFIFO) != dir::EntryKind::Fifo {
+        return 99;
+    }
+    if dir::kind_from_mode(linux::abi::S_IFSOCK) != dir::EntryKind::Socket {
+        return 100;
+    }
+    if dir::kind_from_attributes(win::abi::FILE_ATTRIBUTE_DIRECTORY) != dir::EntryKind::Directory {
+        return 101;
+    }
+    if dir::kind_from_attributes(win::abi::FILE_ATTRIBUTE_REPARSE_POINT) != dir::EntryKind::Symlink {
+        return 102;
+    }
+    if dir::kind_from_attributes(win::abi::FILE_ATTRIBUTE_NORMAL) != dir::EntryKind::File {
+        return 103;
+    }
+    if linux::syscall::NR_CHDIR != 80 || linux::syscall::NR_FCHDIR != 81 {
+        return 104;
+    }
+    if win::abi::MOVEFILE_REPLACE_EXISTING != 1 || win::abi::MOVEFILE_COPY_ALLOWED != 2 || win::abi::MOVEFILE_WRITE_THROUGH != 8 {
+        return 105;
+    }
+    return 0;
+}
+
+public i32 main() {
+    i32 code = test_normalize_cases();
+    if code != 0 {
+        return code;
+    }
+    code = test_normalize_limits();
+    if code != 0 {
+        return code;
+    }
+    code = test_join();
+    if code != 0 {
+        return code;
+    }
+    code = test_relative();
+    if code != 0 {
+        return code;
+    }
+    code = test_root_and_absolute();
+    if code != 0 {
+        return code;
+    }
+    code = test_stem();
+    if code != 0 {
+        return code;
+    }
+    return test_kind_helpers();
+}

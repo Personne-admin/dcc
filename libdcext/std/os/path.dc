@@ -27,11 +27,11 @@ public using usize MAX_WIDE = 4096;
 //!
 
 public struct PathZ {
-    // Keep the ABI extent literal: imported named array bounds currently
-    // resolve to zero in dcc. The OS tests check this against MAX_BYTES.
-    u8[4096] bytes;
+    // The extent is mirrored in MAX_BYTES; the OS tests check they agree.
+    u8[MAX_BYTES] bytes;
     usize len;
 }
+
 
 /// NUL-terminates `path` into `out`.
 public Status(Error) to_pathz([] const u8 path, PathZ* out) {
@@ -39,7 +39,8 @@ public Status(Error) to_pathz([] const u8 path, PathZ* out) {
         return Error::NameTooLong;
     }
 
-    // Borrow the field explicitly; implicit field-array decay currently copies.
+    // Borrow the field explicitly: a T[N] field is a value and passing it
+    // bare would copy (spec section 5), so take the address of element 0.
     [] u8 view = slice::from_raw(&out.bytes[0], MAX_BYTES);
     mem::copy(view, path);
     view[path.len] = 0;
@@ -57,22 +58,24 @@ public const u8* ptr(const PathZ* self) {
 //!
 
 public struct PathW {
-    // See PathZ; the OS tests keep this extent tied to MAX_WIDE.
-    u16[4096] units;
+    // The extent is mirrored in MAX_WIDE; see PathZ.
+    u16[MAX_WIDE] units;
     usize len;
 }
 
-/// transcodes `path` from UTF-8 to NUL-terminated UTF-16.
+
+/// transcodes UTF-8 into NUL-terminated UTF-16 in `out`, returning the
+/// number of units written, not counting the terminator.
 ///
 /// malformed input is rejected rather than replaced: a path is a name,
 /// and silently renaming it is worse than failing.
-public Status(Error) to_pathw([] const u8 path, PathW* out) {
+public Result(usize, Error) to_wide([] const u8 text, [] u16 out) {
     usize i = 0;
     usize n = 0;
 
-    while i < path.len {
+    while i < text.len {
         Result(utf8::Decoded, utf8::Utf8Error) d = utf8::decode(
-            path[i..path.len]
+            text[i..text.len]
         );
         if d.is_err() {
             return Error::InvalidArgument;
@@ -82,30 +85,81 @@ public Status(Error) to_pathw([] const u8 path, PathW* out) {
         i = i + scalar.width;
 
         if scalar.codepoint < 0x10000 {
-            if n + 2 > MAX_WIDE {
+            if n + 2 > out.len {
                 return Error::NameTooLong;
             }
 
-            out.units[n] = scalar.codepoint as u16;
+            out[n] = scalar.codepoint as u16;
             n++;
         } else {
-            if n + 3 > MAX_WIDE {
+            if n + 3 > out.len {
                 return Error::NameTooLong;
             }
 
             u32 rest = scalar.codepoint - 0x10000;
-            out.units[n] = (0xD800 | (rest >> 10)) as u16;
-            out.units[n + 1] = (0xDC00 | (rest & 0x3FF)) as u16;
+            out[n] = (0xD800 | (rest >> 10)) as u16;
+            out[n + 1] = (0xDC00 | (rest & 0x3FF)) as u16;
             n = n + 2;
         }
     }
 
-    if n + 1 > MAX_WIDE {
+    if n + 1 > out.len {
         return Error::NameTooLong;
     }
 
-    out.units[n] = 0;
-    out.len = n;
+    out[n] = 0;
+    return Result::Ok(n);
+}
+
+/// transcodes NUL-terminated UTF-16 into UTF-8 in `out`, returning the
+/// number of bytes written. stops at the first NUL or the end of `units`.
+///
+/// unpaired surrogates are rejected for the same reason malformed UTF-8
+/// is rejected going the other way.
+public Result(usize, Error) from_wide([] const u16 units, [] u8 out) {
+    usize i = 0;
+    usize n = 0;
+
+    while i < units.len && units[i] != 0 {
+        u32 codepoint = units[i] as u32;
+        i++;
+
+        if codepoint >= 0xD800 && codepoint <= 0xDBFF {
+            if i >= units.len || units[i] == 0 {
+                return Error::InvalidArgument;
+            }
+
+            u32 low = units[i] as u32;
+            if low < 0xDC00 || low > 0xDFFF {
+                return Error::InvalidArgument;
+            }
+
+            i++;
+            codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+        } else if codepoint >= 0xDC00 && codepoint <= 0xDFFF {
+            return Error::InvalidArgument;
+        }
+
+        Result(usize, utf8::Utf8Error) wrote = utf8::encode(
+            codepoint,
+            out[n..out.len]
+        );
+
+        if wrote.is_err() {
+            return Error::NameTooLong;
+        }
+
+        n = n + wrote.unwrap();
+    }
+
+    return Result::Ok(n);
+}
+
+/// NUL-terminates `path` into `out` as UTF-16.
+public Status(Error) to_pathw([] const u8 path, PathW* out) {
+    // Borrow the field explicitly; see `to_pathz`.
+    [] u16 view = slice::from_raw(&out.units[0], MAX_WIDE);
+    out.len = to_wide(path, view) ?;
     return Status::Ok;
 }
 
@@ -185,4 +239,354 @@ public [] const u8 extension([] const u8 path) {
     }
 
     return base[base.len..base.len];
+}
+
+/// the final component with its extension removed.
+public [] const u8 stem([] const u8 path) {
+    [] const u8 base = basename(path);
+    [] const u8 ext = extension(path);
+    return base[0..base.len - ext.len];
+}
+
+bool is_drive_letter(u8 c) {
+    return (c >= ('a' as u8) && c <= ('z' as u8))
+        || (c >= ('A' as u8) && c <= ('Z' as u8));
+}
+
+/// length of the leading root, or 0 for a relative path. on Windows a
+/// UNC prefix counts as 2 and the share name is an ordinary component;
+/// a drive-relative path like `\src` reports 1, which is enough to stop
+/// `..` from escaping but is not a complete location.
+public usize root_len([] const u8 path) {
+    static if core::target::OS == core::target::Os::Windows {
+        if path.len >= 2 && is_separator(path[0]) && is_separator(path[1]) {
+            return 2;
+        }
+
+        if path.len >= 3 && is_drive_letter(path[0]) && path[1] == (':' as u8) && is_separator(path[2]) {
+            return 3;
+        }
+
+        if path.len >= 1 && is_separator(path[0]) {
+            return 1;
+        }
+
+        return 0;
+    } else {
+        if path.len >= 1 && is_separator(path[0]) {
+            return 1;
+        }
+
+        return 0;
+    }
+}
+
+public bool is_absolute([] const u8 path) {
+    return root_len(path) != 0;
+}
+
+//!
+//! Composition
+//!
+//! Every function here writes into a caller-supplied buffer and returns
+//! the written subslice, so nothing allocates and nothing outlives the
+//! call that produced it.
+//!
+
+/// joins `base` and `tail`. an absolute `tail` replaces `base` entirely,
+/// which is what every caller means by joining a user-supplied path.
+public Result([] u8, Error) join(
+    [] const u8 base,
+    [] const u8 tail,
+    [] u8 out
+) {
+    if is_absolute(tail) || base.len == 0 {
+        if tail.len > out.len {
+            return Error::NameTooLong;
+        }
+
+        mem::copy(out[0..tail.len], tail);
+        return Result::Ok(out[0..tail.len]);
+    }
+
+    if tail.len == 0 {
+        if base.len > out.len {
+            return Error::NameTooLong;
+        }
+
+        mem::copy(out[0..base.len], base);
+        return Result::Ok(out[0..base.len]);
+    }
+
+    bool need = !is_separator(base[base.len - 1]);
+    usize total = base.len + tail.len + if need { 1 } else { 0 };
+    if total > out.len {
+        return Error::NameTooLong;
+    }
+
+    mem::copy(out[0..base.len], base);
+    usize n = base.len;
+
+    if need {
+        out[n] = separator();
+        n++;
+    }
+
+    mem::copy(out[n..n + tail.len], tail);
+    return Result::Ok(out[0..n + tail.len]);
+}
+
+public using usize MAX_COMPONENTS = 128;
+
+/// resolves `.` and `..` lexically, collapses repeated separators, and
+/// rewrites separators to the host's. the filesystem is never consulted,
+/// so a `..` that would cross a symlink is resolved the wrong way; use
+/// this for display and cache keys, not for security decisions.
+///
+/// a leading `..` in a relative path is kept, since there is nothing to
+/// cancel it against. in an absolute path it is dropped at the root.
+public Result([] u8, Error) normalize([] const u8 path, [] u8 out) {
+    usize root = root_len(path);
+    if root > out.len {
+        return Error::NameTooLong;
+    }
+
+    usize n = 0;
+    for usize i = 0; i < root; i++ {
+        out[n] = if is_separator(path[i]) {
+            separator()
+        } else {
+            path[i]
+        };
+        n++;
+    }
+
+    // offsets in `out` at which each emitted component starts, so `..`
+    // can pop the previous one
+    usize[128] starts;
+    usize depth = 0;
+    bool dotdot_only = true;
+
+    usize i = root;
+    while i < path.len {
+        while i < path.len && is_separator(path[i]) {
+            i++;
+        }
+
+        usize start = i;
+        while i < path.len && !is_separator(path[i]) {
+            i++;
+        }
+
+        [] const u8 part = path[start..i];
+        if part.len == 0 {
+            continue;
+        }
+
+        if part.len == 1 && part[0] == ('.' as u8) {
+            continue;
+        }
+
+        bool up = part.len == 2
+            && part[0] == ('.' as u8)
+            && part[1] == ('.' as u8);
+
+        if up && depth > 0 && !dotdot_only {
+            depth--;
+            n = starts[depth];
+            if n > root && is_separator(out[n - 1]) {
+                n--;
+            }
+
+            if depth == 0 {
+                dotdot_only = true;
+            }
+
+            continue;
+        }
+
+        if up && root != 0 {
+            // already at the root; `..` has nowhere to go
+            continue;
+        }
+
+        if depth >= MAX_COMPONENTS {
+            return Error::NameTooLong;
+        }
+
+        if n > root || (n == root && root == 0 && n != 0) {
+            if n + 1 > out.len {
+                return Error::NameTooLong;
+            }
+
+            out[n] = separator();
+            n++;
+        }
+
+        if n + part.len > out.len {
+            return Error::NameTooLong;
+        }
+
+        starts[depth] = n;
+        depth++;
+        if !up {
+            dotdot_only = false;
+        }
+
+        mem::copy(out[n..n + part.len], part);
+        n = n + part.len;
+    }
+
+    if n == 0 {
+        if out.len < 1 {
+            return Error::NameTooLong;
+        }
+
+        out[0] = '.' as u8;
+        return Result::Ok(out[0..1]);
+    }
+
+    return Result::Ok(out[0..n]);
+}
+
+usize component_count([] const u8 path, usize from) {
+    usize n = 0;
+    usize i = from;
+
+    while i < path.len {
+        while i < path.len && is_separator(path[i]) {
+            i++;
+        }
+
+        if i >= path.len {
+            break;
+        }
+
+        n++;
+        while i < path.len && !is_separator(path[i]) {
+            i++;
+        }
+    }
+
+    return n;
+}
+
+/// the `nth` component of `path` after its root, or an empty slice.
+[] const u8 component_at([] const u8 path, usize from, usize nth) {
+    usize seen = 0;
+    usize i = from;
+
+    while i < path.len {
+        while i < path.len && is_separator(path[i]) {
+            i++;
+        }
+
+        if i >= path.len {
+            break;
+        }
+
+        usize start = i;
+        while i < path.len && !is_separator(path[i]) {
+            i++;
+        }
+
+        if seen == nth {
+            return path[start..i];
+        }
+
+        seen++;
+    }
+
+    return path[path.len..path.len];
+}
+
+/// expresses `target` relative to `base`. both are normalized first, so
+/// the inputs may contain `.` and `..`. fails when one is absolute and
+/// the other is not, or when their roots differ.
+public Result([] u8, Error) relative(
+    [] const u8 base,
+    [] const u8 target,
+    [] u8 out
+) {
+    u8[4096] base_store;
+    u8[4096] target_store;
+
+    [] u8 nb = normalize(base, base_store[0..4096]) ?;
+    [] u8 nt = normalize(target, target_store[0..4096]) ?;
+
+    usize rb = root_len(nb);
+    usize rt = root_len(nt);
+
+    if (rb == 0) != (rt == 0) {
+        return Error::InvalidArgument;
+    }
+
+    if rb != rt || !mem::equal(nb[0..rb], nt[0..rt]) {
+        return Error::InvalidArgument;
+    }
+
+    usize nb_count = component_count(nb, rb);
+    usize nt_count = component_count(nt, rt);
+
+    usize shared = 0;
+    while shared < nb_count && shared < nt_count {
+        if !mem::equal(
+            component_at(nb, rb, shared),
+            component_at(nt, rt, shared)) {
+            break;
+        }
+
+        shared++;
+    }
+
+    usize n = 0;
+    for usize i = shared; i < nb_count; i++ {
+        if n != 0 {
+            if n + 1 > out.len {
+                return Error::NameTooLong;
+            }
+
+            out[n] = separator();
+            n++;
+        }
+
+        if n + 2 > out.len {
+            return Error::NameTooLong;
+        }
+
+        out[n] = '.' as u8;
+        out[n + 1] = '.' as u8;
+        n = n + 2;
+    }
+
+    for usize i = shared; i < nt_count; i++ {
+        [] const u8 part = component_at(nt, rt, i);
+
+        if n != 0 {
+            if n + 1 > out.len {
+                return Error::NameTooLong;
+            }
+
+            out[n] = separator();
+            n++;
+        }
+
+        if n + part.len > out.len {
+            return Error::NameTooLong;
+        }
+
+        mem::copy(out[n..n + part.len], part);
+        n = n + part.len;
+    }
+
+    if n == 0 {
+        if out.len < 1 {
+            return Error::NameTooLong;
+        }
+
+        out[0] = '.' as u8;
+        return Result::Ok(out[0..1]);
+    }
+
+    return Result::Ok(out[0..n]);
 }
