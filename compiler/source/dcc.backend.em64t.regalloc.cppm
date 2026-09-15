@@ -430,6 +430,7 @@ namespace dcc::backend::em64t
                 id_to_idx[func.blocks[i].id] = i;
 
             std::unordered_map<VReg, std::uint32_t> first_def;
+            std::unordered_map<VReg, std::uint32_t> last_def;
             std::unordered_map<VReg, std::uint32_t> last_use;
 
             for (std::size_t bi = 0; bi < func.blocks.size(); ++bi)
@@ -457,6 +458,9 @@ namespace dcc::backend::em64t
                                     auto it = first_def.find(op.reg);
                                     if (it == first_def.end() || pp < it->second)
                                         first_def[op.reg] = pp;
+                                    auto jt = last_def.find(op.reg);
+                                    if (jt == last_def.end() || pp > jt->second)
+                                        last_def[op.reg] = pp;
                                 }
                                 else
                                 {
@@ -549,6 +553,8 @@ namespace dcc::backend::em64t
             std::unordered_set<VReg> all_vregs;
             for (auto const& [vreg, _] : first_def)
                 all_vregs.insert(vreg);
+            for (auto const& [vreg, _] : last_def)
+                all_vregs.insert(vreg);
             for (auto const& [vreg, _] : last_use)
                 all_vregs.insert(vreg);
 
@@ -577,6 +583,10 @@ namespace dcc::backend::em64t
                     lr.end = lu_it->second;
                 else
                     lr.end = lr.start;
+
+                auto ld_it = last_def.find(vreg);
+                if (ld_it != last_def.end())
+                    lr.end = std::max(lr.end, ld_it->second);
 
                 for (auto const& blk : func.blocks)
                 {
