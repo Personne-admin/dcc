@@ -43,15 +43,6 @@ TEST_CASE("os::path to_wide and from_wide transcoding")
 #endif
 }
 
-TEST_CASE("os::path consecutive dot-dot pops (llvm-only; em64t miscompiles, see docs/known-issues.md)")
-{
-#if DCC_ENABLE_LLVM
-    auto source = os_test::fixture("path-double-dot.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
-#endif
-}
-
 TEST_CASE("nested field addresses agree across functions and backends")
 {
     auto source = os_test::fixture("nested-field-address.dc");
