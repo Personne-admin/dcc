@@ -69,6 +69,14 @@ public using Dword FILE_BEGIN = 0;
 public using Dword FILE_CURRENT = 1;
 public using Dword FILE_END = 2;
 
+//!
+//! MoveFileExW
+//!
+
+public using Dword MOVEFILE_REPLACE_EXISTING = 0x00000001;
+public using Dword MOVEFILE_COPY_ALLOWED = 0x00000002;
+public using Dword MOVEFILE_WRITE_THROUGH = 0x00000008;
+
 public using Dword FILE_TYPE_UNKNOWN = 0x0000;
 public using Dword FILE_TYPE_DISK = 0x0001;
 public using Dword FILE_TYPE_CHAR = 0x0002;
