@@ -28,6 +28,36 @@ TEST_CASE("os::random fills buffers from OS entropy")
     CHECK_EQ(os_test::run(os_test::fixture("random.dc"), windows()).status, 0);
 }
 
+TEST_CASE("os::time civil calendar passes on the execution target")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("time-civil.dc"), windows()).status, 0);
+}
+
+TEST_CASE("os::path lexical helpers pass on the execution target")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("path-lexical.dc"), windows()).status, 0);
+}
+
+TEST_CASE("os::path wide transcoding passes on the execution target")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("path-wide.dc"), windows()).status, 0);
+}
+
+TEST_CASE("os::file rename, make_directory_all, predicates and metadata")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("file-ops.dc"), windows()).status, 0);
+}
+
+TEST_CASE("os::process environment, args and working directory")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("process-env.dc"), windows()).status, 0);
+}
+
+TEST_CASE("os::process spawnvectors, quoting, errors and allocator discipline")
+{
+    CHECK_EQ(os_test::run(os_test::fixture("process-spawn.dc"), windows()).status, 0);
+}
+
 TEST_CASE("exit and explicit panic handler in child processes")
 {
     CHECK_EQ(os_test::run("module main; import std::os::process; public i32 main() { std::os::process::exit(42); return 1; }", windows()).status, 42);
