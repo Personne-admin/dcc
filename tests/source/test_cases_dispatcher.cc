@@ -199,6 +199,7 @@ namespace
         std::vector<std::string> required_coff_undefined;
         std::vector<std::string> forbidden_coff_defined;
         std::vector<std::string> contains;
+        std::vector<std::pair<std::string, std::string>> env;
     };
 
     struct ExpectEm64tAsm
@@ -602,6 +603,18 @@ namespace
                             auto val = trim(std::string_view{tl}.substr(9));
                             if (!val.empty())
                                 e.contains.push_back(std::string{val});
+                        }
+                        else if (starts_with(tl, "ENV:"))
+                        {
+                            auto kv = trim(std::string_view{tl}.substr(4));
+                            auto eq = kv.find('=');
+                            if (eq != std::string_view::npos)
+                            {
+                                auto name = trim(kv.substr(0, eq));
+                                auto value = trim(kv.substr(eq + 1));
+                                if (!name.empty())
+                                    e.env.emplace_back(std::string{name}, std::string{value});
+                            }
                         }
                         else if (starts_with(tl, "REQUIRE-RELA:"))
                         {
@@ -2234,8 +2247,33 @@ namespace
 #endif
         }
 
+        struct ScopedTestEnv
+        {
+            std::vector<std::pair<std::string, std::optional<std::string>>> saved;
+            explicit ScopedTestEnv(std::vector<std::pair<std::string, std::string>> const& vars)
+            {
+                for (auto const& [name, value] : vars)
+                {
+                    char const* old = std::getenv(name.c_str());
+                    saved.emplace_back(name, old ? std::optional<std::string>{old} : std::nullopt);
+                    ::setenv(name.c_str(), value.c_str(), 1);
+                }
+            }
+            ~ScopedTestEnv()
+            {
+                for (auto const& [name, old] : saved)
+                {
+                    if (old)
+                        ::setenv(name.c_str(), old->c_str(), 1);
+                    else
+                        ::unsetenv(name.c_str());
+                }
+            }
+        };
+
         for (auto const& exp : fx.em64t_object_blocks)
         {
+            ScopedTestEnv test_env{exp.env};
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!mod)
             {
