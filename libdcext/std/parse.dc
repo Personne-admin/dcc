@@ -1,0 +1,269 @@
+//!!
+//!! Shared parser support
+//!!
+//!! Source positions, used by every text format in the library.
+//!!
+
+module std::parse;
+
+public import std::result;
+
+using result::{ Result };
+
+//!
+//! Positions
+//!
+//! Columns count bytes, not codepoints: a continuation byte advances the
+//! column. Rendering a caret under a multi-byte character is the caller's
+//! problem, and it needs the byte offset anyway.
+//!
+
+public struct Position {
+    usize offset;
+    u32 line;
+    u32 column;
+}
+
+public struct Located(T) {
+    T event;
+    Position at;
+}
+
+public Position start_position() {
+    return Position {offset = 0, line = 1, column = 1};
+}
+using public Position::start = start_position;
+
+public void advance(Position* self, u8 byte) {
+    self.offset = self.offset + 1;
+
+    if byte == ('\n' as u8) {
+        self.line = self.line + 1;
+        self.column = 1;
+    } else {
+        self.column = self.column + 1;
+    }
+}
+
+//!
+//! Digits
+//!
+
+public bool is_digit(u8 c) {
+    return c >= ('0' as u8) && c <= ('9' as u8);
+}
+
+public bool is_hex_digit(u8 c) {
+    if is_digit(c) {
+        return true;
+    }
+
+    return (c >= ('a' as u8) && c <= ('f' as u8)) || (c >= ('A' as u8) && c <= ('F' as u8));
+}
+
+/// numeric value of a hex digit, or 16 when `c` is not one.
+public u32 hex_value(u8 c) {
+    if is_digit(c) {
+        return (c - ('0' as u8)) as u32;
+    }
+
+    if c >= ('a' as u8) && c <= ('f' as u8) {
+        return (c - ('a' as u8)) as u32 + 10;
+    }
+
+    if c >= ('A' as u8) && c <= ('F' as u8) {
+        return (c - ('A' as u8)) as u32 + 10;
+    }
+
+    return 16;
+}
+
+//!
+//! Decimal scaling
+//!
+//! Powers of ten up to 1e22 are exactly representable in f64, so a
+//! mantissa scaled by one of these is correctly rounded. Beyond that the
+//! scaling is applied in steps and the result is approximate.
+//!
+
+f64[23] POW10 = {
+    1.0,
+    10.0,
+    100.0,
+    1000.0,
+    10000.0,
+    100000.0,
+    1000000.0,
+    10000000.0,
+    100000000.0,
+    1000000000.0,
+    10000000000.0,
+    100000000000.0,
+    1000000000000.0,
+    10000000000000.0,
+    100000000000000.0,
+    1000000000000000.0,
+    10000000000000000.0,
+    100000000000000000.0,
+    1000000000000000000.0,
+    10000000000000000000.0,
+    100000000000000000000.0,
+    1000000000000000000000.0,
+    10000000000000000000000.0,
+};
+
+public using i32 POW10_EXACT = 22;
+
+public f64 scale_by_ten(f64 mantissa, i32 exponent) {
+    if exponent == 0 {
+        return mantissa;
+    }
+
+    f64 v = mantissa;
+
+    if exponent > 0 {
+        i32 left = exponent;
+        while left > POW10_EXACT {
+            v = v * POW10[POW10_EXACT as usize];
+            left = left - POW10_EXACT;
+
+            if v > 1.7976931348623157e308 {
+                return v;
+            }
+        }
+
+        return v * POW10[left as usize];
+    }
+
+    i32 right = 0 - exponent;
+    while right > POW10_EXACT {
+        v = v / POW10[POW10_EXACT as usize];
+        right = right - POW10_EXACT;
+
+        if v == 0.0 {
+            return v;
+        }
+    }
+
+    return v / POW10[right as usize];
+}
+
+//!
+//! Shared numbers
+//!
+//! Integer accumulation, magnitude range checks, and float assembly
+//! shared by the text formats. Each format keeps its own syntax:
+//! which bases and separators it accepts, what counts as a digit, and
+//! how a `NumError` maps into its own error enum. The helpers below
+//! only see a byte slice and a cursor, never either scanner type.
+//!
+
+public enum NumError : u8 {
+    NoDigits,
+    BadUnderscore,
+    OutOfRange,
+}
+
+public using u64 I64_MAX_MAGNITUDE = 9223372036854775807;
+public using u64 I64_MIN_MAGNITUDE = 9223372036854775808;
+public using i64 I64_MIN = (0 - I64_MAX_MAGNITUDE as i64) - 1;
+
+/// checks `magnitude` against the i64 range for the given sign.
+/// `I64_MIN_MAGNITUDE` itself is only valid when `negative` is set.
+public Result(i64, NumError) signed_from_magnitude(u64 magnitude, bool negative) {
+    if negative {
+        if magnitude > I64_MIN_MAGNITUDE {
+            return NumError::OutOfRange;
+        }
+
+        if magnitude == I64_MIN_MAGNITUDE {
+            return Result::Ok(I64_MIN);
+        }
+
+        return Result::Ok(0 - (magnitude as i64));
+    }
+
+    if magnitude > I64_MAX_MAGNITUDE {
+        return NumError::OutOfRange;
+    }
+
+    return Result::Ok(magnitude as i64);
+}
+
+/// accumulates digits from `text` starting at `*cursor`, advancing it
+/// past everything consumed. `base` is 10, 16, 8, or 2. When
+/// `underscores` is set, single `_` separators are allowed between
+/// digits; a leading, doubled, or trailing separator is
+/// `BadUnderscore`. No digits at all is `NoDigits`, and a value that
+/// does not fit u64 is `OutOfRange`. `*count` reports the digits taken.
+public Result(u64, NumError) accumulate_digits(
+    [] const u8 text,
+    usize* cursor,
+    u32 base,
+    bool underscores,
+    usize* count
+) {
+    u64 value = 0;
+    usize taken = 0;
+    bool last_was_underscore = true;
+    usize i = *cursor;
+
+    while i < text.len {
+        u8 c = text[i];
+
+        if underscores && c == ('_' as u8) {
+            if last_was_underscore {
+                return NumError::BadUnderscore;
+            }
+
+            i++;
+            last_was_underscore = true;
+            continue;
+        }
+
+        u32 digit = hex_value(c);
+        if digit >= base {
+            break;
+        }
+
+        if value > (0xFFFFFFFFFFFFFFFF - digit as u64) / base as u64 {
+            return NumError::OutOfRange;
+        }
+
+        value = value * base as u64 + digit as u64;
+        taken++;
+        last_was_underscore = false;
+        i++;
+    }
+
+    *cursor = i;
+
+    if taken == 0 {
+        *count = 0;
+        return NumError::NoDigits;
+    }
+
+    if underscores && last_was_underscore {
+        *count = taken;
+        return NumError::BadUnderscore;
+    }
+
+    *count = taken;
+    return Result::Ok(value);
+}
+
+/// assembles a float from a decimal mantissa and a base-ten exponent.
+/// Overflow reports `OutOfRange` rather than returning an infinity.
+public Result(f64, NumError) float_from_parts(u64 mantissa, i32 exponent, bool negative) {
+    f64 value = scale_by_ten(mantissa as f64, exponent);
+
+    if value > 1.7976931348623157e308 {
+        return NumError::OutOfRange;
+    }
+
+    return Result::Ok(
+        if negative {
+            -value
+        } else { value }
+    );
+}
