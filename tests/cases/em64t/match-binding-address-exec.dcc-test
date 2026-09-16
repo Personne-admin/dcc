@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module test;
+
+struct S { u8 x; }
+
+enum E { Wrap(S), Plain }
+
+void take(const S* s) {}
+
+u8 read_x(const S* s) { return s.x; }
+
+@nomangle
+public i32 dcc_main() {
+    E e = E::Wrap(S { x = 42 });
+    match e { E::Wrap(s) => { take(&s); if read_x(&s) != 42 { return 1; } }, _ => { return 2; } }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+===

@@ -4131,6 +4131,25 @@ export namespace dcc::ir::lower
                         }
                     }
 
+                    {
+                        auto name_it = m_named_values.find(id->name);
+                        if (name_it != m_named_values.end())
+                        {
+                            auto& entry = name_it->second;
+                            if (entry.is_storage)
+                                return entry.value;
+                            auto* sema_ty = get_sema_resolved_type(operand);
+                            auto* ir_ty = lower_type(sema_ty);
+                            auto* ptr_type = m_ctx.pointer_to(ir_ty, ir::Segment::None);
+                            auto* alloca = m_ctx.alloca(ptr_type, ir_ty);
+                            auto alloca_name = ident_name();
+                            alloca->name = m_name_pool.back();
+                            append_inst(alloca);
+                            append_inst(m_ctx.store(entry.value, alloca));
+                            return alloca;
+                        }
+                    }
+
                     if (auto* vd = ast::node_cast<ast::VarDecl>(resolved))
                     {
                         auto* global = get_or_create_global_ref(const_cast<ast::VarDecl*>(vd));
