@@ -248,26 +248,73 @@ TEST_CASE("llvm lowering ties inout and passes memory addresses twice")
     REQUIRE(lowered.output_address_indices[0] == 1);
 }
 
-TEST_CASE("llvm lowering emits braced flag output constraint")
+TEST_CASE("llvm lowering braces every flag output constraint")
+{
+    struct FlagCase
+    {
+        std::string_view cond;
+        std::string_view code;
+    };
+    FlagCase cases[] = {{"zero", "z"}, {"equal", "z"}, {"not_zero", "nz"}, {"not_equal", "nz"}, {"carry", "c"}, {"below", "c"},
+                        {"not_carry", "nc"}, {"above_equal", "nc"}, {"above", "a"}, {"below_equal", "be"}, {"sign", "s"},
+                        {"not_sign", "ns"}, {"overflow", "o"}, {"not_overflow", "no"}, {"parity_even", "p"}, {"parity_odd", "np"},
+                        {"less", "l"}, {"less_equal", "le"}, {"greater", "g"}, {"greater_equal", "ge"}};
+    for (auto const& [cond, code] : cases)
+    {
+        AsmFixture fx;
+        auto* u64 = fx.ctx.int_t(64, false);
+        auto* boolean = fx.ctx.bool_t();
+        auto* av = fx.ctx.int_const(u64, 1);
+        auto* bv = fx.ctx.int_const(u64, 2);
+        std::vector<IrAsmOperand> operands;
+        IrAsmOperand flag;
+        flag.direction = IrAsmOperand::Direction::Out;
+        flag.placement_kind = IrAsmOperand::PlacementKind::Flag;
+        flag.flag_cond = cond;
+        flag.type = boolean;
+        operands.push_back(flag);
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rax", u64, av));
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rbx", u64, bv));
+        auto* inst = fx.build("cmp %[x], %[y]", std::move(operands), IrAsmDialect::Intel, {{"%[x]", 1}, {"%[y]", 2}});
+        auto lowered = prepare_llvm_asm(*inst);
+        REQUIRE(lowered.error.empty());
+        CHECK_EQ(lowered.constraints, "={@cc" + std::string(code) + "},{rax},{rbx}");
+    }
+}
+
+TEST_CASE("llvm lowering emits any immediate and symbolic constraints")
 {
     AsmFixture fx;
     auto* u64 = fx.ctx.int_t(64, false);
-    auto* boolean = fx.ctx.bool_t();
-    auto* av = fx.ctx.int_const(u64, 1);
-    auto* bv = fx.ctx.int_const(u64, 2);
+    auto* value = fx.ctx.int_const(u64, 7);
     std::vector<IrAsmOperand> operands;
-    IrAsmOperand flag;
-    flag.direction = IrAsmOperand::Direction::Out;
-    flag.placement_kind = IrAsmOperand::PlacementKind::Flag;
-    flag.flag_cond = "equal";
-    flag.type = boolean;
-    operands.push_back(flag);
-    operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rax", u64, av));
-    operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rbx", u64, bv));
-    auto* inst = fx.build("cmp %[x], %[y]", std::move(operands), IrAsmDialect::Intel, {{"%[x]", 1}, {"%[y]", 2}});
+    IrAsmOperand any_out;
+    any_out.direction = IrAsmOperand::Direction::Out;
+    any_out.placement_kind = IrAsmOperand::PlacementKind::Any;
+    any_out.type = u64;
+    operands.push_back(any_out);
+    IrAsmOperand any_in;
+    any_in.direction = IrAsmOperand::Direction::In;
+    any_in.placement_kind = IrAsmOperand::PlacementKind::Any;
+    any_in.type = u64;
+    any_in.value = value;
+    operands.push_back(any_in);
+    IrAsmOperand imm;
+    imm.direction = IrAsmOperand::Direction::In;
+    imm.placement_kind = IrAsmOperand::PlacementKind::Imm;
+    imm.type = u64;
+    imm.value = value;
+    operands.push_back(imm);
+    IrAsmOperand sym;
+    sym.direction = IrAsmOperand::Direction::In;
+    sym.placement_kind = IrAsmOperand::PlacementKind::Sym;
+    sym.type = fx.ctx.pointer_to(u64);
+    sym.value = fx.ctx.symbol_ref("table", sym.type);
+    operands.push_back(sym);
+    auto* inst = fx.build("op %0, %1, %2, %3", std::move(operands), IrAsmDialect::Att, {{"%0", 0}, {"%1", 1}, {"%2", 2}, {"%3", 3}});
     auto lowered = prepare_llvm_asm(*inst);
     REQUIRE(lowered.error.empty());
-    REQUIRE(lowered.constraints == "={@ccz},{rax},{rbx}");
+    CHECK_EQ(lowered.constraints, "=&rm,rm,i,s");
 }
 
 TEST_CASE("clobbers and literal registers are tracked")
