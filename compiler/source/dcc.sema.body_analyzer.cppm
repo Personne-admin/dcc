@@ -12789,6 +12789,9 @@ export namespace dcc::sema
                     if (auto const* sym = lookup_name(mod, scope, nt->path.simple_name()); sym && sym->decl)
                     {
                         auto value_type = decl_type(*sym->decl);
+                        if (auto const* ud = ast::node_cast<ast::UsingDecl>(sym->decl);
+                            ud && ud->using_kind == ast::UsingKind::ValueAlias && ud->target_type && ud->target_type->sema.canonical)
+                            value_type = get_canonical(ud->target_type->sema);
                         if (auto layout = layout_of(value_type))
                         {
                             out.constant = make_int_const(static_cast<std::int64_t>(layout->size), out.type);
