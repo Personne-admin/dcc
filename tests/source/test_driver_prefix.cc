@@ -222,4 +222,48 @@ TEST_CASE("DCC_WARN_ARRAY_DECAY warns on implicit array to slice copies")
     std::filesystem::remove(src);
     std::filesystem::remove(obj);
 }
+
+TEST_CASE("DCC_WARN_ARRAY_DECAY reports repeated template instantiations once")
+{
+    auto tmp_dir = std::filesystem::temp_directory_path();
+    auto src = tmp_dir / "test_array_decay_dedup.dc";
+    auto obj = tmp_dir / "test_array_decay_dedup.o";
+
+    {
+        std::ofstream f{src};
+        f << "module test;\n";
+        f << "void take([] u8 s) {}\n";
+        f << "void helper(T)(T v) {\n";
+        f << "    u8[4] buf;\n";
+        f << "    take(buf);\n";
+        f << "}\n";
+        f << "public i32 main() {\n";
+        f << "    helper(1 as i32);\n";
+        f << "    helper(1 as i64);\n";
+        f << "    helper(1 as u8);\n";
+        f << "    return 0;\n";
+        f << "}\n";
+    }
+
+    auto dcc = dcc_path();
+    REQUIRE(!dcc.empty());
+    auto base = shell_quote(dcc) + " -flibdcext -c -target x86_64-elf -o " + shell_quote(obj) + " " + shell_quote(src);
+
+    auto* pipe = ::popen(("DCC_WARN_ARRAY_DECAY=1 " + base + " 2>&1").c_str(), "r");
+    std::string output;
+    char buf[4096];
+    while (pipe && std::fgets(buf, sizeof(buf), pipe))
+        output += buf;
+    int rc = pipe ? ::pclose(pipe) : -1;
+    int code = WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
+    CHECK_EQ(code, 0);
+    std::size_t count = 0;
+    std::string needle = "implicit copy of array as slice";
+    for (std::size_t pos = output.find(needle); pos != std::string::npos; pos = output.find(needle, pos + needle.size()))
+        ++count;
+    CHECK_EQ(count, 1u);
+
+    std::filesystem::remove(src);
+    std::filesystem::remove(obj);
+}
 #endif
