@@ -1,5 +1,7 @@
 module main;
 
+using u8[2] PAIR = { 9, 8 };
+
 struct S {
     [] const u8 a;
     [] const[] const u8 b;
@@ -49,6 +51,9 @@ public i32 main() {
     [] const u8 zs = z;
     if zs.len != 0 {
         return 8;
+    }
+    if sizeof (PAIR) != 2 {
+        return 9;
     }
     return 0;
 }
