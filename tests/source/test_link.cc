@@ -439,7 +439,7 @@ TEST_CASE("unknown backends are rejected in link mode")
 
     auto r = run_dcc("-fbackend frobnicate -o " + shell_quote(td.file("x")) + " " + shell_quote(solo_o));
     CHECK_NE(r.rc, 0);
-    CHECK(output_contains(r, "unknown backend"));
+    CHECK(output_contains(r, "invalid value"));
 }
 
 TEST_CASE("help documents link mode")
