@@ -1,0 +1,1900 @@
+//!!
+//!! TOML 1.0
+//!!
+//!! Two layers. `Scanner` is a pull parser that allocates nothing and
+//!! hands back slices of the input.
+//!!
+//!! The `Table` tree is what most callers want, because assembling
+//!! `[a.b.c]` and `[[products]]` into a document, and rejecting the
+//!! redefinitions the format forbids, is fiddly enough that every caller
+//!! would get it subtly wrong.
+//!!
+
+module std::toml;
+
+import core;
+import std::mem;
+import std::slice;
+import std::utf8;
+import std::os::time;
+public import std::parse;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+using os::time::{ Date, Time, DateTime };
+using parse::{Position, Located, NumError};
+
+//!
+//! Errors
+//!
+
+public enum TomlError : u8 {
+    UnexpectedByte,
+    UnexpectedEnd,
+    InvalidKey,
+    InvalidString,
+    InvalidEscape,
+    InvalidNumber,
+    NumberOutOfRange,
+    InvalidDate,
+    InvalidUtf8,
+    ControlCharacter,
+    ExpectedNewline,
+    DepthExceeded,
+    TooManyKeyParts,
+    DuplicateKey,
+    KeyConflict,
+    OutOfSpace,
+    OutOfMemory,
+    TypeMismatch,
+}
+
+//!
+//! Strings and keys
+//!
+//! Every string in the source is handed back as the bytes between its
+//! delimiters plus the kind of delimiter it had. `needs_unescape` is set
+//! only for a basic string that actually contains a backslash, so the
+//! common case stays a borrow.
+//!
+
+public enum StrKind : u8 {
+    Bare,
+    Basic,
+    Literal,
+    MultiBasic,
+    MultiLiteral,
+}
+
+public struct Str {
+    [] const u8 raw;
+    StrKind kind;
+    bool needs_unescape;
+}
+
+public using usize MAX_KEY_PARTS = 16;
+public using Segment = Str;
+
+public struct KeyPath {
+    Segment[16] parts;
+    usize count;
+}
+
+public struct TablePath {
+    KeyPath key;
+    /// true for `[[name]]`
+    bool array;
+}
+
+//!
+//! Values
+//!
+
+public enum Scalar {
+    String(Str),
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    OffsetDateTime(DateTime),
+    LocalDateTime(DateTime),
+    LocalDate(Date),
+    LocalTime(Time),
+}
+
+public enum Event {
+    Table(TablePath),
+    Key(KeyPath),
+    Scalar(Scalar),
+    ArrayBegin,
+    ArrayEnd,
+    InlineTableBegin,
+    InlineTableEnd,
+    End,
+}
+
+//!
+//! Scanner
+//!
+
+public using usize MAX_DEPTH = 32;
+
+using u8 FRAME_INLINE = 1;
+using u8 FRAME_SEEN = 2;
+using u8 FRAME_AFTER_KEY = 4;
+
+public struct Scanner {
+    [] const u8 input;
+    Position at;
+    u8[32] frames;
+    usize depth;
+    bool pending_value;
+    bool need_line_end;
+}
+
+public Scanner scan([] const u8 input) {
+    Scanner self;
+    self.input = input;
+    self.at = Position::start();
+    self.depth = 0;
+    self.pending_value = false;
+    self.need_line_end = false;
+    return self;
+}
+
+bool at_end(const Scanner* self) {
+    return self.at.offset >= self.input.len;
+}
+
+u8 peek(const Scanner* self) {
+    return self.input[self.at.offset];
+}
+
+u8 peek_at(const Scanner* self, usize ahead) {
+    return self.input[self.at.offset + ahead];
+}
+
+bool has(const Scanner* self, usize count) {
+    return self.at.offset + count <= self.input.len;
+}
+
+u8 take(Scanner* self) {
+    u8 b = self.input[self.at.offset];
+    parse::advance(&self.at, b);
+    return b;
+}
+
+bool is_inline_space(u8 c) {
+    return c == (' ' as u8) || c == ('\t' as u8);
+}
+
+void skip_inline_space(Scanner* self) {
+    while !at_end(self) && is_inline_space(peek(self)) {
+        take(self);
+    }
+}
+
+/// skips to the end of a comment, leaving the newline in place.
+void skip_comment(Scanner* self) {
+    while !at_end(self) && peek(self) != ('\n' as u8) {
+        take(self);
+    }
+}
+
+/// skips whitespace, newlines and comments. used everywhere a value may
+/// span lines: between statements and inside arrays.
+void skip_space(Scanner* self) {
+    while !at_end(self) {
+        u8 c = peek(self);
+
+        if is_inline_space(c) || c == ('\n' as u8) || c == ('\r' as u8) {
+            take(self);
+            continue;
+        }
+
+        if c == ('#' as u8) {
+            skip_comment(self);
+            continue;
+        }
+
+        return;
+    }
+}
+
+Status(TomlError) expect(Scanner* self, u8 wanted) {
+    if at_end(self) {
+        return TomlError::UnexpectedEnd;
+    }
+
+    if peek(self) != wanted {
+        return TomlError::UnexpectedByte;
+    }
+
+    take(self);
+    return Status::Ok;
+}
+
+/// consumes trailing space, an optional comment and the newline that must
+/// close a statement.
+Status(TomlError) finish_line(Scanner* self) {
+    skip_inline_space(self);
+
+    if !at_end(self) && peek(self) == ('#' as u8) {
+        skip_comment(self);
+    }
+
+    if at_end(self) {
+        return Status::Ok;
+    }
+
+    if peek(self) == ('\r' as u8) {
+        take(self);
+    }
+
+    if at_end(self) {
+        return Status::Ok;
+    }
+
+    if peek(self) != ('\n' as u8) {
+        return TomlError::ExpectedNewline;
+    }
+
+    take(self);
+    return Status::Ok;
+}
+
+//!
+//! Keys
+//!
+
+bool is_bare_key_byte(u8 c) {
+    if parse::is_digit(c) {
+        return true;
+    }
+
+    if c >= ('a' as u8) && c <= ('z' as u8) {
+        return true;
+    }
+
+    if c >= ('A' as u8) && c <= ('Z' as u8) {
+        return true;
+    }
+
+    return c == ('_' as u8) || c == ('-' as u8);
+}
+
+Result(Str, TomlError) read_key_segment(Scanner* self) {
+    if at_end(self) {
+        return TomlError::UnexpectedEnd;
+    }
+
+    u8 c = peek(self);
+
+    if c == ('"' as u8) || c == ('\'' as u8) {
+        return read_string(self);
+    }
+
+    if !is_bare_key_byte(c) {
+        return TomlError::InvalidKey;
+    }
+
+    usize start = self.at.offset;
+    while !at_end(self) && is_bare_key_byte(peek(self)) {
+        take(self);
+    }
+
+    return Result::Ok(
+        Str {
+            raw = self.input[start..self.at.offset],
+            kind = StrKind::Bare,
+            needs_unescape = false,
+        }
+    );
+}
+
+Result(KeyPath, TomlError) read_key_path(Scanner* self) {
+    KeyPath path;
+    path.count = 0;
+
+    while true {
+        if path.count >= MAX_KEY_PARTS {
+            return TomlError::TooManyKeyParts;
+        }
+
+        path.parts[path.count] = read_key_segment(self) ?;
+        path.count = path.count + 1;
+
+        skip_inline_space(self);
+
+        if at_end(self) || peek(self) != ('.' as u8) {
+            return Result::Ok(path);
+        }
+
+        take(self);
+        skip_inline_space(self);
+    }
+}
+
+//!
+//! Strings
+//!
+
+Status(TomlError) check_unicode_escape(Scanner* self, usize digits) {
+    u32 codepoint = 0;
+
+    for usize i = 0; i < digits; i++ {
+        if at_end(self) {
+            return TomlError::UnexpectedEnd;
+        }
+
+        u32 value = parse::hex_value(take(self));
+        if value == 16 {
+            return TomlError::InvalidEscape;
+        }
+
+        codepoint = (codepoint << 4) | value;
+    }
+
+    if codepoint >= 0xD800 && codepoint <= 0xDFFF {
+        return TomlError::InvalidEscape;
+    }
+
+    if codepoint > 0x10FFFF {
+        return TomlError::InvalidEscape;
+    }
+
+    return Status::Ok;
+}
+
+Status(TomlError) check_escape(Scanner* self, bool multiline) {
+    if at_end(self) {
+        return TomlError::UnexpectedEnd;
+    }
+
+    u8 c = take(self);
+
+    if c == ('b' as u8) || c == ('t' as u8) || c == ('n' as u8)
+        || c == ('f' as u8) || c == ('r' as u8) || c == ('"' as u8)
+        || c == ('\\' as u8) {
+        return Status::Ok;
+    }
+
+    if c == ('u' as u8) {
+        return check_unicode_escape(self, 4);
+    }
+
+    if c == ('U' as u8) {
+        return check_unicode_escape(self, 8);
+    }
+
+    if !multiline {
+        return TomlError::InvalidEscape;
+    }
+
+    // a line-ending backslash swallows the newline and the whitespace
+    // that follows it
+    if c != ('\n' as u8) && c != ('\r' as u8) && !is_inline_space(c) {
+        return TomlError::InvalidEscape;
+    }
+
+    bool saw_newline = c == ('\n' as u8);
+    while !at_end(self) {
+        u8 next_byte = peek(self);
+
+        if next_byte == ('\n' as u8) {
+            saw_newline = true;
+            take(self);
+            continue;
+        }
+
+        if is_inline_space(next_byte) || next_byte == ('\r' as u8) {
+            take(self);
+            continue;
+        }
+
+        break;
+    }
+
+    if !saw_newline {
+        return TomlError::InvalidEscape;
+    }
+
+    return Status::Ok;
+}
+
+Status(TomlError) check_body_byte(Scanner* self, u8 c, bool multiline) {
+    if c == ('\n' as u8) {
+        if !multiline {
+            return TomlError::InvalidString;
+        }
+
+        take(self);
+        return Status::Ok;
+    }
+
+    if c < 0x20 && c != ('\t' as u8) {
+        return TomlError::ControlCharacter;
+    }
+
+    if c < 0x80 {
+        take(self);
+        return Status::Ok;
+    }
+
+    Result(utf8::Decoded, utf8::Utf8Error) decoded = utf8::decode(
+        self.input[self.at.offset..self.input.len]
+    );
+    if decoded.is_err() {
+        return TomlError::InvalidUtf8;
+    }
+
+    usize width = decoded.unwrap().width;
+    for usize i = 0; i < width; i++ {
+        take(self);
+    }
+
+    return Status::Ok;
+}
+
+/// true when three copies of `delimiter` sit at the cursor.
+bool at_triple(const Scanner* self, u8 delimiter) {
+    if !has(self, 3) {
+        return false;
+    }
+
+    return peek(self) == delimiter
+        && peek_at(self, 1) == delimiter
+        && peek_at(self, 2) == delimiter;
+}
+
+Result(Str, TomlError) read_multiline(Scanner* self, u8 delimiter) {
+    bool basic = delimiter == ('"' as u8);
+
+    for usize i = 0; i < 3; i++ {
+        take(self);
+    }
+
+    // a newline immediately after the opening delimiter is not content
+    if !at_end(self) && peek(self) == ('\r' as u8) {
+        take(self);
+    }
+    if !at_end(self) && peek(self) == ('\n' as u8) {
+        take(self);
+    }
+
+    usize start = self.at.offset;
+    bool escaped = false;
+
+    while true {
+        if at_end(self) {
+            return TomlError::UnexpectedEnd;
+        }
+
+        if at_triple(self, delimiter) {
+            usize end = self.at.offset;
+
+            for usize i = 0; i < 3; i++ {
+                take(self);
+            }
+
+            // up to two extra delimiters belong to the content
+            usize extra = 0;
+            while extra < 2 && !at_end(self) && peek(self) == delimiter {
+                take(self);
+                extra++;
+            }
+
+            return Result::Ok(
+                Str {
+                    raw = self.input[start..end + extra],
+                    kind = if basic {
+                        StrKind::MultiBasic
+                    } else { StrKind::MultiLiteral },
+                    needs_unescape = escaped,
+                }
+            );
+        }
+
+        u8 c = peek(self);
+
+        if basic && c == ('\\' as u8) {
+            take(self);
+            escaped = true;
+            check_escape(self, true) ?;
+            continue;
+        }
+
+        check_body_byte(self, c, true) ?;
+    }
+}
+
+Result(Str, TomlError) read_single_line(Scanner* self, u8 delimiter) {
+    bool basic = delimiter == ('"' as u8);
+    take(self);
+
+    usize start = self.at.offset;
+    bool escaped = false;
+
+    while true {
+        if at_end(self) {
+            return TomlError::UnexpectedEnd;
+        }
+
+        u8 c = peek(self);
+
+        if c == delimiter {
+            usize end = self.at.offset;
+            take(self);
+
+            return Result::Ok(
+                Str {
+                    raw = self.input[start..end],
+                    kind = if basic {
+                        StrKind::Basic
+                    } else { StrKind::Literal },
+                    needs_unescape = escaped,
+                }
+            );
+        }
+
+        if basic && c == ('\\' as u8) {
+            take(self);
+            escaped = true;
+            check_escape(self, false) ?;
+            continue;
+        }
+
+        check_body_byte(self, c, false) ?;
+    }
+}
+
+Result(Str, TomlError) read_string(Scanner* self) {
+    u8 delimiter = peek(self);
+
+    if at_triple(self, delimiter) {
+        return read_multiline(self, delimiter);
+    }
+
+    return read_single_line(self, delimiter);
+}
+
+//!
+//! Unescaping
+//!
+//! Only a basic string ever needs it, and only when the scanner saw a
+//! backslash. Every escape shrinks, so the raw length bounds the output.
+//!
+
+usize take_hex(const Str* self, usize at, usize digits, u32* out) {
+    u32 value = 0;
+
+    for usize i = 0; i < digits; i++ {
+        value = (value << 4) | parse::hex_value(self.raw[at + i]);
+    }
+
+    *out = value;
+    return at + digits;
+}
+
+/// decodes `self` into `out`, returning the bytes written. a literal
+/// string is copied unchanged.
+public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
+    if !self.needs_unescape {
+        if self.raw.len > out.len {
+            return TomlError::OutOfSpace;
+        }
+
+        mem::copy(out[0..self.raw.len], self.raw);
+        return Result::Ok(self.raw.len);
+    }
+
+    bool multiline = self.kind == StrKind::MultiBasic;
+    usize i = 0;
+    usize n = 0;
+
+    while i < self.raw.len {
+        u8 c = self.raw[i];
+
+        if c != ('\\' as u8) {
+            if n >= out.len {
+                return TomlError::OutOfSpace;
+            }
+
+            out[n] = c;
+            n++;
+            i++;
+            continue;
+        }
+
+        i++;
+        if i >= self.raw.len {
+            return TomlError::InvalidEscape;
+        }
+
+        u8 kind = self.raw[i];
+        i++;
+
+        if kind == ('u' as u8) || kind == ('U' as u8) {
+            usize digits = if kind == ('u' as u8) {
+                4 as usize
+            } else { 8 as usize };
+
+            if i + digits > self.raw.len {
+                return TomlError::InvalidEscape;
+            }
+
+            u32 codepoint = 0;
+            i = take_hex(self, i, digits, &codepoint);
+
+            Result(usize, utf8::Utf8Error) wrote = utf8::encode(
+                codepoint,
+                out[n..out.len]
+            );
+            if wrote.is_err() {
+                return TomlError::OutOfSpace;
+            }
+
+            n = n + wrote.unwrap();
+            continue;
+        }
+
+        u8 plain = match kind as char {
+            'b' => 8,
+            't' => '\t' as u8,
+            'n' => '\n' as u8,
+            'f' => 12,
+            'r' => '\r' as u8,
+            '"' => '"' as u8,
+            '\\' => '\\' as u8,
+            _ => 0,
+        };
+
+        if plain != 0 {
+            if n >= out.len {
+                return TomlError::OutOfSpace;
+            }
+
+            out[n] = plain;
+            n++;
+            continue;
+        }
+
+        if !multiline {
+            return TomlError::InvalidEscape;
+        }
+
+        // line-ending backslash: drop the newline and the run after it
+        while i < self.raw.len {
+            u8 skipped = self.raw[i];
+
+            if skipped == ('\n' as u8) || skipped == ('\r' as u8)
+                || is_inline_space(skipped) {
+                i++;
+                continue;
+            }
+
+            break;
+        }
+    }
+
+    return Result::Ok(n);
+}
+
+/// bytes `unescape` would write. never larger than `raw.len`.
+public usize unescaped_len_bound(const Str* self) {
+    return self.raw.len;
+}
+
+//!
+//! Numbers
+//!
+
+/// reads digits in `base`, allowing the single underscores the format
+/// permits between them.
+Result(u64, TomlError) read_digits(Scanner* self, u32 base, usize* count) {
+    usize cursor = 0;
+    usize taken = 0;
+    Result(u64, NumError) value = parse::accumulate_digits(self.input[self.at.offset..self.input.len], &cursor, base, true, &taken);
+
+    for usize i = 0; i < cursor; i++ {
+        take(self);
+    }
+
+    if value.is_err() {
+        if value.unwrap_err() == NumError::OutOfRange {
+            return TomlError::NumberOutOfRange;
+        }
+
+        return TomlError::InvalidNumber;
+    }
+
+    *count = taken;
+    return Result::Ok(value.unwrap());
+}
+
+Result(Scalar, TomlError) read_radix_number(Scanner* self, u32 base) {
+    // consume the `0x`, `0o` or `0b` marker
+    take(self);
+    take(self);
+
+    usize digits = 0;
+    u64 value = read_digits(self, base, &digits) ?;
+
+    if value > parse::I64_MAX_MAGNITUDE {
+        return TomlError::NumberOutOfRange;
+    }
+
+    return Result::Ok(Scalar::Integer(value as i64));
+}
+
+bool starts_special_float(const Scanner* self) {
+    if !has(self, 3) {
+        return false;
+    }
+
+    u8 c = peek(self);
+    return c == ('i' as u8) || c == ('n' as u8);
+}
+
+Result(Scalar, TomlError) read_special_float(Scanner* self, bool negative) {
+    u8 c = peek(self);
+
+    if c == ('i' as u8) {
+        for usize i = 0; i < 3; i++ {
+            take(self);
+        }
+
+        f64 infinity = 1.0e308 * 10.0;
+        return Result::Ok(
+            Scalar::Float(
+                if negative {
+                    -infinity
+                } else { infinity }
+            )
+        );
+    }
+
+    for usize i = 0; i < 3; i++ {
+        take(self);
+    }
+
+    f64 zero = 0.0;
+    return Result::Ok(Scalar::Float(zero / zero));
+}
+
+/// scans a decimal number, which may turn out to be a float.
+Result(Scalar, TomlError) read_decimal(Scanner* self) {
+    bool negative = false;
+
+    if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+        negative = peek(self) == ('-' as u8);
+        take(self);
+    }
+
+    if starts_special_float(self) {
+        return read_special_float(self, negative);
+    }
+
+    usize start = self.at.offset;
+    usize digits = 0;
+    u64 whole = read_digits(self, 10, &digits) ?;
+
+    bool is_float = false;
+    i32 exponent = 0;
+    f64 mantissa = whole as f64;
+
+    if !at_end(self) && peek(self) == ('.' as u8) {
+        take(self);
+        is_float = true;
+
+        usize fraction_digits = 0;
+        usize before = self.at.offset;
+        u64 fraction = read_digits(self, 10, &fraction_digits) ?;
+
+        // count the source digits, since leading zeros matter to the scale
+        usize span = 0;
+        for usize i = before; i < self.at.offset; i++ {
+            if self.input[i] != ('_' as u8) {
+                span++;
+            }
+        }
+
+        mantissa = mantissa * parse::scale_by_ten(1.0, span as i32)
+            + fraction as f64;
+        exponent = exponent - span as i32;
+    }
+
+    if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+        take(self);
+        is_float = true;
+
+        bool negative_exponent = false;
+        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+            negative_exponent = peek(self) == ('-' as u8);
+            take(self);
+        }
+
+        usize exponent_digits = 0;
+        u64 written = read_digits(self, 10, &exponent_digits) ?;
+
+        if written > 100000 {
+            written = 100000;
+        }
+
+        exponent = exponent + if negative_exponent {
+            0 - written as i32
+        } else { written as i32 };
+    }
+
+    if !is_float {
+        Result(i64, NumError) value = parse::signed_from_magnitude(whole, negative);
+        if value.is_err() {
+            return TomlError::NumberOutOfRange;
+        }
+
+        return Result::Ok(Scalar::Integer(value.unwrap()));
+    }
+
+    f64 value = parse::scale_by_ten(mantissa, exponent);
+
+    if value > 1.7976931348623157e308 {
+        return TomlError::NumberOutOfRange;
+    }
+
+    return Result::Ok(
+        Scalar::Float(
+            if negative {
+                -value
+            } else { value }
+        )
+    );
+}
+
+//!
+//! Datetimes
+//!
+//! A token is a date when four digits are followed by a dash, and a time
+//! when two are followed by a colon. Everything else that starts with a
+//! digit is a number.
+//!
+
+bool looks_like_date(const Scanner* self) {
+    if !has(self, 5) {
+        return false;
+    }
+
+    for usize i = 0; i < 4; i++ {
+        if !parse::is_digit(peek_at(self, i)) {
+            return false;
+        }
+    }
+
+    return peek_at(self, 4) == ('-' as u8);
+}
+
+bool looks_like_time(const Scanner* self) {
+    if !has(self, 3) {
+        return false;
+    }
+
+    return parse::is_digit(peek(self))
+        && parse::is_digit(peek_at(self, 1))
+        && peek_at(self, 2) == (':' as u8);
+}
+
+Result(u32, TomlError) read_fixed_digits(Scanner* self, usize count) {
+    u32 value = 0;
+
+    for usize i = 0; i < count; i++ {
+        if at_end(self) || !parse::is_digit(peek(self)) {
+            return TomlError::InvalidDate;
+        }
+
+        value = value * 10 + (take(self) - ('0' as u8)) as u32;
+    }
+
+    return Result::Ok(value);
+}
+
+Result(Date, TomlError) read_date(Scanner* self) {
+    u32 year = read_fixed_digits(self, 4) ?;
+    expect(self, '-' as u8) ?;
+    u32 month = read_fixed_digits(self, 2) ?;
+    expect(self, '-' as u8) ?;
+    u32 day = read_fixed_digits(self, 2) ?;
+
+    Date out = {year = year as i32, month = month as u8, day = day as u8};
+
+    if !os::time::is_valid_date(&out) {
+        return TomlError::InvalidDate;
+    }
+
+    return Result::Ok(out);
+}
+
+Result(Time, TomlError) read_time(Scanner* self) {
+    u32 hour = read_fixed_digits(self, 2) ?;
+    expect(self, ':' as u8) ?;
+    u32 minute = read_fixed_digits(self, 2) ?;
+
+    u32 second = 0;
+    u32 nanosecond = 0;
+
+    if !at_end(self) && peek(self) == (':' as u8) {
+        take(self);
+        second = read_fixed_digits(self, 2) ?;
+
+        if !at_end(self) && peek(self) == ('.' as u8) {
+            take(self);
+
+            usize digits = 0;
+            while !at_end(self) && parse::is_digit(peek(self)) {
+                u8 c = take(self);
+
+                // keep nanosecond precision, discard the rest
+                if digits < 9 {
+                    nanosecond = nanosecond * 10 + (c - ('0' as u8)) as u32;
+                    digits++;
+                }
+            }
+
+            if digits == 0 {
+                return TomlError::InvalidDate;
+            }
+
+            while digits < 9 {
+                nanosecond = nanosecond * 10;
+                digits++;
+            }
+        }
+    }
+
+    Time out = {
+        hour = hour as u8,
+        minute = minute as u8,
+        second = second as u8,
+        nanosecond = nanosecond,
+    };
+
+    if !os::time::is_valid_time(&out) {
+        return TomlError::InvalidDate;
+    }
+
+    return Result::Ok(out);
+}
+
+/// true when a space at the cursor separates a date from a time rather
+/// than ending the value.
+bool space_joins_time(const Scanner* self) {
+    if !has(self, 4) {
+        return false;
+    }
+
+    return parse::is_digit(peek_at(self, 1))
+        && parse::is_digit(peek_at(self, 2))
+        && peek_at(self, 3) == (':' as u8);
+}
+
+Result(Scalar, TomlError) read_datetime(Scanner* self) {
+    if looks_like_time(self) {
+        return Result::Ok(Scalar::LocalTime(read_time(self) ?));
+    }
+
+    Date date = read_date(self) ?;
+
+    bool joined = false;
+    if !at_end(self) {
+        u8 c = peek(self);
+
+        if c == ('T' as u8) || c == ('t' as u8) {
+            take(self);
+            joined = true;
+        } else if c == (' ' as u8) && space_joins_time(self) {
+            take(self);
+            joined = true;
+        }
+    }
+
+    if !joined {
+        return Result::Ok(Scalar::LocalDate(date));
+    }
+
+    Time clock = read_time(self) ?;
+
+    DateTime stamp = {date = date, time = clock, offset_minutes = 0};
+
+    if at_end(self) {
+        return Result::Ok(Scalar::LocalDateTime(stamp));
+    }
+
+    u8 c = peek(self);
+
+    if c == ('Z' as u8) || c == ('z' as u8) {
+        take(self);
+        return Result::Ok(Scalar::OffsetDateTime(stamp));
+    }
+
+    if c != ('+' as u8) && c != ('-' as u8) {
+        return Result::Ok(Scalar::LocalDateTime(stamp));
+    }
+
+    bool west = c == ('-' as u8);
+    take(self);
+
+    u32 hours = read_fixed_digits(self, 2) ?;
+    expect(self, ':' as u8) ?;
+    u32 minutes = read_fixed_digits(self, 2) ?;
+
+    if hours > 23 || minutes > 59 {
+        return TomlError::InvalidDate;
+    }
+
+    i32 total = (hours * 60 + minutes) as i32;
+    stamp.offset_minutes = if west {
+        (0 - total) as i16
+    } else { total as i16 };
+
+    return Result::Ok(Scalar::OffsetDateTime(stamp));
+}
+
+//!
+//! Value dispatch
+//!
+
+Status(TomlError) push_frame(Scanner* self, u8 flags) {
+    if self.depth >= MAX_DEPTH {
+        return TomlError::DepthExceeded;
+    }
+
+    self.frames[self.depth] = flags;
+    self.depth = self.depth + 1;
+    return Status::Ok;
+}
+
+bool word_ahead(const Scanner* self, [] const u8 word) {
+    if !has(self, word.len) {
+        return false;
+    }
+
+    for usize i = 0; i < word.len; i++ {
+        if peek_at(self, i) != word[i] {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+Result(Event, TomlError) read_value(Scanner* self) {
+    if at_end(self) {
+        return TomlError::UnexpectedEnd;
+    }
+
+    u8 c = peek(self);
+
+    if c == ('[' as u8) {
+        take(self);
+        push_frame(self, 0) ?;
+        return Result::Ok(Event::ArrayBegin);
+    }
+
+    if c == ('{' as u8) {
+        take(self);
+        push_frame(self, FRAME_INLINE) ?;
+        return Result::Ok(Event::InlineTableBegin);
+    }
+
+    if c == ('"' as u8) || c == ('\'' as u8) {
+        return Result::Ok(Event::Scalar(Scalar::String(read_string(self) ?)));
+    }
+
+    if word_ahead(self, "true") {
+        for usize i = 0; i < 4; i++ {
+            take(self);
+        }
+
+        return Result::Ok(Event::Scalar(Scalar::Bool(true)));
+    }
+
+    if word_ahead(self, "false") {
+        for usize i = 0; i < 5; i++ {
+            take(self);
+        }
+
+        return Result::Ok(Event::Scalar(Scalar::Bool(false)));
+    }
+
+    if looks_like_date(self) || looks_like_time(self) {
+        return Result::Ok(Event::Scalar(read_datetime(self) ?));
+    }
+
+    if c == ('0' as u8) && has(self, 2) {
+        u8 marker = peek_at(self, 1);
+
+        if marker == ('x' as u8) {
+            return Result::Ok(Event::Scalar(read_radix_number(self, 16) ?));
+        }
+
+        if marker == ('o' as u8) {
+            return Result::Ok(Event::Scalar(read_radix_number(self, 8) ?));
+        }
+
+        if marker == ('b' as u8) {
+            return Result::Ok(Event::Scalar(read_radix_number(self, 2) ?));
+        }
+    }
+
+    if parse::is_digit(c) || c == ('+' as u8) || c == ('-' as u8)
+        || c == ('i' as u8) || c == ('n' as u8) {
+        return Result::Ok(Event::Scalar(read_decimal(self) ?));
+    }
+
+    return TomlError::UnexpectedByte;
+}
+
+Result(Located(Event), TomlError) read_table_header(Scanner* self, Position here) {
+    take(self);
+
+    bool array = !at_end(self) && peek(self) == ('[' as u8);
+    if array {
+        take(self);
+    }
+
+    skip_inline_space(self);
+    KeyPath key = read_key_path(self) ?;
+    skip_inline_space(self);
+
+    expect(self, ']' as u8) ?;
+    if array {
+        expect(self, ']' as u8) ?;
+    }
+
+    finish_line(self) ?;
+
+    return Result::Ok(
+        {
+            event = Event::Table(TablePath {key = key, array = array}),
+            at = here,
+        }
+    );
+}
+
+/// yields the next event. a key arrives before its value, and a value
+/// that is an array or inline table arrives as a begin/end pair.
+public Result(Located(Event), TomlError) next(Scanner* self) {
+    if self.pending_value {
+        self.pending_value = false;
+
+        skip_inline_space(self);
+        Position here = self.at;
+        Event value = read_value(self) ?;
+
+        // a scalar at the top level closes its statement
+        bool container = match value {
+            Event::ArrayBegin => true,
+            Event::InlineTableBegin => true,
+            _ => false,
+        };
+
+        if !container && self.depth == 0 {
+            self.need_line_end = true;
+        }
+
+        return Result::Ok({event = value, at = here});
+    }
+
+    if self.depth != 0 {
+        u8 frame = self.frames[self.depth - 1];
+
+        if (frame & FRAME_INLINE) == 0 {
+            skip_space(self);
+            Position here = self.at;
+
+            if at_end(self) {
+                return TomlError::UnexpectedEnd;
+            }
+
+            if peek(self) == (']' as u8) {
+                take(self);
+                self.depth = self.depth - 1;
+
+                if self.depth == 0 {
+                    self.need_line_end = true;
+                }
+
+                return Result::Ok({event = Event::ArrayEnd, at = here});
+            }
+
+            if (frame & FRAME_SEEN) != 0 {
+                expect(self, ',' as u8) ?;
+                skip_space(self);
+                here = self.at;
+
+                // arrays allow one trailing comma
+                if !at_end(self) && peek(self) == (']' as u8) {
+                    take(self);
+                    self.depth = self.depth - 1;
+
+                    if self.depth == 0 {
+                        self.need_line_end = true;
+                    }
+
+                    return Result::Ok(
+                        {event = Event::ArrayEnd, at = here}
+                    );
+                }
+            }
+
+            self.frames[self.depth - 1] = frame | FRAME_SEEN;
+            Event element = read_value(self) ?;
+            return Result::Ok({event = element, at = here});
+        }
+
+        skip_inline_space(self);
+        Position here = self.at;
+
+        if at_end(self) {
+            return TomlError::UnexpectedEnd;
+        }
+
+        if peek(self) == ('}' as u8) {
+            take(self);
+            self.depth = self.depth - 1;
+
+            if self.depth == 0 {
+                self.need_line_end = true;
+            }
+
+            return Result::Ok(
+                {event = Event::InlineTableEnd, at = here}
+            );
+        }
+
+        if (frame & FRAME_SEEN) != 0 {
+            expect(self, ',' as u8) ?;
+            skip_inline_space(self);
+            here = self.at;
+        }
+
+        self.frames[self.depth - 1] = frame | FRAME_SEEN;
+
+        KeyPath key = read_key_path(self) ?;
+        skip_inline_space(self);
+        expect(self, '=' as u8) ?;
+
+        self.pending_value = true;
+        return Result::Ok({event = Event::Key(key), at = here});
+    }
+
+    if self.need_line_end {
+        self.need_line_end = false;
+        finish_line(self) ?;
+    }
+
+    skip_space(self);
+    Position here = self.at;
+
+    if at_end(self) {
+        return Result::Ok({event = Event::End, at = here});
+    }
+
+    if peek(self) == ('[' as u8) {
+        return read_table_header(self, here);
+    }
+
+    KeyPath key = read_key_path(self) ?;
+    skip_inline_space(self);
+    expect(self, '=' as u8) ?;
+
+    self.pending_value = true;
+    return Result::Ok({event = Event::Key(key), at = here});
+}
+
+//!
+//! Document tree
+//!
+
+public struct Entry {
+    [] const u8 key;
+    Value value;
+}
+
+public struct Table {
+    /// in the order the keys were written
+    [] Entry entries;
+}
+
+public enum Value {
+    String([] const u8),
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    OffsetDateTime(DateTime),
+    LocalDateTime(DateTime),
+    LocalDate(Date),
+    LocalTime(Time),
+    Array([] Value),
+    Table(Table),
+}
+
+//!
+//! Building
+//!
+//! Header tables and the intermediates a dotted key creates have to stay
+//! open for later statements, so they are built through mutable nodes and
+//! frozen at the end. An inline table is closed the moment it ends, so it
+//! is frozen where it is parsed.
+//!
+
+using u8 KIND_VALUE = 0;
+using u8 KIND_TABLE = 1;
+using u8 KIND_ARRAY = 2;
+
+using TablePtr = BTable*;
+
+struct BEntry {
+    [] const u8 key;
+    u8 kind;
+    Value value;
+    BTable* table;
+    [] TablePtr elements;
+    usize element_count;
+}
+
+struct BTable {
+    [] BEntry entries;
+    usize len;
+    /// written as `[name]`, so it cannot be opened again
+    bool explicit;
+    /// created as the prefix of a dotted key, so a header cannot claim it
+    bool dotted;
+}
+
+Result(BTable*, TomlError) new_table(const mem::Allocator* alloc) {
+    Result(BTable*, mem::AllocError) slot = alloc.create();
+    if slot.is_err() {
+        return TomlError::OutOfMemory;
+    }
+
+    BTable* out = slot.unwrap();
+    out.entries = slice::from_raw(null as BEntry*, 0);
+    out.len = 0;
+    out.explicit = false;
+    out.dotted = false;
+    return Result::Ok(out);
+}
+
+Result(BEntry*, TomlError) reserve_entry(
+    const mem::Allocator* alloc,
+    BTable* self,
+    [] const u8 key
+) {
+    if self.len == self.entries.len {
+        usize want = if self.entries.len == 0 {
+            8 as usize
+        } else { self.entries.len * 2 };
+
+        Result([] BEntry, mem::AllocError) grown = alloc.alloc(want);
+        if grown.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        [] BEntry fresh = grown.unwrap();
+        for usize i = 0; i < self.len; i++ {
+            fresh[i] = self.entries[i];
+        }
+
+        if self.entries.len != 0 {
+            alloc.free(self.entries);
+        }
+
+        self.entries = fresh;
+    }
+
+    BEntry* slot = &self.entries[self.len];
+    slot.key = key;
+    slot.kind = KIND_VALUE;
+    slot.table = null as BTable*;
+    slot.elements = slice::from_raw(null as TablePtr*, 0);
+    slot.element_count = 0;
+    self.len = self.len + 1;
+    return Result::Ok(slot);
+}
+
+BEntry* find_entry(BTable* self, [] const u8 key) {
+    for usize i = 0; i < self.len; i++ {
+        if mem::equal(self.entries[i].key, key) {
+            return &self.entries[i];
+        }
+    }
+
+    return null as BEntry*;
+}
+
+Status(TomlError) push_element(
+    const mem::Allocator* alloc,
+    BEntry* self,
+    BTable* element
+) {
+    if self.element_count == self.elements.len {
+        usize want = if self.elements.len == 0 {
+            4 as usize
+        } else { self.elements.len * 2 };
+
+        Result([] TablePtr, mem::AllocError) grown = alloc.alloc(want);
+        if grown.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        [] TablePtr fresh = grown.unwrap();
+        for usize i = 0; i < self.element_count; i++ {
+            fresh[i] = self.elements[i];
+        }
+
+        if self.elements.len != 0 {
+            alloc.free(self.elements);
+        }
+
+        self.elements = fresh;
+    }
+
+    self.elements[self.element_count] = element;
+    self.element_count = self.element_count + 1;
+    return Status::Ok;
+}
+
+/// copies a key segment into `alloc`, decoding it when it was quoted.
+Result([] const u8, TomlError) key_text(
+    const mem::Allocator* alloc,
+    const Str* self
+) {
+    if self.kind == StrKind::Bare {
+        return Result::Ok(self.raw);
+    }
+
+    if !self.needs_unescape {
+        return Result::Ok(self.raw);
+    }
+
+    Result([] u8, mem::AllocError) slot = alloc.alloc(self.raw.len);
+    if slot.is_err() {
+        return TomlError::OutOfMemory;
+    }
+
+    [] u8 buffer = slot.unwrap();
+    usize n = unescape(self, buffer) ?;
+    return Result::Ok(buffer[0..n] as [] const u8);
+}
+
+/// walks into `key`, creating tables as it goes. `dotted` marks the
+/// intermediates a dotted key creates, which a later header may not claim.
+Result(BTable*, TomlError) descend(
+    const mem::Allocator* alloc,
+    BTable* from,
+    const KeyPath* key,
+    usize count,
+    bool dotted
+) {
+    BTable* current = from;
+
+    for usize i = 0; i < count; i++ {
+        [] const u8 name = key_text(alloc, &key.parts[i]) ?;
+        BEntry* found = find_entry(current, name);
+
+        if found == null {
+            BTable* fresh = new_table(alloc) ?;
+            fresh.dotted = dotted;
+
+            BEntry* slot = reserve_entry(alloc, current, name) ?;
+            slot.kind = KIND_TABLE;
+            slot.table = fresh;
+            current = fresh;
+            continue;
+        }
+
+        if found.kind == KIND_TABLE {
+            current = found.table;
+            continue;
+        }
+
+        if found.kind == KIND_ARRAY {
+            if found.element_count == 0 {
+                return TomlError::KeyConflict;
+            }
+
+            current = found.elements[found.element_count - 1];
+            continue;
+        }
+
+        return TomlError::KeyConflict;
+    }
+
+    return Result::Ok(current);
+}
+
+Result(BTable*, TomlError) open_table(
+    const mem::Allocator* alloc,
+    BTable* root,
+    const TablePath* path
+) {
+    BTable* parent = descend(alloc, root, &path.key, path.key.count - 1, false) ?;
+    [] const u8 name = key_text(alloc, &path.key.parts[path.key.count - 1]) ?;
+
+    BEntry* found = find_entry(parent, name);
+
+    if path.array {
+        if found == null {
+            BEntry* slot = reserve_entry(alloc, parent, name) ?;
+            slot.kind = KIND_ARRAY;
+
+            BTable* element = new_table(alloc) ?;
+            element.explicit = true;
+            push_element(alloc, slot, element) ?;
+            return Result::Ok(element);
+        }
+
+        if found.kind != KIND_ARRAY {
+            return TomlError::KeyConflict;
+        }
+
+        BTable* element = new_table(alloc) ?;
+        element.explicit = true;
+        push_element(alloc, found, element) ?;
+        return Result::Ok(element);
+    }
+
+    if found == null {
+        BTable* fresh = new_table(alloc) ?;
+        fresh.explicit = true;
+
+        BEntry* slot = reserve_entry(alloc, parent, name) ?;
+        slot.kind = KIND_TABLE;
+        slot.table = fresh;
+        return Result::Ok(fresh);
+    }
+
+    if found.kind != KIND_TABLE {
+        return TomlError::KeyConflict;
+    }
+
+    // a table implied by an earlier `[a.b]` may be defined later, but a
+    // table already defined, or built as a dotted prefix, may not
+    if found.table.explicit || found.table.dotted {
+        return TomlError::DuplicateKey;
+    }
+
+    found.table.explicit = true;
+    return Result::Ok(found.table);
+}
+
+Status(TomlError) set_key(
+    const mem::Allocator* alloc,
+    BTable* current,
+    const KeyPath* key,
+    Value value
+) {
+    BTable* target = descend(alloc, current, key, key.count - 1, true) ?;
+    [] const u8 name = key_text(alloc, &key.parts[key.count - 1]) ?;
+
+    if find_entry(target, name) != null {
+        return TomlError::DuplicateKey;
+    }
+
+    BEntry* slot = reserve_entry(alloc, target, name) ?;
+    slot.kind = KIND_VALUE;
+    slot.value = value;
+    return Status::Ok;
+}
+
+Result(Table, TomlError) freeze(const mem::Allocator* alloc, BTable* self) {
+    if self.len == 0 {
+        return Result::Ok(Table {entries = slice::from_raw(null as Entry*, 0)});
+    }
+
+    Result([] Entry, mem::AllocError) slot = alloc.alloc(self.len);
+    if slot.is_err() {
+        return TomlError::OutOfMemory;
+    }
+
+    [] Entry out = slot.unwrap();
+
+    for usize i = 0; i < self.len; i++ {
+        BEntry* source = &self.entries[i];
+        out[i].key = source.key;
+
+        if source.kind == KIND_VALUE {
+            out[i].value = source.value;
+            continue;
+        }
+
+        if source.kind == KIND_TABLE {
+            out[i].value = Value::Table(freeze(alloc, source.table) ?);
+            continue;
+        }
+
+        Result([] Value, mem::AllocError) elements = alloc.alloc(
+            source.element_count
+        );
+        if elements.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        [] Value frozen = elements.unwrap();
+        for usize k = 0; k < source.element_count; k++ {
+            frozen[k] = Value::Table(freeze(alloc, source.elements[k]) ?);
+        }
+
+        out[i].value = Value::Array(frozen);
+    }
+
+    return Result::Ok(Table {entries = out});
+}
+
+//!
+//! Parsing
+//!
+
+struct ValueVec {
+    [] Value items;
+    usize len;
+}
+
+Status(TomlError) push_value(
+    const mem::Allocator* alloc,
+    ValueVec* self,
+    Value value
+) {
+    if self.len == self.items.len {
+        usize want = if self.items.len == 0 {
+            8 as usize
+        } else { self.items.len * 2 };
+
+        Result([] Value, mem::AllocError) grown = alloc.alloc(want);
+        if grown.is_err() {
+            return TomlError::OutOfMemory;
+        }
+
+        [] Value fresh = grown.unwrap();
+        for usize i = 0; i < self.len; i++ {
+            fresh[i] = self.items[i];
+        }
+
+        if self.items.len != 0 {
+            alloc.free(self.items);
+        }
+
+        self.items = fresh;
+    }
+
+    self.items[self.len] = value;
+    self.len = self.len + 1;
+    return Status::Ok;
+}
+
+Result(Value, TomlError) scalar_value(
+    const mem::Allocator* alloc,
+    Scalar item
+) {
+    return match item {
+        Scalar::String(text) => {
+            Result([] const u8, TomlError) decoded = string_text(alloc, &text);
+            if decoded.is_err() {
+                return decoded.unwrap_err();
+            }
+
+            Result::Ok(Value::String(decoded.unwrap()))
+        },
+        Scalar::Integer(v) => Result::Ok(Value::Integer(v)),
+        Scalar::Float(v) => Result::Ok(Value::Float(v)),
+        Scalar::Bool(v) => Result::Ok(Value::Bool(v)),
+        Scalar::OffsetDateTime(v) => Result::Ok(Value::OffsetDateTime(v)),
+        Scalar::LocalDateTime(v) => Result::Ok(Value::LocalDateTime(v)),
+        Scalar::LocalDate(v) => Result::Ok(Value::LocalDate(v)),
+        Scalar::LocalTime(v) => Result::Ok(Value::LocalTime(v)),
+    };
+}
+
+/// borrows the source when the string carried no escape, and decodes
+/// into `alloc` when it did.
+Result([] const u8, TomlError) string_text(
+    const mem::Allocator* alloc,
+    const Str* self
+) {
+    if !self.needs_unescape {
+        return Result::Ok(self.raw);
+    }
+
+    Result([] u8, mem::AllocError) slot = alloc.alloc(self.raw.len);
+    if slot.is_err() {
+        return TomlError::OutOfMemory;
+    }
+
+    [] u8 buffer = slot.unwrap();
+    usize n = unescape(self, buffer) ?;
+    return Result::Ok(buffer[0..n] as [] const u8);
+}
+
+Result(Value, TomlError) build_array(
+    const mem::Allocator* alloc,
+    Scanner* self
+) {
+    ValueVec items = {items = slice::from_raw(null as Value*, 0), len = 0};
+
+    while true {
+        Located(Event) step = next(self) ?;
+
+        match step.event {
+            Event::ArrayEnd => return Result::Ok(
+                Value::Array(items.items[0..items.len])
+            ),
+            _ => {},
+        }
+
+        Value element = build_value(alloc, self, step.event) ?;
+        push_value(alloc, &items, element) ?;
+    }
+}
+
+Result(Value, TomlError) build_inline(
+    const mem::Allocator* alloc,
+    Scanner* self
+) {
+    BTable* table = new_table(alloc) ?;
+
+    while true {
+        Located(Event) step = next(self) ?;
+
+        KeyPath key = match step.event {
+            Event::InlineTableEnd => return Result::Ok(
+                Value::Table(freeze(alloc, table) ?)
+            ),
+            Event::Key(k) => k,
+            _ => return TomlError::UnexpectedByte,
+        };
+
+        Located(Event) value_event = next(self) ?;
+        Value value = build_value(alloc, self, value_event.event) ?;
+        set_key(alloc, table, &key, value) ?;
+    }
+
+    return TomlError::OutOfMemory;
+}
+
+Result(Value, TomlError) build_value(
+    const mem::Allocator* alloc,
+    Scanner* self,
+    Event event
+) {
+    return match event {
+        Event::Scalar(item) => scalar_value(alloc, item),
+        Event::ArrayBegin => build_array(alloc, self),
+        Event::InlineTableBegin => build_inline(alloc, self),
+        _ => Result::Err(TomlError::UnexpectedByte),
+    };
+}
+
+/// parses a document. strings borrow `input` unless they carried an
+/// escape, so the result outlives neither `alloc` nor `input`.
+public Result(Table, TomlError) parse(
+    const mem::Allocator* alloc,
+    [] const u8 input
+) {
+    Scanner self = scan(input);
+    BTable* root = new_table(alloc) ?;
+    BTable* current = root;
+
+    while true {
+        Located(Event) step = next(&self) ?;
+
+        match step.event {
+            Event::End => return freeze(alloc, root),
+            Event::Table(path) => {
+                Result(BTable*, TomlError) opened = open_table(
+                    alloc,
+                    root,
+                    &path
+                );
+                if opened.is_err() {
+                    return opened.unwrap_err();
+                }
+
+                current = opened.unwrap();
+            },
+            Event::Key(key) => {
+                Located(Event) value_event = next(&self) ?;
+                Value value = build_value(alloc, &self, value_event.event) ?;
+                set_key(alloc, current, &key, value) ?;
+            },
+            _ => return TomlError::UnexpectedByte,
+        }
+    }
+}
+
+//!
+//! Access
+//!
+
+public Optional(Value) get(const Table* self, [] const u8 key) {
+    for usize i = 0; i < self.entries.len; i++ {
+        if mem::equal(self.entries[i].key, key) {
+            return Optional::Some(self.entries[i].value);
+        }
+    }
+
+    return Optional::None;
+}
+
+/// dotted lookup: `t.get_path("profile.release.opt")`. a segment that
+/// names an array stops the walk, since there is no index syntax here.
+public Optional(Value) get_path(const Table* self, [] const u8 path) {
+    Table current = *self;
+    usize start = 0;
+
+    for usize i = 0; i <= path.len; i++ {
+        if i != path.len && path[i] != ('.' as u8) {
+            continue;
+        }
+
+        Optional(Value) found = get(&current, path[start..i]);
+        if found.is_none() {
+            return Optional::None;
+        }
+
+        Value value = found.unwrap_some();
+
+        if i == path.len {
+            return Optional::Some(value);
+        }
+
+        match value {
+            Value::Table(inner) => current = inner,
+            _ => return Optional::None,
+        }
+
+        start = i + 1;
+    }
+
+    return Optional::None;
+}
+
+public Optional([] const u8) as_string(const Value* self) {
+    return match *self {
+        Value::String(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}
+
+public Optional(i64) as_integer(const Value* self) {
+    return match *self {
+        Value::Integer(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}
+
+public Optional(f64) as_float(const Value* self) {
+    return match *self {
+        Value::Float(v) => Optional::Some(v),
+        Value::Integer(v) => Optional::Some(v as f64),
+        _ => Optional::None,
+    };
+}
+
+public Optional(bool) as_bool(const Value* self) {
+    return match *self {
+        Value::Bool(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}
+
+public Optional([] const Value) as_array(const Value* self) {
+    return match *self {
+        Value::Array(v) => Optional::Some(v as [] const Value),
+        _ => Optional::None,
+    };
+}
+
+public Optional(Table) as_table(const Value* self) {
+    return match *self {
+        Value::Table(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}

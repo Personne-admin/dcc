@@ -1405,3 +1405,215 @@ TEST_CASE("constants materialized per block execute on both backends at O0, O1 a
         for (auto optimization : {"-O0", "-O1", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
+
+TEST_CASE("json number boundaries round-trip through documents")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+
+import std::json;
+import std::mem;
+import std::result;
+
+bool check_int([] const u8 input, i64 want) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
+    if r.is_err() { return false; }
+    std::json::Value v = r.unwrap();
+    std::result::Optional(i64) got = std::json::as_integer(&v);
+    if got.is_none() { return false; }
+    return got.unwrap_some() == want;
+}
+
+bool check_int_err([] const u8 input, std::json::JsonError want) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
+    if r.is_ok() { return false; }
+    return r.unwrap_err() == want;
+}
+
+bool check_float([] const u8 input, f64 lo, f64 hi) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::json::Value, std::json::JsonError) r = std::json::parse(&alloc, input);
+    if r.is_err() { return false; }
+    std::json::Value v = r.unwrap();
+    std::result::Optional(f64) got = std::json::as_float(&v);
+    if got.is_none() { return false; }
+    f64 f = got.unwrap_some();
+    return f >= lo && f <= hi;
+}
+
+public i32 main() {
+    u8[3] t123 = {'1' as u8, '2' as u8, '3' as u8};
+    if !check_int(t123[0..3], 123) { return 1; }
+    u8[4] tn123 = {'-' as u8, '1' as u8, '2' as u8, '3' as u8};
+    if !check_int(tn123[0..4], -123) { return 2; }
+    u8[1] tz = {'0' as u8};
+    if !check_int(tz[0..1], 0) { return 3; }
+    u8[19] tmax = {'9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '7' as u8};
+    if !check_int(tmax[0..19], 9223372036854775807) { return 4; }
+    u8[20] tmin = {'-' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    if !check_int(tmin[0..20], -9223372036854775808) { return 5; }
+    u8[19] toobig = {'9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    if !check_int_err(toobig[0..19], std::json::JsonError::NumberOutOfRange) { return 6; }
+    u8[20] toosmall = {'-' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '9' as u8};
+    if !check_int_err(toosmall[0..20], std::json::JsonError::NumberOutOfRange) { return 7; }
+    u8[20] huge = {'9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8};
+    if !check_int_err(huge[0..20], std::json::JsonError::NumberOutOfRange) { return 8; }
+    u8[2] leadzero = {'0' as u8, '1' as u8};
+    if !check_int_err(leadzero[0..2], std::json::JsonError::InvalidNumber) { return 9; }
+    u8[4] f314 = {'3' as u8, '.' as u8, '1' as u8, '4' as u8};
+    if !check_float(f314[0..4], 3.13, 3.15) { return 10; }
+    u8[3] fe3 = {'1' as u8, 'e' as u8, '3' as u8};
+    if !check_float(fe3[0..3], 999.0, 1001.0) { return 11; }
+    u8[7] fn25e = {'-' as u8, '2' as u8, '.' as u8, '5' as u8, 'e' as u8, '-' as u8, '2' as u8};
+    if !check_float(fn25e[0..7], -0.03, -0.02) { return 12; }
+    u8[5] fbig = {'1' as u8, 'e' as u8, '9' as u8, '9' as u8, '9' as u8};
+    if !check_int_err(fbig[0..5], std::json::JsonError::NumberOutOfRange) { return 13; }
+    u8[3] f10 = {'1' as u8, '.' as u8, '0' as u8};
+    if !check_float(f10[0..3], 0.99, 1.01) { return 14; }
+    return 0;
+}
+)DCC");
+    for (auto backend : {"llvm", "em64t"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}
+
+TEST_CASE("toml number boundaries round-trip through documents")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+
+import std::toml;
+import std::mem;
+import std::result;
+
+bool check_int([] const u8 input, i64 want) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    if r.is_err() { return false; }
+    std::toml::Table t = r.unwrap();
+    u8[1] key = {'k' as u8};
+    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
+    if found.is_none() { return false; }
+    std::toml::Value v = found.unwrap_some();
+    std::result::Optional(i64) got = std::toml::as_integer(&v);
+    if got.is_none() { return false; }
+    return got.unwrap_some() == want;
+}
+
+bool check_int_err([] const u8 input, std::toml::TomlError want) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    if r.is_ok() { return false; }
+    return r.unwrap_err() == want;
+}
+
+bool check_float([] const u8 input, f64 lo, f64 hi) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    if r.is_err() { return false; }
+    std::toml::Table t = r.unwrap();
+    u8[1] key = {'k' as u8};
+    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
+    if found.is_none() { return false; }
+    std::toml::Value v = found.unwrap_some();
+    std::result::Optional(f64) got = std::toml::as_float(&v);
+    if got.is_none() { return false; }
+    f64 f = got.unwrap_some();
+    return f >= lo && f <= hi;
+}
+
+bool check_float_above([] const u8 input, f64 lo) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    if r.is_err() { return false; }
+    std::toml::Table t = r.unwrap();
+    u8[1] key = {'k' as u8};
+    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
+    if found.is_none() { return false; }
+    std::toml::Value v = found.unwrap_some();
+    std::result::Optional(f64) got = std::toml::as_float(&v);
+    if got.is_none() { return false; }
+    return got.unwrap_some() > lo;
+}
+
+bool check_float_below([] const u8 input, f64 hi) {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator alloc = std::mem::allocator(&fb);
+    std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
+    if r.is_err() { return false; }
+    std::toml::Table t = r.unwrap();
+    u8[1] key = {'k' as u8};
+    std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
+    if found.is_none() { return false; }
+    std::toml::Value v = found.unwrap_some();
+    std::result::Optional(f64) got = std::toml::as_float(&v);
+    if got.is_none() { return false; }
+    return got.unwrap_some() < hi;
+}
+
+public i32 main() {
+    u8[5] t1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8};
+    if !check_int(t1[0..5], 1) { return 1; }
+    u8[6] tn1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '-' as u8, '1' as u8};
+    if !check_int(tn1[0..6], -1) { return 2; }
+    u8[6] tp1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '+' as u8, '1' as u8};
+    if !check_int(tp1[0..6], 1) { return 3; }
+    u8[8] tus = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, '_' as u8, '0' as u8, '0' as u8};
+    if !check_int(tus[0..8], 100) { return 4; }
+    u8[8] thxff = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'x' as u8, 'F' as u8, 'F' as u8};
+    if !check_int(thxff[0..8], 255) { return 5; }
+    u8[8] toct17 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'o' as u8, '1' as u8, '7' as u8};
+    if !check_int(toct17[0..8], 15) { return 6; }
+    u8[9] tbin = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'b' as u8, '1' as u8, '0' as u8, '1' as u8};
+    if !check_int(tbin[0..9], 5) { return 7; }
+    u8[23] tmax = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '7' as u8};
+    if !check_int(tmax[0..23], 9223372036854775807) { return 8; }
+    u8[24] tmin = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '-' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    if !check_int(tmin[0..24], -9223372036854775808) { return 9; }
+    u8[23] toobig = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    if !check_int_err(toobig[0..23], std::toml::TomlError::NumberOutOfRange) { return 10; }
+    u8[8] tdbl = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, '_' as u8, '_' as u8, '2' as u8};
+    if !check_int_err(tdbl[0..8], std::toml::TomlError::InvalidNumber) { return 11; }
+    u8[6] tlead1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '_' as u8, '1' as u8};
+    if !check_int_err(tlead1[0..6], std::toml::TomlError::UnexpectedByte) { return 12; }
+    u8[6] ttrail = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, '_' as u8};
+    if !check_int_err(ttrail[0..6], std::toml::TomlError::InvalidNumber) { return 13; }
+    u8[22] tradixbig = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'x' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8};
+    if !check_int_err(tradixbig[0..22], std::toml::TomlError::NumberOutOfRange) { return 14; }
+    u8[8] tf314 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '3' as u8, '.' as u8, '1' as u8, '4' as u8};
+    if !check_float(tf314[0..8], 3.13, 3.15) { return 15; }
+    u8[7] tf1e6 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, 'e' as u8, '6' as u8};
+    if !check_float(tf1e6[0..7], 999999.0, 1000001.0) { return 16; }
+    u8[7] tfinf = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, 'i' as u8, 'n' as u8, 'f' as u8};
+    if !check_float_above(tfinf[0..7], 1.7976931348623157e308) { return 17; }
+    u8[8] tfninf = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '-' as u8, 'i' as u8, 'n' as u8, 'f' as u8};
+    if !check_float_below(tfninf[0..8], -1.7976931348623157e308) { return 18; }
+    u8[9] tfe = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, 'e' as u8, '9' as u8, '9' as u8, '9' as u8};
+    if !check_int_err(tfe[0..9], std::toml::TomlError::NumberOutOfRange) { return 19; }
+    u8[7] tf05 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, '.' as u8, '5' as u8};
+    if !check_float(tf05[0..7], 0.49, 0.51) { return 20; }
+    u8[6] tnodig = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'x' as u8};
+    if !check_int_err(tnodig[0..6], std::toml::TomlError::InvalidNumber) { return 21; }
+    return 0;
+}
+)DCC");
+    for (auto backend : {"llvm", "em64t"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}
