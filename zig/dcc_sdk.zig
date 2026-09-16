@@ -6,9 +6,10 @@ const LazyPath = Build.LazyPath;
 const GeneratedFile = Build.GeneratedFile;
 
 pub const CodeModel = enum { default, small, kernel, medium, large };
-pub const DebugFormat = enum { none, auto, dwarf, pdb };
+pub const DebugFormat = enum { auto, dwarf, pdb };
 pub const Backend = enum { llvm, em64t };
 pub const PicMode = enum { pic, pie };
+pub const LibdcextOs = enum { linux, windows, freestanding };
 
 pub const OptLevel = enum {
     O0,
@@ -93,6 +94,18 @@ pub const TargetTriple = enum {
     }
 };
 
+/// Linker inputs. Only meaningful when the compiler links, i.e. for
+/// `.executable` and `.shared_library` output.
+pub const LinkOptions = struct {
+    script: ?LazyPath = null,
+    entry: ?[]const u8 = null,
+    gc_sections: bool = false,
+    library_dirs: []const LazyPath = &.{},
+    libraries: []const []const u8 = &.{},
+    /// Raw arguments forwarded to the linker via -Wl,
+    linker_args: []const []const u8 = &.{},
+};
+
 pub const CompileOptions = struct {
     dcc_exe: []const u8 = "dcc",
 
@@ -110,23 +123,30 @@ pub const CompileOptions = struct {
     arch: ?[]const u8 = null,
 
     libdcext: bool = false,
+    libdcext_os: ?LibdcextOs = null,
     pic: ?PicMode = null,
 
-    no_red_zone: bool = false,
-    no_simd: bool = false,
-    no_x87: bool = false,
-    no_stack_protector: bool = false,
-    no_stack_probe: bool = false,
+    /// Codegen toggles. Null leaves the compiler default in place; an
+    /// explicit value emits the corresponding -f / -fno- flag, so a value
+    /// set here always wins over the default.
+    red_zone: ?bool = null,
+    simd: ?bool = null,
+    x87: ?bool = null,
+    stack_protector: ?bool = null,
+    stack_probe: ?bool = null,
     code_model: ?CodeModel = null,
 
     bounds_check: ?bool = null,
     restricted_check: ?bool = null,
+    partial_eval: ?bool = null,
     emit_debug_info: ?bool = null,
     debug_format: ?DebugFormat = null,
     omit_frame_pointer: ?bool = null,
 
     include_dirs: []const LazyPath = &.{},
     injected_decls: []const []const u8 = &.{},
+
+    link: LinkOptions = .{},
 
     track_dependencies: bool = true,
 
@@ -144,12 +164,24 @@ pub const CommandArg = union(enum) {
     literal: []const u8,
     file: LazyPath,
     directory: LazyPath,
+    /// A path that must be rendered as one argument with a literal prefix,
+    /// e.g. -L/path. Step.Run has addPrefixedDirectoryArg for exactly this.
+    prefixed_directory: struct {
+        prefix: []const u8,
+        path: LazyPath,
+    },
+    prefixed_file: struct {
+        prefix: []const u8,
+        path: LazyPath,
+    },
 
     fn addStepDependencies(arg: CommandArg, step: *Step) void {
         switch (arg) {
             .literal => {},
             .file => |path| path.addStepDependencies(step),
             .directory => |path| path.addStepDependencies(step),
+            .prefixed_directory => |p| p.path.addStepDependencies(step),
+            .prefixed_file => |p| p.path.addStepDependencies(step),
         }
     }
 
@@ -158,6 +190,8 @@ pub const CommandArg = union(enum) {
             .literal => |value| run.addArg(value),
             .file => |path| run.addFileArg(path),
             .directory => |path| run.addDirectoryArg(path),
+            .prefixed_directory => |p| run.addPrefixedDirectoryArg(p.prefix, p.path),
+            .prefixed_file => |p| run.addPrefixedFileArg(p.prefix, p.path),
         }
     }
 };
@@ -290,6 +324,14 @@ pub const CompilationDatabase = struct {
                     .literal => |literal| literal,
                     .file => |path| resolveLazyPath(b, step, path),
                     .directory => |path| resolveLazyPath(b, step, path),
+                    .prefixed_directory => |p| b.fmt(
+                        "{s}{s}",
+                        .{ p.prefix, resolveLazyPath(b, step, p.path) },
+                    ),
+                    .prefixed_file => |p| b.fmt(
+                        "{s}{s}",
+                        .{ p.prefix, resolveLazyPath(b, step, p.path) },
+                    ),
                 };
 
                 argv.append(arena, value) catch @panic("OOM");
@@ -469,6 +511,13 @@ fn extension(kind: OutputKind, triple: TargetTriple) []const u8 {
     };
 }
 
+fn links(kind: OutputKind) bool {
+    return switch (kind) {
+        .executable, .shared_library => true,
+        .object, .assembly => false,
+    };
+}
+
 fn validate(options: CompileOptions) void {
     if (options.dump) |mode| {
         if (mode.isTerminal() and options.output != .executable) {
@@ -489,6 +538,28 @@ fn validate(options: CompileOptions) void {
             "dcc: warning: -shared without -fPIC/-fPIE for \"{s}\"\n",
             .{options.name},
         );
+    }
+
+    if (!links(options.output)) {
+        const l = options.link;
+        const has_link_input =
+            l.script != null or
+            l.entry != null or
+            l.gc_sections or
+            l.library_dirs.len != 0 or
+            l.libraries.len != 0 or
+            l.linker_args.len != 0;
+
+        if (has_link_input) {
+            std.debug.print(
+                "dcc: warning: link options ignored for non-linking output in \"{s}\"\n",
+                .{options.name},
+            );
+        }
+    }
+
+    if (options.libdcext_os != null and !options.libdcext) {
+        @panic("dcc: libdcext_os set without libdcext");
     }
 }
 
@@ -538,43 +609,34 @@ fn buildArguments(
     const do_omit_fp = options.omit_frame_pointer orelse
         !is_debug;
 
-    if (do_bounds_check) {
-        addLiteral(b, &args, "-fbounds-check");
-    }
-    if (do_restricted_check) {
-        addLiteral(b, &args, "-frestricted-check");
-    }
+    addToggle(b, &args, "bounds-check", do_bounds_check);
+    addToggle(b, &args, "restricted-check", do_restricted_check);
+    addToggle(b, &args, "omit-frame-pointer", do_omit_fp);
 
-    addLiteral(
-        b,
-        &args,
-        if (do_omit_fp)
-            "-fomit-frame-pointer"
-        else
-            "-fno-omit-frame-pointer",
-    );
+    if (options.partial_eval) |on| {
+        addToggle(b, &args, "partial-eval", on);
+    }
 
     if (do_emit_debug) {
-        if (options.debug_format) |fmt| {
-            addLiteral(
-                b,
-                &args,
-                switch (fmt) {
-                    .none => "-gnone",
-                    .auto => "-g3",
-                    .dwarf => "-gdwarf",
-                    .pdb => "-gpdb",
-                },
-            );
-        } else {
-            addLiteral(b, &args, "-g3");
-        }
+        addLiteral(
+            b,
+            &args,
+            switch (options.debug_format orelse .auto) {
+                .auto => "-g",
+                .dwarf => "-gdwarf",
+                .pdb => "-gpdb",
+            },
+        );
     } else {
         addLiteral(b, &args, "-g0");
     }
 
     if (options.libdcext) {
-        addLiteral(b, &args, "-flibdcext");
+        if (options.libdcext_os) |os| {
+            addLiteral(b, &args, b.fmt("-flibdcext={s}", .{@tagName(os)}));
+        } else {
+            addLiteral(b, &args, "-flibdcext");
+        }
     }
 
     if (options.pic) |mode| {
@@ -588,24 +650,24 @@ fn buildArguments(
         );
     }
 
-    if (options.no_red_zone) {
-        addLiteral(b, &args, "-fno-red-zone");
+    if (options.red_zone) |on| {
+        addToggle(b, &args, "red-zone", on);
     }
 
-    if (options.no_simd) {
-        addLiteral(b, &args, "-fno-simd");
+    if (options.simd) |on| {
+        addToggle(b, &args, "simd", on);
     }
 
-    if (options.no_x87) {
-        addLiteral(b, &args, "-fno-x87");
+    if (options.x87) |on| {
+        addToggle(b, &args, "x87", on);
     }
 
-    if (options.no_stack_protector) {
-        addLiteral(b, &args, "-fno-stack-protector");
+    if (options.stack_protector) |on| {
+        addToggle(b, &args, "stack-protector", on);
     }
 
-    if (options.no_stack_probe) {
-        addLiteral(b, &args, "-fno-stack-probe");
+    if (options.stack_probe) |on| {
+        addToggle(b, &args, "stack-probe", on);
     }
 
     if (options.code_model) |model| {
@@ -635,6 +697,36 @@ fn buildArguments(
         .object => addLiteral(b, &args, "-c"),
         .assembly => addLiteral(b, &args, "-S"),
         .shared_library => addLiteral(b, &args, "-shared"),
+    }
+
+    if (links(options.output)) {
+        const l = options.link;
+
+        if (l.script) |script| {
+            addLiteral(b, &args, "-T");
+            addFile(b, &args, script);
+        }
+
+        if (l.entry) |symbol| {
+            addLiteral(b, &args, "-e");
+            addLiteral(b, &args, symbol);
+        }
+
+        if (l.gc_sections) {
+            addLiteral(b, &args, "--gc-sections");
+        }
+
+        for (l.library_dirs) |dir| {
+            addPrefixedDirectory(b, &args, "-L", dir);
+        }
+
+        for (l.libraries) |lib| {
+            addLiteral(b, &args, b.fmt("-l{s}", .{lib}));
+        }
+
+        for (l.linker_args) |arg| {
+            addLiteral(b, &args, b.fmt("-Wl,{s}", .{arg}));
+        }
     }
 
     for (options.extra_args) |arg| {
@@ -701,6 +793,18 @@ fn dupeCommandArgs(
             .directory => |path| .{
                 .directory = path.dupe(b),
             },
+            .prefixed_directory => |p| .{
+                .prefixed_directory = .{
+                    .prefix = b.dupe(p.prefix),
+                    .path = p.path.dupe(b),
+                },
+            },
+            .prefixed_file => |p| .{
+                .prefixed_file = .{
+                    .prefix = b.dupe(p.prefix),
+                    .path = p.path.dupe(b),
+                },
+            },
         };
     }
 
@@ -720,6 +824,24 @@ fn addLiteral(
     ) catch @panic("OOM");
 }
 
+/// Emits `-f<name>` or `-fno-<name>`. Every boolean the driver accepts has
+/// both directions, so a value set here is never silently dropped.
+fn addToggle(
+    b: *Build,
+    args: *std.ArrayList(CommandArg),
+    name: []const u8,
+    on: bool,
+) void {
+    addLiteral(
+        b,
+        args,
+        if (on)
+            b.fmt("-f{s}", .{name})
+        else
+            b.fmt("-fno-{s}", .{name}),
+    );
+}
+
 fn addDirectory(
     b: *Build,
     args: *std.ArrayList(CommandArg),
@@ -729,6 +851,36 @@ fn addDirectory(
         b.allocator,
         .{
             .directory = path.dupe(b),
+        },
+    ) catch @panic("OOM");
+}
+
+fn addFile(
+    b: *Build,
+    args: *std.ArrayList(CommandArg),
+    path: LazyPath,
+) void {
+    args.append(
+        b.allocator,
+        .{
+            .file = path.dupe(b),
+        },
+    ) catch @panic("OOM");
+}
+
+fn addPrefixedDirectory(
+    b: *Build,
+    args: *std.ArrayList(CommandArg),
+    prefix: []const u8,
+    path: LazyPath,
+) void {
+    args.append(
+        b.allocator,
+        .{
+            .prefixed_directory = .{
+                .prefix = b.dupe(prefix),
+                .path = path.dupe(b),
+            },
         },
     ) catch @panic("OOM");
 }

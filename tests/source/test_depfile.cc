@@ -869,7 +869,7 @@ TEST_CASE("missing option argument is an option error")
 {
     auto r = run_dcc("--depfile");
     CHECK_NE(r.rc, 0);
-    CHECK(r.output.find("unknown option: --depfile") != std::string::npos);
+    CHECK(r.output.find("option --depfile requires a value") != std::string::npos);
 }
 
 TEST_CASE("duplicate --depfile options are last-wins")
