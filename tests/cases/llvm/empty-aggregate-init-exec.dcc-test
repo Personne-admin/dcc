@@ -1,0 +1,70 @@
+=== FILE: test.dc ===
+module test;
+
+struct S {
+    [] const u8 a;
+    [] const[] const u8 b;
+}
+
+[] const[] const u8 empty_nested() {
+    [] const[] const u8 out = {};
+    return out;
+}
+
+[] const u8 empty_direct() {
+    return {};
+}
+
+S pick(usize i) {
+    return match i {
+        0 => S { a = "x", b = empty_nested() },
+        _ => S { a = "", b = empty_nested() },
+    };
+}
+
+@nomangle
+public i32 dcc_main() {
+    [] const u8 e = {};
+    if e.len != 0 {
+        return 1;
+    }
+    if (e.ptr as usize) != 0 {
+        return 2;
+    }
+    if empty_nested().len != 0 {
+        return 3;
+    }
+    if empty_direct().len != 0 {
+        return 4;
+    }
+    S s = pick(0);
+    if s.a.len != 1 {
+        return 5;
+    }
+    if s.b.len != 0 {
+        return 6;
+    }
+    if pick(9).a.len != 0 {
+        return 7;
+    }
+    u8[0] z = {};
+    [] const u8 zs = z;
+    if zs.len != 0 {
+        return 8;
+    }
+    return 0;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O1 -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
