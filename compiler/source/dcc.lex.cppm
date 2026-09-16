@@ -313,18 +313,18 @@ export namespace dcc::lex
                 return tok;
             }
 
-            std::int64_t val{};
+            std::uint64_t val{};
             auto [ptr, ec] = std::from_chars(clean.data(), clean.data() + clean.size(), val);
 
             if (ec == std::errc::result_out_of_range)
-                return make_error(start, "integer literal overflows i64");
+                return make_error(start, "integer literal overflows u64");
 
             if (ec != std::errc{})
                 return make_error(start, "invalid integer literal");
 
             auto tok = make_token(TokenKind::IntLiteral, start);
             tok.interned = interned;
-            tok.value = val;
+            tok.value = static_cast<std::int64_t>(val);
             return tok;
         }
 

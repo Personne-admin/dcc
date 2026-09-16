@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+using u64 TOOBIG = 18446744073709551616;
+
+i64 x = 9223372036854775808;
+
+public i32 main() { return 0; }
+
+=== EXPECT-ERRORS ===
+main.dc:3: expected expression, found 'invalid'
+main.dc:3: = note: integer literal overflows u64
+main.dc:5: integer literal 9223372036854775808 does not fit in type i64
