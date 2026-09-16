@@ -270,22 +270,22 @@ outputs, and only `bool` targets:
 
 | condition | aliases | LLVM |
 |-----------|---------|------|
-| `zero` | `equal` | `=@ccz` |
-| `not_zero` | `not_equal` | `=@ccnz` |
-| `carry` | `below` | `=@ccc` |
-| `not_carry` | `above_equal` | `=@ccnc` |
-| `above` | | `=@cca` |
-| `below_equal` | | `=@ccbe` |
-| `sign` | | `=@ccs` |
-| `not_sign` | | `=@ccns` |
-| `overflow` | | `=@cco` |
-| `not_overflow` | | `=@ccno` |
-| `parity_even` | | `=@ccp` |
-| `parity_odd` | | `=@ccnp` |
-| `less` | | `=@ccl` |
-| `less_equal` | | `=@ccle` |
-| `greater` | | `=@ccg` |
-| `greater_equal` | | `=@ccge` |
+| `zero` | `equal` | `={@ccz}` |
+| `not_zero` | `not_equal` | `={@ccnz}` |
+| `carry` | `below` | `={@ccc}` |
+| `not_carry` | `above_equal` | `={@ccnc}` |
+| `above` | | `={@cca}` |
+| `below_equal` | | `={@ccbe}` |
+| `sign` | | `={@ccs}` |
+| `not_sign` | | `={@ccns}` |
+| `overflow` | | `={@cco}` |
+| `not_overflow` | | `={@ccno}` |
+| `parity_even` | | `={@ccp}` |
+| `parity_odd` | | `={@ccnp}` |
+| `less` | | `={@ccl}` |
+| `less_equal` | | `={@ccle}` |
+| `greater` | | `={@ccg}` |
+| `greater_equal` | | `={@ccge}` |
 
 ```dc
 bool same = false;
@@ -472,7 +472,7 @@ template is rewritten to `$N` numbering (outputs first, then inputs),
 immediate `$5` spellings become bare `5`, and constraints are generated
 per operand — `=&r` (or `={reg}`) for outputs, `r`/`{reg}`/`*m`/`i`/`s`
 for inputs, ties for register `inout`, and `=*m` plus a second `*m` address
-for memory `inout` (matching clang). Flag outputs become `=@cc<code>`
+for memory `inout` (matching clang). Flag outputs become `={@cc<code>}`
 returning `i8`, truncated to `bool` at the call site. Width views rewrite
 to `${N:b}`/`${N:w}`/`${N:k}`/`${N:q}`. `rm`/`=&rm` cover `in any`.
 `%=` becomes `${:uid}`; `%{name}` in module asm is substituted textually

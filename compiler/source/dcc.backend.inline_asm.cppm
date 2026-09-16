@@ -2224,7 +2224,7 @@ namespace dcc::backend
                         auto code = flag_code_for(op.flag_cond);
                         if (code.empty())
                             return fail("unknown asm flag condition");
-                        out_constraint = "=@cc" + std::string(code);
+                        out_constraint = "={@cc" + std::string(code) + "}";
                         break;
                     }
                     case IrAsmOperand::PlacementKind::Any:
