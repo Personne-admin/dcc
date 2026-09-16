@@ -34,4 +34,4 @@ i32 test_field_type_mismatch() {
 main.dc:13: too many positional fields in brace literal
 main.dc:18: unknown field `z` in brace literal
 main.dc:23: duplicate field `x` in brace literal
-main.dc:28: field type mismatch
+main.dc:28: field `x` type mismatch: expected `i32`, got `f64`

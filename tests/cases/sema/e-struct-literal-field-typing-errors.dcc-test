@@ -11,4 +11,4 @@ void f() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:9: field type mismatch
+main.dc:9: field `x` type mismatch: expected `f32`, got `i32`

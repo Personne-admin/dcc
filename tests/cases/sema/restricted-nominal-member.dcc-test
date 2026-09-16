@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+@nominal using Small = u8{0..10};
+
+Small make() {
+    Small s = 99;
+    return s;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: integer literal 99 is not a member of type Small

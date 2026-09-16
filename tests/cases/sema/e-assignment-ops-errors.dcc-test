@@ -9,4 +9,4 @@ void f() {
 
 === EXPECT-ERRORS ===
 main.dc:4: assignment target is not assignable
-main.dc:6: assignment type mismatch
+main.dc:6: assignment type mismatch: cannot assign `bool` to `i32`

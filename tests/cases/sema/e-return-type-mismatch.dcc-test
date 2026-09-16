@@ -6,4 +6,4 @@ i32 bad() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:4: return type mismatch
+main.dc:4: return type mismatch: expected `i32`, got `bool`

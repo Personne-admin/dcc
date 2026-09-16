@@ -50,12 +50,12 @@ main.dc:24: = note: required by concept `MakesBox` with M = Maker, E = NoAdd
 main.dc:20: = note: in definition of concept `MakesBox`
 main.dc:9: = note: required by concept `IsInt` with T = NoAdd
 main.dc:3: = note: in definition of concept `IsInt`
-main.dc:4: = note: requirement failed: x + 1: binary operand type mismatch
+main.dc:4: = note: requirement failed: x + 1: binary operator `+` type mismatch: left `NoAdd`, right `i32`
 main.dc:9: = note: required by concept `IsInt` with T = NoAdd
 main.dc:3: = note: in definition of concept `IsInt`
-main.dc:4: = note: requirement failed: x + 1: binary operand type mismatch
-main.dc:21: = note: requirement failed: Box(E) b = m.make_box(): binary operand type mismatch
+main.dc:4: = note: requirement failed: x + 1: binary operator `+` type mismatch: left `NoAdd`, right `i32`
+main.dc:21: = note: requirement failed: Box(E) b = m.make_box(): binary operator `+` type mismatch: left `NoAdd`, right `i32`
 main.dc:21: = note: reason: template constraint not satisfied for `Box`
-main.dc:4: = note: reason: binary operand type mismatch
+main.dc:4: = note: reason: binary operator `+` type mismatch: left `NoAdd`, right `i32`
 main.dc:21: = note: reason: template constraint not satisfied for `Box`
-main.dc:21: = note: reason: initializer type mismatch
+main.dc:21: = note: reason: initializer type mismatch: declared `Box(NoAdd)`, initializer `Box(i32)`
