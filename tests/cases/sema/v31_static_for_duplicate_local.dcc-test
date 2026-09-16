@@ -16,7 +16,7 @@ void caller() {
     f(1, 2);
 }
 
-=== EXPECT-ERROR-COUNT: 2 ===
+=== EXPECT-ERROR-COUNT: 1 ===
 
 === EXPECT-ERRORS ===
 main.dc:8: redefinition of `x`
