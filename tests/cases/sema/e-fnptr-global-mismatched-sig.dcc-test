@@ -14,4 +14,4 @@ i32 wrong_sig(f32 a, f32 b) { return 0; }
 const Table table = {tag = 1, op = wrong_sig};
 
 === EXPECT-ERRORS ===
-test.dc:13:31: field type mismatch
+test.dc:13:31: field `op` type mismatch: expected `i32(*)(i32, i32)`, got `i32(*)(f32, f32)`

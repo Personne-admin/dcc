@@ -20,6 +20,6 @@ void check() {
 === EXPECT-ERRORS ===
 main.dc:15: template constraint not satisfied for `adds`
 main.dc:9: = note: required by concept `Addable` with T = A
-main.dc:5: = note: requirement failed: a + b: binary operand type mismatch
+main.dc:5: = note: requirement failed: a + b: binary operator `+` type mismatch: left `A`, right `A`
 main.dc:16: template constraint not satisfied for `loops`
 main.dc:7: = note: concept `SelfReferential` is defined in terms of itself

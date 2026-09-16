@@ -100,10 +100,7 @@ membership check that traps through the same `__assert` runtime as
 `-fbounds-check`. Constant operands are always checked at compile time,
 regardless of the flag.
 
-**Known limitations.** A `@nominal` alias wrapping a restricted type does
-not propagate membership checking: `@nominal using CpuBits = u8{0..255};
-CpuBits cb = 16;` reports a generic type mismatch rather than a membership
-diagnostic. `match` exhaustiveness checks the underlying integer domain,
+**Known limitations.** `match` exhaustiveness checks the underlying integer domain,
 not the restricted domain, so a `match` over a restricted value is not
 flagged as incomplete when it covers only the restricted values.
 

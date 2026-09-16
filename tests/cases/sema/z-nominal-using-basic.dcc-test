@@ -14,12 +14,12 @@ Module m
   Using Fd
     Alias: i32
   Func make_fd
-    Return: nominal(Fd, i32)
+    Return: Fd
   Func make_i32
     Return: i32
   Func take_fd
     Return: void
-    Param x: nominal(Fd, i32)
+    Param x: Fd
   Func take_i32
     Return: void
     Param x: i32
