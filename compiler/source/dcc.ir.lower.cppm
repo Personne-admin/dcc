@@ -6567,6 +6567,12 @@ export namespace dcc::ir::lower
             auto* tail_val = lower_block_body(be->body);
 
             auto* block_type = get_sema_resolved_type(be);
+            if (block_type && !tail_val && be->body.stmts.empty() && !be->body.tail)
+            {
+                auto* ir_ty = lower_type(block_type);
+                if (ir_ty && (ir_ty->kind == IrTypeKind::Slice || ir_ty->kind == IrTypeKind::Array || ir_ty->kind == IrTypeKind::Aggregate))
+                    return zero_value(ir_ty);
+            }
             if (block_type && tail_val)
             {
                 auto* tail_sema_type = be->body.tail ? get_sema_resolved_type(be->body.tail) : nullptr;
