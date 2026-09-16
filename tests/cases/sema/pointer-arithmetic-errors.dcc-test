@@ -10,8 +10,8 @@ void bad(u64* p, u32* q, void* v, usize n) {
 }
 
 === EXPECT-ERRORS EXACT ===
-main.dc:4:14: binary operand type mismatch
+main.dc:4:14: binary operator `+` type mismatch: left `u64*`, right `u32*`
 main.dc:5:15: pointer difference requires pointers to the same type
 main.dc:6:15: pointer arithmetic requires a pointer to a sized type
 main.dc:7:15: pointer arithmetic requires a pointer to a sized type
-main.dc:8:14: binary operand type mismatch
+main.dc:8:14: binary operator `-` type mismatch: left `usize`, right `u64*`

@@ -173,14 +173,13 @@ export namespace dcc::sema
             case types::TypeKind::Nominal: {
                 auto const* nt = static_cast<types::NominalType const*>(ty);
                 auto const* dd = reinterpret_cast<ast::Decl const*>(nt->decl);
-                std::string name = "<nominal>";
                 if (dd && dd->kind == ast::DeclKind::Using)
                 {
                     auto const* ud = static_cast<ast::UsingDecl const*>(dd);
                     if (!ud->alias_path.is_empty())
-                        name = std::string{ud->alias_path.tail_name()};
+                        return std::string{ud->alias_path.tail_name()};
                 }
-                return std::format("nominal({}, {})", name, format_dcc_type(nt->underlying));
+                return format_dcc_type(nt->underlying);
             }
             case types::TypeKind::Error:
                 return "<error>";

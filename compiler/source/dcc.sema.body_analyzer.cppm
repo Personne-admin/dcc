@@ -5447,7 +5447,14 @@ export namespace dcc::sema
                     *had_constraint_failure = true;
 
                 if (rejection_reason)
-                    *rejection_reason = "template constraint not satisfied";
+                {
+                    auto constraint_src = (func && func->constraint) ? extract_source_text(func->constraint->range) : std::string{};
+                    if (constraint_src.empty())
+                        *rejection_reason = std::format("template constraint not satisfied for `{}`", func ? func->name : "?");
+                    else
+                        *rejection_reason =
+                            std::format("template constraint not satisfied for `{}`: `{}`", func->name, constraint_src);
+                }
 
                 record_rejection(rejection_info, CallRejectionKind::None);
 
@@ -5865,7 +5872,13 @@ export namespace dcc::sema
                     *had_constraint_failure = true;
 
                 if (rejection_reason)
-                    *rejection_reason = "template constraint not satisfied";
+                {
+                    auto constraint_src = f.constraint ? extract_source_text(f.constraint->range) : std::string{};
+                    if (constraint_src.empty())
+                        *rejection_reason = std::format("template constraint not satisfied for `{}`", f.name);
+                    else
+                        *rejection_reason = std::format("template constraint not satisfied for `{}`: `{}`", f.name, constraint_src);
+                }
 
                 record_rejection(rejection_info, CallRejectionKind::None);
 
@@ -9170,7 +9183,8 @@ export namespace dcc::sema
                     auto value = analyze_expr(mod, nullptr, scope, *lit.value, 0, tmp, matched_type, const_env);
                     if (!value.constant || !value.type || value.type->kind == types::TypeKind::Error || (matched_type && value.type != matched_type))
                     {
-                        error(lit.range, "literal pattern type mismatch");
+                        error(lit.range, "literal pattern type mismatch: matched `{}`, pattern `{}`", format_type_str(matched_type),
+                              format_type_str(value.type));
                         out.ok = false;
                     }
                     break;
@@ -9745,7 +9759,7 @@ export namespace dcc::sema
                     case ast::ExprKind::IntLiteral: {
                         auto& e = static_cast<ast::IntLiteralExpr&>(expr);
 
-                        if (auto const* rt = types::type_cast<types::RestrictedType>(expected_type))
+                        if (auto const* rt = types::type_cast<types::RestrictedType>(unwrap_nominal(expected_type)))
                         {
                             if (!m_in_explicit_conversion)
                             {
@@ -10608,14 +10622,14 @@ export namespace dcc::sema
                     if (!types::type_cast<types::IntType>(op.type) && !types::type_cast<types::FloatType>(op.type))
                     {
                         out.type = m_types.m_errort();
-                        error(u.range, "unary operand type mismatch");
+                        error(u.range, "unary operator `{}` type mismatch: operand `{}`", lex::to_string(u.op), format_type_str(op.type));
                     }
                     break;
                 case lex::TokenKind::Bang:
                     if (op.type != m_types.m_boolt())
                     {
                         out.type = m_types.m_errort();
-                        error(u.range, "unary operand type mismatch");
+                        error(u.range, "unary operator `{}` type mismatch: operand `{}`", lex::to_string(u.op), format_type_str(op.type));
                     }
                     else
                         out.type = m_types.m_boolt();
@@ -10651,7 +10665,7 @@ export namespace dcc::sema
                     if (!op.is_lvalue)
                     {
                         out.type = m_types.m_errort();
-                        error(u.range, "unary operand type mismatch");
+                        error(u.range, "unary operator `{}` type mismatch: operand `{}`", lex::to_string(u.op), format_type_str(op.type));
                         break;
                     }
                     require_binding_storage(u.operand);
@@ -10973,7 +10987,7 @@ export namespace dcc::sema
                     if (!ok)
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "assignment type mismatch");
+                        error(b.range, "assignment type mismatch: cannot assign `{}` to `{}`", format_type_str(rhs.type), format_type_str(lhs_type));
                         return out;
                     }
                     if (implicit_enum_var)
@@ -10995,7 +11009,8 @@ export namespace dcc::sema
                             if (!pointer_step && !types::type_cast<types::IntType>(lhs_type) && !types::type_cast<types::FloatType>(lhs_type))
                             {
                                 out.type = m_types.m_errort();
-                                error(b.range, "binary operand type mismatch");
+                                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                                      format_type_str(lhs_type), format_type_str(rhs.type));
                                 return out;
                             }
                             break;
@@ -11007,7 +11022,8 @@ export namespace dcc::sema
                             if (!types::type_cast<types::IntType>(lhs_type))
                             {
                                 out.type = m_types.m_errort();
-                                error(b.range, "binary operand type mismatch");
+                                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                                      format_type_str(lhs_type), format_type_str(rhs.type));
                                 return out;
                             }
                             break;
@@ -11053,7 +11069,8 @@ export namespace dcc::sema
                               b.op == lex::TokenKind::GtGt))
                         {
                             out.type = m_types.m_errort();
-                            error(b.range, "binary operand type mismatch");
+                            error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                                  format_type_str(lhs.type), format_type_str(rhs.type));
                             return out;
                         }
                     }
@@ -11063,7 +11080,8 @@ export namespace dcc::sema
                         if (lhs.type != rhs.type || !types::type_cast<types::IntType>(lhs.type))
                         {
                             out.type = m_types.m_errort();
-                            error(b.range, "binary operand type mismatch");
+                            error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                                  format_type_str(lhs.type), format_type_str(rhs.type));
                             return out;
                         }
                         out.type = lhs.type;
@@ -11074,7 +11092,8 @@ export namespace dcc::sema
                     if (lhs.type != rhs.type || (!types::type_cast<types::IntType>(lhs.type) && !types::type_cast<types::FloatType>(lhs.type)))
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "binary operand type mismatch");
+                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                              format_type_str(lhs.type), format_type_str(rhs.type));
                         return out;
                     }
                     out.type = lhs.type;
@@ -11107,7 +11126,8 @@ export namespace dcc::sema
                     if (lhs.type != rhs.type || !lhs.type || lhs.type->kind == types::TypeKind::Error)
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "binary operand type mismatch");
+                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                              format_type_str(lhs.type), format_type_str(rhs.type));
                         return out;
                     }
                     out.type = m_types.m_boolt();
@@ -11119,7 +11139,8 @@ export namespace dcc::sema
                     if (lhs.type != m_types.m_boolt() || rhs.type != m_types.m_boolt())
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "binary operand type mismatch");
+                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                              format_type_str(lhs.type), format_type_str(rhs.type));
                         return out;
                     }
                     out.type = m_types.m_boolt();
@@ -11324,7 +11345,8 @@ export namespace dcc::sema
                 if (b.op != lex::TokenKind::Minus)
                 {
                     out.type = m_types.m_errort();
-                    error(b.range, "binary operand type mismatch");
+                    error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                          format_type_str(lhs.type), format_type_str(rhs.type));
                     return out;
                 }
                 if (lhs.type != rhs.type)
@@ -11349,7 +11371,8 @@ export namespace dcc::sema
             if (rhs_pointer && b.op == lex::TokenKind::Minus)
             {
                 out.type = m_types.m_errort();
-                error(b.range, "binary operand type mismatch");
+                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
+                      format_type_str(lhs.type), format_type_str(rhs.type));
                 return out;
             }
             if (!types::type_cast<types::IntType>(erase_refinement(offset.type)))
@@ -11685,7 +11708,7 @@ export namespace dcc::sema
             if (!out.type)
                 out.type = m_types.m_errort();
 
-            if (auto const* rt = types::type_cast<types::RestrictedType>(out.type))
+            if (auto const* rt = types::type_cast<types::RestrictedType>(unwrap_nominal(out.type)))
             {
                 if (op.constant && op.constant->kind() == comptime::Value::Kind::Int)
                 {
@@ -12048,7 +12071,8 @@ export namespace dcc::sema
                                     }
                                     if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                                     {
-                                        error(f.range, "field type mismatch");
+                                        error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[elem_index].name,
+                                              format_type_str(expected_field), format_type_str(val.type));
                                         return std::nullopt;
                                     }
                                 }
@@ -12077,7 +12101,8 @@ export namespace dcc::sema
                                         }
                                         if (expected_field && val.type && val.type != expected_field && val.type->kind != types::TypeKind::Error)
                                         {
-                                            error(nf.range, "field type mismatch");
+                                            error(nf.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[elem_index].name,
+                                                  format_type_str(expected_field), format_type_str(val.type));
                                             return std::nullopt;
                                         }
                                     }
@@ -12164,7 +12189,8 @@ export namespace dcc::sema
                             bool const array_to_slice = es && ga && es->element == ga->element;
                             if (!array_to_slice)
                             {
-                                error(f.range, "field type mismatch");
+                                error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[field_index].name,
+                                      format_type_str(expected_field), format_type_str(val.type));
                                 return std::nullopt;
                             }
                             warn_implicit_array_copy(f.value, val.type, expected_field);
@@ -12325,7 +12351,8 @@ export namespace dcc::sema
                     {
                         if (!try_implicit_enum_element(*f.value, arr->element))
                         {
-                            error(f.range, "array element type mismatch");
+                            error(f.range, "array element type mismatch: expected `{}`, got `{}`", format_type_str(arr->element),
+                                  format_type_str(val.type));
                             return std::nullopt;
                         }
                     }
@@ -12356,7 +12383,8 @@ export namespace dcc::sema
                     {
                         if (!try_implicit_enum_element(*f.value, slice->element))
                         {
-                            error(f.range, "slice element type mismatch");
+                            error(f.range, "slice element type mismatch: expected `{}`, got `{}`", format_type_str(slice->element),
+                                  format_type_str(val.type));
                             return std::nullopt;
                         }
                     }
@@ -13486,7 +13514,8 @@ export namespace dcc::sema
                                     return {m_types.m_errort()};
                                 if (arg.type && !is_concrete_void_type(arg.type) && arg.type->kind != types::TypeKind::Error)
                                 {
-                                    error(c.args[ai]->range, "enum variant `{}` payload type mismatch", variant_name);
+                                    error(c.args[ai]->range, "enum variant `{}` payload type mismatch: expected void payload, got `{}`", variant_name,
+                                          format_type_str(arg.type));
                                     return {m_types.m_errort()};
                                 }
                             }
@@ -13538,14 +13567,16 @@ export namespace dcc::sema
                                         auto final_payload = opt_bindings->substitute(payload_ty);
                                         if (final_payload && arg.type && final_payload != arg.type && !contains_template_param(final_payload))
                                         {
-                                            error(c.args[i]->range, "enum variant `{}` payload type mismatch", variant_name);
+                                            error(c.args[i]->range, "enum variant `{}` payload type mismatch: expected `{}`, got `{}`", variant_name,
+                                                  format_type_str(final_payload), format_type_str(arg.type));
                                             any_arg_error = true;
                                         }
                                     }
                                 }
                                 else if (payload_ty != arg.type)
                                 {
-                                    error(c.args[i]->range, "enum variant `{}` payload type mismatch", variant_name);
+                                    error(c.args[i]->range, "enum variant `{}` payload type mismatch: expected `{}`, got `{}`", variant_name,
+                                          format_type_str(payload_ty), format_type_str(arg.type));
                                     any_arg_error = true;
                                 }
                             }
@@ -14709,7 +14740,8 @@ export namespace dcc::sema
                                     {
                                         auto* conv = try_implicit_enum_conversion(expected, got.type, mod, scope, &implicit_enum_var);
                                         if (!conv)
-                                            error(s.range, "return type mismatch");
+                                            error(s.range, "return type mismatch: expected `{}`, got `{}`", format_type_str(expected),
+                                                  format_type_str(got.type));
                                         else if (has_error(conv))
                                             error(s.range, "ambiguous implicit enum construction");
                                     }
@@ -15821,7 +15853,8 @@ export namespace dcc::sema
                         {
                             auto* conv = try_implicit_enum_conversion(expected, init.type, mod, scope, &implicit_enum_var);
                             if (!conv)
-                                error(v->range, "initializer type mismatch");
+                                error(v->range, "initializer type mismatch: declared `{}`, initializer `{}`", format_type_str(expected),
+                                      format_type_str(init.type));
                             else if (has_error(conv))
                                 error(v->range, "ambiguous implicit enum construction");
                         }

@@ -18,7 +18,7 @@ Module m
   Using NominalVec3
     Alias: Vec3
   Func origin
-    Return: nominal(NominalVec3, Vec3)
+    Return: NominalVec3
   Func read_x
     Return: f32
-    Param v: nominal(NominalVec3, Vec3)
+    Param v: NominalVec3
