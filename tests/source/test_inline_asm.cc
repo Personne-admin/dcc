@@ -248,6 +248,28 @@ TEST_CASE("llvm lowering ties inout and passes memory addresses twice")
     REQUIRE(lowered.output_address_indices[0] == 1);
 }
 
+TEST_CASE("llvm lowering emits braced flag output constraint")
+{
+    AsmFixture fx;
+    auto* u64 = fx.ctx.int_t(64, false);
+    auto* boolean = fx.ctx.bool_t();
+    auto* av = fx.ctx.int_const(u64, 1);
+    auto* bv = fx.ctx.int_const(u64, 2);
+    std::vector<IrAsmOperand> operands;
+    IrAsmOperand flag;
+    flag.direction = IrAsmOperand::Direction::Out;
+    flag.placement_kind = IrAsmOperand::PlacementKind::Flag;
+    flag.flag_cond = "equal";
+    flag.type = boolean;
+    operands.push_back(flag);
+    operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rax", u64, av));
+    operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rbx", u64, bv));
+    auto* inst = fx.build("cmp %[x], %[y]", std::move(operands), IrAsmDialect::Intel, {{"%[x]", 1}, {"%[y]", 2}});
+    auto lowered = prepare_llvm_asm(*inst);
+    REQUIRE(lowered.error.empty());
+    REQUIRE(lowered.constraints == "={@ccz},{rax},{rbx}");
+}
+
 TEST_CASE("clobbers and literal registers are tracked")
 {
     AsmFixture fx;
