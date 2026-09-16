@@ -700,7 +700,11 @@ export namespace dcc::comptime
                     break;
                 case UnaryOp::Minus:
                     if (kind() == Kind::Int)
-                        return make_int(static_cast<std::int64_t>(0u - static_cast<std::uint64_t>(get_int())), out_type);
+                    {
+                        if (get_int() == std::numeric_limits<std::int64_t>::min())
+                            return std::nullopt;
+                        return make_int(-get_int(), out_type);
+                    }
                     if (kind() == Kind::Float)
                         return make_float(-get_float(), out_type);
                     break;
