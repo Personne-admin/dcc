@@ -1,0 +1,42 @@
+=== FILE: test.dc ===
+module test;
+
+enum Carrier(E, T) { Ok(T), @implicit_construction Err(E), }
+bool is_ok(E, T)(const Carrier(E, T)* self) { return true; }
+T unwrap(E, T)(const Carrier(E, T)* self) { return match *self { Carrier::Ok(v) => v, _ => { T zero; zero } }; }
+E unwrap_err(E, T)(const Carrier(E, T)* self) { E error; return error; }
+Carrier(i32, [] T) make(T)(usize n) { [] T items; return Carrier::Ok(items); }
+Carrier(i32, [] T) nested(T)(usize n) {
+    [] T items = make(n) ?;
+    return Carrier::Ok(items);
+}
+Carrier(i32, [] T) packed(T, Args...)(usize n, Args args) { return make(n); }
+Carrier(i32, T*) pointer(T)() { T* value; return Carrier::Ok(value); }
+T identity(T)(T value) { return value; }
+T from_pointer(T)(const T* value) { return *value; }
+[] T from_const(T)([] const T source) { [] T items; return items; }
+
+struct Optional(T) { T value; }
+bool is_ok(T)(Optional(T) self) { return true; }
+T unwrap(T)(Optional(T) self) { return self.value; }
+i32 unwrap_err(T)(Optional(T) self) { return 0; }
+Optional(T) optional(T)() { T value; return { value = value }; }
+
+i32 test() {
+    [] u8 a = make(4) ?;
+    [] const u8 qualified = make(4) ?;
+    [] u8 pack = packed(4, 1, true) ?;
+    const u8* ptr = pointer() ?;
+    Carrier(i32, [] u8) r = make(4);
+    [] u8 b = r ?;
+    [] u8 c = nested(4) ?;
+    [] u8 d = make!u8(4) ?;
+    [] const u8 source = a;
+    [] u8 copied = from_const(source);
+    u8 value = identity(copied[0]);
+    u8 pointed = from_pointer(&value);
+    u8 opt = optional() ?;
+    return 0;
+}
+
+=== EXPECT-ERRORS EXACT ===

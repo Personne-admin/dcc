@@ -65,7 +65,7 @@ Module m
   Func t2_tagged_enum_slice_after_receiver_deduction diverging=true
     Body
       Var fd type=i32 storage=local offset=0
-      Call [type=void const=<none> decl=print spec=print ufcs=print]
+      Call [type=<error> const=<none> ufcs=print]
         FieldAccess print [type=<unresolved> const=<none> decl=print ufcs=print]
           Ident fd [type=i32 const=<none> lvalue decl=fd]
         StructLiteral [type=[]Status(U) const=slice(42, agg(0, 7)) constant]
@@ -76,3 +76,4 @@ Module m
         IntLiteral 0 [type=i32 const=0 constant]
 
 === EXPECT-ERRORS EXACT ===
+main.dc:28: cannot deduce template argument `U` for `print`

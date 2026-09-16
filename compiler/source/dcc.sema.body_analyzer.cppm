@@ -1237,6 +1237,7 @@ export namespace dcc::sema
         std::pmr::unordered_map<ModuleInfo const*, ConstEnv*> m_module_const_envs{};
         ConstEnv* m_current_module_env{};
         ModuleInfo* m_current_module{};
+        bool m_signature_probe{};
         std::unordered_map<ast::VarDecl const*, comptime::Value const*> m_global_const_vals;
 
         detail::ExprResult analyze_call_arg(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
@@ -3333,7 +3334,7 @@ export namespace dcc::sema
                 {
                     auto return_ty = get_canonical(f.return_type->sema);
                     if (return_ty && contains_template_param(return_ty) && !contains_template_param(expected_type))
-                        std::ignore = b.deduce(return_ty, expected_type);
+                        std::ignore = b.deduce_return(return_ty, expected_type);
                 }
 
                 std::vector<types::TypePtr> actuals;
@@ -4063,8 +4064,14 @@ export namespace dcc::sema
         [[nodiscard]] detail::CommittedSpecialization commit_specialization(ModuleInfo& mod, ast::FuncDecl const& f, infer::TemplateBindings const& bindings,
                                                                             sm::SourceRange range)
         {
-            if (f.template_params.empty())
+            if (f.template_params.empty() || m_signature_probe)
                 return {};
+
+            if (auto* missing = unresolved_template_parameter(f, bindings, m_types))
+            {
+                error(range, "cannot deduce template argument `{}` for `{}`", missing->name, f.name);
+                return {};
+            }
 
             auto spec = m_spec_registry.get_or_instantiate(f, bindings, range, m_ast_ctx, m_types, &m_diag);
             if (spec.is_new)
@@ -5207,7 +5214,7 @@ export namespace dcc::sema
             {
                 auto return_ty = get_canonical(func->return_type->sema);
                 if (return_ty && contains_template_param(return_ty) && !contains_template_param(expected_type))
-                    std::ignore = b.deduce(return_ty, expected_type);
+                    std::ignore = b.deduce_return(return_ty, expected_type);
             }
 
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
@@ -5885,7 +5892,7 @@ export namespace dcc::sema
             {
                 auto return_ty = get_canonical(f.return_type->sema);
                 if (return_ty && contains_template_param(return_ty))
-                    std::ignore = b.deduce(return_ty, expected_type);
+                    std::ignore = b.deduce_return(return_ty, expected_type);
             }
 
             if (std::ranges::any_of(f.template_params, [](auto const& tp) { return tp.default_type || tp.default_value; }) &&
@@ -5983,7 +5990,7 @@ export namespace dcc::sema
         invoke_ufcs_candidate(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, Symbol const& sym, ast::Expr& object, std::span<ast::Expr* const> arg_exprs,
                               sm::SourceRange range, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, UfcsReceiverMatch expected_match,
                               types::TypePtr expected_type = nullptr, detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false,
-                              std::optional<std::size_t> default_arg_start = std::nullopt)
+                              std::optional<std::size_t> default_arg_start = std::nullopt, types::TypePtr* inferred_receiver = nullptr)
         {
             if (!sym.decl || sym.decl->kind != ast::DeclKind::Func)
                 return std::nullopt;
@@ -6267,7 +6274,7 @@ export namespace dcc::sema
             {
                 auto return_ty = get_canonical(f.return_type->sema);
                 if (return_ty && contains_template_param(return_ty))
-                    std::ignore = b.deduce(return_ty, expected_type);
+                    std::ignore = b.deduce_return(return_ty, expected_type);
             }
 
             if (!protocol_lookup)
@@ -6315,9 +6322,19 @@ export namespace dcc::sema
                 }
             }
 
+            if (!fill_template_defaults(mod, scope, f, b))
+                return detail::ExprResult{m_types.m_errort()};
+
+            if (inferred_receiver)
+                *inferred_receiver = b.substitute(receiver.type);
+
             detail::CommittedSpecialization committed_spec{};
             if (!f.template_params.empty())
-                committed_spec = commit_specialization(mod, f, b, f.range);
+            {
+                committed_spec = commit_specialization(mod, f, b, range);
+                if (!committed_spec && !m_signature_probe)
+                    return detail::ExprResult{m_types.m_errort()};
+            }
 
             detail::ExprResult out{};
             out.type = b.substitute(f.return_type ? get_canonical(f.return_type->sema) : m_types.m_voidt());
@@ -10817,9 +10834,29 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_postfix(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::PostfixExpr& p, int loop_depth, std::uint32_t& next_off,
-                                           types::TypePtr, ConstEnv const* const_env)
+                                           types::TypePtr expected_type, ConstEnv const* const_env)
         {
-            auto op = analyze_expr_or_error(mod, fn, scope, p.operand, loop_depth, next_off, nullptr, const_env);
+            types::TypePtr operand_expected = nullptr;
+            if (p.op == lex::TokenKind::Question && expected_type && !contains_template_param(expected_type))
+            {
+                auto const lambda_mark = pending_lambda_mark();
+                ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
+                auto saved_probe = std::exchange(m_signature_probe, true);
+                auto* probe_scope = make_probe_scope(scope);
+                auto probe_off = next_off;
+                auto receiver = analyze_expr_or_error(mod, fn, *probe_scope, p.operand, loop_depth, probe_off, nullptr, const_env);
+                if (receiver.type && !has_error(receiver.type) && contains_template_param(receiver.type))
+                {
+                    auto* access = m_ast_ctx.make<ast::FieldAccessExpr>(p.range, p.operand, "unwrap", p.range);
+                    auto result = resolve_ufcs(mod, fn, *probe_scope, *access, {}, loop_depth, probe_off, const_env, expected_type,
+                                               &receiver, true, nullptr, &operand_expected);
+                    if (has_error(result.type))
+                        operand_expected = nullptr;
+                }
+                m_signature_probe = saved_probe;
+                rollback_non_spec_lambdas(lambda_mark);
+            }
+            auto op = analyze_expr_or_error(mod, fn, scope, p.operand, loop_depth, next_off, operand_expected, const_env);
             detail::ExprResult out{};
             if (has_error(op.type))
             {
@@ -13763,7 +13800,7 @@ export namespace dcc::sema
         detail::ExprResult resolve_ufcs(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FieldAccessExpr& f, std::span<ast::Expr* const> args,
                                         int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, types::TypePtr expected_type = nullptr,
                                         detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false,
-                                        std::pmr::vector<ast::Expr*>* materialized_args = nullptr)
+                                        std::pmr::vector<ast::Expr*>* materialized_args = nullptr, types::TypePtr* inferred_receiver = nullptr)
         {
             bool saw_probe_error = false;
             bool saw_constraint_failure = false;
@@ -13901,7 +13938,8 @@ export namespace dcc::sema
                     }
                     auto out_opt =
                         invoke_ufcs_candidate(mod, fn, scope, *ranked[*winner].sym, *f.object, effective_args, f.range, loop_depth, next_off, const_env,
-                                              ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup, default_arg_start);
+                                              ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup, default_arg_start,
+                                              inferred_receiver);
                     if (!out_opt)
                         return detail::ExprResult{m_types.m_errort()};
 
@@ -14042,7 +14080,7 @@ export namespace dcc::sema
             {
                 auto return_ty = get_canonical(f.return_type->sema);
                 if (return_ty && contains_template_param(return_ty) && !contains_template_param(expected_type))
-                    std::ignore = b.deduce(return_ty, expected_type);
+                    std::ignore = b.deduce_return(return_ty, expected_type);
             }
 
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
@@ -14276,6 +14314,8 @@ export namespace dcc::sema
             }
 
             detail::CommittedSpecialization committed_spec = commit_specialization(mod, f, b, range);
+            if (!f.template_params.empty() && !committed_spec && !m_signature_probe)
+                return {m_types.m_errort()};
 
             detail::ExprResult out{};
             out.type = b.substitute(f.return_type ? get_canonical(f.return_type->sema) : m_types.m_voidt());

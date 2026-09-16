@@ -2156,9 +2156,64 @@ export namespace dcc::sema
         return result;
     }
 
+    [[nodiscard]] bool is_concrete_template_type(types::TypePtr type)
+    {
+        if (!type || type->kind == types::TypeKind::Error || type->kind == types::TypeKind::TemplateParam)
+            return false;
+        switch (type->kind)
+        {
+            case types::TypeKind::Pointer:
+                return is_concrete_template_type(static_cast<types::PointerType const*>(type)->pointee);
+            case types::TypeKind::Slice:
+                return is_concrete_template_type(static_cast<types::SliceType const*>(type)->element);
+            case types::TypeKind::Array:
+                return is_concrete_template_type(static_cast<types::ArrayType const*>(type)->element);
+            case types::TypeKind::RuntimeArray:
+                return is_concrete_template_type(static_cast<types::RuntimeArrayType const*>(type)->element);
+            case types::TypeKind::Fam:
+                return is_concrete_template_type(static_cast<types::FamType const*>(type)->element);
+            case types::TypeKind::TypePack:
+                return is_concrete_template_type(static_cast<types::TypePackType const*>(type)->element);
+            case types::TypeKind::Range:
+                return is_concrete_template_type(static_cast<types::RangeType const*>(type)->element);
+            case types::TypeKind::RangeInclusive:
+                return is_concrete_template_type(static_cast<types::RangeInclusiveType const*>(type)->element);
+            case types::TypeKind::FuncPtr: {
+                auto* function = static_cast<types::FuncPtrType const*>(type);
+                return is_concrete_template_type(function->return_type) && std::ranges::all_of(function->params, is_concrete_template_type);
+            }
+            case types::TypeKind::Struct:
+            case types::TypeKind::Union:
+            case types::TypeKind::Enum:
+                return std::ranges::all_of(static_cast<types::UserType const*>(type)->template_args, is_concrete_template_type);
+            case types::TypeKind::Nominal:
+                return is_concrete_template_type(static_cast<types::NominalType const*>(type)->underlying);
+            default:
+                return true;
+        }
+    }
+
+    [[nodiscard]] ast::TemplateParam const* unresolved_template_parameter(ast::FuncDecl const& function,
+                                                                         infer::TemplateBindings const& bindings, types::TypeContext& types)
+    {
+        for (std::size_t i = 0; i < function.template_params.size(); ++i)
+        {
+            auto const& param = function.template_params[i];
+            if (param.is_pack || param.value_type)
+                continue;
+            auto* key = types.template_param_t(const_cast<ast::TemplateParam*>(&param), param.name, static_cast<std::uint32_t>(i));
+            if (!is_concrete_template_type(bindings.substitute(key)))
+                return &param;
+        }
+        return nullptr;
+    }
+
     InstantiatedFunc instantiate_with_bindings(ast::FuncDecl const& template_fn, infer::TemplateBindings const& bindings, ast::AstContext& ast_ctx,
                                                types::TypeContext& type_ctx, diag::DiagnosticEngine* diag = nullptr)
     {
+        if (unresolved_template_parameter(template_fn, bindings, type_ctx))
+            return {};
+
         std::pmr::vector<types::TypePtr> param_types(std::pmr::polymorphic_allocator<>{ast_ctx.resource()});
 
         bool has_pack = false;
@@ -4325,6 +4380,14 @@ export namespace dcc::sema
                                                     sm::SourceRange instantiation_site, ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
                                                     diag::DiagnosticEngine* diag = nullptr)
         {
+            if (auto* missing = unresolved_template_parameter(template_fn, bindings, type_ctx))
+            {
+                if (diag)
+                    diag->emit(diag::Diagnostic{diag::Severity::Error,
+                                               std::format("cannot deduce template argument `{}` for `{}`", missing->name, template_fn.name)}
+                                   .primary(instantiation_site));
+                return {nullptr, nullptr, SpecState::Failed, false};
+            }
             auto key = make_key(template_fn, bindings, type_ctx);
 
             if (auto it = m_entries.find(key); it != m_entries.end())

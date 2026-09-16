@@ -280,6 +280,29 @@ export namespace dcc::infer
             return result;
         }
 
+        [[nodiscard]] DeductionResult deduce_return(types::TypePtr pattern, types::TypePtr expected)
+        {
+            auto qualification_allowed = [](types::Qual from, types::Qual to) {
+                auto source = std::to_underlying(from);
+                auto target = std::to_underlying(to);
+                return (source & target) == source && ((target & ~source) & ~std::to_underlying(types::Qual::Const)) == 0;
+            };
+            auto substituted = substitute(pattern);
+            if (auto const* pointer = types::type_cast<types::PointerType>(substituted))
+            {
+                if (auto const* context = types::type_cast<types::PointerType>(expected);
+                    context && qualification_allowed(pointer->pointee_quals, context->pointee_quals))
+                    expected = m_types.pointer_to(context->pointee, pointer->pointee_quals);
+            }
+            if (auto const* slice = types::type_cast<types::SliceType>(substituted))
+            {
+                if (auto const* context = types::type_cast<types::SliceType>(expected);
+                    context && qualification_allowed(slice->element_quals, context->element_quals))
+                    expected = m_types.slice_t(context->element, slice->element_quals);
+            }
+            return deduce(pattern, expected);
+        }
+
         [[nodiscard]] DeductionResult deduce_function(std::span<types::TypePtr const> params, std::span<types::TypePtr const> args)
         {
             bool has_pack_param = false;
