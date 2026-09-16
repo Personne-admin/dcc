@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+
+enum E { A }
+
+enum R { @implicit_construction First(E), @implicit_construction Second(E), Ok(i32) }
+
+R amb(i32 x) { return match x { _ => E::A }; }
+
+=== EXPECT-ERRORS ===
+main.dc:7: ambiguous implicit enum construction

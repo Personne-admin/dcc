@@ -1,0 +1,39 @@
+=== FILE: test.dc ===
+module test;
+
+enum E { A, B }
+
+enum R { @implicit_construction Err(E), Ok(i32) }
+
+R pick(i32 x) { return match x { 0 => E::A, _ => R::Ok(1) }; }
+
+R pick_if(i32 x) { return if x == 0 { E::B } else { R::Ok(2) }; }
+
+R nest(i32 x) { return match x { 0 => match x { _ => E::A }, _ => R::Ok(3) }; }
+
+bool is_a(E e) {
+    if e == E::A { return true; }
+    return false;
+}
+
+bool is_b(E e) {
+    if e == E::B { return true; }
+    return false;
+}
+
+@nomangle
+public i32 dcc_main() {
+    R a = pick(0);
+    match a { R::Err(e) => { if !is_a(e) { return 1; } }, _ => { return 2; } }
+    R b = pick(5);
+    match b { R::Ok(v) => { if v != 1 { return 3; } }, _ => { return 4; } }
+    R c = pick_if(0);
+    match c { R::Err(e) => { if !is_b(e) { return 5; } }, _ => { return 6; } }
+    R d = nest(0);
+    match d { R::Err(e) => { if !is_a(e) { return 7; } }, _ => { return 8; } }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+===

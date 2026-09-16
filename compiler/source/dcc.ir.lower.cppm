@@ -3985,16 +3985,13 @@ export namespace dcc::ir::lower
         IrValue* lower_path_expr(ast::PathExpr const* pe)
         {
             if (pe->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && pe->sema.constructed_variant)
-            {
-                auto* enum_type = get_sema_resolved_type(pe);
-                auto* et = types::type_cast<types::EnumType>(enum_type);
-                if (et && et->is_tagged)
-                    return lower_tagged_enum_construction(pe->sema.constructed_variant, enum_type, std::span<IrValue*>{});
+                return lower_implicit_enum_construction(pe, [&]() { return lower_path_expr_value(pe); });
 
-                auto* ir_ty = lower_type(enum_type);
-                return m_ctx.int_const(ir_ty, static_cast<std::int64_t>(pe->sema.constructed_variant->discriminant));
-            }
+            return lower_path_expr_value(pe);
+        }
 
+        IrValue* lower_path_expr_value(ast::PathExpr const* pe)
+        {
             auto* resolved = pe->sema.resolved_specialization ? static_cast<ast::Decl const*>(pe->sema.resolved_specialization) : pe->sema.resolved_decl;
             if (!resolved)
                 lower_panic(pe, "PathExpr missing resolved_decl");
