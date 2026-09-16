@@ -46,11 +46,13 @@ OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)-$(BACKEND)
 
 FREESTANDING_EXCLUDE := $(TOPLEVEL)/libdcext/std/sys/linux/syscall.dc $(TOPLEVEL)/libdcext/std/sys/win/imports.dc
 
+TOPLEVEL_SRCS := $(TOPLEVEL)/libdcext/assert.dc
+
 ifeq ($(TARGET),x86_64-freestanding)
-  DC_SRCS := $(filter-out $(FREESTANDING_EXCLUDE),$(call find-sources,$(TOPLEVEL)/libdcext/std,dc))
+  DC_SRCS := $(filter-out $(FREESTANDING_EXCLUDE),$(call find-sources,$(TOPLEVEL)/libdcext/std,dc)) $(TOPLEVEL_SRCS)
   ASM_SRCS :=
 else
-  DC_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/std,dc)
+  DC_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/std,dc) $(TOPLEVEL_SRCS)
   ASM_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/$(PLATFORM_DIR),asm)
 endif
 
@@ -61,6 +63,7 @@ ALL_OBJS := $(DC_OBJS) $(ASM_OBJS)
 LIBDCEXT_A := $(BUILD_DIR)/lib/libdcext-$(TARGET_OS)-$(BACKEND).a
 HEADER_SRC := $(TOPLEVEL)/libdcext/std
 STD_SRC := $(TOPLEVEL)/libdcext/std.dc
+ASSERT_SRC := $(TOPLEVEL)/libdcext/assert.dc
 HEADER_DST := $(BUILD_DIR)/include/std
 
 .PHONY: all install uninstall clean headers
@@ -72,6 +75,7 @@ headers:
 	@mkdir -p $(BUILD_DIR)/include
 	$(Q)cp -r $(HEADER_SRC) $(BUILD_DIR)/include/
 	$(Q)cp $(STD_SRC) $(BUILD_DIR)/include/
+	$(Q)cp $(ASSERT_SRC) $(BUILD_DIR)/include/
 
 TARGET_STAMP := $(BUILD_DIR)/lib/.libdcext-target-stamp
 
