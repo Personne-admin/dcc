@@ -58,6 +58,17 @@ def run(server):
             send(method, {"textDocument": {"uri": a}, "position": {"line": 0, "character": 17}}, len(messages) + 1000)
         send("textDocument/didClose", {"textDocument": {"uri": b}})
         checkpoint({a: (13, 1), b: (1, 0)})
+        c = (root / "c.dc").as_uri()
+        send("textDocument/didOpen", {"textDocument": {
+            "uri": c, "languageId": "dc", "version": 1,
+            "text": "module main;\nusize s = sizeof(u32);\n",
+        }})
+        sizeof_hover_id = len(messages) + 2000
+        send("textDocument/hover", {
+            "textDocument": {"uri": c},
+            "position": {"line": 1, "character": 12},
+        }, sizeof_hover_id)
+        sizeof_hover_result = None
         send("shutdown", {}, 2)
         send("exit", {})
         payload = bytearray()
@@ -82,17 +93,21 @@ def run(server):
                 params = message["params"]
                 uri, version, diagnostics = params["uri"], params.get("version"), params["diagnostics"]
                 if not diagnostics:
-                    assert (uri, version) in ((a, 12), (b, 1)), message
+                    assert (uri, version) in ((a, 12), (b, 1), (c, 1)), message
                     if uri == b:
                         assert states.get(a) == (13, 1), message
                 states[uri] = (version, len(diagnostics))
                 publications += 1
             if "id" in message:
                 responses.add(message["id"])
+                if message["id"] == sizeof_hover_id:
+                    sizeof_hover_result = message.get("result")
                 expected = expectations.get(message["id"])
                 if expected is not None:
                     assert states == expected, (states, expected, process.stderr.decode())
         assert responses == {m["id"] for m in messages if "id" in m}, responses
+        assert sizeof_hover_result is not None, process.stderr.decode()
+        assert "= 4" in sizeof_hover_result["contents"]["value"], sizeof_hover_result
         print(f"PASS: {publications} diagnostic publications, {len(expectations)} lifecycle checkpoints, clean shutdown")
 
 
