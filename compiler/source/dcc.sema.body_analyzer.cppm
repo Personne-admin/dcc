@@ -1808,6 +1808,32 @@ export namespace dcc::sema
             return m_types.int_t(32, true);
         }
 
+        [[nodiscard]] static bool fits_magnitude(std::uint64_t magnitude, types::IntType const& ty) noexcept
+        {
+            if (ty.is_signed)
+            {
+                if (ty.bits >= 64)
+                    return magnitude <= static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max());
+                return magnitude <= (std::uint64_t{1} << (ty.bits - 1)) - 1;
+            }
+            if (ty.bits >= 64)
+                return true;
+            return magnitude <= (std::uint64_t{1} << ty.bits) - 1;
+        }
+
+        [[nodiscard]] types::TypePtr default_magnitude_type(std::uint64_t magnitude, types::TypePtr expected) const noexcept
+        {
+            if (auto const* it = types::type_cast<types::IntType>(expected); it && fits_magnitude(magnitude, *it))
+                return expected;
+            auto const* i32 = types::type_cast<types::IntType>(m_types.int_t(32, true));
+            if (i32 && fits_magnitude(magnitude, *i32))
+                return m_types.int_t(32, true);
+            auto const* i64 = types::type_cast<types::IntType>(m_types.int_t(64, true));
+            if (i64 && fits_magnitude(magnitude, *i64))
+                return m_types.int_t(64, true);
+            return m_types.int_t(64, false);
+        }
+
         [[nodiscard]] static bool contains_template_param(types::TypePtr ty) noexcept
         {
             if (!ty)
@@ -6857,7 +6883,25 @@ export namespace dcc::sema
 
             if (!u.target_expr)
             {
-                error(u.range, "value alias requires an initializer");
+                bool prior_error = false;
+                for (auto const& d : m_diag.diagnostics())
+                {
+                    if (d.severity() != diag::Severity::Error)
+                        continue;
+                    for (auto const& lab : d.labels())
+                    {
+                        if (lab.range.valid() && lab.range.begin.fileId == u.range.begin.fileId && lab.range.begin.offset >= u.range.begin.offset &&
+                            lab.range.end.offset <= u.range.end.offset)
+                        {
+                            prior_error = true;
+                            break;
+                        }
+                    }
+                    if (prior_error)
+                        break;
+                }
+                if (!prior_error)
+                    error(u.range, "value alias requires an initializer");
                 return;
             }
 
@@ -9758,15 +9802,27 @@ export namespace dcc::sema
                 {
                     case ast::ExprKind::IntLiteral: {
                         auto& e = static_cast<ast::IntLiteralExpr&>(expr);
+                        auto const magnitude = static_cast<std::uint64_t>(e.value);
+                        bool const radix_bits = e.value < 0 && is_radix_literal(e.spelling);
 
                         if (auto const* rt = types::type_cast<types::RestrictedType>(unwrap_nominal(expected_type)))
                         {
                             if (!m_in_explicit_conversion)
                             {
-                                if (!fits_int_type(e.value, *rt->underlying))
-                                    error(e.range, "integer literal {} does not fit in type {}", e.value, format_type_str(expected_type));
-                                else if (!int_domain::contains(*rt, e.value))
-                                    error(e.range, "integer literal {} is not a member of type {}", e.value, format_type_str(expected_type));
+                                if (radix_bits)
+                                {
+                                    if (!fits_int_type(e.value, *rt->underlying))
+                                        error(e.range, "integer literal {} does not fit in type {}", e.value, format_type_str(expected_type));
+                                    else if (!int_domain::contains(*rt, e.value))
+                                        error(e.range, "integer literal {} is not a member of type {}", e.value, format_type_str(expected_type));
+                                }
+                                else
+                                {
+                                    if (!fits_magnitude(magnitude, *rt->underlying))
+                                        error(e.range, "integer literal {} does not fit in type {}", magnitude, format_type_str(expected_type));
+                                    else if (!int_domain::contains(*rt, static_cast<std::int64_t>(magnitude)))
+                                        error(e.range, "integer literal {} is not a member of type {}", magnitude, format_type_str(expected_type));
+                                }
                             }
                             out.type = expected_type;
                             out.constant = make_int_const(e.value, rt->underlying);
@@ -9776,17 +9832,30 @@ export namespace dcc::sema
 
                         if (auto const* it = types::type_cast<types::IntType>(expected_type))
                         {
-                            bool fits = fits_int_type(e.value, *it);
-                            if (!fits && e.value < 0 && is_radix_literal(e.spelling))
-                                fits = !it->is_signed && it->bits >= 64;
+                            bool fits = false;
+                            if (radix_bits)
+                            {
+                                fits = fits_int_type(e.value, *it);
+                                if (!fits)
+                                    fits = !it->is_signed && it->bits >= 64;
+                            }
+                            else
+                                fits = fits_magnitude(magnitude, *it);
                             if (!m_in_explicit_conversion && !fits)
-                                error(e.range, "integer literal {} does not fit in type {}", e.value, format_type_str(expected_type));
+                            {
+                                if (radix_bits)
+                                    error(e.range, "integer literal {} does not fit in type {}", e.value, format_type_str(expected_type));
+                                else
+                                    error(e.range, "integer literal {} does not fit in type {}", magnitude, format_type_str(expected_type));
+                            }
                             out.type = expected_type;
                         }
                         else if (e.sema.const_value)
                             out.type = e.sema.const_value->type;
-                        else
+                        else if (radix_bits)
                             out.type = default_int_type(e.value, expected_type);
+                        else
+                            out.type = default_magnitude_type(magnitude, expected_type);
 
                         out.constant = make_int_const(e.value, out.type);
                         out.is_constant = true;

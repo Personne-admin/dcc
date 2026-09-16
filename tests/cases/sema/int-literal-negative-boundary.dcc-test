@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+using i64 NEG = -9223372036854775808;
+
+const i64 C = -9223372036854775808;
+
+i64 give() {
+    return -9223372036854775808;
+}
+
+public i32 main() {
+    i64 n = -9223372036854775808;
+    i64 g = give();
+    return 0;
+}
