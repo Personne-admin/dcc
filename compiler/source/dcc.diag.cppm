@@ -123,6 +123,10 @@ export namespace dcc::diag
                 return;
             }
 
+            if (!m_silent)
+                if (!m_seen_keys.insert(dedup_key(diag)).second)
+                    return;
+
             switch (diag.severity())
             {
                 case Severity::Error:
@@ -187,6 +191,7 @@ export namespace dcc::diag
         void clear_diagnostics() noexcept
         {
             m_emitted.clear();
+            m_seen_keys.clear();
             m_errors = 0;
             m_warnings = 0;
             m_parser_recovery_ranges.clear();
@@ -236,6 +241,60 @@ export namespace dcc::diag
 
         std::vector<Diagnostic> m_emitted;
         std::vector<sm::SourceRange> m_parser_recovery_ranges;
+        std::unordered_set<std::string> m_seen_keys;
+
+        static void append_key_field(std::string& out, std::string_view field)
+        {
+            out.append(std::to_string(field.size()));
+            out.push_back(':');
+            out.append(field);
+            out.push_back(';');
+        }
+
+        [[nodiscard]] static std::string dedup_key(Diagnostic const& diag)
+        {
+            std::string out;
+            out.append(std::to_string(static_cast<int>(diag.severity())));
+            out.push_back('|');
+            out.append(std::to_string(static_cast<int>(diag.origin())));
+            out.push_back('|');
+            append_key_field(out, diag.message());
+            for (auto const& label : diag.labels())
+            {
+                out.append(std::to_string(static_cast<std::uint32_t>(label.range.begin.fileId)));
+                out.push_back(',');
+                out.append(std::to_string(label.range.begin.offset));
+                out.push_back(',');
+                out.append(std::to_string(static_cast<std::uint32_t>(label.range.end.fileId)));
+                out.push_back(',');
+                out.append(std::to_string(label.range.end.offset));
+                out.push_back(',');
+                out.append(std::to_string(static_cast<int>(label.style)));
+                out.push_back('|');
+                append_key_field(out, label.message);
+            }
+            out.push_back('#');
+            for (auto const& note : diag.notes())
+                append_key_field(out, note);
+            out.push_back('#');
+            for (auto const& help : diag.helps())
+                append_key_field(out, help);
+            out.push_back('#');
+            for (auto const& fix : diag.fixes())
+            {
+                out.append(std::to_string(static_cast<std::uint32_t>(fix.range.begin.fileId)));
+                out.push_back(',');
+                out.append(std::to_string(fix.range.begin.offset));
+                out.push_back(',');
+                out.append(std::to_string(static_cast<std::uint32_t>(fix.range.end.fileId)));
+                out.push_back(',');
+                out.append(std::to_string(fix.range.end.offset));
+                out.push_back('|');
+                append_key_field(out, fix.replacement);
+                append_key_field(out, fix.message);
+            }
+            return out;
+        }
 
         [[nodiscard]] bool depends_on_parser_recovery(Diagnostic const& diag) const noexcept
         {
