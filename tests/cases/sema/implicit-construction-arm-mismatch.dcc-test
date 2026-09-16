@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+enum E { A }
+enum F { X }
+
+enum R { @implicit_construction Err(F), Ok(i32) }
+
+R bad(i32 x) { return match x { 0 => E::A, _ => R::Ok(1) }; }
+
+=== EXPECT-ERRORS ===
+main.dc:8: match arm result type mismatch

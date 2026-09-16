@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module m;
+
+enum E { A, B }
+
+enum R { @implicit_construction Err(E), Ok(i32) }
+
+R match_arm(i32 x) { return match x { 0 => E::A, _ => R::Ok(1) }; }
+
+R match_reversed(i32 x) { return match x { 0 => R::Ok(1), _ => E::B }; }
+
+R if_arm(i32 x) { return if x == 0 { E::B } else { R::Ok(2) }; }
+
+R block_tail(i32 x) { return { E::A }; }
+
+R nested(i32 x) { return match x { 0 => match x { _ => E::A }, _ => R::Ok(3) }; }
+
+R discarded(i32 x) {
+    match x { _ => E::A };
+    return R::Ok(0);
+}

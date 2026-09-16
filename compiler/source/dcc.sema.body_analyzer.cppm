@@ -11863,6 +11863,7 @@ export namespace dcc::sema
             auto* then_consts = make_const_env(const_env);
             auto then_res = analyze_block(mod, fn, *then_scope, i.then_block, loop_depth, next_off, expected_type, then_consts, result_discarded);
             detail::ExprResult else_res{};
+            ast::Expr* else_tail_node = nullptr;
             if (i.else_branch)
             {
                 if (auto* else_block = ast::node_cast<ast::BlockExpr>(i.else_branch))
@@ -11879,9 +11880,13 @@ export namespace dcc::sema
                     else_block->sema.const_value = else_res.constant;
                     else_block->sema.is_constant = else_res.is_constant;
                     else_block->sema.is_diverging = else_res.is_diverging;
+                    else_tail_node = else_block->body.tail;
                 }
                 else
+                {
                     else_res = analyze_expr(mod, fn, scope, *i.else_branch, loop_depth, next_off, expected_type, const_env, result_discarded);
+                    else_tail_node = i.else_branch;
+                }
             }
 
             detail::ExprResult out{};
@@ -11917,6 +11922,26 @@ export namespace dcc::sema
             }
 
             auto then_type = i.then_block.tail ? get_resolved_type(i.then_block.tail->sema) : m_types.m_voidt();
+            if (i.else_branch && !result_discarded && expected_type)
+            {
+                if (!then_res.diverges && i.then_block.tail)
+                {
+                    detail::ExprResult then_r{};
+                    then_r.type = then_type;
+                    then_r.constant = then_const;
+                    then_r.is_constant = then_const != nullptr;
+                    if (apply_implicit_enum_conversion(mod, scope, i.then_block.tail->range, i.then_block.tail, then_r, expected_type))
+                    {
+                        then_type = then_r.type;
+                        then_const = then_r.constant;
+                    }
+                }
+                if (!else_res.is_diverging && else_tail_node)
+                {
+                    if (apply_implicit_enum_conversion(mod, scope, else_tail_node->range, else_tail_node, else_res, expected_type))
+                        else_const = else_res.constant;
+                }
+            }
             if (i.else_branch)
             {
                 if (then_res.diverges && !else_res.is_diverging)
@@ -11996,6 +12021,8 @@ export namespace dcc::sema
                 if (arm.body)
                 {
                     auto r = analyze_expr(mod, fn, *arm_scope, *arm.body, loop_depth, next_off, expected_type, arm_consts, result_discarded);
+                    if (!result_discarded)
+                        std::ignore = apply_implicit_enum_conversion(mod, *arm_scope, arm.body->range, arm.body, r, expected_type);
                     out.has_return = out.has_return || r.has_return;
                     if (!result_discarded && (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt())))
                         unified_type = r.type ? r.type : m_types.m_voidt();
@@ -16178,6 +16205,37 @@ export namespace dcc::sema
                 return m_types.m_errort();
 
             return nullptr;
+        }
+
+        [[nodiscard]] bool apply_implicit_enum_conversion(ModuleInfo& mod, Scope& scope, sm::SourceRange range, ast::Expr* expr_node,
+                                                          detail::ExprResult& r, types::TypePtr expected_type)
+        {
+            if (!expected_type || !r.type || r.type == m_types.m_voidt() || has_error(r.type) || has_error(expected_type))
+                return false;
+            if (can_assign_return(expected_type, r.type))
+                return false;
+            ast::EnumVariant const* implicit_enum_var = nullptr;
+            auto* conv = try_implicit_enum_conversion(expected_type, r.type, mod, scope, &implicit_enum_var);
+            if (!conv)
+                return false;
+            if (has_error(conv))
+            {
+                error(range, "ambiguous implicit enum construction");
+                r.type = m_types.m_errort();
+                r.constant = nullptr;
+                r.is_constant = false;
+                return true;
+            }
+            if (implicit_enum_var && expr_node)
+            {
+                expr_node->sema.construction_kind = ConstructionKind::Enum;
+                expr_node->sema.constructed_variant = implicit_enum_var;
+                set_resolved_type(expr_node->sema, expected_type);
+            }
+            r.type = expected_type;
+            r.constant = nullptr;
+            r.is_constant = false;
+            return true;
         }
 
         [[nodiscard]] types::TypePtr resolve_payload_type(ast::EnumDecl const& enum_decl, ast::TypeExpr const* payload_type, types::TypePtr context_enum_type,
