@@ -10794,7 +10794,16 @@ export namespace dcc::sema
                     break;
             }
             if (op.constant && out.type && out.type->kind != types::TypeKind::Error)
+            {
                 out.constant = fold_unary_constant(u.op, *op.constant, out.type);
+                if (!out.constant && u.op == lex::TokenKind::Minus && u.operand && u.operand->kind == ast::ExprKind::IntLiteral)
+                {
+                    auto const magnitude = static_cast<std::uint64_t>(static_cast<ast::IntLiteralExpr const*>(u.operand)->value);
+                    auto const* it = types::type_cast<types::IntType>(out.type);
+                    if (magnitude == (std::uint64_t{1} << 63) && it && it->is_signed && it->bits >= 64)
+                        out.constant = make_int_const(std::numeric_limits<std::int64_t>::min(), out.type);
+                }
+            }
 
             if (u.op == lex::TokenKind::Minus && !m_in_explicit_conversion && out.constant && out.type && out.type->kind == types::TypeKind::Int)
             {
