@@ -15,6 +15,7 @@ import dccd.compilation_database;
 import dcc.query;
 import dcc.lex;
 import dcc.ast;
+import dcc.comptime;
 import dcc.sema;
 import dcc.sema.type_helpers;
 import dcc.vfs;
@@ -967,9 +968,17 @@ export namespace dccd
                 auto node = query_at_params(params.textDocument.uri, sm_pos);
                 if (node && node->resolved_type)
                 {
+                    std::string hover_type = format_dcc_type(node->resolved_type);
+                    if (node->expr && node->expr->kind == dcc::ast::ExprKind::Sizeof)
+                    {
+                        auto const* sizeof_expr = static_cast<dcc::ast::SizeofExpr const*>(node->expr);
+                        auto const* folded = sizeof_expr->sema.const_value;
+                        if (folded && folded->kind() == dcc::comptime::Value::Kind::Int)
+                            hover_type += std::format(" = {}", folded->get_int());
+                    }
                     protocol::Hover hover;
                     hover.contents.kind = "markdown";
-                    hover.contents.value = std::format("```dc\n{}\n```", format_dcc_type(node->resolved_type));
+                    hover.contents.value = std::format("```dc\n{}\n```", hover_type);
                     return protocol::build_response(rpc.id.value(), hover.to_json());
                 }
 
