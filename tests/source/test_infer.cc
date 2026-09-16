@@ -441,3 +441,37 @@ TEST_CASE("function pointer splice rejection rolls back return prefix and pack d
         CHECK(*bindings.lookup_pack(t) == std::vector<types::TypePtr>{i32});
     }
 }
+
+SECTION("infer: contextual return qualification");
+
+TEST_CASE("deduces mutable slice and pointer elements from const return context")
+{
+    types::TypeContext ctx;
+    int tag{};
+    auto T = tparam(ctx, tag, "T", 0);
+    auto u8 = ctx.int_t(8, false);
+
+    infer::TemplateBindings slices{ctx};
+    REQUIRE(slices.deduce_return(slice(ctx, T), slice(ctx, u8, types::Qual::Const)));
+    CHECK_EQ(slices.substitute(T), u8);
+    CHECK_EQ(slices.substitute(slice(ctx, T)), slice(ctx, u8));
+
+    infer::TemplateBindings pointers{ctx};
+    REQUIRE(pointers.deduce_return(ptr(ctx, T), ptr(ctx, u8, types::Qual::Const)));
+    CHECK_EQ(pointers.substitute(T), u8);
+    CHECK_EQ(pointers.substitute(ptr(ctx, T)), ptr(ctx, u8));
+}
+
+TEST_CASE("return context cannot remove const or add volatile qualification")
+{
+    types::TypeContext ctx;
+    int tag{};
+    auto T = tparam(ctx, tag, "T", 0);
+    auto u8 = ctx.int_t(8, false);
+    infer::TemplateBindings bindings{ctx};
+
+    CHECK(!bindings.deduce_return(slice(ctx, T, types::Qual::Const), slice(ctx, u8)));
+    CHECK(!bindings.deduce_return(ptr(ctx, T, types::Qual::Const), ptr(ctx, u8)));
+    CHECK(!bindings.deduce_return(slice(ctx, T), slice(ctx, u8, types::Qual::Volatile)));
+    CHECK_EQ(bindings.substitute(T), T);
+}

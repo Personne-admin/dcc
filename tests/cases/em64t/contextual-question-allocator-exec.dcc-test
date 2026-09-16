@@ -1,0 +1,40 @@
+=== FILE: test.dc ===
+module test;
+import std::mem;
+import std::result;
+using std::result::Result;
+using std::mem::AllocError;
+
+Result(i32, AllocError) check(const std::mem::Allocator* allocator) {
+    [] u8 x = allocator.alloc(16) ?;
+    x[0] = 42;
+    Result([] u8, AllocError) r = allocator.alloc(16);
+    [] u8 y = r ?;
+    y[0] = x[0];
+    [] const u8 input = y[0..1];
+    Result([] u8, AllocError) dr = allocator.dupe(input);
+    [] u8 copied = dr ?;
+    copied[0] = 7;
+    [] u8 direct = allocator.dupe(input) ?;
+    direct[0] = 9;
+    [] u8 zeroed = allocator.alloc_zeroed(8) ?;
+    if zeroed[0] != 0 { return Result::Ok(1); }
+    if input[0] != 42 { return Result::Ok(2); }
+    if copied[0] != 7 { return Result::Ok(3); }
+    if direct[0] != 9 { return Result::Ok(4); }
+    return Result::Ok(0);
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[256] storage;
+    std::mem::FixedBuffer buffer = std::mem::new_fixed_buffer(storage[0..256]);
+    std::mem::Allocator allocator = buffer.allocator();
+    Result(i32, AllocError) r = check(&allocator);
+    if r.is_err() { return 5; }
+    return r.unwrap();
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
