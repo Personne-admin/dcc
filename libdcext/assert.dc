@@ -1,0 +1,39 @@
+module assert;
+
+import core::source_location;
+import std::debug;
+import std::fmt;
+import std::result;
+
+using core::source_location::SourceLocation;
+
+//!
+//! Compiler assertion hook
+//!
+
+public void __assert(
+    [] const char file,
+    i32 line,
+    [] const char function,
+    [] const char expr
+) {
+    SourceLocation sl = {
+        file = file as [] const u8,
+        line = line as u32,
+        column = 0
+    };
+
+    u8[512] scratch;
+
+    match std::fmt::format_buf(
+        scratch,
+        "assertion failed: {} in {} at {}:{}",
+        expr as [] const u8,
+        function as [] const u8,
+        file as [] const u8,
+        line
+    ) {
+        std::result::Result::Ok(rendered) => std::debug::panic(rendered, sl),
+        std::result::Result::Err(_) => std::debug::panic(expr as [] const u8, sl),
+    }
+}
