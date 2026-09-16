@@ -1,0 +1,1317 @@
+//!!
+//!! JSON
+//!!
+//!! Two layers. `Scanner` is a pull parser that allocates nothing and
+//!! hands back slices of the input. The `Value` tree above it needs
+//!! an allocator and is what most callers want.
+//!!
+//!! Strings borrow the input wherever they can. A string containing no
+//!! escape is handed back as a slice of the bytes you passed in; only an
+//!! escaped one is copied. A parsed `Value` therefore outlives neither
+//!! its arena nor its input, and `own` exists for callers who need it to
+//!! outlive the input alone.
+//!!
+
+module std::json;
+
+import core;
+import std::fmt;
+import std::mem;
+import std::slice;
+import std::utf8;
+public import std::parse;
+public import std::result;
+
+using result::{ Result, Status, Optional };
+using parse::{Position, Located, NumError};
+
+//!
+//! Errors
+//!
+
+public enum JsonError : u8 {
+    UnexpectedByte,
+    UnexpectedEnd,
+    InvalidNumber,
+    NumberOutOfRange,
+    InvalidEscape,
+    InvalidUtf8,
+    ControlCharacter,
+    DepthExceeded,
+    TrailingBytes,
+    OutOfSpace,
+    OutOfMemory,
+    TypeMismatch,
+}
+
+//!
+//! Events
+//!
+//! An object member arrives as a `Key` followed by its value, so a
+//! consumer that only cares about one field can skip the rest without
+//! building anything.
+//!
+
+public enum Event {
+    ObjectBegin,
+    ObjectEnd,
+    ArrayBegin,
+    ArrayEnd,
+    /// borrows the input unless `needs_unescape` is set on the scanner
+    Key([] const u8),
+    String([] const u8),
+    Integer(i64),
+    Float(f64),
+    Bool(bool),
+    Null,
+    End,
+}
+
+//!
+//! Scanner
+//!
+//! Nesting is bounded by the frame buffer rather than by recursion, so a
+//! hostile input costs memory it cannot have rather than stack it can.
+//!
+
+public using usize MAX_DEPTH = 64;
+
+using u8 FRAME_OBJECT = 1;
+using u8 FRAME_SEEN = 2;
+using u8 FRAME_AFTER_KEY = 4;
+
+public struct Scanner {
+    [] const u8 input;
+    Position at;
+    u8[64] frames;
+    usize depth;
+    /// set for the string or key just yielded. read it before the next
+    /// call; it is overwritten by every event.
+    bool needs_unescape;
+    bool complete;
+}
+
+public Scanner scan([] const u8 input) {
+    Scanner self;
+    self.input = input;
+    self.at = Position::start();
+    self.depth = 0;
+    self.needs_unescape = false;
+    self.complete = false;
+    return self;
+}
+
+bool at_end(const Scanner* self) {
+    return self.at.offset >= self.input.len;
+}
+
+u8 peek(const Scanner* self) {
+    return self.input[self.at.offset];
+}
+
+u8 take(Scanner* self) {
+    u8 b = self.input[self.at.offset];
+    parse::advance(&self.at, b);
+    return b;
+}
+
+void skip_space(Scanner* self) {
+    while !at_end(self) {
+        u8 c = peek(self);
+
+        if c != (' ' as u8) && c != ('\t' as u8)
+            && c != ('\n' as u8) && c != ('\r' as u8) {
+            return;
+        }
+
+        take(self);
+    }
+}
+
+Status(JsonError) expect(Scanner* self, u8 wanted) {
+    if at_end(self) {
+        return JsonError::UnexpectedEnd;
+    }
+
+    if peek(self) != wanted {
+        return JsonError::UnexpectedByte;
+    }
+
+    take(self);
+    return Status::Ok;
+}
+
+Status(JsonError) expect_word(Scanner* self, [] const u8 word) {
+    for usize i = 0; i < word.len; i++ {
+        if at_end(self) {
+            return JsonError::UnexpectedEnd;
+        }
+
+        if take(self) != word[i] {
+            return JsonError::UnexpectedByte;
+        }
+    }
+
+    return Status::Ok;
+}
+
+//!
+//! Strings
+//!
+//! Validation happens here rather than in `unescape` so that a malformed
+//! escape is reported with the position it occupies, and so a consumer
+//! that never unescapes still rejects bad input.
+//!
+
+Status(JsonError) check_hex4(Scanner* self, u32* out) {
+    u32 value = 0;
+
+    for usize i = 0; i < 4; i++ {
+        if at_end(self) {
+            return JsonError::UnexpectedEnd;
+        }
+
+        u32 digit = parse::hex_value(take(self));
+        if digit == 16 {
+            return JsonError::InvalidEscape;
+        }
+
+        value = (value << 4) | digit;
+    }
+
+    *out = value;
+    return Status::Ok;
+}
+
+Status(JsonError) check_escape(Scanner* self) {
+    if at_end(self) {
+        return JsonError::UnexpectedEnd;
+    }
+
+    u8 c = take(self);
+
+    if c == ('"' as u8) || c == ('\\' as u8) || c == ('/' as u8)
+        || c == ('b' as u8) || c == ('f' as u8) || c == ('n' as u8)
+        || c == ('r' as u8) || c == ('t' as u8) {
+        return Status::Ok;
+    }
+
+    if c != ('u' as u8) {
+        return JsonError::InvalidEscape;
+    }
+
+    u32 high = 0;
+    check_hex4(self, &high) ?;
+
+    if high >= 0xDC00 && high <= 0xDFFF {
+        // a low surrogate with nothing before it
+        return JsonError::InvalidEscape;
+    }
+
+    if high < 0xD800 || high > 0xDBFF {
+        return Status::Ok;
+    }
+
+    expect(self, '\\' as u8) ?;
+    expect(self, 'u' as u8) ?;
+
+    u32 low = 0;
+    check_hex4(self, &low) ?;
+
+    if low < 0xDC00 || low > 0xDFFF {
+        return JsonError::InvalidEscape;
+    }
+
+    return Status::Ok;
+}
+
+/// reads to the closing quote, with the opening one already consumed.
+Result([] const u8, JsonError) read_string_body(Scanner* self) {
+    usize start = self.at.offset;
+    self.needs_unescape = false;
+
+    while true {
+        if at_end(self) {
+            return JsonError::UnexpectedEnd;
+        }
+
+        u8 c = peek(self);
+
+        if c == ('"' as u8) {
+            usize end = self.at.offset;
+            take(self);
+            return Result::Ok(self.input[start..end]);
+        }
+
+        if c < 0x20 {
+            return JsonError::ControlCharacter;
+        }
+
+        if c == ('\\' as u8) {
+            take(self);
+            self.needs_unescape = true;
+            check_escape(self) ?;
+            continue;
+        }
+
+        if c < 0x80 {
+            take(self);
+            continue;
+        }
+
+        Result(utf8::Decoded, utf8::Utf8Error) decoded = utf8::decode(
+            self.input[self.at.offset..self.input.len]
+        );
+        if decoded.is_err() {
+            return JsonError::InvalidUtf8;
+        }
+
+        usize width = decoded.unwrap().width;
+        for usize i = 0; i < width; i++ {
+            take(self);
+        }
+    }
+}
+
+//!
+//! Numbers
+//!
+//! A token with no fraction and no exponent is an `Integer`; anything
+//! else is a `Float`. Collapsing the two would mean handing back 3.0 for
+//! 3 and making every caller cast it back, which is the silent
+//! conversion this language exists to avoid.
+//!
+
+Result(i64, JsonError) to_integer([] const u8 text) {
+    usize i = 0;
+    bool negative = false;
+
+    if text[0] == ('-' as u8) {
+        negative = true;
+        i = 1;
+    }
+
+    usize count = 0;
+    Result(u64, NumError) magnitude = parse::accumulate_digits(text, &i, 10, false, &count);
+    if magnitude.is_err() {
+        if magnitude.unwrap_err() == NumError::OutOfRange {
+            return JsonError::NumberOutOfRange;
+        }
+
+        return JsonError::InvalidNumber;
+    }
+
+    Result(i64, NumError) value = parse::signed_from_magnitude(magnitude.unwrap(), negative);
+    if value.is_err() {
+        return JsonError::NumberOutOfRange;
+    }
+
+    return Result::Ok(value.unwrap());
+}
+
+using usize MANTISSA_DIGITS = 19;
+
+Result(f64, JsonError) to_float([] const u8 text) {
+    usize i = 0;
+    bool negative = false;
+
+    if text[0] == ('-' as u8) {
+        negative = true;
+        i = 1;
+    }
+
+    u64 mantissa = 0;
+    usize taken = 0;
+    i32 exponent = 0;
+
+    while i < text.len && parse::is_digit(text[i]) {
+        if taken < MANTISSA_DIGITS {
+            mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
+            taken++;
+        } else {
+            // past the precision f64 can hold; keep the magnitude only
+            exponent = exponent + 1;
+        }
+
+        i++;
+    }
+
+    if i < text.len && text[i] == ('.' as u8) {
+        i++;
+
+        while i < text.len && parse::is_digit(text[i]) {
+            if taken < MANTISSA_DIGITS {
+                mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
+                taken++;
+                exponent = exponent - 1;
+            }
+
+            i++;
+        }
+    }
+
+    if i < text.len && (text[i] == ('e' as u8) || text[i] == ('E' as u8)) {
+        i++;
+
+        bool negative_exponent = false;
+        if i < text.len && (text[i] == ('+' as u8) || text[i] == ('-' as u8)) {
+            negative_exponent = text[i] == ('-' as u8);
+            i++;
+        }
+
+        i32 written = 0;
+        while i < text.len && parse::is_digit(text[i]) {
+            // clamp rather than wrap: anything past this overflows or
+            // underflows the result regardless of the exact value
+            if written < 100000 {
+                written = written * 10 + (text[i] - ('0' as u8)) as i32;
+            }
+
+            i++;
+        }
+
+        exponent = exponent + if negative_exponent {
+            0 - written
+        } else { written };
+    }
+
+    Result(f64, NumError) value = parse::float_from_parts(mantissa, exponent, negative);
+    if value.is_err() {
+        return JsonError::NumberOutOfRange;
+    }
+
+    return Result::Ok(value.unwrap());
+}
+
+Result(Event, JsonError) read_number(Scanner* self) {
+    usize start = self.at.offset;
+    bool is_float = false;
+
+    if peek(self) == ('-' as u8) {
+        take(self);
+    }
+
+    if at_end(self) {
+        return JsonError::UnexpectedEnd;
+    }
+
+    if peek(self) == ('0' as u8) {
+        take(self);
+
+        if !at_end(self) && parse::is_digit(peek(self)) {
+            return JsonError::InvalidNumber;
+        }
+    } else if parse::is_digit(peek(self)) {
+        while !at_end(self) && parse::is_digit(peek(self)) {
+            take(self);
+        }
+    } else {
+        return JsonError::InvalidNumber;
+    }
+
+    if !at_end(self) && peek(self) == ('.' as u8) {
+        take(self);
+        is_float = true;
+
+        if at_end(self) || !parse::is_digit(peek(self)) {
+            return JsonError::InvalidNumber;
+        }
+
+        while !at_end(self) && parse::is_digit(peek(self)) {
+            take(self);
+        }
+    }
+
+    if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+        take(self);
+        is_float = true;
+
+        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+            take(self);
+        }
+
+        if at_end(self) || !parse::is_digit(peek(self)) {
+            return JsonError::InvalidNumber;
+        }
+
+        while !at_end(self) && parse::is_digit(peek(self)) {
+            take(self);
+        }
+    }
+
+    [] const u8 text = self.input[start..self.at.offset];
+
+    if is_float {
+        return Result::Ok(Event::Float(to_float(text) ?));
+    }
+
+    return Result::Ok(Event::Integer(to_integer(text) ?));
+}
+
+//!
+//! Dispatch
+//!
+
+Status(JsonError) push_frame(Scanner* self, u8 flags) {
+    if self.depth >= MAX_DEPTH {
+        return JsonError::DepthExceeded;
+    }
+
+    self.frames[self.depth] = flags;
+    self.depth = self.depth + 1;
+    return Status::Ok;
+}
+
+void pop_frame(Scanner* self) {
+    self.depth = self.depth - 1;
+
+    if self.depth == 0 {
+        self.complete = true;
+    }
+}
+
+Result(Event, JsonError) read_value(Scanner* self) {
+    if at_end(self) {
+        return JsonError::UnexpectedEnd;
+    }
+
+    u8 c = peek(self);
+
+    if c == ('{' as u8) {
+        take(self);
+        push_frame(self, FRAME_OBJECT) ?;
+        return Result::Ok(Event::ObjectBegin);
+    }
+
+    if c == ('[' as u8) {
+        take(self);
+        push_frame(self, 0) ?;
+        return Result::Ok(Event::ArrayBegin);
+    }
+
+    if c == ('"' as u8) {
+        take(self);
+        return Result::Ok(Event::String(read_string_body(self) ?));
+    }
+
+    if c == ('t' as u8) {
+        expect_word(self, "true") ?;
+        return Result::Ok(Event::Bool(true));
+    }
+
+    if c == ('f' as u8) {
+        expect_word(self, "false") ?;
+        return Result::Ok(Event::Bool(false));
+    }
+
+    if c == ('n' as u8) {
+        expect_word(self, "null") ?;
+        return Result::Ok(Event::Null);
+    }
+
+    if c == ('-' as u8) || parse::is_digit(c) {
+        return read_number(self);
+    }
+
+    return JsonError::UnexpectedByte;
+}
+
+/// yields the next event. `End` is returned once the top-level value is
+/// complete and only whitespace remains; anything else after it is
+/// `TrailingBytes`.
+public Result(Located(Event), JsonError) next(Scanner* self) {
+    skip_space(self);
+    Position here = self.at;
+
+    if self.depth == 0 {
+        if self.complete {
+            if !at_end(self) {
+                return JsonError::TrailingBytes;
+            }
+
+            return Result::Ok({event = Event::End, at = here});
+        }
+
+        Event first = read_value(self) ?;
+        if self.depth == 0 {
+            self.complete = true;
+        }
+
+        return Result::Ok({event = first, at = here});
+    }
+
+    u8 frame = self.frames[self.depth - 1];
+
+    if (frame & FRAME_OBJECT) != 0 && (frame & FRAME_AFTER_KEY) == 0 {
+        if at_end(self) {
+            return JsonError::UnexpectedEnd;
+        }
+
+        if peek(self) == ('}' as u8) {
+            take(self);
+            pop_frame(self);
+            return Result::Ok({event = Event::ObjectEnd, at = here});
+        }
+
+        if (frame & FRAME_SEEN) != 0 {
+            expect(self, ',' as u8) ?;
+            skip_space(self);
+            here = self.at;
+        }
+
+        expect(self, '"' as u8) ?;
+        [] const u8 key = read_string_body(self) ?;
+
+        skip_space(self);
+        expect(self, ':' as u8) ?;
+
+        self.frames[self.depth - 1] = frame | FRAME_AFTER_KEY | FRAME_SEEN;
+        return Result::Ok({event = Event::Key(key), at = here});
+    }
+
+    if (frame & FRAME_OBJECT) != 0 {
+        self.frames[self.depth - 1] = frame & ~FRAME_AFTER_KEY;
+        Event value = read_value(self) ?;
+        return Result::Ok({event = value, at = here});
+    }
+
+    if at_end(self) {
+        return JsonError::UnexpectedEnd;
+    }
+
+    if peek(self) == (']' as u8) {
+        take(self);
+        pop_frame(self);
+        return Result::Ok({event = Event::ArrayEnd, at = here});
+    }
+
+    if (frame & FRAME_SEEN) != 0 {
+        expect(self, ',' as u8) ?;
+        skip_space(self);
+        here = self.at;
+    }
+
+    self.frames[self.depth - 1] = frame | FRAME_SEEN;
+    Event element = read_value(self) ?;
+    return Result::Ok({event = element, at = here});
+}
+
+//!
+//! Unescaping
+//!
+//! Every escape shrinks: `\n` is two bytes for one, `\uFFFF` six for
+//! three, a surrogate pair twelve for four. So the raw slice's own length
+//! is always a sufficient output bound.
+//!
+
+usize read_hex4([] const u8 raw, usize at, u32* out) {
+    u32 value = 0;
+
+    for usize i = 0; i < 4; i++ {
+        value = (value << 4) | parse::hex_value(raw[at + i]);
+    }
+
+    *out = value;
+    return at + 4;
+}
+
+/// decodes `raw` into `out`, returning the bytes written. only needed
+/// when the scanner set `needs_unescape` for the event.
+public Result(usize, JsonError) unescape([] const u8 raw, [] u8 out) {
+    usize i = 0;
+    usize n = 0;
+
+    while i < raw.len {
+        u8 c = raw[i];
+
+        if c != ('\\' as u8) {
+            if n >= out.len {
+                return JsonError::OutOfSpace;
+            }
+
+            out[n] = c;
+            n++;
+            i++;
+            continue;
+        }
+
+        i++;
+        if i >= raw.len {
+            return JsonError::InvalidEscape;
+        }
+
+        u8 kind = raw[i];
+        i++;
+
+        if kind != ('u' as u8) {
+            u8 plain = match kind as char {
+                '"' => '"' as u8,
+                '\\' => '\\' as u8,
+                '/' => '/' as u8,
+                'b' => 8,
+                'f' => 12,
+                'n' => '\n' as u8,
+                'r' => '\r' as u8,
+                't' => '\t' as u8,
+                _ => 0,
+            };
+
+            if plain == 0 {
+                return JsonError::InvalidEscape;
+            }
+
+            if n >= out.len {
+                return JsonError::OutOfSpace;
+            }
+
+            out[n] = plain;
+            n++;
+            continue;
+        }
+
+        if i + 4 > raw.len {
+            return JsonError::InvalidEscape;
+        }
+
+        u32 codepoint = 0;
+        i = read_hex4(raw, i, &codepoint);
+
+        if codepoint >= 0xD800 && codepoint <= 0xDBFF {
+            if i + 6 > raw.len {
+                return JsonError::InvalidEscape;
+            }
+
+            if raw[i] != ('\\' as u8) || raw[i + 1] != ('u' as u8) {
+                return JsonError::InvalidEscape;
+            }
+
+            u32 low = 0;
+            i = read_hex4(raw, i + 2, &low);
+
+            if low < 0xDC00 || low > 0xDFFF {
+                return JsonError::InvalidEscape;
+            }
+
+            codepoint = 0x10000
+                + ((codepoint - 0xD800) << 10)
+                + (low - 0xDC00);
+        } else if codepoint >= 0xDC00 && codepoint <= 0xDFFF {
+            return JsonError::InvalidEscape;
+        }
+
+        Result(usize, utf8::Utf8Error) wrote = utf8::encode(
+            codepoint,
+            out[n..out.len]
+        );
+        if wrote.is_err() {
+            return JsonError::OutOfSpace;
+        }
+
+        n = n + wrote.unwrap();
+    }
+
+    return Result::Ok(n);
+}
+
+//!
+//! Value tree
+//!
+
+public struct Member {
+    [] const u8 key;
+    Value value;
+}
+
+public enum Value {
+    Null,
+    Bool(bool),
+    Integer(i64),
+    Float(f64),
+    String([] const u8),
+    Array([] Value),
+    Object([] Member),
+}
+
+//!
+//! Growable storage
+//!
+//! Two concrete vectors rather than one template: the element types are
+//! the only difference and the instantiation machinery is not worth the
+//! coupling here.
+//!
+
+struct ValueVec {
+    [] Value items;
+    usize len;
+}
+
+struct MemberVec {
+    [] Member items;
+    usize len;
+}
+
+using usize VEC_MIN = 8;
+
+Status(JsonError) push_value(
+    const mem::Allocator* alloc,
+    ValueVec* self,
+    Value value
+) {
+    if self.len == self.items.len {
+        usize want = if self.items.len == 0 {
+            VEC_MIN
+        } else { self.items.len * 2 };
+
+        Result([] Value, mem::AllocError) grown = alloc.alloc(want);
+        if grown.is_err() {
+            return JsonError::OutOfMemory;
+        }
+
+        [] Value fresh = grown.unwrap();
+        for usize i = 0; i < self.len; i++ {
+            fresh[i] = self.items[i];
+        }
+
+        if self.items.len != 0 {
+            alloc.free(self.items);
+        }
+
+        self.items = fresh;
+    }
+
+    self.items[self.len] = value;
+    self.len = self.len + 1;
+    return Status::Ok;
+}
+
+Status(JsonError) push_member(
+    const mem::Allocator* alloc,
+    MemberVec* self,
+    Member member
+) {
+    if self.len == self.items.len {
+        usize want = if self.items.len == 0 {
+            VEC_MIN
+        } else { self.items.len * 2 };
+
+        Result([] Member, mem::AllocError) grown = alloc.alloc(want);
+        if grown.is_err() {
+            return JsonError::OutOfMemory;
+        }
+
+        [] Member fresh = grown.unwrap();
+        for usize i = 0; i < self.len; i++ {
+            fresh[i] = self.items[i];
+        }
+
+        if self.items.len != 0 {
+            alloc.free(self.items);
+        }
+
+        self.items = fresh;
+    }
+
+    self.items[self.len] = member;
+    self.len = self.len + 1;
+    return Status::Ok;
+}
+
+//!
+//! Building
+//!
+
+/// borrows `raw` when it holds no escape, and decodes into `alloc` when
+/// it does. must be called before the next `next`, which overwrites the
+/// scanner's `needs_unescape`.
+Result([] const u8, JsonError) materialize(
+    const mem::Allocator* alloc,
+    const Scanner* self,
+    [] const u8 raw
+) {
+    if !self.needs_unescape {
+        return Result::Ok(raw);
+    }
+
+    Result([] u8, mem::AllocError) slot = alloc.alloc(raw.len);
+    if slot.is_err() {
+        return JsonError::OutOfMemory;
+    }
+
+    [] u8 buffer = slot.unwrap();
+    usize n = unescape(raw, buffer) ?;
+    return Result::Ok(buffer[0..n] as [] const u8);
+}
+
+Result(Value, JsonError) build_array(
+    const mem::Allocator* alloc,
+    Scanner* self
+) {
+    ValueVec items = {items = slice::from_raw(null as Value*, 0), len = 0};
+
+    while true {
+        Located(Event) step = next(self) ?;
+
+        match step.event {
+            Event::ArrayEnd => return Result::Ok(
+                Value::Array(items.items[0..items.len])
+            ),
+            _ => {},
+        }
+
+        Value element = build(alloc, self, step.event) ?;
+        push_value(alloc, &items, element) ?;
+    }
+}
+
+Result(Value, JsonError) build_object(
+    const mem::Allocator* alloc,
+    Scanner* self
+) {
+    MemberVec members = {items = slice::from_raw(null as Member*, 0), len = 0};
+
+    while true {
+        Located(Event) step = next(self) ?;
+
+        [] const u8 raw = match step.event {
+            Event::ObjectEnd => return Result::Ok(
+                Value::Object(members.items[0..members.len])
+            ),
+            Event::Key(k) => k,
+            _ => return JsonError::UnexpectedByte,
+        };
+
+        [] const u8 key = materialize(alloc, self, raw) ?;
+
+        Located(Event) value_event = next(self) ?;
+        Value value = build(alloc, self, value_event.event) ?;
+
+        push_member(alloc, &members, Member {key = key, value = value}) ?;
+    }
+
+    return JsonError::OutOfMemory;
+}
+
+Result(Value, JsonError) build(
+    const mem::Allocator* alloc,
+    Scanner* self,
+    Event event
+) {
+    return match event {
+        Event::Null => Result::Ok(Value::Null),
+        Event::Bool(b) => Result::Ok(Value::Bool(b)),
+        Event::Integer(v) => Result::Ok(Value::Integer(v)),
+        Event::Float(v) => Result::Ok(Value::Float(v)),
+        Event::String(raw) => {
+            Result([] const u8, JsonError) text = materialize(alloc, self, raw);
+            if text.is_err() {
+                return text.unwrap_err();
+            }
+
+            Result::Ok(Value::String(text.unwrap()))
+        },
+        Event::ArrayBegin => build_array(alloc, self),
+        Event::ObjectBegin => build_object(alloc, self),
+        _ => Result::Err(JsonError::UnexpectedByte),
+    };
+}
+
+/// parses one document. strings borrow `input` unless they carried an
+/// escape, so the result outlives neither `alloc` nor `input`.
+public Result(Value, JsonError) parse(
+    const mem::Allocator* alloc,
+    [] const u8 input
+) {
+    Scanner self = scan(input);
+
+    Located(Event) first = next(&self) ?;
+    Value root = build(alloc, &self, first.event) ?;
+
+    Located(Event) tail = next(&self) ?;
+    match tail.event {
+        Event::End => {},
+        _ => return JsonError::TrailingBytes,
+    }
+
+    return Result::Ok(root);
+}
+
+/// copies every borrowed string into `alloc`, so the result depends on
+/// the allocator alone. use it when the input buffer is about to go away.
+public Result(Value, JsonError) own(
+    const mem::Allocator* alloc,
+    const Value* self
+) {
+    return match *self {
+        Value::String(text) => {
+            Result([] u8, mem::AllocError) slot = alloc.dupe(text);
+            if slot.is_err() {
+                return JsonError::OutOfMemory;
+            }
+
+            Result::Ok(Value::String(slot.unwrap() as [] const u8))
+        },
+        Value::Array(items) => {
+            Result([] Value, mem::AllocError) slot = alloc.alloc(items.len);
+            if slot.is_err() {
+                return JsonError::OutOfMemory;
+            }
+
+            [] Value copied = slot.unwrap();
+            for usize i = 0; i < items.len; i++ {
+                Result(Value, JsonError) element = own(alloc, &items[i]);
+                if element.is_err() {
+                    return element.unwrap_err();
+                }
+
+                copied[i] = element.unwrap();
+            }
+
+            Result::Ok(Value::Array(copied))
+        },
+        Value::Object(members) => {
+            Result([] Member, mem::AllocError) slot = alloc.alloc(members.len);
+            if slot.is_err() {
+                return JsonError::OutOfMemory;
+            }
+
+            [] Member copied = slot.unwrap();
+            for usize i = 0; i < members.len; i++ {
+                Result([] u8, mem::AllocError) key = alloc.dupe(members[i].key);
+                if key.is_err() {
+                    return JsonError::OutOfMemory;
+                }
+
+                Result(Value, JsonError) value = own(alloc, &members[i].value);
+                if value.is_err() {
+                    return value.unwrap_err();
+                }
+
+                copied[i] = Member {
+                    key = key.unwrap() as [] const u8,
+                    value = value.unwrap(),
+                };
+            }
+
+            Result::Ok(Value::Object(copied))
+        },
+        _ => Result::Ok(*self),
+    };
+}
+
+//!
+//! Access
+//!
+//! Lookup is linear. Documents in this library's usual company have tens
+//! of members, and insertion order is worth more than the lookup a map
+//! would save.
+//!
+
+public Optional(Value) get(const Value* self, [] const u8 key) {
+    return match *self {
+        Value::Object(members) => {
+            for usize i = 0; i < members.len; i++ {
+                if mem::equal(members[i].key, key) {
+                    return Optional::Some(members[i].value);
+                }
+            }
+
+            Optional::None
+        },
+        _ => Optional::None,
+    };
+}
+
+public Optional(Value) at(const Value* self, usize index) {
+    return match *self {
+        Value::Array(items) => if index < items.len {
+            Optional::Some(items[index])
+        } else { Optional::None },
+        _ => Optional::None,
+    };
+}
+
+public usize len(const Value* self) {
+    return match *self {
+        Value::Array(items) => items.len,
+        Value::Object(members) => members.len,
+        _ => 0,
+    };
+}
+
+public Optional(i64) as_integer(const Value* self) {
+    return match *self {
+        Value::Integer(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}
+
+/// an `Integer` widens here, since every i64 a document can carry is
+/// representable; a `Float` never narrows the other way.
+public Optional(f64) as_float(const Value* self) {
+    return match *self {
+        Value::Float(v) => Optional::Some(v),
+        Value::Integer(v) => Optional::Some(v as f64),
+        _ => Optional::None,
+    };
+}
+
+public Optional(bool) as_bool(const Value* self) {
+    return match *self {
+        Value::Bool(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}
+
+public Optional([] const u8) as_string(const Value* self) {
+    return match *self {
+        Value::String(v) => Optional::Some(v),
+        _ => Optional::None,
+    };
+}
+
+public bool is_null(const Value* self) {
+    return match *self {
+        Value::Null => true,
+        _ => false,
+    };
+}
+
+//!
+//! Emitting
+//!
+//! Over `fmt::Writer`, so a file, a buffer and a byte counter all work
+//! without this module knowing which it has.
+//!
+
+public struct Emitter {
+    fmt::Writer out;
+    /// spaces per level; 0 emits compact output with no newlines
+    u32 indent;
+    usize depth;
+    bool need_comma;
+    bool suppress_separator;
+}
+
+public Emitter new_emitter(fmt::Writer out, u32 indent) {
+    return {
+        out = out,
+        indent = indent,
+        depth = 0,
+        need_comma = false,
+        suppress_separator = false,
+    };
+}
+public using Emitter::new = new_emitter;
+
+Status(fmt::FmtError) write_newline(Emitter* self) {
+    if self.indent == 0 {
+        return Status::Ok;
+    }
+
+    self.out.write_byte('\n' as u8) ?;
+    return self.out.write_repeat(
+        ' ' as u8,
+        self.depth * self.indent as usize
+    );
+}
+
+/// emits the comma and indentation that precede a value, if any.
+Status(fmt::FmtError) separate(Emitter* self) {
+    if self.suppress_separator {
+        self.suppress_separator = false;
+        return Status::Ok;
+    }
+
+    if self.need_comma {
+        self.out.write_byte(',' as u8) ?;
+    }
+
+    if self.depth != 0 {
+        write_newline(self) ?;
+    }
+
+    self.need_comma = true;
+    return Status::Ok;
+}
+
+public Status(fmt::FmtError) write_escaped(
+    const fmt::Writer* w,
+    [] const u8 text
+) {
+    w.write_byte('"' as u8) ?;
+
+    usize plain = 0;
+    for usize i = 0; i < text.len; i++ {
+        u8 c = text[i];
+
+        if c != ('"' as u8) && c != ('\\' as u8) && c >= 0x20 {
+            continue;
+        }
+
+        w.write_all(text[plain..i]) ?;
+        plain = i + 1;
+
+        if c == ('"' as u8) {
+            w.write_all("\\\"") ?;
+        } else if c == ('\\' as u8) {
+            w.write_all("\\\\") ?;
+        } else if c == ('\n' as u8) {
+            w.write_all("\\n") ?;
+        } else if c == ('\r' as u8) {
+            w.write_all("\\r") ?;
+        } else if c == ('\t' as u8) {
+            w.write_all("\\t") ?;
+        } else if c == 8 {
+            w.write_all("\\b") ?;
+        } else if c == 12 {
+            w.write_all("\\f") ?;
+        } else {
+            u8[6] scratch;
+            [] u8 view = slice::from_raw(&scratch[0], 6);
+            view[0] = '\\' as u8;
+            view[1] = 'u' as u8;
+            view[2] = '0' as u8;
+            view[3] = '0' as u8;
+            view[4] = hex_digit((c >> 4) as u32);
+            view[5] = hex_digit((c & 0xF) as u32);
+            w.write_all(view) ?;
+        }
+    }
+
+    w.write_all(text[plain..text.len]) ?;
+    return w.write_byte('"' as u8);
+}
+
+u8 hex_digit(u32 nibble) {
+    if nibble < 10 {
+        return ('0' as u8) + nibble as u8;
+    }
+
+    return ('a' as u8) + (nibble - 10) as u8;
+}
+
+public Status(fmt::FmtError) begin_object(Emitter* self) {
+    separate(self) ?;
+    self.out.write_byte('{' as u8) ?;
+    self.depth = self.depth + 1;
+    self.need_comma = false;
+    return Status::Ok;
+}
+
+public Status(fmt::FmtError) end_object(Emitter* self) {
+    bool empty = !self.need_comma;
+    self.depth = self.depth - 1;
+
+    if !empty {
+        write_newline(self) ?;
+    }
+
+    self.out.write_byte('}' as u8) ?;
+    self.need_comma = true;
+    return Status::Ok;
+}
+
+public Status(fmt::FmtError) begin_array(Emitter* self) {
+    separate(self) ?;
+    self.out.write_byte('[' as u8) ?;
+    self.depth = self.depth + 1;
+    self.need_comma = false;
+    return Status::Ok;
+}
+
+public Status(fmt::FmtError) end_array(Emitter* self) {
+    bool empty = !self.need_comma;
+    self.depth = self.depth - 1;
+
+    if !empty {
+        write_newline(self) ?;
+    }
+
+    self.out.write_byte(']' as u8) ?;
+    self.need_comma = true;
+    return Status::Ok;
+}
+
+/// writes a member name. the value that follows joins it on the same
+/// line rather than starting a new one.
+public Status(fmt::FmtError) key(Emitter* self, [] const u8 name) {
+    separate(self) ?;
+    write_escaped(&self.out, name) ?;
+    self.out.write_byte(':' as u8) ?;
+
+    if self.indent != 0 {
+        self.out.write_byte(' ' as u8) ?;
+    }
+
+    self.suppress_separator = true;
+    self.need_comma = false;
+    return Status::Ok;
+}
+
+public Status(fmt::FmtError) string(Emitter* self, [] const u8 text) {
+    separate(self) ?;
+    return write_escaped(&self.out, text);
+}
+
+public Status(fmt::FmtError) integer(Emitter* self, i64 value) {
+    separate(self) ?;
+    fmt::Options opts = fmt::Options::default();
+    return fmt::format_signed(&self.out, value, &opts);
+}
+
+public Status(fmt::FmtError) float(Emitter* self, f64 value) {
+    separate(self) ?;
+    fmt::Options opts = fmt::Options::default();
+    return fmt::format_float(&self.out, value, &opts);
+}
+
+public Status(fmt::FmtError) boolean(Emitter* self, bool value) {
+    separate(self) ?;
+    return self.out.write_all(
+        if value {
+            "true"
+        } else { "false" }
+    );
+}
+
+public Status(fmt::FmtError) null_value(Emitter* self) {
+    separate(self) ?;
+    return self.out.write_all("null");
+}
+
+public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
+    return match *item {
+        Value::Null => null_value(self),
+        Value::Bool(v) => boolean(self, v),
+        Value::Integer(v) => integer(self, v),
+        Value::Float(v) => float(self, v),
+        Value::String(v) => string(self, v),
+        Value::Array(items) => {
+            begin_array(self) ?;
+            for usize i = 0; i < items.len; i++ {
+                value(self, &items[i]) ?;
+            }
+
+            end_array(self)
+        },
+        Value::Object(members) => {
+            begin_object(self) ?;
+            for usize i = 0; i < members.len; i++ {
+                key(self, members[i].key) ?;
+                value(self, &members[i].value) ?;
+            }
+
+            end_object(self)
+        },
+    };
+}
+
+/// renders `item` to `w`. `indent` of 0 is compact.
+public Status(fmt::FmtError) write(
+    fmt::Writer w,
+    const Value* item,
+    u32 indent
+) {
+    Emitter e = Emitter::new(w, indent);
+    return value(&e, item);
+}
