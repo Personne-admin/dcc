@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+struct Allocator {}
+struct Carrier(T) { T value; }
+Carrier([] T) alloc(T)(const Allocator* self, usize count) {
+    usize size = sizeof(T);
+    usize alignment = alignof(T);
+    [] T items;
+    return { value = items };
+}
+void test(Allocator a) {
+    a.alloc(16);
+}
+
+=== EXPECT-ERRORS EXACT ===
+test.dc:11: cannot deduce template argument `T` for `alloc`

@@ -670,10 +670,7 @@ public Result([] u8, mem::AllocError) format_alloc(T...)(const mem::Allocator* a
         _ => {},
     }
 
-    // inference for the callee's element type does not flow through `?`,
-    // so bind the result with an explicit type first.
-    Result([] u8, mem::AllocError) buffer_r = alloc.alloc(counter.count);
-    [] u8 buffer = buffer_r ?;
+    [] u8 buffer = alloc.alloc(counter.count) ?;
     BufferWriter sink = BufferWriter::new(buffer);
     Writer w = sink.writer();
 
