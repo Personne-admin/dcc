@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+void inner(T...)(T x) {}
+
+void outer(T...)(T args) {
+    inner(args...);
+}
+
+void caller() {
+    outer!()();
+}
+
+=== EXPECT-REGISTRY ===
+fn=inner args=[] state=2
+fn=outer args=[] state=2

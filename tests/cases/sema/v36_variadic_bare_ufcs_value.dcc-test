@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module m;
+
+struct Writer {
+    u8 v;
+}
+
+void format(T...)(const Writer* w, i32 first, T args) {}
+
+void outer(T...)(Writer w, i32 first, T args) {
+    w.format(first, args);
+}
+
+void caller() {
+    Writer w;
+    outer!(i32)(w, 1, 2);
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:10: cannot use pack 'args' with 1 element as value; use 'args...' to expand
