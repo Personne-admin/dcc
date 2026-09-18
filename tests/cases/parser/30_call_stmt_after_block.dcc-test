@@ -1,0 +1,81 @@
+=== FILE: main.dc ===
+module m;
+
+void do_something();
+
+void test(char** sp, i32* p) {
+    if true {
+        do_something();
+    }
+
+    (*sp)++;
+
+    match **sp {
+        _ => { },
+    }
+
+    ++*p;
+
+    {
+        do_something();
+    }
+
+    --*p;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=do_something
+    Return
+      Primitive void
+  Func name=test
+    Return
+      Primitive void
+    Params
+      Param name=sp
+        Pointer
+          Pointer
+            Primitive char
+      Param name=p
+        Pointer
+          Primitive i32
+    Body
+      ExprStmt
+        If
+          Cond
+            BoolLiteral true
+          Then
+            ExprStmt
+              Call
+                Callee
+                  Ident do_something
+      ExprStmt
+        Postfix op=++
+          Unary op=*
+            Ident sp
+      ExprStmt
+        Match
+          Operand
+            Unary op=*
+              Unary op=*
+                Ident sp
+          Arm
+            WildcardPattern
+            Body
+              Block
+      ExprStmt
+        Unary op=++
+          Unary op=*
+            Ident p
+      ExprStmt
+        Block
+          ExprStmt
+            Call
+              Callee
+                Ident do_something
+      ExprStmt
+        Unary op=--
+          Unary op=*
+            Ident p
+
