@@ -139,6 +139,11 @@ export namespace dcc::lex
         CaretEq,
         LtLtEq,
         GtGtEq,
+
+        DocOverview,
+        DocSection,
+        DocComment,
+        InlayComment,
     };
 
     [[nodiscard]] std::string_view to_string(TokenKind kind) noexcept
@@ -377,6 +382,14 @@ export namespace dcc::lex
                 return "<<=";
             case TokenKind::GtGtEq:
                 return ">>=";
+            case TokenKind::DocOverview:
+                return "doc-overview";
+            case TokenKind::DocSection:
+                return "doc-section";
+            case TokenKind::DocComment:
+                return "doc-comment";
+            case TokenKind::InlayComment:
+                return "inlay-comment";
         }
         return "unknown";
     }
@@ -399,6 +412,16 @@ export namespace dcc::lex
     [[nodiscard]] constexpr bool is_literal(TokenKind k) noexcept
     {
         return k >= TokenKind::IntLiteral && k <= TokenKind::U16CharLiteral;
+    }
+
+    [[nodiscard]] constexpr bool is_doc_comment(TokenKind k) noexcept
+    {
+        return k == TokenKind::DocOverview || k == TokenKind::DocSection || k == TokenKind::DocComment || k == TokenKind::InlayComment;
+    }
+
+    [[nodiscard]] constexpr bool is_trivia_comment(TokenKind k) noexcept
+    {
+        return is_doc_comment(k);
     }
 
     using TokenValue = std::variant<std::monostate, std::intmax_t, double, std::string, std::uint32_t, std::u16string>;
