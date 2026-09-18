@@ -29,6 +29,10 @@ entry:
   %"0" = alloca %0, align 8
   store %0 %x, ptr %"0", align 1
   %"1" = load %0, ptr %"0", align 1
+  %"6" = alloca [8 x i8], align 1
+  %"8" = alloca %1, align 8
+  %"16" = alloca [8 x i8], align 1
+  %"18" = alloca %2, align 8
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
@@ -45,10 +49,8 @@ match.arm0.test3:                                 ; preds = %entry
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"4" = extractvalue %0 %"1", 2
-  %"6" = alloca [8 x i8], align 1
   store [8 x i8] %"4", ptr %"6", align 1
   %"7" = load %1, ptr %"6", align 4
-  %"8" = alloca %1, align 8
   store %1 %"7", ptr %"8", align 4
   %"9" = load %1, ptr %"8", align 4
   %"10" = extractvalue %1 %"9", 0
@@ -62,10 +64,8 @@ match.arm1.test5:                                 ; preds = %match.arm0.test3
 
 match.arm1.body6:                                 ; preds = %match.arm1.test5
   %"14" = extractvalue %0 %"1", 2
-  %"16" = alloca [8 x i8], align 1
   store [8 x i8] %"14", ptr %"16", align 1
   %"17" = load %2, ptr %"16", align 4
-  %"18" = alloca %2, align 8
   store %2 %"17", ptr %"18", align 4
   %"19" = load %2, ptr %"18", align 4
   %"20" = extractvalue %2 %"19", 0

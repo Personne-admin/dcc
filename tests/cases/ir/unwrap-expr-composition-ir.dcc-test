@@ -54,6 +54,7 @@ i32@_DC0F1.4.test17.test_chained_call2D1.4.test3.Res0.D1.4.test3.Res0.i32s({@0 b
   %2 = alloca i32
   %3 = load {@0 bool, @4 i32}, ptr<{@0 bool, @4 i32}> %0
   %4 = call fn(@_DC0F1.4.test5.is_ok1D1.4.test3.Res0.b)({@0 bool, @4 i32} %3) -> bool
+  %8 = alloca i32
   br.cond %4, label %unwrap.is_ok1, label %unwrap.fail2
 %unwrap.is_ok1:
   %5 = call fn(@_DC0F1.4.test6.unwrap1D1.4.test3.Res0.i32s)({@0 bool, @4 i32} %3) -> i32
@@ -64,7 +65,6 @@ i32@_DC0F1.4.test17.test_chained_call2D1.4.test3.Res0.D1.4.test3.Res0.i32s({@0 b
 %unwrap.merge3:
   %7 = phi i32 [ i32 %5, label %unwrap.is_ok1 ]
   store i32 %7, ptr<i32> %2
-  %8 = alloca i32
   %9 = load {@0 bool, @4 i32}, ptr<{@0 bool, @4 i32}> %1
   %10 = call fn(@_DC0F1.4.test5.is_ok1D1.4.test3.Res0.b)({@0 bool, @4 i32} %9) -> bool
   br.cond %10, label %unwrap.is_ok4, label %unwrap.fail5
