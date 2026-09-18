@@ -207,6 +207,10 @@ entry:
   store i64 %"2", ptr %"0", align 4
   %"3" = load i64, ptr %"0", align 4
   %"4" = icmp ne i64 %"3", 8
+  %"5" = alloca i64, align 8
+  %"9" = alloca %0, align 8
+  %"13" = alloca i64, align 8
+  %"23" = alloca i64, align 8
   br i1 %"4", label %if.then1, label %if.else2
 
 if.then1:                                         ; preds = %entry
@@ -216,7 +220,6 @@ if.else2:                                         ; preds = %entry
   br label %if.merge3
 
 if.merge3:                                        ; preds = %if.else2
-  %"5" = alloca i64, align 8
   store i64 24, ptr %"5", align 4
   %"6" = load i64, ptr %"5", align 4
   %"7" = icmp ne i64 %"6", 24
@@ -238,7 +241,6 @@ if.else8:                                         ; preds = %if.merge6
   br label %if.merge9
 
 if.merge9:                                        ; preds = %if.else8
-  %"9" = alloca %0, align 8
   store %0 { i64 10, i64 20 }, ptr %"9", align 4
   br i1 false, label %if.then10, label %if.else11
 
@@ -258,7 +260,6 @@ if.else14:                                        ; preds = %if.merge12
   br label %if.merge15
 
 if.merge15:                                       ; preds = %if.else14
-  %"13" = alloca i64, align 8
   %"14" = call i64 @_DC0F1.4.test6.bumped1i64si64s(i64 88)
   store i64 %"14", ptr %"13", align 4
   %"15" = load i64, ptr %"13", align 4
@@ -305,7 +306,6 @@ if.else26:                                        ; preds = %if.merge24
   br label %if.merge27
 
 if.merge27:                                       ; preds = %if.else26
-  %"23" = alloca i64, align 8
   %"24" = load i64, ptr @_DC0G1.4.test8.dyn_seedi64s, align 4
   %"25" = call i64 @_DC0F1.4.test4.work1i64si64s(i64 %"24")
   store i64 %"25", ptr %"23", align 4

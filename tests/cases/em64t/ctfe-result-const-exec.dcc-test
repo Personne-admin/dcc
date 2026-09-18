@@ -209,6 +209,7 @@ define i32 @dcc_main() {
 entry:
   %"1" = load i64, ptr @_DC0G1.4.test5.PLAIND1.4.test5.Chunk0., align 4
   %"2" = icmp ne i64 %"1", 8
+  %"9" = alloca %0, align 8
   br i1 %"2", label %if.then1, label %if.else2
 
 if.then1:                                         ; preds = %entry
@@ -248,7 +249,6 @@ if.else11:                                        ; preds = %if.merge9
   br label %if.merge12
 
 if.merge12:                                       ; preds = %if.else11
-  %"9" = alloca %0, align 8
   store %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, ptr %"9", align 4
   %"10" = getelementptr %0, ptr %"9", i32 0, i32 0
   %"11" = load i64, ptr %"10", align 4
@@ -446,6 +446,7 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
 define linkonce_odr i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
 entry:
   %"0" = load %3, ptr %self, align 1
+  %"5" = alloca [8 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
@@ -462,7 +463,6 @@ match.arm0.test3:                                 ; preds = %entry
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"3" = extractvalue %3 %"0", 2
-  %"5" = alloca [8 x i8], align 1
   store [8 x i8] %"3", ptr %"5", align 1
   %"6" = load i64, ptr %"5", align 4
   br label %match.merge1
@@ -478,6 +478,8 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
 define linkonce_odr %0 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test5.Chunk0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) comdat {
 entry:
   %"0" = load %2, ptr %self, align 1
+  %"5" = alloca [40 x i8], align 1
+  %"7" = alloca %0, align 8
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
@@ -494,10 +496,8 @@ match.arm0.test3:                                 ; preds = %entry
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"3" = extractvalue %2 %"0", 2
-  %"5" = alloca [40 x i8], align 1
   store [40 x i8] %"3", ptr %"5", align 1
   %"6" = load %0, ptr %"5", align 4
-  %"7" = alloca %0, align 8
   store %0 %"6", ptr %"7", align 4
   %"8" = load %0, ptr %"7", align 4
   br label %match.merge1
@@ -512,6 +512,7 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
 define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
 entry:
   %"0" = load %3, ptr %self, align 1
+  %"5" = alloca [8 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
@@ -528,7 +529,6 @@ match.arm0.test3:                                 ; preds = %entry
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"3" = extractvalue %3 %"0", 2
-  %"5" = alloca [8 x i8], align 1
   store [8 x i8] %"3", ptr %"5", align 1
   %"6" = load i8, ptr %"5", align 1
   br label %match.merge1
@@ -544,6 +544,7 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
 define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) comdat {
 entry:
   %"0" = load %2, ptr %self, align 1
+  %"5" = alloca [40 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
@@ -560,7 +561,6 @@ match.arm0.test3:                                 ; preds = %entry
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"3" = extractvalue %2 %"0", 2
-  %"5" = alloca [40 x i8], align 1
   store [40 x i8] %"3", ptr %"5", align 1
   %"6" = load i8, ptr %"5", align 1
   br label %match.merge1

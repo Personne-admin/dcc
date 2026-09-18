@@ -24,6 +24,8 @@ entry:
   %"0" = alloca %0, align 8
   store %0 %x, ptr %"0", align 1
   %"1" = load %0, ptr %"0", align 1
+  %"6" = alloca [4 x i8], align 1
+  %"13" = alloca [4 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm2.body8, %match.arm1.body6, %match.guard0.pass9
@@ -40,7 +42,6 @@ match.arm0.test3:                                 ; preds = %entry
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"4" = extractvalue %0 %"1", 2
-  %"6" = alloca [4 x i8], align 1
   store [4 x i8] %"4", ptr %"6", align 1
   %"7" = load i32, ptr %"6", align 4
   %"8" = icmp sgt i32 %"7", 0
@@ -53,7 +54,6 @@ match.arm1.test5:                                 ; preds = %match.arm0.body4, %
 
 match.arm1.body6:                                 ; preds = %match.arm1.test5
   %"11" = extractvalue %0 %"1", 2
-  %"13" = alloca [4 x i8], align 1
   store [4 x i8] %"11", ptr %"13", align 1
   %"14" = load i32, ptr %"13", align 4
   br label %match.merge1

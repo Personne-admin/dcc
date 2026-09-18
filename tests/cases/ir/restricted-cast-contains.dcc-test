@@ -28,13 +28,13 @@ i64@_DC0F1.4.test4.test1i8ui64s(u8) {
   %5 = cmp.ule u8 %v, #64
   %6 = and bool %4, bool %5
   %7 = or bool %3, bool %6
+  %8 = alloca u8
+  %10 = alloca u8
   br.cond %7, label %restricted.ok1, label %restricted.fail2
 %restricted.ok1:
   store u8 %v, ptr<u8> %0
-  %8 = alloca u8
   %9 = load u8, ptr<u8> %0
   store u8 %9, ptr<u8> %8
-  %10 = alloca u8
   %11 = load u8, ptr<u8> %0
   store u8 %11, ptr<u8> %10
   %12 = load u8, ptr<u8> %0

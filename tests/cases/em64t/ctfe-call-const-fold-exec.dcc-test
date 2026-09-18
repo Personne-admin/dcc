@@ -158,6 +158,10 @@ entry:
 
 define i32 @dcc_main() {
 entry:
+  %"5" = alloca i64, align 8
+  %"13" = alloca i64, align 8
+  %"19" = alloca i64, align 8
+  %"25" = alloca i64, align 8
   br i1 false, label %if.then1, label %if.else2
 
 if.then1:                                         ; preds = %entry
@@ -189,7 +193,6 @@ if.else8:                                         ; preds = %if.merge6
   br label %if.merge9
 
 if.merge9:                                        ; preds = %if.else8
-  %"5" = alloca i64, align 8
   %"6" = call i64 @_DC0F1.4.test4.bump0Iu()
   store i64 %"6", ptr %"5", align 4
   %"7" = load i64, ptr %"5", align 4
@@ -225,7 +228,6 @@ if.else17:                                        ; preds = %if.merge15
   br label %if.merge18
 
 if.merge18:                                       ; preds = %if.else17
-  %"13" = alloca i64, align 8
   %"14" = call i64 @_DC0F1.4.test2.rt0Iu() #0
   store i64 %"14", ptr %"13", align 4
   %"15" = load i64, ptr %"13", align 4
@@ -250,7 +252,6 @@ if.else23:                                        ; preds = %if.merge21
   br label %if.merge24
 
 if.merge24:                                       ; preds = %if.else23
-  %"19" = alloca i64, align 8
   %"20" = call i64 @_DC0F1.4.test8.read_vol0i64u()
   store i64 %"20", ptr %"19", align 4
   %"21" = load i64, ptr %"19", align 4
@@ -275,7 +276,6 @@ if.else29:                                        ; preds = %if.merge27
   br label %if.merge30
 
 if.merge30:                                       ; preds = %if.else29
-  %"25" = alloca i64, align 8
   %"26" = call i64 @_DC0F1.4.test5.apply2pIu1IuIuIu(ptr @_DC0F1.4.test5.ident1IuIu, i64 6)
   store i64 %"26", ptr %"25", align 4
   %"27" = load i64, ptr %"25", align 4

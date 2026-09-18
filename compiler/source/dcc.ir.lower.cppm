@@ -1138,15 +1138,32 @@ export namespace dcc::ir::lower
             return sl;
         }
 
+        [[nodiscard]] IrBasicBlock* frame_slot_block(IrValue const* inst) const noexcept
+        {
+            auto* a = ir_cast<IrAllocaInst const>(inst);
+            if (!a || a->count)
+                return nullptr;
+
+            auto* entry = m_current_func ? m_current_func->entry_block : nullptr;
+            if (!entry || entry == m_current_block)
+                return nullptr;
+
+            return entry;
+        }
+
         void append_inst(IrValue* inst)
         {
+            auto* block = frame_slot_block(inst);
+            if (!block)
+                block = m_current_block;
+
             auto const scope = current_scope_id();
             IrDebugLocation rec{};
-            rec.block_id = m_current_block->id;
-            rec.instruction_index = static_cast<std::uint32_t>(m_current_block->instructions.size());
+            rec.block_id = block->id;
+            rec.instruction_index = static_cast<std::uint32_t>(block->instructions.size());
             rec.is_terminator = false;
             rec.loc = make_source_loc(m_active_range, scope);
-            m_current_block->instructions.push_back(inst);
+            block->instructions.push_back(inst);
             m_current_func->debug_locations.push_back(rec);
         }
 

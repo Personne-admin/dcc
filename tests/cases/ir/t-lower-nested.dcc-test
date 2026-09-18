@@ -40,13 +40,13 @@ i32@_DC0F1.4.test11.nested_loop1i32si32s(i32) {
   store i32 #0, ptr<i32> %0
   %1 = alloca i32
   store i32 #0, ptr<i32> %1
+  %4 = alloca i32
   br label %while.cond1
 %while.cond1:
   %2 = load i32, ptr<i32> %1
   %3 = cmp.lt i32 %2, %n
   br.cond %3, label %while.body2, label %while.exit3
 %while.body2:
-  %4 = alloca i32
   store i32 #0, ptr<i32> %4
   br label %while.cond4
 %while.exit3:
