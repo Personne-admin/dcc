@@ -1332,3 +1332,150 @@ name (`%[dst]`), with size views (`%[dst:byte]`), bare-symbol modifiers
 (`%c[...]`, `%P[...]`), and per-expansion unique stamps (`%=`).
 
 See the [full specifications](inline-assembly.md).
+
+---
+
+## 20. Documentation comments
+
+Four line-comment roles exist. Plain `////` banners (four or more slashes)
+and `/* */` blocks remain discarded trivia. The four roles below are lexed
+as distinct token kinds:
+
+```dc
+//!! Overview of this module.   // module overview: before `module;` only
+//! Getting started              // section marker: opens a named section
+/// Computes the answer.         // doc comment: documents the next declaration
+void answer() {}
+// keep this formatting          // inlay: retained on the token stream
+```
+
+`//!!` lexes as overview rather than `//!` plus `!`. `////` and longer
+runs lex as plain comments and never attach to anything. A marker inside a
+string or character literal is not a comment. `///text` and `///   text`
+(with no or several spaces) are both doc lines. CRLF endings and a file
+ending mid-comment are handled.
+
+### 20.1 Module overview (`//!!`)
+
+Consecutive `//!!` lines (adjacent, no blank line between) merge into one
+block. The block is legal only before the module declaration at the top of
+the file. A `//!!` block anywhere else is a `doc-overview-misplaced` error
+and is discarded. At most one overview block per file is allowed; a second
+block is a `doc-overview-duplicate` error.
+
+```dc
+//!! My library.
+//!! Second line of the overview.
+module lib;
+```
+
+### 20.2 Sections (`//!`)
+
+Consecutive `//!` lines merge into one block. The first non-empty line is
+the section title; the remainder is the section body. A section owns every
+top-level declaration from its position until the next `//!` or end of
+file, in source order. Sections are flat; there is no nesting.
+Declarations before the first `//!` belong to an implicit unnamed section;
+this is not an error. A file with no `//!` has only the implicit section.
+
+```dc
+//! Parsing
+//! Helpers for the parser.
+void helper() {}
+```
+
+Two `//!` blocks separated by a blank line are two sections (the first may
+be empty). Adjacent `//!` lines without a blank line merge into one
+section. A `//!` inside a function body, struct body, union body, enum
+body, or any other brace-nested scope is a `doc-section-nested` error.
+
+### 20.3 Doc comments (`///`)
+
+Consecutive `///` lines merge into one block. A `///` line with nothing
+after the marker is empty content, not a break. A genuinely blank source
+line (no `///` token at all) ends the run: the block finalizes there, and
+normal orphan rules apply to the finalized block. A `//` inlay line between
+`///` lines likewise ends the run.
+
+```dc
+/// First paragraph.
+///
+/// Second paragraph.
+void f() {}
+```
+
+```dc
+/// a
+
+/// b
+void f() {}
+// `a` is orphan (warns); only `b` documents `f`.
+```
+
+A blank line, or any non-comment token, between the block and the next
+declaration breaks attachment; the block then attaches to nothing and
+produces a `doc-orphan` warning. Attributes sit between the block and the
+declaration and do not break attachment:
+
+```dc
+/// Kept.
+@[deprecated("use g instead")]
+void f() {}
+```
+
+Both `@x @y` and `@[x, y]` forms preserve the pending block. A `///` block
+that reaches end of file, a closing brace, or any position with no eligible
+declaration following produces `doc-orphan`.
+
+Doc comments attach to top-level functions, structs, enums, unions, type
+aliases (`using A = T`), value aliases (`using T V = expr`), and concepts
+(`using C(T) = expr`), and to members: struct fields, union fields, enum
+variants (including a variant carrying `@[deprecated]`), template
+parameters, and function parameters. They also attach to locals inside
+function bodies; locals are stored on the AST but are not part of the
+module public surface.
+
+### 20.4 Inlay comments (`//`)
+
+Every other `//` line is an inlay. Inlays are retained on the token stream
+in source order with their span and owning line. They are never attached to
+a declaration, never merged, and never part of any doc block. A `//` on the
+same line as code follows those tokens; a `//` on its own line follows the
+previous line tokens. A `//` as the first line has no owner. Inlays exist
+for formatting preservation by later tools.
+
+A declaration may carry a doc block and a trailing inlay simultaneously;
+they are stored separately.
+
+### 20.5 Text normalization
+
+Each doc line strips its leading marker (`//!!`, `//!`, `///`) and one
+optional following space or tab. Across the block, common leading
+indentation is removed; interior blank lines and relative indentation are
+preserved, so fenced code blocks survive intact:
+
+```dc
+/// Example:
+/// ```
+/// first
+///
+/// second
+/// ```
+void f() {}
+```
+
+Every stored block keeps a `Span` covering its original comment lines.
+
+### 20.6 Tooling surface
+
+Docs live only in the frontend. The AST holds a `DocBlock` (text plus
+span) and an `InlayComment` (text, span, owning line), an ordered `Section`
+record (title, body, span, ordered declarations) with an ordered section
+list plus the module overview on the translation unit. Declarations are
+queried for their doc and section without walking. Nothing reaches the IR
+or lowering; a file with doc comments lowers identically to the same file
+with comments removed. All four diagnostics (`doc-orphan` warning,
+`doc-overview-misplaced`, `doc-overview-duplicate`, `doc-section-nested`
+errors) are off by default behind `SessionOptions::enable_doc_comments`
+(threaded through `CompileOptions`/`SemaOptions` to the parser); `dcc`
+never enables it.
