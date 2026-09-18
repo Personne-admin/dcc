@@ -1,0 +1,65 @@
+=== FILE: a.dc ===
+module a;
+
+public void hook(T...)(i32* sink, T args) {}
+
+public void plain_direct(T)(T x) { x.hook(); }
+
+public void probe_direct(T)(T x) {
+    static if compiles (T t) { t.hook(); } {
+        x.hook();
+    } else {
+        missing_hook();
+    }
+}
+
+public void plain_nested(T)(T x) { x.hook(); }
+
+public void probe_nested(T)(T x) {
+    static if compiles (T t) { t.hook(); } {
+        x.hook();
+    } else {
+        missing_hook();
+    }
+}
+
+=== FILE: bridge.dc ===
+module bridge;
+
+import a;
+
+public void forward(T)(T x) {
+    a::plain_nested(x);
+    a::probe_nested(x);
+}
+
+=== FILE: b.dc ===
+module b;
+
+import a;
+import bridge;
+
+public struct X {}
+
+void hook(X x) {}
+
+public void direct(X x) {
+    a::plain_direct(x);
+    a::probe_direct(x);
+}
+
+public void nested(T)(T x) { bridge::forward(x); }
+
+=== FILE: main.dc ===
+module main;
+
+import b;
+
+void test() {
+    b::X x;
+    b::direct(x);
+    b::nested(x);
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 0 ===

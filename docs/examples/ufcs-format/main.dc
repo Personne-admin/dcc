@@ -1,0 +1,10 @@
+module main;
+import print;
+i32 main([] const char* argv) {
+    i32 argc = argv.len as i32;
+    print::println("argc: {}", argc);
+    if argc < 3 {
+        print::println("invalid usage: {} [input] [output]", argv[0]);
+    }
+    return 0;
+}

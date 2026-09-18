@@ -1,0 +1,35 @@
+=== FILE: a.dc ===
+module a;
+
+import core;
+
+public void apply(T)(T x) {
+    static if compiles (T t) { t.format(); } {
+        x.format();
+    } else {
+        core::compile_error("type is not formattable");
+    }
+}
+
+=== FILE: b.dc ===
+module b;
+
+import a;
+
+public void forward(T)(T x) { a::apply(x); }
+
+=== FILE: main.dc ===
+module main;
+
+import b;
+
+struct Missing {}
+void test() {
+    Missing x;
+    b::forward(x);
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 1 ===
+=== EXPECT-ERRORS ===
+a.dc:9: type is not formattable
