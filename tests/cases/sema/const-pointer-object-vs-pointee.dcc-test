@@ -1,0 +1,29 @@
+=== FILE: main.dc ===
+module m;
+
+public struct Cell {
+    usize v;
+}
+
+void const_pointer_object(u8* p, Cell* c) {
+    u8* const q = p;
+    (*q)++;
+    *q = 1;
+    q[0] = 2;
+
+    Cell* const cc = c;
+    cc.v = 3;
+}
+
+void const_pointer_object_param(u8* const q) {
+    (*q)++;
+}
+
+void mutable_indirection(u8* p, [] u8 s, Cell* c) {
+    (*p)++;
+    p[0] = 1;
+    s[0] = 2;
+    c.v = 3;
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

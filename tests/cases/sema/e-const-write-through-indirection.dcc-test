@@ -1,0 +1,29 @@
+=== FILE: main.dc ===
+module m;
+
+public struct Cell {
+    usize v;
+}
+
+void write_through_const(const u8* p, const Cell* c, [] const u8 s) {
+    (*p)++;
+    ++(*p);
+    p[0] = 1;
+    c.v = 2;
+    (*c).v = 3;
+    s[0] = 4;
+}
+
+void reseat_const_pointer(u8* p) {
+    u8* const q = p;
+    q = p;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:8: cannot modify const-qualified target of type `u8`
+main.dc:9: cannot modify const-qualified target of type `u8`
+main.dc:10: cannot assign to const-qualified target of type `u8`
+main.dc:11: cannot assign to const-qualified target of type `usize`
+main.dc:12: cannot assign to const-qualified target of type `usize`
+main.dc:13: cannot assign to const-qualified target of type `u8`
+main.dc:18: cannot assign to const-qualified target of type `u8*`

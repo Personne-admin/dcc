@@ -18,8 +18,8 @@ public i32 dcc_main() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:11: assignment target is not assignable
-main.dc:12: assignment target is not assignable
-main.dc:13: assignment target is not assignable
-main.dc:14: assignment target is not assignable
-main.dc:15: assignment target is not assignable
+main.dc:11: cannot assign to const-qualified target of type `u64`
+main.dc:12: cannot assign to const-qualified target of type `u64`
+main.dc:13: cannot assign to const-qualified target of type `u8`
+main.dc:14: cannot assign to const-qualified target of type `u64`
+main.dc:15: cannot assign to const-qualified target of type `u8*`
