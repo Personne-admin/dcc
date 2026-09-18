@@ -12,6 +12,7 @@ public i64 f(i64 v) {
 module "test"
 i64@_DC0F1.4.test1.f1i64si64s(i64) {
 %entry(i64 %v):
+  %1 = alloca i64
   br label %match.arm0.test3
 %match.merge1:
   %4 = phi i64 [ i64 #99, label %match.arm0.body4 ],  [ i64 %3, label %match.arm1.body6 ]
@@ -24,7 +25,6 @@ i64@_DC0F1.4.test1.f1i64si64s(i64) {
 %match.arm0.body4:
   br label %match.merge1
 %match.arm1.test5:
-  %1 = alloca i64
   store i64 %v, ptr<i64> %1
   br label %match.arm1.body6
 %match.arm1.body6:

@@ -1,0 +1,53 @@
+=== FILE: test.dc ===
+module test;
+
+public u8 vla(usize n) {
+    u8 total = 0;
+    usize i = 0;
+    while (i < n) {
+        u8 fixed = i as u8;
+        u8[n] scratch;
+        scratch[0] = fixed;
+        total = total + scratch[0];
+        i++;
+    }
+    return total;
+}
+
+=== EXPECT-IR ===
+module "test"
+u8@_DC0F1.4.test3.vla1Iui8u(usize) {
+%entry(usize %n):
+  %0 = alloca u8
+  store u8 #0, ptr<u8> %0
+  %1 = alloca usize
+  store usize #0, ptr<usize> %1
+  %4 = alloca u8
+  br label %while.cond1
+%while.cond1:
+  %2 = load usize, ptr<usize> %1
+  %3 = cmp.ult usize %2, %n
+  br.cond %3, label %while.body2, label %while.exit3
+%while.body2:
+  %5 = load usize, ptr<usize> %1
+  %6 = trunc usize %5 to u8
+  store u8 %6, ptr<u8> %4
+  %7 = alloca u8, usize %n
+  %8 = load u8, ptr<u8> %4
+  %9 = gep ptr<u8> %7, #0
+  store u8 %8, ptr<u8> %9
+  %10 = load u8, ptr<u8> %0
+  %11 = load [0 x u8], ptr<u8> %7
+  %12 = gep ptr<u8> %7, #0
+  %13 = load u8, ptr<u8> %12
+  %14 = add u8 %10, u8 %13
+  store u8 %14, ptr<u8> %0
+  %15 = load usize, ptr<usize> %1
+  %16 = add usize %15, usize #1
+  store usize %16, ptr<usize> %1
+  br label %while.cond1
+%while.exit3:
+  %17 = load u8, ptr<u8> %0
+  ret u8 %17
+}
+

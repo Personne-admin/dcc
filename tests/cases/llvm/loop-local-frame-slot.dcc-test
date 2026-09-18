@@ -1,0 +1,56 @@
+=== FILE: test.dc ===
+module test;
+
+public u32 sum(const u8* p, usize n) {
+    u32 acc = 0;
+    while (n > 0) {
+        n--;
+        char c = *p as char;
+        acc = acc + (c as u32);
+        p++;
+    }
+    return acc;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+define i32 @_DC0F1.4.test3.sum2PCqi8uIui32u(ptr %p, i64 %n) {
+entry:
+  %"0" = alloca ptr, align 8
+  store ptr %p, ptr %"0", align 8
+  %"1" = alloca i64, align 8
+  store i64 %n, ptr %"1", align 4
+  %"2" = alloca i32, align 4
+  store i32 0, ptr %"2", align 4
+  %"7" = alloca i8, align 1
+  br label %while.cond1
+
+while.cond1:                                      ; preds = %while.body2, %entry
+  %"3" = load i64, ptr %"1", align 4
+  %"4" = icmp ugt i64 %"3", 0
+  br i1 %"4", label %while.body2, label %while.exit3
+
+while.body2:                                      ; preds = %while.cond1
+  %"5" = load i64, ptr %"1", align 4
+  %"6" = sub i64 %"5", 1
+  store i64 %"6", ptr %"1", align 4
+  %"8" = load ptr, ptr %"0", align 8
+  %"9" = load i8, ptr %"8", align 1
+  store i8 %"9", ptr %"7", align 1
+  %"10" = load i32, ptr %"2", align 4
+  %"11" = load i8, ptr %"7", align 1
+  %"12" = zext i8 %"11" to i32
+  %"13" = add i32 %"10", %"12"
+  store i32 %"13", ptr %"2", align 4
+  %"14" = load ptr, ptr %"0", align 8
+  %"15" = getelementptr i8, ptr %"14", i64 1
+  store ptr %"15", ptr %"0", align 8
+  br label %while.cond1
+
+while.exit3:                                      ; preds = %while.cond1
+  %"16" = load i32, ptr %"2", align 4
+  ret i32 %"16"
+}

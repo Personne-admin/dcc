@@ -1,0 +1,50 @@
+=== FILE: test.dc ===
+module test;
+
+public u32 sum(const u8* p, usize n) {
+    u32 acc = 0;
+    while (n > 0) {
+        n--;
+        char c = *p as char;
+        acc = acc + (c as u32);
+        p++;
+    }
+    return acc;
+}
+
+=== EXPECT-IR ===
+module "test"
+u32@_DC0F1.4.test3.sum2PCqi8uIui32u(ptr<u8>, usize) {
+%entry(ptr<u8> %p, usize %n):
+  %0 = alloca ptr<u8>
+  store ptr<u8> %p, ptr<ptr<u8>> %0
+  %1 = alloca usize
+  store usize %n, ptr<usize> %1
+  %2 = alloca u32
+  store u32 #0, ptr<u32> %2
+  %7 = alloca u8
+  br label %while.cond1
+%while.cond1:
+  %3 = load usize, ptr<usize> %1
+  %4 = cmp.ugt usize %3, #0
+  br.cond %4, label %while.body2, label %while.exit3
+%while.body2:
+  %5 = load usize, ptr<usize> %1
+  %6 = sub usize %5, usize #1
+  store usize %6, ptr<usize> %1
+  %8 = load ptr<u8>, ptr<ptr<u8>> %0
+  %9 = load u8, ptr<u8> %8
+  store u8 %9, ptr<u8> %7
+  %10 = load u32, ptr<u32> %2
+  %11 = load u8, ptr<u8> %7
+  %12 = zext u8 %11 to u32
+  %13 = add u32 %10, u32 %12
+  store u32 %13, ptr<u32> %2
+  %14 = load ptr<u8>, ptr<ptr<u8>> %0
+  %15 = gep ptr<u8> %14, #1
+  store ptr<u8> %15, ptr<ptr<u8>> %0
+  br label %while.cond1
+%while.exit3:
+  %16 = load u32, ptr<u32> %2
+  ret u32 %16
+}

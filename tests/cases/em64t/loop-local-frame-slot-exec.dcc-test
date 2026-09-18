@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const u8[4] data = {3, 1, 4, 1};
+
+@nomangle
+const u8* cursor = data;
+
+void bump(const u8* p, usize n, u32* out) {
+    u32 acc = 0;
+    usize i = 0;
+    while (n > 0) {
+        n--;
+
+        char c = p[i] as char;
+        acc = acc + (c as u32);
+
+        i++;
+        if (i == 4) {
+            i = 0;
+        }
+    }
+    *out = acc;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u32 acc = 0;
+    bump(cursor, 2000000, &acc);
+    return (acc % 251) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 72
