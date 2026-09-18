@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module m;
+
+struct Writer {
+    u8 v;
+}
+
+void format(T...)(const Writer* w, i32 first, T args) {}
+
+void outer(T...)(Writer w, i32 first, T args) {
+    w.format(first, args...);
+}
+
+void caller() {
+    Writer w;
+    outer!(i32)(w, 1, 2);
+}
+
+=== EXPECT-REGISTRY ===
+fn=format args=[i32] state=2
+fn=outer args=[i32] state=2

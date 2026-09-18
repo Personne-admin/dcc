@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void inner(T...)(T x) {}
+
+void outer(T...)(T args) {
+    inner(args);
+}
+
+void caller() {
+    outer!(i32, i64)(0, 1);
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:6: cannot use pack 'args' with 2 elements as value; use 'args...' to expand

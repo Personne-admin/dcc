@@ -2131,7 +2131,12 @@ export namespace dcc::sema
                     if (i)
                         sig += ", ";
                     if (f.params[i].type)
-                        sig += format_type_str(get_canonical(f.params[i].type->sema));
+                    {
+                        auto canon = get_canonical(f.params[i].type->sema);
+                        sig += format_type_str(canon);
+                        if (is_func_param_sema_pack(f.params[i], f))
+                            sig += "...";
+                    }
                     else
                         sig += "<unknown>";
                 }

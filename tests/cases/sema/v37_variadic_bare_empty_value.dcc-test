@@ -1,0 +1,15 @@
+=== FILE: main.dc ===
+module m;
+
+void inner(T...)(T x) {}
+
+void outer(T...)(T args) {
+    inner(args);
+}
+
+void caller() {
+    outer!()();
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:6: cannot use empty pack 'args' as value

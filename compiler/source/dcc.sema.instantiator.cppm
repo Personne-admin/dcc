@@ -2983,7 +2983,7 @@ export namespace dcc::sema
                     return std::nullopt;
                 }
 
-                void expand_in_expr(ast::Expr*& e, bool in_call_args)
+                void expand_in_expr(ast::Expr*& e, bool in_call_args, bool in_pack_operand = false)
                 {
                     if (!e)
                         return;
@@ -3015,6 +3015,9 @@ export namespace dcc::sema
                                 {
                                     if (m_diag)
                                         m_diag->error(pe->range, "pack-index expression cannot be expanded");
+                                    auto* err = ast_ctx.make<ast::IntLiteralExpr>(pe->range, 0, "0");
+                                    set_resolved_type(err->sema, type_ctx.m_errort());
+                                    e = err;
                                     return;
                                 }
                             }
@@ -3029,6 +3032,9 @@ export namespace dcc::sema
                                 {
                                     if (m_diag)
                                         m_diag->error(pe->range, "pack-index expression cannot be expanded");
+                                    auto* err = ast_ctx.make<ast::IntLiteralExpr>(pe->range, 0, "0");
+                                    set_resolved_type(err->sema, type_ctx.m_errort());
+                                    e = err;
                                     return;
                                 }
                             }
@@ -3046,7 +3052,7 @@ export namespace dcc::sema
                             }
                         }
 
-                        expand_in_expr(pe->operand, false);
+                        expand_in_expr(pe->operand, false, true);
                         return;
                     }
 
@@ -3131,21 +3137,26 @@ export namespace dcc::sema
                             break;
                         case ast::ExprKind::Index: {
                             auto* idx = static_cast<ast::IndexExpr*>(e);
-                            expand_in_expr(idx->object, false);
+                            expand_in_expr(idx->object, false, true);
                             expand_in_expr(idx->index, false);
 
                             if (auto* obj_ident = ast::node_cast<ast::IdentExpr>(idx->object))
                             {
                                 auto pit = pack_info.find(obj_ident->name);
                                 if (pit != pack_info.end())
+                                {
                                     if (m_diag)
                                         m_diag->error(idx->range, "use '.N' for pack indexing");
+                                    auto* err = ast_ctx.make<ast::IntLiteralExpr>(e->range, 0, "0");
+                                    set_resolved_type(err->sema, type_ctx.m_errort());
+                                    e = err;
+                                }
                             }
                             break;
                         }
                         case ast::ExprKind::PackAccess: {
                             auto* pa = static_cast<ast::PackAccessExpr*>(e);
-                            expand_in_expr(pa->object, false);
+                            expand_in_expr(pa->object, false, true);
                             expand_in_expr(pa->index, false);
 
                             auto replace_with_error = [&]() {
@@ -3222,6 +3233,32 @@ export namespace dcc::sema
                         }
                         case ast::ExprKind::Ident: {
                             auto* ident = static_cast<ast::IdentExpr*>(e);
+                            if (!in_pack_operand)
+                            {
+                                auto pit = pack_info.find(ident->name);
+                                if (pit != pack_info.end())
+                                {
+                                    auto cur = get_resolved_type(e->sema);
+                                    bool concrete = cur && !types::type_cast<types::TemplateParamType>(cur) && !types::type_cast<types::TypePackType>(cur) && cur->kind != types::TypeKind::Error;
+                                    if (!concrete)
+                                    {
+                                    auto count = pit->second.types.size();
+                                    if (m_diag)
+                                    {
+                                        if (count == 0)
+                                            m_diag->error(e->range, "cannot use empty pack '{}' as value", ident->name);
+                                        else if (count == 1)
+                                            m_diag->error(e->range, "cannot use pack '{}' with 1 element as value; use '{}...' to expand", ident->name, ident->name);
+                                        else
+                                            m_diag->error(e->range, "cannot use pack '{}' with {} elements as value; use '{}...' to expand", ident->name, count, ident->name);
+                                    }
+                                    auto* err = ast_ctx.make<ast::IntLiteralExpr>(e->range, 0, "0");
+                                    set_resolved_type(err->sema, type_ctx.m_errort());
+                                    e = err;
+                                    break;
+                                    }
+                                }
+                            }
                             if (!e->sema.resolved_type)
                             {
                                 auto it = pack_param_types.find(ident->name);
