@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+void inner(T...)(T x) {}
+
+void outer(T...)(T args) {
+    inner(args...);
+}
+
+void caller() {
+    outer!(i32, i64)(0, 1);
+}
+
+=== EXPECT-REGISTRY ===
+fn=inner args=[i32, i64] state=2
+fn=outer args=[i32, i64] state=2
