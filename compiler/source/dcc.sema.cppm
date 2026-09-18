@@ -28,6 +28,7 @@ export namespace dcc::sema
         dcc::si::string_interner* interner{nullptr};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
         std::vector<std::string> injected_decls;
+        bool enable_doc_comments{false};
     };
 
     class SemaContext
