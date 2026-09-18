@@ -26,8 +26,9 @@ export namespace dcc::parser
     class Parser
     {
     public:
-        Parser(lex::Lexer& lexer, ast::AstContext& ctx, diag::DiagnosticEngine& diag, ParseMode mode = ParseMode::Batch) noexcept
-            : m_lexer(lexer), m_ctx(ctx), m_diag(diag), m_tokens(ctx.allocator()), m_mode(mode)
+        Parser(lex::Lexer& lexer, ast::AstContext& ctx, diag::DiagnosticEngine& diag, ParseMode mode = ParseMode::Batch,
+               bool enable_doc_comments = false) noexcept
+            : m_lexer(lexer), m_ctx(ctx), m_diag(diag), m_tokens(ctx.allocator()), m_mode(mode), m_enable_doc(enable_doc_comments)
         {
         }
 
@@ -46,6 +47,8 @@ export namespace dcc::parser
             ast::TypeExpr* default_type{};
             ast::Expr* default_value{};
             bool is_pack{};
+            ast::DocBlock const* doc{};
+            ast::InlayComment const* trailing{};
         };
 
         class Speculation
@@ -113,7 +116,15 @@ export namespace dcc::parser
         lex::Token const& peek(std::size_t ahead = 0)
         {
             while (m_pos + ahead >= m_tokens.size())
-                m_tokens.push_back(m_lexer.next());
+            {
+                auto tok = m_lexer.next();
+                if (lex::is_doc_comment(tok.kind))
+                {
+                    handle_doc_token(tok);
+                    continue;
+                }
+                m_tokens.push_back(std::move(tok));
+            }
 
             return m_tokens[m_pos + ahead];
         }
@@ -122,6 +133,24 @@ export namespace dcc::parser
         {
             auto const& tok = peek();
             m_prev_end = tok.range.end;
+            if (m_enable_doc && tok.range.valid())
+            {
+                auto const off = tok.range.end.offset;
+                if (!m_has_last_code)
+                {
+                    m_last_code_line = m_lexer.line_number(off);
+                    m_last_code_offset = off;
+                    m_has_last_code = true;
+                }
+                else if (off != m_last_code_offset)
+                {
+                    if (off > m_last_code_offset)
+                        m_last_code_line += m_lexer.count_newlines(m_last_code_offset, off);
+                    else
+                        m_last_code_line = m_lexer.line_number(off);
+                    m_last_code_offset = off;
+                }
+            }
             ++m_pos;
 
             return m_tokens[m_pos - 1];
@@ -311,20 +340,549 @@ export namespace dcc::parser
             }
         }
 
+        [[nodiscard]] std::uint32_t token_start_line(lex::Token const& t) const noexcept { return m_lexer.line_number(t.range.begin.offset); }
+
+        [[nodiscard]] sm::SourceRange pending_doc_span() const noexcept
+        {
+            if (m_pending_doc.empty())
+                return {};
+            return {m_pending_doc.front().range.begin, m_pending_doc.back().range.end};
+        }
+
+        [[nodiscard]] sm::SourceRange pending_overview_span() const noexcept
+        {
+            if (m_pending_overview.empty())
+                return {};
+            return {m_pending_overview.front().range.begin, m_pending_overview.back().range.end};
+        }
+
+        [[nodiscard]] sm::SourceRange pending_section_span() const noexcept
+        {
+            if (m_pending_section.empty())
+                return {};
+            return {m_pending_section.front().range.begin, m_pending_section.back().range.end};
+        }
+
+        void emit_doc_orphan(sm::SourceRange span)
+        {
+            if (!m_enable_doc || silent() || !span.valid())
+                return;
+            emit(diag::Diagnostic(diag::Severity::Warning, "doc-orphan: documentation block does not attach to a declaration").primary(span));
+        }
+
+        void emit_overview_misplaced(sm::SourceRange span)
+        {
+            if (!m_enable_doc || silent() || !span.valid())
+                return;
+            emit(diag::Diagnostic(diag::Severity::Error, "doc-overview-misplaced: module overview must appear before the module declaration").primary(span));
+        }
+
+        void emit_overview_duplicate(sm::SourceRange span)
+        {
+            if (!m_enable_doc || silent() || !span.valid())
+                return;
+            emit(diag::Diagnostic(diag::Severity::Error, "doc-overview-duplicate: only one module overview block is allowed").primary(span));
+        }
+
+        void emit_section_nested(sm::SourceRange span)
+        {
+            if (!m_enable_doc || silent() || !span.valid())
+                return;
+            emit(diag::Diagnostic(diag::Severity::Error, "doc-section-nested: section marker must appear at module scope").primary(span));
+        }
+
+        [[nodiscard]] static std::string_view strip_one_space(std::string_view s) noexcept
+        {
+            if (!s.empty() && (s.front() == ' ' || s.front() == '\t'))
+                s.remove_prefix(1);
+            return s;
+        }
+
+        [[nodiscard]] static bool is_blank_line(std::string_view s) noexcept
+        {
+            for (char c : s)
+                if (c != ' ' && c != '\t' && c != '\r')
+                    return false;
+            return true;
+        }
+
+        [[nodiscard]] static std::string_view trim_spaces(std::string_view s) noexcept
+        {
+            auto b = s.find_first_not_of(" \t\r");
+            if (b == std::string_view::npos)
+                return {};
+            auto e = s.find_last_not_of(" \t\r");
+            return s.substr(b, e - b + 1);
+        }
+
+        [[nodiscard]] ast::DocBlock const* normalize_doc_run_to_block(std::vector<lex::Token> const& run, std::size_t marker_len)
+        {
+            std::vector<std::string_view> contents;
+            contents.reserve(run.size());
+            for (auto const& tok : run)
+            {
+                auto raw = m_lexer.source_text(tok.range);
+                std::string_view c = raw.size() >= marker_len ? raw.substr(marker_len) : std::string_view{};
+                contents.push_back(strip_one_space(c));
+            }
+            std::size_t common = std::string_view::npos;
+            for (auto c : contents)
+            {
+                if (is_blank_line(c))
+                    continue;
+                std::size_t indent = 0;
+                while (indent < c.size() && (c[indent] == ' ' || c[indent] == '\t'))
+                    ++indent;
+                common = (common == std::string_view::npos) ? indent : std::min(common, indent);
+            }
+            if (common == std::string_view::npos)
+                common = 0;
+            std::string joined;
+            for (std::size_t i = 0; i < contents.size(); ++i)
+            {
+                auto c = contents[i];
+                if (!is_blank_line(c) && common > 0)
+                    c.remove_prefix(std::min(common, c.size()));
+                if (is_blank_line(contents[i]))
+                    c = {};
+                joined.append(c);
+                if (i + 1 < contents.size())
+                    joined.push_back('\n');
+            }
+            auto interned = m_lexer.interner().intern(joined);
+            sm::SourceRange span = run.empty() ? sm::SourceRange{} : sm::SourceRange{run.front().range.begin, run.back().range.end};
+            auto* b = m_ctx.make<ast::DocBlock>();
+            b->text = interned;
+            b->span = span;
+            return b;
+        }
+
+        [[nodiscard]] ast::Section* make_section_from_run(std::vector<lex::Token> const& run)
+        {
+            auto* tmp = normalize_doc_run_to_block(run, 3);
+            std::string_view norm = tmp->text;
+            std::vector<std::string_view> lines;
+            std::size_t pos = 0;
+            while (true)
+            {
+                auto nl = norm.find('\n', pos);
+                if (nl == std::string_view::npos)
+                {
+                    lines.push_back(norm.substr(pos));
+                    break;
+                }
+                lines.push_back(norm.substr(pos, nl - pos));
+                pos = nl + 1;
+            }
+            std::size_t title_idx = lines.size();
+            for (std::size_t i = 0; i < lines.size(); ++i)
+                if (!is_blank_line(lines[i]) && !trim_spaces(lines[i]).empty())
+                {
+                    title_idx = i;
+                    break;
+                }
+            std::string_view title;
+            std::string_view body;
+            if (title_idx < lines.size())
+            {
+                title = m_lexer.interner().intern(std::string{trim_spaces(lines[title_idx])});
+                std::size_t b0 = title_idx + 1;
+                while (b0 < lines.size() && is_blank_line(lines[b0]))
+                    ++b0;
+                std::size_t b1 = lines.size();
+                while (b1 > b0 && is_blank_line(lines[b1 - 1]))
+                    --b1;
+                std::string joined;
+                for (std::size_t i = b0; i < b1; ++i)
+                {
+                    joined.append(lines[i]);
+                    if (i + 1 < b1)
+                        joined.push_back('\n');
+                }
+                body = m_lexer.interner().intern(joined);
+            }
+            auto* s = m_ctx.make<ast::Section>(m_ctx.allocator());
+            s->title = title;
+            s->body = body;
+            s->span = sm::SourceRange{run.front().range.begin, run.back().range.end};
+            return s;
+        }
+
+        void handle_doc_token(lex::Token tok)
+        {
+            if (!m_enable_doc)
+                return;
+            switch (tok.kind)
+            {
+                case TK::DocOverview:
+                    on_overview_token(tok);
+                    break;
+                case TK::DocSection:
+                    on_section_token(tok);
+                    break;
+                case TK::DocComment:
+                    on_doc_token(tok);
+                    break;
+                case TK::InlayComment:
+                    on_inlay_token(tok);
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        void on_doc_token(lex::Token tok)
+        {
+            if (!silent())
+            {
+                if (!m_pending_overview.empty())
+                    flush_pending_overview();
+                if (!m_pending_section.empty())
+                    flush_pending_section();
+            }
+            auto sline = m_lexer.line_number(tok.range.begin.offset);
+            if (!m_pending_doc.empty())
+            {
+                if (sline != m_pending_doc_end_line + 1)
+                {
+                    if (!silent())
+                    {
+                        emit_doc_orphan(pending_doc_span());
+                    }
+                    m_pending_doc.clear();
+                }
+            }
+            m_pending_doc.push_back(tok);
+            m_pending_doc_end_line = m_lexer.line_number(tok.range.end.offset);
+        }
+
+        void on_overview_token(lex::Token tok)
+        {
+            if (!silent())
+            {
+                if (!m_pending_doc.empty())
+                {
+                    emit_doc_orphan(pending_doc_span());
+                    m_pending_doc.clear();
+                }
+                if (!m_pending_section.empty())
+                    flush_pending_section();
+            }
+            auto sline = m_lexer.line_number(tok.range.begin.offset);
+            if (!m_pending_overview.empty() && sline != m_pending_overview_end_line + 1)
+            {
+                if (!silent())
+                    flush_pending_overview();
+                else
+                    m_pending_overview.clear();
+            }
+            if (m_doc_nest_depth > 0)
+                m_pending_overview_nested = true;
+            m_pending_overview.push_back(tok);
+            m_pending_overview_end_line = m_lexer.line_number(tok.range.end.offset);
+        }
+
+        void on_section_token(lex::Token tok)
+        {
+            if (!silent())
+            {
+                if (!m_pending_doc.empty())
+                {
+                    emit_doc_orphan(pending_doc_span());
+                    m_pending_doc.clear();
+                }
+                if (!m_pending_overview.empty())
+                    flush_pending_overview();
+            }
+            auto sline = m_lexer.line_number(tok.range.begin.offset);
+            if (!m_pending_section.empty() && sline != m_pending_section_end_line + 1)
+            {
+                if (!silent())
+                    flush_pending_section();
+                else
+                    m_pending_section.clear();
+            }
+            if (m_doc_nest_depth > 0)
+                m_pending_section_nested = true;
+            m_pending_section.push_back(tok);
+            m_pending_section_end_line = m_lexer.line_number(tok.range.end.offset);
+        }
+
+        void on_inlay_token(lex::Token tok)
+        {
+            if (!silent())
+            {
+                if (!m_pending_doc.empty())
+                {
+                    emit_doc_orphan(pending_doc_span());
+                    m_pending_doc.clear();
+                }
+                if (!m_pending_overview.empty())
+                    flush_pending_overview();
+                if (!m_pending_section.empty())
+                    flush_pending_section();
+            }
+            auto raw = m_lexer.source_text(tok.range);
+            std::string_view c = raw.size() >= 2 ? raw.substr(2) : std::string_view{};
+            c = strip_one_space(c);
+            if (!c.empty() && c.back() == '\r')
+                c.remove_suffix(1);
+            auto interned = m_lexer.interner().intern(std::string{c});
+            auto* node = m_ctx.make<ast::InlayComment>();
+            node->text = interned;
+            node->span = tok.range;
+            node->owner_line = m_last_code_line;
+            node->has_owner = m_has_last_code;
+            m_inlay_buffer.push_back(node);
+            if (m_tu)
+                m_tu->inlays.push_back(node);
+        }
+
+        void flush_pending_overview()
+        {
+            if (!m_enable_doc || silent() || m_pending_overview.empty() || !m_tu)
+                return;
+            auto span = pending_overview_span();
+            auto* block = normalize_doc_run_to_block(m_pending_overview, 4);
+            m_pending_overview.clear();
+            bool nested = m_pending_overview_nested;
+            m_pending_overview_nested = false;
+            if (nested || !m_before_module)
+            {
+                emit_overview_misplaced(span);
+                return;
+            }
+            if (m_overview_seen)
+            {
+                emit_overview_duplicate(span);
+                return;
+            }
+            m_tu->overview = block;
+            m_overview_seen = true;
+        }
+
+        void flush_pending_section()
+        {
+            if (!m_enable_doc || silent() || m_pending_section.empty() || !m_tu)
+                return;
+            auto span = pending_section_span();
+            bool nested = m_pending_section_nested;
+            std::vector<lex::Token> run = std::move(m_pending_section);
+            m_pending_section.clear();
+            m_pending_section_nested = false;
+            if (nested)
+            {
+                emit_section_nested(span);
+                return;
+            }
+            auto* sec = make_section_from_run(run);
+            m_tu->sections.push_back(sec);
+            m_current_section = sec;
+        }
+
+        [[nodiscard]] bool is_doc_eligible_decl(ast::Decl* d) const noexcept
+        {
+            if (!d)
+                return false;
+            switch (d->kind)
+            {
+                case ast::DeclKind::Func:
+                case ast::DeclKind::Struct:
+                case ast::DeclKind::Union:
+                case ast::DeclKind::Enum:
+                case ast::DeclKind::Var:
+                    return true;
+                case ast::DeclKind::Using: {
+                    auto* u = static_cast<ast::UsingDecl const*>(d);
+                    return u->using_kind == ast::UsingKind::Alias || u->using_kind == ast::UsingKind::ValueAlias || u->using_kind == ast::UsingKind::Concept;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        ast::DocBlock const* take_pending_doc_for_decl(std::uint32_t decl_start_line, bool eligible)
+        {
+            if (!m_enable_doc || silent() || m_pending_doc.empty())
+                return nullptr;
+            if (decl_start_line != 0 && decl_start_line > m_pending_doc_end_line + 1)
+            {
+                emit_doc_orphan(pending_doc_span());
+                m_pending_doc.clear();
+                return nullptr;
+            }
+            if (!eligible)
+            {
+                emit_doc_orphan(pending_doc_span());
+                m_pending_doc.clear();
+                return nullptr;
+            }
+            std::vector<lex::Token> run = std::move(m_pending_doc);
+            m_pending_doc.clear();
+            return normalize_doc_run_to_block(run, 3);
+        }
+
+        void attach_outer_doc_to_decl(ast::Decl* d, sm::Location decl_start)
+        {
+            if (!m_enable_doc || silent() || !m_tu || !d)
+                return;
+            auto line = m_lexer.line_number(decl_start.offset);
+            if (auto* doc = take_pending_doc_for_decl(line, is_doc_eligible_decl(d)))
+                m_tu->doc_table[d] = doc;
+        }
+
+        void attach_trailing_to_decl(ast::Decl* d)
+        {
+            if (!m_enable_doc || silent() || !m_tu || !d)
+                return;
+            (void)peek();
+            if (m_inlay_buffer.empty())
+                return;
+            auto const* last = m_inlay_buffer.back();
+            auto end_line = m_lexer.line_number(d->range.end.offset);
+            if (last->has_owner && last->owner_line == end_line)
+                m_tu->inlay_table[d] = last;
+        }
+
+        void attach_trailing_to_stmt(ast::Stmt* s)
+        {
+            if (!m_enable_doc || silent() || !m_tu || !s)
+                return;
+            (void)peek();
+            if (m_inlay_buffer.empty())
+                return;
+            auto const* last = m_inlay_buffer.back();
+            auto end_line = m_lexer.line_number(s->range.end.offset);
+            if (last->has_owner && last->owner_line == end_line)
+                m_tu->stmt_inlay_table[s] = last;
+        }
+
+        void attach_trailing_to_field(ast::FieldDecl& f)
+        {
+            if (!m_enable_doc || silent())
+                return;
+            (void)peek();
+            if (m_inlay_buffer.empty())
+                return;
+            auto const* last = m_inlay_buffer.back();
+            auto end_line = m_lexer.line_number(f.range.end.offset);
+            if (last->has_owner && last->owner_line == end_line)
+                f.trailing = last;
+        }
+
+        void attach_trailing_to_variant(ast::EnumVariant& v)
+        {
+            if (!m_enable_doc || silent())
+                return;
+            (void)peek();
+            if (m_inlay_buffer.empty())
+                return;
+            auto const* last = m_inlay_buffer.back();
+            auto end_line = m_lexer.line_number(v.range.end.offset);
+            if (last->has_owner && last->owner_line == end_line)
+                v.trailing = last;
+        }
+
+        void attach_trailing_to_tparam(ast::TemplateParam& p)
+        {
+            if (!m_enable_doc || silent())
+                return;
+            (void)peek();
+            if (m_inlay_buffer.empty())
+                return;
+            auto const* last = m_inlay_buffer.back();
+            auto end_line = m_lexer.line_number(p.range.end.offset);
+            if (last->has_owner && last->owner_line == end_line)
+                p.trailing = last;
+        }
+
+        void attach_trailing_to_fparam(ast::FuncParam& p)
+        {
+            if (!m_enable_doc || silent())
+                return;
+            (void)peek();
+            if (m_inlay_buffer.empty())
+                return;
+            auto const* last = m_inlay_buffer.back();
+            auto end_line = m_lexer.line_number(p.range.end.offset);
+            if (last->has_owner && last->owner_line == end_line)
+                p.trailing = last;
+        }
+
+        void flush_pending_doc_as_orphan()
+        {
+            if (!m_enable_doc || silent() || m_pending_doc.empty())
+                return;
+            emit_doc_orphan(pending_doc_span());
+            m_pending_doc.clear();
+        }
+
         ast::TranslationUnit* parse_translation_unit()
         {
-            auto start = loc();
             auto* tu = m_ctx.make<ast::TranslationUnit>();
+            m_tu = tu;
+            m_before_module = true;
+            m_overview_seen = false;
+            m_pending_doc.clear();
+            m_pending_overview.clear();
+            m_pending_section.clear();
+            m_pending_section_nested = false;
+            m_pending_overview_nested = false;
+            m_inlay_buffer.clear();
+            m_has_last_code = false;
+            m_last_code_offset = 0;
+            m_last_code_line = 0;
+            m_current_section = nullptr;
+            auto start = loc();
+            if (m_enable_doc)
+            {
+                auto* implicit = m_ctx.make<ast::Section>(m_ctx.allocator());
+                tu->sections.push_back(implicit);
+                m_current_section = implicit;
+            }
 
             tu->module_decl = parse_module_decl();
+            if (m_enable_doc && !silent())
+            {
+                flush_pending_overview();
+                if (tu->module_decl)
+                    m_before_module = false;
+            }
 
+            bool first_item_done = false;
             while (!eof())
             {
+                if (m_enable_doc && !silent())
+                {
+                    flush_pending_section();
+                    if (!m_pending_overview.empty())
+                        flush_pending_overview();
+                }
+                auto item_start = loc();
+                std::uint32_t item_start_line = 0;
+                if (m_enable_doc)
+                    item_start_line = m_lexer.line_number(item_start.offset);
                 auto* item = parse_top_level_item();
                 if (!item)
                 {
                     synchronize_to_decl();
                     continue;
+                }
+
+                if (m_enable_doc && !silent())
+                {
+                    bool eligible = is_doc_eligible_decl(item);
+                    if (auto* doc = take_pending_doc_for_decl(item_start_line, eligible))
+                        tu->doc_table[item] = doc;
+                    attach_trailing_to_decl(item);
+                    if (m_current_section)
+                    {
+                        m_current_section->decls.push_back(item);
+                        tu->section_table[item] = m_current_section;
+                    }
+                    if (!tu->module_decl && !first_item_done)
+                        m_before_module = false;
+                    first_item_done = true;
                 }
 
                 if (item->kind == ast::DeclKind::Import)
@@ -333,12 +891,30 @@ export namespace dcc::parser
                     tu->decls.push_back(item);
 
                 for (auto* ed : m_extra_imports)
+                {
                     tu->imports.push_back(ed);
+                    if (m_enable_doc && !silent() && m_current_section)
+                    {
+                        m_current_section->decls.push_back(ed);
+                        tu->section_table[ed] = m_current_section;
+                    }
+                }
                 m_extra_imports.clear();
+            }
+
+            if (m_enable_doc && !silent())
+            {
+                flush_pending_doc_as_orphan();
+                if (!m_pending_overview.empty())
+                    flush_pending_overview();
+                if (!m_pending_section.empty())
+                    flush_pending_section();
             }
 
             tu->range = range_from(start);
             tu->parser_recovery_ranges.assign(m_recovery_ranges.begin(), m_recovery_ranges.end());
+            m_tu = nullptr;
+            m_current_section = nullptr;
             return tu;
         }
 
@@ -1227,6 +1803,7 @@ export namespace dcc::parser
             do
             {
                 auto start = loc();
+                std::uint32_t doc_start_line = m_enable_doc ? m_lexer.line_number(start.offset) : 0;
                 ast::TemplateParam tp;
 
                 if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::RParen) || check_at(1, TK::Ellipsis) || check_at(1, TK::Eq)))
@@ -1266,6 +1843,12 @@ export namespace dcc::parser
                     else
                         tp.default_type = parse_type();
                     tp.range = range_from(start);
+                }
+                if (m_enable_doc && !silent())
+                {
+                    if (auto* doc = take_pending_doc_for_decl(doc_start_line, true))
+                        tp.doc = doc;
+                    attach_trailing_to_tparam(tp);
                 }
                 params.push_back(std::move(tp));
             } while (match(TK::Comma));
@@ -1315,6 +1898,7 @@ export namespace dcc::parser
                 var->is_public = is_public;
                 var->is_extern = is_extern;
                 var->attrs = std::move(attrs);
+                attach_outer_doc_to_decl(var, start);
 
                 auto* asm_expr = m_ctx.make<ast::AsmExpr>(sm::SourceRange{}, m_ctx.allocator());
                 asm_expr->asm_keyword_range = previous().range;
@@ -1354,6 +1938,7 @@ export namespace dcc::parser
                 var->is_public = is_public;
                 var->is_extern = is_extern;
                 var->attrs = std::move(attrs);
+                attach_outer_doc_to_decl(var, start);
 
                 if (match(TK::Eq))
                     var->init = parse_expr();
@@ -1370,6 +1955,7 @@ export namespace dcc::parser
                 func->is_public = is_public;
                 func->is_extern = is_extern;
                 func->attrs = std::move(attrs);
+                attach_outer_doc_to_decl(func, start);
 
                 auto first = parse_param_shape_list();
 
@@ -1384,6 +1970,8 @@ export namespace dcc::parser
                         tp.default_type = shape.default_type;
                         tp.default_value = shape.default_value;
                         tp.is_pack = shape.is_pack;
+                        tp.doc = shape.doc;
+                        tp.trailing = shape.trailing;
                         func->template_params.push_back(std::move(tp));
                     }
 
@@ -1401,6 +1989,8 @@ export namespace dcc::parser
                         fp.type = shape.type;
                         fp.default_value = shape.default_value;
                         fp.is_pack = shape.is_pack;
+                        fp.doc = shape.doc;
+                        fp.trailing = shape.trailing;
                         func->params.push_back(std::move(fp));
                     }
                 }
@@ -1421,6 +2011,8 @@ export namespace dcc::parser
                         fp.type = shape.type;
                         fp.default_value = shape.default_value;
                         fp.is_pack = shape.is_pack;
+                        fp.doc = shape.doc;
+                        fp.trailing = shape.trailing;
                         func->params.push_back(std::move(fp));
                     }
                 }
@@ -1453,6 +2045,7 @@ export namespace dcc::parser
             do
             {
                 auto start = loc();
+                std::uint32_t doc_start_line = m_enable_doc ? m_lexer.line_number(start.offset) : 0;
                 ParamShape shape;
 
                 if (check(TK::Identifier) && (check_at(1, TK::Comma) || check_at(1, TK::RParen) || check_at(1, TK::Ellipsis) || check_at(1, TK::Eq)))
@@ -1488,6 +2081,19 @@ export namespace dcc::parser
                         shape.default_type = parse_type();
                     shape.range = range_from(start);
                 }
+                if (m_enable_doc && !silent())
+                {
+                    if (auto* doc = take_pending_doc_for_decl(doc_start_line, true))
+                        shape.doc = doc;
+                    (void)peek();
+                    if (!m_inlay_buffer.empty())
+                    {
+                        auto const* last = m_inlay_buffer.back();
+                        auto end_line = m_lexer.line_number(shape.range.end.offset);
+                        if (last->has_owner && last->owner_line == end_line)
+                            shape.trailing = last;
+                    }
+                }
                 result.push_back(std::move(shape));
             } while (match(TK::Comma));
 
@@ -1520,6 +2126,7 @@ export namespace dcc::parser
             auto* d = m_ctx.make<ast::StructDecl>(sm::SourceRange{}, name.interned, name.range);
             d->is_public = is_public;
             d->attrs = std::move(attrs);
+            attach_outer_doc_to_decl(d, start);
 
             if (check(TK::LParen))
                 d->template_params = parse_template_param_list(true, true);
@@ -1528,14 +2135,21 @@ export namespace dcc::parser
                 d->constraint = parse_expr(0, true);
 
             expect(TK::LBrace, "to begin struct body");
-            while (!check(TK::RBrace) && !eof())
             {
-                auto prev_pos = m_pos;
-                auto field = parse_field_decl(true);
-                field.index = static_cast<std::uint32_t>(d->fields.size());
-                d->fields.push_back(std::move(field));
-                if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
-                    advance();
+                DocNestGuard nest(*this);
+                while (!check(TK::RBrace) && !eof())
+                {
+                    auto prev_pos = m_pos;
+                    auto field = parse_field_decl(true);
+                    field.index = static_cast<std::uint32_t>(d->fields.size());
+                    d->fields.push_back(std::move(field));
+                    if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
+                        advance();
+                }
+                if (m_enable_doc && !silent() && !m_pending_doc.empty())
+                    flush_pending_doc_as_orphan();
+                if (m_enable_doc && !silent() && !m_pending_section.empty())
+                    flush_pending_section();
             }
 
             expect(TK::RBrace, "to close struct body");
@@ -1556,16 +2170,24 @@ export namespace dcc::parser
             auto* d = m_ctx.make<ast::UnionDecl>(sm::SourceRange{}, name.interned, name.range);
             d->is_public = is_public;
             d->attrs = std::move(attrs);
+            attach_outer_doc_to_decl(d, start);
 
             expect(TK::LBrace, "to begin union body");
-            while (!check(TK::RBrace) && !eof())
             {
-                auto prev_pos = m_pos;
-                auto field = parse_field_decl();
-                field.index = static_cast<std::uint32_t>(d->fields.size());
-                d->fields.push_back(std::move(field));
-                if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
-                    advance();
+                DocNestGuard nest(*this);
+                while (!check(TK::RBrace) && !eof())
+                {
+                    auto prev_pos = m_pos;
+                    auto field = parse_field_decl();
+                    field.index = static_cast<std::uint32_t>(d->fields.size());
+                    d->fields.push_back(std::move(field));
+                    if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
+                        advance();
+                }
+                if (m_enable_doc && !silent() && !m_pending_doc.empty())
+                    flush_pending_doc_as_orphan();
+                if (m_enable_doc && !silent() && !m_pending_section.empty())
+                    flush_pending_section();
             }
 
             expect(TK::RBrace, "to close union body");
@@ -1609,6 +2231,7 @@ export namespace dcc::parser
         ast::FieldDecl parse_field_decl(bool allow_pack = false)
         {
             auto start = loc();
+            std::uint32_t doc_start_line = m_enable_doc ? m_lexer.line_number(start.offset) : 0;
             ast::FieldDecl f;
 
             auto saved_pos = m_pos;
@@ -1628,6 +2251,12 @@ export namespace dcc::parser
 
             expect(TK::Semicolon, "after field declaration");
             f.range = range_from(start);
+            if (m_enable_doc && !silent())
+            {
+                if (auto* doc = take_pending_doc_for_decl(doc_start_line, true))
+                    f.doc = doc;
+                attach_trailing_to_field(f);
+            }
 
             if (m_pos == saved_pos && !check(TK::Semicolon) && !check(TK::RBrace) && !eof())
             {
@@ -1650,6 +2279,7 @@ export namespace dcc::parser
             auto* d = m_ctx.make<ast::EnumDecl>(sm::SourceRange{}, name.interned, name.range);
             d->is_public = is_public;
             d->attrs = std::move(attrs);
+            attach_outer_doc_to_decl(d, start);
 
             if (check(TK::LParen))
                 d->template_params = parse_template_param_list(false);
@@ -1662,9 +2292,11 @@ export namespace dcc::parser
 
             expect(TK::LBrace, "to begin enum body");
             bool any_payload = false;
+            DocNestGuard enum_nest(*this);
             while (!check(TK::RBrace) && !eof())
             {
                 auto vstart = loc();
+                std::uint32_t vdoc_line = m_enable_doc ? m_lexer.line_number(vstart.offset) : 0;
                 ast::EnumVariant variant(m_ctx.allocator());
                 variant.attrs = parse_attributes();
 
@@ -1690,10 +2322,23 @@ export namespace dcc::parser
                     variant.explicit_value = parse_expr();
 
                 variant.range = range_from(vstart);
+                if (m_enable_doc && !silent())
+                {
+                    if (auto* doc = take_pending_doc_for_decl(vdoc_line, true))
+                        variant.doc = doc;
+                    attach_trailing_to_variant(variant);
+                }
                 d->variants.push_back(std::move(variant));
 
                 if (!match(TK::Comma))
                     break;
+            }
+            if (m_enable_doc && !silent())
+            {
+                if (!m_pending_doc.empty())
+                    flush_pending_doc_as_orphan();
+                if (!m_pending_section.empty())
+                    flush_pending_section();
             }
             expect(TK::RBrace, "to close enum body");
             d->is_tagged = any_payload;
@@ -2315,8 +2960,7 @@ export namespace dcc::parser
                             inside = inside.substr(0, colon);
                         }
                         bool digits = !inside.empty() && std::ranges::all_of(inside, [](char c) { return c >= '0' && c <= '9'; });
-                        if (inside.empty() || (!ident_start(inside.front()) && !digits) ||
-                            (!digits && !std::ranges::all_of(inside, ident)))
+                        if (inside.empty() || (!ident_start(inside.front()) && !digits) || (!digits && !std::ranges::all_of(inside, ident)))
                             problem = "invalid asm operand name";
                         else if (!view_part.empty())
                         {
@@ -2415,7 +3059,10 @@ export namespace dcc::parser
             auto start = loc();
             auto first_error = m_recovery_errors.size();
             auto* result = parse_stmt_impl();
-            return mark_recovered(result, first_error, range_from(start));
+            auto* marked = mark_recovered(result, first_error, range_from(start));
+            if (m_enable_doc && !silent() && marked)
+                attach_trailing_to_stmt(marked);
+            return marked;
         }
 
         ast::Stmt* parse_stmt_impl()
@@ -2606,22 +3253,48 @@ export namespace dcc::parser
                 m_prev_end = a.end_prev;
             };
 
+            std::uint32_t local_doc_line = m_enable_doc ? m_lexer.line_number(start.offset) : 0;
             if (da.ok && ea.ok && da.end_pos == ea.end_pos)
             {
                 adopt(da);
-                return m_ctx.make<ast::AmbiguousStmt>(range_from(start), decl_alt, expr_alt);
+                auto* stmt = m_ctx.make<ast::AmbiguousStmt>(range_from(start), decl_alt, expr_alt);
+                if (m_enable_doc && !silent())
+                {
+                    if (auto* doc = take_pending_doc_for_decl(local_doc_line, true))
+                    {
+                        if (m_tu)
+                            m_tu->doc_table[decl_alt] = doc;
+                    }
+                    attach_trailing_to_decl(decl_alt);
+                    attach_trailing_to_stmt(stmt);
+                }
+                return stmt;
             }
 
             if (da.ok && (!ea.ok || da.end_pos > ea.end_pos))
             {
                 adopt(da);
-                return m_ctx.make<ast::DeclStmt>(decl_alt->range, decl_alt);
+                auto* stmt = m_ctx.make<ast::DeclStmt>(decl_alt->range, decl_alt);
+                if (m_enable_doc && !silent())
+                {
+                    if (auto* doc = take_pending_doc_for_decl(local_doc_line, true))
+                    {
+                        if (m_tu)
+                            m_tu->doc_table[decl_alt] = doc;
+                    }
+                    attach_trailing_to_decl(decl_alt);
+                    attach_trailing_to_stmt(stmt);
+                }
+                return stmt;
             }
 
             if (ea.ok)
             {
                 adopt(ea);
-                return m_ctx.make<ast::ExprStmt>(range_from(start), expr_alt);
+                auto* stmt = m_ctx.make<ast::ExprStmt>(range_from(start), expr_alt);
+                if (m_enable_doc && !silent())
+                    attach_trailing_to_stmt(stmt);
+                return stmt;
             }
 
             if (da.had_suppressed_error && !ea.ok)
@@ -2871,9 +3544,12 @@ export namespace dcc::parser
         void parse_decl_block(std::pmr::vector<ast::DeclPtr>& out)
         {
             expect(TK::LBrace, "to begin `static if` branch");
+            DocNestGuard nest(*this);
 
             while (!check(TK::RBrace) && !eof())
             {
+                auto item_start = loc();
+                std::uint32_t item_line = m_enable_doc ? m_lexer.line_number(item_start.offset) : 0;
                 auto* item = parse_top_level_item();
                 if (!item)
                 {
@@ -2881,6 +3557,18 @@ export namespace dcc::parser
                     continue;
                 }
 
+                if (m_enable_doc && !silent() && m_tu)
+                {
+                    bool eligible = is_doc_eligible_decl(item);
+                    if (auto* doc = take_pending_doc_for_decl(item_line, eligible))
+                        m_tu->doc_table[item] = doc;
+                    attach_trailing_to_decl(item);
+                    if (m_current_section)
+                    {
+                        m_current_section->decls.push_back(item);
+                        m_tu->section_table[item] = m_current_section;
+                    }
+                }
                 if (item->kind == ast::DeclKind::Import)
                     error_at(item->range, "conditional imports are not supported");
                 else
@@ -2891,6 +3579,13 @@ export namespace dcc::parser
                 m_extra_imports.clear();
             }
 
+            if (m_enable_doc && !silent())
+            {
+                if (!m_pending_doc.empty())
+                    flush_pending_doc_as_orphan();
+                if (!m_pending_section.empty())
+                    flush_pending_section();
+            }
             expect(TK::RBrace, "to close `static if` branch");
         }
 
@@ -3061,6 +3756,7 @@ export namespace dcc::parser
 
         void parse_block_stmts_and_tail(ast::Block& block)
         {
+            DocNestGuard nest(*this);
             while (!check(TK::RBrace) && !eof())
             {
                 RecoveryRangeBoundary recovery_boundary{*this};
@@ -3090,20 +3786,32 @@ export namespace dcc::parser
                 }
 
                 if (match(TK::Semicolon))
-                    block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), expr));
+                {
+                    auto* es = m_ctx.make<ast::ExprStmt>(range_from(stmt_start), expr);
+                    if (m_enable_doc && !silent())
+                        attach_trailing_to_stmt(es);
+                    block.stmts.push_back(es);
+                }
                 else if (check(TK::RBrace))
                 {
                     block.tail = expr;
                     break;
                 }
                 else if (is_block_like_expr(expr))
-                    block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(stmt_start), expr));
+                {
+                    auto* es = m_ctx.make<ast::ExprStmt>(range_from(stmt_start), expr);
+                    if (m_enable_doc && !silent())
+                        attach_trailing_to_stmt(es);
+                    block.stmts.push_back(es);
+                }
                 else
                 {
                     error_at(single_range(), "expected ';' or '}' after expression");
                     synchronize_to_stmt();
                 }
             }
+            if (m_enable_doc && !silent() && !m_pending_doc.empty())
+                flush_pending_doc_as_orphan();
         }
 
         ast::Block parse_block_after_brace(sm::Location start)
@@ -4382,9 +5090,35 @@ export namespace dcc::parser
         std::optional<sm::SourceRange> m_last_error_range;
         std::optional<sm::SourceRange> m_deferred_restriction_error;
         ParseMode m_mode{ParseMode::Batch};
+        bool m_enable_doc{false};
         std::vector<ast::Decl*> m_extra_imports;
         std::vector<bool> m_recovery_errors;
         std::vector<sm::SourceRange> m_recovery_ranges;
+
+        ast::TranslationUnit* m_tu{};
+        ast::Section* m_current_section{};
+        std::vector<lex::Token> m_pending_doc;
+        std::vector<lex::Token> m_pending_overview;
+        std::vector<lex::Token> m_pending_section;
+        std::uint32_t m_pending_doc_end_line{};
+        std::uint32_t m_pending_overview_end_line{};
+        std::uint32_t m_pending_section_end_line{};
+        bool m_pending_section_nested{false};
+        bool m_pending_overview_nested{false};
+        std::vector<ast::InlayComment const*> m_inlay_buffer;
+        std::uint32_t m_last_code_line{};
+        std::uint32_t m_last_code_offset{};
+        bool m_has_last_code{false};
+        bool m_before_module{true};
+        bool m_overview_seen{false};
+        int m_doc_nest_depth{0};
+
+        struct DocNestGuard
+        {
+            Parser& p;
+            explicit DocNestGuard(Parser& pp) : p(pp) { ++p.m_doc_nest_depth; }
+            ~DocNestGuard() { --p.m_doc_nest_depth; }
+        };
     };
 
 } // namespace dcc::parser
