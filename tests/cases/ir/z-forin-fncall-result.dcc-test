@@ -35,6 +35,7 @@ i64@_DC0F1.4.test4.test1Sqi64si64s([]i64) {
   %5 = extract []i64 %3, field #0
   %6 = alloca usize
   store usize #0, ptr<usize> %6
+  %11 = alloca i64
   br label %forin.header1
 %forin.header1:
   %7 = load usize, ptr<usize> %6
@@ -43,7 +44,6 @@ i64@_DC0F1.4.test4.test1Sqi64si64s([]i64) {
 %forin.body2:
   %9 = load usize, ptr<usize> %6
   %10 = gep ptr<i64> %5, %9
-  %11 = alloca i64
   %12 = load i64, ptr<i64> %10
   store i64 %12, ptr<i64> %11
   %13 = load i64, ptr<i64> %1

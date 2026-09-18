@@ -1,0 +1,89 @@
+=== FILE: test.dc ===
+module test;
+
+enum Opt(T) {
+    Some(T),
+    None,
+}
+
+@nomangle
+Opt(i32) g = Opt::Some(2);
+
+@nomangle
+public i32 dcc_main() {
+    i32 total = 0;
+    i32 i = 0;
+    while (i < 3) {
+        Opt(i32) s = g;
+        total = total + match s { Opt::Some(v) => v, Opt::None => 0, };
+        i++;
+    }
+    return total;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i8, [3 x i8], [4 x i8] }
+
+@g = global %0 { i8 0, [3 x i8] zeroinitializer, [4 x i8] c"\02\00\00\00" }
+
+define i32 @dcc_main() {
+entry:
+  %"0" = alloca i32, align 4
+  store i32 0, ptr %"0", align 4
+  %"1" = alloca i32, align 4
+  store i32 0, ptr %"1", align 4
+  %"4" = alloca %0, align 8
+  %"12" = alloca [4 x i8], align 1
+  br label %while.cond1
+
+while.cond1:                                      ; preds = %match.merge4, %entry
+  %"2" = load i32, ptr %"1", align 4
+  %"3" = icmp slt i32 %"2", 3
+  br i1 %"3", label %while.body2, label %while.exit3
+
+while.body2:                                      ; preds = %while.cond1
+  %"5" = load %0, ptr @g, align 1
+  store %0 %"5", ptr %"4", align 1
+  %"6" = load i32, ptr %"0", align 4
+  %"7" = load %0, ptr %"4", align 1
+  br label %match.arm0.test6
+
+while.exit3:                                      ; preds = %while.cond1
+  %"20" = load i32, ptr %"0", align 4
+  ret i32 %"20"
+
+match.merge4:                                     ; preds = %match.arm1.body9, %match.arm0.body7
+  %"16" = phi i32 [ %"13", %match.arm0.body7 ], [ 0, %match.arm1.body9 ]
+  %"17" = add i32 %"6", %"16"
+  store i32 %"17", ptr %"0", align 4
+  %"18" = load i32, ptr %"1", align 4
+  %"19" = add i32 %"18", 1
+  store i32 %"19", ptr %"1", align 4
+  br label %while.cond1
+
+match.fail5:                                      ; preds = %match.arm1.test8
+  unreachable
+
+match.arm0.test6:                                 ; preds = %while.body2
+  %"8" = extractvalue %0 %"7", 0
+  %"9" = icmp eq i8 %"8", 0
+  br i1 %"9", label %match.arm0.body7, label %match.arm1.test8
+
+match.arm0.body7:                                 ; preds = %match.arm0.test6
+  %"10" = extractvalue %0 %"7", 2
+  store [4 x i8] %"10", ptr %"12", align 1
+  %"13" = load i32, ptr %"12", align 4
+  br label %match.merge4
+
+match.arm1.test8:                                 ; preds = %match.arm0.test6
+  %"14" = extractvalue %0 %"7", 0
+  %"15" = icmp eq i8 %"14", 1
+  br i1 %"15", label %match.arm1.body9, label %match.fail5
+
+match.arm1.body9:                                 ; preds = %match.arm1.test8
+  br label %match.merge4
+}

@@ -1,0 +1,100 @@
+module main;
+
+import std::os::file;
+import std::os::error;
+import std::result;
+
+void print_u64(std::os::file::File* out, u64 v) {
+    u8[17] buf;
+    u64 i = 0;
+    while i < 16 {
+        u64 sh = (15 - i) * 4;
+        u8 nib = ((v >> sh) & 0xF) as u8;
+        if nib < 10 {
+            buf[i] = 0x30 + nib;
+        } else {
+            buf[i] = 0x61 + nib - 10;
+        }
+
+        i = i + 1;
+    }
+
+    buf[16] = 0x0a;
+    out.write_all(buf[0..17]);
+}
+
+struct Pair {
+    u64 a;
+    u64 b;
+}
+
+u64 churn(u64 rounds) {
+    u64 total = 0;
+    u64 n = rounds;
+
+    while n > 0 {
+        n = n - 1;
+
+        u64 a = n & 7;
+
+        if (n & 1) == 1 {
+            u64 odd = a + 1;
+            total = total + odd;
+            continue;
+        }
+
+        {
+            u64 a = 11;
+            u64[4] arr = {2, 3, 5, 7};
+            Pair p = {a = arr[0], b = arr[3]};
+            total = total + a + p.a + p.b;
+        }
+
+        u64 j = 0;
+        while j < 4 {
+            u64 inner = j * 2;
+            u64[2] small = {inner, j};
+            j = j + 1;
+            if inner > 3 {
+                break;
+            }
+
+            total = total + small[0] + small[1];
+        }
+
+        total = total + a;
+
+        if n == 1 {
+            return total;
+        }
+    }
+
+    return total;
+}
+
+u64 scan([] const u8 p, u64 n) {
+    u64 acc = 0;
+    u64 i = 0;
+    while n > 0 {
+        n = n - 1;
+
+        char c = p[i] as char;
+        acc = acc + (c as u64);
+
+        i = i + 1;
+        if i == 4 {
+            i = 0;
+        }
+    }
+
+    return acc;
+}
+
+const u8[4] table = {3, 1, 4, 1};
+
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    print_u64(&out, churn(300000));
+    print_u64(&out, scan(table[0..4], 300000));
+    return 0;
+}

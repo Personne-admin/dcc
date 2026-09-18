@@ -2502,6 +2502,32 @@ namespace dcc::backend
                 return LLVMAtomicRMWBinOpXchg;
             }
 
+            [[nodiscard]] static LLVMValueRef build_frame_slot(LLVMBuilderRef builder, LLVMTypeRef slot_type)
+            {
+                auto* insert_bb = LLVMGetInsertBlock(builder);
+                if (!insert_bb)
+                    return LLVMBuildAlloca(builder, slot_type, "");
+
+                auto* func = LLVMGetBasicBlockParent(insert_bb);
+                if (!func)
+                    return LLVMBuildAlloca(builder, slot_type, "");
+
+                auto* entry = LLVMGetEntryBasicBlock(func);
+                if (!entry || entry == insert_bb)
+                    return LLVMBuildAlloca(builder, slot_type, "");
+
+                auto* saved_loc = LLVMGetCurrentDebugLocation2(builder);
+                if (auto* first = LLVMGetFirstInstruction(entry))
+                    LLVMPositionBuilderBefore(builder, first);
+                else
+                    LLVMPositionBuilderAtEnd(builder, entry);
+
+                auto* slot = LLVMBuildAlloca(builder, slot_type, "");
+                LLVMPositionBuilderAtEnd(builder, insert_bb);
+                LLVMSetCurrentDebugLocation2(builder, saved_loc);
+                return slot;
+            }
+
             [[nodiscard]] static bool emit_instruction(IrValue const* inst, LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc,
                                                        std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
                                                        [[maybe_unused]] std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map,
@@ -2549,7 +2575,7 @@ namespace dcc::backend
                             ai = LLVMBuildArrayAlloca(builder, at, count_val, "");
                         }
                         else
-                            ai = LLVMBuildAlloca(builder, at, "");
+                            ai = build_frame_slot(builder, at);
                         auto alignment = a->alignment;
                         if (alignment == 0 && tc.contains_byte_storage(a->allocated_type))
                             alignment = static_cast<std::uint32_t>(a->allocated_type->byte_align);
@@ -2746,7 +2772,7 @@ namespace dcc::backend
                                 return false;
                             if (LLVMGetTypeKind(LLVMTypeOf(base_ptr)) != LLVMPointerTypeKind)
                             {
-                                auto* slot = LLVMBuildAlloca(builder, slot_ty, "");
+                                auto* slot = build_frame_slot(builder, slot_ty);
                                 LLVMBuildStore(builder, base_ptr, slot);
                                 base_ptr = slot;
                             }
@@ -3727,7 +3753,7 @@ namespace dcc::backend
                         if (tc.uses_byte_storage(agg->type))
                         {
                             auto* aggregate_type = static_cast<IrAggregateType const*>(agg->type);
-                            auto* storage = LLVMBuildAlloca(builder, agg_ty, "");
+                            auto* storage = build_frame_slot(builder, agg_ty);
                             LLVMSetAlignment(storage, static_cast<unsigned>(aggregate_type->byte_align));
                             LLVMBuildStore(builder, LLVMConstNull(agg_ty), storage);
 
@@ -3807,7 +3833,7 @@ namespace dcc::backend
                             if (e->field_index >= aggregate_type->members.size())
                                 return false;
                             auto* aggregate_llvm_type = llvm_type_cached(tc, aggregate_type);
-                            auto* storage = LLVMBuildAlloca(builder, aggregate_llvm_type, "");
+                            auto* storage = build_frame_slot(builder, aggregate_llvm_type);
                             LLVMSetAlignment(storage, static_cast<unsigned>(aggregate_type->byte_align));
                             LLVMBuildStore(builder, agg_val, storage);
                             auto offset = e->field_index < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[e->field_index] : 0;
@@ -3855,7 +3881,7 @@ namespace dcc::backend
                             if (ins->field_index >= aggregate_type->members.size())
                                 return false;
                             auto* aggregate_llvm_type = llvm_type_cached(tc, aggregate_type);
-                            auto* storage = LLVMBuildAlloca(builder, aggregate_llvm_type, "");
+                            auto* storage = build_frame_slot(builder, aggregate_llvm_type);
                             LLVMSetAlignment(storage, static_cast<unsigned>(aggregate_type->byte_align));
                             LLVMBuildStore(builder, agg_val, storage);
                             auto offset = ins->field_index < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[ins->field_index] : 0;

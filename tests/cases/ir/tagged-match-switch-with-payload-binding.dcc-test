@@ -27,6 +27,7 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Color0.i32s({@0 u8, @4 [4 x u8]}) {
   store {@0 u8, @4 [4 x u8]} %c, ptr<{@0 u8, @4 [4 x u8]}> %0
   %1 = load {@0 u8, @4 [4 x u8]}, ptr<{@0 u8, @4 [4 x u8]}> %0
   %2 = extract {@0 u8, @4 [4 x u8]} %1, field #0
+  %4 = alloca [4 x u8]
   switch u8 %2 {
     #0 => label %match.arm0.body4
     #1 => label %match.arm1.body6
@@ -55,7 +56,6 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Color0.i32s({@0 u8, @4 [4 x u8]}) {
 %match.arm4.test11:
 %match.arm4.body12:
   %3 = extract {@0 u8, @4 [4 x u8]} %1, field #1
-  %4 = alloca [4 x u8]
   store [4 x u8] %3, ptr<[4 x u8]> %4
   %5 = bitcast ptr<[4 x u8]> %4 to ptr<i32>
   %6 = load i32, ptr<i32> %5

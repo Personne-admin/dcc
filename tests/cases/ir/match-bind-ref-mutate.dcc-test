@@ -11,13 +11,13 @@ public i64 f(i64 v) {
 module "test"
 i64@_DC0F1.4.test1.f1i64si64s(i64) {
 %entry(i64 %v):
+  %0 = alloca i64
   br label %match.arm0.test3
 %match.merge1:
   ret i64 %1
 %match.fail2:
   unreachable
 %match.arm0.test3:
-  %0 = alloca i64
   store i64 %v, ptr<i64> %0
   br label %match.arm0.body4
 %match.arm0.body4:

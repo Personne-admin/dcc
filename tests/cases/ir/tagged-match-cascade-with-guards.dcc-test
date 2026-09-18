@@ -21,6 +21,9 @@ i32@_DC0F1.4.test1.f1D1.4.test6.Result0.i32s({@0 u8, @4 [4 x u8]}) {
   %0 = alloca {@0 u8, @4 [4 x u8]}
   store {@0 u8, @4 [4 x u8]} %r, ptr<{@0 u8, @4 [4 x u8]}> %0
   %1 = load {@0 u8, @4 [4 x u8]}, ptr<{@0 u8, @4 [4 x u8]}> %0
+  %5 = alloca [4 x u8]
+  %12 = alloca [4 x u8]
+  %19 = alloca [4 x u8]
   br label %match.arm0.test3
 %match.merge1:
   %22 = phi i32 [ i32 %7, label %match.guard0.pass9 ],  [ i32 %15, label %match.arm1.body6 ],  [ i32 %21, label %match.arm2.body8 ]
@@ -33,7 +36,6 @@ i32@_DC0F1.4.test1.f1D1.4.test6.Result0.i32s({@0 u8, @4 [4 x u8]}) {
   br.cond %3, label %match.arm0.body4, label %match.arm1.test5
 %match.arm0.body4:
   %4 = extract {@0 u8, @4 [4 x u8]} %1, field #1
-  %5 = alloca [4 x u8]
   store [4 x u8] %4, ptr<[4 x u8]> %5
   %6 = bitcast ptr<[4 x u8]> %5 to ptr<i32>
   %7 = load i32, ptr<i32> %6
@@ -45,7 +47,6 @@ i32@_DC0F1.4.test1.f1D1.4.test6.Result0.i32s({@0 u8, @4 [4 x u8]}) {
   br.cond %10, label %match.arm1.body6, label %match.arm2.test7
 %match.arm1.body6:
   %11 = extract {@0 u8, @4 [4 x u8]} %1, field #1
-  %12 = alloca [4 x u8]
   store [4 x u8] %11, ptr<[4 x u8]> %12
   %13 = bitcast ptr<[4 x u8]> %12 to ptr<i32>
   %14 = load i32, ptr<i32> %13
@@ -57,7 +58,6 @@ i32@_DC0F1.4.test1.f1D1.4.test6.Result0.i32s({@0 u8, @4 [4 x u8]}) {
   br.cond %17, label %match.arm2.body8, label %match.fail2
 %match.arm2.body8:
   %18 = extract {@0 u8, @4 [4 x u8]} %1, field #1
-  %19 = alloca [4 x u8]
   store [4 x u8] %18, ptr<[4 x u8]> %19
   %20 = bitcast ptr<[4 x u8]> %19 to ptr<i32>
   %21 = load i32, ptr<i32> %20

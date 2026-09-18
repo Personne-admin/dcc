@@ -28,9 +28,11 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Point0.i32s({@0 i32, @4 i32}) {
   %0 = alloca {@0 i32, @4 i32}
   store {@0 i32, @4 i32} %p, ptr<{@0 i32, @4 i32}> %0
   %1 = load {@0 i32, @4 i32}, ptr<{@0 i32, @4 i32}> %0
+  %3 = alloca [1 x {@0 i32, @4 i32}]
+  %9 = alloca [1 x {@0 i32, @4 i32}]
+  %11 = alloca usize
   br label %match.arm0.test3
 %match.merge1:
-  %3 = alloca [1 x {@0 i32, @4 i32}]
   %4 = gep ptr<[1 x {@0 i32, @4 i32}]> %3, #0
   %5 = gep ptr<{@0 i32, @4 i32}> %4, field #0
   store i32 #1, ptr<i32> %5
@@ -38,10 +40,8 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Point0.i32s({@0 i32, @4 i32}) {
   %7 = gep ptr<{@0 i32, @4 i32}> %6, field #1
   store i32 #2, ptr<i32> %7
   %8 = load [1 x {@0 i32, @4 i32}], ptr<[1 x {@0 i32, @4 i32}]> %3
-  %9 = alloca [1 x {@0 i32, @4 i32}]
   store [1 x {@0 i32, @4 i32}] %8, ptr<[1 x {@0 i32, @4 i32}]> %9
   %10 = gep ptr<[1 x {@0 i32, @4 i32}]> %9, #0
-  %11 = alloca usize
   store usize #0, ptr<usize> %11
   br label %forin.header5
 %match.fail2:

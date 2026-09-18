@@ -1,0 +1,60 @@
+=== FILE: test.dc ===
+module test;
+
+struct Pair {
+    i32 a;
+    i32 b;
+}
+
+i32 body(usize rounds) {
+    i32 total = 0;
+    usize n = rounds;
+
+    while (n > 0) {
+        n--;
+
+        i32 a = (n & 3) as i32;
+
+        if ((n & 1) == 1) {
+            i32 odd = a + 1;
+            total = total + odd;
+            continue;
+        }
+
+        {
+            i32 a = 7;
+            i32[4] arr = {1, 2, 3, 4};
+            Pair p = { a = arr[0], b = arr[3] };
+            total = total + a + p.a + p.b;
+        }
+
+        i32 j = 0;
+        while (j < 4) {
+            i32 inner = j * 2;
+            i32[2] small = {inner, j};
+            j++;
+            if (inner > 3) {
+                break;
+            }
+            total = total + small[0] + small[1];
+        }
+
+        total = total + a;
+
+        if (n == 1) {
+            return total;
+        }
+    }
+
+    return total;
+}
+
+@nomangle
+public i32 dcc_main() {
+    return (body(400000) % 251) as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 111
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 111
