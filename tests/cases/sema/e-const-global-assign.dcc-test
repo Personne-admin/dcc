@@ -8,4 +8,4 @@ void f() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:6: assignment target is not assignable
+main.dc:6: cannot assign to const-qualified target of type `i32`
