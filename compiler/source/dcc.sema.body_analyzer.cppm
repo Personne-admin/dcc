@@ -1009,6 +1009,7 @@ export namespace dcc::sema
         std::vector<std::string> m_concept_notes;
         std::vector<diag::Diagnostic>* m_captured_diagnostics{};
         ModuleInfo* m_specialization_defining_module{};
+        std::vector<ModuleInfo*> m_specialization_modules;
         std::optional<sm::SourceRange> m_default_argument_call_site;
 
         struct PendingLambda
@@ -4086,6 +4087,7 @@ export namespace dcc::sema
                 {
                     auto* saved_defining_mod = m_specialization_defining_module;
                     m_specialization_defining_module = find_template_defining_module(f);
+                    m_specialization_modules.push_back(m_specialization_defining_module);
 
                     {
                         auto* temp_scope = make_scope(ScopeKind::Block, nullptr);
@@ -4101,6 +4103,7 @@ export namespace dcc::sema
                     analyze_single_function(mod, *spec.decl);
                     auto post_count = m_diag.diagnostic_count();
 
+                    m_specialization_modules.pop_back();
                     m_specialization_defining_module = saved_defining_mod;
 
                     bool spec_failed = (post_count > pre_count);
@@ -12978,6 +12981,8 @@ export namespace dcc::sema
             auto* inner_consts = make_const_env(const_env);
             for (auto const& p : c.params)
             {
+                if (p.type && !p.type->sema.canonical)
+                    set_canonical(p.type->sema, resolve_type_node(mod, scope, p.type, fn, &tmp_off, const_env));
                 auto type = p.type && p.type->sema.canonical ? get_canonical(p.type->sema) : nullptr;
                 auto* v = make_local_decl(p.name, p.range, p.type, ast::StorageClass::Local, allocate_frame_slot(tmp_off, type));
                 define_local(*inner, v);
@@ -13872,6 +13877,13 @@ export namespace dcc::sema
                 if (m_specialization_defining_module->own_scope)
                     collect_unique(m_specialization_defining_module->own_scope, all_syms);
             }
+
+            for (auto const* context : m_specialization_modules)
+                if (context)
+                {
+                    collect_unique(context->ufcs_scope, all_syms);
+                    collect_unique(context->own_scope, all_syms);
+                }
 
             collect_unique(&scope, all_syms);
             auto const& import_visibility_mod = m_specialization_defining_module ? *m_specialization_defining_module : mod;

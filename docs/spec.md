@@ -939,7 +939,9 @@ and array receivers inherit associations from their element or pointee type;
 structural aliases inherit the associations of their canonical target.
 
 During generic specialization, direct declarations from both the definition
-and instantiation contexts remain eligible, while imported candidates come
+and instantiation contexts remain eligible through nested specializations,
+including private declarations in those contexts. These same candidates are
+used in `compiles` probes and ordinary calls. Imported candidates come
 from the definition context. Associated-module lookup then adds the receiver
 type's public functions. This is not caller-site import lookup: unrelated
 imports and sibling modules do not contribute candidates. Private associated
