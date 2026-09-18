@@ -1,0 +1,46 @@
+=== FILE: main.dc ===
+module m;
+
+public [] T from_raw(T)(T* ptr, usize len) {
+    [] T slice;
+    slice.ptr = ptr;
+    slice.len = len;
+    return slice;
+}
+
+T loop_and_return(T)(T v) {
+    while true {
+        break;
+    }
+
+    usize n = 1;
+    [] T s = from_raw(&v, n);
+    if s.len == 0 {
+        return v;
+    }
+
+    return v;
+}
+
+void cleanup(T)(T* p) {
+    usize n = 1;
+    [] T s = from_raw(p, n);
+    if s.len != 1 {
+        return;
+    }
+}
+
+public i32 use_defer() {
+    i32 x = 0;
+    defer cleanup(&x);
+    i32 y = loop_and_return(x);
+    return y;
+}
+
+public i32 defer_then_return() {
+    i32 x = 0;
+    defer cleanup(&x);
+    return loop_and_return(x);
+}
+
+=== EXPECT-ERROR-COUNT: 0 ===

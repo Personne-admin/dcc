@@ -7962,6 +7962,19 @@ export namespace dcc::sema
                 ~AnalysisGuard() { active.erase(fn); }
             } analysis_guard{m_analyzing_functions, &fn};
 
+            struct DeferStateGuard
+            {
+                BodyAnalyzer& ba;
+                std::vector<sm::SourceRange> defers;
+                std::uint32_t depth;
+
+                ~DeferStateGuard()
+                {
+                    ba.m_active_defers = std::move(defers);
+                    ba.m_defer_depth = depth;
+                }
+            } defer_state_guard{*this, std::exchange(m_active_defers, {}), std::exchange(m_defer_depth, 0u)};
+
             auto* root = make_scope(ScopeKind::Function, nullptr);
             auto* root_consts = make_const_env(nullptr);
             std::uint32_t frame_off = 0;
@@ -9775,6 +9788,17 @@ export namespace dcc::sema
             return out;
         }
 
+        [[nodiscard]] bool indirect_target_writable(types::TypePtr obj_type, bool object_writable) const noexcept
+        {
+            auto* ty = unwrap_nominal(obj_type);
+            if (auto const* p = types::type_cast<types::PointerType>(ty))
+                return !types::has_qual(p->pointee_quals, types::Qual::Const);
+            if (auto const* sl = types::type_cast<types::SliceType>(ty))
+                return object_writable && !types::has_qual(sl->element_quals, types::Qual::Const);
+
+            return object_writable;
+        }
+
         [[nodiscard]] types::TypePtr materialize_type(ResolvedType const& r)
         {
             if (!r.type)
@@ -9783,7 +9807,12 @@ export namespace dcc::sema
             if (r.quals != types::Qual::None)
             {
                 if (auto const* p = types::type_cast<types::PointerType>(r.type))
-                    return m_types.pointer_to(p->pointee, qual_or(p->pointee_quals, r.quals));
+                {
+                    auto const pointer_quals = static_cast<types::Qual>(std::to_underlying(r.quals) & ~std::to_underlying(types::Qual::Const));
+                    if (pointer_quals == types::Qual::None)
+                        return r.type;
+                    return m_types.pointer_to(p->pointee, qual_or(p->pointee_quals, pointer_quals));
+                }
                 if (auto const* s = types::type_cast<types::SliceType>(r.type))
                     return m_types.slice_t(s->element, qual_or(s->element_quals, r.quals));
             }
@@ -10771,6 +10800,8 @@ export namespace dcc::sema
                     {
                         out.type = p->pointee;
                         out.is_lvalue = true;
+                        out.is_writable = indirect_target_writable(op.type, out.is_writable);
+                        out.resolved_decl = nullptr;
                         out.value_alias_origin = nullptr;
                     }
                     else
@@ -10789,10 +10820,16 @@ export namespace dcc::sema
                                                                                   : std::string_view{"<anon>"});
                         return out;
                     }
-                    if (!op.is_lvalue || !op.is_writable)
+                    if (!op.is_lvalue)
                     {
                         out.type = m_types.m_errort();
                         error(u.range, "pre-increment/decrement requires an lvalue");
+                        return out;
+                    }
+                    if (!op.is_writable)
+                    {
+                        out.type = m_types.m_errort();
+                        error(u.range, "cannot modify const-qualified target of type `{}`", format_type_str(op.type));
                         return out;
                     }
                     auto const* it = types::type_cast<types::IntType>(op.type);
@@ -10884,10 +10921,16 @@ export namespace dcc::sema
                                                                                   : std::string_view{"<anon>"});
                         return out;
                     }
-                    if (!op.is_lvalue || !op.is_writable)
+                    if (!op.is_lvalue)
                     {
                         out.type = m_types.m_errort();
                         error(p.range, "postfix increment/decrement requires an lvalue");
+                        return out;
+                    }
+                    if (!op.is_writable)
+                    {
+                        out.type = m_types.m_errort();
+                        error(p.range, "cannot modify const-qualified target of type `{}`", format_type_str(op.type));
                         return out;
                     }
                     auto const* it = types::type_cast<types::IntType>(op.type);
@@ -11065,10 +11108,16 @@ export namespace dcc::sema
                                                                                    : std::string_view{"<anon>"});
                         return out;
                     }
-                    if (!lhs.is_lvalue || !lhs.is_writable)
+                    if (!lhs.is_lvalue)
                     {
                         out.type = m_types.m_errort();
                         error(b.lhs->range, "assignment target is not assignable");
+                        return out;
+                    }
+                    if (!lhs.is_writable)
+                    {
+                        out.type = m_types.m_errort();
+                        error(b.lhs->range, "cannot assign to const-qualified target of type `{}`", format_type_str(lhs.type));
                         return out;
                     }
 
@@ -11369,6 +11418,7 @@ export namespace dcc::sema
 
             out.resolved_decl = nominal;
             out.is_lvalue = obj.value_alias_origin == nullptr;
+            out.is_writable = indirect_target_writable(obj.type, out.is_writable);
 
             if (obj.constant && obj.constant->kind() == comptime::Value::Kind::Aggregate)
             {
@@ -11670,6 +11720,7 @@ export namespace dcc::sema
                 error(i.range, "indexing non-indexable type");
             }
             out.is_lvalue = obj.value_alias_origin == nullptr;
+            out.is_writable = indirect_target_writable(obj.type, out.is_writable);
 
             out.constant = nullptr;
             out.is_constant = false;
