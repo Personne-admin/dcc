@@ -3141,6 +3141,35 @@ export namespace dcc::parser
             }
         }
 
+        bool is_stmt_like_expr(ast::Expr* e)
+        {
+            if (!e)
+                return false;
+
+            switch (e->kind)
+            {
+                case ast::ExprKind::Block:
+                case ast::ExprKind::If:
+                case ast::ExprKind::Match:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static bool postfix_token_begins_stmt(lex::TokenKind k)
+        {
+            switch (k)
+            {
+                case TK::LParen:
+                case TK::Increment:
+                case TK::Decrement:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         int binary_precedence(TK k) noexcept
         {
             switch (k)
@@ -3210,7 +3239,7 @@ export namespace dcc::parser
 
         ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false)
         {
-            auto* left = parse_unary(no_struct_lit, allow_type);
+            auto* left = parse_unary(no_struct_lit, allow_type, is_stmt);
             if (!left)
                 return nullptr;
 
@@ -3264,13 +3293,13 @@ export namespace dcc::parser
             return left;
         }
 
-        ast::Expr* parse_unary(bool no_struct_lit, bool allow_type = false)
+        ast::Expr* parse_unary(bool no_struct_lit, bool allow_type = false, bool stmt_pos = false)
         {
             if (check(TK::At))
             {
                 auto start = loc();
                 auto attrs = parse_attributes();
-                auto* expr = parse_unary(no_struct_lit, allow_type);
+                auto* expr = parse_unary(no_struct_lit, allow_type, stmt_pos);
                 if (expr)
                 {
                     if (expr->attrs.empty())
@@ -3304,14 +3333,17 @@ export namespace dcc::parser
             if (!primary)
                 return nullptr;
 
-            return parse_postfix(primary, no_struct_lit);
+            return parse_postfix(primary, no_struct_lit, stmt_pos);
         }
 
-        ast::Expr* parse_postfix(ast::Expr* expr, bool no_struct_lit)
+        ast::Expr* parse_postfix(ast::Expr* expr, bool no_struct_lit, bool stmt_pos = false)
         {
             for (;;)
             {
                 if (is_block_like_expr(expr) && check(TK::LBracket) && check_at(1, TK::RBracket))
+                    return expr;
+
+                if (stmt_pos && is_stmt_like_expr(expr) && postfix_token_begins_stmt(peek().kind))
                     return expr;
 
                 auto start = expr->range.begin;
