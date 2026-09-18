@@ -15,7 +15,7 @@ Module m
       StaticIf taken=0
         Compiles [type=bool const=true constant]
         Body
-          Var y type=i32 storage=local offset=0
+          Var y type=i32 storage=local offset=4
             Binary + [type=i32 const=2 constant]
               IntLiteral 1 [type=i32 const=1 constant]
               IntLiteral 1 [type=i32 const=1 constant]

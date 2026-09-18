@@ -1,0 +1,39 @@
+=== FILE: a.dc ===
+module a;
+
+public void apply(T)(T x) { x.hook(); }
+public void absent(T)(T x) {
+    static if compiles (T t) { t.hook(); } {
+        leaked_context();
+    }
+}
+
+=== FILE: unrelated.dc ===
+module unrelated;
+
+public void hook(i32 x) {}
+
+=== FILE: b.dc ===
+module b;
+
+import a;
+import unrelated;
+
+void hook(const char* x) {}
+public void forward(T)(T x) { a::apply(x); }
+public void isolated(T)(T x) { a::absent(x); }
+
+=== FILE: main.dc ===
+module main;
+
+import a;
+import b;
+
+void test(char* x) {
+    b::forward(x);
+    a::absent(x);
+    b::isolated(42);
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 0 ===

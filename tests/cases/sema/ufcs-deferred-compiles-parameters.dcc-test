@@ -1,0 +1,42 @@
+=== FILE: a.dc ===
+module a;
+
+public struct Writer {}
+public struct Options {}
+
+public void apply(T)(T x, const Writer* w, const Options* o) {
+    static if T == i32 {
+    } else static if compiles (T t, const Writer* q, const Options* opts) {
+        t.hook(q, opts);
+    } {
+        x.hook(w, o);
+    } else {
+        missing_hook();
+    }
+}
+
+=== FILE: b.dc ===
+module b;
+
+import a;
+
+void hook(const char* x, const a::Writer* w, const a::Options* o) {}
+
+public void forward(T)(T x) {
+    a::Writer w;
+    a::Options o;
+    a::apply(x, &w, &o);
+}
+
+=== FILE: main.dc ===
+module main;
+
+import b;
+
+void test(char* x, const char* y) {
+    b::forward(x);
+    b::forward(y);
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 0 ===
