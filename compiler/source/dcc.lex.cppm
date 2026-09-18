@@ -12,7 +12,14 @@ export namespace dcc::lex
     class Lexer
     {
     public:
-        explicit Lexer(sm::SourceFile const& file, si::string_interner& interner) noexcept : m_src{file.text()}, m_fid{file.id()}, m_interner{interner} {}
+        explicit Lexer(sm::SourceFile const& file, si::string_interner& interner, bool retain_comments = false) noexcept
+            : m_src{file.text()}, m_fid{file.id()}, m_interner{interner}, m_retain{retain_comments}
+        {
+        }
+
+        [[nodiscard]] si::string_interner& interner() noexcept { return m_interner; }
+        [[nodiscard]] si::string_interner const& interner() const noexcept { return m_interner; }
+        [[nodiscard]] sm::FileId file_id() const noexcept { return m_fid; }
 
         Token next()
         {
@@ -23,6 +30,9 @@ export namespace dcc::lex
                 return eof();
 
             auto const start = m_pos;
+            if (peek() == '/' && peek_at(1) == '/')
+                return lex_line_comment(start);
+
             char c = peek();
 
             if (c == 'u' && peek_at(1) == '"')
@@ -41,10 +51,58 @@ export namespace dcc::lex
             return lex_punctuation(start);
         }
 
+        [[nodiscard]] std::string_view source_text(sm::SourceRange range) const noexcept
+        {
+            if (range.begin.fileId != m_fid || range.end.fileId != m_fid)
+                return {};
+            if (range.end.offset < range.begin.offset || range.end.offset > m_src.size())
+                return {};
+            return m_src.substr(range.begin.offset, range.end.offset - range.begin.offset);
+        }
+
+        [[nodiscard]] std::uint32_t line_number(std::uint32_t offset) const noexcept
+        {
+            auto const clamped = std::min<std::size_t>(offset, m_src.size());
+            std::uint32_t line = 1;
+            for (std::size_t i = 0; i < clamped; ++i)
+            {
+                if (m_src[i] == '\n')
+                    ++line;
+                else if (m_src[i] == '\r' && (i + 1 >= m_src.size() || m_src[i + 1] != '\n'))
+                    ++line;
+            }
+            return line;
+        }
+
+        [[nodiscard]] std::uint32_t line_number(sm::Location loc) const noexcept
+        {
+            if (loc.fileId != m_fid)
+                return 0;
+            return line_number(loc.offset);
+        }
+
+        [[nodiscard]] std::uint32_t count_newlines(std::uint32_t begin, std::uint32_t end) const noexcept
+        {
+            auto const s = std::min<std::size_t>(begin, m_src.size());
+            auto const e = std::min<std::size_t>(end, m_src.size());
+            if (e <= s)
+                return 0;
+            std::uint32_t n = 0;
+            for (std::size_t i = s; i < e; ++i)
+            {
+                if (m_src[i] == '\n')
+                    ++n;
+                else if (m_src[i] == '\r' && (i + 1 >= m_src.size() || m_src[i + 1] != '\n'))
+                    ++n;
+            }
+            return n;
+        }
+
     private:
         std::string_view m_src;
         sm::FileId m_fid;
         si::string_interner& m_interner;
+        bool m_retain{false};
         std::uint32_t m_pos{};
 
         static constexpr bool is_ident_start(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }
@@ -132,6 +190,32 @@ export namespace dcc::lex
             return Token{.kind = TokenKind::Eof, .range = make_range(p, p), .interned = {}, .value = {}};
         }
 
+        Token lex_line_comment(std::uint32_t start)
+        {
+            TokenKind kind = TokenKind::InlayComment;
+            if (peek_at(2) == '!' && peek_at(3) == '!')
+                kind = TokenKind::DocOverview;
+            else if (peek_at(2) == '!')
+                kind = TokenKind::DocSection;
+            else if (peek_at(2) == '/')
+            {
+                if (peek_at(3) == '/')
+                {
+                    while (!at_end() && peek() != '\n' && peek() != '\r')
+                        advance();
+                    return next();
+                }
+                kind = TokenKind::DocComment;
+            }
+            else
+                kind = TokenKind::InlayComment;
+
+            while (!at_end() && peek() != '\n' && peek() != '\r')
+                advance();
+
+            return make_token(kind, start);
+        }
+
         std::optional<Token> skip_trivia()
         {
             while (!at_end())
@@ -144,12 +228,26 @@ export namespace dcc::lex
 
                 if (peek() == '/' && peek_at(1) == '/')
                 {
-                    advance();
-                    advance();
-                    while (!at_end() && peek() != '\n')
+                    if (!m_retain)
+                    {
                         advance();
+                        advance();
+                        while (!at_end() && peek() != '\n')
+                            advance();
 
-                    continue;
+                        continue;
+                    }
+                    if (peek_at(2) == '/' && peek_at(3) == '/')
+                    {
+                        advance();
+                        advance();
+                        while (!at_end() && peek() != '\n' && peek() != '\r')
+                            advance();
+
+                        continue;
+                    }
+
+                    break;
                 }
 
                 if (peek() == '/' && peek_at(1) == '*')
