@@ -17,6 +17,7 @@ export namespace dcc::session
         std::ostream* diagnostic_stream{&std::cerr};
         bool silent_diagnostics{false};
         std::size_t ast_arena_initial_size{64 * 1024};
+        bool enable_doc_comments{false};
     };
 
     struct CompileOptions
@@ -26,6 +27,7 @@ export namespace dcc::session
         std::size_t arena_initial_size{256 * 1024};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
         std::vector<std::string> injected_decls;
+        bool enable_doc_comments{false};
     };
 
     struct CompileResult
@@ -39,7 +41,7 @@ export namespace dcc::session
     public:
         explicit CompilerSession(SessionOptions opts = {})
             : m_interner{}, m_diag{m_sm, opts.diagnostic_stream ? *opts.diagnostic_stream : std::cerr},
-              m_ast_ctx{std::make_unique<ast::AstContext>(opts.ast_arena_initial_size)}
+              m_ast_ctx{std::make_unique<ast::AstContext>(opts.ast_arena_initial_size)}, m_enable_doc{opts.enable_doc_comments}
         {
             if (opts.silent_diagnostics)
                 m_diag.set_silent(true);
@@ -94,11 +96,11 @@ export namespace dcc::session
                 return nullptr;
             }
 
-            lex::Lexer lexer{*file, m_interner};
+            lex::Lexer lexer{*file, m_interner, m_enable_doc};
             auto mode =
                 (file->kind() == sm::FileKind::InMemory || file->kind() == sm::FileKind::Synthetic) ? parser::ParseMode::Interactive : parser::ParseMode::Batch;
 
-            parser::Parser parser{lexer, ast, d, mode};
+            parser::Parser parser{lexer, ast, d, mode, m_enable_doc};
             bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
             auto parse_start = measure ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
             auto* tu = parser.parse();
@@ -127,12 +129,14 @@ export namespace dcc::session
             m_sema.reset();
             m_ast_ctx = std::make_unique<ast::AstContext>(opts.arena_initial_size);
 
+            m_enable_doc = opts.enable_doc_comments;
             sema::SemaOptions sopts;
             sopts.arena_initial_size = opts.arena_initial_size;
             sopts.import_roots = opts.import_roots;
             sopts.interner = &m_interner;
             sopts.target = opts.target;
             sopts.injected_decls = opts.injected_decls;
+            sopts.enable_doc_comments = opts.enable_doc_comments;
 
             auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
 
@@ -166,6 +170,7 @@ export namespace dcc::session
 
         std::filesystem::path m_entry_path;
         bool m_prelude_enabled{false};
+        bool m_enable_doc{false};
         double m_bench_parse_seconds{0};
     };
 
