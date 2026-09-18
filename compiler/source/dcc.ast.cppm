@@ -368,6 +368,20 @@ export namespace dcc::ast
         Decl(DeclKind k, sm::SourceRange r, Allocator a) : kind(k), range(r), attrs(a) {}
     };
 
+    struct DocBlock
+    {
+        std::string_view text;
+        sm::SourceRange span;
+    };
+
+    struct InlayComment
+    {
+        std::string_view text;
+        sm::SourceRange span;
+        std::uint32_t owner_line{};
+        bool has_owner{false};
+    };
+
     struct TemplateParam
     {
         std::string_view name;
@@ -376,6 +390,8 @@ export namespace dcc::ast
         TypePtr default_type{};
         ExprPtr default_value{};
         bool is_pack : 1 {};
+        DocBlock const* doc{};
+        InlayComment const* trailing{};
     };
 
     struct TemplateArg
@@ -402,6 +418,8 @@ export namespace dcc::ast
         DeclSema sema;
         VarDecl const* synthetic_decl{};
         bool is_pack : 1 {};
+        DocBlock const* doc{};
+        InlayComment const* trailing{};
     };
 
     struct Block
@@ -435,6 +453,8 @@ export namespace dcc::ast
         std::uint32_t byte_offset{};
         std::uint32_t index{};
         bool is_pack : 1 {};
+        DocBlock const* doc{};
+        InlayComment const* trailing{};
     };
 
     struct EnumVariant
@@ -447,6 +467,8 @@ export namespace dcc::ast
 
         std::int64_t discriminant{};
         bool discriminant_is_negative{};
+        DocBlock const* doc{};
+        InlayComment const* trailing{};
 
         explicit EnumVariant(Allocator a) : attrs(a), payload(a) {}
     };
@@ -1288,6 +1310,17 @@ export namespace dcc::ast
         ModuleAsmDecl(sm::SourceRange r, Allocator a) : Decl(Kind, r, a), template_str(a), placeholder_spans(a), attrs(a) {}
     };
 
+    struct Section
+    {
+        std::string_view title;
+        std::string_view body;
+        sm::SourceRange span;
+        std::pmr::vector<DeclPtr> decls;
+
+        explicit Section(Allocator a) : decls(a) {}
+        Section(std::string_view t, std::string_view b, sm::SourceRange s, Allocator a) : title(t), body(b), span(s), decls(a) {}
+    };
+
     struct TranslationUnit
     {
         sm::SourceRange range;
@@ -1296,7 +1329,53 @@ export namespace dcc::ast
         std::pmr::vector<DeclPtr> decls;
         std::pmr::vector<sm::SourceRange> parser_recovery_ranges;
 
-        explicit TranslationUnit(Allocator a) : imports(a), decls(a), parser_recovery_ranges(a) {}
+        DocBlock const* overview{};
+        std::pmr::vector<Section const*> sections;
+        std::pmr::vector<InlayComment const*> inlays;
+
+        std::pmr::unordered_map<Decl const*, DocBlock const*> doc_table;
+        std::pmr::unordered_map<Decl const*, InlayComment const*> inlay_table;
+        std::pmr::unordered_map<Stmt const*, InlayComment const*> stmt_inlay_table;
+        std::pmr::unordered_map<Decl const*, Section const*> section_table;
+
+        explicit TranslationUnit(Allocator a)
+            : imports(a), decls(a), parser_recovery_ranges(a), sections(a), inlays(a), doc_table(a), inlay_table(a), stmt_inlay_table(a), section_table(a)
+        {
+        }
+
+        [[nodiscard]] DocBlock const* doc_for(Decl const* d) const noexcept
+        {
+            if (!d)
+                return nullptr;
+            auto it = doc_table.find(d);
+            return it == doc_table.end() ? nullptr : it->second;
+        }
+
+        [[nodiscard]] InlayComment const* inlay_for(Decl const* d) const noexcept
+        {
+            if (!d)
+                return nullptr;
+            auto it = inlay_table.find(d);
+            return it == inlay_table.end() ? nullptr : it->second;
+        }
+
+        [[nodiscard]] InlayComment const* inlay_for(Stmt const* s) const noexcept
+        {
+            if (!s)
+                return nullptr;
+            auto it = stmt_inlay_table.find(s);
+            return it == stmt_inlay_table.end() ? nullptr : it->second;
+        }
+
+        [[nodiscard]] Section const* section_for(Decl const* d) const noexcept
+        {
+            if (!d)
+                return nullptr;
+            auto it = section_table.find(d);
+            return it == section_table.end() ? nullptr : it->second;
+        }
+
+        [[nodiscard]] DocBlock const* overview_of() const noexcept { return overview; }
     };
 
     class AstContext
