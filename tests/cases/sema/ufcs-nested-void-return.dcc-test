@@ -1,0 +1,30 @@
+=== FILE: a.dc ===
+module a;
+
+public void apply(T)(T x) {
+    static if compiles (T t) { t.format(); } {
+        x.format() ?;
+    } else {
+        unexpected_probe_failure();
+    }
+}
+
+=== FILE: b.dc ===
+module b;
+
+import a;
+
+void format(const char* x) {}
+public void forward(T)(T x) { a::apply(x); }
+
+=== FILE: main.dc ===
+module main;
+
+import b;
+
+void test(char* x) { b::forward(x); }
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 1 ===
+=== EXPECT-ERRORS ===
+a.dc:5: type `void` is not Unwrappable: no visible `.is_ok()` method

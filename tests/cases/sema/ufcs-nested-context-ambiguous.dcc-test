@@ -1,0 +1,30 @@
+=== FILE: a.dc ===
+module a;
+
+public void apply(T)(T x) {
+    static if compiles (T t) { t.hook(); } {
+        unexpected_success();
+    }
+    x.hook();
+}
+
+=== FILE: b.dc ===
+module b;
+
+import a;
+
+void hook(const char* x) {}
+public void forward(T)(T x) { a::apply(x); }
+
+=== FILE: main.dc ===
+module main;
+
+import b;
+
+void hook(const char* x) {}
+void test(char* x) { b::forward(x); }
+
+=== ENTRY: main.dc ===
+=== EXPECT-ERROR-COUNT: 1 ===
+=== EXPECT-ERRORS ===
+main.dc:5: ambiguous UFCS call for `hook`
