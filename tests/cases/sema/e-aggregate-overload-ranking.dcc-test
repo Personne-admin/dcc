@@ -90,6 +90,6 @@ Module m
           IntLiteral 5 [type=i32 const=5 constant]
           IntLiteral 6 [type=i32 const=6 constant]
       Return
-        Call [type=i32 const=30 constant decl=consume]
+        Call [type=i32 const=<none> decl=consume]
           Ident consume [type=<unresolved> const=<none>]
-          Ident arr [type=i32[3] const=agg(4, 5, 6) lvalue constant decl=arr]
+          Ident arr [type=i32[3] const=<none> lvalue decl=arr]
