@@ -621,6 +621,29 @@ export namespace dcc::infer
                 return deduce(slice->element, array_elem);
             }
 
+            if (lhs && rhs && (lhs->kind == types::TypeKind::Pointer || rhs->kind == types::TypeKind::Pointer) &&
+                (lhs->kind == types::TypeKind::Array || rhs->kind == types::TypeKind::Array || lhs->kind == types::TypeKind::RuntimeArray ||
+                 rhs->kind == types::TypeKind::RuntimeArray))
+            {
+                auto const* pointer =
+                    (lhs->kind == types::TypeKind::Pointer) ? static_cast<types::PointerType const*>(lhs) : static_cast<types::PointerType const*>(rhs);
+
+                types::TypePtr array_elem = nullptr;
+                if (lhs->kind == types::TypeKind::Array)
+                    array_elem = static_cast<types::ArrayType const*>(lhs)->element;
+                else if (lhs->kind == types::TypeKind::RuntimeArray)
+                    array_elem = static_cast<types::RuntimeArrayType const*>(lhs)->element;
+                else if (rhs->kind == types::TypeKind::Array)
+                    array_elem = static_cast<types::ArrayType const*>(rhs)->element;
+                else if (rhs->kind == types::TypeKind::RuntimeArray)
+                    array_elem = static_cast<types::RuntimeArrayType const*>(rhs)->element;
+
+                if (pointer->pointee == array_elem)
+                    return ok();
+
+                return deduce(pointer->pointee, array_elem);
+            }
+
             auto const* lhs_fn = types::type_cast<types::FuncPtrType>(lhs);
             auto const* rhs_fn = types::type_cast<types::FuncPtrType>(rhs);
             if ((lhs_fn && trailing_pack(lhs_fn->params) && !rhs_fn) || (rhs_fn && trailing_pack(rhs_fn->params) && !lhs_fn))

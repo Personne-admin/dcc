@@ -1,0 +1,76 @@
+=== FILE: test.dc ===
+module test;
+
+usize sum_slice([] const u8 s) {
+    usize t = 0;
+    usize i = 0;
+    while i < s.len {
+        t = t + (s[i] as usize);
+        i++;
+    }
+
+    return t;
+}
+
+usize sum_ptr(const u8* p, usize n) {
+    usize t = 0;
+    usize i = 0;
+    while i < n {
+        t = t + (p[i] as usize);
+        i++;
+    }
+
+    return t;
+}
+
+void fill(u8* p, usize n, u8 v) {
+    usize i = 0;
+    while i < n {
+        p[i] = v;
+        i++;
+    }
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8[4] buf = {1, 2, 3, 4};
+
+    const u8* src = buf;
+    if *src != 1 as u8 {
+        return 1;
+    }
+    if src[3] != 4 as u8 {
+        return 2;
+    }
+
+    u8* w = buf;
+    w[0] = 9;
+    if buf[0] != 9 as u8 {
+        return 3;
+    }
+
+    [] u8 s = buf;
+    s[1] = 8;
+    if buf[1] != 8 as u8 {
+        return 4;
+    }
+
+    if sum_slice(buf) != 24 {
+        return 5;
+    }
+    if sum_ptr(buf, 4) != 24 {
+        return 6;
+    }
+
+    fill(buf, 4, 2 as u8);
+    if sum_ptr(buf, 4) != 8 {
+        return 7;
+    }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

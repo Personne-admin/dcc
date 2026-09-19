@@ -1694,6 +1694,27 @@ export namespace dcc::sema
             }
         }
 
+        void note_array_decay_escape(ast::Expr& expr, detail::ExprResult const& res, types::TypePtr expected, ConstEnv const* env)
+        {
+            if (!expected || !res.is_lvalue)
+                return;
+            bool writable_view = false;
+            if (auto const* pt = types::type_cast<types::PointerType>(expected))
+                writable_view = !types::has_qual(pt->pointee_quals, types::Qual::Const);
+            else if (auto const* st = types::type_cast<types::SliceType>(expected))
+                writable_view = !types::has_qual(st->element_quals, types::Qual::Const);
+            else
+                return;
+
+            auto const* at = types::type_cast<types::ArrayType>(res.type);
+            if (!at)
+                return;
+
+            require_binding_storage(&expr);
+            if (writable_view)
+                invalidate_written_target(&expr, env);
+        }
+
         void invalidate_written_target(ast::Expr const* target, ConstEnv const* env)
         {
             if (!env || !target)
@@ -1973,26 +1994,27 @@ export namespace dcc::sema
             ReceiverAutoDeref = 4,
             ReceiverArrayToSlice = 5,
             ArrayToSliceExact = 6,
-            ConcreteExact = 7,
-            StringLiteralCharSliceConst = 8,
-            StringLiteralCharSliceMutable = 9,
-            StringLiteralU8SliceConst = 10,
-            StringLiteralU8SliceMutable = 11,
-            StringLiteralCharPointerConst = 12,
-            StringLiteralCharPointerMutable = 13,
-            StringLiteralU8PointerConst = 14,
-            StringLiteralU8PointerMutable = 15,
-            U16StringLiteralSliceConst = 16,
-            U16StringLiteralSliceMutable = 17,
-            U16StringLiteralPointerConst = 18,
-            U16StringLiteralPointerMutable = 19,
-            StructContextualExact = 20,
-            ArrayContextualExact = 21,
-            SliceContextualExact = 22,
-            EnumContextualExact = 23,
-            LiteralContextualExact = 24,
-            TemplateExact = 25,
-            QualificationConversion = 26,
+            ArrayToPointerExact = 7,
+            ConcreteExact = 8,
+            StringLiteralCharSliceConst = 9,
+            StringLiteralCharSliceMutable = 10,
+            StringLiteralU8SliceConst = 11,
+            StringLiteralU8SliceMutable = 12,
+            StringLiteralCharPointerConst = 13,
+            StringLiteralCharPointerMutable = 14,
+            StringLiteralU8PointerConst = 15,
+            StringLiteralU8PointerMutable = 16,
+            U16StringLiteralSliceConst = 17,
+            U16StringLiteralSliceMutable = 18,
+            U16StringLiteralPointerConst = 19,
+            U16StringLiteralPointerMutable = 20,
+            StructContextualExact = 21,
+            ArrayContextualExact = 22,
+            SliceContextualExact = 23,
+            EnumContextualExact = 24,
+            LiteralContextualExact = 25,
+            TemplateExact = 26,
+            QualificationConversion = 27,
         };
 
         using UfcsReceiverMatch = ast::UfcsReceiverAdjust;
@@ -4956,6 +4978,9 @@ export namespace dcc::sema
 
             if (actual && param && actual->kind == types::TypeKind::Array && param->kind == types::TypeKind::Slice)
                 return CallRank::ArrayToSliceExact;
+
+            if (actual && param && actual->kind == types::TypeKind::Array && param->kind == types::TypeKind::Pointer)
+                return CallRank::ArrayToPointerExact;
 
             if (actual && param && actual->kind == param->kind)
             {
@@ -10174,6 +10199,8 @@ export namespace dcc::sema
             if (expr.kind == ast::ExprKind::Call && !has_error(out.type))
                 if (auto const* f = ast::node_cast<ast::FuncDecl>(out.resolved_decl))
                     analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out);
+
+            note_array_decay_escape(expr, out, expected_type, const_env);
 
             set_resolved_type(expr.sema, out.type);
             expr.sema.const_value = out.constant;

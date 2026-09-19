@@ -956,8 +956,7 @@ export namespace dcc::ir::lower
                     {
                         auto* ret_sema_type = get_canonical_type(decl->return_type);
                         auto* val_sema_type = get_sema_resolved_type(decl->body->tail);
-                        if (ret_sema_type && ret_sema_type->kind == types::TypeKind::Slice && val_sema_type && val_sema_type->kind == types::TypeKind::Array)
-                            tail_val = coerce_array_to_slice(tail_val, val_sema_type, ret_sema_type);
+                        tail_val = coerce_array_decay(decl->body->tail, tail_val, val_sema_type, ret_sema_type);
                     }
 
                     if (!current_block_terminated())
@@ -1540,8 +1539,7 @@ export namespace dcc::ir::lower
             {
                 auto* ret_sema_type = get_canonical_type(m_current_func_decl->return_type);
                 auto* val_sema_type = get_sema_resolved_type(rs->value);
-                if (ret_sema_type && ret_sema_type->kind == types::TypeKind::Slice && val_sema_type && val_sema_type->kind == types::TypeKind::Array)
-                    val = coerce_array_to_slice(val, val_sema_type, ret_sema_type);
+                val = coerce_array_decay(rs->value, val, val_sema_type, ret_sema_type);
             }
 
             flush_all_defers();
@@ -2460,8 +2458,7 @@ export namespace dcc::ir::lower
                     {
                         auto* val = lower_implicit_enum_construction(vd->init, [&]() { return lower_expr(vd->init); });
                         auto* init_sema_type = get_sema_resolved_type(vd->init);
-                        if (canon && canon->kind == types::TypeKind::Slice && init_sema_type && init_sema_type->kind == types::TypeKind::Array)
-                            val = coerce_array_to_slice(val, init_sema_type, canon);
+                        val = coerce_array_decay(vd->init, val, init_sema_type, canon);
 
                         if (is_volatile)
                             append_inst(m_ctx.store_volatile(val, alloca));
@@ -3060,9 +3057,7 @@ export namespace dcc::ir::lower
                     if (direct_target && !direct_target->params.empty())
                     {
                         auto* first_param_type = get_canonical_type(direct_target->params[0].type);
-                        if (first_param_type && first_param_type->kind == types::TypeKind::Slice && obj_sema_type &&
-                            obj_sema_type->kind == types::TypeKind::Array)
-                            obj_val = coerce_array_to_slice(obj_val, obj_sema_type, first_param_type);
+                        obj_val = coerce_array_decay(object, obj_val, obj_sema_type, first_param_type);
                     }
 
                     call_inst->args.push_back(obj_val);
@@ -3082,8 +3077,7 @@ export namespace dcc::ir::lower
                 if (callee_decl && (i + param_offset) < callee_decl->params.size())
                 {
                     auto* param_type = get_canonical_type(callee_decl->params[i + param_offset].type);
-                    if (param_type && param_type->kind == types::TypeKind::Slice && arg_sema_type && arg_sema_type->kind == types::TypeKind::Array)
-                        arg_val = coerce_array_to_slice(arg_val, arg_sema_type, param_type);
+                    arg_val = coerce_array_decay(arg_expr, arg_val, arg_sema_type, param_type);
                 }
 
                 if (arg_val && arg_val->type && arg_val->type->kind != IrTypeKind::Void)
@@ -4323,7 +4317,7 @@ export namespace dcc::ir::lower
                     return loaded_value;
 
                 case ast::UfcsReceiverAdjust::ArrayToSlice:
-                    return coerce_array_to_slice(loaded_value, get_sema_resolved_type(receiver), callee_param0);
+                    return coerce_array_decay(receiver, loaded_value, get_sema_resolved_type(receiver), callee_param0);
 
                 case ast::UfcsReceiverAdjust::AutoDeref:
                     return deref_value ? deref_value : loaded_value;
@@ -4630,8 +4624,7 @@ export namespace dcc::ir::lower
 
             auto* rhs_sema_type = get_sema_resolved_type(bin->rhs);
             auto* lhs_sema_type = get_sema_resolved_type(bin->lhs);
-            if (lhs_sema_type && lhs_sema_type->kind == types::TypeKind::Slice && rhs_sema_type && rhs_sema_type->kind == types::TypeKind::Array)
-                rhs_val = coerce_array_to_slice(rhs_val, rhs_sema_type, lhs_sema_type);
+            rhs_val = coerce_array_decay(bin->rhs, rhs_val, rhs_sema_type, lhs_sema_type);
 
             auto lv = lower_assign_lvalue(bin->lhs);
             if (!lv.entry && !lv.gep_ptr)
@@ -8581,7 +8574,7 @@ export namespace dcc::ir::lower
                 {
                     val = lower_field_value(f.value);
                     if (val && field_target_type)
-                        val = coerce_array_to_slice(val, get_sema_resolved_type(f.value), field_target_type);
+                        val = coerce_array_decay(f.value, val, get_sema_resolved_type(f.value), field_target_type);
                 }
                 agg->values[idx] = val;
             }
@@ -8814,6 +8807,110 @@ export namespace dcc::ir::lower
             }
 
             auto name = ident_name();
+            agg->name = m_name_pool.back();
+            append_inst(agg);
+            return agg;
+        }
+
+        IrValue* array_lvalue_element_ptr(ast::Expr const* expr, dcc::types::TypePtr element_type)
+        {
+            if (!expr || !expr->sema.is_lvalue || !element_type)
+                return nullptr;
+
+            auto lv = lower_assign_lvalue(expr);
+            IrValue* base_ptr = nullptr;
+            if (lv.entry && lv.entry->is_storage)
+                base_ptr = lv.entry->value;
+            else if (lv.gep_ptr)
+                base_ptr = lv.gep_ptr;
+
+            if (!base_ptr)
+                return nullptr;
+
+            auto* ir_elem_type = lower_type(element_type);
+            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), base_ptr);
+            gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.usize_t(), 0), 0});
+            auto gep_name = ident_name();
+            gep->name = m_name_pool.back();
+            append_inst(gep);
+            return gep;
+        }
+
+        IrValue* array_value_element_ptr(IrValue* arr_val, dcc::types::TypePtr element_type)
+        {
+            if (!arr_val || !arr_val->type)
+                return nullptr;
+
+            if (arr_val->type->kind == IrTypeKind::Pointer)
+                return arr_val;
+
+            if (arr_val->type->kind != IrTypeKind::Array)
+                return nullptr;
+
+            auto* arr_ptr_type = m_ctx.pointer_to(arr_val->type);
+            auto* temp = m_ctx.alloca(arr_ptr_type, arr_val->type);
+            auto temp_name = ident_name();
+            temp->name = m_name_pool.back();
+            append_inst(temp);
+            append_inst(m_ctx.store(arr_val, temp));
+
+            auto* ir_elem_type = lower_type(element_type);
+            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), temp);
+            gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
+            auto gep_name = ident_name();
+            gep->name = m_name_pool.back();
+            append_inst(gep);
+            return gep;
+        }
+
+        IrValue* coerce_array_to_pointer(ast::Expr const* src_expr, IrValue* arr_val, dcc::types::TypePtr arr_sema_type,
+                                         dcc::types::TypePtr ptr_sema_type)
+        {
+            auto const* at = as_sema_array(arr_sema_type);
+            auto const* pt = types::type_cast<types::PointerType>(ptr_sema_type);
+            if (!at || !pt || at->element != pt->pointee)
+                return arr_val;
+
+            if (auto* lvalue_ptr = array_lvalue_element_ptr(src_expr, at->element))
+                return lvalue_ptr;
+
+            if (auto* value_ptr = array_value_element_ptr(arr_val, at->element))
+                return value_ptr;
+
+            return arr_val;
+        }
+
+        IrValue* coerce_array_decay(ast::Expr const* src_expr, IrValue* val, dcc::types::TypePtr src_sema_type, dcc::types::TypePtr target_sema_type)
+        {
+            if (!val || !target_sema_type || !as_sema_array(src_sema_type))
+                return val;
+
+            if (target_sema_type->kind == types::TypeKind::Slice)
+                return coerce_array_to_slice(src_expr, val, src_sema_type, target_sema_type);
+
+            if (target_sema_type->kind == types::TypeKind::Pointer)
+                return coerce_array_to_pointer(src_expr, val, src_sema_type, target_sema_type);
+
+            return val;
+        }
+
+        IrValue* coerce_array_to_slice(ast::Expr const* src_expr, IrValue* arr_val, dcc::types::TypePtr arr_sema_type,
+                                       dcc::types::TypePtr slice_sema_type)
+        {
+            auto const* at = as_sema_array(arr_sema_type);
+            auto const* st = types::type_cast<types::SliceType>(slice_sema_type);
+            if (!at || !st || at->element != st->element)
+                return coerce_array_to_slice(arr_val, arr_sema_type, slice_sema_type);
+
+            auto* ptr_val = array_lvalue_element_ptr(src_expr, at->element);
+            if (!ptr_val)
+                return coerce_array_to_slice(arr_val, arr_sema_type, slice_sema_type);
+
+            auto* len_val = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(at->count));
+            auto* agg = m_ctx.aggregate(lower_type(slice_sema_type));
+            agg->values.push_back(ptr_val);
+            agg->values.push_back(len_val);
+            auto agg_name = ident_name();
             agg->name = m_name_pool.back();
             append_inst(agg);
             return agg;
