@@ -31,10 +31,8 @@ usize@_DC0F1.4.test4.test0Iu() {
   %2 = aggregate [3 x i64], %1, #20, #30
   store [3 x i64] %2, ptr<[3 x i64]> %0
   %3 = load [3 x i64], ptr<[3 x i64]> %0
-  %4 = alloca [3 x i64]
-  store [3 x i64] %3, ptr<[3 x i64]> %4
-  %5 = gep ptr<[3 x i64]> %4, #0
-  %6 = aggregate []i64, %5, #3
-  %7 = call fn(@_DC0F1.4.test10.take_slice1Sqi64sIu)([]i64 %6) -> usize
-  ret usize %7
+  %4 = gep ptr<[3 x i64]> %0, #0
+  %5 = aggregate []i64, %4, #3
+  %6 = call fn(@_DC0F1.4.test10.take_slice1Sqi64sIu)([]i64 %5) -> usize
+  ret usize %6
 }

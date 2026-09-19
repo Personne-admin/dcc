@@ -17,12 +17,10 @@ usize@_DC0F1.4.test4.test0Iu() {
   store [3 x i64] %1, ptr<[3 x i64]> %0
   %2 = alloca []i64
   %3 = load [3 x i64], ptr<[3 x i64]> %0
-  %4 = alloca [3 x i64]
-  store [3 x i64] %3, ptr<[3 x i64]> %4
-  %5 = gep ptr<[3 x i64]> %4, #0
-  %6 = aggregate []i64, %5, #3
-  store []i64 %6, ptr<[]i64> %2
-  %7 = gep ptr<[]i64> %2, field #1
-  %8 = load usize, ptr<usize> %7
-  ret usize %8
+  %4 = gep ptr<[3 x i64]> %0, #0
+  %5 = aggregate []i64, %4, #3
+  store []i64 %5, ptr<[]i64> %2
+  %6 = gep ptr<[]i64> %2, field #1
+  %7 = load usize, ptr<usize> %6
+  ret usize %7
 }

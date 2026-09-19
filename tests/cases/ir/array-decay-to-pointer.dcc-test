@@ -1,0 +1,42 @@
+=== FILE: test.dc ===
+module test;
+
+usize take_ptr(const u8* p) {
+    return *p as usize;
+}
+
+public usize test(u8 seed) {
+    u8[3] arr = {seed, 20, 30};
+    const u8* p = arr;
+
+    return take_ptr(arr) + (*p as usize);
+}
+
+=== EXPECT-IR ===
+module "test"
+usize@_DC0F1.4.test8.take_ptr1PCqi8uIu(ptr<u8>) {
+%entry(ptr<u8> %p):
+  %0 = load u8, ptr<u8> %p
+  %1 = zext u8 %0 to usize
+  ret usize %1
+}
+
+usize@_DC0F1.4.test4.test1i8uIu(u8) {
+%entry(u8 %seed):
+  %0 = alloca [3 x u8]
+  %1 = aggregate [3 x u8], %seed, #20, #30
+  store [3 x u8] %1, ptr<[3 x u8]> %0
+  %2 = alloca ptr<u8>
+  %3 = load [3 x u8], ptr<[3 x u8]> %0
+  %4 = gep ptr<[3 x u8]> %0, #0
+  store ptr<u8> %4, ptr<ptr<u8>> %2
+  %5 = load [3 x u8], ptr<[3 x u8]> %0
+  %6 = gep ptr<[3 x u8]> %0, #0
+  %7 = call fn(@_DC0F1.4.test8.take_ptr1PCqi8uIu)(ptr<u8> %6) -> usize
+  %8 = load ptr<u8>, ptr<ptr<u8>> %2
+  %9 = load u8, ptr<u8> %8
+  %10 = zext u8 %9 to usize
+  %11 = add usize %7, usize %10
+  ret usize %11
+}
+
