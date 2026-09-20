@@ -10,6 +10,7 @@ import dcc.si;
 import dcc.lex.tokens;
 import dcc.lex;
 import dcdoc.model;
+import dcdoc.prose;
 
 export namespace dcdoc::typst
 {
@@ -67,109 +68,7 @@ export namespace dcdoc::typst
         std::unordered_set<std::string> m_used;
     };
 
-    struct TextBlock
-    {
-        bool code{};
-        std::size_t start{};
-        std::string text;
-    };
-
-    [[nodiscard]] bool blank_line(std::string_view l) noexcept
-    {
-        for (char c : l)
-            if (c != 32 && c != 9 && c != 13)
-                return false;
-        return true;
-    }
-
-    [[nodiscard]] std::string trim(std::string_view l)
-    {
-        std::size_t b = 0;
-        while (b < l.size() && (l[b] == 32 || l[b] == 9 || l[b] == 13))
-            ++b;
-        std::size_t e = l.size();
-        while (e > b && (l[e - 1] == 32 || l[e - 1] == 9 || l[e - 1] == 13))
-            --e;
-        return std::string{l.substr(b, e - b)};
-    }
-
-    [[nodiscard]] bool fence_line(std::string_view l)
-    {
-        std::string t = trim(l);
-        return t.size() >= 3 && t[0] == 96 && t[1] == 96 && t[2] == 96;
-    }
-
-    [[nodiscard]] std::vector<TextBlock> split_blocks(std::string_view doc)
-    {
-        std::vector<TextBlock> out;
-        std::string cur;
-        std::size_t cur_start = 0;
-        bool cur_code = false;
-        bool in_code = false;
-        bool has_start = false;
-        auto push = [&] {
-            if (cur.empty())
-                return;
-            if (!cur_code)
-            {
-                while (!cur.empty() && cur.back() == 10)
-                    cur.pop_back();
-                if (cur.empty())
-                    return;
-            }
-            out.push_back({.code = cur_code, .start = cur_start, .text = cur});
-            cur.clear();
-        };
-        std::size_t i = 0;
-        while (i <= doc.size())
-        {
-            std::size_t j = doc.find(10, i);
-            if (j == std::string_view::npos)
-                j = doc.size();
-            std::string_view line = doc.substr(i, j - i);
-            if (fence_line(line))
-            {
-                push();
-                in_code = !in_code;
-                cur_code = in_code;
-                has_start = false;
-            }
-            else if (in_code)
-            {
-                if (!has_start)
-                {
-                    cur_start = i;
-                    has_start = true;
-                }
-                cur += std::string{line};
-                cur += 10;
-            }
-            else if (blank_line(line))
-            {
-                push();
-                cur_code = false;
-                has_start = false;
-            }
-            else
-            {
-                if (!has_start)
-                {
-                    cur_start = i;
-                    has_start = true;
-                }
-                cur_code = false;
-                cur += std::string{line};
-                cur += 10;
-            }
-            if (j == doc.size())
-                break;
-            i = j + 1;
-        }
-        push();
-        return out;
-    }
-
-    [[nodiscard]] std::string render_raw_inline(std::string_view code)
+    [[nodiscard]] std::string render_code_span(std::string_view code)
     {
         if (code.find(96) == std::string_view::npos)
             return std::string{"`"}.append(code).append("`");
@@ -184,31 +83,6 @@ export namespace dcdoc::typst
                 s += c;
         }
         return s + "\")";
-    }
-
-    [[nodiscard]] std::string render_plain_inline(std::string_view s)
-    {
-        std::string out;
-        std::size_t i = 0;
-        while (i < s.size())
-        {
-            std::size_t j = s.find(96, i);
-            if (j == std::string_view::npos)
-            {
-                out += esc(s.substr(i));
-                break;
-            }
-            std::size_t k = s.find(96, j + 1);
-            if (k == std::string_view::npos)
-            {
-                out += esc(s.substr(i));
-                break;
-            }
-            out += esc(s.substr(i, j - i));
-            out += render_raw_inline(s.substr(j + 1, k - j - 1));
-            i = k + 1;
-        }
-        return out;
     }
 
     [[nodiscard]] std::string render_raw_block(std::string_view text)
@@ -226,15 +100,81 @@ export namespace dcdoc::typst
         return s + "\", lang: \"dc\")";
     }
 
+    [[nodiscard]] std::string render_spans(std::vector<dcdoc::prose::Inline> const& spans, std::unordered_map<std::string, std::string> const& labels)
+    {
+        std::string out;
+        for (auto const& sp : spans)
+        {
+            if (sp.kind == dcdoc::prose::InlineKind::Code)
+            {
+                out += render_code_span(sp.text);
+                continue;
+            }
+            if (sp.kind != dcdoc::prose::InlineKind::Link)
+            {
+                out += esc(sp.text);
+                continue;
+            }
+            std::string label;
+            if (sp.resolved && !sp.ambiguous)
+            {
+                auto it = labels.find(sp.target);
+                if (it != labels.end())
+                    label = it->second;
+            }
+            std::string shown;
+            for (auto const& sub : dcdoc::prose::split_inline(sp.text))
+                shown += sub.kind == dcdoc::prose::InlineKind::Code ? render_code_span(sub.text) : esc(sub.text);
+            if (!label.empty())
+                out += "#link(<" + label + ">)" + "[" + shown + "]";
+            else if (sp.ambiguous)
+                out += "#text(fill: luma(130))[" + shown + "]";
+            else if (sp.resolved)
+                out += "#text(style: \"italic\")[" + shown + "]";
+            else
+                out += shown;
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::string code_escape(std::string_view s)
+    {
+        std::string out;
+        for (char c : s)
+        {
+            if (c == 34 || c == 92)
+                out += "\\";
+            if (c == 10)
+                out += "n";
+            else
+                out += c;
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::string render_sig(std::vector<dcdoc::prose::HlToken> const& toks)
+    {
+        std::string out = "#{";
+        bool first = true;
+        for (auto const& t : toks)
+        {
+            if (!first)
+                out += " + ";
+            first = false;
+            if (t.cls == dcdoc::prose::HlClass::Keyword)
+                out += "(text(fill: rgb(31, 111, 235), \"" + code_escape(t.text) + "\"))";
+            else if (t.cls == dcdoc::prose::HlClass::Literal)
+                out += "(text(fill: rgb(149, 56, 0), \"" + code_escape(t.text) + "\"))";
+            else
+                out += "\"" + code_escape(t.text) + "\"";
+        }
+        return out + "}";
+    }
+
     [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, std::unordered_map<std::string, std::string> const& labels)
     {
-        std::vector<CrossRef const*> ordered;
-        for (auto const& r : refs)
-            if (r.length > 0 && r.start != std::size_t(-1) && r.start + r.length <= text.size())
-                ordered.push_back(&r);
-        std::ranges::sort(ordered, {}, [](CrossRef const* r) { return r->start; });
         std::string out;
-        for (auto const& block : split_blocks(text))
+        for (auto const& block : dcdoc::prose::parse_doc(text, refs))
         {
             if (block.code)
             {
@@ -242,88 +182,12 @@ export namespace dcdoc::typst
                 out += "\n\n";
                 continue;
             }
-            std::string para;
-            std::size_t pos = 0;
-            for (auto const* r : ordered)
-            {
-                if (r->start < block.start || r->start + r->length > block.start + block.text.size())
-                    continue;
-                std::size_t ls = r->start - block.start;
-                if (ls < pos)
-                    continue;
-                para += render_plain_inline(block.text.substr(pos, ls - pos));
-                std::string display = r->display.empty() ? r->raw : r->display;
-                std::string label;
-                if (r->resolved && !r->ambiguous)
-                {
-                    auto it = labels.find(r->target);
-                    if (it != labels.end())
-                        label = it->second;
-                }
-                if (!label.empty())
-                    para += "#link(<" + label + ">)" + "[" + render_plain_inline(display) + "]";
-                else if (r->ambiguous)
-                    para += "#text(fill: luma(130))[" + render_plain_inline(display) + "]";
-                else
-                    para += render_plain_inline(display);
-                pos = ls + r->length;
-            }
-            para += render_plain_inline(block.text.substr(pos));
-            out += para + "\n\n";
+            out += render_spans(block.spans, labels) + "\n\n";
         }
         return out;
     }
 
-    class Highlighter
-    {
-    public:
-        [[nodiscard]] std::string highlight(std::string_view sig)
-        {
-            std::string uri = "dcdoc-sig://" + std::to_string(m_next++);
-            dcc::sm::FileId fid = m_sm.open_in_memory(std::move(uri), std::string{sig});
-            auto const* file = m_sm.get(fid);
-            if (!file)
-                return esc(sig);
-            dcc::lex::Lexer lexer{*file, m_interner, false};
-            std::string out;
-            std::uint32_t prev = 0;
-            while (true)
-            {
-                auto tok = lexer.next();
-                if (tok.kind == dcc::lex::TokenKind::Eof)
-                    break;
-                std::string_view text = file->text();
-                std::uint32_t begin = tok.range.begin.offset;
-                std::uint32_t end = tok.range.end.offset;
-                if (begin > text.size())
-                    break;
-                if (end > static_cast<std::uint32_t>(text.size()))
-                    end = static_cast<std::uint32_t>(text.size());
-                if (begin > prev)
-                    out += esc(text.substr(prev, begin - prev));
-                prev = end;
-                std::string_view raw = text.substr(begin, end - begin);
-                if (dcc::lex::is_keyword(tok.kind))
-                    out += "#text(fill: rgb(31, 111, 235))[" + esc(raw) + "]";
-                else if (dcc::lex::is_literal(tok.kind))
-                    out += "#text(fill: rgb(149, 56, 0))[" + esc(raw) + "]";
-                else
-                    out += esc(raw);
-                if (begin == end && tok.kind != dcc::lex::TokenKind::Eof)
-                    break;
-            }
-            if (prev < file->text().size())
-                out += esc(file->text().substr(prev));
-            return out;
-        }
-
-    private:
-        dcc::sm::SourceManager m_sm;
-        dcc::si::string_interner m_interner;
-        std::uint64_t m_next{};
-    };
-
-    [[nodiscard]] std::string render_item(Item const& item, std::vector<Item const*> const& children, Highlighter& hl, int level,
+    [[nodiscard]] std::string render_item(Item const& item, std::vector<Item const*> const& children, dcdoc::prose::Highlighter& hl, int level,
                                           std::unordered_map<std::string, std::string> const& link_labels)
     {
         std::string out = "#heading(level: " + std::to_string(level) + ")[" + esc(item.name) + "]";
@@ -335,7 +199,7 @@ export namespace dcdoc::typst
         out += item.is_public ? ", public" : ", private";
         out += "]\n";
         out += "#block(fill: luma(243), inset: 8pt, radius: 4pt, width: 100%)[\n#set text(font: \"DejaVu Sans Mono\", size: 9pt)\n";
-        out += hl.highlight(item.sig.text);
+        out += render_sig(hl.highlight(item.sig.text));
         out += "\n]\n";
         if (!item.doc.empty())
             out += render_doc(item.doc, item.doc_refs, link_labels);
@@ -370,7 +234,7 @@ export namespace dcdoc::typst
             for (auto const& it : project.items)
                 link_labels[it.id] = maker.make(it.id);
         }
-        Highlighter hl;
+        dcdoc::prose::Highlighter hl;
         std::unordered_map<std::string, Item const*> by_id;
         for (auto const& it : project.items)
             by_id[it.id] = &it;

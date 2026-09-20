@@ -260,6 +260,8 @@ export namespace dcdoc::markdown
                 out += "[" + link_text + "](" + href + ")";
             else if (sp.ambiguous)
                 out += "*" + shown + "*";
+            else if (sp.resolved)
+                out += "[" + link_text + "]";
             else
                 out += shown;
         }
