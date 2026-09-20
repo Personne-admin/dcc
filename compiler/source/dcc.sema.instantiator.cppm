@@ -4442,6 +4442,7 @@ export namespace dcc::sema
             entry.first_site = instantiation_site;
 
             auto [it, inserted] = m_entries.emplace(std::move(key), entry);
+            ++m_instantiation_count;
             m_decl_to_key.emplace(result.decl, it->first);
 
             m_generic_to_specs[&template_fn].push_back(result.decl);
@@ -4491,6 +4492,8 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] std::size_t entry_count() const noexcept { return m_entries.size(); }
+
+        [[nodiscard]] std::uint64_t instantiation_count() const noexcept { return m_instantiation_count; }
 
         [[nodiscard]] std::string dump() const
         {
@@ -4730,6 +4733,7 @@ export namespace dcc::sema
         };
 
         std::unordered_map<Key, SpecializationEntry, KeyHash> m_entries;
+        std::uint64_t m_instantiation_count{};
         std::unordered_map<ast::FuncDecl const*, Key> m_decl_to_key;
         std::unordered_map<ast::FuncDecl const*, std::vector<ast::FuncDecl const*>> m_generic_to_specs;
 
