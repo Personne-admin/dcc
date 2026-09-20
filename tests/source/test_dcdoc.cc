@@ -304,6 +304,7 @@ SECTION("dcdoc markdown");
     bool in_fence = false;
     std::size_t frun = 0;
     bool prev_blank = true;
+    bool prev_boundary = false;
     std::size_t i = 0;
     while (i < md.size())
     {
@@ -314,33 +315,59 @@ SECTION("dcdoc markdown");
         for (std::size_t t = i; t < j; ++t)
             if (md[t] != 32 && md[t] != 9 && md[t] != 13)
                 blank = false;
-        if (!blank)
+        if (!blank && !in_fence)
         {
             std::size_t k = i;
             while (k < j && md[k] == 96)
                 ++k;
             std::size_t run = k - i;
-            if (run >= 3 && !in_fence)
+            bool current = false;
+            if (run >= 3)
             {
                 in_fence = true;
                 frun = run;
-                if (!prev_blank)
-                    return false;
+                current = true;
             }
-            else if (run >= 3 && run >= frun)
-                in_fence = false;
-            else if (!in_fence && md[i] == 35)
+            else if (md[i] == 35)
+                current = true;
+            else if (j - i >= 11 && md.compare(i, 11, "Defined in ") == 0)
+                current = true;
+            if ((current || prev_boundary) && !prev_blank)
+                return false;
+            prev_boundary = current;
+        }
+        else if (!blank)
+        {
+            std::size_t k = i;
+            while (k < j && md[k] == 96)
+                ++k;
+            std::size_t run = k - i;
+            bool rest_blank = true;
+            for (std::size_t t = k; t < j; ++t)
+                if (md[t] != 32 && md[t] != 9 && md[t] != 13)
+                    rest_blank = false;
+            if (run >= 3 && run >= frun && rest_blank)
             {
-                if (!prev_blank)
-                    return false;
+                in_fence = false;
+                prev_boundary = true;
             }
         }
+        else
+            prev_boundary = false;
         prev_blank = blank;
         if (j == md.size())
             break;
         i = j + 1;
     }
     return !in_fence;
+}
+
+TEST_CASE("markdown separation check rejects adjacent blocks")
+{
+    CHECK(!md_blocks_separated("## a\n## b\n"));
+    CHECK(!md_blocks_separated("```dc\nx\n```\ntext\n"));
+    CHECK(!md_blocks_separated("# a\n\n\n# b\n"));
+    CHECK(md_blocks_separated("# a\n\ntext\n"));
 }
 
 TEST_CASE("markdown single file structure")
