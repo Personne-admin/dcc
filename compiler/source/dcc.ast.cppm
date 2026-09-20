@@ -731,6 +731,7 @@ export namespace dcc::ast
         ExprPtr index;
         bool has_resolved_field_index{};
         std::uint32_t resolved_field_index{};
+        bool is_direct_struct_access{};
         PackAccessExpr(sm::SourceRange r, ExprPtr obj, ExprPtr idx) : Expr(Kind, r), object(obj), index(idx) {}
     };
 

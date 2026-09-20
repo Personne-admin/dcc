@@ -87,8 +87,8 @@ export namespace dcc::ir::lower
 
         SpecializeStats const& specialize_stats() const { return m_specialize_stats; }
 
-        static std::optional<CallEmitMapping> resolve_call_emit_mapping(bool is_ufcs, bool indirect, std::size_t arg_offset,
-                                                                         std::size_t nargs, std::size_t child_count)
+        static std::optional<CallEmitMapping> resolve_call_emit_mapping(bool is_ufcs, bool indirect, std::size_t arg_offset, std::size_t nargs,
+                                                                        std::size_t child_count)
         {
             if (arg_offset > nargs)
                 return std::nullopt;
@@ -144,8 +144,8 @@ export namespace dcc::ir::lower
                         auto* bin = static_cast<ast::BinaryExpr const*>(expr);
                         if (node.children.size() != 2u)
                             return fail("binary residual arity mismatch");
-                        if (bin->op == dcc::lex::TokenKind::Eq || bin->op == dcc::lex::TokenKind::AmpAmp ||
-                            bin->op == dcc::lex::TokenKind::PipePipe || is_compound_assign(bin->op))
+                        if (bin->op == dcc::lex::TokenKind::Eq || bin->op == dcc::lex::TokenKind::AmpAmp || bin->op == dcc::lex::TokenKind::PipePipe ||
+                            is_compound_assign(bin->op))
                             return fail("binary residual with control or store op");
                         break;
                     }
@@ -246,9 +246,8 @@ export namespace dcc::ir::lower
                 }
                 case ast::ExprKind::PathExpr: {
                     auto* pe = static_cast<ast::PathExpr const*>(node);
-                    auto* resolved = pe->sema.resolved_specialization
-                                         ? static_cast<ast::Decl const*>(pe->sema.resolved_specialization)
-                                         : pe->sema.resolved_decl;
+                    auto* resolved =
+                        pe->sema.resolved_specialization ? static_cast<ast::Decl const*>(pe->sema.resolved_specialization) : pe->sema.resolved_decl;
                     return resolved && has_storage(resolved);
                 }
                 case ast::ExprKind::FieldAccess:
@@ -2115,8 +2114,8 @@ export namespace dcc::ir::lower
                 if (src_int->bits > underlying->bits)
                     converted = m_ctx.trunc(underlying_ir, value);
                 else if (src_int->bits < underlying->bits)
-                    converted = src_int->is_signed ? static_cast<IrValue*>(m_ctx.sext(underlying_ir, value))
-                                                   : static_cast<IrValue*>(m_ctx.zext(underlying_ir, value));
+                    converted =
+                        src_int->is_signed ? static_cast<IrValue*>(m_ctx.sext(underlying_ir, value)) : static_cast<IrValue*>(m_ctx.zext(underlying_ir, value));
                 else
                     converted = m_ctx.bitcast(underlying_ir, value);
 
@@ -2985,9 +2984,8 @@ export namespace dcc::ir::lower
                 return lower_intrinsic_call(direct_target, call);
 
             auto* call_type = get_sema_resolved_type(call);
-            if (call->sema.const_value && call->sema.const_value->type && call->sema.const_value->type == call_type &&
-                direct_target && !direct_target->sema.is_intrinsic && !call->sema.is_runtime &&
-                !direct_target->sema.is_runtime)
+            if (call->sema.const_value && call->sema.const_value->type && call->sema.const_value->type == call_type && direct_target &&
+                !direct_target->sema.is_intrinsic && !call->sema.is_runtime && !direct_target->sema.is_runtime)
                 return materialize_comptime(*call->sema.const_value, call_type);
 
             if (auto specialized = try_specialize_call(call, direct_target))
@@ -3204,8 +3202,7 @@ export namespace dcc::ir::lower
             }
             if (!progress)
                 return fallback("no folded constant");
-            if (spec.value && spec.value->kind() != dcc::comptime::Value::Kind::Unknown &&
-                !residual_value_materializable(*spec.value))
+            if (spec.value && spec.value->kind() != dcc::comptime::Value::Kind::Unknown && !residual_value_materializable(*spec.value))
                 return fallback("unmaterializable result");
             m_residual_trace = &trace;
             m_residual_memo.clear();
@@ -3220,8 +3217,7 @@ export namespace dcc::ir::lower
                 for (auto child : node.children)
                     ++m_residual_refcounts[child];
             }
-            if (spec.value && spec.value->kind() == dcc::comptime::Value::Kind::Unknown &&
-                spec.value->unknown_origin() >= trace.nodes.size())
+            if (spec.value && spec.value->kind() == dcc::comptime::Value::Kind::Unknown && spec.value->unknown_origin() >= trace.nodes.size())
                 return fallback("unresolved result");
             ++m_specialize_depth;
             interpret_residual_seq(0);
@@ -3329,8 +3325,8 @@ export namespace dcc::ir::lower
                     auto* bin = static_cast<ast::BinaryExpr const*>(expr);
                     if (node.children.size() != 2u)
                         lower_panic(bin, "binary residual arity mismatch");
-                    if (bin->op == dcc::lex::TokenKind::Eq || bin->op == dcc::lex::TokenKind::AmpAmp ||
-                        bin->op == dcc::lex::TokenKind::PipePipe || is_compound_assign(bin->op))
+                    if (bin->op == dcc::lex::TokenKind::Eq || bin->op == dcc::lex::TokenKind::AmpAmp || bin->op == dcc::lex::TokenKind::PipePipe ||
+                        is_compound_assign(bin->op))
                         lower_panic(bin, "binary residual with control or store op");
                     m_residual_env.emplace_back(bin->lhs, node.children[0]);
                     m_residual_env.emplace_back(bin->rhs, node.children[1]);
@@ -3381,8 +3377,7 @@ export namespace dcc::ir::lower
                     auto* target = call_emit_target(call);
                     bool indirect = (target == nullptr);
                     bool ufcs = call->sema.ufcs_callee != nullptr;
-                    auto mapping = resolve_call_emit_mapping(ufcs, indirect, call->sema.call_argument_offset, call->args.size(),
-                                                             node.children.size());
+                    auto mapping = resolve_call_emit_mapping(ufcs, indirect, call->sema.call_argument_offset, call->args.size(), node.children.size());
                     if (!mapping)
                         lower_panic(call, "call residual arity mismatch");
                     std::size_t pushed = 0;
@@ -3458,8 +3453,7 @@ export namespace dcc::ir::lower
                     else if (item.node->kind == ast::ExprKind::Unary)
                     {
                         auto* un = static_cast<ast::UnaryExpr const*>(item.node);
-                        pure = (un->op != dcc::lex::TokenKind::Star && un->op != dcc::lex::TokenKind::Increment &&
-                                un->op != dcc::lex::TokenKind::Decrement);
+                        pure = (un->op != dcc::lex::TokenKind::Star && un->op != dcc::lex::TokenKind::Increment && un->op != dcc::lex::TokenKind::Decrement);
                     }
                     if (pure)
                         continue;
@@ -3708,8 +3702,8 @@ export namespace dcc::ir::lower
                     }
                     case ast::StmtKind::For: {
                         auto* fs = static_cast<ast::ForStmt const*>(stmt);
-                        if ((fs->init && search_stmt(fs->init)) || (fs->cond && search_expr(fs->cond)) ||
-                            (fs->update && search_expr(fs->update)) || search_block(fs->body))
+                        if ((fs->init && search_stmt(fs->init)) || (fs->cond && search_expr(fs->cond)) || (fs->update && search_expr(fs->update)) ||
+                            search_block(fs->body))
                         {
                             chain.push_back(Link::Opaque);
                             return true;
@@ -7813,8 +7807,7 @@ export namespace dcc::ir::lower
                             auto off = i < at->member_offsets.size() ? at->member_offsets[i] : 0;
                             if (off + at->members[i]->byte_size > size)
                                 return false;
-                            if (!flatten_const_to_bytes(agg->values[i], out + static_cast<std::size_t>(off),
-                                                        size - off))
+                            if (!flatten_const_to_bytes(agg->values[i], out + static_cast<std::size_t>(off), size - off))
                                 return false;
                         }
                         return true;
@@ -7828,8 +7821,7 @@ export namespace dcc::ir::lower
                             auto off = i * arr->element->byte_size;
                             if (off + arr->element->byte_size > size)
                                 return false;
-                            if (!flatten_const_to_bytes(agg->values[static_cast<std::size_t>(i)],
-                                                        out + static_cast<std::size_t>(off), size - off))
+                            if (!flatten_const_to_bytes(agg->values[static_cast<std::size_t>(i)], out + static_cast<std::size_t>(off), size - off))
                                 return false;
                         }
                         return true;
@@ -8298,8 +8290,7 @@ export namespace dcc::ir::lower
                     return placeholder;
                 }
 
-                if (!sd->template_params.empty() && sd->template_params.back().is_pack &&
-                    (st->is_specialization || !st->template_args.empty()))
+                if (!sd->template_params.empty() && sd->template_params.back().is_pack && (st->is_specialization || !st->template_args.empty()))
                     lower_panic("variadic struct specialization reached lowering without its stored expansion");
 
                 auto subst = st->template_args.empty() ? std::unordered_map<void const*, types::TypePtr>{}
@@ -8863,8 +8854,7 @@ export namespace dcc::ir::lower
             return gep;
         }
 
-        IrValue* coerce_array_to_pointer(ast::Expr const* src_expr, IrValue* arr_val, dcc::types::TypePtr arr_sema_type,
-                                         dcc::types::TypePtr ptr_sema_type)
+        IrValue* coerce_array_to_pointer(ast::Expr const* src_expr, IrValue* arr_val, dcc::types::TypePtr arr_sema_type, dcc::types::TypePtr ptr_sema_type)
         {
             auto const* at = as_sema_array(arr_sema_type);
             auto const* pt = types::type_cast<types::PointerType>(ptr_sema_type);
@@ -8894,8 +8884,7 @@ export namespace dcc::ir::lower
             return val;
         }
 
-        IrValue* coerce_array_to_slice(ast::Expr const* src_expr, IrValue* arr_val, dcc::types::TypePtr arr_sema_type,
-                                       dcc::types::TypePtr slice_sema_type)
+        IrValue* coerce_array_to_slice(ast::Expr const* src_expr, IrValue* arr_val, dcc::types::TypePtr arr_sema_type, dcc::types::TypePtr slice_sema_type)
         {
             auto const* at = as_sema_array(arr_sema_type);
             auto const* st = types::type_cast<types::SliceType>(slice_sema_type);
@@ -10030,15 +10019,12 @@ export namespace dcc::ir::lower
         IrValue* lower_pack_access_gep(ast::PackAccessExpr const* pa)
         {
             auto* fa = ast::node_cast<ast::FieldAccessExpr>(pa->object);
-            if (!fa || !pa->has_resolved_field_index)
+            auto* inner = (fa && !pa->is_direct_struct_access) ? fa->object : pa->object;
+            if (!inner || !pa->has_resolved_field_index)
                 return nullptr;
 
             auto* elem_sema_ty = get_sema_resolved_type(pa);
             if (!elem_sema_ty)
-                return nullptr;
-
-            auto* inner = fa->object;
-            if (!inner)
                 return nullptr;
 
             auto* inner_ty = get_sema_resolved_type(inner);
@@ -10128,10 +10114,11 @@ export namespace dcc::ir::lower
             }
 
             auto* fa = ast::node_cast<ast::FieldAccessExpr>(pa->object);
-            if (fa && pa->has_resolved_field_index && fa->object)
+            auto* inner = (fa && !pa->is_direct_struct_access) ? fa->object : pa->object;
+            if (inner && pa->has_resolved_field_index)
             {
-                auto* inner_ty = get_sema_resolved_type(fa->object);
-                auto* obj_val = lower_expr(fa->object);
+                auto* inner_ty = get_sema_resolved_type(inner);
+                auto* obj_val = lower_expr(inner);
                 if (inner_ty && inner_ty->kind == types::TypeKind::Pointer)
                 {
                     auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_resolved_type), obj_val);
