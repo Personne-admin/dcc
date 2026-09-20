@@ -111,7 +111,7 @@ test-win: compiler driver dccd
 	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=em64t
 	@$(MAKE) -C tests test-win
 
-install: driver dccd libdcext
+install: driver dccd dcdoc libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dcc)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dcc $(DESTDIR)$(BINDIR)/dcc
@@ -119,6 +119,10 @@ install: driver dccd libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dccd)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dccd $(DESTDIR)$(BINDIR)/dccd
+
+	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dcdoc)
+	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
+	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dcdoc $(DESTDIR)$(BINDIR)/dcdoc
 
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext-*.a)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
@@ -134,6 +138,7 @@ install: driver dccd libdcext
 uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/dcc
 	rm -f $(DESTDIR)$(BINDIR)/dccd
+	rm -f $(DESTDIR)$(BINDIR)/dcdoc
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext.a
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext-*.a
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
