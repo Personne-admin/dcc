@@ -288,13 +288,15 @@ export namespace dcdoc
                 case K::Fam: {
                     auto const* t = static_cast<dcc::ast::FamType const*>(node);
                     TypeRef inner = render_type(t->element, scope, tparams, via, project, collect_refs);
-                    out.text = "fam(" + inner.text + ")";
+                    out.text = inner.text + "[]";
                     out.refs = std::move(inner.refs);
                     break;
                 }
                 case K::FuncPtr: {
                     auto const* t = static_cast<dcc::ast::FuncPtrType const*>(node);
-                    std::string s = "fnptr(";
+                    TypeRef rr = render_type(t->return_type, scope, tparams, "ReturnType", project);
+                    out.refs.insert(out.refs.end(), rr.refs.begin(), rr.refs.end());
+                    std::string s = rr.text + "(*)(";
                     bool first = true;
                     for (auto const& p : t->params)
                     {
@@ -304,11 +306,15 @@ export namespace dcdoc
                         first = false;
                         TypeRef pr = render_type(p.type, scope, tparams, via, project, collect_refs);
                         s += pr.text;
+                        if (!p.name.empty())
+                        {
+                            s += " ";
+                            s += std::string{p.name};
+                        }
+
                         out.refs.insert(out.refs.end(), pr.refs.begin(), pr.refs.end());
                     }
-                    TypeRef rr = render_type(t->return_type, scope, tparams, "ReturnType", project);
-                    out.refs.insert(out.refs.end(), rr.refs.begin(), rr.refs.end());
-                    out.text = s + ")->" + rr.text;
+                    out.text = s + ")";
                     break;
                 }
                 case K::Qualified: {
@@ -345,7 +351,7 @@ export namespace dcdoc
                 case K::PackIndex: {
                     auto const* t = static_cast<dcc::ast::PackIndexType const*>(node);
                     TypeRef inner = render_type(t->base, scope, tparams, via, project, collect_refs);
-                    out.text = inner.text + "[" + const_expr_text(t->index) + "]";
+                    out.text = inner.text + "." + const_expr_text(t->index);
                     out.refs = std::move(inner.refs);
                     break;
                 }
@@ -560,6 +566,44 @@ export namespace dcdoc
             }
         }
 
+        [[nodiscard]] static std::string pub_prefix(dcc::ast::Decl const* d) { return d && d->is_public ? "public " : ""; }
+
+        struct TparamText
+        {
+            std::string text;
+            std::vector<CrossRef> refs;
+        };
+
+        [[nodiscard]] TparamText render_tparam(dcc::ast::TemplateParam const& tp, dcc::sema::Scope const* scope,
+                                               std::span<dcc::ast::TemplateParam const> tparams, Project& project)
+        {
+            TparamText out;
+            std::string head;
+            if (tp.value_type)
+            {
+                TypeRef vt = render_type(tp.value_type, scope, tparams, "TemplateArg", project);
+                head = vt.text + " " + std::string{tp.name};
+                out.refs = std::move(vt.refs);
+            }
+            else
+                head = std::string{tp.name};
+            if (tp.is_pack)
+                head += "...";
+            if (tp.value_type)
+            {
+                if (tp.default_value)
+                    head += " = " + const_expr_text(tp.default_value);
+            }
+            else if (tp.default_type)
+            {
+                TypeRef dt = render_type(tp.default_type, scope, tparams, "TemplateArg", project);
+                head += " = " + dt.text;
+                out.refs.insert(out.refs.end(), dt.refs.begin(), dt.refs.end());
+            }
+            out.text = std::move(head);
+            return out;
+        }
+
         [[nodiscard]] static bool eligible_kind(dcc::ast::Decl const* d) noexcept
         {
             using K = dcc::ast::DeclKind;
@@ -587,12 +631,11 @@ export namespace dcdoc
 
             std::string name = decl_simple_name(d);
             std::string id = mod_id + "::" + name;
-            std::vector<dcc::ast::TemplateParam> tps;
+            std::span<dcc::ast::TemplateParam const> tps;
             if (d->kind == dcc::ast::DeclKind::Func)
             {
                 auto const* f = static_cast<dcc::ast::FuncDecl const*>(d);
-                for (auto const& tp : f->template_params)
-                    tps.push_back(tp);
+                tps = f->template_params;
                 std::vector<std::string> ptypes;
                 for (auto const& fp : f->params)
                 {
@@ -604,8 +647,7 @@ export namespace dcdoc
             else if (d->kind == dcc::ast::DeclKind::Struct)
             {
                 auto const* s = static_cast<dcc::ast::StructDecl const*>(d);
-                for (auto const& tp : s->template_params)
-                    tps.push_back(tp);
+                tps = s->template_params;
                 id += "#struct";
             }
             else if (d->kind == dcc::ast::DeclKind::Union)
@@ -615,8 +657,7 @@ export namespace dcdoc
             else if (d->kind == dcc::ast::DeclKind::Enum)
             {
                 auto const* e = static_cast<dcc::ast::EnumDecl const*>(d);
-                for (auto const& tp : e->template_params)
-                    tps.push_back(tp);
+                tps = e->template_params;
                 id += "#enum";
             }
             else if (d->kind == dcc::ast::DeclKind::Var)
@@ -626,8 +667,7 @@ export namespace dcdoc
             else if (d->kind == dcc::ast::DeclKind::Using)
             {
                 auto const* u = static_cast<dcc::ast::UsingDecl const*>(d);
-                for (auto const& tp : u->template_params)
-                    tps.push_back(tp);
+                tps = u->template_params;
                 std::string kind = decl_kind_name(d);
                 id += (kind == "valuealias" ? "#valuealias" : (kind == "concept" ? "#concept" : "#alias"));
             }
@@ -679,14 +719,9 @@ export namespace dcdoc
                 if (tp.doc)
                     item.doc = std::string{tp.doc->text};
 
-                if (tp.value_type)
-                {
-                    TypeRef tr = render_type(tp.value_type, mod.own_scope, {}, "TemplateArg", project);
-                    item.sig.text = "tparam " + item.name + " : " + tr.text;
-                    item.sig.refs = std::move(tr.refs);
-                }
-                else
-                    item.sig.text = "tparam " + item.name;
+                TparamText tt = render_tparam(tp, mod.own_scope, tps, project);
+                item.sig.text = std::move(tt.text);
+                item.sig.refs = std::move(tt.refs);
 
                 attach_doc_links(item, mod, tps, others, project);
                 rendered.push_back(id);
@@ -709,7 +744,9 @@ export namespace dcdoc
                     item.doc = std::string{fp.doc->text};
 
                 TypeRef tr = render_type(fp.type, mod.own_scope, tps, "ParamType", project);
-                item.sig.text = item.name + ": " + tr.text;
+                item.sig.text = tr.text;
+                if (!fp.name.empty())
+                    item.sig.text += " " + std::string{fp.name};
                 item.sig.refs = std::move(tr.refs);
                 rendered_types.push_back(item.sig.text);
                 attach_doc_links(item, mod, tps, others, project);
@@ -730,43 +767,35 @@ export namespace dcdoc
             std::string id = mod_id + "::" + name;
             std::string sig_text;
             std::vector<CrossRef> sig_refs;
-            std::vector<dcc::ast::TemplateParam> tparam_view;
+            std::span<dcc::ast::TemplateParam const> tparam_view;
             auto const* fscope = mod.own_scope;
             if (d->kind == dcc::ast::DeclKind::Func)
-            {
-                auto const* f = static_cast<dcc::ast::FuncDecl const*>(d);
-                for (auto const& tp : f->template_params)
-                    tparam_view.push_back(tp);
-            }
+                tparam_view = static_cast<dcc::ast::FuncDecl const*>(d)->template_params;
             else if (d->kind == dcc::ast::DeclKind::Struct)
-            {
-                auto const* s = static_cast<dcc::ast::StructDecl const*>(d);
-                for (auto const& tp : s->template_params)
-                    tparam_view.push_back(tp);
-            }
+                tparam_view = static_cast<dcc::ast::StructDecl const*>(d)->template_params;
             else if (d->kind == dcc::ast::DeclKind::Enum)
-            {
-                auto const* e = static_cast<dcc::ast::EnumDecl const*>(d);
-                for (auto const& tp : e->template_params)
-                    tparam_view.push_back(tp);
-            }
+                tparam_view = static_cast<dcc::ast::EnumDecl const*>(d)->template_params;
             else if (d->kind == dcc::ast::DeclKind::Using)
-            {
-                auto const* u = static_cast<dcc::ast::UsingDecl const*>(d);
-                for (auto const& tp : u->template_params)
-                    tparam_view.push_back(tp);
-            }
+                tparam_view = static_cast<dcc::ast::UsingDecl const*>(d)->template_params;
+            std::string pub = pub_prefix(d);
+            auto render_tps = [&](std::span<dcc::ast::TemplateParam const> tps) {
+                std::string list;
+                for (auto const& tp : tps)
+                {
+                    TparamText tt = render_tparam(tp, fscope, tparam_view, project);
+                    if (!list.empty())
+                        list += ", ";
+
+                    list += tt.text;
+                    sig_refs.insert(sig_refs.end(), tt.refs.begin(), tt.refs.end());
+                }
+
+                return list;
+            };
             if (d->kind == dcc::ast::DeclKind::Func)
             {
                 auto const* f = static_cast<dcc::ast::FuncDecl const*>(d);
-                std::string tp_list;
-                for (auto const& tp : f->template_params)
-                {
-                    if (!tp_list.empty())
-                        tp_list += ", ";
-                    tp_list += std::string{tp.name};
-                }
-
+                std::string tp_list = render_tps(f->template_params);
                 std::string plist;
                 std::vector<std::string> ptypes;
                 for (auto const& fp : f->params)
@@ -775,7 +804,13 @@ export namespace dcdoc
                     if (!plist.empty())
                         plist += ", ";
 
-                    plist += std::string{fp.name} + ": " + tr.text;
+                    plist += tr.text;
+                    if (!fp.name.empty())
+                    {
+                        plist += " ";
+                        plist += std::string{fp.name};
+                    }
+
                     ptypes.push_back(tr.text);
                     sig_refs.insert(sig_refs.end(), tr.refs.begin(), tr.refs.end());
                 }
@@ -783,25 +818,36 @@ export namespace dcdoc
                 TypeRef rr = render_type(f->return_type, fscope, tparam_view, "ReturnType", project);
                 sig_refs.insert(sig_refs.end(), rr.refs.begin(), rr.refs.end());
                 id += "#fn" + fn_suffix(ptypes);
-                sig_text = "fn " + name;
+                sig_text = pub + rr.text + " " + name;
                 if (!tp_list.empty())
                     sig_text += "(" + tp_list + ")";
-                sig_text += "(" + plist + ") -> " + rr.text;
+                sig_text += "(" + plist + ")";
             }
             else if (d->kind == dcc::ast::DeclKind::Struct)
             {
+                auto const* s = static_cast<dcc::ast::StructDecl const*>(d);
+                std::string tp_list = render_tps(s->template_params);
                 id += "#struct";
-                sig_text = "struct " + name;
+                sig_text = pub + "struct " + name;
+                if (!tp_list.empty())
+                    sig_text += "(" + tp_list + ")";
             }
             else if (d->kind == dcc::ast::DeclKind::Union)
             {
                 id += "#union";
-                sig_text = "union " + name;
+                sig_text = pub + "union " + name;
             }
             else if (d->kind == dcc::ast::DeclKind::Enum)
             {
+                auto const* e = static_cast<dcc::ast::EnumDecl const*>(d);
                 id += "#enum";
-                sig_text = "enum " + name;
+                sig_text = pub + "enum " + name;
+                if (e->backing_type)
+                {
+                    TypeRef bt = render_type(e->backing_type, fscope, tparam_view, "FieldType", project);
+                    sig_refs.insert(sig_refs.end(), bt.refs.begin(), bt.refs.end());
+                    sig_text += " : " + bt.text;
+                }
             }
             else if (d->kind == dcc::ast::DeclKind::Var)
             {
@@ -809,22 +855,41 @@ export namespace dcdoc
                 TypeRef tr = render_type(v->type, fscope, tparam_view, "FieldType", project);
                 sig_refs = std::move(tr.refs);
                 id += "#var";
-                sig_text = name + ": " + tr.text;
+                sig_text = pub + tr.text + " " + name;
+                if (v->init)
+                    sig_text += " = " + const_expr_text(v->init);
+                sig_text += ";";
             }
             else if (d->kind == dcc::ast::DeclKind::Using)
             {
                 auto const* u = static_cast<dcc::ast::UsingDecl const*>(d);
                 if (kind == "concept")
                 {
+                    std::string tp_list = render_tps(u->template_params);
                     id += "#concept";
-                    sig_text = "concept " + name;
+                    sig_text = pub + "using " + name;
+                    if (!tp_list.empty())
+                        sig_text += "(" + tp_list + ")";
+                    if (u->target_expr)
+                        sig_text += " = " + const_expr_text(u->target_expr);
+                    sig_text += ";";
+                }
+                else if (kind == "valuealias")
+                {
+                    TypeRef tr = render_type(u->target_type, fscope, tparam_view, "AliasTarget", project);
+                    sig_refs = std::move(tr.refs);
+                    id += "#valuealias";
+                    sig_text = pub + "using " + tr.text + " " + name;
+                    if (u->target_expr)
+                        sig_text += " = " + const_expr_text(u->target_expr);
+                    sig_text += ";";
                 }
                 else
                 {
                     TypeRef tr = render_type(u->target_type, fscope, tparam_view, "AliasTarget", project);
                     sig_refs = std::move(tr.refs);
-                    id += (kind == "valuealias" ? "#valuealias" : "#alias");
-                    sig_text = (kind == "valuealias" ? "valuealias " : "alias ") + name + " = " + tr.text;
+                    id += "#alias";
+                    sig_text = pub + "using " + name + " = " + tr.text + ";";
                 }
             }
 
@@ -882,7 +947,7 @@ export namespace dcdoc
                         item.doc = std::string{fld.doc->text};
 
                     TypeRef tr = render_type(fld.type, fscope, tparams, "FieldType", project);
-                    item.sig.text = item.name + ": " + tr.text;
+                    item.sig.text = tr.text + " " + item.name + ";";
                     item.sig.refs = std::move(tr.refs);
                     attach_doc_links(item, mod, tparams, others, project);
                 }
@@ -912,7 +977,12 @@ export namespace dcdoc
                         item.sig.refs.insert(item.sig.refs.end(), tr.refs.begin(), tr.refs.end());
                     }
 
-                    item.sig.text = payload.empty() ? item.name : item.name + "(" + payload + ")";
+                    std::string vsig = item.name;
+                    if (!payload.empty())
+                        vsig += "(" + payload + ")";
+                    if (v.explicit_value)
+                        vsig += " = " + const_expr_text(v.explicit_value);
+                    item.sig.text = std::move(vsig);
                     attach_doc_links(item, mod, tparams, others, project);
                 }
             }
@@ -1031,27 +1101,15 @@ export namespace dcdoc
                             m.sections[it->second].items.push_back(id);
                     }
 
-                    std::vector<dcc::ast::TemplateParam> tps;
+                    std::span<dcc::ast::TemplateParam const> tps;
                     if (d->kind == dcc::ast::DeclKind::Func)
-                    {
-                        for (auto const& tp : static_cast<dcc::ast::FuncDecl const*>(d)->template_params)
-                            tps.push_back(tp);
-                    }
+                        tps = static_cast<dcc::ast::FuncDecl const*>(d)->template_params;
                     else if (d->kind == dcc::ast::DeclKind::Struct)
-                    {
-                        for (auto const& tp : static_cast<dcc::ast::StructDecl const*>(d)->template_params)
-                            tps.push_back(tp);
-                    }
+                        tps = static_cast<dcc::ast::StructDecl const*>(d)->template_params;
                     else if (d->kind == dcc::ast::DeclKind::Enum)
-                    {
-                        for (auto const& tp : static_cast<dcc::ast::EnumDecl const*>(d)->template_params)
-                            tps.push_back(tp);
-                    }
+                        tps = static_cast<dcc::ast::EnumDecl const*>(d)->template_params;
                     else if (d->kind == dcc::ast::DeclKind::Using)
-                    {
-                        for (auto const& tp : static_cast<dcc::ast::UsingDecl const*>(d)->template_params)
-                            tps.push_back(tp);
-                    }
+                        tps = static_cast<dcc::ast::UsingDecl const*>(d)->template_params;
 
                     std::string owner_path = m.id + "::" + decl_simple_name(d);
                     itemize_members(d, *mod, m.file, id, owner_path, d->is_public, tps, project, mods);
