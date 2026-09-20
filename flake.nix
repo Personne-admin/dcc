@@ -52,6 +52,7 @@
               llvm.clang
               pkgs.clang-tools
               llvm.llvm
+              pkgs.typst
             ];
 
             buildInputs = [
@@ -126,6 +127,7 @@
               pkgs.clang-tools
               llvm.llvm
               libcxx
+              pkgs.typst
             ];
 
             hardeningDisable = [ "fortify" ];
