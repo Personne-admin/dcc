@@ -1617,3 +1617,47 @@ public i32 main() {
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
+
+TEST_CASE("std::array with std::tuple direct pack access and mutation")
+{
+    constexpr std::string_view source = (R"DCC(module main;
+import std::mem;
+import std::array;
+import std::tuple;
+
+public i32 main() {
+    u8[4096] backing;
+    std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
+    std::mem::Allocator a = fb.allocator();
+    std::array::Array(std::tuple::Tuple(usize, usize)) heros = std::array::new_array(a);
+    heros.reserve(4);
+    std::tuple::Tuple(usize, usize) t1 = {10, 20};
+    std::tuple::Tuple(usize, usize) t2 = {30, 40};
+    heros.push(t1);
+    heros.push(t2);
+
+    if (*heros.at(0).unwrap_some()).0 != 10 { return 1; }
+    if (*heros.at(0).unwrap_some()).1 != 20 { return 2; }
+    if (*heros.at(1).unwrap_some()).0 != 30 { return 3; }
+    if (*heros.at(1).unwrap_some()).1 != 40 { return 4; }
+
+    (*heros.at(0).unwrap_some()).0 = 99;
+    (*heros.at(1).unwrap_some()).1 = 88;
+
+    if (*heros.at(0).unwrap_some()).0 != 99 { return 5; }
+    if (*heros.at(0).unwrap_some()).1 != 20 { return 6; }
+    if (*heros.at(1).unwrap_some()).0 != 30 { return 7; }
+    if (*heros.at(1).unwrap_some()).1 != 88 { return 8; }
+
+    std::tuple::Tuple(usize, usize) direct = {100, 200};
+    if direct.0 != 100 || direct.1 != 200 { return 9; }
+    direct.0 = 300;
+    if direct.0 != 300 { return 10; }
+
+    return 0;
+}
+)DCC");
+    for (auto backend : {"llvm", "em64t"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}

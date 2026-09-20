@@ -5518,8 +5518,7 @@ export namespace dcc::sema
                     if (constraint_src.empty())
                         *rejection_reason = std::format("template constraint not satisfied for `{}`", func ? func->name : "?");
                     else
-                        *rejection_reason =
-                            std::format("template constraint not satisfied for `{}`: `{}`", func->name, constraint_src);
+                        *rejection_reason = std::format("template constraint not satisfied for `{}`: `{}`", func->name, constraint_src);
                 }
 
                 record_rejection(rejection_info, CallRejectionKind::None);
@@ -10920,8 +10919,8 @@ export namespace dcc::sema
                 if (receiver.type && !has_error(receiver.type) && contains_template_param(receiver.type))
                 {
                     auto* access = m_ast_ctx.make<ast::FieldAccessExpr>(p.range, p.operand, "unwrap", p.range);
-                    auto result = resolve_ufcs(mod, fn, *probe_scope, *access, {}, loop_depth, probe_off, const_env, expected_type,
-                                               &receiver, true, nullptr, &operand_expected);
+                    auto result = resolve_ufcs(mod, fn, *probe_scope, *access, {}, loop_depth, probe_off, const_env, expected_type, &receiver, true, nullptr,
+                                               &operand_expected);
                     if (has_error(result.type))
                         operand_expected = nullptr;
                 }
@@ -11208,8 +11207,8 @@ export namespace dcc::sema
                             if (!pointer_step && !types::type_cast<types::IntType>(lhs_type) && !types::type_cast<types::FloatType>(lhs_type))
                             {
                                 out.type = m_types.m_errort();
-                                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                                      format_type_str(lhs_type), format_type_str(rhs.type));
+                                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs_type),
+                                      format_type_str(rhs.type));
                                 return out;
                             }
                             break;
@@ -11221,8 +11220,8 @@ export namespace dcc::sema
                             if (!types::type_cast<types::IntType>(lhs_type))
                             {
                                 out.type = m_types.m_errort();
-                                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                                      format_type_str(lhs_type), format_type_str(rhs.type));
+                                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs_type),
+                                      format_type_str(rhs.type));
                                 return out;
                             }
                             break;
@@ -11268,8 +11267,8 @@ export namespace dcc::sema
                               b.op == lex::TokenKind::GtGt))
                         {
                             out.type = m_types.m_errort();
-                            error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                                  format_type_str(lhs.type), format_type_str(rhs.type));
+                            error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                                  format_type_str(rhs.type));
                             return out;
                         }
                     }
@@ -11279,8 +11278,8 @@ export namespace dcc::sema
                         if (lhs.type != rhs.type || !types::type_cast<types::IntType>(lhs.type))
                         {
                             out.type = m_types.m_errort();
-                            error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                                  format_type_str(lhs.type), format_type_str(rhs.type));
+                            error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                                  format_type_str(rhs.type));
                             return out;
                         }
                         out.type = lhs.type;
@@ -11291,8 +11290,8 @@ export namespace dcc::sema
                     if (lhs.type != rhs.type || (!types::type_cast<types::IntType>(lhs.type) && !types::type_cast<types::FloatType>(lhs.type)))
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                              format_type_str(lhs.type), format_type_str(rhs.type));
+                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                              format_type_str(rhs.type));
                         return out;
                     }
                     out.type = lhs.type;
@@ -11325,8 +11324,8 @@ export namespace dcc::sema
                     if (lhs.type != rhs.type || !lhs.type || lhs.type->kind == types::TypeKind::Error)
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                              format_type_str(lhs.type), format_type_str(rhs.type));
+                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                              format_type_str(rhs.type));
                         return out;
                     }
                     out.type = m_types.m_boolt();
@@ -11338,8 +11337,8 @@ export namespace dcc::sema
                     if (lhs.type != m_types.m_boolt() || rhs.type != m_types.m_boolt())
                     {
                         out.type = m_types.m_errort();
-                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                              format_type_str(lhs.type), format_type_str(rhs.type));
+                        error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                              format_type_str(rhs.type));
                         return out;
                     }
                     out.type = m_types.m_boolt();
@@ -11545,8 +11544,8 @@ export namespace dcc::sema
                 if (b.op != lex::TokenKind::Minus)
                 {
                     out.type = m_types.m_errort();
-                    error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                          format_type_str(lhs.type), format_type_str(rhs.type));
+                    error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                          format_type_str(rhs.type));
                     return out;
                 }
                 if (lhs.type != rhs.type)
@@ -11571,8 +11570,8 @@ export namespace dcc::sema
             if (rhs_pointer && b.op == lex::TokenKind::Minus)
             {
                 out.type = m_types.m_errort();
-                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op),
-                      format_type_str(lhs.type), format_type_str(rhs.type));
+                error(b.range, "binary operator `{}` type mismatch: left `{}`, right `{}`", lex::to_string(b.op), format_type_str(lhs.type),
+                      format_type_str(rhs.type));
                 return out;
             }
             if (!types::type_cast<types::IntType>(erase_refinement(offset.type)))
@@ -11770,6 +11769,7 @@ export namespace dcc::sema
             types::StructType const* st{};
             std::size_t base{};
             std::size_t arity{};
+            std::string_view pack_name{};
         };
 
         [[nodiscard]] std::optional<StructPackWindow> resolve_struct_pack_window(types::TypePtr obj_type, std::string_view field_name)
@@ -11807,9 +11807,26 @@ export namespace dcc::sema
                     return std::nullopt;
             }
 
-            auto* field = find_field(*reinterpret_cast<ast::Decl const*>(sd), field_name);
-            if (!field || !field->is_pack)
-                return std::nullopt;
+            ast::FieldDecl const* field = nullptr;
+            if (!field_name.empty())
+            {
+                field = find_field(*reinterpret_cast<ast::Decl const*>(sd), field_name);
+                if (!field || !field->is_pack)
+                    return std::nullopt;
+            }
+            else
+            {
+                for (auto const& f : sd->fields)
+                {
+                    if (f.is_pack)
+                    {
+                        field = &f;
+                        break;
+                    }
+                }
+                if (!field)
+                    return std::nullopt;
+            }
 
             std::size_t base = 0;
             for (auto const& f : sd->fields)
@@ -11822,7 +11839,7 @@ export namespace dcc::sema
             if (base > st->expanded_field_count)
                 return std::nullopt;
 
-            return StructPackWindow{st, base, st->expanded_field_count - base};
+            return StructPackWindow{st, base, st->expanded_field_count - base, field->name};
         }
 
         detail::ExprResult analyze_pack_access(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::PackAccessExpr& pa, int loop_depth,
@@ -11835,49 +11852,89 @@ export namespace dcc::sema
 
             (void)analyze_expr_or_error(mod, fn, scope, pa.index, loop_depth, next_off, nullptr, const_env);
 
+            std::optional<StructPackWindow> window;
+            bool direct_access = false;
             if (auto* fa = ast::node_cast<ast::FieldAccessExpr>(pa.object))
+                window = resolve_struct_pack_window(get_resolved_type(fa->object->sema), fa->field);
+
+            if (!window)
             {
-                if (auto window = resolve_struct_pack_window(get_resolved_type(fa->object->sema), fa->field))
+                window = resolve_struct_pack_window(obj.type, "");
+                if (window)
+                    direct_access = true;
+            }
+
+            if (window)
+            {
+                std::optional<std::int64_t> index;
+                if (pa.index && pa.index->sema.const_value)
+                    index = pa.index->sema.const_value->const_to_int();
+                if (!index && pa.index)
+                    if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(pa.index))
+                        index = lit->value;
+
+                if (!index)
                 {
-                    std::optional<std::int64_t> index;
-                    if (pa.index && pa.index->sema.const_value)
-                        index = pa.index->sema.const_value->const_to_int();
-                    if (!index && pa.index)
-                        if (auto* lit = ast::node_cast<ast::IntLiteralExpr>(pa.index))
-                            index = lit->value;
-
-                    if (!index)
-                    {
-                        out.type = m_types.m_errort();
-                        error(pa.index ? pa.index->range : pa.range, "pack index must be a compile-time constant");
-                        return out;
-                    }
-
-                    if (*index < 0 || static_cast<std::uint64_t>(*index) >= window->arity)
-                    {
-                        out.type = m_types.m_errort();
-                        error(pa.range, "pack index {} out of bounds for pack '{}' of length {}", *index, fa->field, window->arity);
-                        return out;
-                    }
-
-                    std::uint32_t field_index = static_cast<std::uint32_t>(window->base + static_cast<std::uint64_t>(*index));
-                    out.type = window->st->expanded_fields[field_index].type;
-                    pa.has_resolved_field_index = true;
-                    pa.resolved_field_index = field_index;
-
-                    if (obj.constant && obj.constant->kind() == comptime::Value::Kind::Aggregate && field_index < obj.constant->size())
-                    {
-                        out.constant = &obj.constant->at(field_index);
-                        out.is_constant = true;
-                    }
-                    else
-                    {
-                        out.constant = nullptr;
-                        out.is_constant = false;
-                    }
-
+                    out.type = m_types.m_errort();
+                    error(pa.index ? pa.index->range : pa.range, "pack index must be a compile-time constant");
                     return out;
                 }
+
+                if (*index < 0 || static_cast<std::uint64_t>(*index) >= window->arity)
+                {
+                    out.type = m_types.m_errort();
+                    error(pa.range, "pack index {} out of bounds for pack '{}' of length {}", *index, window->pack_name, window->arity);
+                    return out;
+                }
+
+                std::uint32_t field_index = static_cast<std::uint32_t>(window->base + static_cast<std::uint64_t>(*index));
+                out.type = window->st->expanded_fields[field_index].type;
+                pa.has_resolved_field_index = true;
+                pa.resolved_field_index = field_index;
+                pa.is_direct_struct_access = direct_access;
+
+                if (direct_access)
+                {
+                    out.resolved_decl = reinterpret_cast<ast::Decl const*>(window->st->decl);
+                    out.is_lvalue = obj.value_alias_origin == nullptr && (obj.is_lvalue || types::type_cast<types::PointerType>(obj.type) != nullptr);
+                    out.is_writable = indirect_target_writable(obj.type, obj.is_writable);
+                }
+
+                if (obj.constant && obj.constant->kind() == comptime::Value::Kind::Aggregate && field_index < obj.constant->size())
+                {
+                    out.constant = &obj.constant->at(field_index);
+                    out.is_constant = true;
+                }
+                else
+                {
+                    out.constant = nullptr;
+                    out.is_constant = false;
+                }
+
+                return out;
+            }
+
+            auto* dep_ty = obj.type;
+            while (dep_ty)
+            {
+                if (auto* nt = types::type_cast<types::NominalType>(dep_ty))
+                {
+                    dep_ty = nt->underlying;
+                    continue;
+                }
+                if (auto* pt = types::type_cast<types::PointerType>(dep_ty))
+                {
+                    dep_ty = pt->pointee;
+                    continue;
+                }
+                break;
+            }
+            if (auto* dep_st = types::type_cast<types::StructType>(dep_ty))
+            {
+                auto* sd = reinterpret_cast<ast::StructDecl const*>(dep_st->decl);
+                if (sd && !sd->template_params.empty() && sd->template_params.back().is_pack)
+                    if (contains_template_param(obj.type))
+                        return out;
             }
 
             if (is_pack_indexable_type(obj.type))
@@ -12417,8 +12474,8 @@ export namespace dcc::sema
                             bool const array_to_slice = es && ga && es->element == ga->element;
                             if (!array_to_slice)
                             {
-                                error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[field_index].name,
-                                      format_type_str(expected_field), format_type_str(val.type));
+                                error(f.range, "field `{}` type mismatch: expected `{}`, got `{}`", fields[field_index].name, format_type_str(expected_field),
+                                      format_type_str(val.type));
                                 return std::nullopt;
                             }
                             warn_implicit_array_copy(f.value, val.type, expected_field);
@@ -12579,8 +12636,7 @@ export namespace dcc::sema
                     {
                         if (!try_implicit_enum_element(*f.value, arr->element))
                         {
-                            error(f.range, "array element type mismatch: expected `{}`, got `{}`", format_type_str(arr->element),
-                                  format_type_str(val.type));
+                            error(f.range, "array element type mismatch: expected `{}`, got `{}`", format_type_str(arr->element), format_type_str(val.type));
                             return std::nullopt;
                         }
                     }
@@ -12611,8 +12667,7 @@ export namespace dcc::sema
                     {
                         if (!try_implicit_enum_element(*f.value, slice->element))
                         {
-                            error(f.range, "slice element type mismatch: expected `{}`, got `{}`", format_type_str(slice->element),
-                                  format_type_str(val.type));
+                            error(f.range, "slice element type mismatch: expected `{}`, got `{}`", format_type_str(slice->element), format_type_str(val.type));
                             return std::nullopt;
                         }
                     }
@@ -14034,10 +14089,9 @@ export namespace dcc::sema
                             materialize_ufcs_default_arguments(*static_cast<ast::FuncDecl const*>(ranked[*winner].sym->decl), *materialized_args);
                         effective_args = std::span<ast::Expr* const>{*materialized_args};
                     }
-                    auto out_opt =
-                        invoke_ufcs_candidate(mod, fn, scope, *ranked[*winner].sym, *f.object, effective_args, f.range, loop_depth, next_off, const_env,
-                                              ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup, default_arg_start,
-                                              inferred_receiver);
+                    auto out_opt = invoke_ufcs_candidate(mod, fn, scope, *ranked[*winner].sym, *f.object, effective_args, f.range, loop_depth, next_off,
+                                                         const_env, ranked[*winner].receiver_match, expected_type, preanalyzed_receiver, protocol_lookup,
+                                                         default_arg_start, inferred_receiver);
                     if (!out_opt)
                         return detail::ExprResult{m_types.m_errort()};
 
@@ -15576,10 +15630,11 @@ export namespace dcc::sema
                     if (!op.flag_cond.empty())
                     {
                         bool known = op.flag_cond == "zero" || op.flag_cond == "equal" || op.flag_cond == "not_zero" || op.flag_cond == "not_equal" ||
-                                   op.flag_cond == "carry" || op.flag_cond == "below" || op.flag_cond == "not_carry" || op.flag_cond == "above_equal" ||
-                                   op.flag_cond == "above" || op.flag_cond == "below_equal" || op.flag_cond == "sign" || op.flag_cond == "not_sign" ||
-                                   op.flag_cond == "overflow" || op.flag_cond == "not_overflow" || op.flag_cond == "parity_even" || op.flag_cond == "parity_odd" ||
-                                   op.flag_cond == "less" || op.flag_cond == "less_equal" || op.flag_cond == "greater" || op.flag_cond == "greater_equal";
+                                     op.flag_cond == "carry" || op.flag_cond == "below" || op.flag_cond == "not_carry" || op.flag_cond == "above_equal" ||
+                                     op.flag_cond == "above" || op.flag_cond == "below_equal" || op.flag_cond == "sign" || op.flag_cond == "not_sign" ||
+                                     op.flag_cond == "overflow" || op.flag_cond == "not_overflow" || op.flag_cond == "parity_even" ||
+                                     op.flag_cond == "parity_odd" || op.flag_cond == "less" || op.flag_cond == "less_equal" || op.flag_cond == "greater" ||
+                                     op.flag_cond == "greater_equal";
                         if (!known)
                             error(op.range, "unknown asm flag condition `{}`", op.flag_cond);
                     }
@@ -16354,8 +16409,8 @@ export namespace dcc::sema
             return nullptr;
         }
 
-        [[nodiscard]] bool apply_implicit_enum_conversion(ModuleInfo& mod, Scope& scope, sm::SourceRange range, ast::Expr* expr_node,
-                                                          detail::ExprResult& r, types::TypePtr expected_type)
+        [[nodiscard]] bool apply_implicit_enum_conversion(ModuleInfo& mod, Scope& scope, sm::SourceRange range, ast::Expr* expr_node, detail::ExprResult& r,
+                                                          types::TypePtr expected_type)
         {
             if (!expected_type || !r.type || r.type == m_types.m_voidt() || has_error(r.type) || has_error(expected_type))
                 return false;
