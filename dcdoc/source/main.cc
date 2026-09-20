@@ -47,7 +47,7 @@ auto main(int argc, char** argv) -> int
     if (roots.empty() && entry.has_parent_path())
         roots.push_back(entry.parent_path());
 
-    dcdoc::Builder builder{entry, std::move(roots)};
+    dcdoc::Builder builder{entry, std::move(roots), argv[0]};
     dcdoc::Project project = builder.build();
     if (project.modules.empty())
         return 1;
