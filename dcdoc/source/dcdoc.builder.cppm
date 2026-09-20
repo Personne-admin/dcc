@@ -34,6 +34,13 @@ export namespace dcdoc
             auto files = discover();
             if (files.empty())
                 return project;
+            for (auto const& f : files)
+            {
+                std::error_code ec;
+                std::string canon = std::filesystem::weakly_canonical(f, ec).string();
+                if (!ec)
+                    m_project_files.insert(std::move(canon));
+            }
 
             dcc::session::CompilerSession session{{.silent_diagnostics = true, .enable_doc_comments = true}};
             m_interner = &session.interner();
@@ -65,6 +72,7 @@ export namespace dcdoc
         std::vector<std::filesystem::path> m_roots;
         std::string m_argv0;
         std::uint64_t m_instantiation_count{};
+        std::unordered_set<std::string> m_project_files;
         dcc::si::string_interner* m_interner{};
         std::unordered_map<dcc::ast::Decl const*, std::string> m_decl_ids;
         std::unordered_map<dcc::ast::TemplateParam const*, std::string> m_tparam_ids;
@@ -1005,6 +1013,17 @@ export namespace dcdoc
                 itemize_tparams(static_cast<dcc::ast::UsingDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered);
         }
 
+        [[nodiscard]] bool is_project_module(dcc::sema::ModuleInfo const* mod) const
+        {
+            if (!mod || mod->file_path.empty())
+                return false;
+            std::error_code ec;
+            std::string canon = std::filesystem::weakly_canonical(mod->file_path, ec).string();
+            if (ec)
+                return false;
+            return m_project_files.contains(canon);
+        }
+
         void assemble(dcc::session::CompilerSession& session, std::vector<dcc::sema::ModuleInfo*> const& entries, Project& project)
         {
             auto const& sm = session.source_manager();
@@ -1070,6 +1089,8 @@ export namespace dcdoc
             for (auto const* mod : mods)
             {
                 if (!mod->tu)
+                    continue;
+                if (!is_project_module(mod))
                     continue;
 
                 auto const* tu = mod->tu;

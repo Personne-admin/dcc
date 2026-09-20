@@ -67,6 +67,7 @@ DCDOC_OBJS := \
 	$(OBJ_DIR)/dcdoc.builder.pcm.o \
 	$(OBJ_DIR)/dcdoc.prose.pcm.o \
 	$(OBJ_DIR)/dcdoc.typst.emit.pcm.o \
+	$(OBJ_DIR)/dcdoc.html.emit.pcm.o \
 	$(OBJ_DIR)/dcdoc.markdown.emit.pcm.o
 
 all: test

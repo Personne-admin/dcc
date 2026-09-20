@@ -2,6 +2,7 @@ import std;
 import dcdoc.model;
 import dcdoc.builder;
 import dcdoc.typst.emit;
+import dcdoc.html.emit;
 import dcdoc.markdown.emit;
 
 auto main(int argc, char** argv) -> int
@@ -10,6 +11,7 @@ auto main(int argc, char** argv) -> int
     std::filesystem::path entry;
     std::filesystem::path pdf_out;
     std::filesystem::path typ_out;
+    std::filesystem::path html_out;
     std::filesystem::path md_out;
     bool md_is_dir = false;
     bool dump_model = false;
@@ -23,6 +25,8 @@ auto main(int argc, char** argv) -> int
             typ_out = argv[++i];
         else if (arg == "--pdf" && i + 1 < argc)
             pdf_out = argv[++i];
+        else if (arg == "--html" && i + 1 < argc)
+            html_out = argv[++i];
         else if (arg == "--markdown" && i + 1 < argc)
         {
             std::string_view raw{argv[++i]};
@@ -55,7 +59,7 @@ auto main(int argc, char** argv) -> int
     for (auto const& e : project.file_errors)
         std::println(std::cerr, "dcdoc: {}: {}", e.file, e.message);
 
-    if (dump_model || (pdf_out.empty() && typ_out.empty() && md_out.empty()))
+    if (dump_model || (pdf_out.empty() && typ_out.empty() && html_out.empty() && md_out.empty()))
         std::print("{}", dcdoc::dump(project));
 
     if (!typ_out.empty() || !pdf_out.empty())
@@ -77,6 +81,13 @@ auto main(int argc, char** argv) -> int
             if (rc != 0)
                 return rc;
         }
+    }
+
+    if (!html_out.empty())
+    {
+        int rc = dcdoc::html::write_site(project, html_out);
+        if (rc != 0)
+            return rc;
     }
 
     if (!md_out.empty())
