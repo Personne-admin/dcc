@@ -4,7 +4,7 @@ import dcc.sema;
 import dcdoc.builder;
 import dcdoc.model;
 import dcdoc.typst.emit;
-import dcdoc.markdown.emit;
+import dcdoc.html.emit;
 import dcdoc.markdown.emit;
 
 #include "harness.hh"
@@ -306,6 +306,180 @@ TEST_CASE("stress special characters compile")
     CHECK(pdf.starts_with("%PDF-"));
 }
 
+TEST_CASE("real pointer signatures compile")
+{
+    TempDir td;
+    td.write_file("cb.dc", "module cb;\n\n/// Walker.\npublic struct Solution {\n    i32 v;\n}\n\n/// Runs callback.\npublic void for_each(bool(*)(Solution i) "
+                           "cb, const u8** ptr, []u8 buf) {}\n");
+    td.write_file("main.dc", "module main;\npublic import cb;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    std::string typ = dcdoc::typst::render(project);
+    CHECK(contains(typ, "(text(fill: rgb(31, 111, 235), \"bool\"))"));
+    auto typ_path = td.path / "cb.typ";
+    auto pdf_path = td.path / "cb.pdf";
+    {
+        std::ofstream out{typ_path};
+        REQUIRE(static_cast<bool>(out));
+        out << typ;
+    }
+    int rc = dcdoc::typst::compile_pdf(typ_path, pdf_path);
+    if (rc == 2)
+        return;
+    REQUIRE(rc == 0);
+    std::string pdf = read_file_bytes(pdf_path);
+    REQUIRE(pdf.size() > 1024);
+    CHECK(pdf.starts_with("%PDF-"));
+    if (have_tool("pdftotext"))
+    {
+        auto txt_path = td.path / "cb.txt";
+        std::string cmd = std::string{"pdftotext "} + pdf_path.string() + " " + txt_path.string() + " 2>/dev/null";
+        REQUIRE(std::system(cmd.c_str()) == 0);
+        std::string txt = read_file_bytes(txt_path);
+        std::string flat;
+        for (char c : txt)
+            flat += (c == 10 || c == 13) ? char(32) : c;
+        CHECK(contains(flat, "public void for_each(bool(*)(Solution i) cb, const u8** ptr, []u8 buf)"));
+        CHECK(!contains(txt, "(public)"));
+    }
+}
+
+SECTION("dcdoc html");
+
+TEST_CASE("html site has expected files and cross-page links")
+{
+    TempDir td;
+    td.write_file("shapes.dc", "//!! Shapes module.\nmodule shapes;\n\n//! Primitives\n\n/// A point.\npublic struct Point {\n    i32 x;\n    i32 y;\n}\n");
+    td.write_file("drawing.dc",
+                  "module drawing;\npublic import shapes;\n\n/// Draws with [`shapes::Point`] and [`Nope::Missing`].\npublic void draw(shapes::Point p) {}\n");
+    td.write_file("main.dc", "module main;\npublic import drawing;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    for (std::string const& f : {"index.html", "shapes.html", "drawing.html", "main.html", "search-index.json", "style.css", "search.js"})
+        CHECK(std::filesystem::exists(site / f));
+    std::string drawing = read_file_bytes(site / "drawing.html");
+    CHECK(contains(drawing, "<a class=\"ref\" href=\"shapes.html#shapes::Point%23struct\">shapes::Point</a>"));
+    CHECK(contains(drawing, "<span class=\"ref-unres\">Nope::Missing</span>"));
+    std::string index = read_file_bytes(site / "index.html");
+    CHECK(contains(index, "href=\"shapes.html\""));
+    CHECK(contains(index, "Shapes module"));
+    std::string db = read_file_bytes(site / "search-index.json");
+    CHECK(contains(db, "\"page\":\"drawing.html\""));
+    CHECK(contains(db, "\"name\":\"draw\""));
+}
+
+TEST_CASE("html refs render three distinct forms")
+{
+    TempDir td;
+    td.write_file("p1.dc", "module p1;\n\n/// Thing.\npublic struct Thing {\n    i32 v;\n}\n\n/// Runner one.\npublic void go() {}\n");
+    td.write_file("p2.dc", "module p2;\n\n/// Runner two.\npublic void go() {}\n");
+    td.write_file("doc_a.dc", "module doc_a;\npublic import p1;\n\n/// Uses [`p1::Thing`] and [`Nope::Missing`].\npublic void f() {}\n");
+    td.write_file("doc_b.dc", "module doc_b;\n\n/// Calls [`go`].\npublic void g() {}\n");
+    td.write_file("main.dc", "module main;\npublic import doc_a;\npublic import doc_b;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    std::string a = read_file_bytes(site / "doc_a.html");
+    CHECK(contains(a, "<a class=\"ref\""));
+    CHECK(contains(a, "<span class=\"ref-unres\">Nope::Missing</span>"));
+    std::string b = read_file_bytes(site / "doc_b.html");
+    CHECK(contains(b, "<span class=\"ref-ambig\">go</span>"));
+    CHECK(!contains(b, "<a class=\"ref\""));
+}
+
+TEST_CASE("html pages are strictly well-formed")
+{
+    if (!have_tool("xmllint"))
+        return;
+    TempDir td;
+    td.write_file("shapes.dc", "//!! Shapes module.\nmodule shapes;\n\n/// A point.\npublic struct Point {\n    i32 x;\n}\n");
+    td.write_file("main.dc", "module main;\npublic import shapes;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    for (std::string const& f : {"index.html", "shapes.html", "main.html"})
+    {
+        std::string cmd = std::string{"xmllint --noout "} + (site / f).string() + " 2>&1";
+        std::array<char, 256> buf{};
+        std::string out;
+        auto* pipe = ::popen(cmd.c_str(), "r");
+        REQUIRE(pipe != nullptr);
+        while (::fgets(buf.data(), static_cast<int>(buf.size()), pipe))
+            out += buf.data();
+        CHECK(::pclose(pipe) == 0);
+    }
+}
+
+TEST_CASE("html escapes special characters")
+{
+    TempDir td;
+    td.write_file(
+        "m.dc",
+        "module m;\n\n/// Less <greater> &amp \"say\" \u0027quote\u0027 *star* _u_ `c`.\n/// <script>alert(1)</script> end.\npublic void f(u8[16] a) {}\n");
+    td.write_file("main.dc", "module main;\npublic import m;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    std::string page = read_file_bytes(site / "m.html");
+    CHECK(contains(page, "&lt;greater&gt;"));
+    CHECK(contains(page, "&amp;amp"));
+    CHECK(contains(page, "&quot;"));
+    CHECK(contains(page, "&#39;"));
+    CHECK(contains(page, "&lt;script&gt;alert(1)&lt;/script&gt;"));
+    CHECK(!contains(page, "<script>alert"));
+    CHECK(contains(page, "u8[16]"));
+}
+
+TEST_CASE("html fences become pre code blocks")
+{
+    TempDir td;
+    td.write_file("m.dc", "module m;\n\n/// Example:\n/// ```\n/// let x = 1;\n/// ```\npublic void f() {}\n");
+    td.write_file("main.dc", "module main;\npublic import m;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    std::string page = read_file_bytes(site / "m.html");
+    CHECK(contains(page, "<pre><code class=\"language-dc\">"));
+    CHECK(contains(page, "let x = 1;"));
+    CHECK(!contains(page, "```"));
+}
+
+TEST_CASE("html zero-item site still generates")
+{
+    TempDir td;
+    td.write_file("bare.dc", "module bare;\npublic void f() {}\n");
+    td.write_file("main.dc", "module main;\npublic import bare;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    CHECK(std::filesystem::exists(site / "index.html"));
+    CHECK(std::filesystem::exists(site / "bare.html"));
+    CHECK(contains(read_file_bytes(site / "index.html"), "bare"));
+}
+
+TEST_CASE("html output preserves unrelated files")
+{
+    TempDir td;
+    td.write_file("m.dc", "module m;\n\n/// Fine.\npublic void f() {}\n");
+    td.write_file("main.dc", "module main;\npublic import m;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto site = td.path / "site";
+    td.write_file("site/keep.txt", "do not touch");
+    td.write_file("site/index.html", "OLD");
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    CHECK(read_file_bytes(site / "keep.txt") == "do not touch");
+    CHECK(read_file_bytes(site / "index.html") != "OLD");
+}
+
 SECTION("dcdoc markdown");
 
 [[nodiscard]] bool md_fences_balanced(std::string const& md)
@@ -554,9 +728,41 @@ TEST_CASE("stdlib resolves via default prefix root")
     if (!std::filesystem::is_directory(std_root, ec) || ec)
         return;
     TempDir td;
-    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Entry.\npublic void run() {}\n");
+    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Entry with [`std::fmt::Writer`].\npublic void run() {}\n");
     dcdoc::Builder builder{td.path / "main.dc", {td.path}};
     dcdoc::Project project = builder.build();
     CHECK(project.file_errors.empty());
-    CHECK(contains(dcdoc::dump(project), "std::fmt"));
+    CHECK(contains(dcdoc::dump(project), "target:\"std::fmt::Writer#struct\" resolved:true"));
+}
+
+TEST_CASE("stdlib modules render no chapters but keep resolved refs")
+{
+    const char* std_root = ::getenv("DCC_TEST_LIBDCEXT_SRC");
+    if (!std_root)
+        return;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(std_root, ec) || ec)
+        return;
+    TempDir td;
+    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Formats via [`std::fmt::Writer`].\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    std::string dump = dcdoc::dump(project);
+    CHECK(!contains(dump, "- module \"std::"));
+    CHECK(!contains(dump, "dcc-core:"));
+    CHECK(contains(dump, "target:\"std::fmt::Writer#struct\" resolved:true"));
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(!contains(md, "## std::fmt"));
+    CHECK(contains(md, "[std::fmt::Writer]"));
+    CHECK(!contains(md, "[std::fmt::Writer]("));
+    std::string typ = dcdoc::typst::render(project);
+    CHECK(contains(typ, "#text(style: \"italic\")[std::fmt::Writer]"));
+    CHECK(!contains(typ, "#link(<"));
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    CHECK(!std::filesystem::exists(site / "std.fmt.html"));
+    std::string page = read_file_bytes(site / "main.html");
+    CHECK(contains(page, "<span class=\"ref-ext\">std::fmt::Writer</span>"));
+    CHECK(!contains(page, "<a class=\"ref\""));
 }
