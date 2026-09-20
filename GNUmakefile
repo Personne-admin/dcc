@@ -16,7 +16,7 @@ STD_MK := $(TOPLEVEL)/mk/std.mk
 COMPDB_MK := $(TOPLEVEL)/mk/compdb.mk
 SCAN_SCRIPT := $(TOPLEVEL)/mk/scan_modules.py
 
-COMPDB_SUBDIRS := compiler driver dccd libdcext
+COMPDB_SUBDIRS := compiler driver dccd dcdoc libdcext
 
 PREFIX ?= /usr/local
 DESTDIR ?=
@@ -47,7 +47,7 @@ else
   MSG = @true
 endif
 
-.PHONY: all compiler driver dccd libdcext test install uninstall compdb clean distclean help tools-windows msi
+.PHONY: all compiler driver dccd dcdoc libdcext test install uninstall compdb clean distclean help tools-windows msi
 
 all: driver libdcext dccd
 
@@ -59,6 +59,9 @@ driver: compiler
 
 dccd: compiler
 	@$(MAKE) -C dccd
+
+dcdoc: compiler
+	@$(MAKE) -C dcdoc
 
 libdcext: driver
 	@$(MAKE) -C libdcext
@@ -93,7 +96,7 @@ msi: tools-windows
 	$(Q)wixl -v -a x64 -o $(MSI_OUT) $(TOPLEVEL)/build-windows/dcc.wxs
 	$(call MSG,MSI,$(MSI_OUT))
 
-test: compiler driver libdcext dccd
+test: compiler driver libdcext dccd dcdoc
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=em64t
 	@$(MAKE) -C tests
 

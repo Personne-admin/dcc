@@ -152,6 +152,42 @@ export namespace dcc::session
             };
         }
 
+        struct ResolveOnlyResult
+        {
+            std::vector<sema::ModuleInfo*> entries;
+            bool has_errors{false};
+        };
+
+        ResolveOnlyResult analyze_resolve_only_files(std::span<std::filesystem::path const> entry_paths, CompileOptions const& opts)
+        {
+            m_bench_parse_seconds = 0;
+            m_entry_path.clear();
+            m_prelude_enabled = opts.inject_libdcext_prelude;
+
+            m_sema.reset();
+            m_ast_ctx = std::make_unique<ast::AstContext>(opts.arena_initial_size);
+
+            m_enable_doc = opts.enable_doc_comments;
+            sema::SemaOptions sopts;
+            sopts.arena_initial_size = opts.arena_initial_size;
+            sopts.import_roots = opts.import_roots;
+            sopts.interner = &m_interner;
+            sopts.target = opts.target;
+            sopts.injected_decls = opts.injected_decls;
+            sopts.enable_doc_comments = opts.enable_doc_comments;
+
+            auto parse = [this](sm::FileId fid, ast::AstContext& ast, diag::DiagnosticEngine& d) -> ast::TranslationUnit* { return parse_file(fid, ast, d); };
+
+            m_sema = std::make_unique<sema::SemaContext>(m_sm, m_diag, *m_ast_ctx, std::move(parse), std::move(sopts));
+
+            auto entries = m_sema->analyze_resolve_only_files(entry_paths);
+
+            return ResolveOnlyResult{
+                .entries = std::move(entries),
+                .has_errors = m_diag.has_errors(),
+            };
+        }
+
     private:
         [[nodiscard]] static bool is_std_prelude(ast::TranslationUnit const* tu) noexcept
         {

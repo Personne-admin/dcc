@@ -84,6 +84,45 @@ export namespace dcc::sema
             return root;
         }
 
+        std::vector<ModuleInfo*> analyze_resolve_only_files(std::span<std::filesystem::path const> entry_files)
+        {
+            std::vector<ModuleInfo*> entries;
+            entries.reserve(entry_files.size());
+            for (auto const& entry_file : entry_files)
+            {
+                auto* root = m_importer.load_entry(entry_file);
+                if (!root)
+                    continue;
+
+                entries.push_back(root);
+            }
+
+            prepare_injected_sources();
+            for (auto* root : entries)
+            {
+                load_transitively(
+                    m_importer, *root, [this](ModuleInfo& module) { inject_decls(module); },
+                    [this](ast::ImportDecl const& decl) { return m_injected_imports.contains(&decl); });
+            }
+
+            std::vector<sm::SourceRange> parser_recovery_ranges;
+            for (auto const& module : m_graph.all())
+                if (module->tu)
+                    parser_recovery_ranges.insert(parser_recovery_ranges.end(), module->tu->parser_recovery_ranges.begin(),
+                                                  module->tu->parser_recovery_ranges.end());
+            m_diag.set_parser_recovery_ranges(parser_recovery_ranges);
+
+            collect_all(m_graph.all(), m_diag, m_types, m_alloc);
+            resolve_usings(m_graph.all(), m_diag, m_alloc);
+            m_diag.set_parser_recovery_suppression(true);
+            resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
+            validate_attributes(m_graph.all(), m_diag, m_alloc);
+            validate_public_signatures(m_graph.all(), m_diag);
+            m_diag.set_parser_recovery_suppression(false);
+
+            return entries;
+        }
+
     private:
         void prepare_injected_sources()
         {
