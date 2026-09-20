@@ -9,6 +9,7 @@ import dcc.ast;
 import dcc.sema;
 import dcc.session;
 import dcc.target;
+import dcc.config;
 import dcdoc.model;
 
 export namespace dcdoc
@@ -22,8 +23,8 @@ export namespace dcdoc
     class Builder
     {
     public:
-        explicit Builder(std::filesystem::path entry_file, std::vector<std::filesystem::path> roots = {})
-            : m_entry{std::move(entry_file)}, m_roots{std::move(roots)}
+        explicit Builder(std::filesystem::path entry_file, std::vector<std::filesystem::path> roots = {}, std::string argv0 = {})
+            : m_entry{std::move(entry_file)}, m_roots{std::move(roots)}, m_argv0{std::move(argv0)}
         {
         }
 
@@ -39,6 +40,13 @@ export namespace dcdoc
             dcc::session::CompileOptions opts;
             for (auto const& r : m_roots)
                 opts.import_roots.push_back(r);
+            std::string arg = m_argv0;
+            char* av[2] = {arg.data(), nullptr};
+            auto prefix = dcc::config::current_prefix(m_argv0.empty() ? nullptr : av).path;
+            std::error_code ec;
+            auto std_root = prefix / "include";
+            if (std::filesystem::is_directory(std_root, ec) && !ec)
+                opts.import_roots.push_back(std::move(std_root));
 
             opts.enable_doc_comments = true;
             auto result = session.analyze_resolve_only_files(files, opts);
@@ -55,6 +63,7 @@ export namespace dcdoc
     private:
         std::filesystem::path m_entry;
         std::vector<std::filesystem::path> m_roots;
+        std::string m_argv0;
         std::uint64_t m_instantiation_count{};
         dcc::si::string_interner* m_interner{};
         std::unordered_map<dcc::ast::Decl const*, std::string> m_decl_ids;

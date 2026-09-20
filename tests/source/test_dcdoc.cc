@@ -506,3 +506,19 @@ TEST_CASE("markdown zero-item output is non-empty")
     CHECK(md_fences_balanced(md));
     CHECK(md_blocks_separated(md));
 }
+
+TEST_CASE("stdlib resolves via default prefix root")
+{
+    const char* std_root = ::getenv("DCC_TEST_LIBDCEXT_SRC");
+    if (!std_root)
+        return;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(std_root, ec) || ec)
+        return;
+    TempDir td;
+    td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Entry.\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    CHECK(project.file_errors.empty());
+    CHECK(contains(dcdoc::dump(project), "std::fmt"));
+}
