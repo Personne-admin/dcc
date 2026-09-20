@@ -65,7 +65,9 @@ DCDOC_PCMS := $(wildcard $(PCM_DIR)/dcdoc.*.pcm)
 DCDOC_OBJS := \
 	$(OBJ_DIR)/dcdoc.model.pcm.o \
 	$(OBJ_DIR)/dcdoc.builder.pcm.o \
-	$(OBJ_DIR)/dcdoc.typst.emit.pcm.o
+	$(OBJ_DIR)/dcdoc.prose.pcm.o \
+	$(OBJ_DIR)/dcdoc.typst.emit.pcm.o \
+	$(OBJ_DIR)/dcdoc.markdown.emit.pcm.o
 
 all: test
 
