@@ -4,6 +4,8 @@ import dcc.sema;
 import dcdoc.builder;
 import dcdoc.model;
 import dcdoc.typst.emit;
+import dcdoc.markdown.emit;
+import dcdoc.markdown.emit;
 
 #include "harness.hh"
 
@@ -264,4 +266,216 @@ TEST_CASE("stress special characters compile")
     std::string pdf = read_file_bytes(pdf_path);
     REQUIRE(pdf.size() > 1024);
     CHECK(pdf.starts_with("%PDF-"));
+}
+
+SECTION("dcdoc markdown");
+
+[[nodiscard]] bool md_fences_balanced(std::string const& md)
+{
+    std::size_t open = 0;
+    std::size_t i = 0;
+    while (i < md.size())
+    {
+        std::size_t j = md.find(10, i);
+        if (j == std::string::npos)
+            j = md.size();
+        std::size_t k = i;
+        while (k < j && md[k] == 96)
+            ++k;
+        std::size_t run = k - i;
+        if (run >= 3)
+        {
+            if (open == 0)
+                open = run;
+            else if (run >= open)
+                open = 0;
+        }
+        if (j == md.size())
+            break;
+        i = j + 1;
+    }
+    return open == 0;
+}
+
+[[nodiscard]] bool md_blocks_separated(std::string const& md)
+{
+    if (md.find("\n\n\n") != std::string::npos)
+        return false;
+    bool in_fence = false;
+    std::size_t frun = 0;
+    bool prev_blank = true;
+    std::size_t i = 0;
+    while (i < md.size())
+    {
+        std::size_t j = md.find(10, i);
+        if (j == std::string::npos)
+            j = md.size();
+        bool blank = true;
+        for (std::size_t t = i; t < j; ++t)
+            if (md[t] != 32 && md[t] != 9 && md[t] != 13)
+                blank = false;
+        if (!blank)
+        {
+            std::size_t k = i;
+            while (k < j && md[k] == 96)
+                ++k;
+            std::size_t run = k - i;
+            if (run >= 3 && !in_fence)
+            {
+                in_fence = true;
+                frun = run;
+                if (!prev_blank)
+                    return false;
+            }
+            else if (run >= 3 && run >= frun)
+                in_fence = false;
+            else if (!in_fence && md[i] == 35)
+            {
+                if (!prev_blank)
+                    return false;
+            }
+        }
+        prev_blank = blank;
+        if (j == md.size())
+            break;
+        i = j + 1;
+    }
+    return !in_fence;
+}
+
+TEST_CASE("markdown single file structure")
+{
+    TempDir td;
+    td.write_file("shapes.dc", "module shapes;\n\n/// A point.\npublic struct Point {\n    i32 x;\n}\n");
+    td.write_file("drawing.dc",
+                  "module drawing;\npublic import shapes;\n\n/// Draws with [`shapes::Point`] and [`Nope::Missing`].\npublic void draw(shapes::Point p) {}\n");
+    td.write_file("main.dc", "module main;\npublic import drawing;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "# main"));
+    CHECK(contains(md, "## drawing"));
+    CHECK(contains(md, "#### draw"));
+    CHECK(contains(md, "```dc"));
+    CHECK(contains(md, "[shapes::Point](#point)"));
+    CHECK(contains(md, "Nope::Missing"));
+    CHECK(md_fences_balanced(md));
+    CHECK(md_blocks_separated(md));
+}
+
+TEST_CASE("markdown multi-file structure")
+{
+    TempDir td;
+    td.write_file("shapes.dc", "module shapes;\n\n/// A point.\npublic struct Point {\n    i32 x;\n}\n");
+    td.write_file("drawing.dc", "module drawing;\npublic import shapes;\n\n/// Draws with [`shapes::Point`].\npublic void draw(shapes::Point p) {}\n");
+    td.write_file("main.dc", "module main;\npublic import drawing;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto dir = td.path / "md";
+    REQUIRE(dcdoc::markdown::write_markdown(project, dir, true) == 0);
+    for (std::string const& f : {"index.md", "shapes.md", "drawing.md", "main.md"})
+        CHECK(std::filesystem::exists(dir / f));
+    std::string drawing = read_file_bytes(dir / "drawing.md");
+    CHECK(contains(drawing, "[shapes::Point](shapes.md#point)"));
+    CHECK(md_blocks_separated(drawing));
+    CHECK(md_fences_balanced(drawing));
+    std::string index = read_file_bytes(dir / "index.md");
+    CHECK(contains(index, "[drawing](drawing.md)"));
+    CHECK(md_blocks_separated(index));
+}
+
+TEST_CASE("markdown refs render three distinct forms")
+{
+    TempDir td;
+    td.write_file("p1.dc", "module p1;\n\n/// Thing.\npublic struct Thing {\n    i32 v;\n}\n\n/// Runner one.\npublic void go() {}\n");
+    td.write_file("p2.dc", "module p2;\n\n/// Runner two.\npublic void go() {}\n");
+    td.write_file("doc_a.dc", "module doc_a;\npublic import p1;\n\n/// Uses [`p1::Thing`] and [`Nope::Missing`].\npublic void f() {}\n");
+    td.write_file("doc_b.dc", "module doc_b;\npublic import p2;\n\n/// Calls [`go`].\npublic void g() {}\n");
+    td.write_file("doc_c.dc", "module doc_c;\n\n/// Calls [`go`] and [`Nope::Missing`].\npublic void h() {}\n");
+    td.write_file("main.dc", "module main;\npublic import doc_a;\npublic import doc_b;\npublic import doc_c;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "[p1::Thing](#thing)"));
+    CHECK(contains(md, "[go](#go-2)"));
+    CHECK(contains(md, "*go*"));
+    CHECK(contains(md, "Nope::Missing"));
+    CHECK(!contains(md, "[Nope::Missing]("));
+    CHECK(md_fences_balanced(md));
+    CHECK(md_blocks_separated(md));
+}
+
+TEST_CASE("markdown overload headings disambiguate")
+{
+    TempDir td;
+    td.write_file("shapes.dc", "module shapes;\n\n/// A point.\npublic struct Point {\n    i32 x;\n    i32 y;\n}\n\n/// A line.\npublic struct Line {\n    "
+                               "Point a;\n    Point b;\n}\n");
+    td.write_file("drawing.dc", "module drawing;\npublic import shapes;\n\n/// Draws a point.\npublic void draw(shapes::Point p) {}\n\n/// Draws a "
+                                "line.\npublic void draw(shapes::Line l) {}\n");
+    td.write_file("main.dc", "module main;\npublic import drawing;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "#### draw\n"));
+    CHECK(contains(md, "#### draw (2)\n"));
+    CHECK(md == dcdoc::markdown::render_single(project));
+    CHECK(md_fences_balanced(md));
+    CHECK(md_blocks_separated(md));
+}
+
+TEST_CASE("markdown escapes special characters")
+{
+    TempDir td;
+    td.write_file("m.dc", "module m;\n\n/// Doc with #hash *star* _under_ [bracket] `code` \\slash \"say\" \u0027q\u0027.\n/// # Heading-looking\n/// - "
+                          "list-looking\n/// > quote-looking\n/// 1. ordered-looking\n///     indented line here\npublic void f(u8[16] a) {}\n");
+    td.write_file("main.dc", "module main;\npublic import m;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "#hash"));
+    CHECK(contains(md, "\\*star\\*"));
+    CHECK(contains(md, "\\_under\\_"));
+    CHECK(contains(md, "\\[bracket\\]"));
+    CHECK(contains(md, "`code`"));
+    CHECK(contains(md, "\\\\slash"));
+    CHECK(contains(md, "\"say\""));
+    CHECK(contains(md, "\u0027q\u0027"));
+    CHECK(contains(md, "\\# Heading-looking"));
+    CHECK(contains(md, "\\- list-looking"));
+    CHECK(contains(md, "\\> quote-looking"));
+    CHECK(contains(md, "1\\. ordered-looking"));
+    CHECK(contains(md, "&#32;&#32;&#32;&#32;indented"));
+    CHECK(contains(md, "u8[16]"));
+    CHECK(md_fences_balanced(md));
+    CHECK(md_blocks_separated(md));
+}
+
+TEST_CASE("markdown fences handle backtick content")
+{
+    TempDir td;
+    td.write_file("m.dc", "module m;\n\n/// Example:\n/// ```dc\n/// let tick = `x`;\n/// op ```` y\n/// ```\n/// After.\npublic void f() {}\n");
+    td.write_file("main.dc", "module main;\npublic import m;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "`````dc"));
+    CHECK(contains(md, "let tick = `x`;"));
+    CHECK(md_fences_balanced(md));
+    CHECK(md_blocks_separated(md));
+}
+
+TEST_CASE("markdown zero-item output is non-empty")
+{
+    TempDir td;
+    td.write_file("bare.dc", "module bare;\npublic void f() {}\n");
+    td.write_file("main.dc", "module main;\npublic import bare;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    auto out = td.path / "out.md";
+    REQUIRE(dcdoc::markdown::write_markdown(project, out, false) == 0);
+    std::string md = read_file_bytes(out);
+    CHECK(!md.empty());
+    CHECK(contains(md, "# main"));
+    CHECK(md_fences_balanced(md));
+    CHECK(md_blocks_separated(md));
 }
