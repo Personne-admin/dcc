@@ -281,6 +281,7 @@ namespace dcc::sema
                     auto* n = m_ctx.make<ast::PackAccessExpr>(ex->range, clone_expr(ex->object), clone_expr(ex->index));
                     n->has_resolved_field_index = ex->has_resolved_field_index;
                     n->resolved_field_index = ex->resolved_field_index;
+                    n->is_direct_struct_access = ex->is_direct_struct_access;
                     n->sema = ex->sema;
                     return n;
                 }
@@ -2000,9 +2001,8 @@ export namespace dcc::sema
         return cloner.clone_expr(expr);
     }
 
-    [[nodiscard]] std::pmr::vector<ast::StmtPtr> expand_struct_pack_loop(ast::AstContext& ast_ctx, ast::StaticForStmt const& sf,
-                                                                        ast::VarDecl const* item_decl,
-                                                                        ast::FieldAccessExpr const* pack_access, std::uint64_t count)
+    [[nodiscard]] std::pmr::vector<ast::StmtPtr> expand_struct_pack_loop(ast::AstContext& ast_ctx, ast::StaticForStmt const& sf, ast::VarDecl const* item_decl,
+                                                                         ast::FieldAccessExpr const* pack_access, std::uint64_t count)
     {
         std::pmr::vector<ast::StmtPtr> out(ast_ctx.allocator());
         for (std::uint64_t k = 0; k < count; ++k)
@@ -2193,8 +2193,8 @@ export namespace dcc::sema
         }
     }
 
-    [[nodiscard]] ast::TemplateParam const* unresolved_template_parameter(ast::FuncDecl const& function,
-                                                                         infer::TemplateBindings const& bindings, types::TypeContext& types)
+    [[nodiscard]] ast::TemplateParam const* unresolved_template_parameter(ast::FuncDecl const& function, infer::TemplateBindings const& bindings,
+                                                                          types::TypeContext& types)
     {
         for (std::size_t i = 0; i < function.template_params.size(); ++i)
         {
@@ -3239,23 +3239,26 @@ export namespace dcc::sema
                                 if (pit != pack_info.end())
                                 {
                                     auto cur = get_resolved_type(e->sema);
-                                    bool concrete = cur && !types::type_cast<types::TemplateParamType>(cur) && !types::type_cast<types::TypePackType>(cur) && cur->kind != types::TypeKind::Error;
+                                    bool concrete = cur && !types::type_cast<types::TemplateParamType>(cur) && !types::type_cast<types::TypePackType>(cur) &&
+                                                    cur->kind != types::TypeKind::Error;
                                     if (!concrete)
                                     {
-                                    auto count = pit->second.types.size();
-                                    if (m_diag)
-                                    {
-                                        if (count == 0)
-                                            m_diag->error(e->range, "cannot use empty pack '{}' as value", ident->name);
-                                        else if (count == 1)
-                                            m_diag->error(e->range, "cannot use pack '{}' with 1 element as value; use '{}...' to expand", ident->name, ident->name);
-                                        else
-                                            m_diag->error(e->range, "cannot use pack '{}' with {} elements as value; use '{}...' to expand", ident->name, count, ident->name);
-                                    }
-                                    auto* err = ast_ctx.make<ast::IntLiteralExpr>(e->range, 0, "0");
-                                    set_resolved_type(err->sema, type_ctx.m_errort());
-                                    e = err;
-                                    break;
+                                        auto count = pit->second.types.size();
+                                        if (m_diag)
+                                        {
+                                            if (count == 0)
+                                                m_diag->error(e->range, "cannot use empty pack '{}' as value", ident->name);
+                                            else if (count == 1)
+                                                m_diag->error(e->range, "cannot use pack '{}' with 1 element as value; use '{}...' to expand", ident->name,
+                                                              ident->name);
+                                            else
+                                                m_diag->error(e->range, "cannot use pack '{}' with {} elements as value; use '{}...' to expand", ident->name,
+                                                              count, ident->name);
+                                        }
+                                        auto* err = ast_ctx.make<ast::IntLiteralExpr>(e->range, 0, "0");
+                                        set_resolved_type(err->sema, type_ctx.m_errort());
+                                        e = err;
+                                        break;
                                     }
                                 }
                             }
@@ -4091,7 +4094,7 @@ export namespace dcc::sema
                 {
                     if (!e)
                         return;
-                    if (e->kind == ast::ExprKind::PackAccess &&
+                    if (e->kind == ast::ExprKind::PackAccess && !static_cast<ast::PackAccessExpr const*>(e)->has_resolved_field_index &&
                         (!static_cast<ast::PackAccessExpr const*>(e)->object ||
                          static_cast<ast::PackAccessExpr const*>(e)->object->kind != ast::ExprKind::FieldAccess))
                         d->error(e->range, "internal error: PackAccessExpr survived into lowerable code");
@@ -4420,9 +4423,9 @@ export namespace dcc::sema
             if (auto* missing = unresolved_template_parameter(template_fn, bindings, type_ctx))
             {
                 if (diag)
-                    diag->emit(diag::Diagnostic{diag::Severity::Error,
-                                               std::format("cannot deduce template argument `{}` for `{}`", missing->name, template_fn.name)}
-                                   .primary(instantiation_site));
+                    diag->emit(
+                        diag::Diagnostic{diag::Severity::Error, std::format("cannot deduce template argument `{}` for `{}`", missing->name, template_fn.name)}
+                            .primary(instantiation_site));
                 return {nullptr, nullptr, SpecState::Failed, false};
             }
             auto key = make_key(template_fn, bindings, type_ctx);
@@ -4783,9 +4786,7 @@ namespace dcc::sema
             for (auto const& p : fp->params)
             {
                 auto const* named = ast::node_cast<ast::NamedType>(p.type);
-                auto const* pack = named && named->path.is_simple() && named->template_args.empty()
-                                       ? splice_pack_types(named->path.simple_name())
-                                       : nullptr;
+                auto const* pack = named && named->path.is_simple() && named->template_args.empty() ? splice_pack_types(named->path.simple_name()) : nullptr;
                 if (!pack)
                 {
                     expanded.push_back(p);

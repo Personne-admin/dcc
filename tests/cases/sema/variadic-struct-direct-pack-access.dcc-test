@@ -1,0 +1,34 @@
+=== FILE: main.dc ===
+module m;
+
+struct Tuple(T...) {
+    T... items;
+}
+
+void mutate(Tuple(usize, usize)* p) {
+    (*p).0 = 42;
+}
+
+usize read(Tuple(usize, usize)* p) {
+    return (*p).1;
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func mutate diverging=false
+    Param p type=Tuple(usize, usize)* storage=param offset=0 index=0
+    Body
+      Binary = [type=usize const=<none>]
+        PackAccess [type=usize const=<none> lvalue decl=Tuple]
+          Unary * [type=Tuple(usize, usize) const=<none> lvalue]
+            Ident p [type=Tuple(usize, usize)* const=<none> lvalue decl=p]
+          IntLiteral 0 [type=i32 const=0 constant]
+        IntLiteral 42 [type=usize const=42 constant]
+  Func read diverging=true
+    Param p type=Tuple(usize, usize)* storage=param offset=0 index=0
+    Body
+      Return
+        PackAccess [type=usize const=<none> lvalue decl=Tuple]
+          Unary * [type=Tuple(usize, usize) const=<none> lvalue]
+            Ident p [type=Tuple(usize, usize)* const=<none> lvalue decl=p]
+          IntLiteral 1 [type=i32 const=1 constant]
