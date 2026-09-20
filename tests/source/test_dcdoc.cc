@@ -106,6 +106,44 @@ TEST_CASE("resolve-only instantiates nothing")
     CHECK(session.sema_context()->spec_registry().instantiation_count() > 0u);
 }
 
+SECTION("dcdoc signatures");
+
+TEST_CASE("signatures reproduce real dc syntax")
+{
+    TempDir td;
+    td.write_file("sigv.dc",
+                  "module sigv;\n\npublic void parse_numberws(const u8** ptr, usize* n, usize* skiped_bytes) {}\n\npublic T identity(T)(T x) { return x; "
+                  "}\n\npublic struct Holder {\n    void* ctx;\n    u8[16] buf;\n    []const u8 data;\n    void(*)(i32 code) on_event;\n}\n\npublic struct "
+                  "Map(K, V) {\n    K key;\n}\n\npublic struct Box(T = i32) {\n    T value;\n}\n\npublic union U {\n    i32 i;\n    f32 f;\n}\n\npublic enum E "
+                  ": u8 {\n    A,\n    B(i32),\n    C = 42,\n}\n\npublic using X = i32;\nusing usize MAX = 8;\n");
+    td.write_file("main.dc", "module main;\npublic import sigv;\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Project project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    std::string dump = dcdoc::dump(project);
+    CHECK(contains(dump, "public void parse_numberws(const u8** ptr, usize* n, usize* skiped_bytes)"));
+    CHECK(contains(dump, "public T identity(T)(T x)"));
+    CHECK(contains(dump, "const u8** ptr"));
+    CHECK(contains(dump, "T x"));
+    CHECK(contains(dump, "void* ctx;"));
+    CHECK(contains(dump, "u8[16] buf;"));
+    CHECK(contains(dump, "[]const u8 data;"));
+    CHECK(contains(dump, "void(*)(i32 code) on_event;"));
+    CHECK(contains(dump, "public struct Map(K, V)"));
+    CHECK(contains(dump, "K key;"));
+    CHECK(contains(dump, "public struct Box(T = i32)"));
+    CHECK(contains(dump, "T value;"));
+    CHECK(contains(dump, "T = i32"));
+    CHECK(contains(dump, "public union U"));
+    CHECK(contains(dump, "public enum E : u8"));
+    CHECK(contains(dump, "B(i32)"));
+    CHECK(contains(dump, "C = 42"));
+    CHECK(contains(dump, "public using X = i32;"));
+    CHECK(contains(dump, "using usize MAX = 8;"));
+    CHECK(contains(dump, "target:\"sigv::identity::T#tparam\" resolved:true via:\"ParamType\""));
+    CHECK(contains(dump, "target:\"sigv::Box::T#tparam\" resolved:true via:\"FieldType\""));
+}
+
 SECTION("dcdoc typst");
 
 TEST_CASE("resolved ambiguous and unresolved refs render distinctly")
