@@ -2,6 +2,7 @@ import std;
 import dcdoc.model;
 import dcdoc.builder;
 import dcdoc.typst.emit;
+import dcdoc.markdown.emit;
 
 auto main(int argc, char** argv) -> int
 {
@@ -9,6 +10,8 @@ auto main(int argc, char** argv) -> int
     std::filesystem::path entry;
     std::filesystem::path pdf_out;
     std::filesystem::path typ_out;
+    std::filesystem::path md_out;
+    bool md_is_dir = false;
     bool dump_model = false;
 
     for (int i = 1; i < argc; ++i)
@@ -20,6 +23,12 @@ auto main(int argc, char** argv) -> int
             typ_out = argv[++i];
         else if (arg == "--pdf" && i + 1 < argc)
             pdf_out = argv[++i];
+        else if (arg == "--markdown" && i + 1 < argc)
+        {
+            std::string_view raw{argv[++i]};
+            md_is_dir = raw.ends_with("/");
+            md_out = raw;
+        }
         else if ((arg == "--root" || arg == "-I") && i + 1 < argc)
             roots.emplace_back(argv[++i]);
         else if (arg.starts_with("--root="))
@@ -46,7 +55,7 @@ auto main(int argc, char** argv) -> int
     for (auto const& e : project.file_errors)
         std::println(std::cerr, "dcdoc: {}: {}", e.file, e.message);
 
-    if (dump_model || (pdf_out.empty() && typ_out.empty()))
+    if (dump_model || (pdf_out.empty() && typ_out.empty() && md_out.empty()))
         std::print("{}", dcdoc::dump(project));
 
     if (!typ_out.empty() || !pdf_out.empty())
@@ -63,7 +72,20 @@ auto main(int argc, char** argv) -> int
         out << typ;
         out.close();
         if (!pdf_out.empty())
-            return dcdoc::typst::compile_pdf(typ_path, pdf_out);
+        {
+            int rc = dcdoc::typst::compile_pdf(typ_path, pdf_out);
+            if (rc != 0)
+                return rc;
+        }
+    }
+
+    if (!md_out.empty())
+    {
+        std::error_code ec;
+        bool is_dir = md_is_dir || (std::filesystem::exists(md_out, ec) && std::filesystem::is_directory(md_out, ec));
+        int rc = dcdoc::markdown::write_markdown(project, md_out, is_dir);
+        if (rc != 0)
+            return rc;
     }
 
     return 0;
