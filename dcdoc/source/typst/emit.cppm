@@ -14,6 +14,27 @@ import dcdoc.prose;
 
 export namespace dcdoc::typst
 {
+    // All document-wide typography lives here; content routines only assign roles.
+    constexpr std::string_view kPreamble = R"typ(
+#set page(paper: "a4", margin: (x: 24mm, y: 22mm),
+  header: context {
+    let modules = query(heading.where(level: 1)).filter(h => h.location().page() <= here().page())
+    let sections = query(heading.where(level: 2)).filter(h => h.location().page() == here().page())
+    if modules.len() > 0 {
+      let label = if sections.len() > 0 { sections.last().body } else { modules.last().body }
+      align(right, text(size: 8pt, fill: luma(110), modules.last().body + " / " + label))
+    }
+  },
+  footer: context align(center, text(size: 8pt, fill: luma(110), counter(page).display())))
+#set text(font: "Libertinus Serif", size: 10.5pt)
+#set par(leading: 0.68em, spacing: 0.8em)
+#set heading(numbering: "1.1.1")
+#show heading.where(level: 1): set text(size: 20pt, weight: "bold")
+#show heading.where(level: 2): set text(size: 15pt, weight: "bold")
+#show heading.where(level: 3): set text(size: 12pt, weight: "bold")
+#show raw: set text(font: "DejaVu Sans Mono", size: 8.5pt)
+)typ";
+
     [[nodiscard]] std::string esc(std::string_view s)
     {
         constexpr char kBackslash = 92;
@@ -214,7 +235,8 @@ export namespace dcdoc::typst
     {
         std::string name = project.entry_module.empty() ? "Project" : project.entry_module;
         auto now = std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
-        std::string out = "#align(center + horizon)[\n#text(26pt)[ ";
+        std::string out{kPreamble};
+        out += "#align(center + horizon)[\n#text(26pt)[ ";
         out += esc(name);
         out += " ]\n";
         if (!project.overview.empty())
