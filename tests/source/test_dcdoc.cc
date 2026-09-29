@@ -3,6 +3,7 @@ import dcc.session;
 import dcc.sema;
 import dcdoc.builder;
 import dcdoc.model;
+import dcdoc.prose;
 import dcdoc.typst.emit;
 import dcdoc.html.emit;
 import dcdoc.markdown.emit;
@@ -45,6 +46,9 @@ struct TempDir
 {
     return haystack.contains(needle);
 }
+
+[[nodiscard]] bool have_tool(std::string_view name);
+[[nodiscard]] std::string read_file_bytes(std::filesystem::path const& p);
 
 SECTION("dcdoc model");
 
@@ -146,6 +150,88 @@ TEST_CASE("signatures reproduce real dc syntax")
 
 SECTION("dcdoc typst");
 
+TEST_CASE("CommonMark prose keeps pointer stars and lazy list lines")
+{
+    std::string source = "reads *ptr and returns a u8* value\n\n(*p)++\n\na const u8** buffer\n\nx*y*z\n\n"
+                         "- time O(h + d + m*b) where h is the count,\n"
+                         "boss attacks continue here.\n"
+                         "- space O(h + *m*) where *m* is mana.\n";
+    auto blocks = dcdoc::prose::parse_doc(source, {});
+    REQUIRE(blocks.size() == 5);
+    CHECK(blocks[0].spans[1].kind == dcdoc::prose::InlineKind::Emph);
+    CHECK(blocks[1].spans[0].text == "(*p)++");
+    CHECK(blocks[2].spans[0].text == "a const u8** buffer");
+    CHECK(blocks[3].spans[1].kind == dcdoc::prose::InlineKind::Emph);
+    CHECK(blocks[4].kind == dcdoc::prose::BlockKind::BulletList);
+    CHECK(blocks[4].children.size() == 2);
+    CHECK(blocks[4].children[0].children.size() == 1);
+    TempDir td;
+    td.write_file("m.dc", "module m;\n//! Complexity\n//! - time O(h + d + m*b) where h is the count,\n"
+                          "//! boss attacks continue here.\n//! - space O(h + *m*) where *m* is mana.\n"
+                          "public void f() {}\n");
+    dcdoc::Builder builder{td.path / "m.dc", {td.path}};
+    auto project = builder.build();
+    std::string typ = dcdoc::typst::render(project);
+    std::string html_dir = (td.path / "html").string();
+    REQUIRE(dcdoc::html::write_site(project, html_dir) == 0);
+    std::string html = read_file_bytes(td.path / "html" / "m.html");
+    CHECK(contains(html, "<ul>"));
+    CHECK(contains(html, "boss attacks continue here"));
+    CHECK(contains(html, "<em>m</em>"));
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "- time O(h + d + m\\*b)"));
+    CHECK(contains(md, "- space O(h + *m*)"));
+    auto typ_path = td.path / "out.typ";
+    auto pdf_path = td.path / "out.pdf";
+    { std::ofstream out{typ_path}; REQUIRE(static_cast<bool>(out)); out << typ; }
+    int rc = dcdoc::typst::compile_pdf(typ_path, pdf_path);
+    if (rc == 2) return;
+    REQUIRE(rc == 0);
+    if (have_tool("pdftotext"))
+    {
+        auto txt_path = td.path / "out.txt";
+        std::string cmd = "pdftotext -layout " + pdf_path.string() + " " + txt_path.string() + " 2>/dev/null";
+        REQUIRE(std::system(cmd.c_str()) == 0);
+        std::string txt = read_file_bytes(txt_path);
+        CHECK(contains(txt, "O(h + d + m*b)"));
+        CHECK(contains(txt, "boss attacks continue here"));
+        CHECK(contains(txt, "O(h + m)"));
+    }
+}
+
+TEST_CASE("section links resolve across modules and warn on dangling slugs")
+{
+    TempDir td;
+    td.write_file("one.dc", "//!! See [#intro], [#intro-2], [`two::details#section`], and [`one::gone#section`].\n"
+                             "module one;\n//! Intro\n//! First.\n\n//! Intro\n//! Second.\n"
+                             "/// Refer to [`one::intro#section`](again).\npublic void f() {}\n");
+    td.write_file("two.dc", "module two;\n//! Details\n//! Body.\npublic void g() {}\n");
+    dcdoc::Builder builder{td.path / "one.dc", {td.path}};
+    auto project = builder.build();
+    REQUIRE(project.modules.size() == 2);
+    REQUIRE(project.overview_refs.size() == 4);
+    CHECK(project.overview_refs[0].target == "one::intro#section");
+    CHECK(project.overview_refs[1].target == "one::intro-2#section");
+    CHECK(project.overview_refs[2].target == "two::details#section");
+    CHECK(!project.overview_refs[3].resolved);
+    CHECK(contains(dcdoc::dump(project), "one::gone#section"));
+    CHECK(project.warnings.size() == 1);
+    std::string typ = dcdoc::typst::render(project);
+    CHECK(contains(typ, "#(link(<"));
+    auto typ_path = td.path / "sections.typ";
+    auto pdf_path = td.path / "sections.pdf";
+    { std::ofstream out{typ_path}; REQUIRE(static_cast<bool>(out)); out << typ; }
+    int rc = dcdoc::typst::compile_pdf(typ_path, pdf_path);
+    if (rc != 2) REQUIRE(rc == 0);
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    std::string page = read_file_bytes(site / "index.html");
+    CHECK(contains(page, "one.html#one::intro%23section"));
+    CHECK(contains(page, "two.html#two::details%23section"));
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "[one::intro#section](#intro)"));
+}
+
 TEST_CASE("resolved ambiguous and unresolved refs render distinctly")
 {
     TempDir td;
@@ -158,7 +244,7 @@ TEST_CASE("resolved ambiguous and unresolved refs render distinctly")
     dcdoc::Project project = builder.build();
     std::string typ = dcdoc::typst::render(project);
     CHECK(typ == dcdoc::typst::render(project));
-    CHECK(contains(typ, "#link(<p1--Thing-struct>)[p1::Thing]"));
+    CHECK(contains(typ, "#(link(<p1--Thing-struct>, [p1::Thing]))"));
     CHECK(contains(typ, "#text(fill: luma(130))[go]"));
     CHECK(contains(typ, "Nope::Missing"));
     CHECK(!contains(typ, "#link(<go"));
@@ -464,6 +550,7 @@ TEST_CASE("html escapes special characters")
     CHECK(contains(page, "&#39;"));
     CHECK(contains(page, "&lt;script&gt;alert(1)&lt;/script&gt;"));
     CHECK(!contains(page, "<script>alert"));
+    CHECK(contains(page, "<em>star</em>"));
     CHECK(contains(page, "u8[16]"));
 }
 
@@ -703,21 +790,26 @@ TEST_CASE("markdown escapes special characters")
     dcdoc::Project project = builder.build();
     std::string md = dcdoc::markdown::render_single(project);
     CHECK(contains(md, "#hash"));
-    CHECK(contains(md, "\\*star\\*"));
-    CHECK(contains(md, "\\_under\\_"));
+    CHECK(contains(md, "*star*"));
+    CHECK(contains(md, "*under*"));
     CHECK(contains(md, "\\[bracket\\]"));
     CHECK(contains(md, "`code`"));
     CHECK(contains(md, "\\\\slash"));
     CHECK(contains(md, "\"say\""));
     CHECK(contains(md, "\u0027q\u0027"));
-    CHECK(contains(md, "\\# Heading-looking"));
-    CHECK(contains(md, "\\- list-looking"));
-    CHECK(contains(md, "\\> quote-looking"));
-    CHECK(contains(md, "1\\. ordered-looking"));
-    CHECK(contains(md, "&#32;&#32;&#32;&#32;indented"));
+    CHECK(contains(md, "### Heading-looking"));
+    CHECK(contains(md, "- list-looking"));
+    CHECK(contains(md, "> quote-looking"));
+    CHECK(contains(md, "1. ordered-looking"));
+    CHECK(contains(md, "indented line here"));
     CHECK(contains(md, "u8[16]"));
     CHECK(md_fences_balanced(md));
     CHECK(md_blocks_separated(md));
+    auto site = td.path / "site";
+    REQUIRE(dcdoc::html::write_site(project, site) == 0);
+    std::string page = read_file_bytes(site / "m.html");
+    CHECK(contains(page, "<h3>Heading-looking</h3>"));
+    CHECK(contains(page, "<ul>"));
 }
 
 TEST_CASE("markdown fences handle backtick content")

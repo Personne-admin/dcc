@@ -58,6 +58,8 @@ auto main(int argc, char** argv) -> int
 
     for (auto const& e : project.file_errors)
         std::println(std::cerr, "dcdoc: {}:{}:{}: {}", e.file, e.line, e.col, e.message);
+    for (auto const& w : project.warnings)
+        std::println(std::cerr, "dcdoc: warning: {}", w);
 
     if (dump_model || (pdf_out.empty() && typ_out.empty() && html_out.empty() && md_out.empty()))
         std::print("{}", dcdoc::dump(project));

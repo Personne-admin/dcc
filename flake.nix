@@ -57,6 +57,7 @@
 
             buildInputs = [
               libcxx
+              pkgs.cmark
             ];
 
             patchPhase = ''
@@ -128,6 +129,7 @@
               llvm.llvm
               libcxx
               pkgs.typst
+              pkgs.cmark
             ];
 
             hardeningDisable = [ "fortify" ];

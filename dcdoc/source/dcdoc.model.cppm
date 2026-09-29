@@ -39,8 +39,10 @@ export namespace dcdoc
 
     struct Section
     {
+        std::string id;
         std::string title;
         std::string body;
+        std::vector<CrossRef> body_refs;
         std::vector<std::string> items;
     };
 
@@ -49,6 +51,7 @@ export namespace dcdoc
         std::string id;
         std::string file;
         std::string overview;
+        std::vector<CrossRef> overview_refs;
         std::vector<Section> sections;
     };
 
@@ -64,10 +67,12 @@ export namespace dcdoc
     {
         std::string entry_module;
         std::string overview;
+        std::vector<CrossRef> overview_refs;
         std::vector<Module> modules;
         std::vector<Item> items;
         std::vector<FileError> file_errors;
         std::vector<std::string> misses;
+        std::vector<std::string> warnings;
     };
 
     struct DocLink
@@ -260,6 +265,18 @@ export namespace dcdoc
                     continue;
                 out.push_back({.display = std::string{path}, .path = std::string{path}, .start = open, .length = i + 2 - open});
                 i += 2;
+                continue;
+            }
+            if (i < text.size() && text[i] == '#')
+            {
+                std::size_t ps = i;
+                while (i < text.size() && text[i] != rb) ++i;
+                if (i < text.size() && i > ps + 1)
+                {
+                    auto path = text.substr(ps, i - ps);
+                    out.push_back({.display = std::string{path}, .path = std::string{path}, .start = open, .length = i + 1 - open});
+                    ++i;
+                }
                 continue;
             }
             std::size_t ds = i;
