@@ -125,7 +125,11 @@ export namespace dcdoc
             {
                 for (auto const& label : d.labels())
                 {
-                    project.file_errors.push_back({.file = file_string(sm, label.range.begin), .message = d.message()});
+                    auto lc = sm.line_col(label.range.begin);
+                    project.file_errors.push_back({.file = file_string(sm, label.range.begin),
+                                                   .line = lc ? lc->line : 0,
+                                                   .col = lc ? lc->column : 0,
+                                                   .message = d.message()});
                     break;
                 }
             }
