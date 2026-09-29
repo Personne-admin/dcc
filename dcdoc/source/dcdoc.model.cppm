@@ -55,6 +55,8 @@ export namespace dcdoc
     struct FileError
     {
         std::string file;
+        std::uint32_t line{};
+        std::uint32_t col{};
         std::string message;
     };
 
