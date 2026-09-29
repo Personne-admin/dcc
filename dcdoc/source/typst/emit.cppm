@@ -33,6 +33,13 @@ export namespace dcdoc::typst
 #show heading.where(level: 2): set text(size: 15pt, weight: "bold")
 #show heading.where(level: 3): set text(size: 12pt, weight: "bold")
 #show raw: set text(font: "DejaVu Sans Mono", size: 8.5pt)
+#let source-frame(body) = block(fill: luma(249), inset: 6pt, width: 100%, breakable: true, body)
+#let source-row(number, body) = grid(columns: (23pt, 1fr), column-gutter: 4pt,
+  [#text(size: 7pt, fill: luma(140))[#number]],
+  [#text(font: "DejaVu Sans Mono", size: 7.3pt, body)])
+#let source-keyword(s) = text(fill: rgb(31, 111, 235), s)
+#let source-literal(s) = text(fill: rgb(149, 56, 0), s)
+#let source-comment(s) = text(fill: rgb(51, 119, 72), s)
 )typ";
 
     [[nodiscard]] std::string esc(std::string_view s)
@@ -323,9 +330,131 @@ export namespace dcdoc::typst
         return p.filename().generic_string();
     }
 
+    [[nodiscard]] std::string line_label(std::string_view module, std::uint32_t line)
+    {
+        std::string out = "source-";
+        for (char raw : module)
+        {
+            unsigned char c = static_cast<unsigned char>(raw);
+            out += std::isalnum(c) ? static_cast<char>(c) : '-';
+        }
+        return out + "-" + std::to_string(line);
+    }
+
+    [[nodiscard]] std::string styled_source(std::string_view raw, dcdoc::prose::HlClass cls)
+    {
+        std::string s = code_escape(raw);
+        if (cls == dcdoc::prose::HlClass::Keyword)
+            return "source-keyword(\"" + s + "\")";
+        if (cls == dcdoc::prose::HlClass::Literal)
+            return "source-literal(\"" + s + "\")";
+        if (cls == dcdoc::prose::HlClass::Comment)
+            return "source-comment(\"" + s + "\")";
+        return "\"" + s + "\"";
+    }
+
+    [[nodiscard]] std::string source_content(std::string_view line, std::vector<dcdoc::prose::HlClass> const& classes,
+                                              std::vector<std::string> const& links, std::size_t begin, std::size_t end)
+    {
+        std::string out = "#{";
+        bool first = true;
+        for (std::size_t i = begin; i < end;)
+        {
+            std::size_t j = i + 1;
+            while (j < end && classes[j] == classes[i] && links[j] == links[i]) ++j;
+            std::string piece = styled_source(line.substr(i, j - i), classes[i]);
+            if (!links[i].empty()) piece = "link(<" + links[i] + ">, " + piece + ")";
+            if (!first) out += " + ";
+            first = false;
+            out += piece;
+            i = j;
+        }
+        if (first) out += "\" \"";
+        return out + "}";
+    }
+
+    [[nodiscard]] std::string render_listing(Module const& module, Project const& project, dcdoc::prose::Highlighter& hl,
+                                              std::unordered_map<std::string, std::string> const& labels,
+                                              std::filesystem::path const& root)
+    {
+        std::ifstream input{module.file, std::ios::binary};
+        if (!input) return {};
+        std::string source{std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{}};
+        std::vector<dcdoc::prose::HlClass> styles(source.size(), dcdoc::prose::HlClass::Plain);
+        std::size_t offset = 0;
+        for (auto const& tok : hl.highlight(source, true))
+        {
+            for (std::size_t i = 0; i < tok.text.size() && offset + i < styles.size(); ++i)
+                styles[offset + i] = tok.cls;
+            offset += tok.text.size();
+        }
+        std::unordered_map<std::uint32_t, std::vector<Item const*>> declarations;
+        for (auto const& item : project.items)
+            if (item.file == module.file && item.line > 0) declarations[item.line].push_back(&item);
+        std::string out = "#pagebreak()\n#heading(level: 2)[Source: " + esc(relative_file(module.file, root)) + "]\n";
+        out += "#source-frame[\n";
+        std::size_t start = 0;
+        std::uint32_t number = 1;
+        while (start < source.size())
+        {
+            std::size_t end = source.find('\n', start);
+            if (end == std::string::npos) end = source.size();
+            if (end > start && source[end - 1] == '\r') --end;
+            std::string_view line{source.data() + start, end - start};
+            std::vector<dcdoc::prose::HlClass> classes(styles.begin() + static_cast<std::ptrdiff_t>(start),
+                                                        styles.begin() + static_cast<std::ptrdiff_t>(end));
+            std::vector<std::string> links(line.size());
+            auto attach = [&](std::string_view needle, std::string const& label) {
+                if (needle.empty() || label.empty()) return;
+                std::size_t at = 0;
+                while ((at = line.find(needle, at)) != std::string_view::npos)
+                {
+                    auto ident = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+                    bool left = at == 0 || !ident(line[at - 1]);
+                    bool right = at + needle.size() == line.size() || !ident(line[at + needle.size()]);
+                    if (left && right)
+                        for (std::size_t i = at; i < at + needle.size(); ++i) links[i] = label;
+                    at += needle.size();
+                }
+            };
+            if (auto it = declarations.find(number); it != declarations.end())
+            {
+                for (auto const* item : it->second)
+                    for (auto const& ref : item->sig.refs)
+                        if (ref.resolved && labels.contains(ref.target)) attach(ref.raw, labels.at(ref.target));
+                for (auto const* item : it->second)
+                    if (labels.contains(item->id)) attach(item->name, labels.at(item->id));
+            }
+            std::size_t chunk = 0;
+            bool first = true;
+            while (chunk < line.size() || first)
+            {
+                std::size_t stop = std::min(line.size(), chunk + 76);
+                if (stop < line.size())
+                {
+                    std::size_t space = line.rfind(' ', stop);
+                    if (space != std::string_view::npos && space > chunk + 30) stop = space + 1;
+                }
+                if (stop < line.size())
+                    while (stop > chunk && (static_cast<unsigned char>(line[stop]) & 0xc0u) == 0x80u) --stop;
+                if (stop == chunk) stop = std::min(line.size(), chunk + 76);
+                std::string num = first ? std::to_string(number) : "";
+                out += "#source-row(\"" + num + "\", [" + source_content(line, classes, links, chunk, stop) + "])";
+                if (first) out += " <" + line_label(module.id, number) + ">";
+                out += "\n";
+                first = false;
+                chunk = stop;
+            }
+            start = source.find('\n', start) == std::string::npos ? source.size() : source.find('\n', start) + 1;
+            ++number;
+        }
+        out += "]\n";
+        return out;
+    }
+
     [[nodiscard]] std::string render_item(Item const& item, std::vector<Item const*> const& children, dcdoc::prose::Highlighter& hl, int level,
                                           std::unordered_map<std::string, std::string> const& link_labels,
-                                          std::filesystem::path const& root)
+                                          std::filesystem::path const& root, std::string_view module_id, bool listings)
     {
         std::string out = "#heading(level: " + std::to_string(level) + ")[" + esc(item.name) + "]";
         auto lit = link_labels.find(item.id);
@@ -341,7 +470,12 @@ export namespace dcdoc::typst
         if (!item.doc.empty())
             out += render_doc(item.doc, item.doc_refs, link_labels);
         if (!item.file.empty())
-            out += "#text(size: 8pt, fill: luma(140))[defined in " + esc(relative_file(item.file, root)) + ":" + std::to_string(item.line) + "]\n";
+        {
+            std::string location = esc(relative_file(item.file, root)) + ":" + std::to_string(item.line);
+            out += "#text(size: 8pt, fill: luma(140))[defined in ";
+            out += listings && item.line > 0 ? "#link(<" + line_label(module_id, item.line) + ">)[" + location + "]" : location;
+            out += "]\n";
+        }
         if (!children.empty())
         {
             out += "#table(columns: (auto, 2fr, 3fr), inset: 5pt, stroke: luma(220),\n";
@@ -355,7 +489,10 @@ export namespace dcdoc::typst
                     std::string suffix = " " + child->name;
                     if (type.ends_with(suffix)) type.resize(type.size() - suffix.size());
                 }
-                out += "[" + esc(child->name);
+                out += "[";
+                if (listings && child->line > 0)
+                    out += "#link(<" + line_label(module_id, child->line) + ">)[" + esc(child->name) + "]";
+                else out += esc(child->name);
                 if (auto it = link_labels.find(child->id); it != link_labels.end()) out += " <" + it->second + ">";
                 out += "], [" + render_code_span(type) + "], [";
                 if (!child->doc.empty()) out += render_doc(child->doc, child->doc_refs, link_labels);
@@ -366,7 +503,7 @@ export namespace dcdoc::typst
         return out;
     }
 
-    [[nodiscard]] std::string render(Project const& project)
+    [[nodiscard]] std::string render(Project const& project, bool listings = true)
     {
         std::unordered_map<std::string, std::string> link_labels;
         {
@@ -404,6 +541,8 @@ export namespace dcdoc::typst
         if (root.empty() && !project.modules.empty()) root = std::filesystem::path{project.modules.front().file}.parent_path();
         for (auto const& m : project.modules)
         {
+            bool module_listing = listings && !m.id.starts_with("std::") && !m.id.starts_with("core::") &&
+                                  !m.file.starts_with("dcc-core:");
             out += "#heading(level: 1)[" + esc(m.id) + "]\n";
             if (!m.file.empty())
                 out += "#text(size: 8pt, fill: luma(140))[" + esc(relative_file(m.file, root)) + "]\n";
@@ -422,9 +561,10 @@ export namespace dcdoc::typst
                         continue;
                     auto cit = children.find(id);
                     std::vector<Item const*> kids = cit == children.end() ? std::vector<Item const*>{} : cit->second;
-                    out += render_item(*bit->second, kids, hl, 3, link_labels, root);
+                    out += render_item(*bit->second, kids, hl, 3, link_labels, root, m.id, module_listing);
                 }
             }
+            if (module_listing) out += render_listing(m, project, hl, link_labels, root);
         }
         return out;
     }
