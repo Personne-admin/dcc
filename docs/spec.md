@@ -1479,3 +1479,19 @@ with comments removed. All four diagnostics (`doc-orphan` warning,
 errors) are off by default behind `SessionOptions::enable_doc_comments`
 (threaded through `CompileOptions`/`SemaOptions` to the parser); `dcc`
 never enables it.
+
+### 20.7 dcdoc prose
+
+`dcdoc` interprets normalized documentation text with CommonMark 0.31.2
+paragraphs, headings, fenced code, lists (including lazy continuation lines),
+quotes, code spans, emphasis, and strong emphasis. Inline `$...$` is typeset as
+math in PDF; HTML and Markdown show the dollar delimiters as text.
+
+Write pointer expressions and types as inline code: `` `*ptr` ``, `` `u8*` ``,
+`` `u8**` ``. CommonMark treats `reads *ptr and returns a u8* value` as emphasis
+around `ptr and returns a u8`; dcdoc does not change that parsing rule.
+
+Section references use [`module::slug#section`] or `[label|`module::slug#section`].
+Within a module, `[#slug]` is shorthand; `[#module::slug]` works across modules.
+The slug is lowercase words joined with hyphens. Repeated titles append `-2`,
+`-3`, and so on. Broken section references produce a warning and a recorded miss.

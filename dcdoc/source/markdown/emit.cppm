@@ -224,6 +224,17 @@ export namespace dcdoc::markdown
         std::string out;
         for (auto const& sp : spans)
         {
+            if (sp.kind == prose::InlineKind::Emph || sp.kind == prose::InlineKind::Strong)
+            {
+                std::string delim = sp.kind == prose::InlineKind::Emph ? "*" : "**";
+                out += delim + render_spans(sp.children, maps, self_page) + delim;
+                continue;
+            }
+            if (sp.kind == prose::InlineKind::Math)
+            {
+                out += "$" + sp.text + "$";
+                continue;
+            }
             if (sp.kind == prose::InlineKind::Code)
             {
                 out += render_code(sp.text);
@@ -268,20 +279,56 @@ export namespace dcdoc::markdown
         return out;
     }
 
-    [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, DocMaps const& maps, std::string const& self_page)
+    [[nodiscard]] std::string render_blocks(std::vector<prose::Block> const& blocks, DocMaps const& maps, std::string const& self_page)
     {
         std::string out;
-        for (auto const& block : prose::parse_doc(text, refs))
+        for (auto const& block : blocks)
         {
-            if (block.code)
+            using K = prose::BlockKind;
+            if (block.kind == K::Code)
             {
                 out += fence(block.text, block.lang.empty() ? "dc" : block.lang);
                 out += "\n";
                 continue;
             }
-            out += render_spans(block.spans, maps, self_page) + "\n\n";
+            if (block.kind == K::Heading)
+                out += std::string(static_cast<std::size_t>(std::min(6, block.level + 2)), '#') + " " + render_spans(block.spans, maps, self_page) + "\n\n";
+            else if (block.kind == K::BulletList || block.kind == K::NumberList)
+            {
+                int number = block.start_number;
+                for (auto const& item : block.children)
+                {
+                    std::string body = render_blocks(item.children, maps, self_page);
+                    while (!body.empty() && body.back() == '\n') body.pop_back();
+                    std::string marker = block.kind == K::BulletList ? "- " : std::to_string(number++) + ". ";
+                    out += marker;
+                    for (char c : body)
+                    {
+                        if (c == '\n') out += "\n  ";
+                        else out += c;
+                    }
+                    out += "\n";
+                }
+                out += "\n";
+            }
+            else if (block.kind == K::Quote)
+            {
+                std::string body = render_blocks(block.children, maps, self_page);
+                out += "> ";
+                for (char c : body) out += c == '\n' ? "\n> " : std::string(1, c);
+                out += "\n";
+            }
+            else if (block.kind == K::ListItem)
+                out += render_blocks(block.children, maps, self_page);
+            else
+                out += render_spans(block.spans, maps, self_page) + "\n\n";
         }
         return out;
+    }
+
+    [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, DocMaps const& maps, std::string const& self_page)
+    {
+        return render_blocks(prose::parse_doc(text, refs), maps, self_page);
     }
 
     [[nodiscard]] std::string render_item(Item const& item, std::vector<Item const*> const& children, DocMaps const& maps, int level,
@@ -339,8 +386,11 @@ export namespace dcdoc::markdown
     {
         for (auto const& m : project.modules)
             for (auto const& s : m.sections)
+            {
+                page_of[s.id] = single ? std::string{} : page_filename(m.id);
                 for (auto const& sid : s.items)
                     page_of[sid] = single ? std::string{} : page_filename(m.id);
+            }
         bool progress = true;
         while (progress)
         {
@@ -378,8 +428,11 @@ export namespace dcdoc::markdown
                 while (!used.insert(plan.page).second)
                     plan.page = stem + std::to_string(n++) + ".md";
                 for (auto const& s : m.sections)
+                {
+                    page_of[s.id] = plan.page;
                     for (auto const& sid : s.items)
                         page_of[sid] = plan.page;
+                }
                 bool inner = true;
                 while (inner)
                 {
@@ -399,7 +452,10 @@ export namespace dcdoc::markdown
             }
             plan.mod_text = a.add_text(m.id);
             for (auto const& s : m.sections)
-                plan.sec_texts.push_back(s.title.empty() ? std::string{} : a.add_text(s.title));
+            {
+                plan.sec_texts.push_back(s.title.empty() ? std::string{} : a.add_item(s.id, s.title));
+                plan.item_ids.push_back(s.id);
+            }
             std::unordered_map<std::string, Item const*> by_id;
             for (auto const& it : project.items)
                 by_id[it.id] = &it;
@@ -439,7 +495,7 @@ export namespace dcdoc::markdown
         if (!m.file.empty())
             out += "Defined in " + esc_prose(m.file) + "\n\n";
         if (!m.overview.empty())
-            out += render_doc(m.overview, {}, maps, self_page);
+            out += render_doc(m.overview, m.overview_refs, maps, self_page);
         for (std::size_t i = 0; i < m.sections.size(); ++i)
         {
             auto const& s = m.sections[i];
@@ -447,7 +503,7 @@ export namespace dcdoc::markdown
             if (!title.empty())
                 out += hashes(base + 1) + " " + esc_prose(title) + "\n\n";
             if (!s.body.empty())
-                out += render_doc(s.body, {}, maps, self_page);
+                out += render_doc(s.body, s.body_refs, maps, self_page);
             for (auto const& id : s.items)
             {
                 auto bit = by_id.find(id);
@@ -483,15 +539,7 @@ export namespace dcdoc::markdown
         std::string name = project.entry_module.empty() ? "Project" : project.entry_module;
         std::string out = "# " + esc_prose(name) + "\n\n";
         if (!project.overview.empty())
-        {
-            for (auto const& block : prose::parse_doc(project.overview, {}))
-            {
-                if (block.code)
-                    out += fence(block.text, block.lang.empty() ? "dc" : block.lang) + "\n";
-                else
-                    out += render_spans(block.spans, maps, {}) + "\n\n";
-            }
-        }
+            out += render_doc(project.overview, project.overview_refs, maps, {});
         for (std::size_t i = 0; i < project.modules.size(); ++i)
             out += emit_module(project.modules[i], plans[i], by_id, children, maps, 2);
         return rstrip_newlines(out);
@@ -512,15 +560,7 @@ export namespace dcdoc::markdown
         std::string name = project.entry_module.empty() ? "Project" : project.entry_module;
         std::string index = "# " + esc_prose(name) + "\n\n";
         if (!project.overview.empty())
-        {
-            for (auto const& block : prose::parse_doc(project.overview, {}))
-            {
-                if (block.code)
-                    index += fence(block.text, block.lang.empty() ? "dc" : block.lang) + "\n";
-                else
-                    index += render_spans(block.spans, maps, {}) + "\n\n";
-            }
-        }
+            index += render_doc(project.overview, project.overview_refs, maps, {});
         index += "## Modules\n\n";
         for (std::size_t i = 0; i < project.modules.size(); ++i)
             index += "- [" + esc_prose(project.modules[i].id) + "](" + plans[i].page + ")\n";

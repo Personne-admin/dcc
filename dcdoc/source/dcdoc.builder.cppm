@@ -77,6 +77,26 @@ export namespace dcdoc
         std::unordered_map<dcc::ast::Decl const*, std::string> m_decl_ids;
         std::unordered_map<dcc::ast::TemplateParam const*, std::string> m_tparam_ids;
         std::unordered_set<std::string> m_miss_set;
+        std::unordered_set<std::string> m_section_ids;
+        std::unordered_set<std::string> m_warning_set;
+
+        [[nodiscard]] static std::string section_slug(std::string_view title)
+        {
+            std::string out;
+            bool dash = false;
+            for (char raw : title)
+            {
+                unsigned char c = static_cast<unsigned char>(raw);
+                if (std::isalnum(c) && c < 128)
+                {
+                    if (dash && !out.empty()) out += '-';
+                    dash = false;
+                    out += static_cast<char>(std::tolower(c));
+                }
+                else dash = true;
+            }
+            return out.empty() ? "section" : out;
+        }
 
         [[nodiscard]] std::vector<std::filesystem::path> discover() const
         {
@@ -410,6 +430,23 @@ export namespace dcdoc
                                                 std::span<dcc::sema::ModuleInfo const* const> others, Project& project)
         {
             std::string raw{path_str};
+            if (path_str.starts_with('#') || path_str.ends_with("#section"))
+            {
+                std::string id;
+                if (path_str.starts_with('#'))
+                {
+                    auto rest = path_str.substr(1);
+                    id = rest.find("::") == std::string_view::npos ? mod.canonical_path.str() + "::" + std::string{rest} + "#section"
+                                                                  : std::string{rest} + "#section";
+                }
+                else id = std::string{path_str};
+                if (m_section_ids.contains(id))
+                    return {.target = id, .resolved = true, .via = "DocLink", .ambiguous = false, .raw = raw, .display = {}};
+                note_miss(raw, project);
+                if (m_warning_set.insert(raw).second)
+                    project.warnings.push_back("unresolved section link: " + raw);
+                return {.target = {}, .resolved = false, .via = "DocLink", .ambiguous = false, .raw = raw, .display = {}};
+            }
             auto segs = split_path(path_str);
             if (segs.empty() || segs.front().empty())
                 return unresolved(raw, "DocLink", project);
@@ -703,16 +740,24 @@ export namespace dcdoc
         {
             if (item.doc.empty())
                 return;
+            item.doc_refs = resolve_text_links(item.doc, mod, tparams, others, project);
+        }
 
-            for (auto const& link : scan_doc_links(item.doc))
+        [[nodiscard]] std::vector<CrossRef> resolve_text_links(std::string_view text, dcc::sema::ModuleInfo const& mod,
+                                                                 std::span<dcc::ast::TemplateParam const> tparams,
+                                                                 std::span<dcc::sema::ModuleInfo const* const> others, Project& project)
+        {
+            std::vector<CrossRef> refs;
+            for (auto const& link : scan_doc_links(text))
             {
                 CrossRef r = resolve_doc_path(link.path, mod, tparams, others, project);
                 r.raw = link.path;
                 r.display = link.display;
                 r.start = link.start;
                 r.length = link.length;
-                item.doc_refs.push_back(std::move(r));
+                refs.push_back(std::move(r));
             }
+            return refs;
         }
 
         void itemize_tparams(std::span<dcc::ast::TemplateParam const> tps, dcc::sema::ModuleInfo const& mod, std::string const& parent_id,
@@ -1088,6 +1133,14 @@ export namespace dcdoc
                 std::string mod_id = mod->canonical_path.str();
                 for (auto const* d : mod->tu->decls)
                     preregister(d, mod_id, mod->own_scope, project);
+                std::unordered_map<std::string, unsigned> counts;
+                for (auto const* sec : mod->tu->sections)
+                {
+                    std::string slug = section_slug(sec->title);
+                    unsigned n = ++counts[slug];
+                    if (n > 1) slug += "-" + std::to_string(n);
+                    m_section_ids.insert(mod_id + "::" + slug + "#section");
+                }
             }
 
             for (auto const* mod : mods)
@@ -1105,10 +1158,15 @@ export namespace dcdoc
                     m.overview = std::string{ov->text};
 
                 std::unordered_map<dcc::ast::Section const*, std::size_t> sec_index;
+                std::unordered_map<std::string, unsigned> section_counts;
                 for (auto const* sec : tu->sections)
                 {
                     sec_index[sec] = m.sections.size();
-                    m.sections.push_back({.title = std::string{sec->title}, .body = std::string{sec->body}, .items = {}});
+                    std::string slug = section_slug(sec->title);
+                    unsigned n = ++section_counts[slug];
+                    if (n > 1) slug += "-" + std::to_string(n);
+                    m.sections.push_back({.id = m.id + "::" + slug + "#section", .title = std::string{sec->title},
+                                          .body = std::string{sec->body}, .body_refs = {}, .items = {}});
                 }
 
                 for (auto const* d : tu->decls)
@@ -1147,6 +1205,17 @@ export namespace dcdoc
                     m.sections.end());
 
                 project.modules.push_back(std::move(m));
+            }
+            for (auto& m : project.modules)
+            {
+                auto it = std::ranges::find_if(mods, [&](auto const* mod) { return mod->canonical_path.str() == m.id; });
+                if (it == mods.end()) continue;
+                auto const& mod = **it;
+                m.overview_refs = resolve_text_links(m.overview, mod, {}, mods, project);
+                for (auto& sec : m.sections)
+                    sec.body_refs = resolve_text_links(sec.body, mod, {}, mods, project);
+                if (m.id == project.entry_module)
+                    project.overview_refs = resolve_text_links(project.overview, mod, {}, mods, project);
             }
             std::ranges::sort(project.misses);
         }

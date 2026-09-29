@@ -1,3 +1,5 @@
+module;
+#include <cmark.h>
 export module dcdoc.prose;
 
 import std;
@@ -79,6 +81,9 @@ export namespace dcdoc::prose
         Text,
         Code,
         Link,
+        Emph,
+        Strong,
+        Math,
     };
 
     struct Inline
@@ -88,15 +93,22 @@ export namespace dcdoc::prose
         std::string target{};
         bool ambiguous{};
         bool resolved{};
+        std::vector<Inline> children{};
     };
+
+    enum class BlockKind { Paragraph, Code, Heading, BulletList, NumberList, ListItem, Quote };
 
     struct Block
     {
+        BlockKind kind{BlockKind::Paragraph};
         bool code{};
+        int level{};
+        int start_number{1};
         std::size_t start{};
         std::string lang;
         std::string text;
         std::vector<Inline> spans;
+        std::vector<Block> children{};
     };
 
     [[nodiscard]] bool blank_line(std::string_view l) noexcept
@@ -159,108 +171,150 @@ export namespace dcdoc::prose
         return out;
     }
 
+    [[nodiscard]] std::string inline_text(cmark_node* parent)
+    {
+        std::string out;
+        for (auto* n = cmark_node_first_child(parent); n; n = cmark_node_next(n))
+        {
+            auto* literal = cmark_node_get_literal(n);
+            if (literal) out += literal;
+            else if (cmark_node_get_type(n) == CMARK_NODE_SOFTBREAK || cmark_node_get_type(n) == CMARK_NODE_LINEBREAK) out += ' ';
+            else out += inline_text(n);
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::vector<Inline> parse_inlines(cmark_node* parent, std::vector<CrossRef> const& refs)
+    {
+        std::vector<Inline> out;
+        for (auto* n = cmark_node_first_child(parent); n; n = cmark_node_next(n))
+        {
+            auto kind = cmark_node_get_type(n);
+            std::string literal = cmark_node_get_literal(n) ? cmark_node_get_literal(n) : "";
+            if (kind == CMARK_NODE_TEXT)
+            {
+                std::size_t pos = 0;
+                while (pos < literal.size())
+                {
+                    auto dollar = literal.find('$', pos);
+                    if (dollar == std::string::npos)
+                    {
+                        out.push_back({.kind = InlineKind::Text, .text = literal.substr(pos)});
+                        break;
+                    }
+                    auto end = literal.find('$', dollar + 1);
+                    if (end == std::string::npos || end == dollar + 1)
+                    {
+                        out.push_back({.kind = InlineKind::Text, .text = literal.substr(pos)});
+                        break;
+                    }
+                    if (dollar > pos) out.push_back({.kind = InlineKind::Text, .text = literal.substr(pos, dollar - pos)});
+                    out.push_back({.kind = InlineKind::Math, .text = literal.substr(dollar + 1, end - dollar - 1)});
+                    pos = end + 1;
+                }
+            }
+            else if (kind == CMARK_NODE_CODE)
+                out.push_back({.kind = InlineKind::Code, .text = literal});
+            else if (kind == CMARK_NODE_EMPH || kind == CMARK_NODE_STRONG)
+                out.push_back({.kind = kind == CMARK_NODE_EMPH ? InlineKind::Emph : InlineKind::Strong, .text = {},
+                               .children = parse_inlines(n, refs)});
+            else if (kind == CMARK_NODE_LINK)
+            {
+                std::string_view url = cmark_node_get_url(n) ? cmark_node_get_url(n) : "";
+                if (url.starts_with("dcdoc-ref-"))
+                {
+                    std::size_t index = 0;
+                    auto tail = url.substr(10);
+                    auto [ptr, ec] = std::from_chars(tail.data(), tail.data() + tail.size(), index);
+                    if (ec == std::errc{} && ptr == tail.data() + tail.size() && index < refs.size())
+                    {
+                        auto const& r = refs[index];
+                        out.push_back({.kind = InlineKind::Link, .text = inline_text(n), .target = r.target,
+                                       .ambiguous = r.ambiguous, .resolved = r.resolved});
+                        continue;
+                    }
+                }
+                out.push_back({.kind = InlineKind::Text, .text = inline_text(n)});
+            }
+            else if (kind == CMARK_NODE_SOFTBREAK || kind == CMARK_NODE_LINEBREAK)
+                out.push_back({.kind = InlineKind::Text, .text = " "});
+            else if (kind == CMARK_NODE_HTML_INLINE)
+                out.push_back({.kind = InlineKind::Text, .text = literal});
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::vector<Block> parse_blocks(cmark_node* parent, std::vector<CrossRef> const& refs)
+    {
+        std::vector<Block> out;
+        for (auto* n = cmark_node_first_child(parent); n; n = cmark_node_next(n))
+        {
+            Block b;
+            auto kind = cmark_node_get_type(n);
+            if (kind == CMARK_NODE_CODE_BLOCK)
+            {
+                b.kind = BlockKind::Code;
+                b.code = true;
+                b.text = cmark_node_get_literal(n) ? cmark_node_get_literal(n) : "";
+                b.lang = cmark_node_get_fence_info(n) ? cmark_node_get_fence_info(n) : "";
+            }
+            else if (kind == CMARK_NODE_HTML_BLOCK)
+            {
+                b.kind = BlockKind::Paragraph;
+                b.spans.push_back({.kind = InlineKind::Text,
+                                   .text = cmark_node_get_literal(n) ? cmark_node_get_literal(n) : ""});
+            }
+            else if (kind == CMARK_NODE_HEADING)
+            {
+                b.kind = BlockKind::Heading;
+                b.level = cmark_node_get_heading_level(n);
+                b.spans = parse_inlines(n, refs);
+            }
+            else if (kind == CMARK_NODE_LIST)
+            {
+                b.kind = cmark_node_get_list_type(n) == CMARK_ORDERED_LIST ? BlockKind::NumberList : BlockKind::BulletList;
+                b.start_number = cmark_node_get_list_start(n);
+                b.children = parse_blocks(n, refs);
+            }
+            else if (kind == CMARK_NODE_ITEM)
+            {
+                b.kind = BlockKind::ListItem;
+                b.children = parse_blocks(n, refs);
+            }
+            else if (kind == CMARK_NODE_BLOCK_QUOTE)
+            {
+                b.kind = BlockKind::Quote;
+                b.children = parse_blocks(n, refs);
+            }
+            else if (kind == CMARK_NODE_PARAGRAPH)
+            {
+                b.kind = BlockKind::Paragraph;
+                b.spans = parse_inlines(n, refs);
+            }
+            else continue;
+            out.push_back(std::move(b));
+        }
+        return out;
+    }
+
     [[nodiscard]] std::vector<Block> parse_doc(std::string_view doc, std::vector<CrossRef> const& refs)
     {
-        std::vector<CrossRef const*> ordered;
-        for (auto const& r : refs)
-            if (r.length > 0 && r.start != std::size_t(-1) && r.start + r.length <= doc.size())
-                ordered.push_back(&r);
-        std::ranges::sort(ordered, {}, [](CrossRef const* r) { return r->start; });
-        std::vector<Block> out;
-        std::string cur;
-        std::size_t cur_start = 0;
-        bool cur_code = false;
-        std::string cur_lang;
-        bool in_code = false;
-        bool has_start = false;
-        auto push = [&] {
-            if (cur.empty())
-                return;
-            Block b;
-            b.code = cur_code;
-            b.start = cur_start;
-            if (!cur_code)
-            {
-                while (!cur.empty() && cur.back() == 10)
-                    cur.pop_back();
-                if (cur.empty())
-                    return;
-                b.text = cur;
-                std::size_t pos = 0;
-                for (auto const* r : ordered)
-                {
-                    if (r->start < b.start || r->start + r->length > b.start + b.text.size())
-                        continue;
-                    std::size_t ls = r->start - b.start;
-                    if (ls < pos)
-                        continue;
-                    for (auto& sp : split_inline(b.text.substr(pos, ls - pos)))
-                        b.spans.push_back(std::move(sp));
-                    std::string display = r->display.empty() ? r->raw : r->display;
-                    b.spans.push_back(
-                        {.kind = InlineKind::Link, .text = std::move(display), .target = r->target, .ambiguous = r->ambiguous, .resolved = r->resolved});
-                    pos = ls + r->length;
-                }
-                for (auto& sp : split_inline(b.text.substr(pos)))
-                    b.spans.push_back(std::move(sp));
-            }
-            else
-            {
-                b.lang = cur_lang;
-                b.text = cur;
-                b.spans.push_back({.kind = InlineKind::Text, .text = cur});
-            }
-            out.push_back(std::move(b));
-            cur.clear();
-        };
-        std::size_t i = 0;
-        while (i <= doc.size())
+        std::string input;
+        std::size_t pos = 0;
+        for (std::size_t i = 0; i < refs.size(); ++i)
         {
-            std::size_t j = doc.find(10, i);
-            if (j == std::string_view::npos)
-                j = doc.size();
-            std::string_view line = doc.substr(i, j - i);
-            if (fence_line(line))
-            {
-                if (!in_code)
-                    cur_lang = fence_lang(line);
-                push();
-                in_code = !in_code;
-                cur_code = in_code;
-                has_start = false;
-            }
-            else if (in_code)
-            {
-                if (!has_start)
-                {
-                    cur_start = i;
-                    has_start = true;
-                }
-                cur += std::string{line};
-                cur += 10;
-            }
-            else if (blank_line(line))
-            {
-                push();
-                cur_code = false;
-                has_start = false;
-            }
-            else
-            {
-                if (!has_start)
-                {
-                    cur_start = i;
-                    has_start = true;
-                }
-                cur_code = false;
-                cur += std::string{line};
-                cur += 10;
-            }
-            if (j == doc.size())
-                break;
-            i = j + 1;
+            auto const& r = refs[i];
+            if (r.start == std::size_t(-1) || r.length == 0 || r.start < pos || r.start + r.length > doc.size()) continue;
+            input += doc.substr(pos, r.start - pos);
+            std::string display = r.display.empty() ? r.raw : r.display;
+            input += "[" + display + "](dcdoc-ref-" + std::to_string(i) + ")";
+            pos = r.start + r.length;
         }
-        push();
+        input += doc.substr(pos);
+        cmark_node* tree = cmark_parse_document(input.data(), input.size(), CMARK_OPT_DEFAULT);
+        if (!tree) return {};
+        auto out = parse_blocks(tree, refs);
+        cmark_node_free(tree);
         return out;
     }
 } // namespace dcdoc::prose

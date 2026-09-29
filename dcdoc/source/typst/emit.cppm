@@ -124,8 +124,21 @@ export namespace dcdoc::typst
     [[nodiscard]] std::string render_spans(std::vector<dcdoc::prose::Inline> const& spans, std::unordered_map<std::string, std::string> const& labels)
     {
         std::string out;
-        for (auto const& sp : spans)
+        bool skip_first = false;
+        for (std::size_t si = 0; si < spans.size(); ++si)
         {
+            auto const& sp = spans[si];
+            if (sp.kind == dcdoc::prose::InlineKind::Emph || sp.kind == dcdoc::prose::InlineKind::Strong)
+            {
+                out += sp.kind == dcdoc::prose::InlineKind::Emph ? "#emph[" : "#strong[";
+                out += render_spans(sp.children, labels) + "]";
+                continue;
+            }
+            if (sp.kind == dcdoc::prose::InlineKind::Math)
+            {
+                out += "$" + sp.text + "$";
+                continue;
+            }
             if (sp.kind == dcdoc::prose::InlineKind::Code)
             {
                 out += render_code_span(sp.text);
@@ -133,7 +146,8 @@ export namespace dcdoc::typst
             }
             if (sp.kind != dcdoc::prose::InlineKind::Link)
             {
-                out += esc(sp.text);
+                out += esc(skip_first ? std::string_view{sp.text}.substr(1) : std::string_view{sp.text});
+                skip_first = false;
                 continue;
             }
             std::string label;
@@ -147,7 +161,16 @@ export namespace dcdoc::typst
             for (auto const& sub : dcdoc::prose::split_inline(sp.text))
                 shown += sub.kind == dcdoc::prose::InlineKind::Code ? render_code_span(sub.text) : esc(sub.text);
             if (!label.empty())
-                out += "#link(<" + label + ">)" + "[" + shown + "]";
+            {
+                bool chain = si + 1 < spans.size() && spans[si + 1].kind == dcdoc::prose::InlineKind::Text &&
+                             !spans[si + 1].text.empty() && (spans[si + 1].text.front() == '(' || spans[si + 1].text.front() == '[');
+                if (chain)
+                {
+                    out += "#(link(<" + label + ">, [" + shown + "]) + \"" + spans[si + 1].text.front() + "\")";
+                    skip_first = true;
+                }
+                else out += "#(link(<" + label + ">, [" + shown + "]))";
+            }
             else if (sp.ambiguous)
                 out += "#text(fill: luma(130))[" + shown + "]";
             else if (sp.resolved)
@@ -255,20 +278,41 @@ export namespace dcdoc::typst
         return out + "}";
     }
 
-    [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, std::unordered_map<std::string, std::string> const& labels)
+    [[nodiscard]] std::string render_blocks(std::vector<dcdoc::prose::Block> const& blocks,
+                                             std::unordered_map<std::string, std::string> const& labels)
     {
         std::string out;
-        for (auto const& block : dcdoc::prose::parse_doc(text, refs))
+        for (auto const& block : blocks)
         {
-            if (block.code)
+            using K = dcdoc::prose::BlockKind;
+            if (block.kind == K::Code)
             {
                 out += render_raw_block(block.text);
                 out += "\n\n";
                 continue;
             }
-            out += render_spans(block.spans, labels) + "\n\n";
+            if (block.kind == K::Heading)
+                out += "#heading(level: " + std::to_string(std::min(6, block.level + 2)) + ")[" + render_spans(block.spans, labels) + "]\n";
+            else if (block.kind == K::BulletList || block.kind == K::NumberList)
+            {
+                out += block.kind == K::BulletList ? "#list(\n" : "#enum(start: " + std::to_string(block.start_number) + ",\n";
+                for (auto const& child : block.children)
+                    out += "[" + render_blocks(child.children, labels) + "],\n";
+                out += ")\n\n";
+            }
+            else if (block.kind == K::Quote)
+                out += "#quote(block: true)[" + render_blocks(block.children, labels) + "]\n\n";
+            else if (block.kind == K::ListItem)
+                out += render_blocks(block.children, labels);
+            else
+                out += render_spans(block.spans, labels) + "\n\n";
         }
         return out;
+    }
+
+    [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, std::unordered_map<std::string, std::string> const& labels)
+    {
+        return render_blocks(dcdoc::prose::parse_doc(text, refs), labels);
     }
 
     [[nodiscard]] std::string relative_file(std::string_view file, std::filesystem::path const& root)
@@ -324,6 +368,15 @@ export namespace dcdoc::typst
 
     [[nodiscard]] std::string render(Project const& project)
     {
+        std::unordered_map<std::string, std::string> link_labels;
+        {
+            LabelMaker maker;
+            for (auto const& it : project.items)
+                link_labels[it.id] = maker.make(it.id);
+            for (auto const& m : project.modules)
+                for (auto const& s : m.sections)
+                    link_labels[s.id] = maker.make(s.id);
+        }
         std::string name = project.entry_module.empty() ? "Project" : project.entry_module;
         auto now = std::chrono::floor<std::chrono::days>(std::chrono::system_clock::now());
         std::string out{kPreamble};
@@ -333,7 +386,7 @@ export namespace dcdoc::typst
         if (!project.overview.empty())
         {
             out += "#text(12pt)[\n";
-            out += render_doc(project.overview, {}, {});
+            out += render_doc(project.overview, project.overview_refs, link_labels);
             out += "]\n";
         }
         out += "#text(10pt)[generated " + std::format("{:%F}", now) + "]\n]\n#pagebreak()\n#outline(title: \"Contents\")\n#pagebreak()\n";
@@ -341,12 +394,6 @@ export namespace dcdoc::typst
         for (auto const& it : project.items)
             if (!it.parent.empty())
                 children[it.parent].push_back(&it);
-        std::unordered_map<std::string, std::string> link_labels;
-        {
-            LabelMaker maker;
-            for (auto const& it : project.items)
-                link_labels[it.id] = maker.make(it.id);
-        }
         dcdoc::prose::Highlighter hl;
         std::unordered_map<std::string, Item const*> by_id;
         for (auto const& it : project.items)
@@ -361,13 +408,13 @@ export namespace dcdoc::typst
             if (!m.file.empty())
                 out += "#text(size: 8pt, fill: luma(140))[" + esc(relative_file(m.file, root)) + "]\n";
             if (!m.overview.empty())
-                out += render_doc(m.overview, {}, {});
+                out += render_doc(m.overview, m.overview_refs, link_labels);
             for (auto const& s : m.sections)
             {
                 if (!s.title.empty())
-                    out += "#heading(level: 2)[" + esc(s.title) + "]\n";
+                    out += "#heading(level: 2)[" + esc(s.title) + "] <" + link_labels.at(s.id) + ">\n";
                 if (!s.body.empty())
-                    out += render_doc(s.body, {}, {});
+                    out += render_doc(s.body, s.body_refs, link_labels);
                 for (auto const& id : s.items)
                 {
                     auto bit = by_id.find(id);

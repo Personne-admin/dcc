@@ -156,6 +156,17 @@ export namespace dcdoc::html
         std::string out;
         for (auto const& sp : spans)
         {
+            if (sp.kind == dcdoc::prose::InlineKind::Emph || sp.kind == dcdoc::prose::InlineKind::Strong)
+            {
+                std::string tag = sp.kind == dcdoc::prose::InlineKind::Emph ? "em" : "strong";
+                out += "<" + tag + ">" + render_spans(sp.children, page_of, self_page) + "</" + tag + ">";
+                continue;
+            }
+            if (sp.kind == dcdoc::prose::InlineKind::Math)
+            {
+                out += "<span class=\"math\">$" + esc(sp.text) + "$</span>";
+                continue;
+            }
             if (sp.kind == dcdoc::prose::InlineKind::Code)
             {
                 out += "<code>" + esc(sp.text) + "</code>";
@@ -184,21 +195,49 @@ export namespace dcdoc::html
         return out;
     }
 
-    [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, std::unordered_map<std::string, std::string> const& page_of,
-                                         std::string const& self_page, std::string const& fence_default_lang)
+    [[nodiscard]] std::string render_blocks(std::vector<dcdoc::prose::Block> const& blocks,
+                                             std::unordered_map<std::string, std::string> const& page_of,
+                                             std::string const& self_page, std::string const& fence_default_lang)
     {
         std::string out;
-        for (auto const& block : dcdoc::prose::parse_doc(text, refs))
+        for (auto const& block : blocks)
         {
-            if (block.code)
+            using K = dcdoc::prose::BlockKind;
+            if (block.kind == K::Code)
             {
                 std::string lang = block.lang.empty() ? fence_default_lang : block.lang;
                 out += "<pre><code class=\"language-" + esc(lang) + "\">" + esc(block.text) + "</code></pre>\n";
                 continue;
             }
-            out += "<p>" + render_spans(block.spans, page_of, self_page) + "</p>\n";
+            if (block.kind == K::Heading)
+            {
+                std::string tag = "h" + std::to_string(std::min(6, block.level + 2));
+                out += "<" + tag + ">" + render_spans(block.spans, page_of, self_page) + "</" + tag + ">\n";
+            }
+            else if (block.kind == K::BulletList || block.kind == K::NumberList)
+            {
+                std::string tag = block.kind == K::BulletList ? "ul" : "ol";
+                out += "<" + tag;
+                if (tag == "ol" && block.start_number != 1) out += " start=\"" + std::to_string(block.start_number) + "\"";
+                out += ">\n";
+                for (auto const& child : block.children)
+                    out += "<li>" + render_blocks(child.children, page_of, self_page, fence_default_lang) + "</li>\n";
+                out += "</" + tag + ">\n";
+            }
+            else if (block.kind == K::Quote)
+                out += "<blockquote>\n" + render_blocks(block.children, page_of, self_page, fence_default_lang) + "</blockquote>\n";
+            else if (block.kind == K::ListItem)
+                out += render_blocks(block.children, page_of, self_page, fence_default_lang);
+            else
+                out += "<p>" + render_spans(block.spans, page_of, self_page) + "</p>\n";
         }
         return out;
+    }
+
+    [[nodiscard]] std::string render_doc(std::string_view text, std::vector<CrossRef> const& refs, std::unordered_map<std::string, std::string> const& page_of,
+                                         std::string const& self_page, std::string const& fence_default_lang)
+    {
+        return render_blocks(dcdoc::prose::parse_doc(text, refs), page_of, self_page, fence_default_lang);
     }
 
     [[nodiscard]] std::string render_item(Item const& item, std::vector<Item const*> const& children, dcdoc::prose::Highlighter& hl, int level,
@@ -230,11 +269,14 @@ export namespace dcdoc::html
         {
             std::string page = page_filename(m.id);
             for (auto const& s : m.sections)
+            {
+                page_of[s.id] = page;
                 for (auto const& sid : s.items)
                 {
                     page_of[sid] = page;
                     mod_of[sid] = m.id;
                 }
+            }
         }
         bool progress = true;
         while (progress)
@@ -297,13 +339,13 @@ export namespace dcdoc::html
         if (!m.file.empty())
             out += "<p class=\"defined\">" + esc(m.file) + "</p>\n";
         if (!m.overview.empty())
-            out += render_doc(m.overview, {}, page_of, page, "dc");
+            out += render_doc(m.overview, m.overview_refs, page_of, page, "dc");
         for (auto const& s : m.sections)
         {
             if (!s.title.empty())
-                out += "<h2>" + esc(s.title) + "</h2>\n";
+                out += "<h2 id=\"" + esc(s.id) + "\">" + esc(s.title) + "</h2>\n";
             if (!s.body.empty())
-                out += render_doc(s.body, {}, page_of, page, "dc");
+                out += render_doc(s.body, s.body_refs, page_of, page, "dc");
             for (auto const& id : s.items)
             {
                 auto bit = by_id.find(id);
@@ -319,13 +361,16 @@ export namespace dcdoc::html
 
     [[nodiscard]] std::string render_index(Project const& project)
     {
+        std::unordered_map<std::string, std::string> page_of;
+        std::unordered_map<std::string, std::string> mod_of;
+        build_maps(project, page_of, mod_of);
         std::string name = project.entry_module.empty() ? "Project" : project.entry_module;
         std::string out = page_head(name);
         out += nav_html(project, "index.html");
         out += search_snippet();
         out += "<h1>" + esc(name) + "</h1>\n";
         if (!project.overview.empty())
-            out += render_doc(project.overview, {}, {}, "index.html", "dc");
+            out += render_doc(project.overview, project.overview_refs, page_of, "index.html", "dc");
         out += "<h2>Modules</h2>\n<ul>\n";
         for (auto const& m : project.modules)
         {
