@@ -173,21 +173,84 @@ export namespace dcdoc::typst
         return out;
     }
 
-    [[nodiscard]] std::string render_sig(std::vector<dcdoc::prose::HlToken> const& toks)
+    [[nodiscard]] std::string wrapped_signature(std::string_view sig)
     {
-        std::string out = "#{";
-        bool first = true;
-        for (auto const& t : toks)
+        if (sig.size() <= 72)
+            return std::string{sig};
+        std::string out;
+        int depth = 0;
+        for (char c : sig)
         {
-            if (!first)
-                out += " + ";
-            first = false;
-            if (t.cls == dcdoc::prose::HlClass::Keyword)
-                out += "(text(fill: rgb(31, 111, 235), \"" + code_escape(t.text) + "\"))";
-            else if (t.cls == dcdoc::prose::HlClass::Literal)
-                out += "(text(fill: rgb(149, 56, 0), \"" + code_escape(t.text) + "\"))";
-            else
-                out += "\"" + code_escape(t.text) + "\"";
+            if (c == '(') ++depth;
+            if (c == ')') --depth;
+            out += c;
+            if (c == ',' && depth == 1)
+            {
+                out += "\n    ";
+            }
+        }
+        return out;
+    }
+
+    [[nodiscard]] std::string render_sig(Signature const& sig, dcdoc::prose::Highlighter& hl,
+                                         std::unordered_map<std::string, std::string> const& labels)
+    {
+        std::string source = wrapped_signature(sig.text);
+        std::vector<std::pair<std::size_t, std::pair<std::size_t, std::string>>> links;
+        for (auto const& ref : sig.refs)
+        {
+            if (!ref.resolved || ref.ambiguous || ref.raw.empty()) continue;
+            auto label = labels.find(ref.target);
+            if (label == labels.end()) continue;
+            std::size_t pos = 0;
+            while ((pos = source.find(ref.raw, pos)) != std::string::npos)
+            {
+                auto ident = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; };
+                bool left = pos == 0 || !ident(source[pos - 1]);
+                bool right = pos + ref.raw.size() == source.size() || !ident(source[pos + ref.raw.size()]);
+                if (left && right)
+                    links.push_back({pos, {ref.raw.size(), label->second}});
+                pos += ref.raw.size();
+            }
+        }
+        std::ranges::sort(links, {}, [](auto const& p) { return p.first; });
+        std::vector<std::string> parts;
+        auto append_plain = [&](std::string_view raw) {
+            for (auto const& t : hl.highlight(raw))
+            {
+                std::size_t start = 0;
+                for (std::size_t i = 0; i <= t.text.size(); ++i)
+                {
+                    if (i != t.text.size() && t.text[i] != '\n') continue;
+                    if (i > start)
+                    {
+                        std::string piece = code_escape(std::string_view{t.text}.substr(start, i - start));
+                        if (t.cls == dcdoc::prose::HlClass::Keyword)
+                            parts.push_back("text(fill: rgb(31, 111, 235), \"" + piece + "\")");
+                        else if (t.cls == dcdoc::prose::HlClass::Literal)
+                            parts.push_back("text(fill: rgb(149, 56, 0), \"" + piece + "\")");
+                        else
+                            parts.push_back("\"" + piece + "\"");
+                    }
+                    if (i != t.text.size()) parts.push_back("linebreak() + h(2em)");
+                    start = i + 1;
+                }
+            }
+        };
+        std::size_t pos = 0;
+        for (auto const& [at, data] : links)
+        {
+            if (at < pos) continue;
+            append_plain(std::string_view{source}.substr(pos, at - pos));
+            parts.push_back("link(<" + data.second + ">, text(fill: rgb(31, 111, 235), \"" + code_escape(std::string_view{source}.substr(at, data.first)) + "\"))");
+            pos = at + data.first;
+        }
+        append_plain(std::string_view{source}.substr(pos));
+        std::string out = "#{";
+        for (std::size_t i = 0; i < parts.size(); ++i)
+        {
+            if (i) out += " + ";
+            out += parts[i];
         }
         return out + "}";
     }
@@ -208,26 +271,54 @@ export namespace dcdoc::typst
         return out;
     }
 
+    [[nodiscard]] std::string relative_file(std::string_view file, std::filesystem::path const& root)
+    {
+        std::filesystem::path p{file};
+        std::filesystem::path rel = p.lexically_relative(root);
+        if (!rel.empty() && *rel.begin() != "..") return rel.generic_string();
+        return p.filename().generic_string();
+    }
+
     [[nodiscard]] std::string render_item(Item const& item, std::vector<Item const*> const& children, dcdoc::prose::Highlighter& hl, int level,
-                                          std::unordered_map<std::string, std::string> const& link_labels)
+                                          std::unordered_map<std::string, std::string> const& link_labels,
+                                          std::filesystem::path const& root)
     {
         std::string out = "#heading(level: " + std::to_string(level) + ")[" + esc(item.name) + "]";
         auto lit = link_labels.find(item.id);
         if (lit != link_labels.end())
             out += " <" + lit->second + ">";
         out += "\n";
-        out += "#text(size: 8pt, fill: luma(140))[" + esc(item.kind);
-        out += item.is_public ? ", public" : ", private";
+        out += "#text(size: 8pt, fill: luma(140))[" + esc(item.kind) + "  ·  ";
+        out += item.is_public ? "public" : "private";
         out += "]\n";
         out += "#block(fill: luma(243), inset: 8pt, radius: 4pt, width: 100%)[\n#set text(font: \"DejaVu Sans Mono\", size: 9pt)\n";
-        out += render_sig(hl.highlight(item.sig.text));
+        out += render_sig(item.sig, hl, link_labels);
         out += "\n]\n";
         if (!item.doc.empty())
             out += render_doc(item.doc, item.doc_refs, link_labels);
         if (!item.file.empty())
-            out += "#text(size: 8pt, fill: luma(140))[defined in " + esc(item.file) + ":" + std::to_string(item.line) + "]\n";
-        for (auto const* child : children)
-            out += render_item(*child, {}, hl, level + 1, link_labels);
+            out += "#text(size: 8pt, fill: luma(140))[defined in " + esc(relative_file(item.file, root)) + ":" + std::to_string(item.line) + "]\n";
+        if (!children.empty())
+        {
+            out += "#table(columns: (auto, 2fr, 3fr), inset: 5pt, stroke: luma(220),\n";
+            out += "[*Name*], [*Type*], [*Description*],\n";
+            for (auto const* child : children)
+            {
+                std::string type = child->sig.text;
+                if (child->kind == "fparam" || child->kind == "field")
+                {
+                    if (type.ends_with(';')) type.pop_back();
+                    std::string suffix = " " + child->name;
+                    if (type.ends_with(suffix)) type.resize(type.size() - suffix.size());
+                }
+                out += "[" + esc(child->name);
+                if (auto it = link_labels.find(child->id); it != link_labels.end()) out += " <" + it->second + ">";
+                out += "], [" + render_code_span(type) + "], [";
+                if (!child->doc.empty()) out += render_doc(child->doc, child->doc_refs, link_labels);
+                out += "],\n";
+            }
+            out += ")\n";
+        }
         return out;
     }
 
@@ -260,11 +351,15 @@ export namespace dcdoc::typst
         std::unordered_map<std::string, Item const*> by_id;
         for (auto const& it : project.items)
             by_id[it.id] = &it;
+        std::filesystem::path root;
+        for (auto const& m : project.modules)
+            if (m.id == project.entry_module) { root = std::filesystem::path{m.file}.parent_path(); break; }
+        if (root.empty() && !project.modules.empty()) root = std::filesystem::path{project.modules.front().file}.parent_path();
         for (auto const& m : project.modules)
         {
             out += "#heading(level: 1)[" + esc(m.id) + "]\n";
             if (!m.file.empty())
-                out += "#text(size: 8pt, fill: luma(140))[" + esc(m.file) + "]\n";
+                out += "#text(size: 8pt, fill: luma(140))[" + esc(relative_file(m.file, root)) + "]\n";
             if (!m.overview.empty())
                 out += render_doc(m.overview, {}, {});
             for (auto const& s : m.sections)
@@ -280,7 +375,7 @@ export namespace dcdoc::typst
                         continue;
                     auto cit = children.find(id);
                     std::vector<Item const*> kids = cit == children.end() ? std::vector<Item const*>{} : cit->second;
-                    out += render_item(*bit->second, kids, hl, 3, link_labels);
+                    out += render_item(*bit->second, kids, hl, 3, link_labels, root);
                 }
             }
         }
