@@ -16,6 +16,7 @@ export namespace dcdoc::prose
         Plain,
         Keyword,
         Literal,
+        Comment,
     };
 
     struct HlToken
@@ -27,7 +28,7 @@ export namespace dcdoc::prose
     class Highlighter
     {
     public:
-        [[nodiscard]] std::vector<HlToken> highlight(std::string_view sig)
+        [[nodiscard]] std::vector<HlToken> highlight(std::string_view sig, bool retain_comments = false)
         {
             std::vector<HlToken> out;
             std::string uri = "dcdoc-sig://" + std::to_string(m_next++);
@@ -38,7 +39,7 @@ export namespace dcdoc::prose
                 out.push_back({.cls = HlClass::Plain, .text = std::string{sig}});
                 return out;
             }
-            dcc::lex::Lexer lexer{*file, m_interner, false};
+            dcc::lex::Lexer lexer{*file, m_interner, retain_comments};
             std::string_view text = file->text();
             std::uint32_t prev = 0;
             while (true)
@@ -60,6 +61,8 @@ export namespace dcdoc::prose
                     out.push_back({.cls = HlClass::Keyword, .text = std::move(raw)});
                 else if (dcc::lex::is_literal(tok.kind))
                     out.push_back({.cls = HlClass::Literal, .text = std::move(raw)});
+                else if (dcc::lex::is_doc_comment(tok.kind))
+                    out.push_back({.cls = HlClass::Comment, .text = std::move(raw)});
                 else
                     out.push_back({.cls = HlClass::Plain, .text = std::move(raw)});
                 if (begin == end && tok.kind != dcc::lex::TokenKind::Eof)

@@ -762,7 +762,7 @@ export namespace dcdoc
 
         void itemize_tparams(std::span<dcc::ast::TemplateParam const> tps, dcc::sema::ModuleInfo const& mod, std::string const& parent_id,
                              std::string const& parent_path, bool is_public, Project& project, std::span<dcc::sema::ModuleInfo const* const> others,
-                             std::vector<std::string>& rendered)
+                             std::vector<std::string>& rendered, dcc::sm::SourceManager const& sm, std::string const& file)
         {
             for (auto const& tp : tps)
             {
@@ -773,6 +773,8 @@ export namespace dcdoc
                 item.name = std::string{tp.name};
                 item.parent = parent_id;
                 item.is_public = is_public;
+                item.file = file;
+                item.line = line_of(sm, tp.range.begin);
                 if (tp.doc)
                     item.doc = std::string{tp.doc->text};
 
@@ -787,7 +789,8 @@ export namespace dcdoc
 
         void itemize_fparams(std::span<dcc::ast::FuncParam const> fps, dcc::sema::ModuleInfo const& mod, std::string const& parent_id,
                              std::string const& parent_path, bool is_public, std::span<dcc::ast::TemplateParam const> tps, Project& project,
-                             std::span<dcc::sema::ModuleInfo const* const> others, std::vector<std::string>& rendered_types)
+                             std::span<dcc::sema::ModuleInfo const* const> others, std::vector<std::string>& rendered_types,
+                             dcc::sm::SourceManager const& sm, std::string const& file)
         {
             for (auto const& fp : fps)
             {
@@ -797,6 +800,8 @@ export namespace dcdoc
                 item.name = std::string{fp.name};
                 item.parent = parent_id;
                 item.is_public = is_public;
+                item.file = file;
+                item.line = line_of(sm, fp.range.begin);
                 if (fp.doc)
                     item.doc = std::string{fp.doc->text};
 
@@ -968,7 +973,7 @@ export namespace dcdoc
 
         void itemize_members(dcc::ast::Decl const* d, dcc::sema::ModuleInfo const& mod, std::string const& file, std::string const& owner_id,
                              std::string const& owner_path, bool is_public, std::span<dcc::ast::TemplateParam const> tparams, Project& project,
-                             std::span<dcc::sema::ModuleInfo const* const> others)
+                             std::span<dcc::sema::ModuleInfo const* const> others, dcc::sm::SourceManager const& sm)
         {
             if (owner_id.empty())
                 return;
@@ -1000,6 +1005,7 @@ export namespace dcdoc
                     item.parent = owner_id;
                     item.is_public = is_public;
                     item.file = file;
+                    item.line = line_of(sm, fld.name_range.valid() ? fld.name_range.begin : fld.range.begin);
                     if (fld.doc)
                         item.doc = std::string{fld.doc->text};
 
@@ -1021,6 +1027,7 @@ export namespace dcdoc
                     item.parent = owner_id;
                     item.is_public = is_public;
                     item.file = file;
+                    item.line = line_of(sm, v.range.begin);
                     if (v.doc)
                         item.doc = std::string{v.doc->text};
 
@@ -1047,19 +1054,19 @@ export namespace dcdoc
             {
                 auto const* f = static_cast<dcc::ast::FuncDecl const*>(d);
                 std::vector<std::string> rendered;
-                itemize_fparams(f->params, mod, owner_id, owner_path, is_public, tparams, project, others, rendered);
+                itemize_fparams(f->params, mod, owner_id, owner_path, is_public, tparams, project, others, rendered, sm, file);
             }
 
             std::vector<std::string> t_rendered;
             if (d->kind == dcc::ast::DeclKind::Func)
-                itemize_tparams(static_cast<dcc::ast::FuncDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered);
+                itemize_tparams(static_cast<dcc::ast::FuncDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered, sm, file);
             else if (d->kind == dcc::ast::DeclKind::Struct)
                 itemize_tparams(static_cast<dcc::ast::StructDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others,
-                                t_rendered);
+                                t_rendered, sm, file);
             else if (d->kind == dcc::ast::DeclKind::Enum)
-                itemize_tparams(static_cast<dcc::ast::EnumDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered);
+                itemize_tparams(static_cast<dcc::ast::EnumDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered, sm, file);
             else if (d->kind == dcc::ast::DeclKind::Using)
-                itemize_tparams(static_cast<dcc::ast::UsingDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered);
+                itemize_tparams(static_cast<dcc::ast::UsingDecl const*>(d)->template_params, mod, owner_id, owner_path, is_public, project, others, t_rendered, sm, file);
         }
 
         [[nodiscard]] bool is_project_module(dcc::sema::ModuleInfo const* mod) const
@@ -1195,7 +1202,7 @@ export namespace dcdoc
                         tps = static_cast<dcc::ast::UsingDecl const*>(d)->template_params;
 
                     std::string owner_path = m.id + "::" + decl_simple_name(d);
-                    itemize_members(d, *mod, m.file, id, owner_path, d->is_public, tps, project, mods);
+                    itemize_members(d, *mod, m.file, id, owner_path, d->is_public, tps, project, mods, sm);
                     Item& top = project.items[idx];
                     top.line = line_of(sm, decl_begin(d));
                     attach_doc_links(top, *mod, tps, mods, project);

@@ -232,6 +232,43 @@ TEST_CASE("section links resolve across modules and warn on dangling slugs")
     CHECK(contains(md, "[one::intro#section](#intro)"));
 }
 
+TEST_CASE("pdf listings keep source lines, comments, and reciprocal links")
+{
+    TempDir td;
+    td.write_file("m.dc", "//!! Module overview.\nmodule m;\n//! API\n//! Narrative.\n"
+                          "/// A value.\npublic struct Value {\n    /// Field docs.\n    i32 count; // inlay\n}\n"
+                          "/// Uses a value.\npublic void use(Value v) {\n    /// Local docs.\n"
+                          "    i32 local = 1; // this comment stays beside the statement\n    return;\n}\n");
+    dcdoc::Builder builder{td.path / "m.dc", {td.path}};
+    auto project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    std::string typ = dcdoc::typst::render(project);
+    std::string lean = dcdoc::typst::render(project, false);
+    CHECK(contains(typ, "Source: m.dc"));
+    CHECK(!contains(lean, "Source: m.dc"));
+    CHECK(contains(typ, "<source-m-6>"));
+    CHECK(contains(typ, "link(<source-m-6>"));
+    CHECK(contains(typ, "// inlay"));
+    CHECK(contains(typ, "/// Local docs."));
+    auto typ_path = td.path / "listing.typ";
+    auto pdf_path = td.path / "listing.pdf";
+    { std::ofstream out{typ_path}; REQUIRE(static_cast<bool>(out)); out << typ; }
+    int rc = dcdoc::typst::compile_pdf(typ_path, pdf_path);
+    if (rc == 2) return;
+    REQUIRE(rc == 0);
+    if (have_tool("pdftotext"))
+    {
+        auto txt_path = td.path / "listing.txt";
+        std::string cmd = "pdftotext -layout " + pdf_path.string() + " " + txt_path.string() + " 2>/dev/null";
+        REQUIRE(std::system(cmd.c_str()) == 0);
+        std::string txt = read_file_bytes(txt_path);
+        CHECK(contains(txt, "Source: m.dc"));
+        CHECK(contains(txt, "// inlay"));
+        CHECK(contains(txt, "/// Local docs."));
+        CHECK(contains(txt, "defined in m.dc:6"));
+    }
+}
+
 TEST_CASE("resolved ambiguous and unresolved refs render distinctly")
 {
     TempDir td;
@@ -881,7 +918,8 @@ TEST_CASE("stdlib modules render no chapters but keep resolved refs")
     CHECK(!contains(md, "[std::fmt::Writer]("));
     std::string typ = dcdoc::typst::render(project);
     CHECK(contains(typ, "#text(style: \"italic\")[std::fmt::Writer]"));
-    CHECK(!contains(typ, "#link(<"));
+    CHECK(!contains(typ, "link(<std--fmt--Writer"));
+    CHECK(!contains(typ, "Source: std"));
     auto site = td.path / "site";
     REQUIRE(dcdoc::html::write_site(project, site) == 0);
     CHECK(!std::filesystem::exists(site / "std.fmt.html"));

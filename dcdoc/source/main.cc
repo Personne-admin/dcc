@@ -15,12 +15,15 @@ auto main(int argc, char** argv) -> int
     std::filesystem::path md_out;
     bool md_is_dir = false;
     bool dump_model = false;
+    bool listings = true;
 
     for (int i = 1; i < argc; ++i)
     {
         std::string_view arg{argv[i]};
         if (arg == "--dump-model")
             dump_model = true;
+        else if (arg == "--no-listings")
+            listings = false;
         else if (arg == "--emit-typ" && i + 1 < argc)
             typ_out = argv[++i];
         else if (arg == "--pdf" && i + 1 < argc)
@@ -66,7 +69,7 @@ auto main(int argc, char** argv) -> int
 
     if (!typ_out.empty() || !pdf_out.empty())
     {
-        std::string typ = dcdoc::typst::render(project);
+        std::string typ = dcdoc::typst::render(project, listings);
         std::filesystem::path typ_path = typ_out.empty() ? std::filesystem::path{pdf_out.string() + ".typ"} : typ_out;
         std::ofstream out{typ_path};
         if (!out)
