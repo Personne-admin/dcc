@@ -316,7 +316,8 @@ TEST_CASE("real pointer signatures compile")
     dcdoc::Project project = builder.build();
     REQUIRE(project.file_errors.empty());
     std::string typ = dcdoc::typst::render(project);
-    CHECK(contains(typ, "(text(fill: rgb(31, 111, 235), \"bool\"))"));
+    CHECK(contains(typ, "text(fill: rgb(31, 111, 235), \"bool\")"));
+    CHECK(contains(typ, "link(<cb--Solution-struct>,"));
     auto typ_path = td.path / "cb.typ";
     auto pdf_path = td.path / "cb.pdf";
     {
@@ -342,6 +343,36 @@ TEST_CASE("real pointer signatures compile")
             flat += (c == 10 || c == 13) ? char(32) : c;
         CHECK(contains(flat, "public void for_each(bool(*)(Solution i) cb, const u8** ptr, []u8 buf)"));
         CHECK(!contains(txt, "(public)"));
+    }
+}
+
+TEST_CASE("short and wrapped signatures extract as dc syntax")
+{
+    TempDir td;
+    td.write_file("sig.dc", "module sig;\npublic void short_fn(i32 x) {}\n"
+                            "public void long_function_name(const u8** source_pointer, usize* remaining_bytes, "
+                            "bool(*)(i32 value) callback) {}\n");
+    dcdoc::Builder builder{td.path / "sig.dc", {td.path}};
+    auto project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    std::string typ = dcdoc::typst::render(project);
+    CHECK(contains(typ, "linebreak() + h(2em)"));
+    auto typ_path = td.path / "sig.typ";
+    auto pdf_path = td.path / "sig.pdf";
+    { std::ofstream out{typ_path}; REQUIRE(static_cast<bool>(out)); out << typ; }
+    int rc = dcdoc::typst::compile_pdf(typ_path, pdf_path);
+    if (rc == 2) return;
+    REQUIRE(rc == 0);
+    if (have_tool("pdftotext"))
+    {
+        auto txt_path = td.path / "sig.txt";
+        std::string cmd = "pdftotext -layout " + pdf_path.string() + " " + txt_path.string() + " 2>/dev/null";
+        REQUIRE(std::system(cmd.c_str()) == 0);
+        std::string txt = read_file_bytes(txt_path);
+        CHECK(contains(txt, "public void short_fn(i32 x)"));
+        CHECK(contains(txt, "public void long_function_name(const u8** source_pointer,"));
+        CHECK(contains(txt, "usize* remaining_bytes,"));
+        CHECK(contains(txt, "bool(*)(i32 value) callback)"));
     }
 }
 
