@@ -214,6 +214,8 @@ namespace
     {
         std::vector<VirtualFile> files;
         std::string entry;
+        std::string target_name;
+        std::size_t target_line{};
         std::vector<ExpectAst> ast_blocks;
         std::vector<ExpectScope> scope_blocks;
         std::vector<ExpectTypes> type_blocks;
@@ -335,6 +337,11 @@ namespace
             }
             else if (starts_with(h, "ENTRY:"))
                 fx.entry = trim(std::string_view{h}.substr(6));
+            else if (starts_with(h, "TARGET:"))
+            {
+                fx.target_name = trim(std::string_view{h}.substr(7));
+                fx.target_line = sec.body_start_line - 1;
+            }
             else if (starts_with(h, "MODE:") && trim(std::string_view{h}.substr(5)) == "interactive")
                 fx.interactive_mode = true;
             else if (starts_with(h, "INJECT:"))
@@ -1278,6 +1285,23 @@ namespace
         }
         auto& fx = *fx_opt;
 
+        std::optional<dcc::target::TargetConfig> fixture_target;
+        if (fx.target_line != 0)
+        {
+            if (fx.target_name == "linux-em64t")
+                fixture_target = dcc::target::TargetConfig::for_os(dcc::target::Os::Linux);
+            else if (fx.target_name == "windows-em64t")
+                fixture_target = dcc::target::TargetConfig::for_os(dcc::target::Os::Windows);
+            else if (fx.target_name == "freestanding-em64t")
+                fixture_target = dcc::target::TargetConfig::host_default();
+            else
+            {
+                ++stats.failed;
+                std::println(std::cerr, "    FAIL  unknown fixture target '{}'  ({}:{})", fx.target_name, path.string(), fx.target_line);
+                return false;
+            }
+        }
+
         auto sb = materialize(fx);
         if (!sb)
         {
@@ -1305,6 +1329,8 @@ namespace
         };
 
         dcc::sema::SemaOptions opts;
+        if (fixture_target)
+            opts.target = *fixture_target;
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
         opts.injected_decls = fx.injected_decls;
@@ -2009,7 +2035,7 @@ namespace
                 target = *parsed;
             }
             else
-                target = dcc::target::TargetConfig::host_default();
+                target = fixture_target.value_or(dcc::target::TargetConfig::host_default());
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
@@ -2146,7 +2172,7 @@ namespace
                 target = *parsed;
             }
             else
-                target = dcc::target::TargetConfig::host_default();
+                target = fixture_target.value_or(dcc::target::TargetConfig::host_default());
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
@@ -2296,7 +2322,7 @@ namespace
                 target = *parsed;
             }
             else
-                target = dcc::target::TargetConfig::host_default();
+                target = fixture_target.value_or(dcc::target::TargetConfig::host_default());
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
@@ -3145,7 +3171,7 @@ namespace
                 target = *parsed;
             }
             else
-                target = dcc::target::TargetConfig::host_default();
+                target = fixture_target.value_or(dcc::target::TargetConfig::host_default());
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
