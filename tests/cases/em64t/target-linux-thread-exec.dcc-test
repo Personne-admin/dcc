@@ -1,0 +1,19 @@
+=== TARGET: linux-em64t ===
+
+=== FILE: test.dc ===
+module test;
+
+import std::os::thread;
+
+@nomangle
+public i32 dcc_main() {
+    return if std::os::thread::current() > 0 {
+        0
+    } else {
+        1
+    };
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
