@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    i32 count = 0;
+    for u8 i in 0..=255 {
+        count += 1;
+    }
+    return count - 256;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

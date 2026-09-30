@@ -165,12 +165,15 @@ usize@_DC0F1.4.test22.for_in_range_inclusive1IuIu(usize) {
   br label %forin.step3
 %forin.step3:
   %9 = load usize, ptr<usize> %1
-  %10 = add usize %9, usize #1
-  store usize %10, ptr<usize> %1
-  br label %forin.header1
+  %10 = cmp.eq usize %9, %n
+  br.cond %10, label %forin.exit4, label %forin.advance5
 %forin.exit4:
-  %11 = load usize, ptr<usize> %0
-  ret usize %11
+  %12 = load usize, ptr<usize> %0
+  ret usize %12
+%forin.advance5:
+  %11 = add usize %9, usize #1
+  store usize %11, ptr<usize> %1
+  br label %forin.header1
 }
 
 i32@_DC0F1.4.test24.for_in_range_signed_excl1i32si32s(i32) {
@@ -225,12 +228,15 @@ i32@_DC0F1.4.test24.for_in_range_signed_incl1i32si32s(i32) {
   br label %forin.step3
 %forin.step3:
   %9 = load i32, ptr<i32> %1
-  %10 = add i32 %9, i32 #1
-  store i32 %10, ptr<i32> %1
-  br label %forin.header1
+  %10 = cmp.eq i32 %9, %end
+  br.cond %10, label %forin.exit4, label %forin.advance5
 %forin.exit4:
-  %11 = load i32, ptr<i32> %0
-  ret i32 %11
+  %12 = load i32, ptr<i32> %0
+  ret i32 %12
+%forin.advance5:
+  %11 = add i32 %9, i32 #1
+  store i32 %11, ptr<i32> %1
+  br label %forin.header1
 }
 
 i32@_DC0F1.4.test25.for_in_range_literal_excl0i32s() {
@@ -285,12 +291,15 @@ i32@_DC0F1.4.test25.for_in_range_literal_incl0i32s() {
   br label %forin.step3
 %forin.step3:
   %9 = load i32, ptr<i32> %1
-  %10 = add i32 %9, i32 #1
-  store i32 %10, ptr<i32> %1
-  br label %forin.header1
+  %10 = cmp.eq i32 %9, #5
+  br.cond %10, label %forin.exit4, label %forin.advance5
 %forin.exit4:
-  %11 = load i32, ptr<i32> %0
-  ret i32 %11
+  %12 = load i32, ptr<i32> %0
+  ret i32 %12
+%forin.advance5:
+  %11 = add i32 %9, i32 #1
+  store i32 %11, ptr<i32> %1
+  br label %forin.header1
 }
 
 i32@_DC0F1.4.test20.for_in_range_reverse0i32s() {
