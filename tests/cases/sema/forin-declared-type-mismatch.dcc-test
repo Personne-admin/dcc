@@ -1,0 +1,54 @@
+=== FILE: std/array.dc ===
+module std::array;
+public struct Array(T) { T* data; }
+
+=== FILE: main.dc ===
+module test;
+import std::array;
+
+void range_mismatch(usize n) {
+    for std::array::Array(usize) i in 0..n {}
+    for bool i in 0..n {}
+    for u8 i in 0..n {}
+    for usize i in 0..n { usize x = i; }
+    for i32 i in 0..5 { i32 x = i; }
+    for usize i in 0..5 { usize x = i; }
+    for u8 i in 0..10 { u8 x = i; }
+    for i64 i in 0..n {}
+}
+
+void aggregate_mismatch(i32[2] a, []i32 s) {
+    for bool i in a { bool x = i; }
+    for bool i in s { bool x = i; }
+}
+
+void nested_shadow(usize n) {
+    for usize i = 0; i < n; ++i {
+        for usize i in 0..n { usize x = i; }
+    }
+}
+
+void literal_edges(usize un, i32 sn) {
+    for u8 i in 0..300 {}
+    for u8 i in 300..1 {}
+    for usize i in -1..5 {}
+    for u8 i in 0..un {}
+    for usize i in 0..sn {}
+    for bool i in 0..5 {}
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:5: for-in item type mismatch: declared `Array(usize)`, element `usize`
+main.dc:6: for-in item type mismatch: declared `bool`, element `usize`
+main.dc:7: for-in item type mismatch: declared `u8`, element `usize`
+main.dc:12: for-in item type mismatch: declared `i64`, element `usize`
+main.dc:16: for-in item type mismatch: declared `bool`, element `i32`
+main.dc:17: for-in item type mismatch: declared `bool`, element `i32`
+main.dc:27: integer literal 300 does not fit in type u8
+main.dc:28: integer literal 300 does not fit in type u8
+main.dc:29: for-in item type mismatch: declared `usize`, element `i32`
+main.dc:30: for-in item type mismatch: declared `u8`, element `usize`
+main.dc:31: for-in item type mismatch: declared `usize`, element `i32`
+main.dc:32: for-in item type mismatch: declared `bool`, element `i32`
