@@ -10115,8 +10115,13 @@ export namespace dcc::sema
                         if (!m_allow_range_expr)
                             error(r.range, "a range can only be used in a slice index, a for-in, or a match pattern");
 
-                        auto start_result = r.start ? analyze_expr(mod, fn, scope, *r.start, loop_depth, next_off, nullptr, const_env) : detail::ExprResult{};
-                        auto end_result = r.end ? analyze_expr(mod, fn, scope, *r.end, loop_depth, next_off, nullptr, const_env) : detail::ExprResult{};
+                        auto* literal_type = types::type_cast<types::IntType>(expected_type) ? expected_type : nullptr;
+                        auto start_result = r.start ? analyze_expr(mod, fn, scope, *r.start, loop_depth, next_off,
+                                                                   r.start->kind == ast::ExprKind::IntLiteral ? literal_type : nullptr, const_env)
+                                                    : detail::ExprResult{};
+                        auto end_result = r.end ? analyze_expr(mod, fn, scope, *r.end, loop_depth, next_off,
+                                                               r.end->kind == ast::ExprKind::IntLiteral ? literal_type : nullptr, const_env)
+                                                : detail::ExprResult{};
 
                         if (start_result.type && end_result.type && start_result.type != end_result.type)
                         {
@@ -15164,12 +15169,18 @@ export namespace dcc::sema
                 case ast::StmtKind::ForIn: {
                     auto& f = static_cast<ast::ForInStmt&>(s);
 
+                    if (f.item_type && !f.item_type->sema.canonical)
+                        std::ignore = resolve_and_substitute_type_expr(mod, scope, f.item_type);
+
                     bool const is_direct_range = f.iterable && f.iterable->kind == ast::ExprKind::Range;
                     bool const saved_allow_range = m_allow_range_expr;
                     if (is_direct_range)
                         m_allow_range_expr = true;
 
-                    auto iterable_result = analyze_expr_or_error(mod, fn, scope, f.iterable, loop_depth, next_off, nullptr, const_env);
+                    auto* range_literal_type = is_direct_range && !f.by_reference && f.item_type && f.item_type->sema.canonical
+                                                   ? get_canonical(f.item_type->sema)
+                                                   : nullptr;
+                    auto iterable_result = analyze_expr_or_error(mod, fn, scope, f.iterable, loop_depth, next_off, range_literal_type, const_env);
 
                     m_allow_range_expr = saved_allow_range;
 
@@ -15185,9 +15196,6 @@ export namespace dcc::sema
                     invalidate_loop_writes(&f, inner_consts);
                     if (!f.item_name.empty())
                     {
-                        if (f.item_type && !f.item_type->sema.canonical)
-                            std::ignore = resolve_and_substitute_type_expr(mod, scope, f.item_type);
-
                         types::TypePtr element_type = nullptr;
                         types::Qual element_quals = types::Qual::None;
                         if (iterable_result.type)
@@ -15218,6 +15226,14 @@ export namespace dcc::sema
                         types::TypePtr binding_type = element_type;
                         if (f.by_reference && element_type)
                             binding_type = m_types.pointer_to(element_type, element_quals);
+
+                        if (f.item_type && f.item_type->sema.canonical && !has_error(binding_type))
+                        {
+                            auto* declared_type = get_canonical(f.item_type->sema);
+                            if (!has_error(declared_type) && declared_type != binding_type)
+                                error(f.name_range, "for-in item type mismatch: declared `{}`, element `{}`", format_type_str(declared_type),
+                                      format_type_str(binding_type));
+                        }
 
                         auto* v = make_local_decl(
                             f.item_name, f.name_range, f.item_type, ast::StorageClass::Local,
