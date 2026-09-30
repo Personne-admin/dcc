@@ -541,8 +541,7 @@ export namespace dcdoc::typst
         if (root.empty() && !project.modules.empty()) root = std::filesystem::path{project.modules.front().file}.parent_path();
         for (auto const& m : project.modules)
         {
-            bool module_listing = listings && !m.id.starts_with("std::") && !m.id.starts_with("core::") &&
-                                  !m.file.starts_with("dcc-core:");
+            bool module_listing = listings && !m.from_prefix_include && !m.file.starts_with("dcc-core:");
             out += "#heading(level: 1)[" + esc(m.id) + "]\n";
             if (!m.file.empty())
                 out += "#text(size: 8pt, fill: luma(140))[" + esc(relative_file(m.file, root)) + "]\n";

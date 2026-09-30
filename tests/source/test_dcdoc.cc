@@ -927,3 +927,48 @@ TEST_CASE("stdlib modules render no chapters but keep resolved refs")
     CHECK(contains(page, "<span class=\"ref-ext\">std::fmt::Writer</span>"));
     CHECK(!contains(page, "<a class=\"ref\""));
 }
+
+TEST_CASE("project core module gets a listing while prefix and virtual modules do not")
+{
+    const char* std_root = ::getenv("DCC_TEST_LIBDCEXT_SRC");
+    if (!std_root) return;
+    std::error_code ec;
+    if (!std::filesystem::is_directory(std_root, ec) || ec) return;
+
+    TempDir td;
+    td.write_file("core/util.dc", "module core::util;\n//! Utilities\n//! Project source.\n"
+                                  "/// A project value.\npublic struct Value { i32 count; }\n");
+    td.write_file("main.dc", "module main;\npublic import core::util;\n"
+                             "public import core::atomic;\npublic import std::fmt;\n"
+                             "/// Entry.\npublic void run() {}\n");
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    auto project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    std::string dump = dcdoc::dump(project);
+    CHECK(contains(dump, "- module \"core::util\""));
+    CHECK(!contains(dump, "- module \"std::"));
+    CHECK(!contains(dump, "- module \"core::atomic\""));
+
+    std::string typ = dcdoc::typst::render(project);
+    CHECK(contains(typ, "Source: core/util.dc"));
+    CHECK(!contains(typ, "Source: atomic.dc"));
+    CHECK(!contains(typ, "Source: fmt.dc"));
+
+    auto typ_path = td.path / "origin.typ";
+    auto pdf_path = td.path / "origin.pdf";
+    { std::ofstream out{typ_path}; REQUIRE(static_cast<bool>(out)); out << typ; }
+    int rc = dcdoc::typst::compile_pdf(typ_path, pdf_path);
+    if (rc == 2) return;
+    REQUIRE(rc == 0);
+    if (have_tool("pdftotext"))
+    {
+        auto txt_path = td.path / "origin.txt";
+        std::string cmd = "pdftotext -layout " + pdf_path.string() + " " + txt_path.string() + " 2>/dev/null";
+        REQUIRE(std::system(cmd.c_str()) == 0);
+        std::string txt = read_file_bytes(txt_path);
+        CHECK(contains(txt, "core::util"));
+        CHECK(contains(txt, "Source: core/util.dc"));
+        CHECK(!contains(txt, "Source: atomic.dc"));
+        CHECK(!contains(txt, "Source: fmt.dc"));
+    }
+}
