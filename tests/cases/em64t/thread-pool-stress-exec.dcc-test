@@ -1,0 +1,58 @@
+=== TARGET: linux-em64t ===
+
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+import std::os::thread_pool;
+import std::os::error;
+import std::result;
+
+using std::os::thread_pool::{ ThreadPool, create };
+using std::os::error::Error;
+using std::result::{ Result, Status };
+
+void mark(void* context) {
+    core::atomic::Atomic(i32)* slot = context as core::atomic::Atomic(i32)*;
+    core::atomic::atomic_fetch_add(slot, 1, core::atomic::MemoryOrder::SeqCst);
+}
+
+@nomangle
+public i32 dcc_main() {
+    Result(ThreadPool*, Error) created = create(4);
+    if created.is_err() { return 1; }
+    ThreadPool* pool = created.unwrap();
+
+    core::atomic::Atomic(i32)[4096] hits;
+    for usize i = 0; i < 4096; i++ { hits[i].value = 0; }
+
+    for usize i = 0; i < 4096; i++ {
+        Status(Error) submitted = pool.submit(mark, &hits[i] as void*);
+        if !submitted.is_ok() { pool.destroy(); return 2; }
+    }
+    pool.wait_all();
+    for usize i = 0; i < 4096; i++ {
+        if core::atomic::atomic_load(&hits[i], core::atomic::MemoryOrder::SeqCst) != 1 {
+            pool.destroy();
+            return 3;
+        }
+    }
+
+    for usize i = 0; i < 4096; i++ {
+        Status(Error) submitted = pool.submit(mark, &hits[i] as void*);
+        if !submitted.is_ok() { pool.destroy(); return 4; }
+    }
+    pool.wait_all();
+    for usize i = 0; i < 4096; i++ {
+        if core::atomic::atomic_load(&hits[i], core::atomic::MemoryOrder::SeqCst) != 2 {
+            pool.destroy();
+            return 5;
+        }
+    }
+
+    pool.destroy();
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0

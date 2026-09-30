@@ -1,0 +1,73 @@
+=== TARGET: linux-em64t ===
+
+=== FILE: test.dc ===
+module test;
+import std::os::thread_pool;
+import std::os::thread;
+import std::os::error;
+import std::result;
+import std::mem;
+import std::slice;
+
+using std::os::thread_pool::{ ThreadPool, create };
+using std::os::error::Error;
+using std::result::{ Result, Status };
+
+struct Gate {
+    std::os::thread::Mutex guard;
+    std::os::thread::Condvar changed;
+    isize[4] tids;
+    usize started;
+    bool released;
+}
+
+struct Job {
+    Gate* gate;
+    usize index;
+}
+
+void enter(void* context) {
+    Job* job = context as Job*;
+    Gate* gate = job.gate;
+    gate.guard.lock();
+    gate.tids[job.index] = std::os::thread::current();
+    gate.started++;
+    gate.changed.broadcast();
+    while !gate.released { gate.changed.wait(&gate.guard); }
+    gate.guard.unlock();
+}
+
+@nomangle
+public i32 dcc_main() {
+    Result(ThreadPool*, Error) created = create(4);
+    if created.is_err() { return 1; }
+    ThreadPool* pool = created.unwrap();
+    Gate gate;
+    std::mem::zero(std::slice::from_raw(&gate, 1));
+    Job[4] jobs;
+    for usize i = 0; i < 4; i++ {
+        jobs[i] = Job {gate = &gate, index = i};
+        Status(Error) submitted = pool.submit(enter, &jobs[i] as void*);
+        if !submitted.is_ok() { pool.destroy(); return 2; }
+    }
+
+    gate.guard.lock();
+    while gate.started != 4 { gate.changed.wait(&gate.guard); }
+    bool distinct = true;
+    for usize i = 0; i < 4; i++ {
+        for usize j = i + 1; j < 4; j++ {
+            if gate.tids[i] == gate.tids[j] { distinct = false; }
+        }
+    }
+    gate.released = true;
+    gate.changed.broadcast();
+    gate.guard.unlock();
+
+    pool.wait_all();
+    pool.destroy();
+    return if distinct { 0 } else { 3 };
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
