@@ -50,6 +50,7 @@ export namespace dcdoc
     {
         std::string id;
         std::string file;
+        bool from_prefix_include{false};
         std::string overview;
         std::vector<CrossRef> overview_refs;
         std::vector<Section> sections;

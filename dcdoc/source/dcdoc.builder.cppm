@@ -31,6 +31,7 @@ export namespace dcdoc
         Project build()
         {
             Project project;
+            m_prefix_include_root.clear();
             auto files = discover();
             if (files.empty())
                 return project;
@@ -53,7 +54,11 @@ export namespace dcdoc
             std::error_code ec;
             auto std_root = prefix / "include";
             if (std::filesystem::is_directory(std_root, ec) && !ec)
+            {
+                m_prefix_include_root = std::filesystem::weakly_canonical(std_root, ec);
+                if (ec) m_prefix_include_root.clear();
                 opts.import_roots.push_back(std::move(std_root));
+            }
 
             opts.enable_doc_comments = true;
             auto result = session.analyze_resolve_only_files(files, opts);
@@ -73,6 +78,7 @@ export namespace dcdoc
         std::string m_argv0;
         std::uint64_t m_instantiation_count{};
         std::unordered_set<std::string> m_project_files;
+        std::filesystem::path m_prefix_include_root;
         dcc::si::string_interner* m_interner{};
         std::unordered_map<dcc::ast::Decl const*, std::string> m_decl_ids;
         std::unordered_map<dcc::ast::TemplateParam const*, std::string> m_tparam_ids;
@@ -1071,13 +1077,20 @@ export namespace dcdoc
 
         [[nodiscard]] bool is_project_module(dcc::sema::ModuleInfo const* mod) const
         {
-            if (!mod || mod->file_path.empty())
+            if (!mod || mod->file_path.empty() || mod->file_path.string().starts_with("dcc-core:"))
                 return false;
             std::error_code ec;
-            std::string canon = std::filesystem::weakly_canonical(mod->file_path, ec).string();
+            auto canon = std::filesystem::weakly_canonical(mod->file_path, ec);
             if (ec)
                 return false;
-            return m_project_files.contains(canon);
+            return m_project_files.contains(canon.string()) && !is_prefix_include_file(canon);
+        }
+
+        [[nodiscard]] bool is_prefix_include_file(std::filesystem::path const& file) const
+        {
+            if (m_prefix_include_root.empty()) return false;
+            auto rel = file.lexically_relative(m_prefix_include_root);
+            return !rel.empty() && *rel.begin() != "..";
         }
 
         void assemble(dcc::session::CompilerSession& session, std::vector<dcc::sema::ModuleInfo*> const& entries, Project& project)
@@ -1161,6 +1174,9 @@ export namespace dcdoc
                 Module m;
                 m.id = mod->canonical_path.str();
                 m.file = mod->file_path.string();
+                std::error_code origin_ec;
+                auto origin = std::filesystem::weakly_canonical(mod->file_path, origin_ec);
+                m.from_prefix_include = !origin_ec && is_prefix_include_file(origin);
                 if (auto const* ov = tu->overview_of())
                     m.overview = std::string{ov->text};
 
