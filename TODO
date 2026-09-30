@@ -18,3 +18,4 @@
 - [ ] inline asm: no test mode pins a sema diagnostic under an explicit non-host target (sema runs host-fixed in the harness); x86-only rejections like `esi:byte` are covered only via the LLVM-backend backstop test.
 - [ ] inline asm: module-scope `%{..}` resolves same-TU globals and non-generic functions only; imported/`extern` symbols need only correct mangling (assembler relocation, no `llvm.compiler.used`).
 - [ ] inline asm: native em64t lowering is gated to x86_64 (`select_registers` rejects all other arches); target-aware register/width validation in sema covers all four triples.
+- [ ] DcDoc comments on the threadpool, I was too tired.
