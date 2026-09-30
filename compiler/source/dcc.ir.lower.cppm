@@ -1794,6 +1794,18 @@ export namespace dcc::ir::lower
                 cur_val3->name = m_name_pool.back();
                 append_inst(cur_val3);
 
+                if (is_inclusive)
+                {
+                    auto* at_end = m_ctx.cmp_eq(cur_val3, end_val);
+                    auto at_end_name = ident_name();
+                    at_end->name = m_name_pool.back();
+                    append_inst(at_end);
+
+                    auto* advance_bb = create_block("forin.advance");
+                    emit_br_cond(at_end, exit_bb, advance_bb);
+                    set_current_block(advance_bb);
+                }
+
                 auto* one = m_ctx.int_const(ir_element_type, 1);
                 auto* next_val = m_ctx.add(ir_element_type, cur_val3, one);
                 auto next_name = ident_name();
