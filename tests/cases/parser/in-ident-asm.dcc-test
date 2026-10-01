@@ -1,0 +1,150 @@
+=== FILE: main.dc ===
+module m;
+
+void inputs_named(u16 port, u8 val) {
+    u8 in = val;
+    asm @[inputs(in in al = in, port in dx = port)] { "outb %[in], %[port]" };
+}
+
+u8 inputs_expr(u8 in) {
+    u8 r = asm @[output(r in al), inputs(in in cl = in)] { "mov %[in], %[r]" };
+    return r;
+}
+
+u32 output_forms(u32 in) {
+    u32 a = asm @[output(u32 in eax), inputs(in in ecx = in)] { "mov %[in], %0" };
+    u32 b = asm @[output(in eax), inputs(in in ecx = in)] { "mov %[in], %0" };
+    u32 c = 0;
+    asm @[output(c = in in eax), inputs(in in ecx = in)] { "mov %[in], %[c]" };
+    return a + b + c;
+}
+
+u32 inout_forms(u32 in) {
+    u32 x = in;
+    asm @[inout(in in ecx)] { "incl %[in]" };
+    asm @[inout(x in edx)] { "incl %[x]" };
+    asm @[inout(a = in in esi)] { "incl %[a]" };
+    return x + in;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=inputs_named
+    Return
+      Primitive void
+    Params
+      Param name=port
+        Primitive u16
+      Param name=val
+        Primitive u8
+    Body
+      Var name=in
+        Type
+          Primitive u8
+        Init
+          Ident val
+      AsmStmt volatile=true dialect=att
+        Template "outb %[in], %[port]"
+        Operands
+          AsmOperand dir=in place=reg(al) name=in
+            Ident in
+          AsmOperand dir=in place=reg(dx) name=port
+            Ident port
+  Func name=inputs_expr
+    Return
+      Primitive u8
+    Params
+      Param name=in
+        Primitive u8
+    Body
+      Var name=r
+        Type
+          Primitive u8
+        Init
+          AsmExpr volatile=true dialect=att align_stack=false
+            Template "mov %[in], %[r]"
+            Operands
+              AsmOperand dir=out place=reg(al) name=r
+                Ident r
+              AsmOperand dir=in place=reg(cl) name=in
+                Ident in
+      Return
+        Ident r
+  Func name=output_forms
+    Return
+      Primitive u32
+    Params
+      Param name=in
+        Primitive u32
+    Body
+      Var name=a
+        Type
+          Primitive u32
+        Init
+          AsmExpr volatile=true dialect=att align_stack=false
+            Template "mov %[in], %0"
+            Operands
+              AsmOperand dir=out place=reg(eax) name=
+              AsmOperand dir=in place=reg(ecx) name=in
+                Ident in
+      Var name=b
+        Type
+          Primitive u32
+        Init
+          AsmExpr volatile=true dialect=att align_stack=false
+            Template "mov %[in], %0"
+            Operands
+              AsmOperand dir=out place=reg(eax) name=
+              AsmOperand dir=in place=reg(ecx) name=in
+                Ident in
+      Var name=c
+        Type
+          Primitive u32
+        Init
+          IntLiteral 0
+      AsmStmt volatile=true dialect=att
+        Template "mov %[in], %[c]"
+        Operands
+          AsmOperand dir=out place=reg(eax) name=c
+            Ident in
+          AsmOperand dir=in place=reg(ecx) name=in
+            Ident in
+      Return
+        Binary op=+
+          Binary op=+
+            Ident a
+            Ident b
+          Ident c
+  Func name=inout_forms
+    Return
+      Primitive u32
+    Params
+      Param name=in
+        Primitive u32
+    Body
+      Var name=x
+        Type
+          Primitive u32
+        Init
+          Ident in
+      AsmStmt volatile=true dialect=att
+        Template "incl %[in]"
+        Operands
+          AsmOperand dir=inout place=reg(ecx) name=in
+            Ident in
+      AsmStmt volatile=true dialect=att
+        Template "incl %[x]"
+        Operands
+          AsmOperand dir=inout place=reg(edx) name=x
+            Ident x
+      AsmStmt volatile=true dialect=att
+        Template "incl %[a]"
+        Operands
+          AsmOperand dir=inout place=reg(esi) name=a
+            Ident in
+      Return
+        Binary op=+
+          Ident x
+          Ident in
+

@@ -65,7 +65,6 @@ export namespace dcc::lex
         KwPublic,
 
         KwAs,
-        KwIn,
 
         KwSizeof,
         KwAlignof,
@@ -254,8 +253,6 @@ export namespace dcc::lex
 
             case TokenKind::KwAs:
                 return "as";
-            case TokenKind::KwIn:
-                return "in";
             case TokenKind::KwSizeof:
                 return "sizeof";
             case TokenKind::KwAlignof:
@@ -488,7 +485,6 @@ export namespace dcc::lex
             {"i8", TokenKind::Kwi8},
             {"if", TokenKind::KwIf},
             {"import", TokenKind::KwImport},
-            {"in", TokenKind::KwIn},
             {"isize", TokenKind::KwIsize},
             {"match", TokenKind::KwMatch},
             {"module", TokenKind::KwModule},

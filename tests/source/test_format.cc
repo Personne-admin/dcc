@@ -184,6 +184,23 @@ TEST_CASE("for-header clauses stay on one line")
                  "}\n");
 }
 
+TEST_CASE("for-headers with a variable named in keep their clauses on one line")
+{
+    check_format("for usize in = 0; in < data.len; in++ {\n"
+                 "    uart.write_byte(data[in]);\n"
+                 "}",
+                 "for usize in = 0; in < data.len; in++ {\n"
+                 "    uart.write_byte(data[in]);\n"
+                 "}\n");
+
+    check_format("for in in data {\n"
+                 "    uart.write_byte(in);\n"
+                 "}",
+                 "for in in data {\n"
+                 "    uart.write_byte(in);\n"
+                 "}\n");
+}
+
 TEST_CASE("for-header clauses with omitted init, condition, or update stay on one line")
 {
     check_format("module m;\n"

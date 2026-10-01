@@ -1,0 +1,162 @@
+=== FILE: main.dc ===
+module m;
+
+void sink(T)(T value) {}
+
+void name_binding(T...)(T x) {
+    static for in in x {
+        sink(in);
+    }
+}
+
+void plain_binding(T...)(T x) {
+    static for item in x {
+        sink(item);
+    }
+}
+
+void pack_named_in(T...)(T in) {
+    static for item in in {
+        sink(item);
+    }
+}
+
+void range_binding(T...)(T x) {
+    static for in in 0..sizeof...(T) {
+        sink(x.in);
+    }
+}
+
+void use() {
+    name_binding(1, 2);
+    plain_binding(3, 4);
+    pack_named_in(5, 6);
+    range_binding(7, 8);
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=sink
+    TemplateParams
+      Param name=T
+    Return
+      Primitive void
+    Params
+      Param name=value
+        Named T
+    Body
+  Func name=name_binding
+    TemplateParams
+      Param name=T pack
+    Return
+      Primitive void
+    Params
+      Param name=x
+        Named T
+    Body
+      StaticFor name=in type_for=false
+        Pack
+          Ident x
+        Body
+          ExprStmt
+            Call
+              Callee
+                Ident sink
+              Args
+                Ident in
+  Func name=plain_binding
+    TemplateParams
+      Param name=T pack
+    Return
+      Primitive void
+    Params
+      Param name=x
+        Named T
+    Body
+      StaticFor name=item type_for=false
+        Pack
+          Ident x
+        Body
+          ExprStmt
+            Call
+              Callee
+                Ident sink
+              Args
+                Ident item
+  Func name=pack_named_in
+    TemplateParams
+      Param name=T pack
+    Return
+      Primitive void
+    Params
+      Param name=in
+        Named T
+    Body
+      StaticFor name=item type_for=false
+        Pack
+          Ident in
+        Body
+          ExprStmt
+            Call
+              Callee
+                Ident sink
+              Args
+                Ident item
+  Func name=range_binding
+    TemplateParams
+      Param name=T pack
+    Return
+      Primitive void
+    Params
+      Param name=x
+        Named T
+    Body
+      StaticFor name=in type_for=false
+        Pack
+          Range inclusive=false
+            Start
+              IntLiteral 0
+            End
+              SizeofPack name=T
+        Body
+          ExprStmt
+            Call
+              Callee
+                Ident sink
+              Args
+                FieldAccess field=in
+                  Ident x
+  Func name=use
+    Return
+      Primitive void
+    Body
+      ExprStmt
+        Call
+          Callee
+            Ident name_binding
+          Args
+            IntLiteral 1
+            IntLiteral 2
+      ExprStmt
+        Call
+          Callee
+            Ident plain_binding
+          Args
+            IntLiteral 3
+            IntLiteral 4
+      ExprStmt
+        Call
+          Callee
+            Ident pack_named_in
+          Args
+            IntLiteral 5
+            IntLiteral 6
+      ExprStmt
+        Call
+          Callee
+            Ident range_binding
+          Args
+            IntLiteral 7
+            IntLiteral 8
+

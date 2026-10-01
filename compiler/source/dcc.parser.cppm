@@ -162,6 +162,21 @@ export namespace dcc::parser
         bool check_at(std::size_t n, TK k) { return peek(n).kind == k; }
         bool eof() { return peek().kind == TK::Eof; }
 
+        bool is_in_at(std::size_t n)
+        {
+            auto const& tok = peek(n);
+            return tok.kind == TK::Identifier && tok.interned == "in";
+        }
+
+        bool match_in()
+        {
+            if (!is_in_at(0))
+                return false;
+
+            advance();
+            return true;
+        }
+
         bool match(TK k)
         {
             if (!check(k))
@@ -2444,15 +2459,16 @@ export namespace dcc::parser
                 op.placeholder = advance().interned;
                 advance();
                 op.expr = parse_expr();
-                if (match(TK::KwIn))
+                if (match_in())
                     parse_placement(op);
                 op.range = range_from(start);
                 node->operands.push_back(std::move(op));
                 return;
             }
 
-            if (match(TK::KwIn))
+            if (is_in_at(0) && !is_in_at(1) && !check_at(1, TK::RParen) && !check_at(1, TK::Comma))
             {
+                advance();
                 op.type_is_deduced = true;
                 parse_placement(op);
                 op.range = range_from(start);
@@ -2467,7 +2483,7 @@ export namespace dcc::parser
                 {
                     op.type_override = type;
                     op.range = range_from(start);
-                    if (match(TK::KwIn))
+                    if (match_in())
                         parse_placement(op);
 
                     node->operands.push_back(std::move(op));
@@ -2486,7 +2502,7 @@ export namespace dcc::parser
                     return;
                 }
 
-                if (!check_at(1, TK::KwIn) && !check_at(1, TK::LParen))
+                if (!is_in_at(1) && !check_at(1, TK::LParen))
                 {
                     auto save_pos = m_pos;
                     auto save_prev = m_prev_end;
@@ -2511,7 +2527,7 @@ export namespace dcc::parser
                 op.placeholder = tok.interned;
                 op.expr = m_ctx.make<ast::IdentExpr>(tok.range, tok.interned);
                 op.range = range_from(start);
-                if (match(TK::KwIn))
+                if (match_in())
                     parse_placement(op);
 
                 node->operands.push_back(std::move(op));
@@ -2532,7 +2548,7 @@ export namespace dcc::parser
                 op.placeholder = name_tok.interned;
                 op.range = range_from(start);
 
-                if (match(TK::KwIn))
+                if (match_in())
                     parse_placement(op);
 
                 expect(TK::Eq, "in input spec");
@@ -2558,13 +2574,13 @@ export namespace dcc::parser
                     op.expr = parse_expr();
                     op.is_mem_writable = true;
                     op.placement_kind = ast::AsmPlacementKind::Mem;
-                    if (match(TK::KwIn))
+                    if (match_in())
                         parse_placement(op);
                 }
                 else
                 {
                     op.expr = parse_expr();
-                    if (match(TK::KwIn))
+                    if (match_in())
                         parse_placement(op);
                 }
             }
@@ -2574,7 +2590,7 @@ export namespace dcc::parser
                 op.is_mem_writable = true;
                 op.placement_kind = ast::AsmPlacementKind::Mem;
 
-                if (match(TK::KwIn))
+                if (match_in())
                     parse_placement(op);
             }
             else
@@ -2584,7 +2600,7 @@ export namespace dcc::parser
                 {
                     op.placeholder = name_tok.interned;
                     op.expr = m_ctx.make<ast::IdentExpr>(name_tok.range, name_tok.interned);
-                    if (match(TK::KwIn))
+                    if (match_in())
                         parse_placement(op);
                 }
             }
@@ -3382,7 +3398,7 @@ export namespace dcc::parser
 
             bool by_ref = match(TK::Amp);
 
-            if (check(TK::Identifier) && check_at(1, TK::KwIn))
+            if (check(TK::Identifier) && is_in_at(1) && !(is_in_at(2) && !check_at(3, TK::LBrace)))
             {
                 auto name_tok = advance();
                 advance();
@@ -3402,7 +3418,7 @@ export namespace dcc::parser
                 auto* type = parse_type(true);
 
                 bool type_ref = match(TK::Amp);
-                if (type && !spec.had_suppressed_errors() && check(TK::Identifier) && check_at(1, TK::KwIn))
+                if (type && !spec.had_suppressed_errors() && check(TK::Identifier) && is_in_at(1))
                 {
                     auto name_tok = advance();
                     advance();
@@ -3734,7 +3750,7 @@ export namespace dcc::parser
             advance();
             advance();
 
-            if (check(TK::Identifier) && check_at(1, TK::KwIn))
+            if (check(TK::Identifier) && is_in_at(1) && !(is_in_at(2) && !check_at(3, TK::LBrace)))
             {
                 auto name_tok = advance();
                 advance();
@@ -3753,7 +3769,7 @@ export namespace dcc::parser
             {
                 Speculation spec(*this);
                 auto* type = parse_type();
-                if (type && !spec.had_suppressed_errors() && check(TK::Identifier) && check_at(1, TK::KwIn))
+                if (type && !spec.had_suppressed_errors() && check(TK::Identifier) && is_in_at(1))
                 {
                     auto name_tok = advance();
                     advance();

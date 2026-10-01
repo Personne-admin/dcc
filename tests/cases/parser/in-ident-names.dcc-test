@@ -1,0 +1,129 @@
+=== FILE: main.dc ===
+module m;
+
+struct Holder {
+    i32 in;
+    i32 out;
+}
+
+const i32 in_const = 3;
+i32 in = 4;
+
+i32 in_fn(i32 in) {
+    return in + 1;
+}
+
+i32 uses_locals(Holder h) {
+    i32 total = h.in;
+    total += in;
+    Holder g = Holder{ in = total, out = 2 };
+    return g.in + in_fn(g.out) + in_const;
+}
+
+i32 shadow(i32 in) {
+    i32 copy = in;
+    {
+        i32 in = copy + 1;
+        copy = in;
+    }
+    return copy;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=Holder
+    Field name=in
+      Primitive i32
+    Field name=out
+      Primitive i32
+  Var name=in_const
+    Type
+      Qualified const
+        Primitive i32
+    Init
+      IntLiteral 3
+  Var name=in
+    Type
+      Primitive i32
+    Init
+      IntLiteral 4
+  Func name=in_fn
+    Return
+      Primitive i32
+    Params
+      Param name=in
+        Primitive i32
+    Body
+      Return
+        Binary op=+
+          Ident in
+          IntLiteral 1
+  Func name=uses_locals
+    Return
+      Primitive i32
+    Params
+      Param name=h
+        Named Holder
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          FieldAccess field=in
+            Ident h
+      ExprStmt
+        Binary op=+=
+          Ident total
+          Ident in
+      Var name=g
+        Type
+          Named Holder
+        Init
+          StructLiteral
+            Type
+              Named Holder
+            Field name=in
+              Ident total
+            Field name=out
+              IntLiteral 2
+      Return
+        Binary op=+
+          Binary op=+
+            FieldAccess field=in
+              Ident g
+            Call
+              Callee
+                Ident in_fn
+              Args
+                FieldAccess field=out
+                  Ident g
+          Ident in_const
+  Func name=shadow
+    Return
+      Primitive i32
+    Params
+      Param name=in
+        Primitive i32
+    Body
+      Var name=copy
+        Type
+          Primitive i32
+        Init
+          Ident in
+      ExprStmt
+        Block
+          Var name=in
+            Type
+              Primitive i32
+            Init
+              Binary op=+
+                Ident copy
+                IntLiteral 1
+          ExprStmt
+            Binary op==
+              Ident copy
+              Ident in
+      Return
+        Ident copy
+
