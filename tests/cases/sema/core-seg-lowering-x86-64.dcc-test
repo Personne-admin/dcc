@@ -1,0 +1,14 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(u8^GS b, usize o) {
+    usize f = b.offset();
+    u8^GS b2 = b.with_offset(o);
+    return f as i32;
+}
+
+=== EXPECT-IR-ERRORS ===
+far and based pointers are not supported by this backend yet

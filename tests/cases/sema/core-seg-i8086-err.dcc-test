@@ -1,0 +1,15 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(u8^ p, u16 o) {
+    u16 f = p.offset();
+    u8^ p2 = p.with_offset(o);
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: initializer type mismatch: declared `u16`, initializer `usize`
+main.dc:7: no matching UFCS function for `with_offset` on receiver type `u8^`

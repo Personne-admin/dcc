@@ -1,0 +1,15 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(u8^ p, u8^DS b, usize o) {
+    u16 s = p.segment();
+    usize f = p.offset();
+    usize g = b.offset();
+    u8^ p2 = p.with_offset(o);
+    u8^ p3 = p.with_segment(s);
+    u8^DS b2 = b.with_offset(o);
+    return 0;
+}

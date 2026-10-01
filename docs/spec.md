@@ -268,7 +268,8 @@ Const qualification may be added implicitly to a pointer's pointee or a
 slice's element type. Thus `T*` converts to `const T*`, and `[]T` converts to
 `[]const T`, when `T` is otherwise identical. Removing `const` is never an
 implicit conversion. An exact unqualified match is preferred over a conversion
-that adds `const` during overload resolution.
+that adds `const` during overload resolution. This applies to deduced
+template parameters as well as concrete ones.
 
 ---
 
@@ -1390,6 +1391,54 @@ void example(volatile i32* p, core::atomic::Atomic(i32)* a) {
 Available operations: `atomic_load`, `atomic_store`, `atomic_exchange`,
 `atomic_fetch_add`, `atomic_fetch_sub`, `atomic_fetch_and`,
 `atomic_fetch_or`, `atomic_fetch_xor`, `atomic_fence`.
+
+### 17.1 Segment operations (`core::seg`)
+
+`core::seg` is a compiler-provided module (no import path needed beyond
+`import core::seg;`) exposing far and based pointer operations (§3.1) as
+`@intrinsic` functions. The declarations are generated per target: only
+operations valid for the current target exist. All four operations are
+generic over the pointee type `T` and come in `T` and `const T` pointee
+forms; all are usable via UFCS (§11).
+
+```dc
+import core::seg;
+
+u16 seg = p.segment();        // dynamic T^ only: segment value
+usize off = p.offset();       // dynamic T^ or based T^REG: offset value
+u8^ q = p.with_offset(off);   // same pointer with a replaced offset
+u8^ r = p.with_segment(seg);  // dynamic T^ only: replaced segment
+```
+
+Available operations:
+
+- `segment(T)(T^ ptr) -> u16`: the segment (or selector) stored in a
+  dynamic far pointer. Only declared where dynamic `T^` is valid.
+- `offset(T)(T^ ptr) -> usize` and `offset(T)(T^REG ptr) -> usize`: the
+  offset part. The based overloads exist per register only where that
+  register is valid for the target.
+- `with_offset(T)(T^ ptr, usize off) -> T^` and the per-register based
+  forms: the same pointer with a replaced offset.
+- `with_segment(T)(T^ ptr, u16 seg) -> T^`: the same pointer with a
+  replaced segment. Dynamic far pointers only.
+
+There is intentionally no `segment` for based pointers (a based pointer
+stores no segment; the register is part of its type) and no integer casts
+in either direction (see §3.1). `with_offset` and `with_segment` preserve
+the input's constness: a `const T^` input yields a `const T^` result, and
+a mutable input yields a mutable one, so the result cannot be written
+through or assigned to a mutable pointer without an explicit cast. A near
+pointer or near value receiver converts implicitly to dynamic `T^`
+following the ordinary conversion rules, so
+`p.offset()` also accepts near receivers. Offset arguments and results
+use `usize`, and `usize` never converts implicitly to or from
+same-width integer types, so pass `usize` values (or cast explicitly
+with `as`). For a mutable argument the mutable overload wins, and for a
+`const` argument the `const` overload wins, following §4; a free call
+with a near pointer argument is ambiguous between the two, exactly as
+for non-template overloads that add `const` to a converted type.
+Lowering is deferred: any use that reaches IR lowering reports `far and
+based pointers are not supported by this backend yet`.
 
 ---
 

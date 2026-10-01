@@ -2033,7 +2033,8 @@ export namespace dcc::sema
             EnumContextualExact = 24,
             LiteralContextualExact = 25,
             TemplateExact = 26,
-            QualificationConversion = 27,
+            TemplateQualificationConversion = 27,
+            QualificationConversion = 28,
         };
 
         using UfcsReceiverMatch = ast::UfcsReceiverAdjust;
@@ -5028,6 +5029,40 @@ export namespace dcc::sema
             return CallRank::ConcreteExact;
         }
 
+        [[nodiscard]] static CallRank rank_deduced_arg(infer::TemplateBindings& bindings, ast::Expr const& arg, detail::ExprResult const& analyzed,
+                                                       types::TypePtr actual, types::TypePtr param)
+        {
+            auto rank = rank_for_exact_arg(arg, analyzed, param);
+            if (rank != CallRank::TemplateExact || !actual || !param)
+                return rank;
+
+            auto subbed = bindings.substitute(param);
+            if (!subbed || subbed == actual || subbed->kind != actual->kind || contains_template_param(subbed))
+                return rank;
+
+            if (auto const* sub_ptr = types::type_cast<types::PointerType>(subbed))
+            {
+                auto const* actual_ptr = types::type_cast<types::PointerType>(actual);
+                if (actual_ptr && sub_ptr->pointee == actual_ptr->pointee &&
+                    (sub_ptr->pointee_quals != actual_ptr->pointee_quals || sub_ptr->flavor != actual_ptr->flavor ||
+                     sub_ptr->segment != actual_ptr->segment))
+                    return CallRank::TemplateQualificationConversion;
+            }
+            if (auto const* sub_fp = types::type_cast<types::FuncPtrType>(subbed))
+            {
+                auto const* actual_fp = types::type_cast<types::FuncPtrType>(actual);
+                if (actual_fp && sub_fp->is_far != actual_fp->is_far)
+                    return CallRank::TemplateQualificationConversion;
+            }
+            if (auto const* sub_slice = types::type_cast<types::SliceType>(subbed))
+            {
+                auto const* actual_slice = types::type_cast<types::SliceType>(actual);
+                if (actual_slice && sub_slice->element == actual_slice->element && sub_slice->element_quals != actual_slice->element_quals)
+                    return CallRank::TemplateQualificationConversion;
+            }
+            return rank;
+        }
+
         [[nodiscard]] static bool qualification_conversion_allowed(types::Qual got_quals, types::Qual expected_quals) noexcept
         {
             auto gq = std::to_underlying(got_quals);
@@ -5061,8 +5096,10 @@ export namespace dcc::sema
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
                 }
 
+                auto const* analyzed_ptr = types::type_cast<types::PointerType>(analyzed.type);
+                bool const far_receiver = analyzed_ptr && analyzed_ptr->flavor != types::PointerFlavor::Near;
                 if (param_ptr->flavor != types::PointerFlavor::Based &&
-                    (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee)))
+                    (analyzed.type == param_ptr->pointee || (!far_receiver && contains_template_param(param_ptr->pointee))))
                 {
                     bool receiver_has_const =
                         (analyzed.is_lvalue && !analyzed.is_writable) || (analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl));
@@ -5576,7 +5613,7 @@ export namespace dcc::sema
                     return std::nullopt;
                 }
 
-                out.ranks.push_back(rank_for_exact_arg(*arg_exprs[func_arg_start + i], args[i], param));
+                out.ranks.push_back(rank_deduced_arg(b, *arg_exprs[func_arg_start + i], args[i], args[i].type, param));
             }
 
             for (std::size_t i = non_pack_func_params; i < args.size(); ++i)
@@ -6008,13 +6045,13 @@ export namespace dcc::sema
                     return std::nullopt;
             }
 
-            out.ranks.push_back(rank_for_exact_arg(object, receiver, params[0]));
+            out.ranks.push_back(rank_deduced_arg(b, object, receiver, match->second, params[0]));
 
             for (std::size_t vi = 0; vi < num_value_tparams; ++vi)
                 out.ranks.push_back(CallRank::ConcreteExact);
 
             for (std::size_t i = 0; i < provided_after_receiver; ++i)
-                out.ranks.push_back(rank_for_exact_arg(*arg_exprs[func_arg_start + i], args[i], params[i + 1]));
+                out.ranks.push_back(rank_deduced_arg(b, *arg_exprs[func_arg_start + i], args[i], args[i].type, params[i + 1]));
 
             for (std::size_t i = provided_after_receiver; i < args.size(); ++i)
                 out.ranks.push_back(CallRank::TemplateExact);
