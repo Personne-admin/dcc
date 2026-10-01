@@ -1328,6 +1328,57 @@ public i32 main() {
         CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
 }
 
+TEST_CASE("os::thread entry preserves callee-saved registers in the parent")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import std::os::thread;
+import std::sys::linux::abi;
+import std::sys::linux::syscall;
+
+using std::os::thread;
+using std::sys::linux;
+
+asm { ".text\n.globl entry_probe\n.intel_syntax noprefix\nentry_probe:\npush rbx\npush r12\npush r13\npush r14\npush r15\nmov ebx, 0x1111\nmov r12d, 0x2222\nmov r13d, 0x3333\nmov r14d, 0x4444\nmov r15d, 0x5555\ncall __thread_entry\nmov rdx, rax\ncmp rbx, 0x1111\njne .Lprobe_bad\ncmp r12, 0x2222\njne .Lprobe_bad\ncmp r13, 0x3333\njne .Lprobe_bad\ncmp r14, 0x4444\njne .Lprobe_bad\ncmp r15, 0x5555\njne .Lprobe_bad\nmov rax, rdx\njmp .Lprobe_out\n.Lprobe_bad:\nmov rax, -1\n.Lprobe_out:\npop r15\npop r14\npop r13\npop r12\npop rbx\nret\n.att_syntax prefix" };
+
+@nomangle extern isize entry_probe(usize flags, usize stack, void* control);
+
+thread::Control ctl;
+volatile i32 child_ran;
+u8[65536] probe_stack;
+
+void child(void* arg) {
+    child_ran = 1;
+}
+
+public i32 main() {
+    ctl.entry = child;
+    ctl.arg = null;
+    ctl.done = 0;
+    ctl.detached = 0;
+    ctl.tid = 0;
+    usize top = ((&probe_stack[0] as usize) + 65536) & ~(15 as usize);
+    i32 flags = linux::abi::CLONE_VM | linux::abi::CLONE_FS | linux::abi::CLONE_FILES | linux::abi::CLONE_SIGHAND | linux::abi::CLONE_THREAD | linux::abi::CLONE_SYSVSEM;
+    isize tid = entry_probe(flags as usize, top, &ctl as void*);
+    for i32 i = 0; i < 2000 && ctl.done == 0; i++ {
+        thread::sleep_ms(1);
+    }
+    thread::sleep_ms(50);
+    if tid < 0 {
+        return 1;
+    }
+    if ctl.done == 0 {
+        return 2;
+    }
+    if child_ran != 1 {
+        return 3;
+    }
+    return 0;
+}
+)DCC");
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+}
+
 TEST_CASE("os::pipe transfer, EOF, and errors execute on llvm at O0 and O2")
 {
     static constexpr std::string_view source = (R"DCC(module main;
