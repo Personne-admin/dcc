@@ -1,0 +1,43 @@
+module m;
+
+struct Holder { i32 in; i32 out; }
+
+i32 in_fn(i32 in) { return in + 1; }
+
+void loops(i32[4] xs, Item[2] items) {
+    for x in xs { use(x); }
+    for usize i in 0..4 { use(i); }
+    for in in xs { use(in); }
+    for usize in in 0..4 { use(in); }
+    for Item in in items { use(in); }
+    for usize in = 0; in < 4; in++ { use(in); }
+    for &r in xs { use(r); }
+    static for item in args { use(item); }
+    static for in in args { use(in); }
+}
+
+void asm_ops(u32 in, u16 port) {
+    asm @[inputs(v in al = in, port in dx = port)] { "outb %[v], %[port]" };
+    asm @[output(dst = y in rax), inputs(in in rbx = in)] { "mov %[dst], %[in]" };
+    u32 r = asm @[output(u32 in eax), inout(in in ecx), inputs(a in edx = arr[in])] { "nop" };
+    asm @[output(in eax)] { "nop" };
+}
+
+void far_ptrs(u8^ p, u8^CS a, u8^DS b, u8^ES c, u8^SS d, u8^FS e, u8^GS f, i32(^)(i32) fp, const u8^GS g) {
+    u8^* pp;
+    u8^^ ppp;
+}
+
+void seg_construct(usize off, u32 x, u32 y) {
+    u8^ a = GS:0x200;
+    u8^ b = FS:off;
+    u8^ c = 0xB800:0;
+    u8^ d = (a + b):c;
+    u32 e = x ^ y;
+    u32 f = x^y;
+    u32 g = std::GS::in;
+    u32 GS = 1;
+    u32 h = GS + CS;
+    u32 in = 5;
+    u32 k = in + in;
+}

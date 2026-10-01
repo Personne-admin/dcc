@@ -135,6 +135,8 @@
         "@types/node": "^20.19.41",
         "@types/vscode": "^1.82.0",
         "esbuild": "^0.28.0",
-        "typescript": "^5.3.3"
+        "typescript": "^5.3.3",
+        "vscode-oniguruma": "^2.0.1",
+        "vscode-textmate": "^9.3.2"
     }
 }

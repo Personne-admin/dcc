@@ -16,6 +16,18 @@
             "include": "#chars"
         },
         {
+            "include": "#for_head"
+        },
+        {
+            "include": "#asm_attr"
+        },
+        {
+            "include": "#segment_register_based"
+        },
+        {
+            "include": "#segment_construct"
+        },
+        {
             "include": "#attributes"
         },
         {
@@ -116,7 +128,7 @@
             "patterns": [
                 {
                     "name": "keyword.control.dc",
-                    "match": "\\b(?:if|else|while|for|do|match|break|continue|return|defer|as|in)\\b"
+                    "match": "\\b(?:if|else|while|for|do|match|break|continue|return|defer|as)\\b"
                 },
                 {
                     "name": "keyword.other.dc",
@@ -150,6 +162,113 @@
         },
         "identifiers": {
             "match": "\\b[a-zA-Z_][a-zA-Z0-9_]*\\b"
+        },
+        "for_head": {
+            "patterns": [
+                {
+                    "begin": "\\b(static)\\s+(for)\\b",
+                    "end": "(?=\\{)|;",
+                    "beginCaptures": {
+                        "1": {
+                            "name": "keyword.other.dc"
+                        },
+                        "2": {
+                            "name": "keyword.control.dc"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#for_head_in"
+                        },
+                        {
+                            "include": "$self"
+                        }
+                    ]
+                },
+                {
+                    "begin": "\\b(for)\\b",
+                    "end": "(?=\\{)|;",
+                    "beginCaptures": {
+                        "1": {
+                            "name": "keyword.control.dc"
+                        }
+                    },
+                    "patterns": [
+                        {
+                            "include": "#for_head_in"
+                        },
+                        {
+                            "include": "$self"
+                        }
+                    ]
+                }
+            ]
+        },
+        "for_head_in": {
+            "match": "(?<=[\\w&*\\])>^\\]])\\s+(in)\\b(?!\\s*(?:=(?!=)|;)|\\s+in\\b)",
+            "captures": {
+                "1": {
+                    "name": "keyword.control.dc"
+                }
+            }
+        },
+        "asm_attr": {
+            "begin": "\\b(asm)\\b\\s*(@)(\\[)",
+            "end": "\\]",
+            "beginCaptures": {
+                "1": {
+                    "name": "keyword.other.dc"
+                },
+                "2": {
+                    "name": "keyword.other.attribute.dc"
+                }
+            },
+            "patterns": [
+                {
+                    "include": "#asm_attr_in"
+                },
+                {
+                    "include": "#asm_attr_nested"
+                },
+                {
+                    "include": "$self"
+                }
+            ]
+        },
+        "asm_attr_nested": {
+            "begin": "\\[",
+            "end": "\\]",
+            "patterns": [
+                {
+                    "include": "#asm_attr_nested"
+                },
+                {
+                    "include": "$self"
+                }
+            ]
+        },
+        "asm_attr_in": {
+            "match": "(?<![.\\w])(in)\\b(?=\\s+[A-Za-z_(])(?!\\s+in\\b)",
+            "captures": {
+                "1": {
+                    "name": "keyword.control.dc"
+                }
+            }
+        },
+        "segment_register_based": {
+            "match": "(\\^)(CS|DS|ES|SS|FS|GS)\\b",
+            "captures": {
+                "1": {
+                    "name": "keyword.operator.dc"
+                },
+                "2": {
+                    "name": "constant.language.segment-register.dc"
+                }
+            }
+        },
+        "segment_construct": {
+            "match": "(?<![.:\\w])(CS|DS|ES|SS|FS|GS)\\b(?=\\s*:(?!:))",
+            "name": "constant.language.segment-register.dc"
         }
     }
 }
