@@ -2061,6 +2061,15 @@ namespace
                 emit_u8(buf, 0x99);
                 break;
 
+            case MOpc::REPMOVS:
+                emit_u8(buf, 0xF3);
+                emit_u8(buf, 0xA4);
+                break;
+            case MOpc::REPSTOS:
+                emit_u8(buf, 0xF3);
+                emit_u8(buf, 0xAA);
+                break;
+
             case MOpc::PUSH64r: {
                 if (np >= 1 && ops[0].kind == MOpKind::Reg)
                 {

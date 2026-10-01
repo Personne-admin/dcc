@@ -522,6 +522,8 @@ export namespace dcc::backend::em64t
         UD2,
         NOP,
         XCHG64rr,
+        REPMOVS,
+        REPSTOS,
     };
 
     struct MInstr
@@ -615,6 +617,8 @@ export namespace dcc::backend::em64t
                 case MOpc::SFENCE:
                 case MOpc::UD2:
                 case MOpc::XCHG64rr:
+                case MOpc::REPMOVS:
+                case MOpc::REPSTOS:
                     return true;
                 default:
                     return false;
@@ -1367,6 +1371,10 @@ export namespace dcc::backend::em64t
                 return "NOP"sv;
             case MOpc::XCHG64rr:
                 return "XCHG64rr"sv;
+            case MOpc::REPMOVS:
+                return "REPMOVS"sv;
+            case MOpc::REPSTOS:
+                return "REPSTOS"sv;
         }
         return "?OPC?"sv;
     }
