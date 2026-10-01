@@ -39,6 +39,9 @@ $(OS_TEST_OBJ): $(TOPLEVEL)/tests/source/test_stdlib_os_integration.cc $(COMPILE
 
 TEST_LDFLAGS := $(LLVM_LDFLAGS) $(CMARK_LIBS)
 
+$(OBJ_DIR)/tests/source/test_driver_prefix.cc.o: LOCAL_CXXFLAGS += -DDCC_EXPECTED_VERSION='"$(DCC_VERSION)"'
+$(OBJ_DIR)/tests/source/test_driver_prefix.cc.o: $(VERSION_STAMP)
+
 DCCD_FORMAT_OBJ := $(OBJ_DIR)/dccd.format.pcm.o
 DCCD_PROTOCOL_OBJ := $(OBJ_DIR)/dccd.protocol.pcm.o
 DCCD_WORKSPACE_OBJS := \

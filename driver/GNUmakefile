@@ -1,8 +1,5 @@
 include $(RULES_MK)
 
-ifeq ($(strip $(DCC_VERSION)),)
-DCC_VERSION := 0.3.0
-endif
 DCC_GIT_HASH ?= $(shell git -C $(TOPLEVEL) rev-parse --short HEAD 2>/dev/null || echo unknown)
 LOCAL_CXXFLAGS := -I$(TOPLEVEL)/compiler/source $(LLVM_DEFS) $(LLVM_CXXFLAGS) -DDCC_VERSION='"$(DCC_VERSION)"' -DDCC_GIT_HASH='"$(DCC_GIT_HASH)"'
 DRIVER_LDFLAGS := $(LLVM_LDFLAGS)
@@ -25,7 +22,7 @@ COMPILER_PCMS := $(wildcard $(PCM_DIR)/dcc.*.pcm)
 $(BINARY): $(OBJS) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(DRIVER_LDFLAGS))
 
-$(OBJS): $(OBJ_DIR)/%.o: $(COMPILER_PCMS)
+$(OBJS): $(OBJ_DIR)/%.o: $(COMPILER_PCMS) $(VERSION_STAMP)
 	$(call compile-cxx,$(TOPLEVEL)/$*,$@,$(LOCAL_CXXFLAGS))
 
 install: $(BINARY)

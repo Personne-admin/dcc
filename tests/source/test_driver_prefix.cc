@@ -128,7 +128,7 @@ TEST_CASE("--version exits 0 and reports the release version")
 {
     auto version = run_driver_flag("--version");
     REQUIRE(!version.empty());
-    CHECK(version.find("0.3.0") != std::string::npos);
+    CHECK(version.starts_with("dcc " DCC_EXPECTED_VERSION " ("));
 }
 
 TEST_CASE("the i8086 target has no backend yet")
