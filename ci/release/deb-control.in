@@ -1,0 +1,16 @@
+Package: dcc
+Version: @VERSION@
+Architecture: amd64
+Maintainer: personne-admin <personneadmin@protonmail.com>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Section: devel
+Priority: optional
+Homepage: https://github.com/Personne-admin/dcc
+Description: Compiler for the dc systems programming language
+ dc is a small systems language, built with a freestanding-first
+ mindset.
+ .
+ This package contains the dcc compiler, the dccd language server,
+ the dcdoc documentation generator and the libdcext library for
+ Linux (LLVM and native backends).

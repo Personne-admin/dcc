@@ -1,0 +1,15 @@
+module main;
+
+import std::os::file;
+import std::result;
+
+using std::os::{ file };
+
+public i32 main() {
+    file::File out = file::stdout();
+    if !out.write_all("hello from dcc\n").is_ok() {
+        return 1;
+    }
+
+    return 42;
+}
