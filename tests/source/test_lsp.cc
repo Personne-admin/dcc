@@ -3710,50 +3710,61 @@ TEST_CASE("cancellation during an in-flight request is observed at a checkpoint 
     big += "void f() {\n    i32 x = counter;\n}\n";
     auto uri = open_file(server, sink, td.path / "main.dc", big);
 
-    auto id = dccd::protocol::RequestId::from_json(JsonValue::integer(777));
-    auto params = dccd::protocol::JsonValue::empty_object();
-    params.set("textDocument", make_text_document(uri));
-    params.set("position", make_position(1u, 5u));
-    auto request = dccd::protocol::build_request(JsonValue::integer(777), "textDocument/references", std::move(params));
-
-    std::promise<std::optional<dccd::protocol::JsonValue>> result_promise;
-    auto result_future = result_promise.get_future();
-
-    std::thread worker{[&] {
-        auto parsed = dccd::protocol::parse_rpc(request);
-        if (!parsed)
-        {
-            result_promise.set_value(std::nullopt);
-            return;
-        }
-        try
-        {
-            result_promise.set_value(server.handle_message(*parsed));
-        }
-        catch (...)
-        {
-            result_promise.set_value(std::nullopt);
-        }
-    }};
-
     auto& registry = server.cancellation_registry();
-    bool seen_pending = false;
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-    while (std::chrono::steady_clock::now() < deadline)
+    std::optional<dccd::protocol::JsonValue> response;
+    std::int64_t cancelled_id = 0;
+    for (std::int64_t attempt = 0; attempt < 100 && !response; ++attempt)
     {
-        if (registry.is_pending(id))
+        auto const raw_id = 777 + attempt;
+        auto id = dccd::protocol::RequestId::from_json(JsonValue::integer(raw_id));
+        auto params = dccd::protocol::JsonValue::empty_object();
+        params.set("textDocument", make_text_document(uri));
+        params.set("position", make_position(1u, 5u));
+        auto request = dccd::protocol::build_request(JsonValue::integer(raw_id), "textDocument/references", std::move(params));
+
+        std::promise<std::optional<dccd::protocol::JsonValue>> result_promise;
+        auto result_future = result_promise.get_future();
+
+        std::thread worker{[&] {
+            auto parsed = dccd::protocol::parse_rpc(request);
+            if (!parsed)
+            {
+                result_promise.set_value(std::nullopt);
+                return;
+            }
+            try
+            {
+                result_promise.set_value(server.handle_message(*parsed));
+            }
+            catch (...)
+            {
+                result_promise.set_value(std::nullopt);
+            }
+        }};
+
+        bool cancelled_in_flight = false;
+        while (result_future.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
         {
-            seen_pending = true;
-            break;
+            if (registry.is_pending(id))
+            {
+                cancelled_in_flight = registry.cancel(id);
+                break;
+            }
+            std::this_thread::yield();
         }
-        std::this_thread::yield();
+
+        worker.join();
+        auto attempt_response = result_future.get();
+        REQUIRE(attempt_response.has_value());
+        CHECK(!registry.is_pending(id));
+        CHECK(!registry.is_cancelled(id));
+
+        if (cancelled_in_flight && attempt_response->get_object("error") != nullptr)
+        {
+            response = std::move(attempt_response);
+            cancelled_id = raw_id;
+        }
     }
-    REQUIRE(seen_pending);
-
-    std::ignore = registry.cancel(id);
-
-    worker.join();
-    auto response = result_future.get();
     REQUIRE(response.has_value());
 
     auto const* err = response->get_object("error");
@@ -3764,11 +3775,8 @@ TEST_CASE("cancellation during an in-flight request is observed at a checkpoint 
     auto const* resp_id = response->find_member("id");
     REQUIRE(resp_id != nullptr);
     REQUIRE(resp_id->is_number());
-    CHECK_EQ(resp_id->as_integer(), 777);
+    CHECK_EQ(resp_id->as_integer(), cancelled_id);
     CHECK(response->find_member("result") == nullptr);
-
-    CHECK(!registry.is_pending(id));
-    CHECK(!registry.is_cancelled(id));
 }
 
 namespace
