@@ -1,0 +1,65 @@
+=== FILE: test.dc ===
+module test;
+
+struct Holder {
+    i32 in;
+    i32 out;
+}
+
+i32 in_fn(i32 in) {
+    return in * 2;
+}
+
+i32 sum_name(i32[4] xs) {
+    i32 total = 0;
+    for in in xs {
+        total += in;
+    }
+    return total;
+}
+
+i32 sum_typed(i32[4] xs) {
+    i32 total = 0;
+    for i32 in in xs {
+        total += in;
+    }
+    return total;
+}
+
+i32 sum_range() {
+    i32 total = 0;
+    for usize in in 0..5 {
+        total += in as i32;
+    }
+    return total;
+}
+
+i32 sum_c_style(i32[4] xs) {
+    i32 total = 0;
+    for usize in = 0; in < 4; in++ {
+        total += xs[in];
+    }
+    return total;
+}
+
+u64 asm_named(u64 in) {
+    u64 out = 0;
+    asm @[intel, output(dst = out in rax), inputs(in in rbx = in)] { "mov %[dst], %[in]" };
+    return out;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32[4] xs = {1, 2, 3, 4};
+    if sum_name(xs) != 10 { return 1; }
+    if sum_typed(xs) != 10 { return 2; }
+    if sum_range() != 10 { return 3; }
+    if sum_c_style(xs) != 10 { return 4; }
+    Holder h = Holder{ in = 5, out = 6 };
+    if in_fn(h.in) + h.out != 16 { return 5; }
+    if asm_named(77) != 77 { return 6; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

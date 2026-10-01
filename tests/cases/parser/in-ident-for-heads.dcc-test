@@ -1,0 +1,310 @@
+=== FILE: main.dc ===
+module m;
+
+struct Item { i32 v; }
+
+i32 name_binding(i32[4] xs) {
+    i32 total = 0;
+    for in in xs {
+        total += in;
+    }
+    return total;
+}
+
+i32 typed_name_binding(i32[4] xs) {
+    i32 total = 0;
+    for i32 in in xs {
+        total += in;
+    }
+    return total;
+}
+
+i32 range_name_binding() {
+    i32 total = 0;
+    for usize in in 0..4 {
+        total += in as i32;
+    }
+    return total;
+}
+
+i32 c_style(i32[4] xs) {
+    i32 total = 0;
+    for usize in = 0; in < 4; in++ {
+        total += xs[in];
+    }
+    return total;
+}
+
+i32 user_type_binding(Item[2] items) {
+    i32 total = 0;
+    for Item in in items {
+        total += in.v;
+    }
+    return total;
+}
+
+i32 iterable_named_in(i32[4] in) {
+    i32 total = 0;
+    for x in in {
+        total += x;
+    }
+    return total;
+}
+
+i32 plain(i32[4] xs) {
+    i32 total = 0;
+    for x in xs {
+        total += x;
+    }
+    for i32 y in xs {
+        total += y;
+    }
+    for &z in xs {
+        total += *z;
+    }
+    for &in in xs {
+        total += *in;
+    }
+    return total;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=Item
+    Field name=v
+      Primitive i32
+  Func name=name_binding
+    Return
+      Primitive i32
+    Params
+      Param name=xs
+        Array
+          Element
+            Primitive i32
+          Size
+            IntLiteral 4
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ForIn name=in
+        Iterable
+          Ident xs
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Ident in
+      Return
+        Ident total
+  Func name=typed_name_binding
+    Return
+      Primitive i32
+    Params
+      Param name=xs
+        Array
+          Element
+            Primitive i32
+          Size
+            IntLiteral 4
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ForIn name=in
+        ItemType
+          Primitive i32
+        Iterable
+          Ident xs
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Ident in
+      Return
+        Ident total
+  Func name=range_name_binding
+    Return
+      Primitive i32
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ForIn name=in
+        ItemType
+          Primitive usize
+        Iterable
+          Range inclusive=false
+            Start
+              IntLiteral 0
+            End
+              IntLiteral 4
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Cast
+                Target
+                  Primitive i32
+                Operand
+                  Ident in
+      Return
+        Ident total
+  Func name=c_style
+    Return
+      Primitive i32
+    Params
+      Param name=xs
+        Array
+          Element
+            Primitive i32
+          Size
+            IntLiteral 4
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      For
+        Init
+          Var name=in
+            Type
+              Primitive usize
+            Init
+              IntLiteral 0
+        Cond
+          Binary op=<
+            Ident in
+            IntLiteral 4
+        Update
+          Postfix op=++
+            Ident in
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Index
+                Object
+                  Ident xs
+                Subscript
+                  Ident in
+      Return
+        Ident total
+  Func name=user_type_binding
+    Return
+      Primitive i32
+    Params
+      Param name=items
+        Array
+          Element
+            Named Item
+          Size
+            IntLiteral 2
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ForIn name=in
+        ItemType
+          Named Item
+        Iterable
+          Ident items
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              FieldAccess field=v
+                Ident in
+      Return
+        Ident total
+  Func name=iterable_named_in
+    Return
+      Primitive i32
+    Params
+      Param name=in
+        Array
+          Element
+            Primitive i32
+          Size
+            IntLiteral 4
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ForIn name=x
+        Iterable
+          Ident in
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Ident x
+      Return
+        Ident total
+  Func name=plain
+    Return
+      Primitive i32
+    Params
+      Param name=xs
+        Array
+          Element
+            Primitive i32
+          Size
+            IntLiteral 4
+    Body
+      Var name=total
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ForIn name=x
+        Iterable
+          Ident xs
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Ident x
+      ForIn name=y
+        ItemType
+          Primitive i32
+        Iterable
+          Ident xs
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Ident y
+      ForIn name=z by_ref=true
+        Iterable
+          Ident xs
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Unary op=*
+                Ident z
+      ForIn name=in by_ref=true
+        Iterable
+          Ident xs
+        Body
+          ExprStmt
+            Binary op=+=
+              Ident total
+              Unary op=*
+                Ident in
+      Return
+        Ident total
+

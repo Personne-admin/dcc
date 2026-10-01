@@ -67,7 +67,9 @@ expressions) or from the bound variable.
 
 ## Placement kinds
 
-After an optional `in`, each operand selects a placement:
+After an optional `in`, each operand selects a placement. `in` is a keyword
+only in this position; an operand or variable may itself be named `in`
+(`inputs(in in rbx = in)`):
 
 - `in reg` — a general register. Either an explicit register (`in rax`,
   `in al`, `in dx`), a register family (`in accumulator`, resolved from the

@@ -1140,6 +1140,15 @@ A range expression (`a..b`, `a..=b`) is only valid directly inside a
 first-class value. Index/range bounds default to `usize` unless context forces
 another integer type.
 
+`in` is a contextual keyword: it is recognized as a keyword only in the
+head of a `for` or `static for` loop (`for x in xs`, `for usize i in 0..n`,
+`static for item in args`) and in the operand clauses of inline assembly
+(§19). Everywhere else it is an ordinary identifier, so a local, parameter,
+field, function or module-level name may be called `in`. A loop binding or
+asm operand may be named `in` too (`for in in xs`, `for usize in in 0..n`,
+`inputs(in in rbx = in)`), and a C-style loop may declare one (`for usize in
+= 0; in < n; in++`).
+
 ---
 
 ## 14. Attributes
@@ -1497,6 +1506,9 @@ special placement (`mem`, `imm`, `sym`, `flag`, `any`), or left for the
 backend to choose. Templates address operands positionally (`%0`) or by
 name (`%[dst]`), with size views (`%[dst:byte]`), bare-symbol modifiers
 (`%c[...]`, `%P[...]`), and per-expansion unique stamps (`%=`).
+
+`in` is recognized as a keyword only inside these operand clauses and is an
+ordinary identifier everywhere else (§13).
 
 See the [full specifications](inline-assembly.md).
 

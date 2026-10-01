@@ -1695,7 +1695,8 @@ namespace dccd::format
                     if (depth != 0)
                         continue;
 
-                    if (k == TokenKind::KwIn)
+                    if (k == TokenKind::Identifier && tokens[j].interned == "in" && tokens[j - 1].kind == TokenKind::Identifier && j + 1 < tokens.size() &&
+                        tokens[j + 1].kind != TokenKind::Eq && tokens[j + 1].kind != TokenKind::Semicolon)
                         break;
 
                     if (k == TokenKind::Semicolon)
