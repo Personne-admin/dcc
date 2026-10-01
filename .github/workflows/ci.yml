@@ -1,0 +1,41 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  job:
+    name: ${{ matrix.job }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        job: [lint, vscode, benchmark-gate, static, unit, linux, windows, differential]
+    env:
+      DCC_CI_CACHE_DIR: ${{ github.workspace }}/../dcc-ci-cache
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+      - run: ci/gh/free-disk.sh
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - if: matrix.job == 'vscode'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+        with:
+          path: ${{ github.workspace }}/../dcc-ci-cache/npm
+          key: npm-${{ hashFiles('vscode/package-lock.json') }}
+      - run: ci/run.sh --timeout 300 ${{ matrix.job }}
