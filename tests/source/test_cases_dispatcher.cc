@@ -92,6 +92,8 @@ namespace
     struct ExpectLlvm
     {
         std::string body;
+        std::vector<std::string> contains;
+        std::vector<std::string> forbids;
         std::size_t base_line{};
         std::string target_triple;
         bool is_error{false};
@@ -424,6 +426,20 @@ namespace
                 e.body = sec.body;
                 e.base_line = sec.body_start_line;
                 e.is_error = starts_with(h, "EXPECT-LLVM-ERRORS");
+                if (starts_with(h, "EXPECT-LLVM-PATTERNS"))
+                {
+                    std::istringstream body_stream{sec.body};
+                    std::string line;
+                    while (std::getline(body_stream, line))
+                    {
+                        auto pattern = trim(line);
+                        if (starts_with(pattern, "CONTAINS:"))
+                            e.contains.emplace_back(trim(std::string_view{pattern}.substr(9)));
+                        else if (starts_with(pattern, "FORBID:"))
+                            e.forbids.emplace_back(trim(std::string_view{pattern}.substr(7)));
+                    }
+                    e.body.clear();
+                }
                 auto flags_start = h.find("FLAGS:");
                 if (flags_start != std::string::npos)
                 {
@@ -2080,6 +2096,18 @@ namespace
             }
 
             auto const body_provided = !trim(exp.body).empty();
+            for (auto const& pattern : exp.contains)
+                if (actual.find(pattern) == std::string::npos)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  LLVM missing pattern '{}'  ({}:{})", pattern, path.string(), exp.base_line);
+                }
+            for (auto const& pattern : exp.forbids)
+                if (actual.find(pattern) != std::string::npos)
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  LLVM forbidden pattern '{}'  ({}:{})", pattern, path.string(), exp.base_line);
+                }
             if (body_provided)
             {
                 auto a = normalize(actual);

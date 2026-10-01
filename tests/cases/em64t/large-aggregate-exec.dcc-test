@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+
+struct Big { u16[128] data; }
+enum Result(T, E) { Ok(T), Err(E) }
+
+Big make_big() {
+    Big b;
+    b.data[0] = 11;
+    b.data[127] = 31;
+    return b;
+}
+
+Result(Big, u8) wrap(Big b) { return Result::Ok(b); }
+Result(Big, u8) copy_result(Result(Big, u8) x) { return x; }
+
+@nomangle
+public i32 dcc_main() {
+    Big a = make_big();
+    Big b = a;
+    Result(Big, u8) r = copy_result(wrap(b));
+    return b.data[0] as i32 + b.data[127] as i32 - 42;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
