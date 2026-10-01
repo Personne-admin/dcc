@@ -1,0 +1,43 @@
+=== FILE: main.dc ===
+module main;
+
+public enum Color : u8 {
+    Red,
+    Green = 5,
+    Blue,
+}
+
+struct Point {
+    i32 x;
+    i32 y;
+}
+
+i32 pick(Color c) {
+    return match c {
+        Color::Red => 1,
+        Color::Green => 2,
+        _ => 0,
+    };
+}
+
+u64 stamp() {
+    u64 tsc = asm @[output(edx:eax)] { "rdtsc" };
+    return tsc;
+}
+
+u64 placed(u64 v) {
+    u64 t = asm @[output(u64 in data:accumulator)] { "rdtsc" };
+    return t + v;
+}
+
+i32 destructure(Point p) {
+    return match p {
+        Point { x, y } => x + y,
+    };
+}
+
+public i32 demo() {
+    Color c = Color::Blue;
+    Point p = Point { x = 1, y = 2 };
+    return pick(c) + destructure(p);
+}

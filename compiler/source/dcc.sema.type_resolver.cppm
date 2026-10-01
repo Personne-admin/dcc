@@ -391,6 +391,12 @@ export namespace dcc::sema
                     resolve_concept_target_expr(r.end, mod, env);
                     break;
                 }
+                case ast::ExprKind::SegConstruct: {
+                    auto& r = *static_cast<ast::SegConstructExpr*>(expr);
+                    resolve_concept_target_expr(r.segment, mod, env);
+                    resolve_concept_target_expr(r.offset, mod, env);
+                    break;
+                }
                 case ast::ExprKind::TemplateInst: {
                     auto& t = *static_cast<ast::TemplateInstExpr*>(expr);
                     resolve_concept_target_expr(t.callee, mod, env);

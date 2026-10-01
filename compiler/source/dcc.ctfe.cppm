@@ -583,6 +583,8 @@ export namespace dcc::ctfe
         {
             if (value.kind() == Kind::Null)
                 return failure("null pointer dereference", true);
+            if (value.kind() == Kind::Far)
+                return failure("dereference of a far address is unavailable at compile time");
             if (value.kind() != Kind::Pointer)
                 return failure("dereference of a value that is not a pointer");
             if (value.is_null_ptr())
@@ -1342,7 +1344,19 @@ export namespace dcc::ctfe
             using K = lex::TokenKind;
             bool lhs_pointer = lhs.kind() == Kind::Pointer;
             bool rhs_pointer = rhs.kind() == Kind::Pointer;
+            bool lhs_far = lhs.kind() == Kind::Far;
+            bool rhs_far = rhs.kind() == Kind::Far;
             bool equality = op == K::EqEq || op == K::BangEq;
+
+            if (equality && lhs_far && rhs_far)
+                return folded(comptime::Value::make_bool((lhs.get_far() == rhs.get_far()) == (op == K::EqEq), out_type));
+
+            if (equality && (lhs_far || rhs_far) && (lhs.kind() == Kind::Null || rhs.kind() == Kind::Null))
+            {
+                auto const& far = lhs_far ? lhs.get_far() : rhs.get_far();
+                bool is_null = far.segment == 0 && far.offset == 0;
+                return folded(comptime::Value::make_bool(is_null == (op == K::EqEq), out_type));
+            }
 
             if (equality && (lhs.kind() == Kind::Null || rhs.kind() == Kind::Null))
             {
@@ -1489,7 +1503,8 @@ export namespace dcc::ctfe
 
             if (specializing() && (contains_unknown(*lhs.value) || contains_unknown(*rhs.value)))
             {
-                if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer)
+                if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far ||
+                    rhs.value->kind() == Kind::Far)
                     return abandoned(AbandonReason::UnsupportedEffect);
                 auto first = trace_ref(*lhs.value);
                 auto second = trace_ref(*rhs.value);
@@ -1508,7 +1523,8 @@ export namespace dcc::ctfe
                 return abandoned(AbandonReason::UnsupportedEffect);
 
             Result r{};
-            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer)
+            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far ||
+                rhs.value->kind() == Kind::Far)
                 r = pointer_binary(op, *lhs.value, *rhs.value, out_type);
             else
             {
@@ -2191,6 +2207,8 @@ export namespace dcc::ctfe
                     return element_value(static_cast<ast::IndexExpr const&>(expr));
                 case ast::ExprKind::Match:
                     return match_value(static_cast<ast::MatchExpr const&>(expr));
+                case ast::ExprKind::SegConstruct:
+                    return seg_construct_value(static_cast<ast::SegConstructExpr const&>(expr));
                 case ast::ExprKind::IntLiteral:
                 case ast::ExprKind::FloatLiteral:
                 case ast::ExprKind::BoolLiteral:
@@ -2233,6 +2251,43 @@ export namespace dcc::ctfe
                 text.push_back(static_cast<char>(*unit));
             }
             return text;
+        }
+
+        Result seg_construct_value(ast::SegConstructExpr const& expr)
+        {
+            auto* target = type_of(expr);
+            auto const* target_ptr = target ? types::type_cast<types::PointerType>(target) : nullptr;
+            if (!target_ptr || (target_ptr->flavor != types::PointerFlavor::Far && target_ptr->flavor != types::PointerFlavor::Based))
+                return failure("segment construction has no far or based pointer target type");
+
+            types::SegReg reg = types::SegReg::None;
+            if (expr.segment && expr.segment->kind == ast::ExprKind::Ident)
+                reg = types::TypeContext::seg_reg_from_name(static_cast<ast::IdentExpr const*>(expr.segment)->name);
+
+            if (reg != types::SegReg::None)
+            {
+                if (target_ptr->flavor != types::PointerFlavor::Based || target_ptr->segment != reg)
+                    return failure("segment register read is unavailable at compile time", true);
+                auto off = expression(*expr.offset);
+                if (off.flow != Flow::Normal || !off.value)
+                    return off;
+                auto bits = off.value->const_to_int();
+                if (!bits || *bits < 0)
+                    return failure("segment construction offset has no compile-time value");
+                return folded(comptime::Value::make_far_address(0, static_cast<std::uint64_t>(*bits), target));
+            }
+
+            auto seg = expression(*expr.segment);
+            if (seg.flow != Flow::Normal || !seg.value)
+                return seg;
+            auto off = expression(*expr.offset);
+            if (off.flow != Flow::Normal || !off.value)
+                return off;
+            auto seg_bits = seg.value->const_to_int();
+            auto off_bits = off.value->const_to_int();
+            if (!seg_bits || !off_bits || *seg_bits < 0 || *seg_bits > 0xffff || *off_bits < 0)
+                return failure("segment construction has no compile-time value");
+            return folded(comptime::Value::make_far_address(static_cast<std::uint16_t>(*seg_bits), static_cast<std::uint64_t>(*off_bits), target));
         }
 
         Result detach(comptime::Value value)

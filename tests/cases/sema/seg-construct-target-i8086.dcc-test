@@ -1,0 +1,13 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+public i32 demo(u16 o) {
+    u8^ a = 0xB800:0x1234;
+    u8^DS b = DS:o;
+    u8^ c = GS:o;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: segment register 'GS' is not available on target 'i8086-binary'; the 8086 has no FS or GS

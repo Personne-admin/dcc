@@ -402,6 +402,12 @@ namespace dcc::sema
                     n->sema = ex->sema;
                     return n;
                 }
+                case ast::ExprKind::SegConstruct: {
+                    auto* ex = static_cast<ast::SegConstructExpr const*>(e);
+                    auto* n = m_ctx.make<ast::SegConstructExpr>(ex->range, clone_expr(ex->segment), clone_expr(ex->offset));
+                    n->sema = ex->sema;
+                    return n;
+                }
                 case ast::ExprKind::Asm: {
                     auto* ex = static_cast<ast::AsmExpr const*>(e);
                     auto* n = m_ctx.make<ast::AsmExpr>(ex->range, m_ctx.allocator());
@@ -1261,6 +1267,12 @@ namespace dcc::sema
                     auto* ex = static_cast<ast::RangeExpr*>(e);
                     substitute_in_expr(ex->start);
                     substitute_in_expr(ex->end);
+                    break;
+                }
+                case ast::ExprKind::SegConstruct: {
+                    auto* ex = static_cast<ast::SegConstructExpr*>(e);
+                    substitute_in_expr(ex->segment);
+                    substitute_in_expr(ex->offset);
                     break;
                 }
                 case ast::ExprKind::SizeofPack:
@@ -2429,6 +2441,12 @@ export namespace dcc::sema
                         replace_in_expr(r->end);
                         break;
                     }
+                    case ast::ExprKind::SegConstruct: {
+                        auto* r = static_cast<ast::SegConstructExpr*>(e);
+                        replace_in_expr(r->segment);
+                        replace_in_expr(r->offset);
+                        break;
+                    }
                     case ast::ExprKind::TypeAST:
                         break;
                     case ast::ExprKind::TemplateInst: {
@@ -3365,6 +3383,12 @@ export namespace dcc::sema
                             expand_in_expr(r->end, false);
                             break;
                         }
+                        case ast::ExprKind::SegConstruct: {
+                            auto* r = static_cast<ast::SegConstructExpr*>(e);
+                            expand_in_expr(r->segment, false);
+                            expand_in_expr(r->offset, false);
+                            break;
+                        }
                         case ast::ExprKind::TemplateInst: {
                             auto* ti = static_cast<ast::TemplateInstExpr*>(e);
                             expand_in_expr(ti->callee, false);
@@ -3649,6 +3673,12 @@ export namespace dcc::sema
                                             auto* r = static_cast<ast::RangeExpr*>(e);
                                             replace_in_expr(r->start);
                                             replace_in_expr(r->end);
+                                            break;
+                                        }
+                                        case ast::ExprKind::SegConstruct: {
+                                            auto* r = static_cast<ast::SegConstructExpr*>(e);
+                                            replace_in_expr(r->segment);
+                                            replace_in_expr(r->offset);
                                             break;
                                         }
                                         case ast::ExprKind::TemplateInst: {
@@ -3959,6 +3989,12 @@ export namespace dcc::sema
                                         replace_in_expr(r->end);
                                         break;
                                     }
+                                    case ast::ExprKind::SegConstruct: {
+                                        auto* r = static_cast<ast::SegConstructExpr*>(e);
+                                        replace_in_expr(r->segment);
+                                        replace_in_expr(r->offset);
+                                        break;
+                                    }
                                     case ast::ExprKind::TemplateInst: {
                                         auto* ti = static_cast<ast::TemplateInstExpr*>(e);
                                         replace_in_expr(ti->callee);
@@ -4192,6 +4228,12 @@ export namespace dcc::sema
                             auto* r = static_cast<ast::RangeExpr const*>(e);
                             walk_expr(r->start);
                             walk_expr(r->end);
+                            break;
+                        }
+                        case ast::ExprKind::SegConstruct: {
+                            auto* r = static_cast<ast::SegConstructExpr const*>(e);
+                            walk_expr(r->segment);
+                            walk_expr(r->offset);
                             break;
                         }
                         case ast::ExprKind::PackExpansion:

@@ -37,6 +37,14 @@ export namespace dcc::comptime
         std::uint64_t origin{};
     };
 
+    struct ValueFar
+    {
+        std::uint16_t segment{};
+        std::uint64_t offset{};
+
+        [[nodiscard]] bool operator==(ValueFar const&) const noexcept = default;
+    };
+
     enum class UnaryOp : std::uint8_t
     {
         Plus,
@@ -67,7 +75,8 @@ export namespace dcc::comptime
 
     struct Value
     {
-        using Storage = std::variant<std::monostate, std::int64_t, double, bool, std::uint32_t, std::string, ValueAgg, ValueSlice, ValuePtr, ValueUnknown>;
+        using Storage = std::variant<std::monostate, std::int64_t, double, bool, std::uint32_t, std::string, ValueAgg, ValueSlice, ValuePtr,
+                                     ValueUnknown, ValueFar>;
 
         enum class Kind : std::uint8_t
         {
@@ -81,6 +90,7 @@ export namespace dcc::comptime
             Slice = 7,
             Pointer = 8,
             Unknown = 9,
+            Far = 10,
         };
 
         types::TypePtr type{nullptr};
@@ -201,6 +211,14 @@ export namespace dcc::comptime
             return val;
         }
 
+        [[nodiscard]] static Value make_far_address(std::uint16_t segment, std::uint64_t offset, types::TypePtr t)
+        {
+            Value val;
+            val.type = t;
+            val.m_storage.template emplace<ValueFar>(ValueFar{segment, offset});
+            return val;
+        }
+
         [[nodiscard]] static Value make_unknown(types::TypePtr t, std::uint64_t origin = 0)
         {
             Value val;
@@ -257,6 +275,12 @@ export namespace dcc::comptime
         {
             assert(kind() == Kind::Pointer);
             return std::get<ValuePtr>(m_storage);
+        }
+
+        [[nodiscard]] ValueFar const& get_far() const
+        {
+            assert(kind() == Kind::Far);
+            return std::get<ValueFar>(m_storage);
         }
 
         [[nodiscard]] ValuePtr const& slice_base() const
@@ -395,6 +419,8 @@ export namespace dcc::comptime
                     return std::get<ValuePtr>(m_storage) == std::get<ValuePtr>(other.m_storage);
                 case Kind::Unknown:
                     return std::get<ValueUnknown>(m_storage).origin == std::get<ValueUnknown>(other.m_storage).origin;
+                case Kind::Far:
+                    return std::get<ValueFar>(m_storage) == std::get<ValueFar>(other.m_storage);
             }
             return false;
         }
@@ -452,6 +478,12 @@ export namespace dcc::comptime
                 case Kind::Unknown:
                     h ^= std::hash<std::uint64_t>{}(std::get<ValueUnknown>(m_storage).origin);
                     break;
+                case Kind::Far: {
+                    auto const& f = std::get<ValueFar>(m_storage);
+                    h ^= std::hash<std::uint16_t>{}(f.segment) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                    h ^= std::hash<std::uint64_t>{}(f.offset) + 0x9e3779b9 + (h << 6) + (h >> 2);
+                    break;
+                }
             }
             return h;
         }
@@ -480,6 +512,7 @@ export namespace dcc::comptime
                 case Kind::Slice:
                 case Kind::Pointer:
                 case Kind::Unknown:
+                case Kind::Far:
                     return std::nullopt;
             }
             return std::nullopt;
@@ -503,6 +536,7 @@ export namespace dcc::comptime
                 case Kind::Slice:
                 case Kind::Pointer:
                 case Kind::Unknown:
+                case Kind::Far:
                     return std::nullopt;
             }
             return std::nullopt;
@@ -526,6 +560,7 @@ export namespace dcc::comptime
                 case Kind::Slice:
                 case Kind::Pointer:
                 case Kind::Unknown:
+                case Kind::Far:
                     return std::nullopt;
             }
             return std::nullopt;
@@ -882,6 +917,17 @@ export namespace dcc::comptime
                     auto const* dst_ptr = static_cast<types::PointerType const*>(dst);
                     if (src_ptr && src_ptr->flavor == dst_ptr->flavor && src_ptr->segment == dst_ptr->segment)
                         return make_pointer_to(get_pointer(), dst);
+                    return std::nullopt;
+                }
+                if (kind() == Kind::Far && dst->kind == types::TypeKind::Pointer)
+                {
+                    auto const* src_ptr = types::type_cast<types::PointerType>(type);
+                    auto const* dst_ptr = static_cast<types::PointerType const*>(dst);
+                    if (src_ptr && src_ptr->flavor == dst_ptr->flavor && src_ptr->segment == dst_ptr->segment)
+                    {
+                        auto const& f = get_far();
+                        return make_far_address(f.segment, f.offset, dst);
+                    }
                     return std::nullopt;
                 }
                 return std::nullopt;

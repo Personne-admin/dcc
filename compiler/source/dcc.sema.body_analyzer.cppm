@@ -176,6 +176,10 @@ export namespace dcc::sema
                     return std::format("{:g}", cc->get_float());
                 case comptime::Value::Kind::Null:
                     return "null";
+                case comptime::Value::Kind::Far: {
+                    auto const& f = cc->get_far();
+                    return std::format("0x{:x}:0x{:x}", f.segment, f.offset);
+                }
                 case comptime::Value::Kind::String:
                     return std::format("\"{}\"", cc->get_string());
                 case comptime::Value::Kind::Aggregate: {
@@ -751,6 +755,15 @@ export namespace dcc::sema
                         print_expr(*r.start);
                     if (auto const& r = static_cast<ast::RangeExpr const&>(e); r.end)
                         print_expr(*r.end);
+                    m_indent--;
+                    break;
+                case ast::ExprKind::SegConstruct:
+                    line_fmt("SegConstruct {}", expr_suffix(e));
+                    m_indent++;
+                    if (auto const& r = static_cast<ast::SegConstructExpr const&>(e); r.segment)
+                        print_expr(*r.segment);
+                    if (auto const& r = static_cast<ast::SegConstructExpr const&>(e); r.offset)
+                        print_expr(*r.offset);
                     m_indent--;
                     break;
                 case ast::ExprKind::TypeAST:
@@ -1598,6 +1611,12 @@ export namespace dcc::sema
                     auto* re = static_cast<ast::RangeExpr const*>(expr);
                     collect_written_expr_names(re->start, out);
                     collect_written_expr_names(re->end, out);
+                    break;
+                }
+                case ast::ExprKind::SegConstruct: {
+                    auto* re = static_cast<ast::SegConstructExpr const*>(expr);
+                    collect_written_expr_names(re->segment, out);
+                    collect_written_expr_names(re->offset, out);
                     break;
                 }
                 default:
@@ -9350,7 +9369,13 @@ export namespace dcc::sema
 
                     std::uint32_t tmp{};
                     auto value = analyze_expr(mod, nullptr, scope, *lit.value, 0, tmp, matched_type, const_env);
-                    if (!value.constant || !value.type || value.type->kind == types::TypeKind::Error || (matched_type && value.type != matched_type))
+                    bool type_ok = value.type && value.type->kind != types::TypeKind::Error && (!matched_type || value.type == matched_type);
+                    if (!value.constant && type_ok)
+                    {
+                        error(lit.range, "literal pattern must be a constant expression");
+                        out.ok = false;
+                    }
+                    else if (!type_ok)
                     {
                         error(lit.range, "literal pattern type mismatch: matched `{}`, pattern `{}`", format_type_str(matched_type),
                               format_type_str(value.type));
@@ -10143,6 +10168,10 @@ export namespace dcc::sema
                         break;
                     case ast::ExprKind::Cast:
                         out = analyze_cast(mod, fn, scope, static_cast<ast::CastExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        break;
+                    case ast::ExprKind::SegConstruct:
+                        out = analyze_seg_construct(mod, fn, scope, static_cast<ast::SegConstructExpr&>(expr), loop_depth, next_off, expected_type,
+                                                    const_env);
                         break;
                     case ast::ExprKind::Block:
                         out = analyze_block_expr(mod, fn, scope, static_cast<ast::BlockExpr&>(expr), loop_depth, next_off, expected_type, const_env,
@@ -12055,9 +12084,145 @@ export namespace dcc::sema
             return out;
         }
 
+        detail::ExprResult analyze_seg_construct(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::SegConstructExpr& e, int loop_depth,
+                                                std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
+        {
+            detail::ExprResult out{};
+            out.type = m_types.m_errort();
+            out.is_writable = false;
+            auto const* target_ptr = expected_type ? types::type_cast<types::PointerType>(expected_type) : nullptr;
+            if (!expected_type)
+            {
+                error(e.range, "segment construction requires a far or based pointer target type from the declaration, parameter, return type, or `as`");
+                return out;
+            }
+            if (has_error(expected_type))
+                return out;
+            if (!target_ptr || (target_ptr->flavor != types::PointerFlavor::Far && target_ptr->flavor != types::PointerFlavor::Based))
+            {
+                error(e.range, "segment construction target must be a far or based pointer type, got `{}`", format_type_str(expected_type));
+                return out;
+            }
+
+            types::SegReg reg = types::SegReg::None;
+            if (e.segment && e.segment->kind == ast::ExprKind::Ident)
+                reg = types::TypeContext::seg_reg_from_name(static_cast<ast::IdentExpr const*>(e.segment)->name);
+
+            std::uint8_t const offset_bits = m_types.pointer_bits();
+            std::uint64_t const offset_max = offset_bits >= 64 ? ~std::uint64_t{} : ((std::uint64_t{1} << offset_bits) - 1);
+            bool operand_failed = false;
+            auto check_operand = [&](ast::Expr* operand, std::uint8_t max_bits, std::uint64_t max_value, std::string_view what)
+                -> std::optional<std::uint64_t> {
+                auto r = analyze_expr_or_error(mod, fn, scope, operand, loop_depth, next_off, nullptr, const_env);
+                if (!r.type || has_error(r.type))
+                {
+                    operand_failed = true;
+                    return std::nullopt;
+                }
+                auto const* it = types::type_cast<types::IntType>(r.type);
+                if (!it)
+                {
+                    error(operand->range, "segment construction {} must be an integer, got `{}`", what, format_type_str(r.type));
+                    operand_failed = true;
+                    return std::nullopt;
+                }
+                if (r.constant && r.constant->kind() == comptime::Value::Kind::Int)
+                {
+                    auto v = r.constant->get_int();
+                    if (v < 0 || static_cast<std::uint64_t>(v) > max_value)
+                    {
+                        error(operand->range, "segment construction {} value {} does not fit {}", what, v,
+                              max_bits == 16 ? "u16" : std::format("u{}", max_bits));
+                        operand_failed = true;
+                        return std::nullopt;
+                    }
+                    return static_cast<std::uint64_t>(v);
+                }
+                if (it->is_signed)
+                {
+                    error(operand->range, "segment construction {} must be an unsigned integer type, got `{}`", what, format_type_str(r.type));
+                    operand_failed = true;
+                    return std::nullopt;
+                }
+                if (it->bits > max_bits)
+                {
+                    error(operand->range, "segment construction {} of type `{}` does not fit {}; cast explicitly with `as`", what,
+                          format_type_str(r.type), max_bits == 16 ? "u16" : std::format("u{}", max_bits));
+                    operand_failed = true;
+                    return std::nullopt;
+                }
+                return std::nullopt;
+            };
+
+            if (reg != types::SegReg::None)
+            {
+                if (auto err = m_types.check_far_pointer(true, reg))
+                {
+                    error(e.segment->range, "{}", *err);
+                    return out;
+                }
+                if (target_ptr->flavor == types::PointerFlavor::Based && target_ptr->segment == reg)
+                {
+                    auto off = check_operand(e.offset, offset_bits, offset_max, "offset");
+                    if (operand_failed)
+                        return out;
+                    out.type = expected_type;
+                    if (off)
+                    {
+                        out.constant = make_value(comptime::Value::make_far_address(0, *off, expected_type));
+                        out.is_constant = true;
+                    }
+                    return out;
+                }
+                if (target_ptr->flavor == types::PointerFlavor::Based)
+                {
+                    error(e.range, "cannot construct `{}` from segment register `{}`", format_type_str(expected_type),
+                          types::TypeContext::seg_reg_name(reg));
+                    return out;
+                }
+                std::ignore = check_operand(e.offset, offset_bits, offset_max, "offset");
+                if (operand_failed)
+                    return out;
+                out.type = expected_type;
+                return out;
+            }
+
+            if (target_ptr->flavor == types::PointerFlavor::Based)
+            {
+                error(e.range, "cannot construct based pointer `{}` from a numeric segment; use `{}:off`", format_type_str(expected_type),
+                      types::TypeContext::seg_reg_name(target_ptr->segment));
+                return out;
+            }
+            auto seg = check_operand(e.segment, 16, 0xffff, "segment");
+            auto off = check_operand(e.offset, offset_bits, offset_max, "offset");
+            if (operand_failed)
+                return out;
+            out.type = expected_type;
+            if (seg && off)
+            {
+                out.constant = make_value(comptime::Value::make_far_address(static_cast<std::uint16_t>(*seg), *off, expected_type));
+                out.is_constant = true;
+            }
+            return out;
+        }
+
         detail::ExprResult analyze_cast(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CastExpr& c, int loop_depth, std::uint32_t& next_off,
                                         types::TypePtr expected_type, ConstEnv const* const_env)
         {
+            if (c.operand && c.operand->kind == ast::ExprKind::SegConstruct)
+            {
+                if (c.target && !c.target->sema.canonical)
+                    std::ignore = resolve_and_substitute_type_expr(mod, scope, c.target);
+                auto* target = c.target ? get_canonical(c.target->sema) : nullptr;
+                if (!target || has_error(target))
+                {
+                    detail::ExprResult bad{};
+                    bad.type = m_types.m_errort();
+                    return bad;
+                }
+                return analyze_seg_construct(mod, fn, scope, static_cast<ast::SegConstructExpr&>(*c.operand), loop_depth, next_off, target,
+                                             const_env);
+            }
             auto const saved_suppress_literal_fit = m_in_explicit_conversion;
             m_in_explicit_conversion = true;
             auto op = analyze_expr_or_error(mod, fn, scope, c.operand, loop_depth, next_off, expected_type, const_env);

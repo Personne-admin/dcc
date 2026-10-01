@@ -91,7 +91,8 @@ export namespace dcc::ir::mangle
             String,
             Aggregate,
             Slice,
-            Pointer
+            Pointer,
+            Far
         };
 
         Tag tag{};
@@ -105,6 +106,8 @@ export namespace dcc::ir::mangle
         bool is_null_ptr{true};
         std::size_t pointer_allocation{};
         std::vector<std::uint32_t> pointer_path;
+        std::uint16_t far_segment{};
+        std::uint64_t far_offset{};
 
         DemangledValue() = default;
         DemangledValue(DemangledValue&&) = default;
@@ -756,6 +759,15 @@ namespace dcc::ir::mangle
                     encode_type(out, value.type, resolver);
                     out += to_dec(value.unknown_origin());
                     return;
+                case dcc::comptime::Value::Kind::Far: {
+                    auto const& f = value.get_far();
+                    out += 'H';
+                    encode_type(out, value.type, resolver);
+                    out += to_dec(f.segment);
+                    out += '.';
+                    out += to_dec(f.offset);
+                    return;
+                }
             }
         }
 
@@ -1276,6 +1288,22 @@ namespace dcc::ir::mangle
                     }
 
                     return false;
+                }
+                case 'H': {
+                    dv.tag = DemangledValue::Tag::Far;
+                    if (!demangle_type_into(dv.type, sv, pos))
+                        return false;
+
+                    std::uint64_t seg;
+                    std::uint64_t off;
+                    if (!parse_dec(sv, pos, seg) || pos >= sv.size() || sv[pos++] != '.')
+                        return false;
+                    if (!parse_dec(sv, pos, off) || seg > std::numeric_limits<std::uint16_t>::max())
+                        return false;
+
+                    dv.far_segment = static_cast<std::uint16_t>(seg);
+                    dv.far_offset = off;
+                    return true;
                 }
                 default:
                     return false;

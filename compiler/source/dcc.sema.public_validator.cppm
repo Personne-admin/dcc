@@ -204,6 +204,12 @@ export namespace dcc::sema
                     validate_expr(mod, r.end);
                     break;
                 }
+                case ast::ExprKind::SegConstruct: {
+                    auto const& r = *static_cast<ast::SegConstructExpr const*>(expr);
+                    validate_expr(mod, r.segment);
+                    validate_expr(mod, r.offset);
+                    break;
+                }
                 case ast::ExprKind::TemplateInst: {
                     auto const& t = *static_cast<ast::TemplateInstExpr const*>(expr);
                     validate_expr(mod, t.callee);

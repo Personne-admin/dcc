@@ -1,0 +1,30 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+public i32 demo(i32 s, u64 w, u32 o, u16 x) {
+    u16 GS;
+    0xB800:0x100;
+    u32 bad_target = 0xB800:0x100;
+    u8^GS g = 0xB800:0x100;
+    u8^FS h = GS:0x20;
+    u8^ p = 70000:0;
+    u8^ q = 0:0x1_0000_0000;
+    u8^ a = s:o;
+    u8^ b = 1:w;
+    u8^ c = true:o;
+    u8^ d = 1:2:3;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: segment construction requires a far or based pointer target type from the declaration, parameter, return type, or `as`
+main.dc:6: segment construction target must be a far or based pointer type, got `u32`
+main.dc:7: cannot construct based pointer `u8^GS` from a numeric segment; use `GS:off`
+main.dc:8: cannot construct `u8^FS` from segment register `GS`
+main.dc:9: segment construction segment value 70000 does not fit u16
+main.dc:10: segment construction offset value 4294967296 does not fit u32
+main.dc:11: segment construction segment must be an unsigned integer type, got `i32`
+main.dc:12: segment construction offset of type `u64` does not fit u32; cast explicitly with `as`
+main.dc:13: segment construction segment must be an integer, got `bool`
+main.dc:14: segment construction requires a far or based pointer target type from the declaration, parameter, return type, or `as`

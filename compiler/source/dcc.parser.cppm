@@ -3936,19 +3936,21 @@ export namespace dcc::parser
                 case TK::LtEq:
                 case TK::GtEq:
                     return 9;
+                case TK::Colon:
+                    return 10;
                 case TK::LtLt:
                 case TK::GtGt:
-                    return 10;
+                    return 11;
                 case TK::Plus:
                 case TK::Minus:
-                    return 11;
+                    return 12;
                 case TK::Star:
                 case TK::Slash:
                 case TK::Percent:
-                    return 12;
+                    return 13;
 
                 case TK::KwAs:
-                    return 13;
+                    return 14;
 
                 default:
                     return -1;
@@ -3957,15 +3959,16 @@ export namespace dcc::parser
 
         bool is_assignment_op(TK k) noexcept { return k == TK::Eq || (k >= TK::PlusEq && k <= TK::GtGtEq); }
 
-        ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false)
+        ast::Expr* parse_expr(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false, bool no_as = false)
         {
             auto start = loc();
             auto first_error = m_recovery_errors.size();
-            auto* result = parse_expr_impl(min_prec, no_struct_lit, is_stmt, allow_type);
+            auto* result = parse_expr_impl(min_prec, no_struct_lit, is_stmt, allow_type, no_as);
             return mark_recovered(result, first_error, range_from(start));
         }
 
-        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false)
+        ast::Expr* parse_expr_impl(int min_prec = 0, bool no_struct_lit = false, bool is_stmt = false, bool allow_type = false,
+                                   bool no_as = false)
         {
             auto* left = parse_unary(no_struct_lit, allow_type, is_stmt);
             if (!left)
@@ -3984,6 +3987,8 @@ export namespace dcc::parser
                 int prec = binary_precedence(op);
                 if (prec < min_prec)
                     break;
+                if (no_as && op == TK::KwAs)
+                    break;
 
                 auto op_range = single_range();
                 advance();
@@ -4000,15 +4005,27 @@ export namespace dcc::parser
                 if (op == TK::DotDot)
                 {
                     bool inclusive = match(TK::Eq);
-                    auto* right = parse_expr(prec + 1, no_struct_lit, false, allow_type);
+                    auto* right = parse_expr(prec + 1, no_struct_lit, false, allow_type, no_as);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
                     left = m_ctx.make<ast::RangeExpr>(range, left, right, inclusive);
                     is_stmt = false;
                     continue;
                 }
 
+                if (op == TK::Colon)
+                {
+                    auto* right = parse_expr(prec + 1, no_struct_lit, false, allow_type, true);
+                    if (!right)
+                        return left;
+
+                    auto range = sm::SourceRange{left->range.begin, m_prev_end};
+                    left = m_ctx.make<ast::SegConstructExpr>(range, left, right);
+                    is_stmt = false;
+                    continue;
+                }
+
                 int next_prec = is_assignment_op(op) ? prec : prec + 1;
-                auto* right = parse_expr(next_prec, no_struct_lit, false, allow_type);
+                auto* right = parse_expr(next_prec, no_struct_lit, false, allow_type, no_as);
                 if (!right)
                     return left;
 
@@ -4993,9 +5010,23 @@ export namespace dcc::parser
             switch (peek().kind)
             {
                 case TK::Identifier: {
+                    if (check_at(1, TK::Colon))
+                    {
+                        auto* seg = parse_unary(true);
+                        expect(TK::Colon, "in segment construction pattern");
+                        auto* off = parse_unary(true);
+                        return m_ctx.make<ast::LiteralPattern>(range_from(start), m_ctx.make<ast::SegConstructExpr>(range_from(start), seg, off));
+                    }
                     if (check_at(1, TK::ColonColon) || check_at(1, TK::LBrace) || check_at(1, TK::LParen))
                     {
                         auto path = parse_path();
+                        if (check(TK::Colon))
+                        {
+                            auto* seg = m_ctx.make<ast::PathExpr>(range_from(start), std::move(path), m_ctx.allocator());
+                            advance();
+                            auto* off = parse_unary(true);
+                            return m_ctx.make<ast::LiteralPattern>(range_from(start), m_ctx.make<ast::SegConstructExpr>(range_from(start), seg, off));
+                        }
                         if (match(TK::LParen))
                         {
                             auto* p = m_ctx.make<ast::EnumDestructurePattern>(sm::SourceRange{}, std::move(path), m_ctx.allocator());
@@ -5039,6 +5070,13 @@ export namespace dcc::parser
                         bool inclusive = match(TK::Eq);
                         auto* end = parse_unary(true);
                         return m_ctx.make<ast::RangePattern>(range_from(start), lit, end, inclusive);
+                    }
+                    if (check(TK::Colon))
+                    {
+                        advance();
+                        auto* off = parse_unary(true);
+                        return m_ctx.make<ast::LiteralPattern>(
+                            range_from(start), m_ctx.make<ast::SegConstructExpr>(range_from(start), lit, off));
                     }
 
                     return m_ctx.make<ast::LiteralPattern>(range_from(start), lit);

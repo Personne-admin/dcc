@@ -1,0 +1,13 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 pick(u8^ f) {
+    return match f {
+        GS:0x20 => 1,
+        _ => 2,
+    };
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: literal pattern must be a constant expression

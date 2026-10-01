@@ -1,0 +1,13 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+public i32 demo(u64 o) {
+    u8^GS g = GS:o;
+    u8^FS f = FS:0;
+    u8^DS d = DS:o;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: segment register 'DS' is not available on target 'x86_64-elf'; x86-64 based pointers allow only FS and GS

@@ -909,6 +909,59 @@ unwrapped value. The operand expression is lowered exactly once.
 
 ---
 
+### 9.6 Segment construction (`seg:off`)
+
+On segmented x86 targets, `seg:off` builds a far or based pointer (§3.1).
+Three forms exist:
+
+```dc
+u8^ a = 0xB800:0x100;   // constant segment and offset
+u8^ b = seg:off;        // runtime integer operands
+u8^ c = GS:off;         // segment register on the left
+u8^GS d = GS:off;       // static based-pointer binding
+```
+
+**Precedence.** `:` binds looser than shift, additive, and multiplicative
+operators, and tighter than comparisons, equality, and the bitwise `&`,
+`^`, `|` operators (which in this language all bind looser than
+comparisons). Thus `a + b:c` is `(a+b):c`, `a << b:c` is `(a<<b):c`,
+`GS:x < y` is `(GS:x) < y`, and `GS:x ^ y` is `(GS:x) ^ y`. A trailing `as`
+is special-cased to apply to the whole construction rather than the
+offset: `seg:off as u8^` is `(seg:off) as u8^`, so the `as` supplies the
+construction's target type. Use parentheses to override: `(a+b):c`,
+`seg:(off as u16)`.
+
+**Contextual typing.** Like an integer literal, `seg:off` takes its target
+far or based pointer type from the declaration, parameter, or return type,
+or from an explicit `as`. The `as` is optional wherever context exists.
+With no context, or with a target that is not a far or based pointer, the
+construction is an error.
+
+**Operands.** Both operands must be integers. A constant part is
+range-checked: the segment must fit `u16`, the offset must fit the target's
+offset width (`u16` on i8086-binary, `u32` on x86-elf and x86-coff, `u64` on
+x86-64). A runtime part must have an unsigned integer type no wider than
+the corresponding limit; wider or signed runtime operands are an error
+(cast explicitly with `as`). A numeric segment cannot target a based type:
+based pointers store no segment, so `0xB800:0 into u8^GS` is an error and
+the register form `GS:off` must be used instead.
+
+**Register on the left.** A bare `CS`, `DS`, `ES`, `SS`, `FS`, or `GS` on
+the left of `:` always denotes the segment register, even if a variable of
+the same name is in scope. Register availability follows the target rules
+in §3.1. With a based target using the same register, the construction is
+a static binding and (for a constant offset) a compile-time constant; a
+register that does not match the based type is an error. With a dynamic
+`T^` target, the construction reads the register's current value at
+runtime and is never a constant expression: using it in a constant global
+initializer, a value alias, or a match pattern is an error.
+
+**Patterns.** A constant `seg:off` may appear as a match pattern against a
+far or based pointer of the matching type. Pattern operands are unary
+expressions; parenthesize anything more complex.
+
+---
+
 ## 10. Match Expressions
 
 ```dc

@@ -1,0 +1,14 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8^ const BAD = GS:0x20;
+using u8^ VBAD = GS:0x20;
+
+public i32 demo() {
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: initializer for global `BAD` is not a constant expression
+main.dc:4: initializer for value alias `VBAD` is not a compile-time constant

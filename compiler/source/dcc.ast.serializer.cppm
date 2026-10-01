@@ -447,6 +447,23 @@ export namespace dcc::ast
                 visitExpr(e->end);
             }
         }
+        void visitSegConstructExpr(SegConstructExpr const* e) override
+        {
+            line("SegConstruct");
+            IndentScope is(m_indent_level);
+            if (e->segment)
+            {
+                line("Segment");
+                IndentScope is2(m_indent_level);
+                visitExpr(e->segment);
+            }
+            if (e->offset)
+            {
+                line("Offset");
+                IndentScope is2(m_indent_level);
+                visitExpr(e->offset);
+            }
+        }
         void visitTypeASTExpr(TypeASTExpr const* e) override
         {
             line("TypeAST");

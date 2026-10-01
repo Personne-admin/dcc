@@ -1,0 +1,13 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+public i32 demo(u16 x, u16 y) {
+    bool t = GS:x < y;
+    u8^ q = GS:x ^ y;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: segment construction target must be a far or based pointer type, got `bool`
+main.dc:5: binary operator `^` type mismatch: left `u8^`, right `u16`

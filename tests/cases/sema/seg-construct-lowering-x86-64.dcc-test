@@ -1,0 +1,11 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+public i32 demo(u64 o) {
+    u8^GS g = GS:o;
+    return 0;
+}
+
+=== EXPECT-IR-ERRORS ===
+far and based pointers are not supported by this backend yet
