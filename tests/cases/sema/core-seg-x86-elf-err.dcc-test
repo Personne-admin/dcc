@@ -1,0 +1,21 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(u8^GS b, u8^ p, u32 o, u8* n, usize z) {
+    u16 s = b.segment();
+    u8^ p2 = p.with_offset(o);
+    u16 s2 = core::seg::segment(b);
+    usize f = core::seg::offset(n);
+    u8^ p3 = p.with_segment(z);
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: no matching UFCS function for `segment` on receiver type `u8^GS`
+main.dc:7: no matching UFCS function for `with_offset` on receiver type `u8^`
+main.dc:8: no matching call for `core::seg::segment`
+main.dc:9: ambiguous call to `core::seg::offset`
+main.dc:10: no matching UFCS function for `with_segment` on receiver type `u8^`

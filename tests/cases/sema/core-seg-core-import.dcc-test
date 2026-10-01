@@ -1,0 +1,17 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core;
+
+public usize test_offset(u8^GS ptr) {
+    return core::seg::offset(ptr);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-TYPES FOR: m ===
+Module m
+  Func test_offset
+    Return: usize
+    Param ptr: u8^GS

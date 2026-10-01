@@ -1,0 +1,25 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(const u8^ cp, const u8^GS cb, usize o, u16 s) {
+    u8^ a = cp.with_offset(o);
+    u8^ b = cp.with_offset(cp.offset());
+    u8^ c = cp.with_segment(s);
+    u8^GS d = cb.with_offset(o);
+    *cp.with_offset(o) = 1;
+    *cp.with_segment(s) = 1;
+    *cb.with_offset(o) = 1;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: initializer type mismatch: declared `u8^`, initializer `const u8^`
+main.dc:7: initializer type mismatch: declared `u8^`, initializer `const u8^`
+main.dc:8: initializer type mismatch: declared `u8^`, initializer `const u8^`
+main.dc:9: initializer type mismatch: declared `u8^GS`, initializer `const u8^GS`
+main.dc:10: cannot assign to const-qualified target of type `u8`
+main.dc:11: cannot assign to const-qualified target of type `u8`
+main.dc:12: cannot assign to const-qualified target of type `u8`

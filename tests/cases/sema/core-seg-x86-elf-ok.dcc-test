@@ -1,0 +1,25 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(u8^ p, u8^GS b, const u8^ cp, usize o) {
+    u16 s = p.segment();
+    usize f = p.offset();
+    usize g = b.offset();
+    u16 s2 = core::seg::segment(p);
+    usize f2 = core::seg::offset(p);
+    u8^ p2 = p.with_offset(o);
+    u8^ p3 = p.with_segment(s);
+    u8^GS b2 = b.with_offset(o);
+    u16 cs = cp.segment();
+    usize cf = cp.offset();
+    const u8^ cp2 = cp.with_offset(o);
+    const u8^ cp3 = cp.with_segment(s);
+    u8* n = p as u8*;
+    usize nf = n.offset();
+    u8 v = 1;
+    usize vf = v.offset();
+    return 0;
+}

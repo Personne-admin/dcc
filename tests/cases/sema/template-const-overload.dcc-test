@@ -1,0 +1,19 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 pick(T)(T* p) {
+    return 1;
+}
+
+u16 pick(T)(const T* p) {
+    return 2;
+}
+
+public u8 takes_mutable(u8* n) {
+    return pick(n);
+}
+
+public u16 takes_const(const u8* c) {
+    return pick(c);
+}

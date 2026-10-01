@@ -3,6 +3,7 @@ export module dcc.vfs;
 import std;
 import dcc.sm;
 import dcc.target;
+import dcc.types;
 
 export namespace dcc::vfs
 {
@@ -98,6 +99,7 @@ export namespace dcc::vfs
 public import core::atomic;
 public import core::source_location;
 public import core::target;
+public import core::seg;
 
 @intrinsic
 public void compile_error([]const char message);
@@ -285,6 +287,10 @@ public SourceLocation source_location();
             .module_path = "core::target",
             .uri = "dcc-core:/core/target.dc",
         },
+        {
+            .module_path = "core::seg",
+            .uri = "dcc-core:/core/seg.dc",
+        },
     };
 
     [[nodiscard]] DynamicModuleEntry const* lookup_dynamic_by_module_path(std::string_view module_path) noexcept
@@ -332,6 +338,37 @@ public const bool IS_64_BIT = {};
                            os, arch, target.pointer_bits == 64);
     }
 
+    [[nodiscard]] std::string generate_core_seg_source(dcc::target::TargetConfig const& target)
+    {
+        std::string out = "module core::seg;\n\n";
+        if (dcc::types::TypeContext::dynamic_far_allowed(target.arch))
+        {
+            out += "@intrinsic\npublic u16 segment(T)(T^ ptr);\n\n";
+            out += "@intrinsic\npublic u16 segment(T)(const T^ ptr);\n\n";
+            out += "@intrinsic\npublic usize offset(T)(T^ ptr);\n\n";
+            out += "@intrinsic\npublic usize offset(T)(const T^ ptr);\n\n";
+            out += "@intrinsic\npublic T^ with_offset(T)(T^ ptr, usize off);\n\n";
+            out += "@intrinsic\npublic const T^ with_offset(T)(const T^ ptr, usize off);\n\n";
+            out += "@intrinsic\npublic T^ with_segment(T)(T^ ptr, u16 seg);\n\n";
+            out += "@intrinsic\npublic const T^ with_segment(T)(const T^ ptr, u16 seg);\n\n";
+        }
+        constexpr dcc::types::SegReg regs[] = {
+            dcc::types::SegReg::CS, dcc::types::SegReg::DS, dcc::types::SegReg::ES,
+            dcc::types::SegReg::SS, dcc::types::SegReg::FS, dcc::types::SegReg::GS,
+        };
+        for (auto reg : regs)
+        {
+            if (!dcc::types::TypeContext::based_register_allowed(target.arch, reg))
+                continue;
+            auto name = dcc::types::TypeContext::seg_reg_name(reg);
+            out += std::format("@intrinsic\npublic usize offset(T)(T^{0} ptr);\n\n", name);
+            out += std::format("@intrinsic\npublic usize offset(T)(const T^{0} ptr);\n\n", name);
+            out += std::format("@intrinsic\npublic T^{0} with_offset(T)(T^{0} ptr, usize off);\n\n", name);
+            out += std::format("@intrinsic\npublic const T^{0} with_offset(T)(const T^{0} ptr, usize off);\n\n", name);
+        }
+        return out;
+    }
+
     [[nodiscard]] sm::FileId materialize_dynamic(DynamicModuleEntry const& entry, dcc::target::TargetConfig const& target, sm::SourceManager& smgr)
     {
         auto rest = entry.uri.substr(kDccCoreScheme.size());
@@ -343,7 +380,8 @@ public const bool IS_64_BIT = {};
         syn_path += kDccCorePathPrefix;
         syn_path += rest;
 
-        return smgr.open_virtual_in_memory(std::string{entry.uri}, generate_core_target_source(target), std::move(syn_path));
+        std::string source = entry.module_path == "core::seg" ? generate_core_seg_source(target) : generate_core_target_source(target);
+        return smgr.open_virtual_in_memory(std::string{entry.uri}, std::move(source), std::move(syn_path));
     }
 
     [[nodiscard]] std::string_view source_text_for_uri(std::string_view uri) noexcept

@@ -1,0 +1,17 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public i32 demo(const u8^GS cb, usize o) {
+    u8^GS a = cb.with_offset(o);
+    u8^GS b = cb.with_offset(cb.offset());
+    *cb.with_offset(o) = 1;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: initializer type mismatch: declared `u8^GS`, initializer `const u8^GS`
+main.dc:7: initializer type mismatch: declared `u8^GS`, initializer `const u8^GS`
+main.dc:8: cannot assign to const-qualified target of type `u8`

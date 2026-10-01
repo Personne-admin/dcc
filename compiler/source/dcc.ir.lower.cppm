@@ -3845,6 +3845,16 @@ export namespace dcc::ir::lower
                 default:
                     break;
             }
+
+            if (auto const* owning = owning_module_of(func); owning && owning->canonical_path.str() == "core::seg")
+            {
+                report_far_pointer_unsupported();
+                auto* ir_ret = lower_type(get_sema_resolved_type(call));
+                if (!ir_ret || ir_ret->kind == IrTypeKind::Void)
+                    return nullptr;
+                return zero_value(ir_ret);
+            }
+
             auto name = func->name;
 
             std::vector<IrValue*> args;
