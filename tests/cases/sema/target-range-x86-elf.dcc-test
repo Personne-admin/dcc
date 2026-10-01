@@ -1,0 +1,11 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+void bounds() {
+    for i in 0..5 { usize value = i; }
+    for i in 0..4294967296 {}
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: range bound 4294967296 does not fit usize; give the range an explicit item type

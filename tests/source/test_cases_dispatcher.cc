@@ -1310,6 +1310,8 @@ namespace
                 fixture_target = dcc::target::TargetConfig::for_os(dcc::target::Os::Windows);
             else if (fx.target_name == "freestanding-em64t")
                 fixture_target = dcc::target::TargetConfig::host_default();
+            else if (auto parsed = dcc::target::TargetConfig::parse_triple(fx.target_name))
+                fixture_target = *parsed;
             else
             {
                 ++stats.failed;

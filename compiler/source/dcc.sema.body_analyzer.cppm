@@ -15610,11 +15610,11 @@ export namespace dcc::sema
         {
             using namespace target;
             auto arch = m_target ? m_target->arch : Arch::X86_64;
-            auto arch_name = arch == Arch::X86_64 ? "x86_64" : "x86";
+            auto arch_name = arch == Arch::X86_64 ? "x86_64" : arch == Arch::I8086 ? "i8086" : "x86";
             if (auto const* attr = find_asm_attr(node.attrs, "arch"))
             {
                 auto required = get_asm_attr_string(*attr);
-                if (required != "x86" && required != "x86_64")
+                if (required != "x86" && required != "x86_64" && required != "i8086")
                     error(attr->range, "unknown asm architecture `{}`", required);
                 else if (required != arch_name)
                     error(attr->range, "asm block requires architecture `{}`, but target is `{}`", required, arch_name);
@@ -16017,11 +16017,11 @@ export namespace dcc::sema
         {
             using namespace target;
             auto arch = m_target ? m_target->arch : Arch::X86_64;
-            auto arch_name = arch == Arch::X86_64 ? "x86_64" : "x86";
+            auto arch_name = arch == Arch::X86_64 ? "x86_64" : arch == Arch::I8086 ? "i8086" : "x86";
             if (auto const* attr = find_asm_attr(node.attrs, "arch"))
             {
                 auto required = get_asm_attr_string(*attr);
-                if (required != "x86" && required != "x86_64")
+                if (required != "x86" && required != "x86_64" && required != "i8086")
                     error(attr->range, "unknown asm architecture `{}`", required);
                 else if (required != arch_name)
                     error(attr->range, "asm block requires architecture `{}`, but target is `{}`", required, arch_name);
