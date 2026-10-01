@@ -4,6 +4,9 @@ ifeq ($(CROSS),windows)
   CXX := $(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-clang++
   CC := $(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-clang
   AR := $(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-llvm-ar
+  ifneq ($(wildcard $(MINGW_SYSROOT)/bin/clang-scan-deps),)
+    SCAN_DEPS ?= $(MINGW_SYSROOT)/bin/clang-scan-deps
+  endif
   EXE_SUFFIX := .exe
 else
   CXX := clang++
