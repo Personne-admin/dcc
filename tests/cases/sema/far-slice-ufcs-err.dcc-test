@@ -1,0 +1,42 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+usize far_len([^]const u8 s) { return s.len; }
+usize near_len([]const u8 s) { return s.len; }
+usize based_len([^GS]const u8 s) { return s.len; }
+usize any_based(T)([^GS]const T s) { return s.len; }
+
+void ufcs([]u8 near, [^]u8 far, [^GS]u8 based, [^FS]u8 other) {
+    usize a = far.near_len();
+    usize b = based.near_len();
+    usize c = based.far_len();
+    usize d = near.based_len();
+    usize e = far.based_len();
+    usize f = other.based_len();
+    usize g = far.any_based();
+    usize h = near.any_based();
+}
+
+void calls([]u8 near, [^]u8 far, [^GS]u8 based) {
+    usize a = near_len(far);
+    usize b = near_len(based);
+    usize c = far_len(based);
+    usize d = based_len(far);
+    usize e = based_len(near);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:9: no matching UFCS function for `near_len` on receiver type `[^]u8`
+main.dc:10: no matching UFCS function for `near_len` on receiver type `[^GS]u8`
+main.dc:11: no matching UFCS function for `far_len` on receiver type `[^GS]u8`
+main.dc:12: no matching UFCS function for `based_len` on receiver type `[]u8`
+main.dc:13: no matching UFCS function for `based_len` on receiver type `[^]u8`
+main.dc:14: no matching UFCS function for `based_len` on receiver type `[^FS]u8`
+main.dc:15: no matching UFCS function for `any_based` on receiver type `[^]u8`
+main.dc:16: no matching UFCS function for `any_based` on receiver type `[]u8`
+main.dc:20: no matching call for `near_len`
+main.dc:21: no matching call for `near_len`
+main.dc:22: no matching call for `far_len`
+main.dc:23: no matching call for `based_len`
+main.dc:24: no matching call for `based_len`

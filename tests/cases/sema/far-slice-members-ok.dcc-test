@@ -1,0 +1,51 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+
+void use(u8 v) {}
+
+void members([^]u8 far, [^GS]u8 based, [^]const u8 farc, [^FS]const u8 basedc) {
+    usize a = far.len;
+    usize b = based.len;
+    u8^ p = far.ptr;
+    u8^GS q = based.ptr;
+    const u8^ r = farc.ptr;
+    const u8^FS s = basedc.ptr;
+    const u8^ t = far.ptr;
+    u8 first = far[0];
+    u8 second = based[1];
+    far[2] = 7;
+    based[3] = 8;
+    far.len = 4;
+    far.ptr = p;
+    based.ptr = q;
+    for v in far { use(v); }
+    for w in based { use(w); }
+    for const u8 x in farc { use(x); }
+    for &y in far { *y = 1; }
+    usize sum = far.len + based.len + farc.len;
+}
+
+void indexing([^]u8 far, usize i, u32 j) {
+    u8 a = far[i];
+    far[i] = far[0];
+}
+
+void slicing([^]u8 far, [^GS]u8 based) {
+    [^]u8 a = far[1..3];
+    [^GS]u8 b = based[0..2];
+}
+
+void construct(u8^ p, u8^GS q, usize n) {
+    [^]u8 a;
+    a.ptr = p;
+    a.len = n;
+    [^GS]u8 b;
+    b.ptr = q;
+    b.len = n;
+    [^]u8 c = core::seg::from_raw(p, n);
+    [^GS]u8 d = core::seg::from_raw(q, n);
+    [^]const u8 e = core::seg::from_raw_const(p, n);
+    [^GS]const u8 f = core::seg::from_raw_const(q, n);
+}

@@ -217,11 +217,18 @@ export namespace dcc::types
 
         TypePtr element;
         Qual element_quals;
+        PointerFlavor flavor = PointerFlavor::Near;
+        SegReg segment = SegReg::None;
 
-        SliceType(TypePtr e, Qual q, std::uint8_t pointer_bits = 64, std::uint8_t pointer_align = 8) : Type(Kind), element(e), element_quals(q)
+        SliceType(TypePtr e, Qual q, std::uint8_t pointer_bits = 64, std::uint8_t pointer_align = 8, PointerFlavor f = PointerFlavor::Near,
+                  SegReg s = SegReg::None, std::uint8_t length_bits = 0)
+            : Type(Kind), element(e), element_quals(q), flavor(f), segment(s)
         {
-            byte_size = 2 * (static_cast<std::uint64_t>(pointer_bits) / 8);
+            if (length_bits == 0)
+                length_bits = pointer_bits;
+            auto const unaligned = (static_cast<std::uint64_t>(pointer_bits) + length_bits) / 8;
             byte_align = pointer_align;
+            byte_size = (unaligned + pointer_align - 1) / pointer_align * pointer_align;
         }
     };
 
@@ -643,7 +650,7 @@ export namespace dcc::types
             return SegReg::None;
         }
 
-        [[nodiscard]] std::optional<std::string> check_far_pointer(bool is_far, SegReg seg) const
+        [[nodiscard]] std::optional<std::string> check_far_pointer(bool is_far, SegReg seg, std::string_view noun = "pointers") const
         {
             if (!is_far)
                 return std::nullopt;
@@ -651,13 +658,13 @@ export namespace dcc::types
             {
                 if (dynamic_far_allowed(m_arch))
                     return std::nullopt;
-                return std::format("dynamic far pointers are not available on target '{}'", m_target_triple);
+                return std::format("dynamic far {} are not available on target '{}'", noun, m_target_triple);
             }
             if (based_register_allowed(m_arch, seg))
                 return std::nullopt;
             if (m_arch == target::Arch::X86_64)
-                return std::format("segment register '{}' is not available on target '{}'; x86-64 based pointers allow only FS and GS",
-                                   seg_reg_name(seg), m_target_triple);
+                return std::format("segment register '{}' is not available on target '{}'; x86-64 based {} allow only FS and GS", seg_reg_name(seg),
+                                   m_target_triple, noun);
             if (m_arch == target::Arch::I8086)
                 return std::format("segment register '{}' is not available on target '{}'; the 8086 has no FS or GS", seg_reg_name(seg),
                                    m_target_triple);
@@ -706,15 +713,25 @@ export namespace dcc::types
             return t;
         }
 
-        [[nodiscard]] TypePtr slice_t(TypePtr element, Qual quals)
+        [[nodiscard]] TypePtr slice_t(TypePtr element, Qual quals, PointerFlavor flavor = PointerFlavor::Near, SegReg seg = SegReg::None)
         {
             for (auto const* t : m_slices)
-                if (t->element == element && t->element_quals == quals)
+                if (t->element == element && t->element_quals == quals && t->flavor == flavor && t->segment == seg)
                     return t;
 
-            auto* t = make<SliceType>(element, quals, m_pointer_bits, m_pointer_align);
+            std::uint8_t bits = m_pointer_bits;
+            std::uint8_t align = m_pointer_align;
+            if (flavor == PointerFlavor::Far)
+                far_layout(bits, align);
+
+            auto* t = make<SliceType>(element, quals, bits, align, flavor, seg, m_pointer_bits);
             m_slices.push_back(t);
             return t;
+        }
+
+        [[nodiscard]] TypePtr rebuild_slice(SliceType const* s, TypePtr element, Qual quals)
+        {
+            return slice_t(element, quals, s->flavor, s->segment);
         }
 
         [[nodiscard]] TypePtr range_t(TypePtr element)

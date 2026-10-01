@@ -1461,6 +1461,8 @@ export namespace dcc::ir::lower
 
             if (auto* st = dcc::types::type_cast<dcc::types::SliceType>(type))
             {
+                if (st->flavor != dcc::types::PointerFlavor::Near)
+                    report_far_pointer_unsupported();
                 auto* ir_el = lower_type(st->element);
                 return m_ctx.slice_t(ir_el, ir::Segment::None);
             }

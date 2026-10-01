@@ -1,0 +1,38 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Layout {
+    u8 lead;
+    []u8 near;
+    [^GS]u8 based;
+    u8 tail;
+}
+
+void sizes() {
+    sizeof([]u8);
+    alignof([]u8);
+    sizeof([^GS]u8);
+    alignof([^GS]u8);
+    sizeof([^FS]const u8);
+    offsetof(Layout, near);
+    offsetof(Layout, based);
+    offsetof(Layout, tail);
+    sizeof(Layout);
+    alignof(Layout);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func sizes diverging=false
+    Body
+      Sizeof [type=usize const=16 constant]
+      Alignof [type=usize const=8 constant]
+      Sizeof [type=usize const=16 constant]
+      Alignof [type=usize const=8 constant]
+      Sizeof [type=usize const=16 constant]
+      Offsetof [type=usize const=8 constant]
+      Offsetof [type=usize const=24 constant]
+      Offsetof [type=usize const=40 constant]
+      Sizeof [type=usize const=48 constant]
+      Alignof [type=usize const=8 constant]

@@ -294,6 +294,43 @@ TEST_CASE("mangle_type Near far based pointers are distinct")
     CHECK_NE(gs, fs);
 }
 
+TEST_CASE("mangle_type Far slice of u8")
+{
+    types::TypeContext ctx;
+    auto s = mangle::mangle_type(ctx.slice_t(u8(ctx), types::Qual::None, types::PointerFlavor::Far, types::SegReg::None));
+    CHECK_EQ(s, "_DC0TJqi8u");
+    mangle::DemangledName d;
+    REQUIRE(mangle::demangle(d, s));
+    CHECK_EQ(d.type_only.tag, mangle::DemangledType::Tag::FarSlice);
+}
+
+TEST_CASE("mangle_type Based slice of const u8")
+{
+    types::TypeContext ctx;
+    auto s = mangle::mangle_type(ctx.slice_t(u8(ctx), types::Qual::Const, types::PointerFlavor::Based, types::SegReg::GS));
+    CHECK_EQ(s, "_DC0TKCqGSi8u");
+    mangle::DemangledName d;
+    REQUIRE(mangle::demangle(d, s));
+    CHECK_EQ(d.type_only.tag, mangle::DemangledType::Tag::BasedSlice);
+    CHECK_EQ(d.type_only.segment_register, "GS");
+    CHECK_EQ(d.type_only.quals, "C");
+}
+
+TEST_CASE("mangle_type Near far based slices are distinct")
+{
+    types::TypeContext ctx;
+    auto near = mangle::mangle_type(ctx.slice_t(u8(ctx), types::Qual::None));
+    auto far = mangle::mangle_type(ctx.slice_t(u8(ctx), types::Qual::None, types::PointerFlavor::Far, types::SegReg::None));
+    auto gs = mangle::mangle_type(ctx.slice_t(u8(ctx), types::Qual::None, types::PointerFlavor::Based, types::SegReg::GS));
+    auto fs = mangle::mangle_type(ctx.slice_t(u8(ctx), types::Qual::None, types::PointerFlavor::Based, types::SegReg::FS));
+    auto ptr = mangle::mangle_type(ctx.far_pointer_to(u8(ctx), types::Qual::None));
+    CHECK_NE(near, far);
+    CHECK_NE(near, gs);
+    CHECK_NE(far, gs);
+    CHECK_NE(gs, fs);
+    CHECK_NE(far, ptr);
+}
+
 TEST_CASE("mangle_type Far FuncPtr (i32) -> void")
 {
     types::TypeContext ctx;

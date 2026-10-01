@@ -1,0 +1,47 @@
+=== TARGET: x86-coff ===
+=== FILE: main.dc ===
+module m;
+
+struct Layout {
+    u8 lead;
+    []u8 near;
+    [^]u8 far;
+    [^GS]u8 based;
+    u8 tail;
+}
+
+void sizes() {
+    sizeof([]u8);
+    alignof([]u8);
+    sizeof([^]u8);
+    alignof([^]u8);
+    sizeof([^GS]u8);
+    alignof([^GS]u8);
+    sizeof([^]const u8);
+    sizeof([^GS]volatile u8);
+    offsetof(Layout, near);
+    offsetof(Layout, far);
+    offsetof(Layout, based);
+    offsetof(Layout, tail);
+    sizeof(Layout);
+    alignof(Layout);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func sizes diverging=false
+    Body
+      Sizeof [type=usize const=8 constant]
+      Alignof [type=usize const=4 constant]
+      Sizeof [type=usize const=12 constant]
+      Alignof [type=usize const=4 constant]
+      Sizeof [type=usize const=8 constant]
+      Alignof [type=usize const=4 constant]
+      Sizeof [type=usize const=12 constant]
+      Sizeof [type=usize const=8 constant]
+      Offsetof [type=usize const=4 constant]
+      Offsetof [type=usize const=12 constant]
+      Offsetof [type=usize const=24 constant]
+      Offsetof [type=usize const=32 constant]
+      Sizeof [type=usize const=36 constant]
+      Alignof [type=usize const=4 constant]

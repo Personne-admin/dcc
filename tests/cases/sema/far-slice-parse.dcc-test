@@ -1,0 +1,134 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Holder {
+    []u8 near;
+    [^]u8 far;
+    [^GS]u8 based;
+    u8[4] array;
+    u8[] flexible;
+}
+
+void params([]u8 a, [^]u8 b, [^]const u8 c, [^GS]const u8 d, [^CS]u8 e, [^FS]volatile u8 f, [^][^GS]u8 g, [^]u8^ h, [^]u8* i, [][^]u8 j) {
+}
+
+[^]u8 ret([^]u8 s, u8 GS, u8 CS) {
+    return s;
+}
+
+void locals([^]u8 s) {
+    [^]u8 a = s;
+    [^GS]u8 b;
+    usize c = (s as [^]u8).len;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=Holder
+    Field name=near
+      Slice
+        Primitive u8
+    Field name=far
+      FarSlice
+        Primitive u8
+    Field name=based
+      BasedSlice GS
+        Primitive u8
+    Field name=array
+      Array
+        Element
+          Primitive u8
+        Size
+          IntLiteral 4
+    Field name=flexible
+      Fam
+        Primitive u8
+  Func name=params
+    Return
+      Primitive void
+    Params
+      Param name=a
+        Slice
+          Primitive u8
+      Param name=b
+        FarSlice
+          Primitive u8
+      Param name=c
+        FarSlice
+          Qualified const
+            Primitive u8
+      Param name=d
+        BasedSlice GS
+          Qualified const
+            Primitive u8
+      Param name=e
+        BasedSlice CS
+          Primitive u8
+      Param name=f
+        BasedSlice FS
+          Qualified volatile
+            Primitive u8
+      Param name=g
+        FarSlice
+          BasedSlice GS
+            Primitive u8
+      Param name=h
+        FarSlice
+          FarPointer
+            Primitive u8
+      Param name=i
+        FarSlice
+          Pointer
+            Primitive u8
+      Param name=j
+        Slice
+          FarSlice
+            Primitive u8
+    Body
+  Func name=ret
+    Return
+      FarSlice
+        Primitive u8
+    Params
+      Param name=s
+        FarSlice
+          Primitive u8
+      Param name=GS
+        Primitive u8
+      Param name=CS
+        Primitive u8
+    Body
+      Return
+        Ident s
+  Func name=locals
+    Return
+      Primitive void
+    Params
+      Param name=s
+        FarSlice
+          Primitive u8
+    Body
+      Var name=a
+        Type
+          FarSlice
+            Primitive u8
+        Init
+          Ident s
+      Var name=b
+        Type
+          BasedSlice GS
+            Primitive u8
+      Var name=c
+        Type
+          Primitive usize
+        Init
+          FieldAccess field=len
+            Cast
+              Target
+                FarSlice
+                  Primitive u8
+              Operand
+                Ident s
+

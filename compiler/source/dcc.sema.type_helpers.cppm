@@ -106,7 +106,12 @@ export namespace dcc::sema
                     quals += "volatile ";
                 if (types::has_qual(s->element_quals, types::Qual::Restrict))
                     quals += "restrict ";
-                return std::format("[]{}{}", quals, format_dcc_type(s->element));
+                std::string prefix = "[]";
+                if (s->flavor == types::PointerFlavor::Far)
+                    prefix = "[^]";
+                else if (s->flavor == types::PointerFlavor::Based)
+                    prefix = std::format("[^{}]", types::TypeContext::seg_reg_name(s->segment));
+                return std::format("{}{}{}", prefix, quals, format_dcc_type(s->element));
             }
             case types::TypeKind::Fam:
                 return std::format("{}[]", format_dcc_type(static_cast<types::FamType const*>(ty)->element));

@@ -136,7 +136,12 @@ export namespace dcc::ast
         }
         void visitSliceType(SliceType const* t) override
         {
-            line("Slice");
+            if (!t->is_far)
+                line("Slice");
+            else if (t->segment_name.empty())
+                line("FarSlice");
+            else
+                line_fmt("BasedSlice {}", t->segment_name);
             IndentScope is(m_indent_level);
             visitTypeExpr(t->element);
         }

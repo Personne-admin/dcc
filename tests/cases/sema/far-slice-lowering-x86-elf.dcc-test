@@ -1,0 +1,10 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+public usize demo([^]u8 s) {
+    return s.len;
+}
+
+=== EXPECT-IR-ERRORS ===
+far and based pointers are not supported by this backend yet

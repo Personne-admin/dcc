@@ -44,6 +44,8 @@ export namespace dcc::ir::mangle
             BasedPointer,
             Array,
             Slice,
+            FarSlice,
+            BasedSlice,
             Fam,
             FuncPtr,
             FarFuncPtr,
@@ -563,8 +565,15 @@ namespace dcc::ir::mangle
                 }
                 case dcc::types::TypeKind::Slice: {
                     auto* st = static_cast<dcc::types::SliceType const*>(type);
-                    out += 'S';
+                    if (st->flavor == dcc::types::PointerFlavor::Far)
+                        out += 'J';
+                    else if (st->flavor == dcc::types::PointerFlavor::Based)
+                        out += 'K';
+                    else
+                        out += 'S';
                     encode_quals(out, st->element_quals);
+                    if (st->flavor == dcc::types::PointerFlavor::Based)
+                        out += dcc::types::TypeContext::seg_reg_name(st->segment);
                     encode_type(out, st->element, resolver);
                     return;
                 }
@@ -937,6 +946,39 @@ namespace dcc::ir::mangle
                         return false;
 
                     dt.quals = std::move(q);
+                    auto el = std::make_shared<DemangledType>();
+                    if (!demangle_type_into(*el, sv, pos))
+                        return false;
+
+                    dt.element = std::move(el);
+                    return true;
+                }
+                case 'J': {
+                    dt.tag = DemangledType::Tag::FarSlice;
+                    std::string q;
+                    if (!parse_quals(sv, pos, q))
+                        return false;
+
+                    dt.quals = std::move(q);
+                    auto el = std::make_shared<DemangledType>();
+                    if (!demangle_type_into(*el, sv, pos))
+                        return false;
+
+                    dt.element = std::move(el);
+                    return true;
+                }
+                case 'K': {
+                    dt.tag = DemangledType::Tag::BasedSlice;
+                    std::string q;
+                    if (!parse_quals(sv, pos, q))
+                        return false;
+
+                    dt.quals = std::move(q);
+                    if (pos + 2 > sv.size())
+                        return false;
+
+                    dt.segment_register = std::string{sv.substr(pos, 2)};
+                    pos += 2;
                     auto el = std::make_shared<DemangledType>();
                     if (!demangle_type_into(*el, sv, pos))
                         return false;

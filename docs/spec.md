@@ -290,6 +290,63 @@ The grammar pattern:
 | `T[N]` | Fixed array      | Compile time      | Yes         |
 | `[]T`  | Slice            | Runtime (fat ptr) | No          |
 | `T[]`  | FAM              | Unkown            | No          |
+| `[^]T` | Far slice        | Runtime (far fat ptr) | No      |
+| `[^REG]T` | Based slice   | Runtime (offset + len) | No     |
+
+### 5.1 Far and based slices (segmented targets)
+
+Far and based slices are the slice counterparts of far and based pointers
+(§3.1) and follow the same rules.
+
+- `[^]T` is a dynamic far slice: a dynamic far pointer `T^` plus a `usize`
+  length.
+- `[^REG]T` is a based slice: a based pointer `T^REG` plus a `usize` length.
+  `REG` is one of the contextual segment registers `CS`, `DS`, `ES`, `SS`,
+  `FS`, `GS`, with the same per-target validity as `T^REG`; the register is
+  part of the type.
+- Element qualifiers work as for `[]T`: `[^]const T`, `[^GS]volatile T`.
+- `[^]T` is an error on x86_64, like `T^`.
+
+Layout is fixed at sema time. The far pointer is at offset 0 and the
+`usize` length follows it:
+
+| type | i8086-binary | x86-elf, x86-coff | x86_64 |
+|------|--------------|-------------------|--------|
+| `[]T` | 4 bytes, align 2 | 8 bytes, align 4 | 16 bytes, align 8 |
+| `[^]T` | 6 bytes, align 2 | 12 bytes, align 4 | error |
+| `[^REG]T` | 4 bytes, align 2 | 8 bytes, align 4 | 16 bytes, align 8 |
+
+`.ptr` has type `T^` (or `T^REG` for a based slice, with the element
+qualifiers) and `.len` has type `usize`; both are assignable. Indexing,
+range slicing and `for ... in` work as for `[]T` with element type `T`, and
+range slicing preserves the slice kind.
+
+Conversions mirror the pointer rules:
+
+- `[]T` converts implicitly to `[^]T`, and so does an array `T[N]` (an
+  array is near data). Neither converts to a based slice.
+- `[^REG]T` converts to `[^]T` only with an explicit `as`, because the
+  conversion reads a segment register; `[^]T` converts to `[]T` only with
+  an explicit `as`.
+- Dynamic to based, near to based, and based to based with a different
+  register are errors. A based slice never converts to a near slice.
+- Adding `const` to the element type is implicit; removing it never is.
+- There is no `null` slice. A default-initialized far or based slice has a
+  zero pointer part and length 0, which is the empty slice; the pointer part
+  of an empty slice is never dereferenced.
+- Slice literals (`[^]T s = {...}`) cannot construct far or based slices.
+  Build a near slice and convert it, or assign `.ptr` and `.len`.
+
+`core::seg` (§17.1) provides `from_raw` and `from_raw_const`, generated per
+target alongside the pointer operations, to build far and based slices from
+a pointer and a length (`[^]T from_raw(T^ ptr, usize len)` and the
+per-register `[^REG]T from_raw(T^REG ptr, usize len)`).
+
+Far and based slice receivers follow the far pointer receiver rules for UFCS
+(§11): a far or based slice is never converted to a near slice
+implicitly, and a near slice receiver may convert to a far slice parameter.
+As with far pointers, any use that reaches IR lowering reports `far and
+based pointers are not supported by this backend yet`.
 
 ---
 
@@ -1430,10 +1487,11 @@ orders must be compile-time constants.
 
 `core::seg` is a compiler-provided module (no import path needed beyond
 `import core::seg;`) exposing far and based pointer operations (§3.1) as
-`@intrinsic` functions. The declarations are generated per target: only
-operations valid for the current target exist. All four operations are
-generic over the pointee type `T` and come in `T` and `const T` pointee
-forms; all are usable via UFCS (§11).
+`@intrinsic` functions, plus far and based slice constructors (§5.1). The
+declarations are generated per target: only operations valid for the
+current target exist. The four pointer operations are generic over the
+pointee type `T` and come in `T` and `const T` pointee forms; all are
+usable via UFCS (§11).
 
 ```dc
 import core::seg;
@@ -1455,6 +1513,10 @@ Available operations:
   forms: the same pointer with a replaced offset.
 - `with_segment(T)(T^ ptr, u16 seg) -> T^`: the same pointer with a
   replaced segment. Dynamic far pointers only.
+- `from_raw(T)(T^ ptr, usize len) -> [^]T`, `from_raw_const`, and the
+  per-register `from_raw(T)(T^REG ptr, usize len) -> [^REG]T`: build a far
+  or based slice (§5.1) from a pointer and a length. These are ordinary
+  functions, not intrinsics.
 
 There is intentionally no `segment` for based pointers (a based pointer
 stores no segment; the register is part of its type) and no integer casts

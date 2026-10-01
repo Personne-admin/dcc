@@ -1,0 +1,31 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+void far_only(T)([^]T s) {}
+void based_only(T)([^GS]T s) {}
+void any(T)(T s) {}
+usize count(T)([^]const T s) { return s.len; }
+
+void calls([]u8 near, [^]u8 far, [^GS]u8 based, [^FS]u8 other) {
+    far_only(far);
+    far_only(near);
+    far_only(based);
+    based_only(based);
+    based_only(far);
+    based_only(near);
+    based_only(other);
+    any(near);
+    any(far);
+    any(based);
+    usize a = count(far);
+    usize b = count(near);
+    usize c = count(based);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:11: no matching call for `far_only`
+main.dc:13: no matching call for `based_only`
+main.dc:14: no matching call for `based_only`
+main.dc:15: no matching call for `based_only`
+main.dc:21: no matching call for `count`
