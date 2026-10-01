@@ -140,6 +140,7 @@ export namespace dcc::ast
         Offsetof,
         Compiles,
         Range,
+        SegConstruct,
         TypeAST,
         TemplateInst,
         SizeofPack,
@@ -852,6 +853,14 @@ export namespace dcc::ast
         ExprPtr end;
         bool inclusive;
         RangeExpr(sm::SourceRange r, ExprPtr s, ExprPtr e, bool incl = false) : Expr(Kind, r), start(s), end(e), inclusive(incl) {}
+    };
+
+    struct SegConstructExpr : Expr
+    {
+        static constexpr auto Kind = ExprKind::SegConstruct;
+        ExprPtr segment;
+        ExprPtr offset;
+        SegConstructExpr(sm::SourceRange r, ExprPtr s, ExprPtr o) : Expr(Kind, r), segment(s), offset(o) {}
     };
 
     struct LambdaExpr : Expr

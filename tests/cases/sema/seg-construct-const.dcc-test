@@ -1,0 +1,56 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8^ const P = 0xB800:0x100;
+u8^ const Q = 0xB800:0x100;
+u8^ const R = 0xB000:0x100;
+u8^GS const B = GS:0x20;
+bool const EQ = P == Q;
+bool const NE = P == R;
+bool const NUL = P == null;
+using u8^ VBASE = 0xB800:0x100;
+u8^ const P2 = VBASE;
+bool const VEQ = P == P2;
+
+void uses() {
+}
+
+=== EXPECT-BODY ===
+Module m
+  Var P type=u8^ storage=module offset=0
+    SegConstruct [type=u8^ const=0xb800:0x100 constant]
+      IntLiteral 47104 [type=i32 const=47104 constant]
+      IntLiteral 256 [type=i32 const=256 constant]
+  Var Q type=u8^ storage=module offset=0
+    SegConstruct [type=u8^ const=0xb800:0x100 constant]
+      IntLiteral 47104 [type=i32 const=47104 constant]
+      IntLiteral 256 [type=i32 const=256 constant]
+  Var R type=u8^ storage=module offset=0
+    SegConstruct [type=u8^ const=0xb000:0x100 constant]
+      IntLiteral 45056 [type=i32 const=45056 constant]
+      IntLiteral 256 [type=i32 const=256 constant]
+  Var B type=u8^GS storage=module offset=0
+    SegConstruct [type=u8^GS const=0x0:0x20 constant]
+      Ident GS [type=<unresolved> const=<none>]
+      IntLiteral 32 [type=i32 const=32 constant]
+  Var EQ type=bool storage=module offset=0
+    Binary == [type=bool const=true constant]
+      Ident P [type=u8^ const=0xb800:0x100 lvalue constant decl=P]
+      Ident Q [type=u8^ const=0xb800:0x100 lvalue constant decl=Q]
+  Var NE type=bool storage=module offset=0
+    Binary == [type=bool const=false constant]
+      Ident P [type=u8^ const=0xb800:0x100 lvalue constant decl=P]
+      Ident R [type=u8^ const=0xb000:0x100 lvalue constant decl=R]
+  Var NUL type=bool storage=module offset=0
+    Binary == [type=bool const=false constant]
+      Ident P [type=u8^ const=0xb800:0x100 lvalue constant decl=P]
+      NullLiteral [type=u8^ const=null constant]
+  Var P2 type=u8^ storage=module offset=0
+    Ident VBASE [type=u8^ const=0xb800:0x100 constant decl=VBASE]
+  Var VEQ type=bool storage=module offset=0
+    Binary == [type=bool const=true constant]
+      Ident P [type=u8^ const=0xb800:0x100 lvalue constant decl=P]
+      Ident P2 [type=u8^ const=0xb800:0x100 lvalue constant decl=P2]
+  Func uses diverging=false
+    Body

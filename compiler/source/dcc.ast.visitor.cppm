@@ -67,6 +67,7 @@ export namespace dcc::ast
         virtual void visitOffsetofExpr(OffsetofExpr const*) {}
         virtual void visitCompilesExpr(CompilesExpr const*) {}
         virtual void visitRangeExpr(RangeExpr const*) {}
+        virtual void visitSegConstructExpr(SegConstructExpr const*) {}
         virtual void visitTypeASTExpr(TypeASTExpr const*) {}
         virtual void visitTemplateInstExpr(TemplateInstExpr const*) {}
         virtual void visitAsmExpr(AsmExpr const*) {}
@@ -164,6 +165,7 @@ export namespace dcc::ast
         void visitOffsetofExpr(OffsetofExpr const*) override;
         void visitCompilesExpr(CompilesExpr const*) override;
         void visitRangeExpr(RangeExpr const*) override;
+        void visitSegConstructExpr(SegConstructExpr const*) override;
         void visitAsmExpr(AsmExpr const*) override;
         void visitTypeASTExpr(TypeASTExpr const*) override;
         void visitTemplateInstExpr(TemplateInstExpr const*) override;
@@ -558,6 +560,9 @@ namespace dcc::ast
             case ExprKind::Range:
                 visitRangeExpr(node_cast<RangeExpr>(expr));
                 break;
+            case ExprKind::SegConstruct:
+                visitSegConstructExpr(node_cast<SegConstructExpr>(expr));
+                break;
             case ExprKind::TypeAST:
                 visitTypeASTExpr(node_cast<TypeASTExpr>(expr));
                 break;
@@ -708,6 +713,14 @@ namespace dcc::ast
             visitExpr(e->start);
         if (e->end)
             visitExpr(e->end);
+    }
+
+    void RecursiveAstVisitor::visitSegConstructExpr(SegConstructExpr const* e)
+    {
+        if (e->segment)
+            visitExpr(e->segment);
+        if (e->offset)
+            visitExpr(e->offset);
     }
 
     void RecursiveAstVisitor::visitTypeASTExpr(TypeASTExpr const* e)

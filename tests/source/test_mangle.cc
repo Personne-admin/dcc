@@ -305,6 +305,18 @@ TEST_CASE("mangle_type Far FuncPtr (i32) -> void")
     CHECK_EQ(d.type_only.tag, mangle::DemangledType::Tag::FarFuncPtr);
 }
 
+TEST_CASE("mangle_value Far address")
+{
+    types::TypeContext ctx;
+    auto t = ctx.far_pointer_to(u8(ctx), types::Qual::None);
+    auto s = mangle::mangle_value(comptime::Value::make_far_address(0xB800, 0x100, t));
+    mangle::DemangledName d;
+    REQUIRE(mangle::demangle(d, s));
+    CHECK_EQ(d.value_only.tag, mangle::DemangledValue::Tag::Far);
+    CHECK_EQ(d.value_only.far_segment, 0xB800);
+    CHECK_EQ(d.value_only.far_offset, 0x100u);
+}
+
 TEST_CASE("mangle_type Array 3 x i32")
 {
     types::TypeContext ctx;

@@ -794,6 +794,14 @@ namespace dcc::query
                         walk_expr(e->end, result, target, opts);
                     break;
                 }
+                case ast::ExprKind::SegConstruct: {
+                    auto* e = static_cast<ast::SegConstructExpr const*>(expr);
+                    if (e->segment && range_contains_or_touches_end(e->segment->range, target))
+                        walk_expr(e->segment, result, target, opts);
+                    if (e->offset && range_contains_or_touches_end(e->offset->range, target))
+                        walk_expr(e->offset, result, target, opts);
+                    break;
+                }
                 case ast::ExprKind::TypeAST: {
                     auto* e = static_cast<ast::TypeASTExpr const*>(expr);
                     if (e->type_node && range_contains_or_touches_end(e->type_node->range, target))

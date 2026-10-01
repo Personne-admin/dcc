@@ -1,0 +1,135 @@
+=== TARGET: x86-elf ===
+=== FILE: ns.dc ===
+module ns;
+
+public u16 base = 0xB800;
+
+=== FILE: main.dc ===
+module main;
+
+import ns;
+
+u8^ take_far(u8^ p) {
+    return p;
+}
+
+public i32 demo(u16 a, u16 b, u16 x, u32 o) {
+    u8^ p = a + b:x;
+    u8^ q = ns::base:o;
+    u8^ r = 0xB800:0x100 as u8^;
+    u8^ s = take_far(0xB000:o);
+    u8^GS t = GS:x;
+    u32 mask = 255;
+    u32 v = mask ^ 15 ^ 3;
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module main
+  Import ns
+  Func name=take_far
+    Return
+      FarPointer
+        Primitive u8
+    Params
+      Param name=p
+        FarPointer
+          Primitive u8
+    Body
+      Return
+        Ident p
+  Func name=demo
+    public
+    Return
+      Primitive i32
+    Params
+      Param name=a
+        Primitive u16
+      Param name=b
+        Primitive u16
+      Param name=x
+        Primitive u16
+      Param name=o
+        Primitive u32
+    Body
+      Var name=p
+        Type
+          FarPointer
+            Primitive u8
+        Init
+          SegConstruct
+            Segment
+              Binary op=+
+                Ident a
+                Ident b
+            Offset
+              Ident x
+      Var name=q
+        Type
+          FarPointer
+            Primitive u8
+        Init
+          SegConstruct
+            Segment
+              Path ns::base
+            Offset
+              Ident o
+      Var name=r
+        Type
+          FarPointer
+            Primitive u8
+        Init
+          Cast
+            Target
+              FarPointer
+                Primitive u8
+            Operand
+              SegConstruct
+                Segment
+                  IntLiteral 47104
+                Offset
+                  IntLiteral 256
+      Var name=s
+        Type
+          FarPointer
+            Primitive u8
+        Init
+          Call
+            Callee
+              Ident take_far
+            Args
+              SegConstruct
+                Segment
+                  IntLiteral 45056
+                Offset
+                  Ident o
+      Var name=t
+        Type
+          BasedPointer GS
+            Primitive u8
+        Init
+          SegConstruct
+            Segment
+              Ident GS
+            Offset
+              Ident x
+      Var name=mask
+        Type
+          Primitive u32
+        Init
+          IntLiteral 255
+      Var name=v
+        Type
+          Primitive u32
+        Init
+          Binary op=^
+            Binary op=^
+              Ident mask
+              IntLiteral 15
+            IntLiteral 3
+      Return
+        IntLiteral 0
+

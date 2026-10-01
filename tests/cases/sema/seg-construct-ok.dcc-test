@@ -1,0 +1,22 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8^ take_far(u8^ p) {
+    return p;
+}
+
+u8^ make_bios() {
+    return 0xB800:0x100;
+}
+
+public i32 demo(u16 a, u16 b, u16 x, u32 o, u16 GS) {
+    u8^ p = a + b:x;
+    u8^ q = x:o;
+    u8^ r = GS:o;
+    u8^GS t = GS:x;
+    u8^ u = take_far(a:o);
+    u8^ v = make_bios();
+    GS = 7;
+    return GS as i32;
+}

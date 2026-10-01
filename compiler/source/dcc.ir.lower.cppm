@@ -280,6 +280,8 @@ export namespace dcc::ir::lower
             using Kind = dcc::comptime::Value::Kind;
             if (value.kind() == Kind::Unknown)
                 return false;
+            if (value.kind() == Kind::Far)
+                return false;
             if (value.kind() == Kind::Pointer)
                 return value.is_null_ptr();
             if (value.kind() == Kind::Aggregate || (value.kind() == Kind::Slice && !value.slice_is_ref()))
@@ -2907,6 +2909,11 @@ export namespace dcc::ir::lower
                     lower_panic(expr, "RangeExpr must not reach IR expression lowering as runtime value");
                 }
 
+                case ast::ExprKind::SegConstruct: {
+                    report_far_pointer_unsupported();
+                    return m_ctx.null_const(m_ctx.pointer_to(m_ctx.int_t(8, false)));
+                }
+
                 case ast::ExprKind::Asm:
                     return lower_asm(*static_cast<ast::AsmExpr const*>(expr), get_sema_resolved_type(expr));
 
@@ -3657,6 +3664,15 @@ export namespace dcc::ir::lower
                     case ast::ExprKind::Range: {
                         auto* range = static_cast<ast::RangeExpr const*>(node);
                         if ((range->start && search_expr(range->start)) || (range->end && search_expr(range->end)))
+                        {
+                            chain.push_back(Link::Opaque);
+                            return true;
+                        }
+                        return false;
+                    }
+                    case ast::ExprKind::SegConstruct: {
+                        auto* seg = static_cast<ast::SegConstructExpr const*>(node);
+                        if ((seg->segment && search_expr(seg->segment)) || (seg->offset && search_expr(seg->offset)))
                         {
                             chain.push_back(Link::Opaque);
                             return true;
@@ -8074,6 +8090,10 @@ export namespace dcc::ir::lower
                     if (cv.is_null_ptr())
                         return m_ctx.null_const(lower_type(target_type ? target_type : cv.type));
                     lower_panic("non-null comptime pointer materialization not supported");
+                }
+                case dcc::comptime::Value::Kind::Far: {
+                    report_far_pointer_unsupported();
+                    return m_ctx.null_const(m_ctx.pointer_to(m_ctx.int_t(8, false)));
                 }
                 case dcc::comptime::Value::Kind::Unknown:
                     lower_panic("unknown comptime value cannot be used as a constant");
