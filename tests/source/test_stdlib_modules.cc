@@ -29,7 +29,7 @@ namespace
         if (std::system(compile.c_str()) != 0)
             return -1;
 
-        int const status = std::system(shell_quote(exe).c_str());
+        int const status = std::system(("timeout 120 " + shell_quote(exe)).c_str());
         std::filesystem::remove_all(dir, ec);
         return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     }
@@ -927,11 +927,10 @@ volatile i32 readers_ok;
 
 void read_it(i32 v) {
     rw.read_lock();
-    i32 x = readers_ok;
-    rw.read_unlock();
     mu.lock();
-    readers_ok = x + v;
+    readers_ok = readers_ok + v;
     mu.unlock();
+    rw.read_unlock();
 }
 
 thread::Semaphore sem;
@@ -939,7 +938,9 @@ volatile i32 sem_done;
 
 void sem_worker() {
     sem.wait();
+    mu.lock();
     sem_done = sem_done + 1;
+    mu.unlock();
 }
 
 thread::TlsKey* tls_key;
@@ -952,7 +953,9 @@ void tls_user(usize v) {
     thread::sleep_ms(10);
     void* back = tls_key.get();
     if (back as usize) == v {
+        mu.lock();
         tls_ok = tls_ok + 1;
+        mu.unlock();
     }
 }
 
@@ -1105,6 +1108,219 @@ public i32 main() {
         return 23;
     }
     k.destroy();
+    return 0;
+}
+)DCC");
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+}
+
+TEST_CASE("os::thread stress: spawn, join, once, semaphore, condvar, and rwlock under contention")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import std::os::thread;
+
+using std::os::thread;
+
+thread::Mutex mu;
+volatile i32 counter;
+
+void bump() {
+    for i32 i = 0; i < 200; i++ {
+        mu.lock();
+        counter = counter + 1;
+        mu.unlock();
+    }
+}
+
+void touch() {
+    mu.lock();
+    counter = counter + 1;
+    mu.unlock();
+}
+
+thread::Once[512] onces;
+thread::Once zero_once;
+volatile i32 inits;
+
+void init_once() {
+    mu.lock();
+    inits = inits + 1;
+    mu.unlock();
+}
+
+void walk_onces() {
+    for usize i = 0; i < 512; i++ {
+        onces[i].call_once(init_once);
+    }
+}
+
+thread::Semaphore sem;
+volatile i32 sem_done;
+
+void sem_worker() {
+    sem.wait();
+    mu.lock();
+    sem_done = sem_done + 1;
+    mu.unlock();
+}
+
+thread::Mutex cv_mu;
+thread::Condvar cv;
+volatile i32 turn;
+volatile i32 pings;
+
+void pong() {
+    for i32 i = 0; i < 500; i++ {
+        cv_mu.lock();
+        while turn != 1 {
+            cv.wait(&cv_mu);
+        }
+        pings = pings + 1;
+        turn = 0;
+        cv_mu.unlock();
+        cv.broadcast();
+    }
+}
+
+thread::RwLock rw;
+volatile i32 ra;
+volatile i32 rb;
+volatile i32 torn;
+
+void writer() {
+    for i32 i = 0; i < 300; i++ {
+        rw.write_lock();
+        ra = ra + 1;
+        rb = rb + 1;
+        rw.write_unlock();
+    }
+}
+
+void reader() {
+    for i32 i = 0; i < 300; i++ {
+        rw.read_lock();
+        if ra != rb {
+            mu.lock();
+            torn = torn + 1;
+            mu.unlock();
+        }
+        rw.read_unlock();
+    }
+}
+
+i32 join_all(thread::Thread* ts, i32 n) {
+    i32 bad = 0;
+    for i32 i = 0; i < n; i++ {
+        if !ts[i].join().is_ok() {
+            bad = bad + 1;
+        }
+    }
+    return bad;
+}
+
+public i32 main() {
+    counter = 0;
+    for i32 i = 0; i < 1500; i++ {
+        thread::Thread t = thread::spawn(touch).unwrap();
+        if !t.join().is_ok() {
+            return 1;
+        }
+    }
+    if counter != 1500 {
+        return 2;
+    }
+
+    counter = 0;
+    thread::Thread[8] ts;
+    for i32 round = 0; round < 100; round++ {
+        for i32 i = 0; i < 8; i++ {
+            ts[i] = thread::spawn(bump).unwrap();
+        }
+        if join_all(&ts[0], 8) != 0 {
+            return 3;
+        }
+    }
+    if counter != 100 * 8 * 200 {
+        return 4;
+    }
+
+    inits = 0;
+    thread::Thread[4] os;
+    for i32 round = 0; round < 40; round++ {
+        for usize i = 0; i < 512; i++ {
+            onces[i] = zero_once;
+        }
+        for i32 i = 0; i < 4; i++ {
+            os[i] = thread::spawn(walk_onces).unwrap();
+        }
+        if join_all(&os[0], 4) != 0 {
+            return 5;
+        }
+    }
+    if inits != 40 * 512 {
+        return 6;
+    }
+
+    sem.init(0);
+    sem_done = 0;
+    thread::Thread[4] ss;
+    for i32 round = 0; round < 100; round++ {
+        for i32 i = 0; i < 4; i++ {
+            ss[i] = thread::spawn(sem_worker).unwrap();
+        }
+        for i32 i = 0; i < 4; i++ {
+            sem.post();
+        }
+        if join_all(&ss[0], 4) != 0 {
+            return 7;
+        }
+    }
+    if sem_done != 400 {
+        return 8;
+    }
+    if sem.try_wait() {
+        return 9;
+    }
+
+    turn = 0;
+    pings = 0;
+    thread::Thread tp = thread::spawn(pong).unwrap();
+    for i32 i = 0; i < 500; i++ {
+        cv_mu.lock();
+        turn = 1;
+        cv_mu.unlock();
+        cv.broadcast();
+        cv_mu.lock();
+        while turn != 0 {
+            cv.wait(&cv_mu);
+        }
+        cv_mu.unlock();
+    }
+    if !tp.join().is_ok() {
+        return 10;
+    }
+    if pings != 500 {
+        return 11;
+    }
+
+    ra = 0;
+    rb = 0;
+    torn = 0;
+    thread::Thread[4] rs;
+    rs[0] = thread::spawn(writer).unwrap();
+    rs[1] = thread::spawn(reader).unwrap();
+    rs[2] = thread::spawn(reader).unwrap();
+    rs[3] = thread::spawn(reader).unwrap();
+    if join_all(&rs[0], 4) != 0 {
+        return 12;
+    }
+    if torn != 0 {
+        return 13;
+    }
+    if ra != 300 {
+        return 14;
+    }
     return 0;
 }
 )DCC");
