@@ -308,7 +308,7 @@ public SourceLocation source_location();
     [[nodiscard]] std::string generate_core_target_source(dcc::target::TargetConfig const& target)
     {
         auto const* os = target.os == dcc::target::Os::Linux ? "Linux" : target.os == dcc::target::Os::Windows ? "Windows" : "Freestanding";
-        auto const* arch = target.arch == dcc::target::Arch::X86_64 ? "X86_64" : "X86";
+        auto const* arch = target.arch == dcc::target::Arch::X86_64 ? "X86_64" : target.arch == dcc::target::Arch::I8086 ? "I8086" : "X86";
 
         return std::format(R"dc(module core::target;
 
@@ -321,6 +321,7 @@ public enum Os {{
 public enum Arch {{
     X86_64,
     X86,
+    I8086,
 }}
 
 public const Os OS = Os::{};

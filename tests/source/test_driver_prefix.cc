@@ -77,7 +77,7 @@ namespace
         if (dcc.empty())
             return {-1, {}};
 
-        std::string cmd = shell_quote(dcc) + " " + args + " 2>&1";
+        std::string cmd = "timeout 60 " + shell_quote(dcc) + " " + args + " 2>&1";
 
         auto* pipe = ::popen(cmd.c_str(), "r");
         if (!pipe)
@@ -129,6 +129,24 @@ TEST_CASE("--version exits 0 and reports the release version")
     auto version = run_driver_flag("--version");
     REQUIRE(!version.empty());
     CHECK(version.find("0.3.0") != std::string::npos);
+}
+
+TEST_CASE("the i8086 target rejects lowering without a backend")
+{
+    auto src = std::filesystem::temp_directory_path() / "dcc_no_backend_target.dc";
+    {
+        std::ofstream file{src};
+        file << "module test;\nvoid f() {}\n";
+    }
+
+    for (auto target : {"i8086-binary"})
+    {
+        auto [code, output] = run_dcc("-target " + std::string{target} + " -fdump-ir " + shell_quote(src));
+        CHECK(code != 0);
+        CHECK(output.find("no backend for target '" + std::string{target} + "'") != std::string::npos);
+    }
+
+    std::filesystem::remove(src);
 }
 
 SECTION("Driver -flibdcext");

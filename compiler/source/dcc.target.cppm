@@ -14,6 +14,7 @@ export namespace dcc::target
     {
         X86_64,
         X86,
+        I8086,
     };
 
     enum class Os : std::uint8_t
@@ -110,10 +111,8 @@ export namespace dcc::target
 
         [[nodiscard]] Layout slice_layout() const
         {
-            if (pointer_bits == 64)
-                return Layout{16, 8};
-            else
-                return Layout{8, 4};
+            auto const pointer = pointer_layout();
+            return Layout{2 * pointer.size, pointer.align};
         }
 
         [[nodiscard]] static TargetConfig host_default()
@@ -132,13 +131,24 @@ export namespace dcc::target
         [[nodiscard]] static TargetConfig for_os(Os os, Arch arch = Arch::X86_64)
         {
             TargetConfig cfg;
+            if (arch == Arch::I8086)
+            {
+                cfg.triple = "i8086-binary";
+                cfg.arch = Arch::I8086;
+                cfg.os = Os::Freestanding;
+                cfg.object_format = ObjectFormat::Elf;
+                cfg.pointer_bits = 16;
+                cfg.pointer_align = 2;
+                return cfg;
+            }
             cfg.arch = arch;
             cfg.os = os;
             cfg.object_format = (os == Os::Windows) ? ObjectFormat::Coff : ObjectFormat::Elf;
-            cfg.pointer_bits = (arch == Arch::X86_64) ? 64 : 32;
-            cfg.pointer_align = (arch == Arch::X86_64) ? 8 : 4;
+            cfg.pointer_bits = arch == Arch::X86_64 ? 64 : arch == Arch::I8086 ? 16 : 32;
+            cfg.pointer_align = cfg.pointer_bits / 8;
             cfg.little_endian = true;
-            cfg.triple = std::string{arch == Arch::X86_64 ? "x86_64-" : "x86-"} + (cfg.object_format == ObjectFormat::Coff ? "coff" : "elf");
+            cfg.triple = std::string{arch == Arch::X86_64 ? "x86_64-" : arch == Arch::I8086 ? "i8086-" : "x86-"} +
+                         (cfg.object_format == ObjectFormat::Coff ? "coff" : "elf");
             return cfg;
         }
 
@@ -146,6 +156,16 @@ export namespace dcc::target
         {
             TargetConfig cfg;
             cfg.triple = std::string{triple};
+
+            if (triple == "i8086-binary")
+            {
+                cfg.arch = Arch::I8086;
+                cfg.os = Os::Freestanding;
+                cfg.object_format = ObjectFormat::Elf;
+                cfg.pointer_bits = 16;
+                cfg.pointer_align = 2;
+                return cfg;
+            }
 
             if (triple == "x86_64-elf")
             {
@@ -433,6 +453,8 @@ export namespace dcc::target
                 return x86_64_regs;
             case Arch::X86:
                 return x86_regs;
+            case Arch::I8086:
+                return {};
         }
 
         return {};

@@ -212,7 +212,7 @@ namespace
          "<triple>",
          {},
          Phase::Both,
-         "target triple (x86_64-elf, x86-elf, x86_64-coff, x86-coff)",
+         "target triple (x86_64-elf, x86-elf, x86_64-coff, x86-coff, i8086-binary)",
          "host",
          [](Options& o, bool, std::string_view v, char**) { o.target_triple = v; }},
 
@@ -1999,6 +1999,12 @@ auto main(int argc, char** argv) -> int
     bool need_backend = backend_needed(opts);
     if (opts.dump_ir || need_backend)
     {
+        if (compile_opts.target.arch == dcc::target::Arch::I8086)
+        {
+            std::println(std::cerr, "dcc: error: no backend for target '{}'", compile_opts.target.triple);
+            return 1;
+        }
+
         auto* sema = session.sema_context();
         if (!sema)
         {

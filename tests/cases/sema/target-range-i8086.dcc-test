@@ -1,0 +1,11 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+void bounds() {
+    for i in 0..5 { usize value = i; }
+    for i in 0..65536 {}
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: range bound 65536 does not fit usize; give the range an explicit item type
