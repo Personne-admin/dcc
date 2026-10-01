@@ -44,7 +44,7 @@ public i32 for_in_range_signed_incl(i32 end) {
 
 public i32 for_in_range_literal_excl() {
     i32 total = 0;
-    for i in 0..10 {
+    for i32 i in 0..10 {
         total += i;
     }
     return total;
@@ -52,7 +52,7 @@ public i32 for_in_range_literal_excl() {
 
 public i32 for_in_range_literal_incl() {
     i32 total = 0;
-    for i in 0..=5 {
+    for i32 i in 0..=5 {
         total += i;
     }
     return total;
@@ -60,7 +60,7 @@ public i32 for_in_range_literal_incl() {
 
 public i32 for_in_range_reverse() {
     i32 total = 0;
-    for i in 5..3 {
+    for i32 i in 5..3 {
         total += i;
     }
     return total;
@@ -68,7 +68,7 @@ public i32 for_in_range_reverse() {
 
 public i32 for_in_range_neg_start() {
     i32 total = 0;
-    for i in -5..3 {
+    for i32 i in -5..3 {
         total += i;
     }
     return total;

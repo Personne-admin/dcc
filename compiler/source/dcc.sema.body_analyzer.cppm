@@ -10115,7 +10115,47 @@ export namespace dcc::sema
                         if (!m_allow_range_expr)
                             error(r.range, "a range can only be used in a slice index, a for-in, or a match pattern");
 
-                        auto* literal_type = types::type_cast<types::IntType>(expected_type) ? expected_type : nullptr;
+                        if (!expected_type || (types::type_cast<types::IntType>(expected_type) &&
+                                               !types::type_cast<types::IntType>(expected_type)->is_signed))
+                        {
+                            auto check_bound = [&](ast::Expr const* bound) {
+                                if (!bound)
+                                    return false;
+                                if (bound->kind == ast::ExprKind::Unary)
+                                {
+                                    auto const& unary = static_cast<ast::UnaryExpr const&>(*bound);
+                                    if (unary.op == lex::TokenKind::Minus && unary.operand && unary.operand->kind == ast::ExprKind::IntLiteral)
+                                    {
+                                        auto const& literal = static_cast<ast::IntLiteralExpr const&>(*unary.operand);
+                                        if (expected_type)
+                                            error(bound->range, "integer literal -{} does not fit in type {}", literal.value, format_type_str(expected_type));
+                                        else
+                                            error(bound->range, "range bound -{} does not fit usize; give the range an explicit item type", literal.value);
+                                        return true;
+                                    }
+                                }
+                                if (!expected_type && bound->kind == ast::ExprKind::IntLiteral)
+                                {
+                                    auto const& literal = static_cast<ast::IntLiteralExpr const&>(*bound);
+                                    auto const* usize_type = types::type_cast<types::IntType>(m_types.usize_t());
+                                    if (usize_type && !fits_magnitude(static_cast<std::uint64_t>(literal.value), *usize_type))
+                                    {
+                                        error(bound->range, "range bound {} does not fit usize; give the range an explicit item type", literal.value);
+                                        return true;
+                                    }
+                                }
+                                return false;
+                            };
+                            bool const bad_start = check_bound(r.start);
+                            bool const bad_end = check_bound(r.end);
+                            if (bad_start || bad_end)
+                            {
+                                out.type = m_types.m_errort();
+                                break;
+                            }
+                        }
+
+                        auto* literal_type = types::type_cast<types::IntType>(expected_type) ? expected_type : m_types.usize_t();
                         auto start_result = r.start ? analyze_expr(mod, fn, scope, *r.start, loop_depth, next_off,
                                                                    r.start->kind == ast::ExprKind::IntLiteral ? literal_type : nullptr, const_env)
                                                     : detail::ExprResult{};
