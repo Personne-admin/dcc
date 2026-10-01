@@ -25,7 +25,7 @@ DCDOC_PCM_FILES := $(filter $(PCM_DIR)/dcdoc.%.pcm,$(MODULE_PCM_FILES))
 $(DCDOC_PCM_FILES): $(COMPILER_PCMS)
 
 $(BINARY): $(MODULE_OBJS) $(OBJS) $(COMPILER_LIB)
-	$(call link-binary,$@,$^,-lcmark)
+	$(call link-binary,$@,$^,$(CMARK_LIBS))
 
 $(OBJS): $(OBJ_DIR)/%.o: $(COMPILER_PCMS) $(MODULE_PCM_FILES)
 	$(call compile-cxx,$(TOPLEVEL)/$*,$@,$(LOCAL_CXXFLAGS))

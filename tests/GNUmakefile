@@ -37,7 +37,7 @@ DCCD_PCMS := $(wildcard $(PCM_DIR)/dccd.*.pcm)
 $(OS_TEST_OBJ): $(TOPLEVEL)/tests/source/test_stdlib_os_integration.cc $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-TEST_LDFLAGS := $(LLVM_LDFLAGS) -lcmark
+TEST_LDFLAGS := $(LLVM_LDFLAGS) $(CMARK_LIBS)
 
 DCCD_FORMAT_OBJ := $(OBJ_DIR)/dccd.format.pcm.o
 DCCD_PROTOCOL_OBJ := $(OBJ_DIR)/dccd.protocol.pcm.o
