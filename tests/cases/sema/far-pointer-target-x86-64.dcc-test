@@ -1,0 +1,22 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8^ bad_dynamic;
+u8^DS bad_ds;
+u8^FS ok_fs;
+u8^GS ok_gs;
+i32(^)(i32) bad_far_fp;
+
+public i32 demo() {
+    u8^ local_dynamic;
+    u8^SS local_ss;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: dynamic far pointers are not available on target 'x86_64-elf'
+main.dc:4: segment register 'DS' is not available on target 'x86_64-elf'; x86-64 based pointers allow only FS and GS
+main.dc:7: dynamic far pointers are not available on target 'x86_64-elf'
+main.dc:10: dynamic far pointers are not available on target 'x86_64-elf'
+main.dc:11: segment register 'SS' is not available on target 'x86_64-elf'; x86-64 based pointers allow only FS and GS

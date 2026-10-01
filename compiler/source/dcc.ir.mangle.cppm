@@ -40,10 +40,13 @@ export namespace dcc::ir::mangle
             Char,
             NullT,
             Pointer,
+            FarPointer,
+            BasedPointer,
             Array,
             Slice,
             Fam,
             FuncPtr,
+            FarFuncPtr,
             Struct,
             Union,
             Enum,
@@ -63,6 +66,7 @@ export namespace dcc::ir::mangle
         bool is_signed{true};
         bool is_pointer_sized{false};
         std::string quals;
+        std::string segment_register;
         std::shared_ptr<DemangledType> pointee;
         std::shared_ptr<DemangledType> element;
         std::shared_ptr<DemangledType> underlying;
@@ -529,8 +533,15 @@ namespace dcc::ir::mangle
                 }
                 case dcc::types::TypeKind::Pointer: {
                     auto* pt = static_cast<dcc::types::PointerType const*>(type);
-                    out += 'P';
+                    if (pt->flavor == dcc::types::PointerFlavor::Far)
+                        out += 'H';
+                    else if (pt->flavor == dcc::types::PointerFlavor::Based)
+                        out += 'B';
+                    else
+                        out += 'P';
                     encode_quals(out, pt->pointee_quals);
+                    if (pt->flavor == dcc::types::PointerFlavor::Based)
+                        out += dcc::types::TypeContext::seg_reg_name(pt->segment);
                     encode_type(out, pt->pointee, resolver);
                     return;
                 }
@@ -562,7 +573,10 @@ namespace dcc::ir::mangle
                 }
                 case dcc::types::TypeKind::FuncPtr: {
                     auto* fpt = static_cast<dcc::types::FuncPtrType const*>(type);
-                    out += 'p';
+                    if (fpt->is_far)
+                        out += 'h';
+                    else
+                        out += 'p';
                     encode_type(out, fpt->return_type, resolver);
                     out += to_dec(fpt->params.size());
                     for (auto* p : fpt->params)
@@ -857,6 +871,39 @@ namespace dcc::ir::mangle
                     dt.pointee = std::move(pt);
                     return true;
                 }
+                case 'H': {
+                    dt.tag = DemangledType::Tag::FarPointer;
+                    std::string q;
+                    if (!parse_quals(sv, pos, q))
+                        return false;
+
+                    dt.quals = std::move(q);
+                    auto pt = std::make_shared<DemangledType>();
+                    if (!demangle_type_into(*pt, sv, pos))
+                        return false;
+
+                    dt.pointee = std::move(pt);
+                    return true;
+                }
+                case 'B': {
+                    dt.tag = DemangledType::Tag::BasedPointer;
+                    std::string q;
+                    if (!parse_quals(sv, pos, q))
+                        return false;
+
+                    dt.quals = std::move(q);
+                    if (pos + 2 > sv.size())
+                        return false;
+
+                    dt.segment_register = std::string{sv.substr(pos, 2)};
+                    pos += 2;
+                    auto pt = std::make_shared<DemangledType>();
+                    if (!demangle_type_into(*pt, sv, pos))
+                        return false;
+
+                    dt.pointee = std::move(pt);
+                    return true;
+                }
                 case 'A': {
                     dt.tag = DemangledType::Tag::Array;
                     std::uint64_t cnt;
@@ -896,6 +943,28 @@ namespace dcc::ir::mangle
                 }
                 case 'p': {
                     dt.tag = DemangledType::Tag::FuncPtr;
+                    auto ret = std::make_shared<DemangledType>();
+                    if (!demangle_type_into(*ret, sv, pos))
+                        return false;
+
+                    dt.return_type_fp = std::move(ret);
+                    std::uint64_t cnt;
+                    if (!parse_dec(sv, pos, cnt))
+                        return false;
+
+                    for (std::uint64_t i = 0; i < cnt; ++i)
+                    {
+                        DemangledType p;
+                        if (!demangle_type_into(p, sv, pos))
+                            return false;
+
+                        dt.template_args.push_back(std::move(p));
+                    }
+
+                    return true;
+                }
+                case 'h': {
+                    dt.tag = DemangledType::Tag::FarFuncPtr;
                     auto ret = std::make_shared<DemangledType>();
                     if (!demangle_type_into(*ret, sv, pos))
                         return false;

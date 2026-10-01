@@ -260,6 +260,51 @@ TEST_CASE("mangle_type Pointer to volatile restrict i32")
     CHECK_EQ(mangle::mangle_type(ctx.pointer_to(i32(ctx), types::Qual::Volatile | types::Qual::Restrict)), "_DC0TPVRqi32s");
 }
 
+TEST_CASE("mangle_type Far pointer to u8")
+{
+    types::TypeContext ctx;
+    auto s = mangle::mangle_type(ctx.far_pointer_to(u8(ctx), types::Qual::None));
+    CHECK_EQ(s, "_DC0THqi8u");
+    mangle::DemangledName d;
+    REQUIRE(mangle::demangle(d, s));
+    CHECK_EQ(d.type_only.tag, mangle::DemangledType::Tag::FarPointer);
+}
+
+TEST_CASE("mangle_type Based pointer to u8")
+{
+    types::TypeContext ctx;
+    auto s = mangle::mangle_type(ctx.based_pointer_to(u8(ctx), types::Qual::None, types::SegReg::GS));
+    CHECK_EQ(s, "_DC0TBqGSi8u");
+    mangle::DemangledName d;
+    REQUIRE(mangle::demangle(d, s));
+    CHECK_EQ(d.type_only.tag, mangle::DemangledType::Tag::BasedPointer);
+    CHECK_EQ(d.type_only.segment_register, "GS");
+}
+
+TEST_CASE("mangle_type Near far based pointers are distinct")
+{
+    types::TypeContext ctx;
+    auto near = mangle::mangle_type(ctx.pointer_to(u8(ctx), types::Qual::None));
+    auto far = mangle::mangle_type(ctx.far_pointer_to(u8(ctx), types::Qual::None));
+    auto gs = mangle::mangle_type(ctx.based_pointer_to(u8(ctx), types::Qual::None, types::SegReg::GS));
+    auto fs = mangle::mangle_type(ctx.based_pointer_to(u8(ctx), types::Qual::None, types::SegReg::FS));
+    CHECK_NE(near, far);
+    CHECK_NE(near, gs);
+    CHECK_NE(far, gs);
+    CHECK_NE(gs, fs);
+}
+
+TEST_CASE("mangle_type Far FuncPtr (i32) -> void")
+{
+    types::TypeContext ctx;
+    std::vector<types::TypePtr> params = {i32(ctx)};
+    auto s = mangle::mangle_type(ctx.funcptr_t(ctx.m_voidt(), params, true));
+    CHECK_EQ(s, "_DC0Thv1i32s");
+    mangle::DemangledName d;
+    REQUIRE(mangle::demangle(d, s));
+    CHECK_EQ(d.type_only.tag, mangle::DemangledType::Tag::FarFuncPtr);
+}
+
 TEST_CASE("mangle_type Array 3 x i32")
 {
     types::TypeContext ctx;

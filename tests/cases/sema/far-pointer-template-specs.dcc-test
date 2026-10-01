@@ -1,0 +1,21 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Box(T) {
+    T val;
+}
+
+void specs() {
+    sizeof(Box(u8*));
+    sizeof(Box(u8^));
+    sizeof(Box(u8^GS));
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func specs diverging=false
+    Body
+      Sizeof [type=usize const=4 constant]
+      Sizeof [type=usize const=8 constant]
+      Sizeof [type=usize const=4 constant]

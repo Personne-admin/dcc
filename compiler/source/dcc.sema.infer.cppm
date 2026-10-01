@@ -292,7 +292,7 @@ export namespace dcc::infer
             {
                 if (auto const* context = types::type_cast<types::PointerType>(expected);
                     context && qualification_allowed(pointer->pointee_quals, context->pointee_quals))
-                    expected = m_types.pointer_to(context->pointee, pointer->pointee_quals);
+                    expected = m_types.rebuild_pointer(context, context->pointee, pointer->pointee_quals);
             }
             if (auto const* slice = types::type_cast<types::SliceType>(substituted))
             {
@@ -874,7 +874,7 @@ export namespace dcc::infer
                     auto const* t = static_cast<types::PointerType const*>(type);
                     auto pointee = substitute_impl(t->pointee, memo);
                     if (pointee != t->pointee)
-                        out = m_types.pointer_to(pointee, t->pointee_quals);
+                        out = m_types.rebuild_pointer(t, pointee, t->pointee_quals);
 
                     break;
                 }
@@ -954,7 +954,7 @@ export namespace dcc::infer
                     }
 
                     if (changed)
-                        out = m_types.funcptr_t(ret, params);
+                        out = m_types.funcptr_t(ret, params, t->is_far);
 
                     break;
                 }

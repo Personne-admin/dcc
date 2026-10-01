@@ -166,14 +166,35 @@ export namespace dcc::types
         }
     };
 
+    enum class SegReg : std::uint8_t
+    {
+        None,
+        CS,
+        DS,
+        ES,
+        SS,
+        FS,
+        GS,
+    };
+
+    enum class PointerFlavor : std::uint8_t
+    {
+        Near,
+        Far,
+        Based,
+    };
+
     struct PointerType : Type
     {
         static constexpr auto Kind = TypeKind::Pointer;
 
         TypePtr pointee;
         Qual pointee_quals;
+        PointerFlavor flavor = PointerFlavor::Near;
+        SegReg segment = SegReg::None;
 
-        PointerType(TypePtr p, Qual q, std::uint8_t pb = 64, std::uint8_t pa = 8) : Type(Kind), pointee(p), pointee_quals(q)
+        PointerType(TypePtr p, Qual q, std::uint8_t pb = 64, std::uint8_t pa = 8, PointerFlavor f = PointerFlavor::Near, SegReg s = SegReg::None)
+            : Type(Kind), pointee(p), pointee_quals(q), flavor(f), segment(s)
         {
             byte_size = pb / 8;
             byte_align = pa;
@@ -289,8 +310,10 @@ export namespace dcc::types
 
         TypePtr return_type;
         std::pmr::vector<TypePtr> params;
+        bool is_far = false;
 
-        FuncPtrType(TypePtr r, std::pmr::polymorphic_allocator<> a, std::uint8_t pb = 64, std::uint8_t pa = 8) : Type(Kind), return_type(r), params(a)
+        FuncPtrType(TypePtr r, std::pmr::polymorphic_allocator<> a, std::uint8_t pb = 64, std::uint8_t pa = 8, bool far = false)
+            : Type(Kind), return_type(r), params(a), is_far(far)
         {
             byte_size = pb / 8;
             byte_align = pa;
@@ -438,11 +461,15 @@ export namespace dcc::types
             {
                 m_pointer_bits = target->pointer_bits;
                 m_pointer_align = target->pointer_align;
+                m_arch = target->arch;
+                m_target_triple = target->triple;
             }
         }
 
         [[nodiscard]] std::uint8_t pointer_bits() const noexcept { return m_pointer_bits; }
         [[nodiscard]] std::uint8_t pointer_align() const noexcept { return m_pointer_align; }
+        [[nodiscard]] target::Arch arch() const noexcept { return m_arch; }
+        [[nodiscard]] std::string_view target_triple() const noexcept { return m_target_triple; }
 
         TypeContext(TypeContext const&) = delete;
         TypeContext& operator=(TypeContext const&) = delete;
@@ -525,13 +552,138 @@ export namespace dcc::types
 
         [[nodiscard]] TypePtr pointer_to(TypePtr pointee, Qual quals)
         {
+            return pointer_with_flavor(pointee, quals, PointerFlavor::Near, SegReg::None);
+        }
+
+        [[nodiscard]] TypePtr far_pointer_to(TypePtr pointee, Qual quals)
+        {
+            return pointer_with_flavor(pointee, quals, PointerFlavor::Far, SegReg::None);
+        }
+
+        [[nodiscard]] TypePtr based_pointer_to(TypePtr pointee, Qual quals, SegReg seg)
+        {
+            return pointer_with_flavor(pointee, quals, PointerFlavor::Based, seg);
+        }
+
+        [[nodiscard]] TypePtr pointer_with_flavor(TypePtr pointee, Qual quals, PointerFlavor flavor, SegReg seg)
+        {
             for (auto const* t : m_pointers)
-                if (t->pointee == pointee && t->pointee_quals == quals)
+                if (t->pointee == pointee && t->pointee_quals == quals && t->flavor == flavor && t->segment == seg)
                     return t;
 
-            auto* t = make<PointerType>(pointee, quals, m_pointer_bits, m_pointer_align);
+            std::uint8_t bits = m_pointer_bits;
+            std::uint8_t align = m_pointer_align;
+            if (flavor == PointerFlavor::Far)
+                far_layout(bits, align);
+
+            auto* t = make<PointerType>(pointee, quals, bits, align, flavor, seg);
             m_pointers.push_back(t);
             return t;
+        }
+
+        [[nodiscard]] TypePtr rebuild_pointer(PointerType const* p, TypePtr pointee, Qual quals)
+        {
+            return pointer_with_flavor(pointee, quals, p->flavor, p->segment);
+        }
+
+        void far_layout(std::uint8_t& bits, std::uint8_t& align) const noexcept
+        {
+            if (m_pointer_bits <= 16)
+            {
+                bits = 32;
+                align = 2;
+            }
+            else if (m_pointer_bits <= 32)
+            {
+                bits = 64;
+                align = 4;
+            }
+            else
+            {
+                bits = 128;
+                align = 8;
+            }
+        }
+
+        [[nodiscard]] static bool dynamic_far_allowed(target::Arch arch) noexcept
+        {
+            return arch == target::Arch::I8086 || arch == target::Arch::X86;
+        }
+
+        [[nodiscard]] static bool based_register_allowed(target::Arch arch, SegReg seg) noexcept
+        {
+            if (seg == SegReg::None)
+                return false;
+            switch (arch)
+            {
+                case target::Arch::X86_64:
+                    return seg == SegReg::FS || seg == SegReg::GS;
+                case target::Arch::I8086:
+                    return seg == SegReg::CS || seg == SegReg::DS || seg == SegReg::ES || seg == SegReg::SS;
+                case target::Arch::X86:
+                    return true;
+            }
+            return false;
+        }
+
+        [[nodiscard]] static SegReg seg_reg_from_name(std::string_view name) noexcept
+        {
+            if (name == "CS")
+                return SegReg::CS;
+            if (name == "DS")
+                return SegReg::DS;
+            if (name == "ES")
+                return SegReg::ES;
+            if (name == "SS")
+                return SegReg::SS;
+            if (name == "FS")
+                return SegReg::FS;
+            if (name == "GS")
+                return SegReg::GS;
+            return SegReg::None;
+        }
+
+        [[nodiscard]] std::optional<std::string> check_far_pointer(bool is_far, SegReg seg) const
+        {
+            if (!is_far)
+                return std::nullopt;
+            if (seg == SegReg::None)
+            {
+                if (dynamic_far_allowed(m_arch))
+                    return std::nullopt;
+                return std::format("dynamic far pointers are not available on target '{}'", m_target_triple);
+            }
+            if (based_register_allowed(m_arch, seg))
+                return std::nullopt;
+            if (m_arch == target::Arch::X86_64)
+                return std::format("segment register '{}' is not available on target '{}'; x86-64 based pointers allow only FS and GS",
+                                   seg_reg_name(seg), m_target_triple);
+            if (m_arch == target::Arch::I8086)
+                return std::format("segment register '{}' is not available on target '{}'; the 8086 has no FS or GS", seg_reg_name(seg),
+                                   m_target_triple);
+            return std::format("segment register '{}' is not available on target '{}'", seg_reg_name(seg), m_target_triple);
+        }
+
+        [[nodiscard]] static std::string_view seg_reg_name(SegReg seg) noexcept
+        {
+            switch (seg)
+            {
+                case SegReg::CS:
+                    return "CS";
+                case SegReg::DS:
+                    return "DS";
+                case SegReg::ES:
+                    return "ES";
+                case SegReg::SS:
+                    return "SS";
+                case SegReg::FS:
+                    return "FS";
+                case SegReg::GS:
+                    return "GS";
+                case SegReg::None:
+                    return "";
+            }
+            return "";
         }
 
         [[nodiscard]] TypePtr array_t(TypePtr element, std::uint64_t count)
@@ -621,13 +773,18 @@ export namespace dcc::types
             return t;
         }
 
-        [[nodiscard]] TypePtr funcptr_t(TypePtr ret, std::span<TypePtr const> params)
+        [[nodiscard]] TypePtr funcptr_t(TypePtr ret, std::span<TypePtr const> params, bool is_far = false)
         {
             for (auto const* t : m_funcptrs)
-                if (t->return_type == ret && same_span(t->params, params))
+                if (t->return_type == ret && same_span(t->params, params) && t->is_far == is_far)
                     return t;
 
-            auto* t = make<FuncPtrType>(ret, m_arena, m_pointer_bits, m_pointer_align);
+            std::uint8_t bits = m_pointer_bits;
+            std::uint8_t align = m_pointer_align;
+            if (is_far)
+                far_layout(bits, align);
+
+            auto* t = make<FuncPtrType>(ret, m_arena, bits, align, is_far);
             t->params.assign(params.begin(), params.end());
             m_funcptrs.push_back(t);
             return t;
@@ -741,6 +898,8 @@ export namespace dcc::types
 
         std::uint8_t m_pointer_bits{64};
         std::uint8_t m_pointer_align{8};
+        target::Arch m_arch{target::Arch::X86_64};
+        std::string m_target_triple{"x86_64-elf"};
 
         std::vector<IntType const*> m_ints;
         std::vector<RestrictedType const*> m_restricted;

@@ -1,0 +1,21 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 read_far(u8^ p) {
+    return *p;
+}
+
+u8 read_based(u8^GS p) {
+    return *p;
+}
+
+public i32 demo() {
+    u8 c;
+    u8 a = c.read_far();
+    u8^ f;
+    u8 g = f.read_far();
+    u8^GS b;
+    u8 e = b.read_based();
+    return a as i32 + g as i32 + e as i32;
+}

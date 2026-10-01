@@ -197,6 +197,60 @@ p++;
 zero-sized types, and differences between pointers of different types are
 errors. Adding two pointers is an error.
 
+### 3.1 Far and based pointers (segmented targets)
+
+On segmented x86 targets, two further pointer flavors exist besides the near
+pointer `T*`:
+
+- `T^` is a dynamic far pointer: the segment (or selector) value is stored
+  in the pointer alongside the offset.
+- `T^REG` is a based pointer: the segment register is part of the type and
+  only the offset is stored. `REG` is one of `CS`, `DS`, `ES`, `SS`, `FS`,
+  `GS`. These names are contextual: they are recognized as segment registers
+  only immediately after `^` in a type (and on the left of `:` in a segment
+  construction expression), and remain usable as ordinary identifiers
+  everywhere else.
+
+Qualifiers compose as for `*`: `const T^`, `volatile T^`, `T^ const`,
+`const T^GS`. Pointer flavors compose: `T^*`, `T*^`, `T^^` are all valid.
+Far function pointers use `R(^)(Args)`, extending `R(*)(Args)`.
+
+Target validity:
+
+| target | dynamic `T^` | based `T^REG` |
+| x86_64 (long mode) | error | `FS` and `GS` only |
+| x86-elf, x86-coff (32-bit protected mode) | yes | all six registers |
+| i8086-binary | yes | `CS`, `DS`, `ES`, `SS` only |
+
+Layout is fixed at sema time:
+
+- Dynamic `T^` on i8086-binary: 4 bytes, offset `u16` at +0, segment `u16`
+  at +2, alignment 2.
+- Dynamic `T^` on x86-elf and x86-coff: 8 bytes, offset `u32` at +0, selector
+  `u16` at +4, two pad bytes at +6, alignment 4.
+- Based `T^REG`: same size and alignment as the target's offset width
+  (2, 4, or 8 bytes).
+
+Conversions:
+
+- `T*` converts implicitly to `T^`.
+- `T^GS` converts to `T^` only with an explicit `as` (the conversion reads
+  a segment register).
+- `T^` converts to `T*` only with an explicit `as`.
+- Dynamic to based, based to based with different registers, and based to
+  near or near to based are always errors.
+- Adding `const` to the pointee is implicit, as for `*`; removing it never is.
+- No integer casts in either direction: `p as u32` and `0xB8000 as u8^` are
+  errors. Use `seg:off` construction and `core::seg` instead.
+
+Null: dynamic `T^` is nullable (`null` converts to it, and matching a
+`null` pattern works). Based pointers are non-nullable: `null` does not
+convert to `T^REG`, and a `null` pattern on a based pointer is an error.
+
+Dereference, indexing, `.` auto-dereference, and pointer arithmetic (`+`,
+`-`, `+=`, `-=`, `++`, `--`, and difference between two pointers of the
+same far or based type) follow the same typing rules as `*`.
+
 ---
 
 ## 4. Qualifiers
@@ -938,6 +992,15 @@ enum, or nominal alias is the module defining that declaration. Pointer, slice,
 and array receivers inherit associations from their element or pointee type;
 structural aliases inherit the associations of their canonical target.
 
+A far (`T^`) or based (`T^REG`) receiver is never auto-referenced or
+auto-dereferenced into a near `T*` parameter: candidates for such a receiver
+must take the matching far or based pointer type, or the value itself.
+Conversely, a near object receiver may auto-reference into a dynamic `T^`
+parameter, applying the implicit near-to-far conversion exactly as an
+ordinary call argument would, so `c.read_far()` is accepted wherever
+`read_far(&c)` is. There is no implicit conversion into a based parameter,
+so a near receiver never matches `T^REG`.
+
 During generic specialization, direct declarations from both the definition
 and instantiation contexts remain eligible through nested specializations,
 including private declarations in those contexts. These same candidates are
@@ -1112,6 +1175,8 @@ evaluation (CTFE). It is valid on function declarations and call expressions:
 ```dc
 // function pointer type
 using BinOp = i32(*)(i32, i32);
+// far function pointer type (segmented targets)
+using FarBinOp = i32(^)(i32, i32);
 
 i32 apply(BinOp op, i32 a, i32 b) {
     return op(a, b);

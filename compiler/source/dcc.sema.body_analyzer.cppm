@@ -4987,7 +4987,15 @@ export namespace dcc::sema
                 if (auto const* actual_ptr = types::type_cast<types::PointerType>(actual))
                 {
                     auto const* param_ptr = types::type_cast<types::PointerType>(param);
-                    if (param_ptr && actual_ptr->pointee == param_ptr->pointee && actual_ptr->pointee_quals != param_ptr->pointee_quals)
+                    if (param_ptr && actual_ptr->pointee == param_ptr->pointee &&
+                        (actual_ptr->pointee_quals != param_ptr->pointee_quals || actual_ptr->flavor != param_ptr->flavor ||
+                         actual_ptr->segment != param_ptr->segment))
+                        return CallRank::QualificationConversion;
+                }
+                if (auto const* actual_fp = types::type_cast<types::FuncPtrType>(actual))
+                {
+                    auto const* param_fp = types::type_cast<types::FuncPtrType>(param);
+                    if (param_fp && actual_fp->is_far != param_fp->is_far)
                         return CallRank::QualificationConversion;
                 }
                 if (auto const* actual_slice = types::type_cast<types::SliceType>(actual))
@@ -5026,8 +5034,7 @@ export namespace dcc::sema
                 if (analyzed.type->kind == types::TypeKind::Pointer)
                 {
                     auto const* receiver_ptr = types::type_cast<types::PointerType>(analyzed.type);
-                    if (receiver_ptr && receiver_ptr->pointee == param_ptr->pointee &&
-                        qualification_conversion_allowed(receiver_ptr->pointee_quals, param_ptr->pointee_quals))
+                    if (receiver_ptr && can_assign_return(param, analyzed.type))
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
 
                     infer::TemplateBindings probe_b{m_types};
@@ -5035,7 +5042,8 @@ export namespace dcc::sema
                         return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
                 }
 
-                if (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee))
+                if (param_ptr->flavor != types::PointerFlavor::Based &&
+                    (analyzed.type == param_ptr->pointee || contains_template_param(param_ptr->pointee)))
                 {
                     bool receiver_has_const =
                         (analyzed.is_lvalue && !analyzed.is_writable) || (analyzed.resolved_decl && decl_has_immutable_storage(*analyzed.resolved_decl));
@@ -6739,7 +6747,44 @@ export namespace dcc::sema
 
         [[nodiscard]] static bool type_accepts_null(types::TypePtr ty) noexcept
         {
-            return ty && (ty->kind == types::TypeKind::Pointer || ty->kind == types::TypeKind::FuncPtr);
+            if (!ty)
+                return false;
+            if (ty->kind == types::TypeKind::FuncPtr)
+                return true;
+            if (ty->kind == types::TypeKind::Pointer)
+                return static_cast<types::PointerType const*>(ty)->flavor != types::PointerFlavor::Based;
+            return false;
+        }
+
+        [[nodiscard]] static bool is_far_or_based_pointer(types::TypePtr ty) noexcept
+        {
+            if (!ty)
+                return false;
+            if (ty->kind == types::TypeKind::FuncPtr)
+                return static_cast<types::FuncPtrType const*>(ty)->is_far;
+            if (ty->kind == types::TypeKind::Pointer)
+                return static_cast<types::PointerType const*>(ty)->flavor != types::PointerFlavor::Near;
+            return false;
+        }
+
+        [[nodiscard]] static bool cast_pointer_flavor_allowed(types::PointerType const* src, types::PointerType const* dst) noexcept
+        {
+            if (src->flavor == dst->flavor)
+                return src->flavor != types::PointerFlavor::Based || src->segment == dst->segment;
+            if (dst->flavor == types::PointerFlavor::Far)
+                return true;
+            return src->flavor == types::PointerFlavor::Far && dst->flavor == types::PointerFlavor::Near;
+        }
+
+        [[nodiscard]] static std::string cast_pointer_flavor_reason(types::PointerType const* src, types::PointerType const* dst)
+        {
+            if (src->flavor == types::PointerFlavor::Far && dst->flavor == types::PointerFlavor::Based)
+                return "dynamic far pointers cannot be narrowed to a based pointer";
+            if (src->flavor == types::PointerFlavor::Based && dst->flavor == types::PointerFlavor::Near)
+                return "based pointers cannot be converted to near pointers";
+            if (src->flavor == types::PointerFlavor::Near && dst->flavor == types::PointerFlavor::Based)
+                return "near pointers cannot be converted to a based pointer";
+            return "based pointers with different segment registers cannot be converted";
         }
 
         [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got) noexcept
@@ -6778,8 +6823,22 @@ export namespace dcc::sema
             {
                 auto const* ep = static_cast<types::PointerType const*>(expected);
                 auto const* gp = static_cast<types::PointerType const*>(got);
-                return ep->pointee == gp->pointee &&
-                       (ep->pointee_quals == gp->pointee_quals || qualification_conversion_allowed(gp->pointee_quals, ep->pointee_quals));
+                if (ep->pointee != gp->pointee)
+                    return false;
+                if (!(ep->pointee_quals == gp->pointee_quals || qualification_conversion_allowed(gp->pointee_quals, ep->pointee_quals)))
+                    return false;
+                if (ep->flavor == gp->flavor)
+                    return ep->flavor != types::PointerFlavor::Based || ep->segment == gp->segment;
+                return ep->flavor == types::PointerFlavor::Far && gp->flavor == types::PointerFlavor::Near;
+            }
+
+            if (expected->kind == types::TypeKind::FuncPtr && got->kind == types::TypeKind::FuncPtr)
+            {
+                auto const* ef = static_cast<types::FuncPtrType const*>(expected);
+                auto const* gf = static_cast<types::FuncPtrType const*>(got);
+                if (ef->return_type != gf->return_type || ef->params != gf->params)
+                    return false;
+                return ef->is_far == gf->is_far || ef->is_far;
             }
 
             if (expected->kind == types::TypeKind::Slice && got->kind == types::TypeKind::Slice)
@@ -6840,7 +6899,7 @@ export namespace dcc::sema
                 auto const* actual_ptr = types::type_cast<types::PointerType>(actuals[i]);
                 if (expected_ptr && actual_ptr && expected_ptr->pointee_quals != actual_ptr->pointee_quals &&
                     qualification_conversion_allowed(actual_ptr->pointee_quals, expected_ptr->pointee_quals))
-                    deduction_actuals[i] = m_types.pointer_to(actual_ptr->pointee, expected_ptr->pointee_quals);
+                    deduction_actuals[i] = m_types.rebuild_pointer(actual_ptr, actual_ptr->pointee, expected_ptr->pointee_quals);
 
                 auto const* expected_slice = types::type_cast<types::SliceType>(param);
                 auto const* actual_slice = types::type_cast<types::SliceType>(actuals[i]);
@@ -6860,6 +6919,10 @@ export namespace dcc::sema
                 bool slice_pair = types::type_cast<types::SliceType>(param) && types::type_cast<types::SliceType>(actuals[i]);
                 if ((pointer_pair || slice_pair) && !can_assign_return(param, actuals[i]))
                     return {infer::DeductionError::Conflict, pointer_pair ? "pointer argument qualifier mismatch" : "slice argument qualifier mismatch"};
+                auto const* expected_fp = types::type_cast<types::FuncPtrType>(param);
+                auto const* actual_fp = types::type_cast<types::FuncPtrType>(actuals[i]);
+                if (expected_fp && actual_fp && actual_fp->is_far && !expected_fp->is_far)
+                    return {infer::DeductionError::Conflict, "function pointer argument far-ness mismatch"};
             }
 
             return {};
@@ -9835,7 +9898,7 @@ export namespace dcc::sema
                     auto const pointer_quals = static_cast<types::Qual>(std::to_underlying(r.quals) & ~std::to_underlying(types::Qual::Const));
                     if (pointer_quals == types::Qual::None)
                         return r.type;
-                    return m_types.pointer_to(p->pointee, qual_or(p->pointee_quals, pointer_quals));
+                    return m_types.rebuild_pointer(p, p->pointee, qual_or(p->pointee_quals, pointer_quals));
                 }
                 if (auto const* s = types::type_cast<types::SliceType>(r.type))
                     return m_types.slice_t(s->element, qual_or(s->element_quals, r.quals));
@@ -10300,6 +10363,8 @@ export namespace dcc::sema
 
         [[nodiscard]] static bool funcptr_matches(types::FuncPtrType const* expected, types::FuncPtrType const* candidate) noexcept
         {
+            if (expected->is_far != candidate->is_far)
+                return false;
             if (expected->params.size() != candidate->params.size())
                 return false;
             if (expected->return_type != candidate->return_type)
@@ -12025,7 +12090,7 @@ export namespace dcc::sema
 
             if (c.operand && c.operand->kind == ast::ExprKind::NullLiteral)
             {
-                if (out.type && types::type_cast<types::PointerType>(out.type))
+                if (out.type && types::type_cast<types::PointerType>(out.type) && type_accepts_null(out.type))
                     op.type = out.type;
             }
 
@@ -12039,6 +12104,22 @@ export namespace dcc::sema
                     {
                         error(c.range, "invalid cast from `{}` to `{}`: cannot drop const qualifier", format_type_str(op.type), format_type_str(out.type));
                     }
+                    else if (!cast_pointer_flavor_allowed(src_ptr, dst_ptr))
+                    {
+                        error(c.range, "invalid cast from `{}` to `{}`: {}", format_type_str(op.type), format_type_str(out.type),
+                              cast_pointer_flavor_reason(src_ptr, dst_ptr));
+                    }
+                }
+                if ((is_far_or_based_pointer(op.type) && out.type->kind == types::TypeKind::Int) ||
+                    (op.type->kind == types::TypeKind::Int && is_far_or_based_pointer(out.type)))
+                {
+                    error(c.range, "invalid cast from `{}` to `{}`: far and based pointers cannot be cast to or from integers; use `seg:off` construction and core::seg",
+                          format_type_str(op.type), format_type_str(out.type));
+                }
+                if (op.type->kind == types::TypeKind::NullT && out.type &&
+                    (out.type->kind == types::TypeKind::Pointer || out.type->kind == types::TypeKind::FuncPtr) && !type_accepts_null(out.type))
+                {
+                    error(c.range, "invalid cast from `null` to `{}`: null does not inhabit this type", format_type_str(out.type));
                 }
             }
 
@@ -17050,8 +17131,19 @@ export namespace dcc::sema
                     return {.type = m_types.m_errort()};
                 }
                 case ast::TypeKind::Pointer: {
-                    auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::PointerType const*>(t)->pointee, fn, next_off_ptr, const_env);
-                    return {.type = m_types.pointer_to(materialize_type(inner), inner.quals)};
+                    auto const* pt = static_cast<ast::PointerType const*>(t);
+                    auto inner = resolve_type_node_resolved(mod, scope, pt->pointee, fn, next_off_ptr, const_env);
+                    auto seg = types::TypeContext::seg_reg_from_name(pt->segment_name);
+                    if (auto err = m_types.check_far_pointer(pt->is_far, seg))
+                    {
+                        error(t->range, "{}", *err);
+                        return {.type = m_types.m_errort()};
+                    }
+                    if (!pt->is_far)
+                        return {.type = m_types.pointer_to(materialize_type(inner), inner.quals)};
+                    if (seg == types::SegReg::None)
+                        return {.type = m_types.far_pointer_to(materialize_type(inner), inner.quals)};
+                    return {.type = m_types.based_pointer_to(materialize_type(inner), inner.quals, seg)};
                 }
                 case ast::TypeKind::Array: {
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::ArrayType const*>(t)->element, fn, next_off_ptr, const_env);
@@ -17133,7 +17225,14 @@ export namespace dcc::sema
                     for (auto const& p : fp->params)
                         params.push_back(resolve_type_node(mod, scope, p.type, fn, next_off_ptr, const_env));
 
-                    return {.type = m_types.funcptr_t(resolve_type_node(mod, scope, fp->return_type, fn, next_off_ptr, const_env), params)};
+                    if (auto err = m_types.check_far_pointer(fp->is_far, types::SegReg::None))
+                    {
+                        error(t->range, "{}", *err);
+                        return {.type = m_types.m_errort()};
+                    }
+
+                    return {.type = m_types.funcptr_t(resolve_type_node(mod, scope, fp->return_type, fn, next_off_ptr, const_env), params,
+                                                     fp->is_far)};
                 }
                 case ast::TypeKind::Qualified: {
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::QualifiedType const*>(t)->inner, fn, next_off_ptr, const_env);

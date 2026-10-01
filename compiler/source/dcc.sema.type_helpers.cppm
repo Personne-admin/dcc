@@ -86,7 +86,12 @@ export namespace dcc::sema
                     quals += "volatile ";
                 if (types::has_qual(p->pointee_quals, types::Qual::Restrict))
                     quals += "restrict ";
-                return std::format("{}{}*", quals, format_dcc_type(p->pointee));
+                std::string suffix = "*";
+                if (p->flavor == types::PointerFlavor::Far)
+                    suffix = "^";
+                else if (p->flavor == types::PointerFlavor::Based)
+                    suffix = std::format("^{}", types::TypeContext::seg_reg_name(p->segment));
+                return std::format("{}{}{}", quals, format_dcc_type(p->pointee), suffix);
             }
             case types::TypeKind::Array: {
                 auto const* a = static_cast<types::ArrayType const*>(ty);
@@ -116,6 +121,8 @@ export namespace dcc::sema
                         params += ", ";
                     params += format_dcc_type(f->params[i]);
                 }
+                if (f->is_far)
+                    return std::format("{}(^)({})", format_dcc_type(f->return_type), params);
                 return std::format("{}(*)({})", format_dcc_type(f->return_type), params);
             }
             case types::TypeKind::Lambda:

@@ -1,0 +1,36 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+struct Layout {
+    u8 lead;
+    u8^ fp;
+    u8^DS bp;
+    u8 tail;
+}
+
+void sizes() {
+    sizeof(u8^);
+    alignof(u8^);
+    sizeof(u8^DS);
+    alignof(u8^DS);
+    offsetof(Layout, fp);
+    offsetof(Layout, bp);
+    offsetof(Layout, tail);
+    sizeof(Layout);
+    alignof(Layout);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func sizes diverging=false
+    Body
+      Sizeof [type=usize const=4 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=2 constant]
+      Alignof [type=usize const=2 constant]
+      Offsetof [type=usize const=2 constant]
+      Offsetof [type=usize const=6 constant]
+      Offsetof [type=usize const=8 constant]
+      Sizeof [type=usize const=10 constant]
+      Alignof [type=usize const=2 constant]

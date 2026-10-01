@@ -870,9 +870,20 @@ export namespace dcc::comptime
             if (types::type_cast<types::PointerType>(dst) || types::type_cast<types::FuncPtrType>(dst) || dst->kind == types::TypeKind::NullT)
             {
                 if (kind() == Kind::Null)
+                {
+                    if (auto const* dst_ptr = types::type_cast<types::PointerType>(dst))
+                        if (dst_ptr->flavor == types::PointerFlavor::Based)
+                            return std::nullopt;
                     return make_null(dst);
+                }
                 if (kind() == Kind::Pointer && dst->kind == types::TypeKind::Pointer)
-                    return make_pointer_to(get_pointer(), dst);
+                {
+                    auto const* src_ptr = types::type_cast<types::PointerType>(type);
+                    auto const* dst_ptr = static_cast<types::PointerType const*>(dst);
+                    if (src_ptr && src_ptr->flavor == dst_ptr->flavor && src_ptr->segment == dst_ptr->segment)
+                        return make_pointer_to(get_pointer(), dst);
+                    return std::nullopt;
+                }
                 return std::nullopt;
             }
 

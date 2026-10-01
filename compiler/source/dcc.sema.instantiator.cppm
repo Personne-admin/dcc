@@ -74,6 +74,8 @@ namespace dcc::sema
                 case ast::TypeKind::Pointer: {
                     auto* e = static_cast<ast::PointerType const*>(t);
                     auto* n = m_ctx.make<ast::PointerType>(e->range, clone_type(e->pointee));
+                    n->is_far = e->is_far;
+                    n->segment_name = e->segment_name;
                     n->sema = e->sema;
                     return n;
                 }
@@ -98,6 +100,7 @@ namespace dcc::sema
                 case ast::TypeKind::FuncPtr: {
                     auto* e = static_cast<ast::FuncPtrType const*>(t);
                     auto* n = m_ctx.make<ast::FuncPtrType>(e->range, clone_type(e->return_type));
+                    n->is_far = e->is_far;
                     n->params.reserve(e->params.size());
                     for (auto const& p : e->params)
                         n->params.push_back({clone_type(p.type), p.name, p.range, p.name_range});
@@ -840,7 +843,7 @@ namespace dcc::sema
                         auto const* p = static_cast<types::PointerType const*>(static_cast<void const*>(type));
                         auto inner = deep_substitute(p->pointee);
                         if (inner != p->pointee)
-                            return m_types.pointer_to(inner, p->pointee_quals);
+                            return m_types.rebuild_pointer(p, inner, p->pointee_quals);
 
                         return type;
                     }
@@ -1921,6 +1924,8 @@ export namespace dcc::sema
                 auto const* pt = static_cast<types::PointerType const*>(ty);
                 auto* pointee = clone_type_from_canonical(pt->pointee, ast_ctx, type_ctx);
                 auto* r = ast_ctx.make<ast::PointerType>(sm::SourceRange{}, pointee);
+                r->is_far = pt->flavor != types::PointerFlavor::Near;
+                r->segment_name = types::TypeContext::seg_reg_name(pt->segment);
                 set_canonical(r->sema, ty);
                 return r;
             }
@@ -1943,6 +1948,7 @@ export namespace dcc::sema
                 auto const* ft = static_cast<types::FuncPtrType const*>(ty);
                 auto* ret = clone_type_from_canonical(ft->return_type, ast_ctx, type_ctx);
                 auto* r = ast_ctx.make<ast::FuncPtrType>(sm::SourceRange{}, ret, ast_ctx.allocator());
+                r->is_far = ft->is_far;
                 for (auto const* p : ft->params)
                     r->params.push_back({clone_type_from_canonical(p, ast_ctx, type_ctx), {}, {}, {}});
                 set_canonical(r->sema, ty);
@@ -4040,7 +4046,7 @@ export namespace dcc::sema
                 auto canon = get_canonical(ty->sema);
                 if (canon != fp_type->return_type)
                 {
-                    auto new_ft = type_ctx.funcptr_t(canon, fp_type->params);
+                    auto new_ft = type_ctx.funcptr_t(canon, fp_type->params, fp_type->is_far);
                     if (auto* new_fp = const_cast<types::FuncPtrType*>(types::type_cast<types::FuncPtrType>(new_ft)))
                         fp_type = new_fp;
                 }
