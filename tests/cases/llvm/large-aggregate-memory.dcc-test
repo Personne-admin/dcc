@@ -36,3 +36,11 @@ CONTAINS: ptr byval(
 CONTAINS: call void @llvm.memcpy
 CONTAINS: call void @llvm.memset
 FORBID: insertvalue
+FORBID: load %0,
+FORBID: load %1,
+FORBID: store %0 {
+FORBID: store %0 %
+FORBID: store %1 {
+FORBID: store %1 %
+FORBID: load [8192 x i8],
+FORBID: store [8192 x i8]
