@@ -2790,6 +2790,38 @@ namespace
                 break;
             }
 
+            case MOpc::LOCK_CMPXCHG64mr:
+            case MOpc::LOCK_CMPXCHG32mr:
+            case MOpc::LOCK_CMPXCHG16mr:
+            case MOpc::LOCK_CMPXCHG8mr: {
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
+                {
+                    auto const& m = ops[0].mem;
+                    auto s = resolve_phys_reg(ops[1], wrn, "LOCK_CMPXCHG");
+                    if (m.base.is_physical())
+                    {
+                        auto b = m.base.phys_reg();
+                        bool se = reg_is_extended(s);
+                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                        bool be = reg_is_extended(b);
+                        if (instr.opc == MOpc::LOCK_CMPXCHG16mr)
+                            emit_u8(buf, 0x66);
+                        emit_u8(buf, 0xF0);
+                        if (instr.opc == MOpc::LOCK_CMPXCHG64mr)
+                            emit_rex(buf, true, se, ie, be);
+                        else if (se || ie || be || (instr.opc == MOpc::LOCK_CMPXCHG8mr && reg_low3(s) >= 4))
+                            emit_rex(buf, false, se, ie, be);
+                        emit_u8(buf, 0x0F);
+                        emit_u8(buf, instr.opc == MOpc::LOCK_CMPXCHG8mr ? 0xB0 : 0xB1);
+                        emit_mem(buf, m, reg_low3(s), wrn, "LOCK_CMPXCHG");
+                    }
+                    else
+                        goto ud2_lbl;
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
             case MOpc::LOCK_XADD64mr: {
                 if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg)
                 {

@@ -647,6 +647,13 @@ export namespace dcc::ir::analysis
                         record_use(r->value, const_cast<IrValue*>(inst));
                         break;
                     }
+                    case IrNodeKind::AtomicCmpXchg: {
+                        auto* x = static_cast<IrAtomicCmpXchgInst const*>(inst);
+                        record_use(x->pointer, const_cast<IrValue*>(inst));
+                        record_use(x->expected, const_cast<IrValue*>(inst));
+                        record_use(x->desired, const_cast<IrValue*>(inst));
+                        break;
+                    }
                     case IrNodeKind::Fence:
                         break;
 
@@ -1052,6 +1059,16 @@ export namespace dcc::ir::analysis
                                     gen_set.insert(r->pointer);
                                 if (!kill_set.contains(r->value))
                                     gen_set.insert(r->value);
+                                break;
+                            }
+                            case IrNodeKind::AtomicCmpXchg: {
+                                auto* x = static_cast<IrAtomicCmpXchgInst const*>(n);
+                                if (!kill_set.contains(x->pointer))
+                                    gen_set.insert(x->pointer);
+                                if (!kill_set.contains(x->expected))
+                                    gen_set.insert(x->expected);
+                                if (!kill_set.contains(x->desired))
+                                    gen_set.insert(x->desired);
                                 break;
                             }
                             case IrNodeKind::Fence:

@@ -3644,6 +3644,40 @@ namespace dcc::backend::em64t
                     break;
                 }
 
+                case IrNodeKind::AtomicCmpXchg: {
+                    auto* cx = ir_cast<IrAtomicCmpXchgInst>(inst);
+                    if (!cx)
+                        break;
+
+                    VReg addr = ctx.try_materialize(cx->pointer);
+                    VReg expected = ctx.try_materialize(cx->expected);
+                    VReg desired = ctx.try_materialize(cx->desired);
+                    if (!addr.is_valid() || !expected.is_valid() || !desired.is_valid())
+                        break;
+
+                    unsigned const cx_width = cx->type ? static_cast<unsigned>(cx->type->byte_size) : 8;
+                    VReg rax = VReg::phys(PhysReg::RAX);
+                    emit_mov(ctx, rax, expected);
+
+                    MInstr cmpxchg;
+                    cmpxchg.opc = cx_width == 1   ? MOpc::LOCK_CMPXCHG8mr
+                                  : cx_width == 2 ? MOpc::LOCK_CMPXCHG16mr
+                                  : cx_width == 4 ? MOpc::LOCK_CMPXCHG32mr
+                                                  : MOpc::LOCK_CMPXCHG64mr;
+                    cmpxchg.num_ops = 2;
+                    cmpxchg.num_defs = 0;
+                    cmpxchg.ops[0] = MOp::from_mem(MMem::make_base_disp(addr));
+                    cmpxchg.ops[1] = MOp::from_reg(desired);
+                    ctx.add_implicit_defs(cmpxchg, std::array{PhysReg::RAX});
+                    ctx.add_implicit_uses(cmpxchg, std::array{PhysReg::RAX});
+                    ctx.append_instr(cmpxchg);
+
+                    VReg result = ctx.mfunc.new_vreg();
+                    emit_mov(ctx, result, rax);
+                    ctx.set_vreg(inst, result);
+                    break;
+                }
+
                 case IrNodeKind::Fence: {
                     auto* f = ir_cast<IrFenceInst>(inst);
                     if (!f)

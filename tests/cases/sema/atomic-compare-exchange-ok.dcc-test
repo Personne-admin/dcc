@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module main;
+import core::atomic;
+using core::atomic::MemoryOrder;
+using core::atomic::Atomic;
+
+i32 orders(volatile i32* p, Atomic(i32)* w) {
+    i32 a = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Relaxed, MemoryOrder::Relaxed);
+    i32 b = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Acquire, MemoryOrder::Relaxed);
+    i32 c = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Release, MemoryOrder::Relaxed);
+    i32 d = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::AcqRel, MemoryOrder::Relaxed);
+    i32 e = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::AcqRel, MemoryOrder::Acquire);
+    i32 f = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Acquire, MemoryOrder::Acquire);
+    i32 g = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, MemoryOrder::Relaxed);
+    i32 h = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, MemoryOrder::Acquire);
+    i32 i = core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    i32 j = core::atomic::atomic_compare_exchange(w, 1, 2, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    return a + b + c + d + e + f + g + h + i + j;
+}
+
+u8 narrow(volatile u8* p) {
+    return core::atomic::atomic_compare_exchange(p, 1 as u8, 2 as u8, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+}
+
+void* pointer(Atomic(void*)* p, void* a, void* b) {
+    return core::atomic::atomic_compare_exchange(p, a, b, MemoryOrder::AcqRel, MemoryOrder::Acquire);
+}

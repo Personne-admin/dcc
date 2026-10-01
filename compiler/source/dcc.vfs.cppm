@@ -175,6 +175,12 @@ public T atomic_fetch_xor(T)(volatile T* ptr, T value, MemoryOrder order);
 public T atomic_fetch_xor(T)(Atomic(T)* ptr, T value, MemoryOrder order);
 
 @intrinsic
+public T atomic_compare_exchange(T)(volatile T* ptr, T expected, T desired, MemoryOrder success, MemoryOrder failure);
+
+@intrinsic
+public T atomic_compare_exchange(T)(Atomic(T)* ptr, T expected, T desired, MemoryOrder success, MemoryOrder failure);
+
+@intrinsic
 public void atomic_fence(MemoryOrder order);
 
 )dc";
@@ -353,8 +359,7 @@ public const bool IS_64_BIT = {};
             out += "@intrinsic\npublic const T^ with_segment(T)(const T^ ptr, u16 seg);\n\n";
         }
         constexpr dcc::types::SegReg regs[] = {
-            dcc::types::SegReg::CS, dcc::types::SegReg::DS, dcc::types::SegReg::ES,
-            dcc::types::SegReg::SS, dcc::types::SegReg::FS, dcc::types::SegReg::GS,
+            dcc::types::SegReg::CS, dcc::types::SegReg::DS, dcc::types::SegReg::ES, dcc::types::SegReg::SS, dcc::types::SegReg::FS, dcc::types::SegReg::GS,
         };
         for (auto reg : regs)
         {

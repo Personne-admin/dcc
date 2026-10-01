@@ -1398,8 +1398,33 @@ void example(volatile i32* p, core::atomic::Atomic(i32)* a) {
 ```
 
 Available operations: `atomic_load`, `atomic_store`, `atomic_exchange`,
-`atomic_fetch_add`, `atomic_fetch_sub`, `atomic_fetch_and`,
-`atomic_fetch_or`, `atomic_fetch_xor`, `atomic_fence`.
+`atomic_compare_exchange`, `atomic_fetch_add`, `atomic_fetch_sub`,
+`atomic_fetch_and`, `atomic_fetch_or`, `atomic_fetch_xor`, `atomic_fence`.
+
+`atomic_compare_exchange` takes the pointer, the expected value, the
+desired value, a success `MemoryOrder` and a failure `MemoryOrder`:
+
+```dc
+i32 seen = core::atomic::atomic_compare_exchange(
+    p, expected, desired, MemoryOrder::SeqCst, MemoryOrder::Acquire);
+bool exchanged = seen == expected;
+```
+
+It atomically compares `*p` with `expected` and, when they are equal,
+stores `desired`. It always returns the value that was in memory before the
+operation, so the exchange succeeded exactly when the result equals
+`expected`; on failure the result is the current value, ready for the next
+attempt of a retry loop. The operation is strong: it does not fail
+spuriously. It lowers to LLVM `cmpxchg` and to `lock cmpxchg` on the native
+backend, and is available for every integer width and for pointers, but
+not for `bool`, floats or aggregates.
+
+The success order may be any `MemoryOrder`. The failure order applies to
+the load performed when the comparison fails, so it must be `Relaxed`,
+`Acquire` or `SeqCst`: `Release` and `AcqRel` are errors. It must also not
+be stronger than the success order: `Acquire` requires a success order of
+`Acquire`, `AcqRel` or `SeqCst`, and `SeqCst` requires `SeqCst`. Both
+orders must be compile-time constants.
 
 ### 17.1 Segment operations (`core::seg`)
 

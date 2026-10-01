@@ -1,0 +1,73 @@
+=== FILE: main.dc ===
+module main;
+import core::atomic;
+using core::atomic::MemoryOrder;
+
+void failure_release(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, MemoryOrder::Release);
+}
+
+void failure_acqrel(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, MemoryOrder::AcqRel);
+}
+
+void acquire_over_relaxed(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Relaxed, MemoryOrder::Acquire);
+}
+
+void acquire_over_release(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Release, MemoryOrder::Acquire);
+}
+
+void seqcst_over_acqrel(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::AcqRel, MemoryOrder::SeqCst);
+}
+
+void seqcst_over_acquire(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::Acquire, MemoryOrder::SeqCst);
+}
+
+void wrapper_failure_release(core::atomic::Atomic(i32)* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, MemoryOrder::Release);
+}
+
+void nonconstant_success(volatile i32* p, MemoryOrder o) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, o, MemoryOrder::Relaxed);
+}
+
+void nonconstant_failure(volatile i32* p, MemoryOrder o) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst, o);
+}
+
+void float_type(volatile f32* p) {
+    core::atomic::atomic_compare_exchange(p, 1.0 as f32, 2.0 as f32, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+}
+
+void bool_type(volatile bool* p) {
+    core::atomic::atomic_compare_exchange(p, false, true, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+}
+
+struct Pair { i32 a; i32 b; }
+
+void aggregate_type(volatile Pair* p, Pair x, Pair y) {
+    core::atomic::atomic_compare_exchange(p, x, y, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+}
+
+void missing_failure(volatile i32* p) {
+    core::atomic::atomic_compare_exchange(p, 1, 2, MemoryOrder::SeqCst);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: atomic_compare_exchange failure order allows MemoryOrder Relaxed(0), Acquire(1), or SeqCst(4); got 2
+main.dc:10: atomic_compare_exchange failure order allows MemoryOrder Relaxed(0), Acquire(1), or SeqCst(4); got 3
+main.dc:14: atomic_compare_exchange failure order (1) must not be stronger than the success order (0)
+main.dc:18: atomic_compare_exchange failure order (1) must not be stronger than the success order (2)
+main.dc:22: atomic_compare_exchange failure order (4) must not be stronger than the success order (3)
+main.dc:26: atomic_compare_exchange failure order (4) must not be stronger than the success order (1)
+main.dc:30: atomic_compare_exchange failure order allows MemoryOrder Relaxed(0), Acquire(1), or SeqCst(4); got 2
+main.dc:34: MemoryOrder argument to `atomic_compare_exchange` must be a compile-time constant
+main.dc:38: MemoryOrder argument to `atomic_compare_exchange` must be a compile-time constant
+main.dc:42: atomic intrinsic does not support float type `f32`
+main.dc:46: atomic_compare_exchange does not support bool
+main.dc:52: atomic intrinsic does not support aggregate type `Pair`
+main.dc:56: no matching call for `core::atomic::atomic_compare_exchange`

@@ -4592,6 +4592,7 @@ export namespace dcc::sema
             FetchAnd,
             FetchOr,
             FetchXor,
+            CompareExchange,
             Fence,
             Unknown
         };
@@ -4614,6 +4615,8 @@ export namespace dcc::sema
                 return AtomicOp::FetchOr;
             if (name == "atomic_fetch_xor")
                 return AtomicOp::FetchXor;
+            if (name == "atomic_compare_exchange")
+                return AtomicOp::CompareExchange;
             if (name == "atomic_fence")
                 return AtomicOp::Fence;
             return AtomicOp::Unknown;
@@ -4670,6 +4673,51 @@ export namespace dcc::sema
             std::ignore = order_ok;
         }
 
+        void validate_atomic_cmpxchg_orders(ast::FuncDecl const& f, detail::ExprResult const& success_arg, ast::Expr const* success_expr,
+                                            detail::ExprResult const& failure_arg, ast::Expr const* failure_expr)
+        {
+            auto read_order = [&](detail::ExprResult const& arg, ast::Expr const* expr) -> std::optional<std::int64_t> {
+                if (!arg.constant)
+                {
+                    error(expr->range, "MemoryOrder argument to `{}` must be a compile-time constant", f.name);
+                    return std::nullopt;
+                }
+
+                if (arg.constant->kind() != comptime::Value::Kind::Int)
+                {
+                    error(expr->range, "MemoryOrder argument to `{}` must be an integer value", f.name);
+                    return std::nullopt;
+                }
+
+                auto raw = arg.constant->get_int();
+                if (raw < 0 || raw > 4)
+                {
+                    error(expr->range, "invalid MemoryOrder value: {}", raw);
+                    return std::nullopt;
+                }
+
+                return static_cast<std::int64_t>(raw);
+            };
+
+            auto success = read_order(success_arg, success_expr);
+            auto failure = read_order(failure_arg, failure_expr);
+            if (!failure)
+                return;
+
+            if (*failure == 2 || *failure == 3)
+            {
+                error(failure_expr->range, "atomic_compare_exchange failure order allows MemoryOrder Relaxed(0), Acquire(1), or SeqCst(4); got {}", *failure);
+                return;
+            }
+
+            if (!success)
+                return;
+
+            bool const success_has_acquire = *success == 1 || *success == 3 || *success == 4;
+            if ((*failure == 1 && !success_has_acquire) || (*failure == 4 && *success != 4))
+                error(failure_expr->range, "atomic_compare_exchange failure order ({}) must not be stronger than the success order ({})", *failure, *success);
+        }
+
         void validate_atomic_type_param(ast::FuncDecl const& f, infer::TemplateBindings const& bindings, std::span<ast::TemplateArg const> template_args,
                                         sm::SourceRange fallback_range = {})
         {
@@ -4709,6 +4757,8 @@ export namespace dcc::sema
                 else if (concrete_t && (concrete_t->kind == types::TypeKind::Struct || concrete_t->kind == types::TypeKind::Union ||
                                         concrete_t->kind == types::TypeKind::Enum))
                     error(type_range, "atomic intrinsic does not support aggregate type `{}`", format_type_str(concrete_t));
+                else if (concrete_t && concrete_t->kind == types::TypeKind::Bool && op == AtomicOp::CompareExchange)
+                    error(type_range, "atomic_compare_exchange does not support bool");
                 else if (concrete_t && concrete_t->kind == types::TypeKind::Pointer &&
                          (op == AtomicOp::FetchAdd || op == AtomicOp::FetchSub || op == AtomicOp::FetchAnd || op == AtomicOp::FetchOr ||
                           op == AtomicOp::FetchXor))
@@ -5044,8 +5094,7 @@ export namespace dcc::sema
             {
                 auto const* actual_ptr = types::type_cast<types::PointerType>(actual);
                 if (actual_ptr && sub_ptr->pointee == actual_ptr->pointee &&
-                    (sub_ptr->pointee_quals != actual_ptr->pointee_quals || sub_ptr->flavor != actual_ptr->flavor ||
-                     sub_ptr->segment != actual_ptr->segment))
+                    (sub_ptr->pointee_quals != actual_ptr->pointee_quals || sub_ptr->flavor != actual_ptr->flavor || sub_ptr->segment != actual_ptr->segment))
                     return CallRank::TemplateQualificationConversion;
             }
             if (auto const* sub_fp = types::type_cast<types::FuncPtrType>(subbed))
@@ -10207,8 +10256,7 @@ export namespace dcc::sema
                         out = analyze_cast(mod, fn, scope, static_cast<ast::CastExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::SegConstruct:
-                        out = analyze_seg_construct(mod, fn, scope, static_cast<ast::SegConstructExpr&>(expr), loop_depth, next_off, expected_type,
-                                                    const_env);
+                        out = analyze_seg_construct(mod, fn, scope, static_cast<ast::SegConstructExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::Block:
                         out = analyze_block_expr(mod, fn, scope, static_cast<ast::BlockExpr&>(expr), loop_depth, next_off, expected_type, const_env,
@@ -10244,8 +10292,7 @@ export namespace dcc::sema
                         if (!m_allow_range_expr)
                             error(r.range, "a range can only be used in a slice index, a for-in, or a match pattern");
 
-                        if (!expected_type || (types::type_cast<types::IntType>(expected_type) &&
-                                               !types::type_cast<types::IntType>(expected_type)->is_signed))
+                        if (!expected_type || (types::type_cast<types::IntType>(expected_type) && !types::type_cast<types::IntType>(expected_type)->is_signed))
                         {
                             auto check_bound = [&](ast::Expr const* bound) {
                                 if (!bound)
@@ -12122,7 +12169,7 @@ export namespace dcc::sema
         }
 
         detail::ExprResult analyze_seg_construct(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::SegConstructExpr& e, int loop_depth,
-                                                std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
+                                                 std::uint32_t& next_off, types::TypePtr expected_type, ConstEnv const* const_env)
         {
             detail::ExprResult out{};
             out.type = m_types.m_errort();
@@ -12148,8 +12195,8 @@ export namespace dcc::sema
             std::uint8_t const offset_bits = m_types.pointer_bits();
             std::uint64_t const offset_max = offset_bits >= 64 ? ~std::uint64_t{} : ((std::uint64_t{1} << offset_bits) - 1);
             bool operand_failed = false;
-            auto check_operand = [&](ast::Expr* operand, std::uint8_t max_bits, std::uint64_t max_value, std::string_view what)
-                -> std::optional<std::uint64_t> {
+            auto check_operand = [&](ast::Expr* operand, std::uint8_t max_bits, std::uint64_t max_value,
+                                     std::string_view what) -> std::optional<std::uint64_t> {
                 auto r = analyze_expr_or_error(mod, fn, scope, operand, loop_depth, next_off, nullptr, const_env);
                 if (!r.type || has_error(r.type))
                 {
@@ -12183,8 +12230,8 @@ export namespace dcc::sema
                 }
                 if (it->bits > max_bits)
                 {
-                    error(operand->range, "segment construction {} of type `{}` does not fit {}; cast explicitly with `as`", what,
-                          format_type_str(r.type), max_bits == 16 ? "u16" : std::format("u{}", max_bits));
+                    error(operand->range, "segment construction {} of type `{}` does not fit {}; cast explicitly with `as`", what, format_type_str(r.type),
+                          max_bits == 16 ? "u16" : std::format("u{}", max_bits));
                     operand_failed = true;
                     return std::nullopt;
                 }
@@ -12213,8 +12260,7 @@ export namespace dcc::sema
                 }
                 if (target_ptr->flavor == types::PointerFlavor::Based)
                 {
-                    error(e.range, "cannot construct `{}` from segment register `{}`", format_type_str(expected_type),
-                          types::TypeContext::seg_reg_name(reg));
+                    error(e.range, "cannot construct `{}` from segment register `{}`", format_type_str(expected_type), types::TypeContext::seg_reg_name(reg));
                     return out;
                 }
                 std::ignore = check_operand(e.offset, offset_bits, offset_max, "offset");
@@ -12257,8 +12303,7 @@ export namespace dcc::sema
                     bad.type = m_types.m_errort();
                     return bad;
                 }
-                return analyze_seg_construct(mod, fn, scope, static_cast<ast::SegConstructExpr&>(*c.operand), loop_depth, next_off, target,
-                                             const_env);
+                return analyze_seg_construct(mod, fn, scope, static_cast<ast::SegConstructExpr&>(*c.operand), loop_depth, next_off, target, const_env);
             }
             auto const saved_suppress_literal_fit = m_in_explicit_conversion;
             m_in_explicit_conversion = true;
@@ -12315,7 +12360,8 @@ export namespace dcc::sema
                 if ((is_far_or_based_pointer(op.type) && out.type->kind == types::TypeKind::Int) ||
                     (op.type->kind == types::TypeKind::Int && is_far_or_based_pointer(out.type)))
                 {
-                    error(c.range, "invalid cast from `{}` to `{}`: far and based pointers cannot be cast to or from integers; use `seg:off` construction and core::seg",
+                    error(c.range,
+                          "invalid cast from `{}` to `{}`: far and based pointers cannot be cast to or from integers; use `seg:off` construction and core::seg",
                           format_type_str(op.type), format_type_str(out.type));
                 }
                 if (op.type->kind == types::TypeKind::NullT && out.type &&
@@ -14678,9 +14724,17 @@ export namespace dcc::sema
                 auto op = classify_atomic_op(f.name);
                 if (op != AtomicOp::Unknown)
                 {
-                    std::size_t order_idx = args.size() - 1;
-                    auto const* order_expr = arg_exprs[func_arg_start + order_idx];
-                    validate_atomic_order(f, args[order_idx], order_expr, op);
+                    if (op == AtomicOp::CompareExchange)
+                    {
+                        if (args.size() == 5)
+                            validate_atomic_cmpxchg_orders(f, args[3], arg_exprs[func_arg_start + 3], args[4], arg_exprs[func_arg_start + 4]);
+                    }
+                    else
+                    {
+                        std::size_t order_idx = args.size() - 1;
+                        auto const* order_expr = arg_exprs[func_arg_start + order_idx];
+                        validate_atomic_order(f, args[order_idx], order_expr, op);
+                    }
                 }
             }
 
@@ -15500,9 +15554,8 @@ export namespace dcc::sema
                     if (is_direct_range)
                         m_allow_range_expr = true;
 
-                    auto* range_literal_type = is_direct_range && !f.by_reference && f.item_type && f.item_type->sema.canonical
-                                                   ? get_canonical(f.item_type->sema)
-                                                   : nullptr;
+                    auto* range_literal_type =
+                        is_direct_range && !f.by_reference && f.item_type && f.item_type->sema.canonical ? get_canonical(f.item_type->sema) : nullptr;
                     auto iterable_result = analyze_expr_or_error(mod, fn, scope, f.iterable, loop_depth, next_off, range_literal_type, const_env);
 
                     m_allow_range_expr = saved_allow_range;
@@ -17433,8 +17486,7 @@ export namespace dcc::sema
                         return {.type = m_types.m_errort()};
                     }
 
-                    return {.type = m_types.funcptr_t(resolve_type_node(mod, scope, fp->return_type, fn, next_off_ptr, const_env), params,
-                                                     fp->is_far)};
+                    return {.type = m_types.funcptr_t(resolve_type_node(mod, scope, fp->return_type, fn, next_off_ptr, const_env), params, fp->is_far)};
                 }
                 case ast::TypeKind::Qualified: {
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::QualifiedType const*>(t)->inner, fn, next_off_ptr, const_env);

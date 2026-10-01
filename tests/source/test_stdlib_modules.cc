@@ -1379,6 +1379,206 @@ public i32 main() {
         CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
 }
 
+TEST_CASE("atomic_compare_exchange succeeds and fails at every integer width on both backends")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import core::atomic;
+using core::atomic::MemoryOrder;
+using core::atomic::Atomic;
+
+i32 check(T)(volatile T* p, T a, T b, T c) {
+    *p = a;
+    T old = core::atomic::atomic_compare_exchange(p, a, b, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != a { return 1; }
+    if *p != b { return 2; }
+    old = core::atomic::atomic_compare_exchange(p, a, c, MemoryOrder::AcqRel, MemoryOrder::Acquire);
+    if old != b { return 3; }
+    if *p != b { return 4; }
+    old = core::atomic::atomic_compare_exchange(p, b, c, MemoryOrder::Relaxed, MemoryOrder::Relaxed);
+    if old != b { return 5; }
+    if *p != c { return 6; }
+    old = core::atomic::atomic_compare_exchange(p, a, b, MemoryOrder::Release, MemoryOrder::Relaxed);
+    if old != c { return 7; }
+    old = core::atomic::atomic_compare_exchange(p, c, a, MemoryOrder::Acquire, MemoryOrder::Acquire);
+    if old != c { return 8; }
+    if *p != a { return 9; }
+    old = core::atomic::atomic_compare_exchange(p, b, c, MemoryOrder::SeqCst, MemoryOrder::Acquire);
+    if old != a { return 10; }
+    if *p != a { return 11; }
+    return 0;
+}
+
+i32 check_wrapper(T)(Atomic(T)* p, T a, T b) {
+    p.value = a;
+    T old = core::atomic::atomic_compare_exchange(p, a, b, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != a { return 1; }
+    old = core::atomic::atomic_compare_exchange(p, a, a, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != b { return 2; }
+    if p.value != b { return 3; }
+    return 0;
+}
+volatile i8 g_i8;
+Atomic(i8) w_i8;
+volatile u8 g_u8;
+Atomic(u8) w_u8;
+volatile i16 g_i16;
+Atomic(i16) w_i16;
+volatile u16 g_u16;
+Atomic(u16) w_u16;
+volatile i32 g_i32;
+Atomic(i32) w_i32;
+volatile u32 g_u32;
+Atomic(u32) w_u32;
+volatile i64 g_i64;
+Atomic(i64) w_i64;
+volatile u64 g_u64;
+Atomic(u64) w_u64;
+
+public i32 main() {
+    i32 r;
+    r = check(&g_i8 as volatile i8*, -100 as i8, 90 as i8, 7 as i8);
+    if r != 0 { return 100 + r; }
+    r = check_wrapper(&w_i8, -100 as i8, 90 as i8);
+    if r != 0 { return 150 + r; }
+    r = check(&g_u8 as volatile u8*, 200 as u8, 250 as u8, 7 as u8);
+    if r != 0 { return 200 + r; }
+    r = check_wrapper(&w_u8, 200 as u8, 250 as u8);
+    if r != 0 { return 250 + r; }
+    r = check(&g_i16 as volatile i16*, -30000 as i16, 12000 as i16, 5 as i16);
+    if r != 0 { return 300 + r; }
+    r = check_wrapper(&w_i16, -30000 as i16, 12000 as i16);
+    if r != 0 { return 350 + r; }
+    r = check(&g_u16 as volatile u16*, 60000 as u16, 1 as u16, 2 as u16);
+    if r != 0 { return 400 + r; }
+    r = check_wrapper(&w_u16, 60000 as u16, 1 as u16);
+    if r != 0 { return 450 + r; }
+    r = check(&g_i32 as volatile i32*, -2000000000 as i32, 2000000000 as i32, 3 as i32);
+    if r != 0 { return 500 + r; }
+    r = check_wrapper(&w_i32, -2000000000 as i32, 2000000000 as i32);
+    if r != 0 { return 550 + r; }
+    r = check(&g_u32 as volatile u32*, 4000000000 as u32, 7 as u32, 9 as u32);
+    if r != 0 { return 600 + r; }
+    r = check_wrapper(&w_u32, 4000000000 as u32, 7 as u32);
+    if r != 0 { return 650 + r; }
+    r = check(&g_i64 as volatile i64*, -5000000000 as i64, 9000000000 as i64, 11 as i64);
+    if r != 0 { return 700 + r; }
+    r = check_wrapper(&w_i64, -5000000000 as i64, 9000000000 as i64);
+    if r != 0 { return 750 + r; }
+    r = check(&g_u64 as volatile u64*, 18000000000000000000 as u64, 5 as u64, 6 as u64);
+    if r != 0 { return 800 + r; }
+    r = check_wrapper(&w_u64, 18000000000000000000 as u64, 5 as u64);
+    if r != 0 { return 850 + r; }
+    return 0;
+}
+)DCC");
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}
+
+TEST_CASE("atomic_compare_exchange loops count exactly under contention on both backends")
+{
+    static constexpr std::string_view source = (R"DCC(module main;
+import std::os::thread;
+import core::atomic;
+
+using std::os::thread;
+using core::atomic::MemoryOrder;
+
+volatile i32 c32;
+volatile i64 c64;
+volatile u16 c16;
+volatile u8 c8;
+
+void inc32() {
+    i32 cur = c32;
+    for i32 n = 0; n < 5000; n++ {
+        while true {
+            i32 seen = core::atomic::atomic_compare_exchange(&c32 as volatile i32*, cur, cur + 1, MemoryOrder::SeqCst, MemoryOrder::Relaxed);
+            if seen == cur {
+                break;
+            }
+            cur = seen;
+        }
+        cur = cur + 1;
+    }
+}
+
+void inc64() {
+    i64 cur = c64;
+    for i32 n = 0; n < 5000; n++ {
+        while true {
+            i64 seen = core::atomic::atomic_compare_exchange(&c64 as volatile i64*, cur, cur + (3 as i64), MemoryOrder::AcqRel, MemoryOrder::Acquire);
+            if seen == cur {
+                break;
+            }
+            cur = seen;
+        }
+        cur = cur + (3 as i64);
+    }
+}
+
+void inc16() {
+    u16 cur = c16;
+    for i32 n = 0; n < 5000; n++ {
+        while true {
+            u16 seen = core::atomic::atomic_compare_exchange(&c16 as volatile u16*, cur, cur + (1 as u16), MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+            if seen == cur {
+                break;
+            }
+            cur = seen;
+        }
+        cur = cur + (1 as u16);
+    }
+}
+
+void inc8() {
+    u8 cur = c8;
+    for i32 n = 0; n < 5000; n++ {
+        while true {
+            u8 seen = core::atomic::atomic_compare_exchange(&c8 as volatile u8*, cur, cur + (1 as u8), MemoryOrder::SeqCst, MemoryOrder::Relaxed);
+            if seen == cur {
+                break;
+            }
+            cur = seen;
+        }
+        cur = cur + (1 as u8);
+    }
+}
+
+public i32 main() {
+    thread::Thread[8] ts;
+    for i32 i = 0; i < 2; i++ {
+        ts[i * 4] = thread::spawn(inc32).unwrap();
+        ts[i * 4 + 1] = thread::spawn(inc64).unwrap();
+        ts[i * 4 + 2] = thread::spawn(inc16).unwrap();
+        ts[i * 4 + 3] = thread::spawn(inc8).unwrap();
+    }
+    for i32 i = 0; i < 8; i++ {
+        if !ts[i].join().is_ok() {
+            return 1;
+        }
+    }
+    if c32 != 10000 {
+        return 2;
+    }
+    if c64 != (30000 as i64) {
+        return 3;
+    }
+    if c16 != (10000 as u16) {
+        return 4;
+    }
+    if c8 != ((10000 % 256) as u8) {
+        return 5;
+    }
+    return 0;
+}
+)DCC");
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}
+
 TEST_CASE("os::pipe transfer, EOF, and errors execute on llvm at O0 and O2")
 {
     static constexpr std::string_view source = (R"DCC(module main;
