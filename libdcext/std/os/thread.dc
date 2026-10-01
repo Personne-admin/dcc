@@ -860,22 +860,22 @@ public void call_once(Once* self, void(*)() fn) {
 
         return;
     } else static if core::target::OS == core::target::Os::Linux {
-        if atomic::atomic_load(
+        if (atomic::atomic_load(
             &self.state as volatile i32*,
             MemoryOrder::Acquire
-        ) == 2 {
+        ) & 2) != 0 {
             return;
         }
 
-        if atomic::atomic_exchange(
+        if (atomic::atomic_fetch_or(
             &self.state as volatile i32*,
             1 as i32,
             MemoryOrder::Acquire
-        ) == 0 {
+        ) & 1) == 0 {
             fn();
             atomic::atomic_store(
                 &self.state as volatile i32*,
-                2,
+                3,
                 MemoryOrder::Release
             );
             linux::syscall::futex(
@@ -889,10 +889,10 @@ public void call_once(Once* self, void(*)() fn) {
             return;
         }
 
-        while atomic::atomic_load(
+        while (atomic::atomic_load(
             &self.state as volatile i32*,
             MemoryOrder::Acquire
-        ) == 1 {
+        ) & 2) == 0 {
             linux::syscall::futex(
                 &self.state,
                 linux::abi::FUTEX_WAIT | linux::abi::FUTEX_PRIVATE_FLAG,
