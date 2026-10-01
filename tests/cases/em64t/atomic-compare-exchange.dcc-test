@@ -1,0 +1,59 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+using core::atomic::MemoryOrder;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+@nomangle
+core::atomic::Atomic(i64) g_wide = { value = 1000 };
+
+@nomangle
+core::atomic::Atomic(i32) g_word = { value = 7 };
+
+@nomangle
+core::atomic::Atomic(i16) g_half = { value = 300 };
+
+@nomangle
+core::atomic::Atomic(i8) g_byte = { value = 9 };
+
+@nomangle
+public i32 dcc_main() {
+    i64 w0 = core::atomic::atomic_compare_exchange(&g_wide, 1000 as i64, 2000 as i64, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if w0 != (1000 as i64) { return 1; }
+    i64 w1 = core::atomic::atomic_compare_exchange(&g_wide, 1000 as i64, 3000 as i64, MemoryOrder::SeqCst, MemoryOrder::Acquire);
+    if w1 != (2000 as i64) { return 2; }
+    i32 d0 = core::atomic::atomic_compare_exchange(&g_word, 7, 8, MemoryOrder::AcqRel, MemoryOrder::Acquire);
+    if d0 != 7 { return 3; }
+    i32 d1 = core::atomic::atomic_compare_exchange(&g_word, 7, 9, MemoryOrder::Relaxed, MemoryOrder::Relaxed);
+    if d1 != 8 { return 4; }
+    i16 h0 = core::atomic::atomic_compare_exchange(&g_half, 300 as i16, 301 as i16, MemoryOrder::Release, MemoryOrder::Relaxed);
+    if h0 != (300 as i16) { return 5; }
+    i16 h1 = core::atomic::atomic_compare_exchange(&g_half, 300 as i16, 302 as i16, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if h1 != (301 as i16) { return 6; }
+    i8 b0 = core::atomic::atomic_compare_exchange(&g_byte, 9 as i8, -3 as i8, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if b0 != (9 as i8) { return 7; }
+    i8 b1 = core::atomic::atomic_compare_exchange(&g_byte, 9 as i8, 4 as i8, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if b1 != (-3 as i8) { return 8; }
+    if core::atomic::atomic_load(&g_wide, MemoryOrder::SeqCst) != (2000 as i64) { return 9; }
+    if core::atomic::atomic_load(&g_word, MemoryOrder::SeqCst) != 8 { return 10; }
+    if core::atomic::atomic_load(&g_half, MemoryOrder::SeqCst) != (301 as i16) { return 11; }
+    if core::atomic::atomic_load(&g_byte, MemoryOrder::SeqCst) != (-3 as i8) { return 12; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: lock cmpxchg qword [
+CONTAINS: lock cmpxchg dword [
+CONTAINS: lock cmpxchg word [
+CONTAINS: lock cmpxchg byte [

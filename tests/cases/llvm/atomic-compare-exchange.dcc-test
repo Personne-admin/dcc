@@ -1,0 +1,66 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+
+public i32 cas_i32(volatile i32* p, i32 expected, i32 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
+}
+
+public i8 cas_i8(volatile i8* p, i8 expected, i8 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::AcqRel, core::atomic::MemoryOrder::Acquire);
+}
+
+public i16 cas_i16(volatile i16* p, i16 expected, i16 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::Release, core::atomic::MemoryOrder::Relaxed);
+}
+
+public i64 cas_i64(volatile i64* p, i64 expected, i64 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::Relaxed, core::atomic::MemoryOrder::Relaxed);
+}
+
+u32 cas_wrapper(core::atomic::Atomic(u32)* p, u32 expected, u32 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::Acquire, core::atomic::MemoryOrder::Acquire);
+}
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+%0 = type { i32 }
+
+define i32 @_DC0F1.4.test7.cas_i323PVqi32si32si32si32s(ptr %p, i32 %expected, i32 %desired) {
+entry:
+  %0 = cmpxchg ptr %p, i32 %expected, i32 %desired seq_cst seq_cst, align 4
+  %"0" = extractvalue { i32, i1 } %0, 0
+  ret i32 %"0"
+}
+
+define i8 @_DC0F1.4.test6.cas_i83PVqi8si8si8si8s(ptr %p, i8 %expected, i8 %desired) {
+entry:
+  %0 = cmpxchg ptr %p, i8 %expected, i8 %desired acq_rel acquire, align 1
+  %"0" = extractvalue { i8, i1 } %0, 0
+  ret i8 %"0"
+}
+
+define i16 @_DC0F1.4.test7.cas_i163PVqi16si16si16si16s(ptr %p, i16 %expected, i16 %desired) {
+entry:
+  %0 = cmpxchg ptr %p, i16 %expected, i16 %desired release monotonic, align 2
+  %"0" = extractvalue { i16, i1 } %0, 0
+  ret i16 %"0"
+}
+
+define i64 @_DC0F1.4.test7.cas_i643PVqi64si64si64si64s(ptr %p, i64 %expected, i64 %desired) {
+entry:
+  %0 = cmpxchg ptr %p, i64 %expected, i64 %desired monotonic monotonic, align 8
+  %"0" = extractvalue { i64, i1 } %0, 0
+  ret i64 %"0"
+}
+
+define i32 @_DC0F1.4.test11.cas_wrapper3PqD2.4.core6.atomic6.Atomic1.i32ui32ui32ui32u(ptr %p, i32 %expected, i32 %desired) {
+entry:
+  %"0" = getelementptr %0, ptr %p, i32 0, i32 0
+  %0 = cmpxchg ptr %"0", i32 %expected, i32 %desired acquire acquire, align 4
+  %"1" = extractvalue { i32, i1 } %0, 0
+  ret i32 %"1"
+}

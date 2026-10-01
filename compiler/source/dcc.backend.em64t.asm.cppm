@@ -300,6 +300,7 @@ namespace
             case MOpc::MOVZX32rr8:
             case MOpc::MOVZX32rm8:
             case MOpc::LOCK_XADD32mr:
+            case MOpc::LOCK_CMPXCHG32mr:
                 return RegWidth::Bits32;
 
             case MOpc::MOV16rr:
@@ -1584,18 +1585,29 @@ namespace
                          opc == MOpc::LOCK_XOR16mr)
                 {
                     lw = RegWidth::Bits16;
-                    mnem = (opc == MOpc::LOCK_XADD16mr) ? "lock xadd" : (opc == MOpc::LOCK_XCHG16mr) ? "lock xchg" : (opc == MOpc::LOCK_AND16mr) ? "lock and" : (opc == MOpc::LOCK_OR16mr) ? "lock or" : "lock xor";
+                    mnem = (opc == MOpc::LOCK_XADD16mr)   ? "lock xadd"
+                           : (opc == MOpc::LOCK_XCHG16mr) ? "lock xchg"
+                           : (opc == MOpc::LOCK_AND16mr)  ? "lock and"
+                           : (opc == MOpc::LOCK_OR16mr)   ? "lock or"
+                                                          : "lock xor";
                 }
                 else if (opc == MOpc::LOCK_XADD8mr || opc == MOpc::LOCK_XCHG8mr || opc == MOpc::LOCK_AND8mr || opc == MOpc::LOCK_OR8mr ||
                          opc == MOpc::LOCK_XOR8mr)
                 {
                     lw = RegWidth::Bits8;
-                    mnem = (opc == MOpc::LOCK_XADD8mr) ? "lock xadd" : (opc == MOpc::LOCK_XCHG8mr) ? "lock xchg" : (opc == MOpc::LOCK_AND8mr) ? "lock and" : (opc == MOpc::LOCK_OR8mr) ? "lock or" : "lock xor";
+                    mnem = (opc == MOpc::LOCK_XADD8mr)   ? "lock xadd"
+                           : (opc == MOpc::LOCK_XCHG8mr) ? "lock xchg"
+                           : (opc == MOpc::LOCK_AND8mr)  ? "lock and"
+                           : (opc == MOpc::LOCK_OR8mr)   ? "lock or"
+                                                         : "lock xor";
                 }
                 else if (opc == MOpc::LOCK_XCHG32mr || opc == MOpc::LOCK_AND32mr || opc == MOpc::LOCK_OR32mr || opc == MOpc::LOCK_XOR32mr)
                 {
                     lw = RegWidth::Bits32;
-                    mnem = (opc == MOpc::LOCK_XCHG32mr) ? "lock xchg" : (opc == MOpc::LOCK_AND32mr) ? "lock and" : (opc == MOpc::LOCK_OR32mr) ? "lock or" : "lock xor";
+                    mnem = (opc == MOpc::LOCK_XCHG32mr)  ? "lock xchg"
+                           : (opc == MOpc::LOCK_AND32mr) ? "lock and"
+                           : (opc == MOpc::LOCK_OR32mr)  ? "lock or"
+                                                         : "lock xor";
                 }
                 else
                     mnem = "lock xor";
@@ -1603,6 +1615,21 @@ namespace
                     out += mnem + " " + format_op(ctx, ops[0], lw, true) + ", " + std::string{reg_name_f(ops[1].reg.phys_reg(), lw)} + "\n";
                 else
                     out += "; lock atomic unrecognized\n";
+                break;
+            }
+
+            case MOpc::LOCK_CMPXCHG64mr:
+            case MOpc::LOCK_CMPXCHG32mr:
+            case MOpc::LOCK_CMPXCHG16mr:
+            case MOpc::LOCK_CMPXCHG8mr: {
+                RegWidth cw = opc == MOpc::LOCK_CMPXCHG64mr   ? RegWidth::Bits64
+                              : opc == MOpc::LOCK_CMPXCHG32mr ? RegWidth::Bits32
+                              : opc == MOpc::LOCK_CMPXCHG16mr ? RegWidth::Bits16
+                                                              : RegWidth::Bits8;
+                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
+                    out += "lock cmpxchg " + format_op(ctx, ops[0], cw, true) + ", " + std::string{reg_name_f(ops[1].reg.phys_reg(), cw)} + "\n";
+                else
+                    out += "; lock cmpxchg unrecognized\n";
                 break;
             }
 

@@ -3936,6 +3936,15 @@ export namespace dcc::ir::lower
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::Xor, ptr, args[1], order);
             }
+            else if (name == "atomic_compare_exchange")
+            {
+                if (args.size() < 5)
+                    lower_panic(call, "atomic_compare_exchange requires 5 arguments (ptr, expected, desired, success order, failure order)");
+                auto success = extract_order_from_arg(args[3], call);
+                auto failure = extract_order_from_arg(args[4], call);
+                auto* ptr = get_atomic_ptr(0);
+                result = m_ctx.atomic_cmpxchg(ir_ret, ptr, args[1], args[2], success, failure);
+            }
             else if (name == "atomic_fence")
             {
                 if (args.size() < 1)

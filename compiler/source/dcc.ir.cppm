@@ -277,6 +277,7 @@ export namespace dcc::ir
         AtomicLoad,
         AtomicStore,
         AtomicRmw,
+        AtomicCmpXchg,
         Fence,
         InlineAsm,
 
@@ -780,6 +781,24 @@ export namespace dcc::ir
 
         IrAtomicRmwInst(IrType const* result_t, IrAtomicRmwOp o, IrValue* ptr, IrValue* v, IrMemoryOrdering ord)
             : IrValue(Kind), op(o), pointer(ptr), value(v), ordering(ord)
+        {
+            type = result_t;
+        }
+    };
+
+    struct IrAtomicCmpXchgInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::AtomicCmpXchg;
+
+        IrValue* pointer;
+        IrValue* expected;
+        IrValue* desired;
+        IrMemoryOrdering success_ordering;
+        IrMemoryOrdering failure_ordering;
+        std::uint32_t alignment{};
+
+        IrAtomicCmpXchgInst(IrType const* result_t, IrValue* ptr, IrValue* exp, IrValue* des, IrMemoryOrdering success, IrMemoryOrdering failure)
+            : IrValue(Kind), pointer(ptr), expected(exp), desired(des), success_ordering(success), failure_ordering(failure)
         {
             type = result_t;
         }
@@ -1464,6 +1483,11 @@ export namespace dcc::ir
         {
             return make<IrAtomicRmwInst>(result_t, op, ptr, val, ord);
         }
+        [[nodiscard]] IrAtomicCmpXchgInst* atomic_cmpxchg(IrType const* result_t, IrValue* ptr, IrValue* expected, IrValue* desired, IrMemoryOrdering success,
+                                                          IrMemoryOrdering failure)
+        {
+            return make<IrAtomicCmpXchgInst>(result_t, ptr, expected, desired, success, failure);
+        }
         [[nodiscard]] IrFenceInst* fence(IrMemoryOrdering ord) { return make<IrFenceInst>(ord); }
 
         [[nodiscard]] IrGepInst* gep(IrType const* result_t, IrValue* base) { return make<IrGepInst>(result_t, base, m_arena); }
@@ -2132,6 +2156,9 @@ export namespace dcc::ir
                 case IrNodeKind::AtomicRmw:
                     print_atomic_rmw(static_cast<IrAtomicRmwInst const*>(inst), result_name);
                     break;
+                case IrNodeKind::AtomicCmpXchg:
+                    print_atomic_cmpxchg(static_cast<IrAtomicCmpXchgInst const*>(inst), result_name);
+                    break;
                 case IrNodeKind::Fence:
                     print_fence(static_cast<IrFenceInst const*>(inst));
                     break;
@@ -2336,6 +2363,23 @@ export namespace dcc::ir
             write(", ");
             print_op(inst->value);
             std::format_to(std::back_inserter(m_out), " \"{}\"", memory_ordering_str(inst->ordering));
+            m_out += '\n';
+        }
+
+        void print_atomic_cmpxchg(IrAtomicCmpXchgInst const* inst, std::string_view name)
+        {
+            pad();
+            if (!name.empty())
+                std::format_to(std::back_inserter(m_out), "%{} = ", name);
+
+            write("atomic_cmpxchg ");
+            print_op(inst->pointer);
+            write(", ");
+            print_op(inst->expected);
+            write(", ");
+            print_op(inst->desired);
+            std::format_to(std::back_inserter(m_out), " \"{}\" \"{}\"", memory_ordering_str(inst->success_ordering),
+                           memory_ordering_str(inst->failure_ordering));
             m_out += '\n';
         }
 

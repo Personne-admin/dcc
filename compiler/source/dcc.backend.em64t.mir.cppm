@@ -494,6 +494,10 @@ export namespace dcc::backend::em64t
         LOCK_XADD32mr,
         LOCK_XADD16mr,
         LOCK_XADD8mr,
+        LOCK_CMPXCHG64mr,
+        LOCK_CMPXCHG32mr,
+        LOCK_CMPXCHG16mr,
+        LOCK_CMPXCHG8mr,
         LOCK_XCHG64mr,
         LOCK_XCHG32mr,
         LOCK_XCHG16mr,
@@ -592,6 +596,10 @@ export namespace dcc::backend::em64t
                 case MOpc::LOCK_XADD32mr:
                 case MOpc::LOCK_XADD16mr:
                 case MOpc::LOCK_XADD8mr:
+                case MOpc::LOCK_CMPXCHG64mr:
+                case MOpc::LOCK_CMPXCHG32mr:
+                case MOpc::LOCK_CMPXCHG16mr:
+                case MOpc::LOCK_CMPXCHG8mr:
                 case MOpc::LOCK_XCHG:
                 case MOpc::LOCK_XCHG64mr:
                 case MOpc::LOCK_XCHG32mr:
@@ -1316,6 +1324,14 @@ export namespace dcc::backend::em64t
                 return "LOCK_XADD16mr"sv;
             case MOpc::LOCK_XADD8mr:
                 return "LOCK_XADD8mr"sv;
+            case MOpc::LOCK_CMPXCHG64mr:
+                return "LOCK_CMPXCHG64mr"sv;
+            case MOpc::LOCK_CMPXCHG32mr:
+                return "LOCK_CMPXCHG32mr"sv;
+            case MOpc::LOCK_CMPXCHG16mr:
+                return "LOCK_CMPXCHG16mr"sv;
+            case MOpc::LOCK_CMPXCHG8mr:
+                return "LOCK_CMPXCHG8mr"sv;
             case MOpc::LOCK_XCHG64mr:
                 return "LOCK_XCHG64mr"sv;
             case MOpc::LOCK_XCHG32mr:

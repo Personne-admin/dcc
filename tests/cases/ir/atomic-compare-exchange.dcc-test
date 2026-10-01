@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+
+public i32 cas_i32(volatile i32* p, i32 expected, i32 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
+}
+
+public i8 cas_i8(volatile i8* p, i8 expected, i8 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::AcqRel, core::atomic::MemoryOrder::Acquire);
+}
+
+public i16 cas_i16(volatile i16* p, i16 expected, i16 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::Release, core::atomic::MemoryOrder::Relaxed);
+}
+
+public i64 cas_i64(volatile i64* p, i64 expected, i64 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::Relaxed, core::atomic::MemoryOrder::Relaxed);
+}
+
+u32 cas_wrapper(core::atomic::Atomic(u32)* p, u32 expected, u32 desired) {
+    return core::atomic::atomic_compare_exchange(p, expected, desired, core::atomic::MemoryOrder::Acquire, core::atomic::MemoryOrder::Acquire);
+}
+
+=== EXPECT-IR ===
+module "test"
+i32@_DC0F1.4.test7.cas_i323PVqi32si32si32si32s(ptr<i32>, i32, i32) {
+%entry(ptr<i32> %p, i32 %expected, i32 %desired):
+  %0 = atomic_cmpxchg ptr<i32> %p, i32 %expected, i32 %desired "seq_cst" "seq_cst"
+  ret i32 %0
+}
+
+i8@_DC0F1.4.test6.cas_i83PVqi8si8si8si8s(ptr<i8>, i8, i8) {
+%entry(ptr<i8> %p, i8 %expected, i8 %desired):
+  %0 = atomic_cmpxchg ptr<i8> %p, i8 %expected, i8 %desired "acq_rel" "acquire"
+  ret i8 %0
+}
+
+i16@_DC0F1.4.test7.cas_i163PVqi16si16si16si16s(ptr<i16>, i16, i16) {
+%entry(ptr<i16> %p, i16 %expected, i16 %desired):
+  %0 = atomic_cmpxchg ptr<i16> %p, i16 %expected, i16 %desired "release" "relaxed"
+  ret i16 %0
+}
+
+i64@_DC0F1.4.test7.cas_i643PVqi64si64si64si64s(ptr<i64>, i64, i64) {
+%entry(ptr<i64> %p, i64 %expected, i64 %desired):
+  %0 = atomic_cmpxchg ptr<i64> %p, i64 %expected, i64 %desired "relaxed" "relaxed"
+  ret i64 %0
+}
+
+u32@_DC0F1.4.test11.cas_wrapper3PqD2.4.core6.atomic6.Atomic1.i32ui32ui32ui32u(ptr<{@0 u32}>, u32, u32) {
+%entry(ptr<{@0 u32}> %p, u32 %expected, u32 %desired):
+  %0 = gep ptr<{@0 u32}> %p, field #0
+  %1 = atomic_cmpxchg ptr<u32> %0, u32 %expected, u32 %desired "acquire" "acquire"
+  ret u32 %1
+}
+

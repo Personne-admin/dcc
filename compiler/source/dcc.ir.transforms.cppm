@@ -66,6 +66,7 @@ namespace dcc::ir::pass
             case IrNodeKind::AtomicLoad:
             case IrNodeKind::AtomicStore:
             case IrNodeKind::AtomicRmw:
+            case IrNodeKind::AtomicCmpXchg:
             case IrNodeKind::Fence:
             case IrNodeKind::Call:
             case IrNodeKind::CallTail:
@@ -307,6 +308,16 @@ namespace dcc::ir::pass
                         r->value = new_val;
                     break;
                 }
+                case IrNodeKind::AtomicCmpXchg: {
+                    auto* x = static_cast<IrAtomicCmpXchgInst*>(node);
+                    if (x->pointer == old_val)
+                        x->pointer = new_val;
+                    if (x->expected == old_val)
+                        x->expected = new_val;
+                    if (x->desired == old_val)
+                        x->desired = new_val;
+                    break;
+                }
                 case IrNodeKind::BrCond: {
                     auto& cond = static_cast<IrBrCondInst*>(node)->condition;
                     if (cond == old_val)
@@ -387,7 +398,7 @@ namespace dcc::ir::pass
     }
 
     [[nodiscard]] static bool promote_alloca(IrAllocaInst* alloca, FunctionPassContext& ctx, analysis::UseDef const& ud,
-                                              std::unordered_map<IrValue const*, IrBasicBlock*> const& home);
+                                             std::unordered_map<IrValue const*, IrBasicBlock*> const& home);
     [[nodiscard]] static bool merge_blocks(FunctionPassContext& ctx);
     [[nodiscard]] static bool remove_unreachable(FunctionPassContext& ctx);
 
@@ -430,7 +441,7 @@ namespace dcc::ir::pass
     }
 
     [[nodiscard]] static bool promote_alloca(IrAllocaInst* alloca, FunctionPassContext& ctx, analysis::UseDef const& ud,
-                                              std::unordered_map<IrValue const*, IrBasicBlock*> const& home)
+                                             std::unordered_map<IrValue const*, IrBasicBlock*> const& home)
     {
         if (alloca->count != nullptr)
             return false;
@@ -1133,7 +1144,6 @@ namespace dcc::ir::pass
             return nullptr;
         }
 
-
         [[nodiscard]] static bool inline_pure_flow_kind(IrNodeKind kind)
         {
             switch (kind)
@@ -1499,8 +1509,7 @@ namespace dcc::ir::pass
             return gate;
         }
 
-        [[nodiscard]] static bool inline_backward_flows_to(IrValue const* v, IrValue const* target, std::vector<IrValue const*>& seen,
-                                                          std::size_t& steps)
+        [[nodiscard]] static bool inline_backward_flows_to(IrValue const* v, IrValue const* target, std::vector<IrValue const*>& seen, std::size_t& steps)
         {
             if (!v || !target)
                 return false;
@@ -1529,8 +1538,7 @@ namespace dcc::ir::pass
                 }
                 case IrNodeKind::Insert: {
                     auto* i = static_cast<IrInsertInst const*>(v);
-                    return inline_backward_flows_to(i->aggregate, target, seen, steps) ||
-                           inline_backward_flows_to(i->value, target, seen, steps);
+                    return inline_backward_flows_to(i->aggregate, target, seen, steps) || inline_backward_flows_to(i->value, target, seen, steps);
                 }
                 case IrNodeKind::Aggregate: {
                     auto* a = static_cast<IrAggregateInst const*>(v);
@@ -2031,8 +2039,6 @@ namespace dcc::ir::pass
             return false;
         }
 
-
-
         [[nodiscard]] static bool inline_alloca_stores_field_const(IrAllocaInst const* a, IrFunction const& owner, std::uint32_t field, bool scalar,
                                                                    InlineFoldCtx const& fc, int depth, std::size_t& budget)
         {
@@ -2087,8 +2093,8 @@ namespace dcc::ir::pass
                             continue;
                         }
                         if (inst->kind == IrNodeKind::LoadVolatile || inst->kind == IrNodeKind::StoreVolatile || inst->kind == IrNodeKind::AtomicLoad ||
-                            inst->kind == IrNodeKind::AtomicStore || inst->kind == IrNodeKind::AtomicRmw || inst->kind == IrNodeKind::PtrToI ||
-                            inst->kind == IrNodeKind::InlineAsm)
+                            inst->kind == IrNodeKind::AtomicStore || inst->kind == IrNodeKind::AtomicRmw || inst->kind == IrNodeKind::AtomicCmpXchg ||
+                            inst->kind == IrNodeKind::PtrToI || inst->kind == IrNodeKind::InlineAsm)
                         {
                             auto touches = [&](IrValue const* op) {
                                 std::uint32_t f = derived_field(op);
@@ -2106,6 +2112,8 @@ namespace dcc::ir::pass
                                 hit = touches(as->pointer) || touches(as->value);
                             else if (auto* r = ir_cast<IrAtomicRmwInst const>(inst))
                                 hit = touches(r->pointer);
+                            else if (auto* cx = ir_cast<IrAtomicCmpXchgInst const>(inst))
+                                hit = touches(cx->pointer);
                             else if (auto* c = ir_cast<IrPtrToIInst const>(inst))
                                 hit = touches(c->operand);
                             else if (auto* ia = ir_cast<IrInlineAsmInst const>(inst))
@@ -2312,7 +2320,6 @@ namespace dcc::ir::pass
             RefuseMark,
             RefuseQuiet,
         };
-
 
         [[nodiscard]] static InlineSiteVerdict inline_gate_site(InlineSite const& site, IrFunction const* callee, InlineCalleeGate const& gate,
                                                                 std::vector<std::pair<IrValue const*, IrValue*>> const& argmap)
@@ -2894,6 +2901,19 @@ namespace dcc::ir::pass
                     }
                     break;
                 }
+                case IrNodeKind::AtomicCmpXchg: {
+                    auto* x = static_cast<IrAtomicCmpXchgInst const*>(v);
+                    auto* ptr = inline_clone_operand(x->pointer, ic);
+                    auto* exp = inline_clone_operand(x->expected, ic);
+                    auto* des = inline_clone_operand(x->desired, ic);
+                    if (ptr && exp && des)
+                    {
+                        auto* fresh = ic.ctx->atomic_cmpxchg(x->type, ptr, exp, des, x->success_ordering, x->failure_ordering);
+                        fresh->alignment = x->alignment;
+                        result = fresh;
+                    }
+                    break;
+                }
                 case IrNodeKind::Fence: {
                     auto* f = static_cast<IrFenceInst const*>(v);
                     result = ic.ctx->fence(f->ordering);
@@ -3367,8 +3387,7 @@ namespace dcc::ir::pass
 
                                 RefuseKey rk{caller, inst, callee};
                                 auto rcit = refuse_cache.find(rk);
-                                if (rcit != refuse_cache.end() && rcit->second.ver_caller == func_ver[caller] &&
-                                    rcit->second.ver_callee == func_ver[callee])
+                                if (rcit != refuse_cache.end() && rcit->second.ver_caller == func_ver[caller] && rcit->second.ver_callee == func_ver[callee])
                                 {
                                     refused_s6.insert({caller->name, callee->name});
                                     continue;

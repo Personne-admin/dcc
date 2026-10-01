@@ -2830,6 +2830,21 @@ namespace dcc::backend
                         val_map[inst] = result;
                         break;
                     }
+                    case IrNodeKind::AtomicCmpXchg: {
+                        auto* cx = static_cast<IrAtomicCmpXchgInst const*>(inst);
+                        auto* ptr = lookup(cx->pointer);
+                        auto* expected = lookup(cx->expected);
+                        auto* desired = lookup(cx->desired);
+                        if (!ptr || !expected || !desired)
+                            return false;
+
+                        auto* pair = LLVMBuildAtomicCmpXchg(builder, ptr, expected, desired, to_llvm_ordering(cx->success_ordering),
+                                                            to_llvm_ordering(cx->failure_ordering), false);
+                        auto* result = LLVMBuildExtractValue(builder, pair, 0, "");
+                        set_name(result);
+                        val_map[inst] = result;
+                        break;
+                    }
                     case IrNodeKind::Fence: {
                         auto* f = static_cast<IrFenceInst const*>(inst);
                         LLVMBuildFence(builder, to_llvm_ordering(f->ordering), false, "");

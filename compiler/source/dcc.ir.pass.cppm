@@ -691,6 +691,16 @@ namespace dcc::ir::pass
 
                     break;
                 }
+                case IrNodeKind::AtomicCmpXchg: {
+                    auto* x = static_cast<IrAtomicCmpXchgInst const*>(v);
+                    result = dst.atomic_cmpxchg(clone_type_impl(x->type, dst, cctx), clone_value_impl(x->pointer, dst, cctx),
+                                                clone_value_impl(x->expected, dst, cctx), clone_value_impl(x->desired, dst, cctx), x->success_ordering,
+                                                x->failure_ordering);
+                    if (result)
+                        static_cast<IrAtomicCmpXchgInst*>(result)->alignment = x->alignment;
+
+                    break;
+                }
                 case IrNodeKind::Fence: {
                     auto* f = static_cast<IrFenceInst const*>(v);
                     result = dst.fence(f->ordering);
