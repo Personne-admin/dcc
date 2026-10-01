@@ -154,12 +154,19 @@ $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.F
 @_DC0G1.4.test9.CHUNK_ERRD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0. = constant %2 { i8 1, [7 x i8] zeroinitializer, [40 x i8] c"\02\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00\00" }
 @_DC0G1.4.test8.USIZE_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %3 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\07\00\00\00\00\00\00\00" }
 @_DC0G1.4.test9.USIZE_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %3 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
-@0 = private constant %0 zeroinitializer
+@0 = private constant %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, align 8
+@1 = private constant %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, align 8
+@2 = private constant %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, align 8
+@3 = private constant %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, align 8
+@4 = private constant %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, align 8
+@5 = private constant %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, align 8
+@6 = private constant %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, align 8
+@7 = private constant %0 zeroinitializer, align 8
 
 define void @_DC0F1.4.test12.default_opts0D1.4.test4.Opts0.(ptr sret(%1) %0) {
 entry:
   %"0" = alloca %1, align 8
-  store %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, ptr %"0", align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 @0, i64 24, i1 false)
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %0, ptr align 8 %"0", i64 24, i1 false)
   ret void
 }
@@ -167,7 +174,7 @@ entry:
 define void @_DC0F1.4.test10.make_chunk0D1.4.test5.Chunk0.(ptr sret(%0) %0) {
 entry:
   %"0" = alloca %0, align 8
-  store %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, ptr %"0", align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 @1, i64 40, i1 false)
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %0, ptr align 8 %"0", i64 40, i1 false)
   ret void
 }
@@ -176,10 +183,10 @@ define void @_DC0F1.4.test13.make_chunk_ok0D1.4.test6.Result2.D1.4.test5.Chunk0.
 entry:
   %"1" = alloca [40 x i8], align 1
   %1 = alloca [40 x i8], align 1
-  store [40 x i8] zeroinitializer, ptr %1, align 1
+  call void @llvm.memset.p0.i64(ptr align 1 %1, i8 0, i64 40, i1 false)
   call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"1", ptr align 1 %1, i64 40, i1 false)
   %2 = alloca %0, align 8
-  store %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, ptr %2, align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %2, ptr align 8 @2, i64 40, i1 false)
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"1", ptr align 8 %2, i64 40, i1 false)
   %"2" = alloca [40 x i8], align 1
   call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"2", ptr align 1 %"1", i64 40, i1 false)
@@ -197,7 +204,7 @@ define void @_DC0F1.4.test14.make_chunk_err0D1.4.test6.Result2.D1.4.test5.Chunk0
 entry:
   %"1" = alloca [40 x i8], align 1
   %1 = alloca [40 x i8], align 1
-  store [40 x i8] zeroinitializer, ptr %1, align 1
+  call void @llvm.memset.p0.i64(ptr align 1 %1, i8 0, i64 40, i1 false)
   call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"1", ptr align 1 %1, i64 40, i1 false)
   store i8 2, ptr %"1", align 1
   %"2" = alloca [40 x i8], align 1
@@ -262,7 +269,7 @@ if.else5:                                         ; preds = %if.merge3
   br label %if.merge6
 
 if.merge6:                                        ; preds = %if.else5
-  store %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, ptr %3, align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %3, ptr align 8 @3, i64 24, i1 false)
   %5 = getelementptr %1, ptr %3, i32 0, i32 0
   %"6" = load i8, ptr %5, align 1
   %"7" = icmp ne i8 %"6", 32
@@ -284,7 +291,7 @@ if.else11:                                        ; preds = %if.merge9
   br label %if.merge12
 
 if.merge12:                                       ; preds = %if.else11
-  store %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }, ptr %2, align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %2, ptr align 8 @4, i64 40, i1 false)
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"9", ptr align 8 %2, i64 40, i1 false)
   %"10" = getelementptr %0, ptr %"9", i32 0, i32 0
   %"11" = load i64, ptr %"10", align 4
@@ -311,7 +318,7 @@ if.else17:                                        ; preds = %if.merge15
   br label %if.merge18
 
 if.merge18:                                       ; preds = %if.else17
-  store %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, ptr %1, align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %1, ptr align 8 @5, i64 24, i1 false)
   %7 = getelementptr %1, ptr %1, i32 0, i32 8
   %"16" = load i64, ptr %7, align 4
   %"17" = icmp ne i64 %"16", 0
@@ -324,7 +331,7 @@ if.else20:                                        ; preds = %if.merge18
   br label %if.merge21
 
 if.merge21:                                       ; preds = %if.else20
-  store %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, ptr %0, align 4
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %0, ptr align 8 @6, i64 24, i1 false)
   %8 = getelementptr %1, ptr %0, i32 0, i32 9
   %"18" = load i64, ptr %8, align 4
   %"19" = icmp ne i64 %"18", -1
@@ -535,7 +542,7 @@ entry:
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
-  %"9" = phi ptr [ %"8", %match.arm0.body4 ], [ @0, %match.arm1.body6 ]
+  %"9" = phi ptr [ %"8", %match.arm0.body4 ], [ @7, %match.arm1.body6 ]
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %0, ptr align 8 %"9", i64 40, i1 false)
   ret void
 

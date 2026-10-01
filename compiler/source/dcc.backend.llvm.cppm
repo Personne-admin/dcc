@@ -2038,28 +2038,6 @@ namespace dcc::backend
                 apply_linkage_and_comdat(llvm_func, func->linkage, mod, func->name);
                 val_map[func] = llvm_func;
 
-                auto large_for_optimizer = [&](IrType const* type) { return type && type->byte_size > 32 * (tc.pointer_bits / 8); };
-                bool has_large_storage = (sret && large_for_optimizer(ft->return_type)) ||
-                                         std::ranges::any_of(ft->params, [&](auto* type) { return tc.indirect(type) && large_for_optimizer(type); });
-                for (auto* block : func->blocks)
-                    if (block)
-                        for (auto* inst : block->instructions)
-                            if (inst && ((tc.indirect(inst->type) && large_for_optimizer(inst->type)) ||
-                                         (inst->kind == IrNodeKind::Alloca && tc.indirect(static_cast<IrAllocaInst const*>(inst)->allocated_type) &&
-                                          large_for_optimizer(static_cast<IrAllocaInst const*>(inst)->allocated_type))))
-                                has_large_storage = true;
-
-                if (has_large_storage)
-                {
-                    for (auto const* name : {"optnone", "noinline"})
-                    {
-                        auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
-                        if (kind != 0)
-                            LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex),
-                                                    LLVMCreateEnumAttribute(ctx, kind, 0));
-                    }
-                }
-
                 auto add_indirect_attr = [&](unsigned index, IrType const* type, const char* name) {
                     auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
                     if (kind != 0)
@@ -2144,7 +2122,7 @@ namespace dcc::backend
 
                 for (auto const& a : func->attrs)
                 {
-                    if (a.kind == IrFuncAttr::Inline && !has_large_storage)
+                    if (a.kind == IrFuncAttr::Inline)
                     {
                         auto kind = LLVMGetEnumAttributeKindForName("alwaysinline", 12);
                         if (kind != 0)
@@ -2493,6 +2471,7 @@ namespace dcc::backend
                                         auto* global = LLVMAddGlobal(LLVMGetGlobalParent(llvm_func), llvm_type_cached(tc, pred.value->type), "");
                                         LLVMSetLinkage(global, LLVMPrivateLinkage);
                                         LLVMSetGlobalConstant(global, 1);
+                                        LLVMSetAlignment(global, static_cast<unsigned>(pred.value->type->byte_align));
                                         LLVMSetInitializer(global, c);
                                         c = global;
                                     }
@@ -2602,6 +2581,29 @@ namespace dcc::backend
                 LLVMBuildMemSet(builder, dst, zero, size, static_cast<unsigned>(type->byte_align));
             }
 
+            [[nodiscard]] static LLVMValueRef materialize_indirect_constant(LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc, IrType const* type,
+                                                                            LLVMValueRef c)
+            {
+                auto* slot = build_frame_slot(builder, llvm_type_cached(tc, type));
+                if (LLVMIsConstant(c) && LLVMIsNull(c))
+                    zero_indirect(builder, ctx, type, slot);
+                else
+                {
+                    auto* insert_bb = LLVMGetInsertBlock(builder);
+                    auto* func = insert_bb ? LLVMGetBasicBlockParent(insert_bb) : nullptr;
+                    auto* mod = func ? LLVMGetGlobalParent(func) : nullptr;
+                    if (!mod)
+                        return nullptr;
+                    auto* global = LLVMAddGlobal(mod, llvm_type_cached(tc, type), "");
+                    LLVMSetLinkage(global, LLVMPrivateLinkage);
+                    LLVMSetGlobalConstant(global, 1);
+                    LLVMSetAlignment(global, static_cast<unsigned>(type->byte_align));
+                    LLVMSetInitializer(global, c);
+                    copy_indirect(builder, ctx, type, slot, global);
+                }
+                return slot;
+            }
+
             [[nodiscard]] static bool emit_instruction(IrValue const* inst, LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc,
                                                        std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
                                                        [[maybe_unused]] std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map,
@@ -2627,9 +2629,9 @@ namespace dcc::backend
                     {
                         if (tc.indirect(v->type))
                         {
-                            auto* slot = build_frame_slot(builder, llvm_type_cached(tc, v->type));
-                            LLVMBuildStore(builder, c, slot);
-                            c = slot;
+                            c = materialize_indirect_constant(builder, ctx, tc, v->type, c);
+                            if (!c)
+                                return nullptr;
                         }
                         val_map[v] = c;
                         return c;
@@ -3876,9 +3878,9 @@ namespace dcc::backend
                         {
                             if (tc.indirect(agg->type))
                             {
-                                auto* slot = build_frame_slot(builder, agg_ty);
-                                LLVMBuildStore(builder, const_val, slot);
-                                const_val = slot;
+                                const_val = materialize_indirect_constant(builder, ctx, tc, agg->type, const_val);
+                                if (!const_val)
+                                    return false;
                             }
                             set_name(const_val);
                             val_map[inst] = const_val;
@@ -4369,9 +4371,9 @@ namespace dcc::backend
                     {
                         if (tc.indirect(v->type))
                         {
-                            auto* slot = build_frame_slot(builder, llvm_type_cached(tc, v->type));
-                            LLVMBuildStore(builder, c, slot);
-                            c = slot;
+                            c = materialize_indirect_constant(builder, ctx, tc, v->type, c);
+                            if (!c)
+                                return nullptr;
                         }
                         val_map[v] = c;
                         return c;
