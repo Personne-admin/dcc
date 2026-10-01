@@ -150,8 +150,9 @@ namespace dcc::backend::em64t
                    opc == MOpc::CVTSS2SIrr || opc == MOpc::CVTTSS2SI_r || opc == MOpc::MOVQ64rr_rev;
         }
 
-        [[nodiscard]] RegClass infer_reg_class(MFunction const& func, VReg vreg, target::TargetConfig const& target)
+        [[nodiscard]] std::unordered_set<VReg> infer_reg_classes(MFunction const& func)
         {
+            std::unordered_set<VReg> xmm;
             for (auto const& blk : func.blocks)
             {
                 for (auto const& instr : blk.instrs)
@@ -161,41 +162,41 @@ namespace dcc::backend::em64t
                         if (is_gpr_src_xmm_opc(instr.opc))
                         {
                             for (std::uint8_t i = 0; i < instr.num_defs; ++i)
-                                if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg == vreg)
-                                    return RegClass::XMM;
+                                if (instr.ops[i].kind == MOpKind::Reg)
+                                    xmm.insert(instr.ops[i].reg);
                         }
                         else if (is_xmm_src_gpr_opc(instr.opc))
                         {
                             for (std::uint8_t i = instr.num_defs; i < instr.num_ops; ++i)
-                                if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg == vreg)
-                                    return RegClass::XMM;
+                                if (instr.ops[i].kind == MOpKind::Reg)
+                                    xmm.insert(instr.ops[i].reg);
                         }
                         else
                         {
                             for (std::uint8_t i = 0; i < instr.num_ops; ++i)
-                                if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg == vreg)
-                                    return RegClass::XMM;
+                                if (instr.ops[i].kind == MOpKind::Reg)
+                                    xmm.insert(instr.ops[i].reg);
                         }
                     }
 
                     if (is_gpr_copy(instr.opc))
                         for (std::uint8_t i = 0; i < instr.num_ops; ++i)
-                            if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg == vreg)
+                            if (instr.ops[i].kind == MOpKind::Reg)
                                 for (std::uint8_t j = 0; j < instr.num_ops; ++j)
                                     if (i != j && instr.ops[j].kind == MOpKind::Reg && instr.ops[j].reg.is_physical())
                                     {
                                         auto pr = instr.ops[j].reg.phys_reg();
                                         if (reg_class(pr) == RegClass::XMM)
-                                            return RegClass::XMM;
+                                            xmm.insert(instr.ops[i].reg);
                                     }
 
                     if (instr.opc == MOpc::MOVQ64rr)
-                        if (instr.num_ops >= 2 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg == vreg)
-                            return RegClass::XMM;
+                        if (instr.num_ops >= 2 && instr.ops[0].kind == MOpKind::Reg)
+                            xmm.insert(instr.ops[0].reg);
 
                     if (instr.opc == MOpc::MOVQ64rr_rev)
-                        if (instr.num_ops >= 2 && instr.ops[1].kind == MOpKind::Reg && instr.ops[1].reg == vreg)
-                            return RegClass::XMM;
+                        if (instr.num_ops >= 2 && instr.ops[1].kind == MOpKind::Reg)
+                            xmm.insert(instr.ops[1].reg);
 
                     for (int pi = 0; pi < static_cast<int>(PhysReg::Count); ++pi)
                     {
@@ -206,15 +207,14 @@ namespace dcc::backend::em64t
                         if (reg_class(pr) != RegClass::XMM)
                             continue;
 
-                        if (instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg == vreg)
-                            return RegClass::XMM;
-                        if (instr.num_ops > 0 && instr.ops[instr.num_ops - 1].kind == MOpKind::Reg && instr.ops[instr.num_ops - 1].reg == vreg)
-                            return RegClass::XMM;
+                        if (instr.ops[0].kind == MOpKind::Reg)
+                            xmm.insert(instr.ops[0].reg);
+                        if (instr.num_ops > 0 && instr.ops[instr.num_ops - 1].kind == MOpKind::Reg)
+                            xmm.insert(instr.ops[instr.num_ops - 1].reg);
                     }
                 }
             }
-            (void)target;
-            return RegClass::GPR64;
+            return xmm;
         }
 
         void eliminate_phis(MFunction& func)
@@ -415,7 +415,7 @@ namespace dcc::backend::em64t
 
         constexpr std::uint32_t kBlockStride = 512;
 
-        void compute_liveness(MFunction& func, target::TargetConfig const& target, std::vector<LiveRange>& ranges)
+        void compute_liveness(MFunction& func, std::vector<LiveRange>& ranges)
         {
 
             struct BlockLiveness
@@ -567,6 +567,7 @@ namespace dcc::backend::em64t
             }
 
             ranges.reserve(all_vregs.size());
+            auto xmm_vregs = infer_reg_classes(func);
             for (auto vreg : all_vregs)
             {
                 LiveRange lr;
@@ -606,7 +607,7 @@ namespace dcc::backend::em64t
                 }
 
                 lr.start = std::min(lr.start, lr.end);
-                lr.reg_class = infer_reg_class(func, vreg, target);
+                lr.reg_class = xmm_vregs.contains(vreg) ? RegClass::XMM : RegClass::GPR64;
 
                 ranges.push_back(lr);
             }
@@ -1806,10 +1807,11 @@ namespace dcc::backend::em64t
             }
         }
 
-        void post_check_and_fix(MFunction& func, target::TargetConfig const& target)
+        void post_check_and_fix(MFunction& func)
         {
             VReg scratch_gpr = VReg::phys(PhysReg::R11);
             VReg scratch_xmm = VReg::phys(PhysReg::XMM15);
+            auto xmm_vregs = infer_reg_classes(func);
 
             for (auto& blk : func.blocks)
             {
@@ -1853,7 +1855,7 @@ namespace dcc::backend::em64t
                         auto& op = instr.ops[oi];
                         if (op.kind == MOpKind::Reg && op.reg.is_virtual())
                         {
-                            RegClass rc = infer_reg_class(func, op.reg, target);
+                            RegClass rc = xmm_vregs.contains(op.reg) ? RegClass::XMM : RegClass::GPR64;
                             op.reg = (rc == RegClass::XMM) ? scratch_xmm : scratch_gpr;
                         }
                         else if (op.kind == MOpKind::Mem)
@@ -1897,7 +1899,7 @@ export namespace dcc::backend::em64t
         eliminate_phis(func);
 
         std::vector<LiveRange> ranges;
-        compute_liveness(func, target, ranges);
+        compute_liveness(func, ranges);
 
         linear_scan(func, target, ranges);
 
@@ -1907,7 +1909,7 @@ export namespace dcc::backend::em64t
 
         insert_callee_saves(func, target, ranges);
 
-        post_check_and_fix(func, target);
+        post_check_and_fix(func);
 
         remove_redundant_moves(func);
     }
