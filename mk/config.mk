@@ -16,6 +16,10 @@ INSTALL ?= install
 
 STATIC_LINK ?= 0
 
+ifeq ($(strip $(DCC_VERSION)),)
+  DCC_VERSION := 0.3.0
+endif
+
 SCAN_DEPS ?= $(shell which clang-scan-deps 2>/dev/null)
 ifneq ($(filter clean distclean,$(MAKECMDGOALS)),)
 else
@@ -107,3 +111,9 @@ FORCE:
 $(PREFIX_STAMP): FORCE
 	@mkdir -p $(dir $@)
 	@if [ "$$(cat $@ 2>/dev/null)" != "$(DCC_INSTALL_PREFIX)" ]; then echo "$(DCC_INSTALL_PREFIX)" > $@; fi
+
+VERSION_STAMP := $(DEP_DIR)/dcc-version.stamp
+
+$(VERSION_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@if [ "$$(cat $@ 2>/dev/null)" != "$(DCC_VERSION)" ]; then echo "$(DCC_VERSION)" > $@; fi
