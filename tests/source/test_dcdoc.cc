@@ -879,6 +879,17 @@ TEST_CASE("markdown zero-item output is non-empty")
     CHECK(md_blocks_separated(md));
 }
 
+namespace
+{
+    std::filesystem::path build_prefix()
+    {
+        const char* archive = ::getenv("DCC_TEST_LIBDCEXT_A");
+        if (!archive)
+            return {};
+        return std::filesystem::path{archive}.parent_path().parent_path();
+    }
+}
+
 TEST_CASE("stdlib resolves via default prefix root")
 {
     const char* std_root = ::getenv("DCC_TEST_LIBDCEXT_SRC");
@@ -889,7 +900,7 @@ TEST_CASE("stdlib resolves via default prefix root")
         return;
     TempDir td;
     td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Entry with [`std::fmt::Writer`].\npublic void run() {}\n");
-    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}, {}, build_prefix()};
     dcdoc::Project project = builder.build();
     CHECK(project.file_errors.empty());
     CHECK(contains(dcdoc::dump(project), "target:\"std::fmt::Writer#struct\" resolved:true"));
@@ -905,7 +916,7 @@ TEST_CASE("stdlib modules render no chapters but keep resolved refs")
         return;
     TempDir td;
     td.write_file("main.dc", "module main;\npublic import std::fmt;\n\n/// Formats via [`std::fmt::Writer`].\npublic void run() {}\n");
-    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}, {}, build_prefix()};
     dcdoc::Project project = builder.build();
     REQUIRE(project.file_errors.empty());
     std::string dump = dcdoc::dump(project);
@@ -941,7 +952,7 @@ TEST_CASE("project core module gets a listing while prefix and virtual modules d
     td.write_file("main.dc", "module main;\npublic import core::util;\n"
                              "public import core::atomic;\npublic import std::fmt;\n"
                              "/// Entry.\npublic void run() {}\n");
-    dcdoc::Builder builder{td.path / "main.dc", {td.path}};
+    dcdoc::Builder builder{td.path / "main.dc", {td.path}, {}, build_prefix()};
     auto project = builder.build();
     REQUIRE(project.file_errors.empty());
     std::string dump = dcdoc::dump(project);

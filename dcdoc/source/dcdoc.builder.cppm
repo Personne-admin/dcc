@@ -23,8 +23,9 @@ export namespace dcdoc
     class Builder
     {
     public:
-        explicit Builder(std::filesystem::path entry_file, std::vector<std::filesystem::path> roots = {}, std::string argv0 = {})
-            : m_entry{std::move(entry_file)}, m_roots{std::move(roots)}, m_argv0{std::move(argv0)}
+        explicit Builder(std::filesystem::path entry_file, std::vector<std::filesystem::path> roots = {}, std::string argv0 = {},
+                         std::filesystem::path prefix = {})
+            : m_entry{std::move(entry_file)}, m_roots{std::move(roots)}, m_argv0{std::move(argv0)}, m_prefix{std::move(prefix)}
         {
         }
 
@@ -50,7 +51,7 @@ export namespace dcdoc
                 opts.import_roots.push_back(r);
             std::string arg = m_argv0;
             char* av[2] = {arg.data(), nullptr};
-            auto prefix = dcc::config::current_prefix(m_argv0.empty() ? nullptr : av).path;
+            auto prefix = m_prefix.empty() ? dcc::config::current_prefix(m_argv0.empty() ? nullptr : av).path : m_prefix;
             std::error_code ec;
             auto std_root = prefix / "include";
             if (std::filesystem::is_directory(std_root, ec) && !ec)
@@ -76,6 +77,7 @@ export namespace dcdoc
         std::filesystem::path m_entry;
         std::vector<std::filesystem::path> m_roots;
         std::string m_argv0;
+        std::filesystem::path m_prefix;
         std::uint64_t m_instantiation_count{};
         std::unordered_set<std::string> m_project_files;
         std::filesystem::path m_prefix_include_root;
