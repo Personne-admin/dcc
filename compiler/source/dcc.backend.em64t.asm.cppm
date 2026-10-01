@@ -1236,6 +1236,13 @@ namespace
                 out += "cdq\n";
                 break;
 
+            case MOpc::REPMOVS:
+                out += "rep movsb\n";
+                break;
+            case MOpc::REPSTOS:
+                out += "rep stosb\n";
+                break;
+
             case MOpc::PUSH64r:
                 if (np >= 1 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical())
                     out += "push " + std::string{reg64(ops[0].reg.phys_reg())} + "\n";

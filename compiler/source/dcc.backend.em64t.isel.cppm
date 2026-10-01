@@ -780,8 +780,73 @@ namespace dcc::backend::em64t
             return addr;
         }
 
+        constexpr std::uint64_t kRepStringThreshold = 256;
+
+        void emit_rep_movs(IselCtx& ctx, VReg dst_addr, VReg src_addr, std::uint64_t size)
+        {
+            VReg rsi = VReg::phys(PhysReg::RSI);
+            VReg rdi = VReg::phys(PhysReg::RDI);
+            VReg rcx = VReg::phys(PhysReg::RCX);
+            emit_mov(ctx, rsi, src_addr);
+            emit_mov(ctx, rdi, dst_addr);
+            emit_mov_ri(ctx, rcx, static_cast<std::int64_t>(size), 32);
+            MInstr rep;
+            rep.opc = MOpc::REPMOVS;
+            rep.num_ops = 0;
+            rep.num_defs = 0;
+            ctx.add_implicit_defs(rep, std::array{PhysReg::RSI, PhysReg::RDI, PhysReg::RCX});
+            ctx.add_implicit_uses(rep, std::array{PhysReg::RSI, PhysReg::RDI, PhysReg::RCX});
+            ctx.append_instr(rep);
+        }
+
+        void emit_rep_stos(IselCtx& ctx, VReg dst_addr, std::uint64_t size)
+        {
+            VReg rdi = VReg::phys(PhysReg::RDI);
+            VReg rcx = VReg::phys(PhysReg::RCX);
+            VReg rax = VReg::phys(PhysReg::RAX);
+            emit_mov(ctx, rdi, dst_addr);
+            emit_mov_ri(ctx, rcx, static_cast<std::int64_t>(size), 32);
+            MInstr xr;
+            xr.opc = MOpc::XOR64rr;
+            xr.num_ops = 3;
+            xr.num_defs = 1;
+            xr.ops[0] = MOp::from_reg(rax);
+            xr.ops[1] = MOp::from_reg(rax);
+            xr.ops[2] = MOp::from_reg(rax);
+            ctx.append_instr(xr);
+            MInstr rep;
+            rep.opc = MOpc::REPSTOS;
+            rep.num_ops = 0;
+            rep.num_defs = 0;
+            ctx.add_implicit_defs(rep, std::array{PhysReg::RDI, PhysReg::RCX});
+            ctx.add_implicit_uses(rep, std::array{PhysReg::RDI, PhysReg::RCX, PhysReg::RAX});
+            ctx.append_instr(rep);
+        }
+
+        [[nodiscard]] bool is_zero_constant(dcc::ir::IrValue const* v) noexcept
+        {
+            if (!v)
+                return true;
+            switch (v->kind)
+            {
+                case dcc::ir::IrNodeKind::IntConstant:
+                    return static_cast<dcc::ir::IrIntConstant const*>(v)->value == 0;
+                case dcc::ir::IrNodeKind::BoolConstant:
+                    return !static_cast<dcc::ir::IrBoolConstant const*>(v)->value;
+                case dcc::ir::IrNodeKind::NullConstant:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
         void emit_mem_copy(IselCtx& ctx, VReg dst_addr, VReg src_addr, std::uint64_t size)
         {
+            if (size >= kRepStringThreshold)
+            {
+                emit_rep_movs(ctx, dst_addr, src_addr, size);
+                return;
+            }
             for (std::uint64_t off = 0; off < size;)
             {
                 std::uint64_t chunk = 8;
@@ -926,6 +991,15 @@ namespace dcc::backend::em64t
                 lea.ops[0] = MOp::from_reg(addr);
                 lea.ops[1] = MOp::from_frame_slot(slot_idx);
                 ctx.append_instr(lea);
+            }
+
+            bool all_zero = agg_size >= kRepStringThreshold;
+            for (auto const* member : agg->values)
+                all_zero = all_zero && is_zero_constant(member);
+            if (all_zero)
+            {
+                emit_rep_stos(ctx, addr, agg_size);
+                return addr;
             }
 
             dcc::ir::IrType const* agg_type = agg->type;
@@ -4293,6 +4367,5 @@ namespace dcc::backend::em64t
         fold_addresses(mfunc);
         return mfunc;
     }
-
 
 } // namespace dcc::backend::em64t
