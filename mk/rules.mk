@@ -55,6 +55,6 @@ endef
 define link-binary
 	@mkdir -p $(dir $(1))
 	$(call MSG,LD,$(1))
-	$(Q)$(CXX) $(BASE_LDFLAGS) $(2) $(3) -o $(1)
+	$(Q)$(CXX) $(BASE_LDFLAGS) $(2) $(3) $(LINK_TAIL_LDFLAGS) -o $(1)
 	$(DSYM_CMD)
 endef

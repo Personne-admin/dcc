@@ -14,6 +14,8 @@ endif
 
 INSTALL ?= install
 
+STATIC_LINK ?= 0
+
 SCAN_DEPS ?= $(shell which clang-scan-deps 2>/dev/null)
 ifneq ($(filter clean distclean,$(MAKECMDGOALS)),)
 else
@@ -83,7 +85,19 @@ DCC_PREFIX_DEF := -DDCC_INSTALL_PREFIX='"$(DCC_INSTALL_PREFIX)"'
 BASE_CXXFLAGS := $(CXXSTD) $(WARNS) $(OPT_FLAGS) $(DEBUG_FLAGS) $(SAN_FLAGS) \
                  $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(DCC_PREFIX_DEF) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="")
 
-BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) $(if $(filter windows,$(CROSS)),-static,-lc++abi)
+ifeq ($(CROSS),windows)
+  BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) -static
+  LINK_TAIL_LDFLAGS :=
+  CMARK_LIBS := -lcmark
+else ifeq ($(STATIC_LINK),1)
+  BASE_LDFLAGS := $(SAN_FLAGS) -nostdlib++ -static-libgcc
+  LINK_TAIL_LDFLAGS := -Wl,-Bstatic -lc++ -lc++abi -Wl,-Bdynamic
+  CMARK_LIBS := -l:libcmark.a
+else
+  BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) -lc++abi
+  LINK_TAIL_LDFLAGS :=
+  CMARK_LIBS := -lcmark
+endif
 
 .DEFAULT_GOAL := all
 
