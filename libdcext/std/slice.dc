@@ -84,7 +84,7 @@ public bool starts_with(T)([] const T items, [] const T prefix) if Eq(T) {
         return false;
     }
 
-    return eq(items[0.. prefix.len], prefix);
+    return eq(items[0..prefix.len], prefix);
 }
 
 public bool ends_with(T)([] const T items, [] const T suffix) if Eq(T) {
@@ -92,7 +92,7 @@ public bool ends_with(T)([] const T items, [] const T suffix) if Eq(T) {
         return false;
     }
 
-    return eq(items[items.len - suffix.len.. items.len], suffix);
+    return eq(items[items.len - suffix.len..items.len], suffix);
 }
 
 public Optional(usize) index_of(T)([] const T items, T needle) if Eq(T) {
@@ -131,7 +131,7 @@ public Optional(usize) find(T)([] const T items, [] const T pattern) if Eq(T) {
 
     usize limit = items.len - pattern.len + 1;
     for usize i = 0; i < limit; i++ {
-        if eq(items[i.. i + pattern.len], pattern) {
+        if eq(items[i..i + pattern.len], pattern) {
             return Optional::Some(i);
         }
     }
@@ -206,8 +206,8 @@ public void rotate_left(T)([] T items, usize n) {
         return;
     }
 
-    reverse(items[0.. k]);
-    reverse(items[k.. items.len]);
+    reverse(items[0..k]);
+    reverse(items[k..items.len]);
     reverse(items);
 }
 
@@ -278,7 +278,7 @@ public Optional([] const T) next(T)(Split(T)* self) if Eq(T) {
     }
 
     usize i = at.unwrap_some();
-    [] const T piece = self.rest[0.. i];
-    self.rest = self.rest[i + 1.. self.rest.len];
+    [] const T piece = self.rest[0..i];
+    self.rest = self.rest[i + 1..self.rest.len];
     return Optional::Some(piece);
 }

@@ -123,7 +123,9 @@ public Result(Decoded, Utf8Error) decode([] const u8 bytes) {
     if minimal == 0 {
         return if cp >= 0xD800 && cp <= 0xDFFF {
             Utf8Error::Surrogate
-        } else { Utf8Error::OutOfRange };
+        } else {
+            Utf8Error::OutOfRange
+        };
     }
     if minimal != width {
         return Utf8Error::Overlong;
@@ -151,7 +153,9 @@ public Result(usize, Utf8Error) encode(u32 cp, [] u8 out) {
     if width == 0 {
         return if cp >= 0xD800 && cp <= 0xDFFF {
             Utf8Error::Surrogate
-        } else { Utf8Error::OutOfRange };
+        } else {
+            Utf8Error::OutOfRange
+        };
     }
     if width > out.len {
         return Utf8Error::Truncated;
@@ -191,7 +195,7 @@ public Optional(usize) validate([] const u8 bytes) {
     usize i = 0;
 
     while i < bytes.len {
-        Result(Decoded, Utf8Error) d = decode(bytes[i.. bytes.len]);
+        Result(Decoded, Utf8Error) d = decode(bytes[i..bytes.len]);
         if d.is_ok() {
             i = i + d.unwrap().width;
         } else {
@@ -212,7 +216,7 @@ public usize count_codepoints([] const u8 bytes) {
     usize i = 0;
 
     while i < bytes.len {
-        i = i + decode_lossy(bytes[i.. bytes.len]).width;
+        i = i + decode_lossy(bytes[i..bytes.len]).width;
         n++;
     }
 
@@ -238,7 +242,7 @@ public Optional(u32) next(Iterator* self) {
     }
 
     Decoded d = decode_lossy(
-        self.bytes[self.offset.. self.bytes.len]
+        self.bytes[self.offset..self.bytes.len]
     );
     self.offset = self.offset + d.width;
     return Optional::Some(d.codepoint);
@@ -248,7 +252,9 @@ public Optional(u32) next(Iterator* self) {
 public usize boundary_before([] const u8 bytes, usize index) {
     usize i = if index > bytes.len {
         bytes.len
-    } else { index };
+    } else {
+        index
+    };
 
     while i > 0 && is_continuation(bytes[i - 1]) {
         i--;
@@ -256,5 +262,7 @@ public usize boundary_before([] const u8 bytes, usize index) {
 
     return if i > 0 {
         i - 1
-    } else { 0 };
+    } else {
+        0
+    };
 }

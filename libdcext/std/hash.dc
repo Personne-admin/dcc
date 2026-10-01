@@ -118,7 +118,9 @@ public u64 hash_of(const bool* self) {
     return mix64(
         if *self {
             1 as u64
-        } else { 0 as u64 }
+        } else {
+            0 as u64
+        }
     );
 }
 

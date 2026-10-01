@@ -254,7 +254,11 @@ public Result(u64, NumError) accumulate_digits(
 
 /// assembles a float from a decimal mantissa and a base-ten exponent.
 /// Overflow reports `OutOfRange` rather than returning an infinity.
-public Result(f64, NumError) float_from_parts(u64 mantissa, i32 exponent, bool negative) {
+public Result(f64, NumError) float_from_parts(
+    u64 mantissa,
+    i32 exponent,
+    bool negative
+) {
     f64 value = scale_by_ten(mantissa as f64, exponent);
 
     if value > 1.7976931348623157e308 {
@@ -264,6 +268,8 @@ public Result(f64, NumError) float_from_parts(u64 mantissa, i32 exponent, bool n
     return Result::Ok(
         if negative {
             -value
-        } else { value }
+        } else {
+            value
+        }
     );
 }

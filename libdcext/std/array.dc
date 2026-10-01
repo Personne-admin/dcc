@@ -77,12 +77,12 @@ public void deinit(T)(Array(T)* self) {
 
 public [] T items(T)(Array(T)* self) {
     Array(T) b = *self;
-    return b.storage[0.. b.count];
+    return b.storage[0..b.count];
 }
 
 public [] const T items(T)(const Array(T)* self) {
     Array(T) b = *self;
-    return b.storage[0.. b.count];
+    return b.storage[0..b.count];
 }
 
 public usize len(T)(const Array(T)* self) {
@@ -149,7 +149,7 @@ public Status(AllocError) reserve(T)(Array(T)* self, usize needed) {
         return grown_r.unwrap_err();
     }
     [] T grown = grown_r.unwrap();
-    mem::copy(grown, b.storage[0.. b.count]);
+    mem::copy(grown, b.storage[0..b.count]);
 
     if b.storage.len > 0 {
         b.alloc.free(b.storage);
@@ -178,7 +178,7 @@ public Status(AllocError) shrink_to_fit(T)(Array(T)* self) {
         return tight_r.unwrap_err();
     }
     [] T tight = tight_r.unwrap();
-    mem::copy(tight, b.storage[0.. b.count]);
+    mem::copy(tight, b.storage[0..b.count]);
     b.alloc.free(b.storage);
     b.storage = tight;
     *self = b;
@@ -226,7 +226,7 @@ public Status(AllocError) append_slice(T)(Array(T)* self, [] const T source) {
     }
     Array(T) c = *self;
     mem::copy(
-        c.storage[n.. c.storage.len],
+        c.storage[n..c.storage.len],
         source
     );
 
@@ -247,8 +247,8 @@ public Status(AllocError) insert(T)(Array(T)* self, usize index, T value) {
 
     if index < n {
         mem::move(
-            c.storage[index + 1.. n + 1],
-            c.storage[index.. n]
+            c.storage[index + 1..n + 1],
+            c.storage[index..n]
         );
     }
 
@@ -267,8 +267,8 @@ public Optional(T) remove(T)(Array(T)* self, usize index) {
 
     T value = b.storage[index];
     mem::move(
-        b.storage[index.. b.count - 1],
-        b.storage[index + 1.. b.count]
+        b.storage[index..b.count - 1],
+        b.storage[index + 1..b.count]
     );
 
     b.count--;
@@ -330,7 +330,7 @@ public Result([] T, AllocError) to_owned_slice(T)(Array(T)* self) {
     }
 
     Array(T) b = *self;
-    [] T out = b.storage[0.. b.count];
+    [] T out = b.storage[0..b.count];
     Array(T) empty = new_array(b.alloc);
     *self = empty;
     return Result::Ok(out);

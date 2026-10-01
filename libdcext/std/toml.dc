@@ -22,7 +22,7 @@ public import std::result;
 
 using result::{ Result, Status, Optional };
 using os::time::{ Date, Time, DateTime };
-using parse::{Position, Located, NumError};
+using parse::{ Position, Located, NumError };
 
 //!
 //! Errors
@@ -352,9 +352,14 @@ Status(TomlError) check_escape(Scanner* self, bool multiline) {
 
     u8 c = take(self);
 
-    if c == ('b' as u8) || c == ('t' as u8) || c == ('n' as u8)
-        || c == ('f' as u8) || c == ('r' as u8) || c == ('"' as u8)
-        || c == ('\\' as u8) {
+    if c == ('b' as u8)
+        || c == ('t' as u8)
+        || c == ('n' as u8)
+        || c == ('f' as u8)
+        || c == ('r' as u8)
+        || c == ('"' as u8)
+        || c == ('\\' as u8)
+    {
         return Status::Ok;
     }
 
@@ -442,8 +447,11 @@ bool at_triple(const Scanner* self, u8 delimiter) {
     }
 
     return peek(self) == delimiter
-        && peek_at(self, 1) == delimiter
-        && peek_at(self, 2) == delimiter;
+    && peek_at(self, 1) == delimiter
+    && peek_at(
+        self,
+        2
+    ) == delimiter;
 }
 
 Result(Str, TomlError) read_multiline(Scanner* self, u8 delimiter) {
@@ -488,7 +496,9 @@ Result(Str, TomlError) read_multiline(Scanner* self, u8 delimiter) {
                     raw = self.input[start..end + extra],
                     kind = if basic {
                         StrKind::MultiBasic
-                    } else { StrKind::MultiLiteral },
+                    } else {
+                        StrKind::MultiLiteral
+                    },
                     needs_unescape = escaped,
                 }
             );
@@ -530,7 +540,9 @@ Result(Str, TomlError) read_single_line(Scanner* self, u8 delimiter) {
                     raw = self.input[start..end],
                     kind = if basic {
                         StrKind::Basic
-                    } else { StrKind::Literal },
+                    } else {
+                        StrKind::Literal
+                    },
                     needs_unescape = escaped,
                 }
             );
@@ -616,7 +628,9 @@ public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
         if kind == ('u' as u8) || kind == ('U' as u8) {
             usize digits = if kind == ('u' as u8) {
                 4 as usize
-            } else { 8 as usize };
+            } else {
+                8 as usize
+            };
 
             if i + digits > self.raw.len {
                 return TomlError::InvalidEscape;
@@ -667,7 +681,9 @@ public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
             u8 skipped = self.raw[i];
 
             if skipped == ('\n' as u8) || skipped == ('\r' as u8)
-                || is_inline_space(skipped) {
+            || is_inline_space(
+                skipped
+            ) {
                 i++;
                 continue;
             }
@@ -693,7 +709,13 @@ public usize unescaped_len_bound(const Str* self) {
 Result(u64, TomlError) read_digits(Scanner* self, u32 base, usize* count) {
     usize cursor = 0;
     usize taken = 0;
-    Result(u64, NumError) value = parse::accumulate_digits(self.input[self.at.offset..self.input.len], &cursor, base, true, &taken);
+    Result(u64, NumError) value = parse::accumulate_digits(
+        self.input[self.at.offset..self.input.len],
+        &cursor,
+        base,
+        true,
+        &taken
+    );
 
     for usize i = 0; i < cursor; i++ {
         take(self);
@@ -748,7 +770,9 @@ Result(Scalar, TomlError) read_special_float(Scanner* self, bool negative) {
             Scalar::Float(
                 if negative {
                     -infinity
-                } else { infinity }
+                } else {
+                    infinity
+                }
             )
         );
     }
@@ -765,7 +789,9 @@ Result(Scalar, TomlError) read_special_float(Scanner* self, bool negative) {
 Result(Scalar, TomlError) read_decimal(Scanner* self) {
     bool negative = false;
 
-    if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+    if !at_end(self)
+        && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
+    {
         negative = peek(self) == ('-' as u8);
         take(self);
     }
@@ -799,16 +825,20 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
         }
 
         mantissa = mantissa * parse::scale_by_ten(1.0, span as i32)
-            + fraction as f64;
+        + fraction as f64;
         exponent = exponent - span as i32;
     }
 
-    if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+    if !at_end(self)
+        && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8))
+    {
         take(self);
         is_float = true;
 
         bool negative_exponent = false;
-        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+        if !at_end(self)
+            && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
+        {
             negative_exponent = peek(self) == ('-' as u8);
             take(self);
         }
@@ -822,11 +852,16 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
 
         exponent = exponent + if negative_exponent {
             0 - written as i32
-        } else { written as i32 };
+        } else {
+            written as i32
+        };
     }
 
     if !is_float {
-        Result(i64, NumError) value = parse::signed_from_magnitude(whole, negative);
+        Result(i64, NumError) value = parse::signed_from_magnitude(
+            whole,
+            negative
+        );
         if value.is_err() {
             return TomlError::NumberOutOfRange;
         }
@@ -844,7 +879,9 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
         Scalar::Float(
             if negative {
                 -value
-            } else { value }
+            } else {
+                value
+            }
         )
     );
 }
@@ -877,8 +914,11 @@ bool looks_like_time(const Scanner* self) {
     }
 
     return parse::is_digit(peek(self))
-        && parse::is_digit(peek_at(self, 1))
-        && peek_at(self, 2) == (':' as u8);
+    && parse::is_digit(peek_at(self, 1))
+    && peek_at(
+        self,
+        2
+    ) == (':' as u8);
 }
 
 Result(u32, TomlError) read_fixed_digits(Scanner* self, usize count) {
@@ -970,8 +1010,13 @@ bool space_joins_time(const Scanner* self) {
     }
 
     return parse::is_digit(peek_at(self, 1))
-        && parse::is_digit(peek_at(self, 2))
-        && peek_at(self, 3) == (':' as u8);
+    && parse::is_digit(
+        peek_at(self, 2)
+    )
+    && peek_at(
+        self,
+        3
+    ) == (':' as u8);
 }
 
 Result(Scalar, TomlError) read_datetime(Scanner* self) {
@@ -1031,7 +1076,9 @@ Result(Scalar, TomlError) read_datetime(Scanner* self) {
     i32 total = (hours * 60 + minutes) as i32;
     stamp.offset_minutes = if west {
         (0 - total) as i16
-    } else { total as i16 };
+    } else {
+        total as i16
+    };
 
     return Result::Ok(Scalar::OffsetDateTime(stamp));
 }
@@ -1123,15 +1170,22 @@ Result(Event, TomlError) read_value(Scanner* self) {
         }
     }
 
-    if parse::is_digit(c) || c == ('+' as u8) || c == ('-' as u8)
-        || c == ('i' as u8) || c == ('n' as u8) {
+    if parse::is_digit(c)
+        || c == ('+' as u8)
+        || c == ('-' as u8)
+        || c == ('i' as u8)
+        || c == ('n' as u8)
+    {
         return Result::Ok(Event::Scalar(read_decimal(self) ?));
     }
 
     return TomlError::UnexpectedByte;
 }
 
-Result(Located(Event), TomlError) read_table_header(Scanner* self, Position here) {
+Result(Located(Event), TomlError) read_table_header(
+    Scanner* self,
+    Position here
+) {
     take(self);
 
     bool array = !at_end(self) && peek(self) == ('[' as u8);
@@ -1371,7 +1425,9 @@ Result(BEntry*, TomlError) reserve_entry(
     if self.len == self.entries.len {
         usize want = if self.entries.len == 0 {
             8 as usize
-        } else { self.entries.len * 2 };
+        } else {
+            self.entries.len * 2
+        };
 
         Result([] BEntry, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
@@ -1418,7 +1474,9 @@ Status(TomlError) push_element(
     if self.element_count == self.elements.len {
         usize want = if self.elements.len == 0 {
             4 as usize
-        } else { self.elements.len * 2 };
+        } else {
+            self.elements.len * 2
+        };
 
         Result([] TablePtr, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
@@ -1646,7 +1704,9 @@ Status(TomlError) push_value(
     if self.len == self.items.len {
         usize want = if self.items.len == 0 {
             8 as usize
-        } else { self.items.len * 2 };
+        } else {
+            self.items.len * 2
+        };
 
         Result([] Value, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
@@ -1680,7 +1740,6 @@ Result(Value, TomlError) scalar_value(
             if decoded.is_err() {
                 return decoded.unwrap_err();
             }
-
             Result::Ok(Value::String(decoded.unwrap()))
         },
         Scalar::Integer(v) => Result::Ok(Value::Integer(v)),
@@ -1796,7 +1855,6 @@ public Result(Table, TomlError) parse(
                 if opened.is_err() {
                     return opened.unwrap_err();
                 }
-
                 current = opened.unwrap();
             },
             Event::Key(key) => {

@@ -217,11 +217,15 @@ public void sort_stable_by(T)(
         while i < items.len {
             usize mid = if i + width < items.len {
                 i + width
-            } else { items.len };
+            } else {
+                items.len
+            };
 
             usize end = if i + 2 * width < items.len {
                 i + 2 * width
-            } else { items.len };
+            } else {
+                items.len
+            };
 
             merge_run(items, scratch, i, mid, end, cmp);
             i = i + 2 * width;
@@ -246,7 +250,9 @@ void merge_run(T)(
     for usize k = lo; k < hi; k++ {
         bool take_left = if a < mid && (b >= hi || cmp(&src[a], &src[b]) <= 0) {
             true
-        } else { false };
+        } else {
+            false
+        };
 
         if take_left {
             dst[k] = src[a];

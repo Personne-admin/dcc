@@ -40,7 +40,7 @@ public Status(FmtError) write_codepoint(const Writer* self, u32 cp) {
     [] u8 view = buf;
 
     return match utf8::encode(cp, view) {
-        Result::Ok(n) => self.write_all(view[0.. n]),
+        Result::Ok(n) => self.write_all(view[0..n]),
         Result::Err(_) => Status::Err(
             FmtError::BadFormat
         ),
@@ -79,7 +79,7 @@ Status(FmtError) buffer_write(void* ctx, [] const u8 bytes) {
     }
 
     mem::copy(
-        self.buffer[self.written.. self.buffer.len],
+        self.buffer[self.written..self.buffer.len],
         bytes
     );
     self.written = self.written + bytes.len;
@@ -92,7 +92,7 @@ public Writer writer(BufferWriter* self) {
 
 /// the bytes written so far.
 public [] const u8 written_slice(const BufferWriter* self) {
-    return self.buffer[0.. self.written];
+    return self.buffer[0..self.written];
 }
 
 //!
@@ -205,7 +205,9 @@ u8 digit_char(u64 value, bool uppercase) {
     return (
         if uppercase {
             'A' as u8
-        } else { 'a' as u8 } + (value - 10) as u8
+        } else {
+            'a' as u8
+        } + (value - 10) as u8
     );
 }
 
@@ -226,7 +228,7 @@ u8 digit_char(u64 value, bool uppercase) {
         v = v / base;
     }
 
-    return scratch[i.. scratch.len];
+    return scratch[i..scratch.len];
 }
 
 public Status(FmtError) format_unsigned(
@@ -257,7 +259,9 @@ public Status(FmtError) format_signed(
     bool negative = value < 0;
     u64 magnitude = if negative {
         (0 - value) as u64
-    } else { value as u64 };
+    } else {
+        value as u64
+    };
 
     [] u8 digits = render_unsigned(magnitude, view, opts);
     u8 sign = if negative {
@@ -265,12 +269,16 @@ public Status(FmtError) format_signed(
     } else {
         if opts.plus_sign {
             '+' as u8
-        } else { 0 }
+        } else {
+            0
+        }
     };
 
     usize total = digits.len + if sign != 0 {
         1 as usize
-    } else { 0 as usize };
+    } else {
+        0 as usize
+    };
 
     if opts.zero_pad && total < opts.width && opts.align == Align::Right {
         if sign != 0 {
@@ -319,7 +327,9 @@ Status(FmtError) write_special(const Writer* w, f64 value, const Options* opts) 
         w,
         if opts.plus_sign {
             "+inf"
-        } else { "inf" },
+        } else {
+            "inf"
+        },
         opts
     );
 }
@@ -340,7 +350,9 @@ public Status(FmtError) format_float(
 
     usize precision = if opts.precision == NO_PRECISION {
         DEFAULT_PRECISION
-    } else { opts.precision };
+    } else {
+        opts.precision
+    };
 
     f64 v = value;
     if math::signbit(v) {
@@ -371,12 +383,16 @@ public Status(FmtError) format_float(
         inner.write_byte(
             if opts.uppercase {
                 'E' as u8
-            } else { 'e' as u8 }
+            } else {
+                'e' as u8
+            }
         ) ?;
         inner.write_byte(
             if exponent < 0 {
                 '-' as u8
-            } else { '+' as u8 }
+            } else {
+                '+' as u8
+            }
         ) ?;
 
         Options exp_opts = Options::default();
@@ -386,7 +402,9 @@ public Status(FmtError) format_float(
             &inner,
             if exponent < 0 {
                 (0 - exponent) as u64
-            } else { exponent as u64 },
+            } else {
+                exponent as u64
+            },
             &exp_opts
         ) ?;
     }
@@ -434,17 +452,33 @@ public Status(FmtError) format_value(T)(
     T value,
     const Options* opts
 ) {
-    static if T == bool || T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char
-                 || T == i8 || T == i16 || T == i32 || T == i64 || T == isize {
+    static if T == bool
+        || T == u8
+        || T == u16
+        || T == u32
+        || T == u64
+        || T == usize
+        || T == char
+        || T == i8
+        || T == i16
+        || T == i32
+        || T == i64
+        || T == isize
+    {
         static if T == bool {
             format_builtin_unsigned(w, value, opts) ?;
         } else static if compiles (T t) {
             t as u64;
             t - t;
-        }
-        {
+        } {
             // unsigned when subtracting cannot produce a negative
-            static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char {
+            static if T == u8
+                || T == u16
+                || T == u32
+                || T == u64
+                || T == usize
+                || T == char
+            {
                 format_builtin_unsigned(w, value, opts) ?;
             } else {
                 format_signed(w, value as i64, opts) ?;
@@ -458,8 +492,7 @@ public Status(FmtError) format_value(T)(
         write_padded(w, value, opts) ?;
     } else static if compiles (T t, const Writer* q, const Options* o) {
         t.format(q, o);
-    }
-    {
+    } {
         value.format(w, opts) ?;
     } else {
         core::compile_error(
@@ -470,13 +503,19 @@ public Status(FmtError) format_value(T)(
     return Status::Ok;
 }
 
-Status(FmtError) format_builtin_unsigned(T)(const Writer* w, T value, const Options* opts) {
+Status(FmtError) format_builtin_unsigned(T)(
+    const Writer* w,
+    T value,
+    const Options* opts
+) {
     static if T == bool {
         return write_padded(
             w,
             if value {
                 "true"
-            } else { "false" },
+            } else {
+                "false"
+            },
             opts
         );
     } else static if T == char {
@@ -501,25 +540,32 @@ struct Chunk {
 }
 
 /// emits literal text up to the next placeholder and parses its spec.
-Result(Chunk, FmtError) emit_until_placeholder(const Writer* w, [] const u8 fmt, usize from) {
+Result(Chunk, FmtError) emit_until_placeholder(
+    const Writer* w,
+    [] const u8 fmt,
+    usize from
+) {
     usize i = from;
     usize literal_start = from;
 
     while i < fmt.len {
         if fmt[i] == ('{' as u8) {
             if i + 1 < fmt.len && fmt[i + 1] == ('{' as u8) {
-                w.write_all(fmt[literal_start.. i + 1]) ?;
+                w.write_all(fmt[literal_start..i + 1]) ?;
                 i = i + 2;
                 literal_start = i;
                 continue;
             }
 
-            w.write_all(fmt[literal_start.. i]) ?;
+            w.write_all(fmt[literal_start..i]) ?;
             return parse_spec(fmt, i + 1);
         }
 
-        if fmt[i] == ('}' as u8) && i + 1 < fmt.len && fmt[i + 1] == ('}' as u8) {
-            w.write_all(fmt[literal_start.. i + 1]) ?;
+        if fmt[i] == ('}' as u8)
+            && i + 1 < fmt.len
+            && fmt[i + 1] == ('}' as u8)
+        {
+            w.write_all(fmt[literal_start..i + 1]) ?;
             i = i + 2;
             literal_start = i;
             continue;
@@ -528,8 +574,10 @@ Result(Chunk, FmtError) emit_until_placeholder(const Writer* w, [] const u8 fmt,
         i++;
     }
 
-    w.write_all(fmt[literal_start.. fmt.len]) ?;
-    return Result::Ok({ cursor = fmt.len, opts = Options::default(), found = false });
+    w.write_all(fmt[literal_start..fmt.len]) ?;
+    return Result::Ok(
+        {cursor = fmt.len, opts = Options::default(), found = false}
+    );
 }
 
 Result(Chunk, FmtError) parse_spec([] const u8 fmt, usize from) {
@@ -563,7 +611,7 @@ Result(Chunk, FmtError) parse_spec([] const u8 fmt, usize from) {
     }
 
     while i < fmt.len && is_digit(fmt[i]) {
-        opts.width = opts.width* 10 + (fmt[i] - ('0' as u8)) as usize;
+        opts.width = opts.width * 10 + (fmt[i] - ('0' as u8)) as usize;
         i++;
     }
 
@@ -571,7 +619,7 @@ Result(Chunk, FmtError) parse_spec([] const u8 fmt, usize from) {
         i++;
         opts.precision = 0;
         while i < fmt.len && is_digit(fmt[i]) {
-            opts.precision = opts.precision* 10 + (fmt[i] - ('0' as u8)) as usize;
+            opts.precision = opts.precision * 10 + (fmt[i] - ('0' as u8)) as usize;
             i++;
         }
     }
@@ -586,18 +634,28 @@ Result(Chunk, FmtError) parse_spec([] const u8 fmt, usize from) {
         return FmtError::BadFormat;
     }
 
-    return Result::Ok({ cursor = i + 1, opts = opts, found = true });
+    return Result::Ok({cursor = i + 1, opts = opts, found = true});
 }
 
 void apply_spec(Options* opts, u8 spec) {
     match spec as char {
         'x' => opts.base = 16,
-        'X' => { opts.base = 16; opts.uppercase = true; },
+        'X' => {
+            opts.base = 16;
+            opts.uppercase = true;
+        },
         'o' => opts.base = 8,
         'b' => opts.base = 2,
         'e' => opts.scientific = true,
-        'E' => { opts.scientific = true; opts.uppercase = true; },
-        'p' => { opts.base = 16; opts.zero_pad = true; opts.width = 16; },
+        'E' => {
+            opts.scientific = true;
+            opts.uppercase = true;
+        },
+        'p' => {
+            opts.base = 16;
+            opts.zero_pad = true;
+            opts.width = 16;
+        },
         _ => {},
     }
 }
@@ -643,12 +701,16 @@ public Status(FmtError) format(T...)(const Writer* w, [] const u8 fmt, T args) {
 }
 
 /// formats into `out` and returns the bytes written.
-public Result([] u8, FmtError) format_buf(T...)([] u8 out, [] const u8 fmt, T args) {
+public Result([] u8, FmtError) format_buf(T...)(
+    [] u8 out,
+    [] const u8 fmt,
+    T args
+) {
     BufferWriter sink = BufferWriter::new(out);
     Writer w = sink.writer();
 
     format(&w, fmt, args...) ?;
-    return Result::Ok(out[0.. sink.written]);
+    return Result::Ok(out[0..sink.written]);
 }
 
 /// byte length the formatted output would occupy.
@@ -661,7 +723,11 @@ public Result(usize, FmtError) format_len(T...)([] const u8 fmt, T args) {
 }
 
 /// formats into freshly allocated storage owned by the caller.
-public Result([] u8, mem::AllocError) format_alloc(T...)(const mem::Allocator* alloc, [] const u8 fmt, T args) {
+public Result([] u8, mem::AllocError) format_alloc(T...)(
+    const mem::Allocator* alloc,
+    [] const u8 fmt,
+    T args
+) {
     CountingWriter counter = CountingWriter::new();
     Writer probe = counter.writer();
 

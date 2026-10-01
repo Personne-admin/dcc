@@ -107,13 +107,17 @@ public using Ord(T) = compiles (T a, T b) {
 public T min(T)(T a, T b) if Ord(T) {
     return if a < b {
         a
-    } else { b };
+    } else {
+        b
+    };
 }
 
 public T max(T)(T a, T b) if Ord(T) {
     return if a < b {
         b
-    } else { a };
+    } else {
+        a
+    };
 }
 
 public T clamp(T)(T value, T lo, T hi) if Ord(T) {
@@ -162,14 +166,18 @@ public f64 floor(f64 x) {
     f64 t = trunc(x);
     return if t > x {
         t - 1.0
-    } else { t };
+    } else {
+        t
+    };
 }
 
 public f64 ceil(f64 x) {
     f64 t = trunc(x);
     return if t < x {
         t + 1.0
-    } else { t };
+    } else {
+        t
+    };
 }
 
 /// rounds half away from zero.
@@ -394,7 +402,9 @@ public f64 pow(f64 base, f64 exponent) {
         bool odd = fmod(fabs(t), 2.0) == 1.0;
         return if odd {
             -magnitude
-        } else { magnitude };
+        } else {
+            magnitude
+        };
     }
 
     return exp(exponent * log(base));
