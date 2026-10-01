@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+struct Big { u16[4096] data; }
+enum Result(T, E) { Ok(T), Err(E) }
+
+Big make_big() {
+    Big b;
+    b.data[0] = 11;
+    b.data[4095] = 31;
+    return b;
+}
+
+Result(Big, u8) wrap(Big b) { return Result::Ok(b); }
+Result(Big, u8) copy_result(Result(Big, u8) x) { return x; }
+
+@nomangle
+public i32 dcc_main() {
+    Big a = make_big();
+    Big b = a;
+    Result(Big, u8) r = copy_result(wrap(b));
+    return b.data[0] as i32 + b.data[4095] as i32 - 42;
+}
+
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: ptr sret(
+CONTAINS: ptr byval(
+CONTAINS: call void @llvm.memcpy
+CONTAINS: call void @llvm.memset
+FORBID: insertvalue

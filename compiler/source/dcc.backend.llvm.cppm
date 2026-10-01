@@ -280,6 +280,15 @@ namespace dcc::backend
 
             explicit TypeCache(LLVMContextRef c, std::uint8_t pb, bool le) : ctx(c), pointer_bits(pb), little_endian(le) {}
 
+            [[nodiscard]] bool indirect(IrType const* t) const noexcept
+            {
+                if (!t)
+                    return false;
+                if (t->kind == IrTypeKind::Array && static_cast<IrArrayType const*>(t)->count > 16)
+                    return true;
+                return (t->kind == IrTypeKind::Aggregate || t->kind == IrTypeKind::Array) && t->byte_size > 2 * (pointer_bits / 8);
+            }
+
             [[nodiscard]] LLVMTypeRef get(IrType const* t, bool for_memory)
             {
                 if (!t)
@@ -316,14 +325,17 @@ namespace dcc::backend
                 if (t->kind == IrTypeKind::Func)
                 {
                     auto* ft = static_cast<IrFuncType const*>(t);
-                    auto* ret_ty = get(ft->return_type, for_memory);
+                    bool const sret = indirect(ft->return_type);
+                    auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : get(ft->return_type, for_memory);
                     if (!ret_ty)
                         ret_ty = LLVMVoidTypeInContext(ctx);
                     std::vector<LLVMTypeRef> param_tys;
-                    param_tys.reserve(ft->params.size());
+                    param_tys.reserve(ft->params.size() + static_cast<std::size_t>(sret));
+                    if (sret)
+                        param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
                     for (auto* pt : ft->params)
                     {
-                        auto* lt = get(pt, for_memory);
+                        auto* lt = indirect(pt) ? LLVMPointerTypeInContext(ctx, 0) : get(pt, for_memory);
                         if (!lt)
                             lt = LLVMInt32TypeInContext(ctx);
                         param_tys.push_back(lt);
@@ -933,7 +945,7 @@ namespace dcc::backend
                     return LLVMConstInt(ty, bc->value ? 1 : 0, false);
                 }
                 case IrNodeKind::NullConstant:
-                    return LLVMConstPointerNull(LLVMPointerTypeInContext(ctx, 0));
+                    return LLVMConstNull(expected_mem_type ? expected_mem_type : c_api_type_cached(tc, v->type));
                 case IrNodeKind::GlobalRef: {
                     auto* g = static_cast<IrGlobalRef const*>(v);
 
@@ -2004,14 +2016,17 @@ namespace dcc::backend
                 if (!ft)
                     return false;
 
-                auto* ret_ty = llvm_type_cached(tc, ft->return_type);
+                bool const sret = tc.indirect(ft->return_type);
+                auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : llvm_type_cached(tc, ft->return_type);
                 if (!ret_ty)
                     ret_ty = LLVMVoidTypeInContext(ctx);
 
                 std::vector<LLVMTypeRef> param_tys;
+                if (sret)
+                    param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
                 for (const auto* pt : ft->params)
                 {
-                    auto* lt = llvm_type_cached(tc, pt);
+                    auto* lt = tc.indirect(pt) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, pt);
                     if (!lt)
                         lt = LLVMInt32TypeInContext(ctx);
 
@@ -2022,6 +2037,42 @@ namespace dcc::backend
                 auto* llvm_func = LLVMAddFunction(mod, std::string{func->name}.c_str(), func_ty);
                 apply_linkage_and_comdat(llvm_func, func->linkage, mod, func->name);
                 val_map[func] = llvm_func;
+
+                auto large_for_optimizer = [&](IrType const* type) { return type && type->byte_size > 32 * (tc.pointer_bits / 8); };
+                bool has_large_storage = (sret && large_for_optimizer(ft->return_type)) ||
+                                         std::ranges::any_of(ft->params, [&](auto* type) { return tc.indirect(type) && large_for_optimizer(type); });
+                for (auto* block : func->blocks)
+                    if (block)
+                        for (auto* inst : block->instructions)
+                            if (inst && ((tc.indirect(inst->type) && large_for_optimizer(inst->type)) ||
+                                         (inst->kind == IrNodeKind::Alloca && tc.indirect(static_cast<IrAllocaInst const*>(inst)->allocated_type) &&
+                                          large_for_optimizer(static_cast<IrAllocaInst const*>(inst)->allocated_type))))
+                                has_large_storage = true;
+
+                if (has_large_storage)
+                {
+                    for (auto const* name : {"optnone", "noinline"})
+                    {
+                        auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
+                        if (kind != 0)
+                            LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex),
+                                                    LLVMCreateEnumAttribute(ctx, kind, 0));
+                    }
+                }
+
+                auto add_indirect_attr = [&](unsigned index, IrType const* type, const char* name) {
+                    auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
+                    if (kind != 0)
+                    {
+                        auto* attr = LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, type));
+                        LLVMAddAttributeAtIndex(llvm_func, index, attr);
+                    }
+                };
+                if (sret)
+                    add_indirect_attr(1, ft->return_type, "sret");
+                for (std::size_t i = 0; i < ft->params.size(); ++i)
+                    if (tc.indirect(ft->params[i]))
+                        add_indirect_attr(static_cast<unsigned>(i + 1 + static_cast<std::size_t>(sret)), ft->params[i], "byval");
 
                 if (debug && debug->dibuilder && debug->difile)
                 {
@@ -2093,7 +2144,7 @@ namespace dcc::backend
 
                 for (auto const& a : func->attrs)
                 {
-                    if (a.kind == IrFuncAttr::Inline)
+                    if (a.kind == IrFuncAttr::Inline && !has_large_storage)
                     {
                         auto kind = LLVMGetEnumAttributeKindForName("alwaysinline", 12);
                         if (kind != 0)
@@ -2123,9 +2174,9 @@ namespace dcc::backend
                     std::size_t i = 0;
                     for (auto* pv : llvm_params)
                     {
-                        if (i < func->entry_block->params.size())
+                        if (i >= static_cast<std::size_t>(sret) && i - static_cast<std::size_t>(sret) < func->entry_block->params.size())
                         {
-                            auto* param = func->entry_block->params[i];
+                            auto* param = func->entry_block->params[i - static_cast<std::size_t>(sret)];
                             if (param && !param->name.empty())
                                 LLVMSetValueName2(pv, std::string{param->name}.c_str(), param->name.size());
 
@@ -2436,7 +2487,17 @@ namespace dcc::backend
 
                                 auto* c = c_api_constant(pred.value, ctx, tc, val_map);
                                 if (c)
+                                {
+                                    if (tc.indirect(pred.value->type))
+                                    {
+                                        auto* global = LLVMAddGlobal(LLVMGetGlobalParent(llvm_func), llvm_type_cached(tc, pred.value->type), "");
+                                        LLVMSetLinkage(global, LLVMPrivateLinkage);
+                                        LLVMSetGlobalConstant(global, 1);
+                                        LLVMSetInitializer(global, c);
+                                        c = global;
+                                    }
                                     val_map[pred.value] = c;
+                                }
 
                                 return c;
                             }();
@@ -2528,6 +2589,19 @@ namespace dcc::backend
                 return slot;
             }
 
+            static void copy_indirect(LLVMBuilderRef builder, LLVMContextRef ctx, IrType const* type, LLVMValueRef dst, LLVMValueRef src)
+            {
+                auto* size = LLVMConstInt(LLVMInt64TypeInContext(ctx), type->byte_size, false);
+                LLVMBuildMemCpy(builder, dst, static_cast<unsigned>(type->byte_align), src, static_cast<unsigned>(type->byte_align), size);
+            }
+
+            static void zero_indirect(LLVMBuilderRef builder, LLVMContextRef ctx, IrType const* type, LLVMValueRef dst)
+            {
+                auto* zero = LLVMConstInt(LLVMInt8TypeInContext(ctx), 0, false);
+                auto* size = LLVMConstInt(LLVMInt64TypeInContext(ctx), type->byte_size, false);
+                LLVMBuildMemSet(builder, dst, zero, size, static_cast<unsigned>(type->byte_align));
+            }
+
             [[nodiscard]] static bool emit_instruction(IrValue const* inst, LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc,
                                                        std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
                                                        [[maybe_unused]] std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map,
@@ -2551,6 +2625,12 @@ namespace dcc::backend
                     auto* c = c_api_constant(v, ctx, tc, val_map);
                     if (c)
                     {
+                        if (tc.indirect(v->type))
+                        {
+                            auto* slot = build_frame_slot(builder, llvm_type_cached(tc, v->type));
+                            LLVMBuildStore(builder, c, slot);
+                            c = slot;
+                        }
                         val_map[v] = c;
                         return c;
                     }
@@ -2598,7 +2678,13 @@ namespace dcc::backend
                         }
 
                         LLVMValueRef result = nullptr;
-                        if (is_bool_type(l->type))
+                        if (tc.indirect(l->type))
+                        {
+                            auto* slot = build_frame_slot(builder, llvm_type_cached(tc, l->type));
+                            copy_indirect(builder, ctx, l->type, slot, ptr);
+                            result = slot;
+                        }
+                        else if (is_bool_type(l->type))
                         {
                             auto* raw = LLVMBuildLoad2(builder, LLVMInt8TypeInContext(ctx), ptr, "");
                             result = LLVMBuildTrunc(builder, raw, LLVMInt1TypeInContext(ctx), "");
@@ -2635,7 +2721,9 @@ namespace dcc::backend
                             return false;
                         }
 
-                        if (is_bool_type(s->value->type))
+                        if (tc.indirect(s->value->type))
+                            copy_indirect(builder, ctx, s->value->type, ptr, val);
+                        else if (is_bool_type(s->value->type))
                         {
                             auto* ext = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
                             LLVMBuildStore(builder, ext, ptr);
@@ -3514,7 +3602,7 @@ namespace dcc::backend
                     }
                     case IrNodeKind::Phi: {
                         auto* p = static_cast<IrPhiInst const*>(inst);
-                        auto* phi_ty = llvm_type_cached(tc, p->type);
+                        auto* phi_ty = tc.indirect(p->type) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, p->type);
                         if (!phi_ty)
                             return false;
 
@@ -3557,6 +3645,13 @@ namespace dcc::backend
                             return false;
 
                         std::vector<LLVMValueRef> args;
+                        bool const sret = tc.indirect(c->type);
+                        LLVMValueRef result_slot = nullptr;
+                        if (sret)
+                        {
+                            result_slot = build_frame_slot(builder, llvm_type_cached(tc, c->type));
+                            args.push_back(result_slot);
+                        }
                         for (auto* a : c->args)
                         {
                             auto* av = lookup(a);
@@ -3605,21 +3700,33 @@ namespace dcc::backend
                         }
 
                         std::vector<LLVMTypeRef> param_tys;
+                        if (sret)
+                            param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
                         for (auto* a : c->args)
                         {
-                            auto* pt = llvm_type_cached(tc, a->type);
+                            auto* pt = tc.indirect(a->type) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, a->type);
                             if (!pt)
                                 pt = LLVMInt32TypeInContext(ctx);
 
                             param_tys.push_back(pt);
                         }
 
-                        auto* ret_ty = llvm_type_cached(tc, c->type);
+                        auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : llvm_type_cached(tc, c->type);
                         if (!ret_ty)
                             ret_ty = LLVMVoidTypeInContext(ctx);
 
                         auto* func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
                         auto* call_inst = LLVMBuildCall2(builder, func_ty, callee, args.data(), static_cast<unsigned>(args.size()), "");
+                        auto add_indirect_call_attr = [&](unsigned index, IrType const* type, const char* name) {
+                            auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
+                            if (kind != 0)
+                                LLVMAddCallSiteAttribute(call_inst, index, LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, type)));
+                        };
+                        if (sret)
+                            add_indirect_call_attr(1, c->type, "sret");
+                        for (std::size_t i = 0; i < c->args.size(); ++i)
+                            if (tc.indirect(c->args[i]->type))
+                                add_indirect_call_attr(static_cast<unsigned>(i + 1 + static_cast<std::size_t>(sret)), c->args[i]->type, "byval");
 
                         bool call_cc_error = false;
                         auto cc_opt = get_calling_conv_for_call(c->callee, target, diags, call_cc_error);
@@ -3638,8 +3745,8 @@ namespace dcc::backend
                             }
                         }
 
-                        set_name(call_inst);
-                        val_map[inst] = call_inst;
+                        set_name(sret ? result_slot : call_inst);
+                        val_map[inst] = sret ? result_slot : call_inst;
                         break;
                     }
                     case IrNodeKind::CallTail: {
@@ -3649,6 +3756,13 @@ namespace dcc::backend
                             return false;
 
                         std::vector<LLVMValueRef> args;
+                        bool const sret = tc.indirect(c->type);
+                        LLVMValueRef result_slot = nullptr;
+                        if (sret)
+                        {
+                            result_slot = build_frame_slot(builder, llvm_type_cached(tc, c->type));
+                            args.push_back(result_slot);
+                        }
                         for (auto* a : c->args)
                         {
                             auto* av = lookup(a);
@@ -3696,21 +3810,37 @@ namespace dcc::backend
                         }
 
                         std::vector<LLVMTypeRef> param_tys;
+                        if (sret)
+                            param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
                         for (auto* a : c->args)
                         {
-                            auto* pt = llvm_type_cached(tc, a->type);
+                            auto* pt = tc.indirect(a->type) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, a->type);
                             if (!pt)
                                 pt = LLVMInt32TypeInContext(ctx);
 
                             param_tys.push_back(pt);
                         }
 
-                        auto* ret_ty = llvm_type_cached(tc, c->type);
+                        auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : llvm_type_cached(tc, c->type);
                         if (!ret_ty)
                             ret_ty = LLVMVoidTypeInContext(ctx);
 
                         auto* func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
                         auto* call_inst = LLVMBuildCall2(builder, func_ty, callee, args.data(), static_cast<unsigned>(args.size()), "");
+                        if (sret)
+                        {
+                            auto kind = LLVMGetEnumAttributeKindForName("sret", 4);
+                            if (kind != 0)
+                                LLVMAddCallSiteAttribute(call_inst, 1, LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, c->type)));
+                        }
+                        for (std::size_t i = 0; i < c->args.size(); ++i)
+                            if (tc.indirect(c->args[i]->type))
+                            {
+                                auto kind = LLVMGetEnumAttributeKindForName("byval", 5);
+                                if (kind != 0)
+                                    LLVMAddCallSiteAttribute(call_inst, static_cast<unsigned>(i + 1 + static_cast<std::size_t>(sret)),
+                                                             LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, c->args[i]->type)));
+                            }
 
                         bool call_cc_error = false;
                         auto cc_opt = get_calling_conv_for_call(c->callee, target, diags, call_cc_error);
@@ -3729,9 +3859,10 @@ namespace dcc::backend
                             }
                         }
 
-                        LLVMSetTailCallKind(call_inst, LLVMTailCallKindMustTail);
-                        set_name(call_inst);
-                        val_map[inst] = call_inst;
+                        if (!sret && std::ranges::none_of(c->args, [&](auto* a) { return tc.indirect(a->type); }))
+                            LLVMSetTailCallKind(call_inst, LLVMTailCallKindMustTail);
+                        set_name(sret ? result_slot : call_inst);
+                        val_map[inst] = sret ? result_slot : call_inst;
                         break;
                     }
                     case IrNodeKind::Aggregate: {
@@ -3743,8 +3874,61 @@ namespace dcc::backend
                         auto* const_val = c_api_constant(inst, ctx, tc, val_map);
                         if (const_val)
                         {
+                            if (tc.indirect(agg->type))
+                            {
+                                auto* slot = build_frame_slot(builder, agg_ty);
+                                LLVMBuildStore(builder, const_val, slot);
+                                const_val = slot;
+                            }
                             set_name(const_val);
                             val_map[inst] = const_val;
+                            break;
+                        }
+
+                        if (tc.indirect(agg->type))
+                        {
+                            auto* storage = build_frame_slot(builder, agg_ty);
+                            zero_indirect(builder, ctx, agg->type, storage);
+                            for (std::size_t i = 0; i < agg->values.size(); ++i)
+                            {
+                                auto* member_ir = agg->values[i];
+                                if (!member_ir)
+                                    continue;
+                                auto* member = lookup(member_ir);
+                                if (!member)
+                                    return false;
+                                LLVMValueRef member_ptr = storage;
+                                if (agg->type->kind == IrTypeKind::Aggregate && tc.uses_byte_storage(agg->type))
+                                {
+                                    auto* at = static_cast<IrAggregateType const*>(agg->type);
+                                    if (i >= at->member_offsets.size())
+                                        return false;
+                                    auto* offset = LLVMConstInt(LLVMInt64TypeInContext(ctx), at->member_offsets[i], false);
+                                    member_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), storage, &offset, 1, "");
+                                }
+                                else
+                                {
+                                    auto* zero = LLVMConstInt(LLVMInt32TypeInContext(ctx), 0, false);
+                                    auto* index =
+                                        LLVMConstInt(LLVMInt32TypeInContext(ctx),
+                                                     agg->type->kind == IrTypeKind::Aggregate
+                                                         ? tc.get_llvm_field_index(static_cast<IrAggregateType const*>(agg->type), static_cast<unsigned>(i))
+                                                         : static_cast<unsigned>(i),
+                                                     false);
+                                    LLVMValueRef indices[] = {zero, index};
+                                    member_ptr = LLVMBuildGEP2(builder, agg_ty, storage, indices, 2, "");
+                                }
+                                if (tc.indirect(member_ir->type))
+                                    copy_indirect(builder, ctx, member_ir->type, member_ptr, member);
+                                else
+                                {
+                                    if (is_bool_type(member_ir->type))
+                                        member = LLVMBuildZExt(builder, member, LLVMInt8TypeInContext(ctx), "");
+                                    LLVMBuildStore(builder, member, member_ptr);
+                                }
+                            }
+                            set_name(storage);
+                            val_map[inst] = storage;
                             break;
                         }
 
@@ -3765,6 +3949,8 @@ namespace dcc::backend
                                 auto* member = lookup(agg->values[i]);
                                 if (!member)
                                     return false;
+                                if (tc.indirect(agg->values[i]->type))
+                                    member = LLVMBuildLoad2(builder, llvm_type_cached(tc, agg->values[i]->type), member, "");
                                 auto offset = i < aggregate_type->member_offsets.size() ? aggregate_type->member_offsets[i] : 0;
                                 auto* member_ptr = storage;
                                 if (offset != 0)
@@ -3794,6 +3980,8 @@ namespace dcc::backend
                                 auto* mv = lookup(agg->values[i]);
                                 if (!mv)
                                     return false;
+                                if (tc.indirect(agg->values[i]->type))
+                                    mv = LLVMBuildLoad2(builder, llvm_type_cached(tc, agg->values[i]->type), mv, "");
 
                                 if (is_bool_type(agg->values[i]->type))
                                     mv = LLVMBuildZExt(builder, mv, LLVMInt8TypeInContext(ctx), "");
@@ -3811,6 +3999,8 @@ namespace dcc::backend
                                 auto* mv = lookup(agg->values[i]);
                                 if (!mv)
                                     return false;
+                                if (tc.indirect(agg->values[i]->type))
+                                    mv = LLVMBuildLoad2(builder, llvm_type_cached(tc, agg->values[i]->type), mv, "");
                                 if (is_bool_type(agg->values[i]->type))
                                     mv = LLVMBuildZExt(builder, mv, LLVMInt8TypeInContext(ctx), "");
                                 result = LLVMBuildInsertValue(builder, result, mv, static_cast<unsigned>(i), "");
@@ -3826,6 +4016,48 @@ namespace dcc::backend
                         auto* agg_val = lookup(e->aggregate);
                         if (!agg_val)
                             return false;
+
+                        if (tc.indirect(e->aggregate->type))
+                        {
+                            auto* parent_ty = llvm_type_cached(tc, e->aggregate->type);
+                            LLVMValueRef field_ptr = agg_val;
+                            if (e->aggregate->type->kind == IrTypeKind::Aggregate && tc.uses_byte_storage(e->aggregate->type))
+                            {
+                                auto* at = static_cast<IrAggregateType const*>(e->aggregate->type);
+                                if (e->field_index >= at->member_offsets.size())
+                                    return false;
+                                auto* offset = LLVMConstInt(LLVMInt64TypeInContext(ctx), at->member_offsets[e->field_index], false);
+                                field_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), agg_val, &offset, 1, "");
+                            }
+                            else
+                            {
+                                auto* zero = LLVMConstInt(LLVMInt32TypeInContext(ctx), 0, false);
+                                auto* index =
+                                    LLVMConstInt(LLVMInt32TypeInContext(ctx),
+                                                 e->aggregate->type->kind == IrTypeKind::Aggregate
+                                                     ? tc.get_llvm_field_index(static_cast<IrAggregateType const*>(e->aggregate->type), e->field_index)
+                                                     : e->field_index,
+                                                 false);
+                                LLVMValueRef indices[] = {zero, index};
+                                field_ptr = LLVMBuildGEP2(builder, parent_ty, agg_val, indices, 2, "");
+                            }
+                            LLVMValueRef result = nullptr;
+                            if (tc.indirect(e->type))
+                            {
+                                result = build_frame_slot(builder, llvm_type_cached(tc, e->type));
+                                copy_indirect(builder, ctx, e->type, result, field_ptr);
+                            }
+                            else if (is_bool_type(e->type))
+                            {
+                                auto* raw = LLVMBuildLoad2(builder, LLVMInt8TypeInContext(ctx), field_ptr, "");
+                                result = LLVMBuildTrunc(builder, raw, LLVMInt1TypeInContext(ctx), "");
+                            }
+                            else
+                                result = LLVMBuildLoad2(builder, llvm_type_cached(tc, e->type), field_ptr, "");
+                            set_name(result);
+                            val_map[inst] = result;
+                            break;
+                        }
 
                         if (e->aggregate && tc.uses_byte_storage(e->aggregate->type))
                         {
@@ -3850,6 +4082,11 @@ namespace dcc::backend
                                 auto* raw = LLVMBuildLoad2(builder, LLVMInt8TypeInContext(ctx), member_ptr, "");
                                 result = LLVMBuildTrunc(builder, raw, LLVMInt1TypeInContext(ctx), "");
                             }
+                            else if (tc.indirect(e->type))
+                            {
+                                result = build_frame_slot(builder, llvm_type_cached(tc, e->type));
+                                copy_indirect(builder, ctx, e->type, result, member_ptr);
+                            }
                             else
                                 result = LLVMBuildLoad2(builder, llvm_type_cached(tc, member_type), member_ptr, "");
                             set_name(result);
@@ -3862,6 +4099,12 @@ namespace dcc::backend
                             llvm_field_idx = tc.get_llvm_field_index(static_cast<IrAggregateType const*>(e->aggregate->type), e->field_index);
 
                         auto* result = LLVMBuildExtractValue(builder, agg_val, llvm_field_idx, "");
+                        if (tc.indirect(e->type))
+                        {
+                            auto* slot = build_frame_slot(builder, llvm_type_cached(tc, e->type));
+                            LLVMBuildStore(builder, result, slot);
+                            result = slot;
+                        }
                         if (is_bool_type(e->type))
                             result = LLVMBuildTrunc(builder, result, LLVMInt1TypeInContext(ctx), "");
                         set_name(result);
@@ -3874,6 +4117,45 @@ namespace dcc::backend
                         auto* val = lookup(ins->value);
                         if (!agg_val || !val)
                             return false;
+
+                        if (tc.indirect(ins->aggregate->type))
+                        {
+                            auto* parent_ty = llvm_type_cached(tc, ins->aggregate->type);
+                            auto* storage = build_frame_slot(builder, parent_ty);
+                            copy_indirect(builder, ctx, ins->aggregate->type, storage, agg_val);
+                            LLVMValueRef field_ptr = storage;
+                            if (ins->aggregate->type->kind == IrTypeKind::Aggregate && tc.uses_byte_storage(ins->aggregate->type))
+                            {
+                                auto* at = static_cast<IrAggregateType const*>(ins->aggregate->type);
+                                if (ins->field_index >= at->member_offsets.size())
+                                    return false;
+                                auto* offset = LLVMConstInt(LLVMInt64TypeInContext(ctx), at->member_offsets[ins->field_index], false);
+                                field_ptr = LLVMBuildGEP2(builder, LLVMInt8TypeInContext(ctx), storage, &offset, 1, "");
+                            }
+                            else
+                            {
+                                auto* zero = LLVMConstInt(LLVMInt32TypeInContext(ctx), 0, false);
+                                auto* index =
+                                    LLVMConstInt(LLVMInt32TypeInContext(ctx),
+                                                 ins->aggregate->type->kind == IrTypeKind::Aggregate
+                                                     ? tc.get_llvm_field_index(static_cast<IrAggregateType const*>(ins->aggregate->type), ins->field_index)
+                                                     : ins->field_index,
+                                                 false);
+                                LLVMValueRef indices[] = {zero, index};
+                                field_ptr = LLVMBuildGEP2(builder, parent_ty, storage, indices, 2, "");
+                            }
+                            if (tc.indirect(ins->value->type))
+                                copy_indirect(builder, ctx, ins->value->type, field_ptr, val);
+                            else
+                            {
+                                if (is_bool_type(ins->value->type))
+                                    val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
+                                LLVMBuildStore(builder, val, field_ptr);
+                            }
+                            set_name(storage);
+                            val_map[inst] = storage;
+                            break;
+                        }
 
                         if (ins->aggregate && tc.uses_byte_storage(ins->aggregate->type))
                         {
@@ -3893,7 +4175,10 @@ namespace dcc::backend
                             }
                             if (is_bool_type(aggregate_type->members[ins->field_index]))
                                 val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
-                            LLVMBuildStore(builder, val, member_ptr);
+                            if (tc.indirect(ins->value->type))
+                                copy_indirect(builder, ctx, ins->value->type, member_ptr, val);
+                            else
+                                LLVMBuildStore(builder, val, member_ptr);
                             auto* result = LLVMBuildLoad2(builder, aggregate_llvm_type, storage, "");
                             set_name(result);
                             val_map[inst] = result;
@@ -3906,6 +4191,8 @@ namespace dcc::backend
 
                         if (is_bool_type(ins->value->type))
                             val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
+                        if (tc.indirect(ins->value->type))
+                            val = LLVMBuildLoad2(builder, llvm_type_cached(tc, ins->value->type), val, "");
 
                         auto* result = LLVMBuildInsertValue(builder, agg_val, val, llvm_field_idx, "");
                         set_name(result);
@@ -4080,6 +4367,12 @@ namespace dcc::backend
                     auto* c = c_api_constant(v, ctx, tc, val_map);
                     if (c)
                     {
+                        if (tc.indirect(v->type))
+                        {
+                            auto* slot = build_frame_slot(builder, llvm_type_cached(tc, v->type));
+                            LLVMBuildStore(builder, c, slot);
+                            c = slot;
+                        }
                         val_map[v] = c;
                         return c;
                     }
@@ -4123,7 +4416,13 @@ namespace dcc::backend
                             if (!v)
                                 return false;
 
-                            LLVMBuildRet(builder, v);
+                            if (tc.indirect(r->value->type))
+                            {
+                                copy_indirect(builder, ctx, r->value->type, LLVMGetParam(llvm_func, 0), v);
+                                LLVMBuildRetVoid(builder);
+                            }
+                            else
+                                LLVMBuildRet(builder, v);
                         }
                         else
                             LLVMBuildRetVoid(builder);

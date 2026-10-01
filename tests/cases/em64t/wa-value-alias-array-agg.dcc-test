@@ -36,7 +36,8 @@ target triple = "x86_64-elf"
 
 define i64 @get_elem(i64 %idx) {
 entry:
-  %"0" = load [4 x i64], ptr @_DC0G1.4.test6.storedA4i64u, align 4
+  %"0" = alloca [4 x i64], align 8
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 @_DC0G1.4.test6.storedA4i64u, i64 32, i1 false)
   %"1" = getelementptr [4 x i64], ptr @_DC0G1.4.test6.storedA4i64u, i32 0, i64 %idx
   %"2" = load i64, ptr %"1", align 4
   ret i64 %"2"
@@ -46,3 +47,8 @@ define i32 @dcc_main() {
 entry:
   ret i32 30
 }
+
+; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.memcpy.p0.p0.i64(ptr noalias writeonly captures(none), ptr noalias readonly captures(none), i64, i1 immarg) #0
+
+attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }

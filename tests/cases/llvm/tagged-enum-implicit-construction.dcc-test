@@ -43,13 +43,18 @@ entry:
   store [16 x i8] zeroinitializer, ptr %"1", align 1
   store { ptr, i64 } { ptr @.str.0, i64 5 }, ptr %"1", align 8
   %"2" = load [16 x i8], ptr %"1", align 1
-  %"3" = insertvalue %0 { i8 0, [7 x i8] undef, [16 x i8] undef }, [16 x i8] %"2", 2
+  %"3" = alloca %0, align 8
+  call void @llvm.memset.p0.i64(ptr align 8 %"3", i8 0, i64 24, i1 false)
+  %0 = getelementptr %0, ptr %"3", i32 0, i32 0
+  store i8 0, ptr %0, align 1
+  %1 = getelementptr %0, ptr %"3", i32 0, i32 2
+  store [16 x i8] %"2", ptr %1, align 1
   %"4" = alloca [1 x %0], align 8
   %"5" = getelementptr [1 x %0], ptr %"4", i32 0, i64 0
-  store %0 %"3", ptr %"5", align 1
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"5", ptr align 8 %"3", i64 24, i1 false)
   %"6" = getelementptr [1 x %0], ptr %"4", i32 0, i64 0
-  %0 = insertvalue { ptr, i64 } undef, ptr %"6", 0
-  %"7" = insertvalue { ptr, i64 } %0, i64 1, 1
+  %2 = insertvalue { ptr, i64 } undef, ptr %"6", 0
+  %"7" = insertvalue { ptr, i64 } %2, i64 1, 1
   call void @_DC0F1.4.test4.take1SCqD1.4.test9.FormatArg0.v({ ptr, i64 } %"7")
   ret void
 }
@@ -61,9 +66,17 @@ entry:
   store [16 x i8] zeroinitializer, ptr %"2", align 1
   store { ptr, i64 } { ptr @.str.0, i64 5 }, ptr %"2", align 8
   %"3" = load [16 x i8], ptr %"2", align 1
-  %"4" = insertvalue %0 { i8 0, [7 x i8] undef, [16 x i8] undef }, [16 x i8] %"3", 2
-  %"5" = insertvalue [1 x %0] undef, %0 %"4", 0
-  store [1 x %0] %"5", ptr %"0", align 1
+  %"4" = alloca %0, align 8
+  call void @llvm.memset.p0.i64(ptr align 8 %"4", i8 0, i64 24, i1 false)
+  %0 = getelementptr %0, ptr %"4", i32 0, i32 0
+  store i8 0, ptr %0, align 1
+  %1 = getelementptr %0, ptr %"4", i32 0, i32 2
+  store [16 x i8] %"3", ptr %1, align 1
+  %"5" = alloca [1 x %0], align 8
+  call void @llvm.memset.p0.i64(ptr align 8 %"5", i8 0, i64 24, i1 false)
+  %2 = getelementptr [1 x %0], ptr %"5", i32 0, i32 0
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %2, ptr align 8 %"4", i64 24, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 %"5", i64 24, i1 false)
   ret void
 }
 
@@ -74,13 +87,27 @@ entry:
   store [16 x i8] zeroinitializer, ptr %"2", align 1
   store { ptr, i64 } { ptr @.str.0, i64 5 }, ptr %"2", align 8
   %"3" = load [16 x i8], ptr %"2", align 1
-  %"4" = insertvalue %0 { i8 0, [7 x i8] undef, [16 x i8] undef }, [16 x i8] %"3", 2
+  %"4" = alloca %0, align 8
+  call void @llvm.memset.p0.i64(ptr align 8 %"4", i8 0, i64 24, i1 false)
+  %0 = getelementptr %0, ptr %"4", i32 0, i32 0
+  store i8 0, ptr %0, align 1
+  %1 = getelementptr %0, ptr %"4", i32 0, i32 2
+  store [16 x i8] %"3", ptr %1, align 1
   %"5" = alloca [1 x %0], align 8
   %"6" = getelementptr [1 x %0], ptr %"5", i32 0, i64 0
-  store %0 %"4", ptr %"6", align 1
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"6", ptr align 8 %"4", i64 24, i1 false)
   %"7" = getelementptr [1 x %0], ptr %"5", i32 0, i64 0
-  %0 = insertvalue { ptr, i64 } undef, ptr %"7", 0
-  %"8" = insertvalue { ptr, i64 } %0, i64 1, 1
+  %2 = insertvalue { ptr, i64 } undef, ptr %"7", 0
+  %"8" = insertvalue { ptr, i64 } %2, i64 1, 1
   store { ptr, i64 } %"8", ptr %"0", align 8
   ret void
 }
+
+; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
+declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #0
+
+; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
+declare void @llvm.memcpy.p0.p0.i64(ptr noalias writeonly captures(none), ptr noalias readonly captures(none), i64, i1 immarg) #1
+
+attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: write) }
+attributes #1 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
