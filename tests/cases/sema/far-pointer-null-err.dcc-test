@@ -1,0 +1,19 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 pick2(u8^GS b) {
+    return match b {
+        null => 1,
+        _ => 2,
+    };
+}
+
+public i32 demo() {
+    u8^GS b = null;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: literal pattern type mismatch: matched `u8^GS`, pattern `null_t`
+main.dc:11: initializer type mismatch: declared `u8^GS`, initializer `null_t`

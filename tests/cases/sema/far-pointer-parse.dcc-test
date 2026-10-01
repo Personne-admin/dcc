@@ -1,0 +1,207 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Pair(T, U) {
+    T first;
+    U second;
+}
+
+u8^ g_far;
+u8^GS g_based;
+const u8^ g_const_far;
+u8^ const g_far_const;
+u8^* g_ptr_to_far;
+i32(^)(i32) g_far_fp;
+u8 GS;
+
+public i32 demo(u8^ p, u8^GS q) {
+    u8 a = 6;
+    u8 b = 3;
+    u8 x = a ^ b;
+    u8 y = a ^ b ^ a;
+    u8 z = (a) ^ b;
+    u8^ r = p;
+    u8^GS s = q;
+    u8^ t = r as u8^;
+    u8^GS u = s as u8^GS;
+    Pair(u8^, u8^GS) pr;
+    GS = 7;
+    x = x + y + z + GS;
+    if r as u8^ {
+        x = x + 1;
+    }
+    return x as i32;
+}
+=== ENTRY: main.dc ===
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=Pair
+    TemplateParams
+      Param name=T
+      Param name=U
+    Field name=first
+      Named T
+    Field name=second
+      Named U
+  Var name=g_far
+    Type
+      FarPointer
+        Primitive u8
+  Var name=g_based
+    Type
+      BasedPointer GS
+        Primitive u8
+  Var name=g_const_far
+    Type
+      FarPointer
+        Qualified const
+          Primitive u8
+  Var name=g_far_const
+    Type
+      Qualified const
+        FarPointer
+          Primitive u8
+  Var name=g_ptr_to_far
+    Type
+      Pointer
+        FarPointer
+          Primitive u8
+  Var name=g_far_fp
+    Type
+      FarFuncPtr
+        Return
+          Primitive i32
+        Params
+          Primitive i32
+  Var name=GS
+    Type
+      Primitive u8
+  Func name=demo
+    public
+    Return
+      Primitive i32
+    Params
+      Param name=p
+        FarPointer
+          Primitive u8
+      Param name=q
+        BasedPointer GS
+          Primitive u8
+    Body
+      Var name=a
+        Type
+          Primitive u8
+        Init
+          IntLiteral 6
+      Var name=b
+        Type
+          Primitive u8
+        Init
+          IntLiteral 3
+      Var name=x
+        Type
+          Primitive u8
+        Init
+          Binary op=^
+            Ident a
+            Ident b
+      Var name=y
+        Type
+          Primitive u8
+        Init
+          Binary op=^
+            Binary op=^
+              Ident a
+              Ident b
+            Ident a
+      Var name=z
+        Type
+          Primitive u8
+        Init
+          Binary op=^
+            Ident a
+            Ident b
+      Var name=r
+        Type
+          FarPointer
+            Primitive u8
+        Init
+          Ident p
+      Var name=s
+        Type
+          BasedPointer GS
+            Primitive u8
+        Init
+          Ident q
+      Var name=t
+        Type
+          FarPointer
+            Primitive u8
+        Init
+          Cast
+            Target
+              FarPointer
+                Primitive u8
+            Operand
+              Ident r
+      Var name=u
+        Type
+          BasedPointer GS
+            Primitive u8
+        Init
+          Cast
+            Target
+              BasedPointer GS
+                Primitive u8
+            Operand
+              Ident s
+      Var name=pr
+        Type
+          Named Pair
+            TemplateArgs
+              Arg
+                FarPointer
+                  Primitive u8
+              Arg
+                BasedPointer GS
+                  Primitive u8
+      ExprStmt
+        Binary op==
+          Ident GS
+          IntLiteral 7
+      ExprStmt
+        Binary op==
+          Ident x
+          Binary op=+
+            Binary op=+
+              Binary op=+
+                Ident x
+                Ident y
+              Ident z
+            Ident GS
+      ExprStmt
+        If
+          Cond
+            Cast
+              Target
+                FarPointer
+                  Primitive u8
+              Operand
+                Ident r
+          Then
+            ExprStmt
+              Binary op==
+                Ident x
+                Binary op=+
+                  Ident x
+                  IntLiteral 1
+      Return
+        Cast
+          Target
+            Primitive i32
+          Operand
+            Ident x
+

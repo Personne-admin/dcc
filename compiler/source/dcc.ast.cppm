@@ -521,6 +521,8 @@ export namespace dcc::ast
     {
         static constexpr auto Kind = TypeKind::Pointer;
         TypePtr pointee;
+        bool is_far{};
+        std::string_view segment_name{};
         PointerType(sm::SourceRange r, TypePtr pt) : TypeExpr(Kind, r), pointee(pt) {}
     };
 
@@ -559,6 +561,7 @@ export namespace dcc::ast
         static constexpr auto Kind = TypeKind::FuncPtr;
         TypePtr return_type;
         std::pmr::vector<FuncPtrParam> params;
+        bool is_far{};
         FuncPtrType(sm::SourceRange r, TypePtr ret, Allocator a) : TypeExpr(Kind, r), return_type(ret), params(a) {}
     };
 

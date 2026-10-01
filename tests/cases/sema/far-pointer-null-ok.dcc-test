@@ -1,0 +1,17 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 pick(u8^ p) {
+    return match p {
+        null => 1,
+        _ => 0,
+    };
+}
+
+public i32 demo() {
+    u8^ f = null;
+    u8^ g;
+    g = null;
+    return pick(f) as i32 + pick(g) as i32;
+}

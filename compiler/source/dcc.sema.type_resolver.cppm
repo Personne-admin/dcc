@@ -487,8 +487,21 @@ export namespace dcc::sema
                     out = resolve_named(static_cast<ast::NamedType*>(node), mod, env, quiet_unknown);
                     break;
                 case ast::TypeKind::Pointer: {
-                    auto inner = resolve_type_expr(static_cast<ast::PointerType*>(node)->pointee, mod, env, quiet_unknown);
-                    out.type = m_types.pointer_to(inner.type, inner.quals);
+                    auto* t = static_cast<ast::PointerType*>(node);
+                    auto inner = resolve_type_expr(t->pointee, mod, env, quiet_unknown);
+                    auto seg = types::TypeContext::seg_reg_from_name(t->segment_name);
+                    if (auto err = m_types.check_far_pointer(t->is_far, seg))
+                    {
+                        m_diag.error(node->range, "{}", *err);
+                        out.type = m_types.m_errort();
+                        break;
+                    }
+                    if (!t->is_far)
+                        out.type = m_types.pointer_to(inner.type, inner.quals);
+                    else if (seg == types::SegReg::None)
+                        out.type = m_types.far_pointer_to(inner.type, inner.quals);
+                    else
+                        out.type = m_types.based_pointer_to(inner.type, inner.quals, seg);
                     break;
                 }
                 case ast::TypeKind::Array: {
@@ -533,7 +546,13 @@ export namespace dcc::sema
                             m_diag.error(p.range, "function pointer parameter pack must be the last parameter");
                         params.push_back(rp.type);
                     }
-                    out.type = m_types.funcptr_t(ret.type, params);
+                    if (auto err = m_types.check_far_pointer(t->is_far, types::SegReg::None))
+                    {
+                        m_diag.error(node->range, "{}", *err);
+                        out.type = m_types.m_errort();
+                        break;
+                    }
+                    out.type = m_types.funcptr_t(ret.type, params, t->is_far);
                     break;
                 }
                 case ast::TypeKind::Qualified: {

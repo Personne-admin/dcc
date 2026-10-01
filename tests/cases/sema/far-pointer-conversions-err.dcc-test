@@ -1,0 +1,30 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 g;
+
+public i32 demo() {
+    u8* n = &g;
+    u8^GS b;
+    u8^ f;
+    b = n;
+    n = b;
+    u8^FS b2 = b;
+    f = b;
+    b = f as u8^GS;
+    u32 seg = f as u32;
+    u8^ g2 = 74565 as u8^;
+    u8* n2 = b as u8*;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:9: assignment type mismatch: cannot assign `u8*` to `u8^GS`
+main.dc:10: assignment type mismatch: cannot assign `u8^GS` to `u8*`
+main.dc:11: initializer type mismatch: declared `u8^FS`, initializer `u8^GS`
+main.dc:12: assignment type mismatch: cannot assign `u8^GS` to `u8^`
+main.dc:13: invalid cast from `u8^` to `u8^GS`: dynamic far pointers cannot be narrowed to a based pointer
+main.dc:14: invalid cast from `u8^` to `u32`: far and based pointers cannot be cast to or from integers; use `seg:off` construction and core::seg
+main.dc:15: invalid cast from `i32` to `u8^`: far and based pointers cannot be cast to or from integers; use `seg:off` construction and core::seg
+main.dc:16: invalid cast from `u8^GS` to `u8*`: based pointers cannot be converted to near pointers

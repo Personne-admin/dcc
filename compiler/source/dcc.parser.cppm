@@ -1619,7 +1619,7 @@ export namespace dcc::parser
                 auto path = parse_path();
                 auto* nt = m_ctx.make<ast::NamedType>(range_from(start), std::move(path));
 
-                if (check(TK::LParen) && !(check_at(1, TK::Star) && check_at(2, TK::RParen)))
+                if (check(TK::LParen) && !((check_at(1, TK::Star) || check_at(1, TK::Caret)) && check_at(2, TK::RParen)))
                 {
                     advance();
                     nt->explicit_template_args = true;
@@ -1637,6 +1637,11 @@ export namespace dcc::parser
 
             error_at(single_range(), std::format("expected type, found '{}'", lex::to_string(peek().kind)));
             return nullptr;
+        }
+
+        [[nodiscard]] static bool is_segment_register_name(std::string_view name) noexcept
+        {
+            return name == "CS" || name == "DS" || name == "ES" || name == "SS" || name == "FS" || name == "GS";
         }
 
         ast::TypeExpr* parse_type_suffix(ast::TypeExpr* base, bool allow_restricted)
@@ -1691,14 +1696,16 @@ export namespace dcc::parser
                     continue;
                 }
 
-                if (check(TK::LParen) && check_at(1, TK::Star) && check_at(2, TK::RParen))
+                if (check(TK::LParen) && (check_at(1, TK::Star) || check_at(1, TK::Caret)) && check_at(2, TK::RParen))
                 {
+                    bool is_far = check_at(1, TK::Caret);
                     advance();
                     advance();
                     advance();
                     expect(TK::LParen, "in function pointer parameter list");
 
                     auto* fp = m_ctx.make<ast::FuncPtrType>(range_from(start), base);
+                    fp->is_far = is_far;
 
                     if (!check(TK::RParen))
                         do
@@ -1727,6 +1734,19 @@ export namespace dcc::parser
                 if (match(TK::Star))
                 {
                     base = m_ctx.make<ast::PointerType>(range_from(start), base);
+                    continue;
+                }
+
+                if (match(TK::Caret))
+                {
+                    auto* ptr = m_ctx.make<ast::PointerType>(range_from(start), base);
+                    ptr->is_far = true;
+                    if (check(TK::Identifier) && is_segment_register_name(peek().interned))
+                    {
+                        ptr->segment_name = peek().interned;
+                        advance();
+                    }
+                    base = ptr;
                     continue;
                 }
 

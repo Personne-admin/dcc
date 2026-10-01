@@ -109,7 +109,12 @@ export namespace dcc::ast
         }
         void visitPointerType(PointerType const* t) override
         {
-            line("Pointer");
+            if (!t->is_far)
+                line("Pointer");
+            else if (t->segment_name.empty())
+                line("FarPointer");
+            else
+                line_fmt("BasedPointer {}", t->segment_name);
             IndentScope is(m_indent_level);
             visitTypeExpr(t->pointee);
         }
@@ -143,7 +148,10 @@ export namespace dcc::ast
         }
         void visitFuncPtrType(FuncPtrType const* t) override
         {
-            line("FuncPtr");
+            if (t->is_far)
+                line("FarFuncPtr");
+            else
+                line("FuncPtr");
             IndentScope is(m_indent_level);
             if (t->return_type)
             {

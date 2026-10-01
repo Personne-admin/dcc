@@ -1,0 +1,30 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Cell {
+    u8 v;
+}
+
+u8 get(u8^ p) {
+    return *p;
+}
+
+u8 getb(u8^GS p, usize i, u8^GS q) {
+    u8 a = p[i];
+    p += 1;
+    p++;
+    isize d = q - p;
+    Cell^GS c;
+    u8 w = c.v;
+    return a + *p + d as u8 + w;
+}
+
+u8 getdiff(u8^ a, u8^ b) {
+    isize d = a - b;
+    return d as u8;
+}
+
+public i32 demo() {
+    return 0;
+}

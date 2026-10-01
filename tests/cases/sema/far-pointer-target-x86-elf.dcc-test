@@ -1,0 +1,18 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8^ ok_dynamic;
+u8^CS ok_cs;
+u8^DS ok_ds;
+u8^ES ok_es;
+u8^SS ok_ss;
+u8^FS ok_fs;
+u8^GS ok_gs;
+i32(^)(i32) ok_far_fp;
+
+public i32 demo() {
+    u8^ ok_local;
+    u8^FS ok_based;
+    return 0;
+}

@@ -87,6 +87,7 @@ namespace
         bool bounds_check{false};
         bool restricted_check{false};
         bool partial_eval{false};
+        bool is_error{false};
     };
 
     struct ExpectLlvm
@@ -405,6 +406,7 @@ namespace
             else if (starts_with(h, "EXPECT-IR"))
             {
                 ExpectIr e;
+                e.is_error = starts_with(h, "EXPECT-IR-ERRORS");
                 e.body = sec.body;
                 e.base_line = sec.body_start_line;
                 auto flags_start = h.find("FLAGS:");
@@ -2018,6 +2020,43 @@ namespace
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
                                                                      exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
+            if (exp.is_error)
+            {
+                if (lowerer->lower_errors().empty())
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-IR-ERRORS: expected lowering error, but lowering succeeded  ({}:{})", path.string(),
+                                 exp.base_line);
+                    continue;
+                }
+                std::string actual;
+                for (auto const& message : lowerer->lower_errors())
+                {
+                    if (!actual.empty())
+                        actual += '\n';
+                    actual += message;
+                }
+                if (!trim(exp.body).empty())
+                {
+                    auto a = normalize(actual);
+                    auto e = normalize(exp.body);
+                    if (a != e)
+                    {
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  IR-ERROR mismatch  ({}:{})", path.string(), exp.base_line);
+                        print_diff("IR-ERROR", e, a, exp.base_line);
+                    }
+                }
+                continue;
+            }
+            if (!lowerer->lower_errors().empty())
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  unexpected lowering errors  ({}:{})", path.string(), exp.base_line);
+                for (auto const& message : lowerer->lower_errors())
+                    std::println(std::cerr, "          | {}", message);
+                continue;
+            }
             auto actual = dcc::ir::IrSerializer::dump(ir_mod);
             auto a = normalize(actual);
             auto e = normalize(exp.body);
@@ -2066,6 +2105,15 @@ namespace
             target.position_independent_code = exp.position_independent_code;
             if (exp.code_model)
                 target.code_model = *exp.code_model;
+
+            if (!lowerer->lower_errors().empty())
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  unexpected lowering errors  ({}:{})", path.string(), exp.base_line);
+                for (auto const& message : lowerer->lower_errors())
+                    std::println(std::cerr, "          | {}", message);
+                continue;
+            }
 
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;
@@ -2215,6 +2263,15 @@ namespace
             if (exp.code_model)
                 target.code_model = *exp.code_model;
 
+            if (!lowerer->lower_errors().empty())
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  unexpected lowering errors  ({}:{})", path.string(), exp.base_line);
+                for (auto const& message : lowerer->lower_errors())
+                    std::println(std::cerr, "          | {}", message);
+                continue;
+            }
+
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;
             backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ExecutableBytes};
@@ -2361,6 +2418,15 @@ namespace
 
             if (exp.pic)
                 target.position_independent_code = true;
+
+            if (!lowerer->lower_errors().empty())
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  unexpected lowering errors  ({}:{})", path.string(), exp.base_line);
+                for (auto const& message : lowerer->lower_errors())
+                    std::println(std::cerr, "          | {}", message);
+                continue;
+            }
 
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;
@@ -3206,6 +3272,15 @@ namespace
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
             auto* ir_mod = lowerer->lower_module(*mod);
+
+            if (!lowerer->lower_errors().empty())
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  unexpected lowering errors  ({}:{})", path.string(), exp.base_line);
+                for (auto const& message : lowerer->lower_errors())
+                    std::println(std::cerr, "          | {}", message);
+                continue;
+            }
 
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;

@@ -1,0 +1,32 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 g;
+
+u8^ take_far(u8^ p) {
+    return p;
+}
+
+u8* take_near(u8* p) {
+    return p;
+}
+
+u8^GS take_based(u8^GS p) {
+    return p;
+}
+
+public i32 demo() {
+    u8* n = &g;
+    u8^ f = n;
+    u8^ f2 = n as u8^;
+    u8^GS b;
+    f = b as u8^;
+    n = f as u8*;
+    const u8^ cf = f;
+    take_far(n);
+    take_far(f);
+    take_near(n);
+    take_based(b);
+    return 0;
+}

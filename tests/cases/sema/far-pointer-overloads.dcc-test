@@ -1,0 +1,25 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+i32 pick(u8* p) {
+    return 1;
+}
+
+i32 pick(u8^ p) {
+    return 2;
+}
+
+i32 pick(u8^GS p) {
+    return 3;
+}
+
+i32 pick(u8^FS p) {
+    return 4;
+}
+
+void uses(u8* n, u8^ f, u8^GS b) {
+    pick(n);
+    pick(f);
+    pick(b);
+}

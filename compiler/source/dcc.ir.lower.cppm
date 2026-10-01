@@ -291,6 +291,8 @@ export namespace dcc::ir::lower
             return true;
         }
 
+        [[nodiscard]] std::vector<std::string> const& lower_errors() const noexcept { return m_lower_errors; }
+
     private:
         void build_nominal_resolver()
         {
@@ -1376,6 +1378,14 @@ export namespace dcc::ir::lower
             return m_name_pool.back();
         }
 
+        void report_far_pointer_unsupported()
+        {
+            if (m_far_pointer_reported)
+                return;
+            m_far_pointer_reported = true;
+            m_lower_errors.emplace_back("far and based pointers are not supported by this backend yet");
+        }
+
         IrType const* lower_type(dcc::types::TypePtr type)
         {
             if (!type)
@@ -1410,12 +1420,16 @@ export namespace dcc::ir::lower
 
             if (auto* pt = dcc::types::type_cast<dcc::types::PointerType>(type))
             {
+                if (pt->flavor != dcc::types::PointerFlavor::Near)
+                    report_far_pointer_unsupported();
                 auto* ir_pointee = lower_type(pt->pointee);
                 return m_ctx.pointer_to(ir_pointee, ir::Segment::None);
             }
 
             if (auto* fpt = dcc::types::type_cast<dcc::types::FuncPtrType>(type))
             {
+                if (fpt->is_far)
+                    report_far_pointer_unsupported();
                 auto* ir_ret = lower_type(fpt->return_type);
                 std::vector<IrType const*> ir_params;
                 ir_params.reserve(fpt->params.size());
@@ -6741,6 +6755,8 @@ export namespace dcc::ir::lower
         std::unordered_set<ast::VarDecl const*> m_const_expanding;
         std::vector<ast::VarDecl const*> m_const_expand_stack;
         std::vector<ast::VarDecl const*> m_global_order;
+        std::vector<std::string> m_lower_errors;
+        bool m_far_pointer_reported{};
 
         void lower_module_asms(sema::ModuleInfo const& mod)
         {

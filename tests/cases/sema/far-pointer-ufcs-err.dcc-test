@@ -1,0 +1,26 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+u8 read_near(u8* p) {
+    return *p;
+}
+
+u8 read_based(u8^GS p) {
+    return *p;
+}
+
+public i32 demo() {
+    u8^ f;
+    u8 bad = f.read_near();
+    u8^GS b;
+    u8 bad2 = b.read_near();
+    u8 c;
+    u8 bad3 = c.read_based();
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:13: no matching UFCS function for `read_near` on receiver type `u8^`
+main.dc:15: no matching UFCS function for `read_near` on receiver type `u8^GS`
+main.dc:17: no matching UFCS function for `read_based` on receiver type `u8`

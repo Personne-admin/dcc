@@ -1,0 +1,21 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+u8^ ok_dynamic;
+u8^CS ok_cs;
+u8^DS ok_ds;
+u8^FS bad_fs;
+u8^GS bad_gs;
+i32(^)(i32) ok_far_fp;
+
+public i32 demo() {
+    u8^SS ok_local;
+    u8^FS bad_local;
+    return 0;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: segment register 'FS' is not available on target 'i8086-binary'; the 8086 has no FS or GS
+main.dc:7: segment register 'GS' is not available on target 'i8086-binary'; the 8086 has no FS or GS
+main.dc:12: segment register 'FS' is not available on target 'i8086-binary'; the 8086 has no FS or GS
