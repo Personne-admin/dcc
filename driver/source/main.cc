@@ -845,7 +845,7 @@ namespace
     void print_usage()
     {
         int const term_width = get_terminal_width();
-        int const flag_col_width = 24;
+        int const flag_col_width = 26;
         int const desc_col_width = std::max(20, term_width - flag_col_width - 4);
 
         std::println("usage: dcc [options] <input-file>");
