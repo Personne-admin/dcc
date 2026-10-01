@@ -80,7 +80,6 @@ __syscall6:
 .globl __thread_entry
 .type __thread_entry, @function
 __thread_entry:
-    mov %rdx, %r12
     mov $56, %eax
 
     xor %r10d, %r10d
@@ -90,7 +89,7 @@ __thread_entry:
     jnz .thread_parent
 
     cld
-    mov %r12, %rdi
+    mov %rdx, %rdi
     call thread_child_main
 
     mov $60, %eax
