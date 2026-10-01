@@ -131,7 +131,7 @@ TEST_CASE("--version exits 0 and reports the release version")
     CHECK(version.find("0.3.0") != std::string::npos);
 }
 
-TEST_CASE("the i8086 target rejects lowering without a backend")
+TEST_CASE("the i8086 target has no backend yet")
 {
     auto src = std::filesystem::temp_directory_path() / "dcc_no_backend_target.dc";
     {
@@ -139,11 +139,30 @@ TEST_CASE("the i8086 target rejects lowering without a backend")
         file << "module test;\nvoid f() {}\n";
     }
 
-    for (auto target : {"i8086-binary"})
+    for (auto flags : {"-fdump-ir", "-fbackend custom -c -o /dev/null"})
     {
-        auto [code, output] = run_dcc("-target " + std::string{target} + " -fdump-ir " + shell_quote(src));
+        auto [code, output] = run_dcc("-target i8086-binary " + std::string{flags} + " " + shell_quote(src));
         CHECK(code != 0);
-        CHECK(output.find("no backend for target '" + std::string{target} + "'") != std::string::npos);
+        CHECK(output.find("no backend for target 'i8086-binary'") != std::string::npos);
+    }
+
+    std::filesystem::remove(src);
+}
+
+TEST_CASE("the llvm backend rejects the i8086 target")
+{
+    auto src = std::filesystem::temp_directory_path() / "dcc_llvm_i8086_target.dc";
+    {
+        std::ofstream file{src};
+        file << "module test;\nvoid f() {}\n";
+    }
+
+    for (auto flags : {"-c -o /dev/null", "-fbackend llvm -c -o /dev/null"})
+    {
+        auto [code, output] = run_dcc("-target i8086-binary " + std::string{flags} + " " + shell_quote(src));
+        CHECK(code != 0);
+        CHECK(output.find("LLVM backend does not support target 'i8086-binary'") != std::string::npos);
+        CHECK(output.find("no backend for target") == std::string::npos);
     }
 
     std::filesystem::remove(src);

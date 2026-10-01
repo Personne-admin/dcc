@@ -160,7 +160,7 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--output', type=Path, default=ROOT/'build/benchmarks/baseline.json')
     p.add_argument('--baseline', type=Path)
-    p.add_argument('--configs', default='llvm:O0,llvm:O1,llvm:O2,llvm:Os,em64t:O0,em64t:O1,em64t:O2,em64t:Os')
+    p.add_argument('--configs', default='llvm:O0,llvm:O1,llvm:O2,llvm:Os,custom:O0,custom:O1,custom:O2,custom:Os')
     p.add_argument('--filter', default='.*')
     p.add_argument('--compile-runs', type=int, default=3)
     p.add_argument('--runs', type=int, default=9)
@@ -203,7 +203,7 @@ def main():
     if rc:
         raise RuntimeError(err)
 
-    libraries = {b: ROOT/f'build/lib/libdcext-linux-{b}.a' for b in ['llvm', 'em64t']}
+    libraries = {b: ROOT/f'build/lib/libdcext-linux-{b}.a' for b in ['llvm', 'custom']}
     if args.library_opt:
         for backend in sorted({c.split(':')[0] for c in args.configs.split(',')}):
             libraries[backend] = build_library(compiler, backend, args.library_opt, work/('library-'+backend+'-'+args.library_opt))
@@ -216,7 +216,7 @@ def main():
 
     data = dict(schema=1, commit=run(['git', 'rev-parse', 'HEAD'])[2].strip(),
                 dirty=bool(run(['git', 'status', '--porcelain'])[2]),
-                library_sha256={b: hashlib.sha256(libraries[b].read_bytes()).hexdigest() for b in ['llvm', 'em64t']},
+                library_sha256={b: hashlib.sha256(libraries[b].read_bytes()).hexdigest() for b in ['llvm', 'custom']},
                 compiler_sha256=hashlib.sha256(compiler.read_bytes()).hexdigest(),
                 corpus_sha256=corpus.hexdigest(), date=time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
                 host=platform.platform(), cpu=Path('/proc/cpuinfo').read_text().split('model name')[1].split('\n')[0].strip(': \t'),

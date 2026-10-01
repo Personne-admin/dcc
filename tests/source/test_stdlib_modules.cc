@@ -234,7 +234,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -395,7 +395,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -449,7 +449,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -555,7 +555,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -1379,7 +1379,7 @@ TEST_CASE("implicit function pointer pack deduction executes on both backends at
     auto mod = source.find("module test;");
     if (mod != std::string::npos)
         source.replace(mod, std::string_view{"module test;"}.size(), "module main;");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -1401,7 +1401,7 @@ TEST_CASE("constants materialized per block execute on both backends at O0, O1 a
     auto mod = source.find("module test;");
     if (mod != std::string::npos)
         source.replace(mod, std::string_view{"module test;"}.size(), "module main;");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O1", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -1480,7 +1480,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -1613,7 +1613,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
@@ -1657,7 +1657,7 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }

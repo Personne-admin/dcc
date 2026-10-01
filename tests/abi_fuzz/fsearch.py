@@ -144,7 +144,7 @@ def check(sequence: Sequence[str]) -> Optional[tuple[int, int]]:
     compile_command = [
         str(DCC),
         "-fbackend",
-        "em64t",
+        "custom",
         "-target",
         "x86_64-elf",
         "-c",

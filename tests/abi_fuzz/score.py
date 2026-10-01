@@ -16,7 +16,7 @@ DCC = Path("/usr/local/bin/dcc")
 LINKER = "ld.lld"
 
 BACKENDS: dict[str, list[str]] = {
-    "em": ["-fbackend", "em64t"],
+    "em": ["-fbackend", "custom"],
     "ll": [],
 }
 
