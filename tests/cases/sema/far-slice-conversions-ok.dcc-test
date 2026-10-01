@@ -1,0 +1,35 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+void conv([]u8 near, [^]u8 far, [^GS]u8 based, u8[4] arr, [^]const u8 farc, []const u8 nearc, [^GS]const u8 basedc) {
+    [^]u8 a = near;
+    [^]u8 b = arr;
+    [^]u8 c = far;
+    [^]const u8 d = far;
+    [^]const u8 e = near;
+    [^]const u8 f = nearc;
+    [^]const u8 g = arr;
+    [^GS]u8 h = based;
+    [^GS]const u8 i = based;
+    [^]u8 j = based as [^]u8;
+    []u8 k = far as []u8;
+    [^]const u8 l = based as [^]const u8;
+    []const u8 m = farc as []const u8;
+    [^]u8 n = near as [^]u8;
+    [^GS]const u8 o = basedc;
+}
+
+[^]u8 pass_through([]u8 near) {
+    return near;
+}
+
+void take_far([^]const u8 s) {
+}
+
+void call_far([]u8 near, [^]u8 far, u8[2] arr) {
+    take_far(near);
+    take_far(far);
+    take_far(arr);
+    take_far("literal");
+}

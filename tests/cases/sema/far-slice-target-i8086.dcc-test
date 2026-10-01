@@ -1,0 +1,24 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+[^]u8 ok_far;
+[^CS]u8 ok_cs;
+[^DS]const u8 ok_ds;
+[^ES]u8 ok_es;
+[^SS]volatile u8 ok_ss;
+[^FS]u8 bad_fs;
+[^GS]u8 bad_gs;
+
+struct Holder {
+    [^FS]u8 field;
+}
+
+void params([^GS]const u8 a, [^]u8 b) {
+}
+
+=== EXPECT-ERRORS ===
+main.dc:8: segment register 'FS' is not available on target 'i8086-binary'; the 8086 has no FS or GS
+main.dc:9: segment register 'GS' is not available on target 'i8086-binary'; the 8086 has no FS or GS
+main.dc:12: segment register 'FS' is not available on target 'i8086-binary'; the 8086 has no FS or GS
+main.dc:15: segment register 'GS' is not available on target 'i8086-binary'; the 8086 has no FS or GS

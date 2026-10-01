@@ -88,6 +88,8 @@ namespace dcc::sema
                 case ast::TypeKind::Slice: {
                     auto* e = static_cast<ast::SliceType const*>(t);
                     auto* n = m_ctx.make<ast::SliceType>(e->range, clone_type(e->element));
+                    n->is_far = e->is_far;
+                    n->segment_name = e->segment_name;
                     n->sema = e->sema;
                     return n;
                 }
@@ -873,7 +875,7 @@ namespace dcc::sema
                         auto const* s = static_cast<types::SliceType const*>(static_cast<void const*>(type));
                         auto inner = deep_substitute(s->element);
                         if (inner != s->element)
-                            return m_types.slice_t(inner, s->element_quals);
+                            return m_types.rebuild_slice(s, inner, s->element_quals);
 
                         return type;
                     }
@@ -1945,6 +1947,8 @@ export namespace dcc::sema
                 auto const* st = static_cast<types::SliceType const*>(ty);
                 auto* elem = clone_type_from_canonical(st->element, ast_ctx, type_ctx);
                 auto* r = ast_ctx.make<ast::SliceType>(sm::SourceRange{}, elem);
+                r->is_far = st->flavor != types::PointerFlavor::Near;
+                r->segment_name = types::TypeContext::seg_reg_name(st->segment);
                 set_canonical(r->sema, ty);
                 return r;
             }

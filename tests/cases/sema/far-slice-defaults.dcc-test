@@ -1,0 +1,20 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Holder {
+    [^]u8 far;
+    [^GS]u8 based;
+}
+
+[^]u8 g_far;
+[^GS]u8 g_based;
+
+usize defaults() {
+    [^]u8 a;
+    [^GS]u8 b;
+    Holder h;
+    usize n = a.len + b.len + h.far.len + h.based.len + g_far.len + g_based.len;
+    [^GS]u8 c = b;
+    return n;
+}

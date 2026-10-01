@@ -524,14 +524,27 @@ export namespace dcc::sema
                     break;
                 }
                 case ast::TypeKind::Slice: {
-                    auto inner = resolve_type_expr(static_cast<ast::SliceType*>(node)->element, mod, env, quiet_unknown);
+                    auto* st = static_cast<ast::SliceType*>(node);
+                    auto inner = resolve_type_expr(st->element, mod, env, quiet_unknown);
                     if (inner.type && is_concrete_void_type(inner.type))
                     {
                         m_diag.error(node->range, "slice element type cannot be void");
                         out.type = m_types.m_errort();
                         break;
                     }
-                    out.type = m_types.slice_t(inner.type, inner.quals);
+                    auto seg = types::TypeContext::seg_reg_from_name(st->segment_name);
+                    if (auto err = m_types.check_far_pointer(st->is_far, seg, "slices"))
+                    {
+                        m_diag.error(node->range, "{}", *err);
+                        out.type = m_types.m_errort();
+                        break;
+                    }
+                    if (!st->is_far)
+                        out.type = m_types.slice_t(inner.type, inner.quals);
+                    else if (seg == types::SegReg::None)
+                        out.type = m_types.slice_t(inner.type, inner.quals, types::PointerFlavor::Far, types::SegReg::None);
+                    else
+                        out.type = m_types.slice_t(inner.type, inner.quals, types::PointerFlavor::Based, seg);
                     break;
                 }
                 case ast::TypeKind::Fam: {

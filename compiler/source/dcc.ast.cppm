@@ -539,6 +539,8 @@ export namespace dcc::ast
     {
         static constexpr auto Kind = TypeKind::Slice;
         TypePtr element;
+        bool is_far{};
+        std::string_view segment_name{};
         SliceType(sm::SourceRange r, TypePtr el) : TypeExpr(Kind, r), element(el) {}
     };
 

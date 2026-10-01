@@ -1,0 +1,33 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+usize far_len([^]const u8 s) { return s.len; }
+usize near_len([]const u8 s) { return s.len; }
+usize based_len([^GS]const u8 s) { return s.len; }
+usize any_far(T)([^]const T s) { return s.len; }
+usize any_based(T)([^GS]const T s) { return s.len; }
+
+void ufcs([]u8 near, [^]u8 far, [^GS]u8 based, u8[4] arr) {
+    usize a = far.far_len();
+    usize b = near.far_len();
+    usize c = arr.far_len();
+    usize d = near.near_len();
+    usize e = based.based_len();
+    usize f = far.any_far();
+    usize g = near.any_far();
+    usize h = based.any_based();
+}
+
+usize pick([]u8 near) { return 1; }
+usize pick([^]u8 far) { return 2; }
+usize pick([^GS]u8 based) { return 3; }
+
+void overloads([]u8 near, [^]u8 far, [^GS]u8 based) {
+    usize a = pick(near);
+    usize b = pick(far);
+    usize c = pick(based);
+    usize d = near.pick();
+    usize e = far.pick();
+    usize f = based.pick();
+}

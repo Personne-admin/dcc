@@ -1,0 +1,55 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+void conv([]u8 near, [^]u8 far, [^GS]u8 based, [^FS]u8 other, u8[4] arr, [^]const u8 farc, []const u8 nearc, [^GS]const u8 basedc) {
+    [^GS]u8 a = far;
+    [^GS]u8 b = near;
+    [^GS]u8 c = other;
+    [^GS]u8 d = arr;
+    []u8 e = far;
+    [^]u8 f = based;
+    [^]u8 g = farc;
+    [^GS]u8 h = far as [^GS]u8;
+    []u8 i = based as []u8;
+    [^FS]u8 j = based as [^FS]u8;
+    [^GS]u8 k = near as [^GS]u8;
+    [^]u8 l = nearc as [^]u8;
+    [^GS]u8 m = basedc as [^GS]u8;
+    []u8 n = farc as []u8;
+    [^GS]u8 o = "literal";
+}
+
+void take_based([^GS]const u8 s) {
+}
+
+void take_near([]const u8 s) {
+}
+
+void call([]u8 near, [^]u8 far, [^GS]u8 based) {
+    take_based(near);
+    take_based(far);
+    take_near(far);
+    take_near(based);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: initializer type mismatch: declared `[^GS]u8`, initializer `[^]u8`
+main.dc:5: initializer type mismatch: declared `[^GS]u8`, initializer `[]u8`
+main.dc:6: initializer type mismatch: declared `[^GS]u8`, initializer `[^FS]u8`
+main.dc:7: initializer type mismatch: declared `[^GS]u8`, initializer `u8[4]`
+main.dc:8: initializer type mismatch: declared `[]u8`, initializer `[^]u8`
+main.dc:9: initializer type mismatch: declared `[^]u8`, initializer `[^GS]u8`
+main.dc:10: initializer type mismatch: declared `[^]u8`, initializer `[^]const u8`
+main.dc:11: invalid cast from `[^]u8` to `[^GS]u8`: dynamic far slices cannot be narrowed to a based slice
+main.dc:12: invalid cast from `[^GS]u8` to `[]u8`: based slices cannot be converted to near slices
+main.dc:13: invalid cast from `[^GS]u8` to `[^FS]u8`: based slices with different segment registers cannot be converted
+main.dc:14: invalid cast from `[]u8` to `[^GS]u8`: near slices cannot be converted to a based slice
+main.dc:15: invalid cast from `[]const u8` to `[^]u8`: cannot drop const qualifier
+main.dc:16: invalid cast from `[^GS]const u8` to `[^GS]u8`: cannot drop const qualifier
+main.dc:17: invalid cast from `[^]const u8` to `[]u8`: cannot drop const qualifier
+main.dc:18: initializer type mismatch: declared `[^GS]u8`, initializer `[]u8`
+main.dc:28: no matching call for `take_based`
+main.dc:29: no matching call for `take_based`
+main.dc:30: no matching call for `take_near`
+main.dc:31: no matching call for `take_near`

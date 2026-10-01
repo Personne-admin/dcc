@@ -1,0 +1,16 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+
+void use(u8 v) {}
+
+usize based_slices(u8^GS p, u8^FS q, [^GS]u8 s, [^FS]const u8 t, usize n) {
+    [^GS]u8 a = core::seg::from_raw(p, n);
+    [^FS]const u8 b = core::seg::from_raw_const(q, n);
+    for v in s { use(v); }
+    u8 first = t[0];
+    usize len = a.len + b.len;
+    u8^GS ptr = a.ptr;
+    return len;
+}

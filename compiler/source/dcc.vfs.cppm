@@ -357,6 +357,10 @@ public const bool IS_64_BIT = {};
             out += "@intrinsic\npublic const T^ with_offset(T)(const T^ ptr, usize off);\n\n";
             out += "@intrinsic\npublic T^ with_segment(T)(T^ ptr, u16 seg);\n\n";
             out += "@intrinsic\npublic const T^ with_segment(T)(const T^ ptr, u16 seg);\n\n";
+            // TODO move this along std::slice::from_raw into core::slice.
+            out += "public [^] T from_raw(T)(T^ ptr, usize len) {\n    [^] T slice;\n    slice.ptr = ptr;\n    slice.len = len;\n    return slice;\n}\n\n";
+            out += "public [^] const T from_raw_const(T)(const T^ ptr, usize len) {\n    [^] const T slice;\n    slice.ptr = ptr;\n    slice.len = len;\n    "
+                   "return slice;\n}\n\n";
         }
         constexpr dcc::types::SegReg regs[] = {
             dcc::types::SegReg::CS, dcc::types::SegReg::DS, dcc::types::SegReg::ES, dcc::types::SegReg::SS, dcc::types::SegReg::FS, dcc::types::SegReg::GS,
@@ -370,6 +374,12 @@ public const bool IS_64_BIT = {};
             out += std::format("@intrinsic\npublic usize offset(T)(const T^{0} ptr);\n\n", name);
             out += std::format("@intrinsic\npublic T^{0} with_offset(T)(T^{0} ptr, usize off);\n\n", name);
             out += std::format("@intrinsic\npublic const T^{0} with_offset(T)(const T^{0} ptr, usize off);\n\n", name);
+            out += std::format("public [^{0}] T from_raw(T)(T^{0} ptr, usize len) {{\n    [^{0}] T slice;\n    slice.ptr = ptr;\n    slice.len = len;\n    "
+                               "return slice;\n}}\n\n",
+                               name);
+            out += std::format("public [^{0}] const T from_raw_const(T)(const T^{0} ptr, usize len) {{\n    [^{0}] const T slice;\n    slice.ptr = ptr;\n    "
+                               "slice.len = len;\n    return slice;\n}}\n\n",
+                               name);
         }
         return out;
     }

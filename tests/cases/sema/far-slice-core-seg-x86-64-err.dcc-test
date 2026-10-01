@@ -1,0 +1,16 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+
+void mismatched(u8^GS p, u8^FS q, u8* near, usize n) {
+    [^FS]u8 a = core::seg::from_raw(p, n);
+    [^GS]u8 b = core::seg::from_raw(q, n);
+    [^GS]u8 c = core::seg::from_raw(near, n);
+    [^GS]const u8 d = core::seg::from_raw(p, n);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: initializer type mismatch: declared `[^FS]u8`, initializer `[^GS]u8`
+main.dc:6: initializer type mismatch: declared `[^GS]u8`, initializer `[^FS]u8`
+main.dc:7: no matching call for `core::seg::from_raw`

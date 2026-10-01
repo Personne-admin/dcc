@@ -1616,6 +1616,25 @@ export namespace dcc::parser
                 return m_ctx.make<ast::SliceType>(range_from(start), el);
             }
 
+            if (check(TK::LBracket) && check_at(1, TK::Caret) &&
+                (check_at(2, TK::RBracket) || (check_at(2, TK::Identifier) && is_segment_register_name(peek(2).interned) && check_at(3, TK::RBracket))))
+            {
+                advance();
+                advance();
+                std::string_view segment_name;
+                if (check(TK::Identifier))
+                    segment_name = advance().interned;
+                advance();
+                auto* el = parse_type(allow_restricted);
+                if (!el)
+                    return nullptr;
+
+                auto* slice = m_ctx.make<ast::SliceType>(range_from(start), el);
+                slice->is_far = true;
+                slice->segment_name = segment_name;
+                return slice;
+            }
+
             if (ast::is_primitive_type(peek().kind))
             {
                 auto tok = advance();

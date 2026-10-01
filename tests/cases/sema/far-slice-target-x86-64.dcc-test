@@ -1,0 +1,29 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+[^GS]u8 ok_gs;
+[^FS]const u8 ok_fs;
+[]u8 ok_near;
+[^]u8 bad_far;
+[^CS]u8 bad_cs;
+[^DS]u8 bad_ds;
+
+struct Holder {
+    [^]u8 field;
+    [^ES]u8 other;
+}
+
+void params([^]const u8 a, [^SS]u8 b, [^GS]u8 c) {
+    [^]u8 local;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: dynamic far slices are not available on target 'x86_64-elf'
+main.dc:7: segment register 'CS' is not available on target 'x86_64-elf'; x86-64 based slices allow only FS and GS
+main.dc:8: segment register 'DS' is not available on target 'x86_64-elf'; x86-64 based slices allow only FS and GS
+main.dc:11: dynamic far slices are not available on target 'x86_64-elf'
+main.dc:12: segment register 'ES' is not available on target 'x86_64-elf'; x86-64 based slices allow only FS and GS
+main.dc:15: dynamic far slices are not available on target 'x86_64-elf'
+main.dc:15: segment register 'SS' is not available on target 'x86_64-elf'; x86-64 based slices allow only FS and GS
+main.dc:16: dynamic far slices are not available on target 'x86_64-elf'

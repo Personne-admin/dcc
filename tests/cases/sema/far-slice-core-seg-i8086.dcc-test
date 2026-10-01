@@ -1,0 +1,12 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+
+usize slices(u8^ p, u8^DS q, u8^ES r, usize n) {
+    [^]u8 a = core::seg::from_raw(p, n);
+    [^DS]u8 b = core::seg::from_raw(q, n);
+    [^ES]const u8 c = core::seg::from_raw_const(r, n);
+    [^]const u8 d = core::seg::from_raw_const(p, n);
+    return a.len + b.len + c.len + d.len;
+}

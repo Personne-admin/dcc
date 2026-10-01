@@ -1,0 +1,57 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+
+void members([^]u8 far, [^GS]u8 based, [^]const u8 farc, [^FS]u8 other, u8* near, u8^ dyn) {
+    u8* a = far.ptr;
+    u8^ b = based.ptr;
+    u8^GS c = far.ptr;
+    u8^FS d = based.ptr;
+    far.ptr = based.ptr;
+    based.ptr = far.ptr;
+    based.ptr = near;
+    farc[0] = 1;
+    far.len = based.ptr;
+    u8 e = far.size;
+    far.ptr = farc.ptr;
+}
+
+void construct(u8* near, u8^ dyn, u8^GS q, u8^FS r, usize n) {
+    [^]u8 a = core::seg::from_raw(near, n);
+    [^GS]u8 b = core::seg::from_raw(dyn, n);
+    [^GS]u8 c = core::seg::from_raw(r, n);
+    [^]u8 d = core::seg::from_raw(q, n);
+    [^]u8 e = core::seg::from_raw_const(dyn, n);
+}
+
+void literals() {
+    [^]u8 a = {1, 2};
+    [^GS]u8 b = {1, 2};
+}
+
+void nulls() {
+    [^]u8 a = null;
+    [^GS]u8 b = null;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: initializer type mismatch: declared `u8*`, initializer `u8^`
+main.dc:6: initializer type mismatch: declared `u8^`, initializer `u8^GS`
+main.dc:7: initializer type mismatch: declared `u8^GS`, initializer `u8^`
+main.dc:8: initializer type mismatch: declared `u8^FS`, initializer `u8^GS`
+main.dc:9: assignment type mismatch: cannot assign `u8^GS` to `u8^`
+main.dc:10: assignment type mismatch: cannot assign `u8^` to `u8^GS`
+main.dc:11: assignment type mismatch: cannot assign `u8*` to `u8^GS`
+main.dc:12: cannot assign to const-qualified target of type `u8`
+main.dc:13: assignment type mismatch: cannot assign `u8^GS` to `usize`
+main.dc:14: slice has no field `size` (valid fields: .ptr, .len)
+main.dc:15: assignment type mismatch: cannot assign `const u8^` to `u8^`
+main.dc:20: initializer type mismatch: declared `[^GS]u8`, initializer `[^]u8`
+main.dc:21: initializer type mismatch: declared `[^GS]u8`, initializer `[^FS]u8`
+main.dc:22: initializer type mismatch: declared `[^]u8`, initializer `[^GS]u8`
+main.dc:23: initializer type mismatch: declared `[^]u8`, initializer `[^]const u8`
+main.dc:27: a slice literal cannot construct the far or based slice `[^]u8`; build a near slice and convert it, or assign `.ptr` and `.len`
+main.dc:28: a slice literal cannot construct the far or based slice `[^GS]u8`; build a near slice and convert it, or assign `.ptr` and `.len`
+main.dc:32: initializer type mismatch: declared `[^]u8`, initializer `null_t`
+main.dc:33: initializer type mismatch: declared `[^GS]u8`, initializer `null_t`

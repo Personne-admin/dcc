@@ -298,7 +298,7 @@ export namespace dcc::infer
             {
                 if (auto const* context = types::type_cast<types::SliceType>(expected);
                     context && qualification_allowed(slice->element_quals, context->element_quals))
-                    expected = m_types.slice_t(context->element, slice->element_quals);
+                    expected = m_types.rebuild_slice(context, context->element, slice->element_quals);
             }
             return deduce(pattern, expected);
         }
@@ -901,7 +901,7 @@ export namespace dcc::infer
                     auto const* t = static_cast<types::SliceType const*>(type);
                     auto element = substitute_impl(t->element, memo);
                     if (element != t->element)
-                        out = m_types.slice_t(element, t->element_quals);
+                        out = m_types.rebuild_slice(t, element, t->element_quals);
 
                     break;
                 }

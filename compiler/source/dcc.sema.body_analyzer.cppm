@@ -5071,7 +5071,9 @@ export namespace dcc::sema
                 if (auto const* actual_slice = types::type_cast<types::SliceType>(actual))
                 {
                     auto const* param_slice = types::type_cast<types::SliceType>(param);
-                    if (param_slice && actual_slice->element == param_slice->element && actual_slice->element_quals != param_slice->element_quals)
+                    if (param_slice && actual_slice->element == param_slice->element &&
+                        (actual_slice->element_quals != param_slice->element_quals || actual_slice->flavor != param_slice->flavor ||
+                         actual_slice->segment != param_slice->segment))
                         return CallRank::QualificationConversion;
                 }
             }
@@ -5106,7 +5108,9 @@ export namespace dcc::sema
             if (auto const* sub_slice = types::type_cast<types::SliceType>(subbed))
             {
                 auto const* actual_slice = types::type_cast<types::SliceType>(actual);
-                if (actual_slice && sub_slice->element == actual_slice->element && sub_slice->element_quals != actual_slice->element_quals)
+                if (actual_slice && sub_slice->element == actual_slice->element &&
+                    (sub_slice->element_quals != actual_slice->element_quals || sub_slice->flavor != actual_slice->flavor ||
+                     sub_slice->segment != actual_slice->segment))
                     return CallRank::TemplateQualificationConversion;
             }
             return rank;
@@ -5196,7 +5200,10 @@ export namespace dcc::sema
             if (auto const* receiver_slice = types::type_cast<types::SliceType>(analyzed.type))
             {
                 auto const* param_slice = types::type_cast<types::SliceType>(param);
-                if (param_slice && receiver_slice->element == param_slice->element &&
+                bool const flavor_ok = param_slice && (receiver_slice->flavor == param_slice->flavor
+                                                           ? receiver_slice->flavor != types::PointerFlavor::Based || receiver_slice->segment == param_slice->segment
+                                                           : param_slice->flavor == types::PointerFlavor::Far && receiver_slice->flavor == types::PointerFlavor::Near);
+                if (param_slice && flavor_ok && receiver_slice->element == param_slice->element &&
                     qualification_conversion_allowed(receiver_slice->element_quals, param_slice->element_quals))
                     return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
             }
@@ -6872,24 +6879,35 @@ export namespace dcc::sema
             return false;
         }
 
+        [[nodiscard]] static bool cast_flavor_allowed(types::PointerFlavor src_flavor, types::SegReg src_segment, types::PointerFlavor dst_flavor,
+                                                      types::SegReg dst_segment) noexcept
+        {
+            if (src_flavor == dst_flavor)
+                return src_flavor != types::PointerFlavor::Based || src_segment == dst_segment;
+            if (dst_flavor == types::PointerFlavor::Far)
+                return true;
+            return src_flavor == types::PointerFlavor::Far && dst_flavor == types::PointerFlavor::Near;
+        }
+
+        [[nodiscard]] static std::string cast_flavor_reason(types::PointerFlavor src_flavor, types::PointerFlavor dst_flavor, std::string_view noun)
+        {
+            if (src_flavor == types::PointerFlavor::Far && dst_flavor == types::PointerFlavor::Based)
+                return std::format("dynamic far {0}s cannot be narrowed to a based {0}", noun);
+            if (src_flavor == types::PointerFlavor::Based && dst_flavor == types::PointerFlavor::Near)
+                return std::format("based {0}s cannot be converted to near {0}s", noun);
+            if (src_flavor == types::PointerFlavor::Near && dst_flavor == types::PointerFlavor::Based)
+                return std::format("near {0}s cannot be converted to a based {0}", noun);
+            return std::format("based {}s with different segment registers cannot be converted", noun);
+        }
+
         [[nodiscard]] static bool cast_pointer_flavor_allowed(types::PointerType const* src, types::PointerType const* dst) noexcept
         {
-            if (src->flavor == dst->flavor)
-                return src->flavor != types::PointerFlavor::Based || src->segment == dst->segment;
-            if (dst->flavor == types::PointerFlavor::Far)
-                return true;
-            return src->flavor == types::PointerFlavor::Far && dst->flavor == types::PointerFlavor::Near;
+            return cast_flavor_allowed(src->flavor, src->segment, dst->flavor, dst->segment);
         }
 
         [[nodiscard]] static std::string cast_pointer_flavor_reason(types::PointerType const* src, types::PointerType const* dst)
         {
-            if (src->flavor == types::PointerFlavor::Far && dst->flavor == types::PointerFlavor::Based)
-                return "dynamic far pointers cannot be narrowed to a based pointer";
-            if (src->flavor == types::PointerFlavor::Based && dst->flavor == types::PointerFlavor::Near)
-                return "based pointers cannot be converted to near pointers";
-            if (src->flavor == types::PointerFlavor::Near && dst->flavor == types::PointerFlavor::Based)
-                return "near pointers cannot be converted to a based pointer";
-            return "based pointers with different segment registers cannot be converted";
+            return cast_flavor_reason(src->flavor, dst->flavor, "pointer");
         }
 
         [[nodiscard]] static bool can_assign_return(types::TypePtr expected, types::TypePtr got) noexcept
@@ -6950,15 +6968,19 @@ export namespace dcc::sema
             {
                 auto const* es = static_cast<types::SliceType const*>(expected);
                 auto const* gs = static_cast<types::SliceType const*>(got);
-                return es->element == gs->element &&
-                       (es->element_quals == gs->element_quals || qualification_conversion_allowed(gs->element_quals, es->element_quals));
+                if (es->element != gs->element ||
+                    !(es->element_quals == gs->element_quals || qualification_conversion_allowed(gs->element_quals, es->element_quals)))
+                    return false;
+                if (es->flavor == gs->flavor)
+                    return es->flavor != types::PointerFlavor::Based || es->segment == gs->segment;
+                return es->flavor == types::PointerFlavor::Far && gs->flavor == types::PointerFlavor::Near;
             }
 
             if (expected->kind == types::TypeKind::Slice && got->kind == types::TypeKind::Array)
             {
                 auto const* es = static_cast<types::SliceType const*>(expected);
                 auto const* ga = static_cast<types::ArrayType const*>(got);
-                return es->element == ga->element;
+                return es->element == ga->element && es->flavor != types::PointerFlavor::Based;
             }
 
             if (expected->kind == types::TypeKind::Pointer)
@@ -7010,7 +7032,7 @@ export namespace dcc::sema
                 auto const* actual_slice = types::type_cast<types::SliceType>(actuals[i]);
                 if (expected_slice && actual_slice && expected_slice->element_quals != actual_slice->element_quals &&
                     qualification_conversion_allowed(actual_slice->element_quals, expected_slice->element_quals))
-                    deduction_actuals[i] = m_types.slice_t(actual_slice->element, expected_slice->element_quals);
+                    deduction_actuals[i] = m_types.rebuild_slice(actual_slice, actual_slice->element, expected_slice->element_quals);
             }
 
             auto result = bindings.deduce_function(params, deduction_actuals);
@@ -7161,7 +7183,7 @@ export namespace dcc::sema
             if (auto const* es = types::type_cast<types::SliceType>(expected))
             {
                 if (auto const* ga = types::type_cast<types::ArrayType>(res.type))
-                    return es->element == ga->element;
+                    return es->element == ga->element && es->flavor != types::PointerFlavor::Based;
                 return false;
             }
 
@@ -10012,7 +10034,7 @@ export namespace dcc::sema
                     return m_types.rebuild_pointer(p, p->pointee, qual_or(p->pointee_quals, pointer_quals));
                 }
                 if (auto const* s = types::type_cast<types::SliceType>(r.type))
-                    return m_types.slice_t(s->element, qual_or(s->element_quals, r.quals));
+                    return m_types.rebuild_slice(s, s->element, qual_or(s->element_quals, r.quals));
             }
 
             return r.type;
@@ -11611,7 +11633,7 @@ export namespace dcc::sema
                 if (f.field == "ptr")
                 {
                     auto quals = slice->element_quals;
-                    out.type = m_types.pointer_to(slice->element, quals);
+                    out.type = m_types.pointer_with_flavor(slice->element, quals, slice->flavor, slice->segment);
                     out.resolved_decl = nullptr;
                     out.is_lvalue = true;
                     if (obj.constant && obj.constant->kind() == comptime::Value::Kind::Slice && obj.constant->size() >= 1)
@@ -11916,7 +11938,7 @@ export namespace dcc::sema
                 }
                 else if (auto const* s = types::type_cast<types::SliceType>(obj.type))
                 {
-                    slice_out.type = m_types.slice_t(s->element, s->element_quals);
+                    slice_out.type = m_types.rebuild_slice(s, s->element, s->element_quals);
                 }
                 else if (types::type_cast<types::PointerType>(obj.type))
                 {
@@ -12355,6 +12377,20 @@ export namespace dcc::sema
                     {
                         error(c.range, "invalid cast from `{}` to `{}`: {}", format_type_str(op.type), format_type_str(out.type),
                               cast_pointer_flavor_reason(src_ptr, dst_ptr));
+                    }
+                }
+                if (op.type->kind == types::TypeKind::Slice && out.type->kind == types::TypeKind::Slice)
+                {
+                    auto const* src_slice = static_cast<types::SliceType const*>(op.type);
+                    auto const* dst_slice = static_cast<types::SliceType const*>(out.type);
+                    if (src_slice->element == dst_slice->element &&
+                        (src_slice->flavor != types::PointerFlavor::Near || dst_slice->flavor != types::PointerFlavor::Near))
+                    {
+                        if (types::has_qual(src_slice->element_quals, types::Qual::Const) && !types::has_qual(dst_slice->element_quals, types::Qual::Const))
+                            error(c.range, "invalid cast from `{}` to `{}`: cannot drop const qualifier", format_type_str(op.type), format_type_str(out.type));
+                        else if (!cast_flavor_allowed(src_slice->flavor, src_slice->segment, dst_slice->flavor, dst_slice->segment))
+                            error(c.range, "invalid cast from `{}` to `{}`: {}", format_type_str(op.type), format_type_str(out.type),
+                                  cast_flavor_reason(src_slice->flavor, dst_slice->flavor, "slice"));
                     }
                 }
                 if ((is_far_or_based_pointer(op.type) && out.type->kind == types::TypeKind::Int) ||
@@ -13019,6 +13055,12 @@ export namespace dcc::sema
             };
 
             auto analyze_slice = [&](types::SliceType const* slice) -> std::optional<detail::ExprResult> {
+                if (slice->flavor != types::PointerFlavor::Near)
+                {
+                    error(s.range, "a slice literal cannot construct the far or based slice `{}`; build a near slice and convert it, or assign `.ptr` and `.len`",
+                          format_type_str(target));
+                    return std::nullopt;
+                }
                 for (auto const& f : s.fields)
                     if (!f.name.empty() && !is_shorthand_ident(f))
                     {
@@ -17468,7 +17510,18 @@ export namespace dcc::sema
                         error(t->range, "slice element type cannot be void");
                         return {.type = m_types.m_errort()};
                     }
-                    return {.type = m_types.slice_t(materialize_type(inner), inner.quals)};
+                    auto const* sl = static_cast<ast::SliceType const*>(t);
+                    auto slice_seg = types::TypeContext::seg_reg_from_name(sl->segment_name);
+                    if (auto err = m_types.check_far_pointer(sl->is_far, slice_seg, "slices"))
+                    {
+                        error(t->range, "{}", *err);
+                        return {.type = m_types.m_errort()};
+                    }
+                    if (!sl->is_far)
+                        return {.type = m_types.slice_t(materialize_type(inner), inner.quals)};
+                    if (slice_seg == types::SegReg::None)
+                        return {.type = m_types.slice_t(materialize_type(inner), inner.quals, types::PointerFlavor::Far, types::SegReg::None)};
+                    return {.type = m_types.slice_t(materialize_type(inner), inner.quals, types::PointerFlavor::Based, slice_seg)};
                 }
                 case ast::TypeKind::Fam: {
                     auto inner = resolve_type_node_resolved(mod, scope, static_cast<ast::FamType const*>(t)->element, fn, next_off_ptr, const_env);

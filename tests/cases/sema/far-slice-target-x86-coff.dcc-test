@@ -1,0 +1,20 @@
+=== TARGET: x86-coff ===
+=== FILE: main.dc ===
+module m;
+
+[^]u8 ok_far;
+[^CS]u8 ok_cs;
+[^DS]u8 ok_ds;
+[^ES]u8 ok_es;
+[^SS]u8 ok_ss;
+[^FS]u8 ok_fs;
+[^GS]const u8 ok_gs;
+
+struct Holder {
+    [^]u8 far;
+    [^GS]u8 based;
+}
+
+void params([^]const u8 a, [^FS]u8 b) {
+    [^]u8 local;
+}
