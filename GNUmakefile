@@ -49,7 +49,7 @@ endif
 
 .PHONY: all compiler driver dccd dcdoc libdcext test install uninstall compdb clean distclean help tools-windows msi
 
-all: driver libdcext dccd
+all: driver libdcext dccd dcdoc
 
 compiler:
 	@$(MAKE) -C compiler
