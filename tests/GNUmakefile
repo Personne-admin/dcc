@@ -79,7 +79,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
-		if DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-em64t.a" $$bin; then \
+		if DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $$bin; then \
 			passed=$$((passed+1)); \
 		else \
 			failed=$$((failed+1)); \

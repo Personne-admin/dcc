@@ -30,8 +30,8 @@ else
   $(error libdcext does not yet support target $(TARGET); expected x86_64-linux, x86_64-windows, or x86_64-freestanding)
 endif
 
-ifeq ($(filter $(BACKEND),llvm em64t),)
-  $(error libdcext does not yet support backend $(BACKEND); expected llvm or em64t)
+ifeq ($(filter $(BACKEND),llvm custom),)
+  $(error libdcext does not yet support backend $(BACKEND); expected llvm or custom)
 endif
 
 ifeq ($(TARGET_OS),windows)

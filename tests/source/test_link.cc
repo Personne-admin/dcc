@@ -241,7 +241,7 @@ public i32 main() {
 }
 )");
 
-    for (auto backend : {"llvm", "em64t"})
+    for (auto backend : {"llvm", "custom"})
     {
         auto flags = std::format("-flibdcext -fbackend {} ", backend);
         auto print_o = td.file("print.o");
@@ -283,7 +283,7 @@ TEST_CASE("objects from different backends link together")
 
     auto provider_o = td.file("provider_e.o");
     auto user_o = td.file("user.o");
-    REQUIRE(run_dcc("-flibdcext -fbackend em64t -c -o " + shell_quote(provider_o) + " " + shell_quote(td.file("provider.dc"))).rc == 0);
+    REQUIRE(run_dcc("-flibdcext -fbackend custom -c -o " + shell_quote(provider_o) + " " + shell_quote(td.file("provider.dc"))).rc == 0);
     REQUIRE(run_dcc("-flibdcext -fbackend llvm -c -o " + shell_quote(user_o) + " " + shell_quote(td.file("user.dc"))).rc == 0);
 
     auto prog = td.file("mixedprog");

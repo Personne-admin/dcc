@@ -38,7 +38,7 @@ namespace dcc::backend
         public:
             Em64tBackendImpl() = default;
 
-            [[nodiscard]] std::string_view name() const override { return "em64t"; }
+            [[nodiscard]] std::string_view name() const override { return "custom"; }
 
             [[nodiscard]] std::set<ArtifactKind> supported_artifacts() const override
             {
@@ -70,13 +70,13 @@ namespace dcc::backend
 
                 if (auto mismatch = find_bad_global_initializer(*input_module))
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("em64t backend: malformed initializer for global `{}`", *mismatch)});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("custom backend: malformed initializer for global `{}`", *mismatch)});
                     return artifact;
                 }
                 if (!input_module->module_asms.empty())
                 {
                     auto* ma = input_module->module_asms.front();
-                    artifact.diagnostics.push_back(BackendDiagnostic{ma ? ma->range : decltype(ma->range){}, "em64t backend: module asm is not supported on the native backend"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{ma ? ma->range : decltype(ma->range){}, "custom backend: module asm is not supported on the native backend"});
                     return artifact;
                 }
 
@@ -91,7 +91,7 @@ namespace dcc::backend
                     std::vector<InlineAsmDiag> asm_diags;
                     auto mfunc = em64t::isel_function(*func, opts.target, &asm_diags);
                     for (auto& diag : asm_diags)
-                        artifact.diagnostics.push_back(BackendDiagnostic{diag.where, "em64t backend: " + diag.message});
+                        artifact.diagnostics.push_back(BackendDiagnostic{diag.where, "custom backend: " + diag.message});
                     if (!asm_diags.empty())
                         return artifact;
                     em64t::regalloc(mfunc, opts.target);
@@ -152,11 +152,11 @@ namespace dcc::backend
                     {
                         if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
                         {
-                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: executable output not supported for COFF target"});
+                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: executable output not supported for COFF target"});
                         }
                         else if (opts.target.arch != dcc::target::Arch::X86_64)
                         {
-                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: executable output is only supported for x86_64 ELF targets"});
+                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: executable output is only supported for x86_64 ELF targets"});
                         }
                         else
                         {
@@ -177,7 +177,7 @@ namespace dcc::backend
                         else if (opts.target.arch != dcc::target::Arch::X86_64)
                         {
                             artifact.diagnostics.push_back(
-                                BackendDiagnostic{{}, "em64t backend: shared library output is only supported for x86_64 ELF targets"});
+                                BackendDiagnostic{{}, "custom backend: shared library output is only supported for x86_64 ELF targets"});
                         }
                         else
                         {
@@ -191,7 +191,7 @@ namespace dcc::backend
                     {
                         if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
                         {
-                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: archive output not supported for COFF target"});
+                            artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: archive output not supported for COFF target"});
                         }
                         else
                         {
@@ -334,7 +334,7 @@ namespace dcc::backend
                 auto tmp_dir = fs::temp_directory_path(ec);
                 if (ec)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot get temp directory"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot get temp directory"});
                     return std::nullopt;
                 }
 
@@ -342,7 +342,7 @@ namespace dcc::backend
                 auto work_dir = tmp_dir / tag;
                 if (!fs::create_directories(work_dir, ec))
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot create temp directory"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot create temp directory"});
                     return std::nullopt;
                 }
 
@@ -356,7 +356,7 @@ namespace dcc::backend
                     std::ofstream of{obj_path, std::ios::binary};
                     if (!of)
                     {
-                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write object file"});
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot write object file"});
                         cleanup();
                         return std::nullopt;
                     }
@@ -383,7 +383,7 @@ namespace dcc::backend
                 auto* pipe = popen(link_cmd.c_str(), "r");
                 if (!pipe)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot run linker"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot run linker"});
                     cleanup();
                     return std::nullopt;
                 }
@@ -396,7 +396,7 @@ namespace dcc::backend
                 int link_rc = pclose(pipe);
                 if (link_rc != 0)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: linking failed:\n" + link_output});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + link_output});
                     cleanup();
                     return std::nullopt;
                 }
@@ -404,7 +404,7 @@ namespace dcc::backend
                 std::ifstream exe_in{exe_path, std::ios::binary};
                 if (!exe_in)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot read linked executable"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot read linked executable"});
                     cleanup();
                     return std::nullopt;
                 }
@@ -425,7 +425,7 @@ namespace dcc::backend
             {
                 if (!opts.target.position_independent_code)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: shared library requires -fPIC"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: shared library requires -fPIC"});
                     return std::nullopt;
                 }
 
@@ -435,7 +435,7 @@ namespace dcc::backend
                 auto tmp_dir = fs::temp_directory_path(ec);
                 if (ec)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot get temp directory"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot get temp directory"});
                     return std::nullopt;
                 }
 
@@ -443,7 +443,7 @@ namespace dcc::backend
                 auto work_dir = tmp_dir / tag;
                 if (!fs::create_directories(work_dir, ec))
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot create temp directory"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot create temp directory"});
                     return std::nullopt;
                 }
 
@@ -457,7 +457,7 @@ namespace dcc::backend
                     std::ofstream of{obj_path, std::ios::binary};
                     if (!of)
                     {
-                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write object file"});
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot write object file"});
                         cleanup();
                         return std::nullopt;
                     }
@@ -484,7 +484,7 @@ namespace dcc::backend
                 auto* pipe = popen(link_cmd.c_str(), "r");
                 if (!pipe)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot run linker"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot run linker"});
                     cleanup();
                     return std::nullopt;
                 }
@@ -497,7 +497,7 @@ namespace dcc::backend
                 int link_rc = pclose(pipe);
                 if (link_rc != 0)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: linking failed:\n" + link_output});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + link_output});
                     cleanup();
                     return std::nullopt;
                 }
@@ -505,7 +505,7 @@ namespace dcc::backend
                 std::ifstream so_in{so_path, std::ios::binary};
                 if (!so_in)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot read linked shared library"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot read linked shared library"});
                     cleanup();
                     return std::nullopt;
                 }
@@ -620,7 +620,7 @@ namespace dcc::backend
                 auto tmp_dir = fs::temp_directory_path(ec);
                 if (ec)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot get temp directory"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot get temp directory"});
                     return std::nullopt;
                 }
 
@@ -628,7 +628,7 @@ namespace dcc::backend
                 auto work_dir = tmp_dir / tag;
                 if (!fs::create_directories(work_dir, ec))
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot create temp directory"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot create temp directory"});
                     return std::nullopt;
                 }
 
@@ -642,7 +642,7 @@ namespace dcc::backend
                     std::ofstream of{obj_path, std::ios::binary};
                     if (!of)
                     {
-                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot write object file"});
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot write object file"});
                         cleanup();
                         return std::nullopt;
                     }
@@ -665,7 +665,7 @@ namespace dcc::backend
                 auto* pipe = popen(link_cmd.c_str(), "r");
                 if (!pipe)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot run lld-link"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot run lld-link"});
                     cleanup();
                     return std::nullopt;
                 }
@@ -678,7 +678,7 @@ namespace dcc::backend
                 int link_rc = pclose(pipe);
                 if (link_rc != 0)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: linking failed:\n" + link_output});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: linking failed:\n" + link_output});
                     cleanup();
                     return std::nullopt;
                 }
@@ -686,7 +686,7 @@ namespace dcc::backend
                 std::ifstream dll_in{dll_path, std::ios::binary};
                 if (!dll_in)
                 {
-                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "em64t backend: cannot read linked DLL"});
+                    artifact.diagnostics.push_back(BackendDiagnostic{{}, "custom backend: cannot read linked DLL"});
                     cleanup();
                     return std::nullopt;
                 }

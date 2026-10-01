@@ -3,8 +3,8 @@
 dcc supports inline assembly through `asm` statements and `asm` expressions.
 One frontend (parser, sema, IR lowering) serves both backends, so operand
 meaning, `%0` / `%[name]` resolution, operand directions, and clobbers behave
-identically whether the program is compiled with the native em64t backend or
-the LLVM backend. Only code emission differs.
+identically whether the program is compiled with the native (`-fbackend
+custom`) backend or the LLVM backend. Only code emission differs.
 
 ## Syntax
 

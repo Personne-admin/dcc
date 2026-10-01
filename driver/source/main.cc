@@ -126,7 +126,7 @@ namespace
     constexpr std::string_view k_alias_help[] = {"--help"};
 
     constexpr std::string_view k_choice_model[] = {"default", "small", "kernel", "medium", "large"};
-    constexpr std::string_view k_choice_backend[] = {"llvm", "em64t"};
+    constexpr std::string_view k_choice_backend[] = {"llvm", "custom"};
     constexpr std::string_view k_choice_libdcext[] = {"linux", "windows", "freestanding"};
     constexpr std::string_view k_choice_opt[] = {"0", "1", "2", "s"};
 
@@ -245,7 +245,7 @@ namespace
          "<name>",
          k_choice_backend,
          Phase::Both,
-         "backend",
+         "backend (llvm, or custom for the native code generator)",
          "llvm",
          [](Options& o, bool, std::string_view v, char**) { o.backend_name = v; }},
 
@@ -2001,7 +2001,10 @@ auto main(int argc, char** argv) -> int
     {
         if (compile_opts.target.arch == dcc::target::Arch::I8086)
         {
-            std::println(std::cerr, "dcc: error: no backend for target '{}'", compile_opts.target.triple);
+            if (need_backend && opts.backend_name == "llvm")
+                std::println(std::cerr, "dcc: error: LLVM backend does not support target '{}'; use -fbackend custom", compile_opts.target.triple);
+            else
+                std::println(std::cerr, "dcc: error: no backend for target '{}'", compile_opts.target.triple);
             return 1;
         }
 
@@ -2108,7 +2111,7 @@ auto main(int argc, char** argv) -> int
 
                 if (kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes))
                 {
-                    std::println(std::cerr, "dcc: error: LLVM backend does not support shared library output; use -fbackend em64t");
+                    std::println(std::cerr, "dcc: error: LLVM backend does not support shared library output; use -fbackend custom");
                     return 1;
                 }
 
@@ -2177,11 +2180,11 @@ auto main(int argc, char** argv) -> int
                 return 1;
 #endif
             }
-            else if (opts.backend_name == "em64t")
+            else if (opts.backend_name == "custom")
             {
                 if (kinds.contains(dcc::backend::ArtifactKind::LlvmIrText))
                 {
-                    std::println(std::cerr, "dcc: error: em64t backend does not support LLVM IR output");
+                    std::println(std::cerr, "dcc: error: custom backend does not support LLVM IR output");
                     return 1;
                 }
 

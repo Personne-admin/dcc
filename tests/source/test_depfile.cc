@@ -328,7 +328,7 @@ public i32 second() { return state::use_state(7); }
     auto state_em64t = td.file("state-em64t.o");
     auto first_em64t = td.file("first-em64t.o");
     auto compile_em64t = [&](std::string_view source, std::filesystem::path const& output) {
-        return run_dcc("-fbackend em64t -c -target x86_64-elf -I " + shell_quote(td.path) + " -o " + shell_quote(output) + " " +
+        return run_dcc("-fbackend custom -c -target x86_64-elf -I " + shell_quote(td.path) + " -o " + shell_quote(output) + " " +
                        shell_quote(td.file(source)));
     };
     REQUIRE(compile_em64t("state.dc", state_em64t).rc == 0);
@@ -695,7 +695,7 @@ TEST_CASE("shared output is the depfile target")
     write_module(td, "src.dc", "src");
 
     auto so = td.file("libsrc.so");
-    auto r = run_dcc("-fbackend em64t -shared -target x86_64-elf -o " + shell_quote(so) + " --depfile " + shell_quote(td.file("d.d")) + " " +
+    auto r = run_dcc("-fbackend custom -shared -target x86_64-elf -o " + shell_quote(so) + " --depfile " + shell_quote(td.file("d.d")) + " " +
                      shell_quote(td.file("src.dc")));
 
     CHECK_EQ(r.rc, 0);
@@ -717,7 +717,7 @@ TEST_CASE("LLVM and em64t backends produce equivalent dependencies")
     auto llvm_content = read_file(depfile);
 
     auto r2 =
-        run_dcc("-fbackend em64t -c -target x86_64-elf -o " + shell_quote(obj) + " --depfile " + shell_quote(depfile) + " " + shell_quote(td.file("app.dc")));
+        run_dcc("-fbackend custom -c -target x86_64-elf -o " + shell_quote(obj) + " --depfile " + shell_quote(depfile) + " " + shell_quote(td.file("app.dc")));
     CHECK_EQ(r2.rc, 0);
     CHECK_EQ(llvm_content, read_file(depfile));
 }

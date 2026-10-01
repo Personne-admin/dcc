@@ -8,7 +8,7 @@ from pathlib import Path
 
 CHECK_FLAGS = {"-fbounds-check", "-frestricted-check"}
 ASSERT_EXIT_CODE = 0xA5
-DEFAULT_CONFIGS = (("em64t", "O0"), ("em64t", "O1"), ("em64t", "O2"), ("llvm", "O0"))
+DEFAULT_CONFIGS = (("custom", "O0"), ("custom", "O1"), ("custom", "O2"), ("llvm", "O0"))
 
 
 def repository_root():

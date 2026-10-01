@@ -13,8 +13,8 @@ TEST_CASE("error mappings, lexical paths, encoding boundaries and ABI arithmetic
 TEST_CASE("os::time civil calendar round-trips, anchors and validators")
 {
     auto source = os_test::fixture("time-civil.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -24,8 +24,8 @@ TEST_CASE("os::time civil calendar round-trips, anchors and validators")
 TEST_CASE("os::path normalize, join, relative, roots and stems")
 {
     auto source = os_test::fixture("path-lexical.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -35,8 +35,8 @@ TEST_CASE("os::path normalize, join, relative, roots and stems")
 TEST_CASE("os::path to_wide and from_wide transcoding")
 {
     auto source = os_test::fixture("path-wide.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -46,8 +46,8 @@ TEST_CASE("os::path to_wide and from_wide transcoding")
 TEST_CASE("nested field addresses agree across functions and backends")
 {
     auto source = os_test::fixture("nested-field-address.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -56,8 +56,8 @@ TEST_CASE("nested field addresses agree across functions and backends")
 TEST_CASE("repeated imported nested records retain their ABI layout")
 {
     auto source = os_test::fixture("nested-filetime.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -66,8 +66,8 @@ TEST_CASE("repeated imported nested records retain their ABI layout")
 TEST_CASE("conditional returns leave loop fall-through reachable")
 {
     auto source = os_test::fixture("conditional-return-loop.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -76,8 +76,8 @@ TEST_CASE("conditional returns leave loop fall-through reachable")
 TEST_CASE("breaks escape loops while retry loops retain returns")
 {
     auto source = os_test::fixture("loop-break-return.dc");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -97,8 +97,8 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
@@ -127,8 +127,8 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O0").status, 0);
-    CHECK_EQ(os_test::run(source, false, "-fbackend em64t -O2").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O0").status, 0);
+    CHECK_EQ(os_test::run(source, false, "-fbackend custom -O2").status, 0);
 #if DCC_ENABLE_LLVM
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O0").status, 0);
     CHECK_EQ(os_test::run(source, false, "-fbackend llvm -O2").status, 0);
