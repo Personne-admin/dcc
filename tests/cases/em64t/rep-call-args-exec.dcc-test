@@ -1,0 +1,36 @@
+=== FILE: test.dc ===
+module test;
+
+struct Big { u64[32] data; }
+
+@nomangle
+u64 seed;
+
+@noinline
+u64 add3(u64 a, u64 b, u64 c) { return a + b + c; }
+
+@noinline
+u64 take_big6(u64 a, u64 b, u64 c, u64 d, u64 e, u64 f, Big bg) { return a + b + c + d + e + f + bg.data[0] + bg.data[31]; }
+
+@nomangle
+public i32 dcc_main() {
+    seed = 7;
+    Big big;
+    big.data[0] = seed;
+    big.data[31] = 5;
+    u64 r1 = add3(seed, 1, 2);
+    u64 p = r1 + seed;
+    u64 q = r1 + 100;
+    u64 s = r1 + 200;
+    u64 t = r1 + 300;
+    u64 u = r1 + 400;
+    Big c = big;
+    u64 r2 = take_big6(r1, p, q, s, t, u, c);
+    return r2 as i32 - 1079;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
