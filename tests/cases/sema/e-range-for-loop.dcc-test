@@ -3,13 +3,13 @@ module m;
 
 void test_for_range() {
     for i in 0..10 {
-        i32 x = i;
+        usize x = i;
     }
 }
 
 void test_for_range_inclusive() {
     for i in 1..=5 {
-        i32 x = i;
+        usize x = i;
     }
 }
 
@@ -38,21 +38,21 @@ Module m
   Func test_for_range diverging=false
     Body
       ForIn i
-        Range [type=range(i32) const=<none>]
-          IntLiteral 0 [type=i32 const=0 constant]
-          IntLiteral 10 [type=i32 const=10 constant]
+        Range [type=range(usize) const=<none>]
+          IntLiteral 0 [type=usize const=0 constant]
+          IntLiteral 10 [type=usize const=10 constant]
         Body
-          Var x type=i32 storage=local offset=4
-            Ident i [type=i32 const=<none> lvalue decl=i]
+          Var x type=usize storage=local offset=8
+            Ident i [type=usize const=<none> lvalue decl=i]
   Func test_for_range_inclusive diverging=false
     Body
       ForIn i
-        Range [type=range_inclusive(i32) const=<none>]
-          IntLiteral 1 [type=i32 const=1 constant]
-          IntLiteral 5 [type=i32 const=5 constant]
+        Range [type=range_inclusive(usize) const=<none>]
+          IntLiteral 1 [type=usize const=1 constant]
+          IntLiteral 5 [type=usize const=5 constant]
         Body
-          Var x type=i32 storage=local offset=4
-            Ident i [type=i32 const=<none> lvalue decl=i]
+          Var x type=usize storage=local offset=8
+            Ident i [type=usize const=<none> lvalue decl=i]
   Func test_for_range_var diverging=false
     Param start type=i32 storage=param offset=0 index=0
     Param end type=i32 storage=param offset=4 index=1

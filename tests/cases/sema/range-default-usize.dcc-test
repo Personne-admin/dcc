@@ -1,0 +1,9 @@
+=== FILE: test.dc ===
+module test;
+
+void bad() {
+    for i in -1..5 {}
+}
+
+=== EXPECT-ERRORS ===
+test.dc:4: range bound -1 does not fit usize; give the range an explicit item type

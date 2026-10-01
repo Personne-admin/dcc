@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 dcc_main() {
+    i32 empty = 0;
+    i32 singleton = 0;
+    i32 edge = 0;
+    for i32 i in 5..=3 { empty += 1; }
+    for i32 i in 0..=0 { singleton += 1; }
+    for u8 i in 255..=255 { edge += 1; }
+    if empty != 0 { return 1; }
+    if singleton != 1 { return 2; }
+    if edge != 1 { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

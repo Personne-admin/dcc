@@ -48,7 +48,7 @@ main.dc:16: for-in item type mismatch: declared `bool`, element `i32`
 main.dc:17: for-in item type mismatch: declared `bool`, element `i32`
 main.dc:27: integer literal 300 does not fit in type u8
 main.dc:28: integer literal 300 does not fit in type u8
-main.dc:29: for-in item type mismatch: declared `usize`, element `i32`
+main.dc:29: integer literal -1 does not fit in type usize
 main.dc:30: for-in item type mismatch: declared `u8`, element `usize`
 main.dc:31: for-in item type mismatch: declared `usize`, element `i32`
-main.dc:32: for-in item type mismatch: declared `bool`, element `i32`
+main.dc:32: for-in item type mismatch: declared `bool`, element `usize`
