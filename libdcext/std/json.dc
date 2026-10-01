@@ -23,7 +23,7 @@ public import std::parse;
 public import std::result;
 
 using result::{ Result, Status, Optional };
-using parse::{Position, Located, NumError};
+using parse::{ Position, Located, NumError };
 
 //!
 //! Errors
@@ -119,8 +119,11 @@ void skip_space(Scanner* self) {
     while !at_end(self) {
         u8 c = peek(self);
 
-        if c != (' ' as u8) && c != ('\t' as u8)
-            && c != ('\n' as u8) && c != ('\r' as u8) {
+        if c != (' ' as u8)
+            && c != ('\t' as u8)
+            && c != ('\n' as u8)
+            && c != ('\r' as u8)
+        {
             return;
         }
 
@@ -190,9 +193,15 @@ Status(JsonError) check_escape(Scanner* self) {
 
     u8 c = take(self);
 
-    if c == ('"' as u8) || c == ('\\' as u8) || c == ('/' as u8)
-        || c == ('b' as u8) || c == ('f' as u8) || c == ('n' as u8)
-        || c == ('r' as u8) || c == ('t' as u8) {
+    if c == ('"' as u8)
+        || c == ('\\' as u8)
+        || c == ('/' as u8)
+        || c == ('b' as u8)
+        || c == ('f' as u8)
+        || c == ('n' as u8)
+        || c == ('r' as u8)
+        || c == ('t' as u8)
+    {
         return Status::Ok;
     }
 
@@ -292,7 +301,13 @@ Result(i64, JsonError) to_integer([] const u8 text) {
     }
 
     usize count = 0;
-    Result(u64, NumError) magnitude = parse::accumulate_digits(text, &i, 10, false, &count);
+    Result(u64, NumError) magnitude = parse::accumulate_digits(
+        text,
+        &i,
+        10,
+        false,
+        &count
+    );
     if magnitude.is_err() {
         if magnitude.unwrap_err() == NumError::OutOfRange {
             return JsonError::NumberOutOfRange;
@@ -301,7 +316,10 @@ Result(i64, JsonError) to_integer([] const u8 text) {
         return JsonError::InvalidNumber;
     }
 
-    Result(i64, NumError) value = parse::signed_from_magnitude(magnitude.unwrap(), negative);
+    Result(i64, NumError) value = parse::signed_from_magnitude(
+        magnitude.unwrap(),
+        negative
+    );
     if value.is_err() {
         return JsonError::NumberOutOfRange;
     }
@@ -372,10 +390,16 @@ Result(f64, JsonError) to_float([] const u8 text) {
 
         exponent = exponent + if negative_exponent {
             0 - written
-        } else { written };
+        } else {
+            written
+        };
     }
 
-    Result(f64, NumError) value = parse::float_from_parts(mantissa, exponent, negative);
+    Result(f64, NumError) value = parse::float_from_parts(
+        mantissa,
+        exponent,
+        negative
+    );
     if value.is_err() {
         return JsonError::NumberOutOfRange;
     }
@@ -422,11 +446,15 @@ Result(Event, JsonError) read_number(Scanner* self) {
         }
     }
 
-    if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+    if !at_end(self)
+        && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8))
+    {
         take(self);
         is_float = true;
 
-        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+        if !at_end(self)
+            && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
+        {
             take(self);
         }
 
@@ -693,8 +721,8 @@ public Result(usize, JsonError) unescape([] const u8 raw, [] u8 out) {
             }
 
             codepoint = 0x10000
-                + ((codepoint - 0xD800) << 10)
-                + (low - 0xDC00);
+            + ((codepoint - 0xD800) << 10)
+            + (low - 0xDC00);
         } else if codepoint >= 0xDC00 && codepoint <= 0xDFFF {
             return JsonError::InvalidEscape;
         }
@@ -760,7 +788,9 @@ Status(JsonError) push_value(
     if self.len == self.items.len {
         usize want = if self.items.len == 0 {
             VEC_MIN
-        } else { self.items.len * 2 };
+        } else {
+            self.items.len * 2
+        };
 
         Result([] Value, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
@@ -792,7 +822,9 @@ Status(JsonError) push_member(
     if self.len == self.items.len {
         usize want = if self.items.len == 0 {
             VEC_MIN
-        } else { self.items.len * 2 };
+        } else {
+            self.items.len * 2
+        };
 
         Result([] Member, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
@@ -906,7 +938,6 @@ Result(Value, JsonError) build(
             if text.is_err() {
                 return text.unwrap_err();
             }
-
             Result::Ok(Value::String(text.unwrap()))
         },
         Event::ArrayBegin => build_array(alloc, self),
@@ -947,7 +978,6 @@ public Result(Value, JsonError) own(
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
-
             Result::Ok(Value::String(slot.unwrap() as [] const u8))
         },
         Value::Array(items) => {
@@ -955,17 +985,14 @@ public Result(Value, JsonError) own(
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
-
             [] Value copied = slot.unwrap();
             for usize i = 0; i < items.len; i++ {
                 Result(Value, JsonError) element = own(alloc, &items[i]);
                 if element.is_err() {
                     return element.unwrap_err();
                 }
-
                 copied[i] = element.unwrap();
             }
-
             Result::Ok(Value::Array(copied))
         },
         Value::Object(members) => {
@@ -973,25 +1000,21 @@ public Result(Value, JsonError) own(
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
-
             [] Member copied = slot.unwrap();
             for usize i = 0; i < members.len; i++ {
                 Result([] u8, mem::AllocError) key = alloc.dupe(members[i].key);
                 if key.is_err() {
                     return JsonError::OutOfMemory;
                 }
-
                 Result(Value, JsonError) value = own(alloc, &members[i].value);
                 if value.is_err() {
                     return value.unwrap_err();
                 }
-
                 copied[i] = Member {
                     key = key.unwrap() as [] const u8,
                     value = value.unwrap(),
                 };
             }
-
             Result::Ok(Value::Object(copied))
         },
         _ => Result::Ok(*self),
@@ -1014,7 +1037,6 @@ public Optional(Value) get(const Value* self, [] const u8 key) {
                     return Optional::Some(members[i].value);
                 }
             }
-
             Optional::None
         },
         _ => Optional::None,
@@ -1025,7 +1047,9 @@ public Optional(Value) at(const Value* self, usize index) {
     return match *self {
         Value::Array(items) => if index < items.len {
             Optional::Some(items[index])
-        } else { Optional::None },
+        } else {
+            Optional::None
+        },
         _ => Optional::None,
     };
 }
@@ -1270,7 +1294,9 @@ public Status(fmt::FmtError) boolean(Emitter* self, bool value) {
     return self.out.write_all(
         if value {
             "true"
-        } else { "false" }
+        } else {
+            "false"
+        }
     );
 }
 
@@ -1291,7 +1317,6 @@ public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
             for usize i = 0; i < items.len; i++ {
                 value(self, &items[i]) ?;
             }
-
             end_array(self)
         },
         Value::Object(members) => {
@@ -1300,7 +1325,6 @@ public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
                 key(self, members[i].key) ?;
                 value(self, &members[i].value) ?;
             }
-
             end_object(self)
         },
     };

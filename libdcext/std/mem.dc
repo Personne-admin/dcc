@@ -58,7 +58,7 @@ public void raw_free(const Allocator* self, [] u8 buf, usize align) {
 }
 
 public [] T raw_as_typed(T)([] u8 raw, usize n) {
-    return (raw as [] T)[0.. n];
+    return (raw as [] T)[0..n];
 }
 
 /// allocates storage for `n` values of `T`, uninitialized.
@@ -129,7 +129,9 @@ public Result([] T, AllocError) dupe(T)(
 public void copy(T)([] T dst, [] const T src) {
     usize n = if dst.len < src.len {
         dst.len
-    } else { src.len };
+    } else {
+        src.len
+    };
 
     for usize i = 0; i < n; i++ {
         dst[i] = src[i];
@@ -140,7 +142,9 @@ public void copy(T)([] T dst, [] const T src) {
 public void move(T)([] T dst, [] const T src) {
     usize n = if dst.len < src.len {
         dst.len
-    } else { src.len };
+    } else {
+        src.len
+    };
 
     if dst.ptr as usize < src.ptr as usize {
         for usize i = 0; i < n; i++ {
@@ -172,13 +176,17 @@ public void zero(T)([] T dst) {
 public i32 compare([] const u8 a, [] const u8 b) {
     usize n = if a.len < b.len {
         a.len
-    } else { b.len };
+    } else {
+        b.len
+    };
 
     for usize i = 0; i < n; i++ {
         if a[i] != b[i] {
             return if a[i] < b[i] {
                 -1
-            } else { 1 };
+            } else {
+                1
+            };
         }
     }
 
@@ -188,7 +196,9 @@ public i32 compare([] const u8 a, [] const u8 b) {
 
     return if a.len < b.len {
         -1
-    } else { 1 };
+    } else {
+        1
+    };
 }
 
 public bool equal([] const u8 a, [] const u8 b) {
@@ -342,7 +352,9 @@ public Arena new_arena(Allocator parent) {
 bool arena_push_chunk(Arena* self, usize min_size) {
     usize size = if self.next_chunk_size > min_size {
         self.next_chunk_size
-    } else { align_up(min_size, ARENA_MIN_CHUNK) };
+    } else {
+        align_up(min_size, ARENA_MIN_CHUNK)
+    };
 
     Result([] u8, AllocError) got = self.parent.raw_alloc(
         size + sizeof (ArenaChunk),

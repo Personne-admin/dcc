@@ -286,7 +286,9 @@ public Result(Optional(V), AllocError) put(K, V)(
     if needs_growth(&b) {
         usize target = if b.control.len == 0 {
             MIN_CAPACITY
-        } else { b.control.len * 2 };
+        } else {
+            b.control.len * 2
+        };
         *self = b;
         Status(AllocError) rh_st = rehash_into(self, target);
         if !rh_st.is_ok() {
