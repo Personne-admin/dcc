@@ -4,22 +4,30 @@ module test;
 struct Big { u16[128] data; }
 enum Result(T, E) { Ok(T), Err(E) }
 
-Big make_big() {
+@nomangle
+u16 seed;
+
+Big make_big(u16 first) {
     Big b;
-    b.data[0] = 11;
+    b.data[0] = first;
     b.data[127] = 31;
     return b;
 }
 
 Result(Big, u8) wrap(Big b) { return Result::Ok(b); }
 Result(Big, u8) copy_result(Result(Big, u8) x) { return x; }
+i32 check_big(Big value) { return value.data[0] as i32 + value.data[127] as i32 - 42; }
 
 @nomangle
 public i32 dcc_main() {
-    Big a = make_big();
+    seed = 11;
+    Big a = make_big(seed);
     Big b = a;
     Result(Big, u8) r = copy_result(wrap(b));
-    return b.data[0] as i32 + b.data[127] as i32 - 42;
+    return match r {
+        Result::Ok(value) => check_big(value),
+        _ => 1,
+    };
 }
 
 === EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
