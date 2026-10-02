@@ -1317,22 +1317,41 @@ namespace dcc::backend::em64t
             }
         }
 
+        [[nodiscard]] bool is_call_opc(MOpc opc) noexcept
+        {
+            return opc == MOpc::CALL || opc == MOpc::CALL_rel32 || opc == MOpc::CALL_r64 || opc == MOpc::CALLm;
+        }
+
         void insert_callee_saves(MFunction& func, target::TargetConfig const& target, std::vector<LiveRange> const& ranges)
         {
             bool w64 = is_win64(func, target);
 
             std::vector<PhysReg> used_callee_saves;
 
+            auto note = [&](PhysReg pr) {
+                if (reg_class(pr) != RegClass::XMM && is_callee_saved_gpr(pr, w64) && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
+                    used_callee_saves.push_back(pr);
+            };
+
             for (auto const& lr : ranges)
             {
                 if (lr.spilled || lr.assigned == PhysReg::None)
                     continue;
+                note(lr.assigned);
+            }
 
-                PhysReg pr = lr.assigned;
-                if (lr.reg_class == RegClass::GPR64 && is_callee_saved_gpr(pr, w64))
+            for (auto const& blk : func.blocks)
+            {
+                for (auto const& instr : blk.instrs)
                 {
-                    if (std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
-                        used_callee_saves.push_back(pr);
+                    if (is_call_opc(instr.opc))
+                        continue;
+                    for (std::uint8_t oi = 0; oi < instr.num_defs && oi < instr.num_ops; ++oi)
+                        if (instr.ops[oi].kind == MOpKind::Reg && instr.ops[oi].reg.is_physical())
+                            note(instr.ops[oi].reg.phys_reg());
+                    for (int pi = 0; pi < static_cast<int>(PhysReg::Count); ++pi)
+                        if (instr.implicit_defs & (1ULL << pi))
+                            note(static_cast<PhysReg>(pi));
                 }
             }
 
