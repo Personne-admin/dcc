@@ -34,6 +34,13 @@ namespace
         return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     }
 
+    [[nodiscard]] std::string stdlib_fixture(std::string_view name)
+    {
+        auto const root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
+        std::ifstream in{root / "tests/stdlib" / name};
+        return {std::istreambuf_iterator<char>{in}, {}};
+    }
+
 } // namespace
 
 SECTION("libdcext standard modules");
@@ -2127,4 +2134,12 @@ public i32 main() {
     for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}
+
+TEST_CASE("core::atomic fetch_sub returns the old value and subtracts on the custom backend")
+{
+    auto const source = stdlib_fixture("atomic-fetch-sub.dc");
+    REQUIRE(!source.empty());
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "custom", optimization), 0);
 }
