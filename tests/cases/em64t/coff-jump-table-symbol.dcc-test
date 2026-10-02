@@ -1,0 +1,28 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 classify(i32 v) {
+    return match v {
+        0 => 10,
+        1 => 20,
+        2 => 30,
+        3 => 41,
+        4 => 50,
+        5 => 60,
+        6 => 70,
+        7 => 83,
+        _ => 0,
+    };
+}
+
+@nomangle
+public i32 dcc_main() {
+    return classify(7);
+}
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+REQUIRE-COFF-DEFINED: .Ljt_classify_0
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 .Ljt_classify_0
+REQUIRE-COFF-RELOC: .rdata IMAGE_REL_AMD64_REL32 classify.bb4
