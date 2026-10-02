@@ -4187,7 +4187,7 @@ namespace dcc::backend::em64t
                         mi.num_ops = 2;
                         mi.num_defs = 1;
                         mi.ops[0] = MOp::from_reg(ctx.sret_ptr_vreg);
-                        mi.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RDI));
+                        mi.ops[1] = MOp::from_reg(VReg::phys(ctx.cc == CallConvKind::SysV ? PhysReg::RDI : PhysReg::RCX));
                         ctx.append_instr(mi);
                     }
                 }
