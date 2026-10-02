@@ -2159,3 +2159,20 @@ TEST_CASE("core::atomic 64-bit operations use full-width instructions on the cus
     for (auto optimization : {"-O0", "-O2"})
         CHECK_EQ(build_and_run(source, "custom", optimization), 0);
 }
+
+TEST_CASE("core::atomic operations return old values and update memory on the custom backend")
+{
+    auto const source = stdlib_fixture("atomic-all-operations.dc");
+    REQUIRE(!source.empty());
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "custom", optimization), 0);
+}
+
+TEST_CASE("core::atomic fetch operations preserve contended final values on both backends")
+{
+    auto const source = stdlib_fixture("atomic-contended.dc");
+    REQUIRE(!source.empty());
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}

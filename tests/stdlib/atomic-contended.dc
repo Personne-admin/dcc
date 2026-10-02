@@ -1,0 +1,41 @@
+module main;
+
+import core::atomic;
+import std::os::thread;
+
+using core::atomic::MemoryOrder;
+using std::os::thread;
+
+volatile i32 add_value = 0;
+volatile i32 sub_value = 8000;
+volatile i32 and_value = 255;
+volatile i32 or_value = 0;
+volatile i32 xor_value = 0;
+
+void worker() {
+    for i32 i = 0; i < 1000; i++ {
+        core::atomic::atomic_fetch_add(&add_value as volatile i32*, 1, MemoryOrder::SeqCst);
+        core::atomic::atomic_fetch_sub(&sub_value as volatile i32*, 1, MemoryOrder::SeqCst);
+        core::atomic::atomic_fetch_and(&and_value as volatile i32*, 254, MemoryOrder::SeqCst);
+        core::atomic::atomic_fetch_or(&or_value as volatile i32*, 2, MemoryOrder::SeqCst);
+        core::atomic::atomic_fetch_xor(&xor_value as volatile i32*, 4, MemoryOrder::SeqCst);
+    }
+}
+
+public i32 main() {
+    thread::Thread[8] threads;
+    for i32 i = 0; i < 8; i++ {
+        threads[i] = thread::spawn(worker).unwrap();
+    }
+    for i32 i = 0; i < 8; i++ {
+        if !threads[i].join().is_ok() {
+            return 1;
+        }
+    }
+    if add_value != 8000 { return 2; }
+    if sub_value != 0 { return 3; }
+    if and_value != 254 { return 4; }
+    if or_value != 2 { return 5; }
+    if xor_value != 0 { return 6; }
+    return 0;
+}
