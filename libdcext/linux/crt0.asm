@@ -37,6 +37,6 @@ _start:
 
 .exit:
     movslq %eax, %rdi
-    mov $60, %eax
+    mov $231, %eax
     syscall
 .size _start, . - _start

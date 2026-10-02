@@ -2179,3 +2179,12 @@ TEST_CASE("core::atomic fetch operations preserve contended final values on both
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
+
+TEST_CASE("process exit returns main's code while another thread is active")
+{
+    auto const source = stdlib_fixture("process-exit-with-thread.dc");
+    REQUIRE(!source.empty());
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 37);
+}

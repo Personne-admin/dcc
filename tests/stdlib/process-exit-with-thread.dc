@@ -1,0 +1,14 @@
+module main;
+
+import std::os::thread;
+
+using std::os::thread;
+
+void worker() {
+    thread::sleep_ms(200);
+}
+
+public i32 main() {
+    thread::Thread t = thread::spawn(worker).unwrap();
+    return 37;
+}
