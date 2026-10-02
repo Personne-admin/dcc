@@ -6834,6 +6834,40 @@ export namespace dcc::sema
 
         [[nodiscard]] static std::optional<comptime::BinaryOp> token_to_cmp_binop(lex::TokenKind op) noexcept { return const_eval::token_to_cmp_binop(op); }
 
+        [[nodiscard]] static bool is_arithmetic_fold_op(lex::TokenKind op) noexcept
+        {
+            return op == lex::TokenKind::Plus || op == lex::TokenKind::Minus || op == lex::TokenKind::Star || op == lex::TokenKind::Slash ||
+                   op == lex::TokenKind::Percent;
+        }
+
+        [[nodiscard]] static bool folded_int_fits(comptime::Value const& value, types::TypePtr type) noexcept
+        {
+            auto const* it = types::type_cast<types::IntType>(type);
+            if (!it || it->bits >= 64 || value.kind() != comptime::Value::Kind::Int)
+                return true;
+            auto const v = value.get_int();
+            if (it->is_signed)
+                return v >= -(std::int64_t{1} << (it->bits - 1)) && v <= (std::int64_t{1} << (it->bits - 1)) - 1;
+            return v >= 0 && v <= (std::int64_t{1} << it->bits) - 1;
+        }
+
+        [[nodiscard]] static bool untyped_literal_operand(ast::Expr const& e) noexcept
+        {
+            if (e.kind == ast::ExprKind::IntLiteral)
+                return true;
+            if (e.kind == ast::ExprKind::Unary)
+            {
+                auto const& u = static_cast<ast::UnaryExpr const&>(e);
+                return u.op == lex::TokenKind::Minus && u.operand && untyped_literal_operand(*u.operand);
+            }
+            if (e.kind == ast::ExprKind::Binary)
+            {
+                auto const& b = static_cast<ast::BinaryExpr const&>(e);
+                return is_arithmetic_fold_op(b.op) && b.lhs && b.rhs && untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs);
+            }
+            return false;
+        }
+
         comptime::Value const* fold_int_binary(lex::TokenKind op, std::int64_t lhs, std::int64_t rhs, types::TypePtr out_type, sm::SourceRange range)
         {
             auto result = const_eval::fold_int_binary(op, lhs, rhs, out_type);
@@ -9949,9 +9983,14 @@ export namespace dcc::sema
         }
 
         comptime::Value const* fold_binary_constant(lex::TokenKind op, comptime::Value const& lhs, comptime::Value const& rhs, types::TypePtr out_type,
-                                                    sm::SourceRange range)
+                                                    sm::SourceRange range, bool literal_operands = false)
         {
             auto result = const_eval::fold_binary(op, lhs, rhs, out_type);
+            if (result && literal_operands && is_arithmetic_fold_op(op) && !folded_int_fits(*result, out_type))
+            {
+                error(range, "integer overflow in constant expression");
+                return nullptr;
+            }
             if (result)
                 return make_value(std::move(*result));
 
@@ -11529,7 +11568,7 @@ export namespace dcc::sema
                         }
                         out.type = lhs.type;
                         if (lhs.constant && rhs.constant)
-                            out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range);
+                            out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range, untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
                         break;
                     }
                     if (lhs.type != rhs.type || (!types::type_cast<types::IntType>(lhs.type) && !types::type_cast<types::FloatType>(lhs.type)))
@@ -11541,7 +11580,7 @@ export namespace dcc::sema
                     }
                     out.type = lhs.type;
                     if (lhs.constant && rhs.constant)
-                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range);
+                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range, untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
                     break;
                 case lex::TokenKind::EqEq:
                 case lex::TokenKind::BangEq:
@@ -11575,7 +11614,7 @@ export namespace dcc::sema
                     }
                     out.type = m_types.m_boolt();
                     if (lhs.constant && rhs.constant)
-                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range);
+                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range, untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
                     break;
                 case lex::TokenKind::AmpAmp:
                 case lex::TokenKind::PipePipe:
