@@ -81,6 +81,8 @@ namespace os_test
     {
         std::string name;
         std::string source;
+        std::string backend{};
+        std::string flags{};
     };
 
     inline Run run_modules(std::vector<Module> const& modules, bool windows, std::string_view backend)
@@ -111,8 +113,9 @@ namespace os_test
                 f << module.source;
             }
             auto obj = dir / (module.name + ".o");
-            std::string command = quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + std::string(backend) + " -I" +
-                                  quote(dir) + " -c -o " + quote(obj) + " " + quote(src);
+            std::string const module_backend = module.backend.empty() ? std::string(backend) : module.backend;
+            std::string command = quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + module_backend + " " + module.flags +
+                                  " -I" + quote(dir) + " -c -o " + quote(obj) + " " + quote(src);
             if (std::system(command.c_str()) != 0)
                 return {-1, {}, "compilation failed: " + module.name};
             objects += " " + quote(obj);
