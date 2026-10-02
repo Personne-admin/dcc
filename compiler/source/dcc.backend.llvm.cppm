@@ -3165,6 +3165,7 @@ namespace dcc::backend
 
                         auto* load_inst = LLVMBuildLoad2(builder, lt, ptr, "");
                         LLVMSetOrdering(load_inst, to_llvm_ordering(al->ordering));
+                        LLVMSetAlignment(load_inst, static_cast<unsigned>(al->type->byte_align));
                         auto* result = is_bool ? LLVMBuildTrunc(builder, load_inst, LLVMInt1TypeInContext(ctx), "") : load_inst;
                         set_name(result);
                         val_map[inst] = result;
@@ -3181,6 +3182,7 @@ namespace dcc::backend
                             val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
                         auto* store_inst = LLVMBuildStore(builder, val, ptr);
                         LLVMSetOrdering(store_inst, to_llvm_ordering(as->ordering));
+                        LLVMSetAlignment(store_inst, static_cast<unsigned>(as->value->type->byte_align));
                         break;
                     }
                     case IrNodeKind::AtomicRmw: {
@@ -3194,6 +3196,7 @@ namespace dcc::backend
                         if (is_bool)
                             val = LLVMBuildZExt(builder, val, LLVMInt8TypeInContext(ctx), "");
                         auto* rmw_inst = LLVMBuildAtomicRMW(builder, to_llvm_rmw_op(ar->op), ptr, val, to_llvm_ordering(ar->ordering), false);
+                        LLVMSetAlignment(rmw_inst, static_cast<unsigned>(ar->type->byte_align));
                         auto* result = is_bool ? LLVMBuildTrunc(builder, rmw_inst, LLVMInt1TypeInContext(ctx), "") : rmw_inst;
                         set_name(result);
                         val_map[inst] = result;
@@ -3209,6 +3212,7 @@ namespace dcc::backend
 
                         auto* pair = LLVMBuildAtomicCmpXchg(builder, ptr, expected, desired, to_llvm_ordering(cx->success_ordering),
                                                             to_llvm_ordering(cx->failure_ordering), false);
+                        LLVMSetAlignment(pair, static_cast<unsigned>(cx->type->byte_align));
                         auto* result = LLVMBuildExtractValue(builder, pair, 0, "");
                         set_name(result);
                         val_map[inst] = result;
