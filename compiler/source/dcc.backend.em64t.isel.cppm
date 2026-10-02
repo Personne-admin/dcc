@@ -1186,9 +1186,14 @@ namespace dcc::backend::em64t
             return dst;
         }
 
+        [[nodiscard]] bool win64_register_sized(dcc::ir::IrType const* t) noexcept
+        {
+            return t->byte_size == 1 || t->byte_size == 2 || t->byte_size == 4 || t->byte_size == 8;
+        }
+
         [[nodiscard]] bool memory_arg_by_reference(dcc::ir::IrType const* t, CallConvKind cc) noexcept
         {
-            return is_memory_type(t) && cc != CallConvKind::SysV && t->byte_size > 8;
+            return is_memory_type(t) && cc != CallConvKind::SysV && !win64_register_sized(t);
         }
 
         [[nodiscard]] std::int32_t align_up_i32(std::int32_t v, std::int32_t a) noexcept
