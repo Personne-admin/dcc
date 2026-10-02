@@ -17,9 +17,11 @@ WINE ?= $(shell command -v wine64 2>/dev/null || command -v wine 2>/dev/null)
 test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py linux
 	$(Q)$<
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/cross_backend.py linux --build $(BUILD_DIR)
 test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py win
 	$(Q)DCC_TEST_WINDOWS=1 WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $<
+	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/abi/cross_backend.py win --build $(BUILD_DIR)
 
 ifeq ($(ENABLE_LLVM),0)
   TEST_SRCS := $(filter-out %/test_backend.cc,$(ALL_TEST_SRCS))
