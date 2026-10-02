@@ -1686,6 +1686,10 @@ export namespace dcc::backend::em64t
                 defined_names.insert(std::string{g->name});
         }
 
+        for (auto const& mf : mod.functions)
+            for (auto const& jt : mf.jump_tables)
+                defined_names.insert(jt.symbol);
+
         std::unordered_set<std::string> ext_sym_set;
         for (auto const& er : encoded)
             for (auto const& r : er.relocs)
@@ -1821,6 +1825,7 @@ export namespace dcc::backend::em64t
             bool is_func : 1 {};
             bool is_object : 1 {};
             bool is_sec : 1 {};
+            bool is_local : 1 {};
             std::uint32_t sec_idx;
             std::uint64_t value;
             std::uint64_t size;
@@ -1976,10 +1981,33 @@ export namespace dcc::backend::em64t
 
                     std::uint64_t block_offset = func_starts[fi] + it->second;
                     auto so = add_str(sym_name);
-                    coff_syms.push_back(
-                        {.name = sym_name, .str_off = so, .is_func = false, .is_object = false, .sec_idx = 1, .value = block_offset, .size = 0});
+                    coff_syms.push_back({.name = sym_name,
+                                         .str_off = so,
+                                         .is_func = false,
+                                         .is_object = false,
+                                         .is_local = true,
+                                         .sec_idx = 1,
+                                         .value = block_offset,
+                                         .size = 0});
                     sym_name_to_idx[sym_name] = static_cast<std::uint32_t>(coff_syms.size() - 1);
                 }
+            }
+        }
+
+        std::unordered_map<std::string, std::size_t> jt_sym_slot;
+        for (auto const& mf : mod.functions)
+        {
+            for (auto const& jt : mf.jump_tables)
+            {
+                if (sym_name_to_idx.contains(jt.symbol))
+                    continue;
+
+                auto so = add_str(jt.symbol);
+                coff_syms.push_back(
+                    {.name = jt.symbol, .str_off = so, .is_func = false, .is_object = false, .is_local = true, .sec_idx = sec_rdata, .value = 0, .size = 0});
+
+                sym_name_to_idx[jt.symbol] = static_cast<std::uint32_t>(coff_syms.size() - 1);
+                jt_sym_slot[jt.symbol] = coff_syms.size() - 1;
             }
         }
 
@@ -2045,6 +2073,9 @@ export namespace dcc::backend::em64t
             {
                 while (rdata_data.size() % 4 != 0)
                     rdata_data.push_back(0);
+
+                if (auto slot = jt_sym_slot.find(jt.symbol); slot != jt_sym_slot.end())
+                    coff_syms[slot->second].value = rdata_data.size();
 
                 for (std::size_t ei = 0; ei < jt.targets.size(); ++ei)
                 {
@@ -2417,7 +2448,7 @@ export namespace dcc::backend::em64t
             else
             {
                 w16(out, 0);
-                if (cs.is_sec)
+                if (cs.is_sec || cs.is_local)
                     w8(out, 3);
                 else
                     w8(out, cs.name.empty() ? 0 : 2);

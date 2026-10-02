@@ -201,6 +201,7 @@ namespace
         std::vector<RequiredSectionAlign> required_section_aligns;
         std::vector<std::string> required_coff_undefined;
         std::vector<std::string> forbidden_coff_defined;
+        std::vector<std::string> required_coff_defined;
         std::vector<std::string> contains;
         std::vector<std::pair<std::string, std::string>> env;
     };
@@ -866,6 +867,12 @@ namespace
                             auto value = trim(std::string_view{tl}.substr(20));
                             if (!value.empty())
                                 e.forbidden_coff_defined.push_back(std::move(value));
+                        }
+                        else if (starts_with(tl, "REQUIRE-COFF-DEFINED:"))
+                        {
+                            auto value = trim(std::string_view{tl}.substr(21));
+                            if (!value.empty())
+                                e.required_coff_defined.push_back(std::move(value));
                         }
                     }
                 }
@@ -2576,6 +2583,18 @@ namespace
                             elf_valid = false;
                             std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is unexpectedly defined in COFF output  ({}:{})", forbidden_name,
                                          path.string(), exp.base_line);
+                        }
+                    }
+
+                    for (auto const& required_name : exp.required_coff_defined)
+                    {
+                        auto found =
+                            std::ranges::find_if(symbols, [&](auto const& entry) { return entry.second.name == required_name && entry.second.section > 0; });
+                        if (found == symbols.end())
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is not defined in COFF output  ({}:{})", required_name, path.string(),
+                                         exp.base_line);
                         }
                     }
 
