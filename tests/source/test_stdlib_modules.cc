@@ -864,7 +864,7 @@ public i32 main() {
         CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
 }
 
-TEST_CASE("os::thread spawn, join, and sync execute on llvm at O0 and O2")
+TEST_CASE("os::thread spawn, join, and sync execute on both backends at O0 and O2")
 {
     static constexpr std::string_view source = (R"DCC(module main;
 import std::os::thread;
@@ -1118,8 +1118,9 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto optimization : {"-O0", "-O2"})
-        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
 
 TEST_CASE("os::thread stress: spawn, join, once, semaphore, condvar, and rwlock under contention")
@@ -1331,8 +1332,9 @@ public i32 main() {
     return 0;
 }
 )DCC");
-    for (auto optimization : {"-O0", "-O2"})
-        CHECK_EQ(build_and_run(source, "llvm", optimization), 0);
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
 }
 
 TEST_CASE("os::thread entry preserves callee-saved registers in the parent")
