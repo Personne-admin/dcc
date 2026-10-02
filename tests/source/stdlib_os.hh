@@ -116,6 +116,13 @@ namespace os_test
             std::string const module_backend = module.backend.empty() ? std::string(backend) : module.backend;
             std::string command = quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + module_backend + " " + module.flags +
                                   " -I" + quote(dir) + " -c -o " + quote(obj) + " " + quote(src);
+            if (module.name.ends_with(".c"))
+            {
+                auto env = std::getenv("MINGW_SYSROOT");
+                auto mingw = std::filesystem::path{env ? env : "/opt/llvm-mingw"};
+                std::string const cc = windows ? quote(mingw / "bin/x86_64-w64-mingw32-clang") : std::string("clang");
+                command = cc + " -O2 -ffreestanding -fno-builtin -fno-stack-protector -c -o " + quote(obj) + " " + quote(src);
+            }
             if (std::system(command.c_str()) != 0)
                 return {-1, {}, "compilation failed: " + module.name};
             objects += " " + quote(obj);
