@@ -1,0 +1,24 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+void take(u8^GS p) {
+}
+
+u8^GS give(u8[4]* holder) {
+    return *holder;
+}
+
+public void f() {
+    u8[4] a;
+    u8^GS p = a;
+    u8^GS s = give(&a);
+    s = a;
+    take(a);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:7: return type mismatch: expected `u8^GS`, got `u8[4]`
+main.dc:12: initializer type mismatch: declared `u8^GS`, initializer `u8[4]`
+main.dc:14: assignment type mismatch: cannot assign `u8[4]` to `u8^GS`
+main.dc:15: no matching call for `take`

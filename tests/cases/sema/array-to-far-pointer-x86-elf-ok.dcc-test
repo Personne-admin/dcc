@@ -1,0 +1,17 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+void take_far(u8^ p) {
+}
+
+void take_near(u8* p) {
+}
+
+public void f() {
+    u8[4] a;
+    u8^ q = a;
+    u8* r = a;
+    take_far(a);
+    take_near(a);
+}

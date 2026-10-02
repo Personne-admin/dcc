@@ -7023,13 +7023,13 @@ export namespace dcc::sema
                 if (got->kind == types::TypeKind::Array)
                 {
                     auto const* ga = static_cast<types::ArrayType const*>(got);
-                    if (ep->pointee == ga->element)
+                    if (ep->pointee == ga->element && ep->flavor != types::PointerFlavor::Based)
                         return true;
                 }
                 if (got->kind == types::TypeKind::RuntimeArray)
                 {
                     auto const* gra = static_cast<types::RuntimeArrayType const*>(got);
-                    if (ep->pointee == gra->element)
+                    if (ep->pointee == gra->element && ep->flavor != types::PointerFlavor::Based)
                         return true;
                 }
             }
@@ -7080,6 +7080,10 @@ export namespace dcc::sema
                 bool slice_pair = types::type_cast<types::SliceType>(param) && types::type_cast<types::SliceType>(actuals[i]);
                 if ((pointer_pair || slice_pair) && !can_assign_return(param, actuals[i]))
                     return {infer::DeductionError::Conflict, pointer_pair ? "pointer argument qualifier mismatch" : "slice argument qualifier mismatch"};
+                bool array_to_pointer = types::type_cast<types::PointerType>(param) &&
+                                        (types::type_cast<types::ArrayType>(actuals[i]) || types::type_cast<types::RuntimeArrayType>(actuals[i]));
+                if (array_to_pointer && !can_assign_return(param, actuals[i]))
+                    return {infer::DeductionError::Conflict, "array argument does not convert to this pointer"};
                 auto const* expected_fp = types::type_cast<types::FuncPtrType>(param);
                 auto const* actual_fp = types::type_cast<types::FuncPtrType>(actuals[i]);
                 if (expected_fp && actual_fp && actual_fp->is_far && !expected_fp->is_far)
@@ -16611,7 +16615,7 @@ export namespace dcc::sema
                     {
                         warn_implicit_array_copy(v->init, init.type, expected);
                         bool implicit_decay_ok = false;
-                        if (auto const* exp_ptr = types::type_cast<types::PointerType>(expected))
+                        if (auto const* exp_ptr = types::type_cast<types::PointerType>(expected); exp_ptr && exp_ptr->flavor != types::PointerFlavor::Based)
                         {
                             if (auto const* got_ra = types::type_cast<types::RuntimeArrayType>(init.type))
                                 implicit_decay_ok = (got_ra->element == exp_ptr->pointee);
