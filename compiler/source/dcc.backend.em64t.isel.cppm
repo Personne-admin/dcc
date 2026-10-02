@@ -3643,6 +3643,15 @@ namespace dcc::backend::em64t
 
                     VReg result = ctx.mfunc.new_vreg();
                     emit_mov(ctx, result, val);
+                    if (ar->op == IrAtomicRmwOp::Sub)
+                    {
+                        MInstr neg;
+                        neg.opc = MOpc::NEG64r;
+                        neg.num_ops = 1;
+                        neg.num_defs = 1;
+                        neg.ops[0] = MOp::from_reg(result);
+                        ctx.append_instr(neg);
+                    }
 
                     MInstr rmw;
                     rmw.opc = lock_opc;
@@ -3651,6 +3660,9 @@ namespace dcc::backend::em64t
                     rmw.ops[0] = MOp::from_mem(MMem::make_base_disp(addr));
                     rmw.ops[1] = MOp::from_reg(result);
                     ctx.append_instr((rmw));
+
+                    if (rmw_width == 1 || rmw_width == 2)
+                        result = trunc_to_narrow(ctx, result, rmw_width * 8);
 
                     ctx.set_vreg(inst, result);
                     break;
