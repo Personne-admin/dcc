@@ -700,8 +700,14 @@ public Status(Error) rename([] const u8 from, [] const u8 to) {
 
 public Result(dir::Metadata, Error) metadata([] const u8 name) {
     static if core::target::OS == core::target::Os::Windows {
+        usize root = path::root_len(name);
+        usize end = name.len;
+        while end > root && path::is_separator(name[end - 1]) {
+            end--;
+        }
+
         path::PathW p;
-        path::to_pathw(name, &p) ?;
+        path::to_pathw(name[0..end], &p) ?;
 
         win::abi::Win32FindDataW found_data;
         win::abi::Handle h = win::imports::FindFirstFileW(
