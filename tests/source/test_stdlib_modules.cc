@@ -2151,3 +2151,11 @@ TEST_CASE("core::atomic store leaves the stored value intact for later uses on t
     for (auto optimization : {"-O0", "-O2"})
         CHECK_EQ(build_and_run(source, "custom", optimization), 0);
 }
+
+TEST_CASE("core::atomic 64-bit operations use full-width instructions on the custom backend")
+{
+    auto const source = stdlib_fixture("atomic-64-bit.dc");
+    REQUIRE(!source.empty());
+    for (auto optimization : {"-O0", "-O2"})
+        CHECK_EQ(build_and_run(source, "custom", optimization), 0);
+}
