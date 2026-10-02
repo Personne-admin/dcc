@@ -1,0 +1,21 @@
+module main;
+
+import core::atomic;
+
+@nomangle
+public i32 seed = 7;
+
+core::atomic::Atomic(i32) cell = { value = 100 };
+
+public i32 main() {
+    i32 v = seed * 3;
+    core::atomic::atomic_store(&cell, v, core::atomic::MemoryOrder::SeqCst);
+    i32 w = v + 1;
+    if w != 22 {
+        return 1;
+    }
+    if core::atomic::atomic_load(&cell, core::atomic::MemoryOrder::SeqCst) != 21 {
+        return 2;
+    }
+    return 0;
+}
