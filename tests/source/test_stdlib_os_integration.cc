@@ -108,3 +108,22 @@ TEST_CASE("custom backend objects sharing template instances link and run on the
     auto r = os_test::run_modules({{"t.dc", templates}, {"a.dc", a}, {"b.dc", b}, {"main.dc", main}}, windows(), "custom");
     CHECK_EQ(r.status, 42);
 }
+
+TEST_CASE("custom backend programs link against the custom libdcext on the execution target")
+{
+    auto r = os_test::run_modules({{"main.dc", "module main;\n\nimport std::os::file;\nimport std::result;\n\nusing std::os::{ file };\n\n"
+                                               "public i32 main() {\n    file::File out = file::stdout();\n"
+                                               "    if !out.write_all(\"hello from dcc\\n\").is_ok() {\n        return 1;\n    }\n    return 42;\n}\n"}},
+                                  windows(), "custom");
+    CHECK_EQ(r.status, 42);
+    CHECK(r.out.contains("hello from dcc"));
+}
+
+TEST_CASE("custom backend struct returns through memory work on the execution target")
+{
+    auto r = os_test::run_modules({{"main.dc", "module main;\n\nstruct Triple {\n    i64 a;\n    i64 b;\n    i64 c;\n}\n\n"
+                                               "Triple make(i64 seed, i64 step) {\n    return Triple { a = seed, b = seed + step, c = seed + step * 2 };\n}\n\n"
+                                               "public i32 main() {\n    Triple t = make(10, 3);\n    return (t.a + t.b + t.c + 3) as i32;\n}\n"}},
+                                  windows(), "custom");
+    CHECK_EQ(r.status, 42);
+}
