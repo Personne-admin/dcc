@@ -187,6 +187,35 @@ i32 test_make_directory_all_absolute() {
     return 0;
 }
 
+i32 test_trailing_separators() {
+    if !file::make_directory("fops_tsep").is_ok() {
+        return 120;
+    }
+    if !file::is_directory("fops_tsep/") {
+        return 121;
+    }
+    if file::metadata("fops_tsep//").is_err() {
+        return 122;
+    }
+    static if core::target::OS == core::target::Os::Windows {
+        if !file::is_directory("fops_tsep\\") {
+            return 123;
+        }
+        if !file::make_directory_all("fops_tsep\\a\\b\\").is_ok() {
+            return 124;
+        }
+        if !file::is_directory("fops_tsep/a/b") {
+            return 125;
+        }
+        file::remove_directory("fops_tsep/a/b");
+        file::remove_directory("fops_tsep/a");
+    }
+    if !file::remove_directory("fops_tsep").is_ok() {
+        return 126;
+    }
+    return 0;
+}
+
 i32 test_make_directory_all_trailing_dot() {
     if !file::make_directory_all("fops_trail/a/b/").is_ok() {
         return 70;
@@ -349,6 +378,10 @@ public i32 main() {
         return code;
     }
     code = test_exists_predicates();
+    if code != 0 {
+        return code;
+    }
+    code = test_trailing_separators();
     if code != 0 {
         return code;
     }
