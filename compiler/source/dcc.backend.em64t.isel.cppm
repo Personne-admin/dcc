@@ -60,6 +60,7 @@ namespace dcc::backend::em64t
             dcc::target::TargetConfig const& target;
             CallConvKind cc;
             std::unordered_map<dcc::ir::IrBasicBlock const*, std::uint32_t> ir_bb_to_mblock;
+            std::unordered_map<std::uint32_t, std::uint32_t> ir_bb_exit_mblock;
             dcc::ir::IrBasicBlock const* ir_entry_block = nullptr;
             std::unordered_set<dcc::ir::IrBasicBlock const*> lowered_blocks;
             std::unordered_set<dcc::ir::IrBasicBlock const*> lowering_blocks;
@@ -3621,6 +3622,54 @@ namespace dcc::backend::em64t
                     }
 
                     unsigned const rmw_width = ar->value && ar->value->type ? static_cast<unsigned>(ar->value->type->byte_size) : 8;
+                    if (ar->op == IrAtomicRmwOp::And || ar->op == IrAtomicRmwOp::Or || ar->op == IrAtomicRmwOp::Xor)
+                    {
+                        VReg rax = VReg::phys(PhysReg::RAX);
+                        emit_mov(ctx, rax, emit_load(ctx, ar->type, addr));
+                        std::uint32_t const retry_id = ctx.mfunc.create_block("atomic_retry").id;
+                        std::uint32_t const done_id = ctx.mfunc.create_block("atomic_done").id;
+                        emit_jmp(ctx, retry_id);
+                        ctx.current_block_id = retry_id;
+
+                        MOpc binary_op = ar->op == IrAtomicRmwOp::And ? MOpc::AND64rr
+                                         : ar->op == IrAtomicRmwOp::Or ? MOpc::OR64rr
+                                                                       : MOpc::XOR64rr;
+                        if (rmw_width < 8)
+                            binary_op = ar->op == IrAtomicRmwOp::And ? MOpc::AND32rr
+                                        : ar->op == IrAtomicRmwOp::Or ? MOpc::OR32rr
+                                                                      : MOpc::XOR32rr;
+                        VReg desired = VReg::phys(PhysReg::RDX);
+                        MInstr binary;
+                        binary.opc = binary_op;
+                        binary.num_ops = 3;
+                        binary.num_defs = 1;
+                        binary.ops[0] = MOp::from_reg(desired);
+                        binary.ops[1] = MOp::from_reg(rax);
+                        binary.ops[2] = MOp::from_reg(val);
+                        ctx.append_instr(binary);
+                        MInstr cmpxchg;
+                        cmpxchg.opc = rmw_width == 1   ? MOpc::LOCK_CMPXCHG8mr
+                                        : rmw_width == 2 ? MOpc::LOCK_CMPXCHG16mr
+                                        : rmw_width == 4 ? MOpc::LOCK_CMPXCHG32mr
+                                                         : MOpc::LOCK_CMPXCHG64mr;
+                        cmpxchg.num_ops = 2;
+                        cmpxchg.num_defs = 0;
+                        cmpxchg.ops[0] = MOp::from_mem(MMem::make_base_disp(addr));
+                        cmpxchg.ops[1] = MOp::from_reg(desired);
+                        ctx.add_implicit_defs(cmpxchg, std::array{PhysReg::RAX});
+                        ctx.add_implicit_uses(cmpxchg, std::array{PhysReg::RAX});
+                        ctx.append_instr(cmpxchg);
+                        emit_jcc(ctx, MOpc::JNE, retry_id);
+                        emit_jmp(ctx, done_id);
+                        ctx.current_block_id = done_id;
+
+                        VReg old = ctx.mfunc.new_vreg();
+                        emit_mov(ctx, old, rax);
+                        if (rmw_width == 1 || rmw_width == 2)
+                            old = trunc_to_narrow(ctx, old, rmw_width * 8);
+                        ctx.set_vreg(inst, old);
+                        break;
+                    }
                     if (rmw_width <= 1 || rmw_width == 2 || rmw_width == 4)
                     {
                         auto pick = [&](MOpc o32, MOpc o16, MOpc o8) { return (rmw_width == 4) ? o32 : ((rmw_width == 2) ? o16 : o8); };
@@ -4410,7 +4459,16 @@ namespace dcc::backend::em64t
 
             lower_terminator(ctx, ir_bb->terminator);
             ctx.lowered_blocks.insert(ir_bb);
+            ctx.ir_bb_exit_mblock[mbb_it->second] = ctx.current_block_id;
         }
+
+        for (auto& mbb : mfunc.blocks)
+            for (auto& mi : mbb.instrs)
+                if (mi.opc == MOpc::PHI)
+                    for (std::uint8_t i = 2; i < mi.num_ops; i += 2)
+                        if (mi.ops[i].is_label())
+                            if (auto it = ctx.ir_bb_exit_mblock.find(mi.ops[i].label); it != ctx.ir_bb_exit_mblock.end())
+                                mi.ops[i].label = it->second;
 
         for (auto& mbb : mfunc.blocks)
             for (auto const& mi : mbb.instrs)
