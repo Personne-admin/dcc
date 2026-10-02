@@ -77,6 +77,73 @@ namespace os_test
         return result;
     }
 
+    struct Module
+    {
+        std::string name;
+        std::string source;
+    };
+
+    inline Run run_modules(std::vector<Module> const& modules, bool windows, std::string_view backend)
+    {
+        auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path();
+        auto dir =
+            std::filesystem::temp_directory_path() / std::format("dcc-stdlib-os-{}-{}", getpid(), std::chrono::steady_clock::now().time_since_epoch().count());
+
+        std::filesystem::create_directories(dir);
+        struct Cleanup
+        {
+            std::filesystem::path p;
+            ~Cleanup()
+            {
+                std::error_code ec;
+                std::filesystem::remove_all(p, ec);
+            }
+        } cleanup{dir};
+
+        std::string const os = windows ? "windows" : "linux";
+        std::string const target = windows ? "x86_64-coff" : "x86_64-elf";
+        std::string objects;
+        for (auto const& module : modules)
+        {
+            auto src = dir / module.name;
+            {
+                std::ofstream f{src};
+                f << module.source;
+            }
+            auto obj = dir / (module.name + ".o");
+            std::string command = quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + std::string(backend) + " -I" +
+                                  quote(dir) + " -c -o " + quote(obj) + " " + quote(src);
+            if (std::system(command.c_str()) != 0)
+                return {-1, {}, "compilation failed: " + module.name};
+            objects += " " + quote(obj);
+        }
+
+        auto exe = dir / "program.exe";
+        std::string command;
+        if (windows)
+        {
+            auto env = std::getenv("MINGW_SYSROOT");
+            auto mingw = std::filesystem::path{env ? env : "/opt/llvm-mingw"};
+            command = quote(mingw / "bin/x86_64-w64-mingw32-clang") + " -nostdlib -Wl,--entry,_start -Wl,--subsystem,console -o " + quote(exe) + objects + " " +
+                      quote(root / std::format("lib/libdcext-windows-{}.a", backend)) + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
+        }
+        else
+            command = quote(root / "bin/dcc") + " -flibdcext linux -target x86_64-elf -fbackend " + std::string(backend) + " -o " + quote(exe) + objects;
+
+        if (std::system(command.c_str()) != 0)
+            return {-1, {}, "link failed"};
+
+        auto wine = std::getenv("WINE");
+        command = "ulimit -c 0 && cd " + quote(dir) + " && timeout 30s " + (windows ? quote(wine ? wine : "wine") + " " : "") + quote(exe) +
+                  " < /dev/null > stdout 2> stderr";
+        int status = std::system(command.c_str());
+        Run result{WIFEXITED(status) ? WEXITSTATUS(status) : WIFSIGNALED(status) ? 128 + WTERMSIG(status) : -1, read(dir / "stdout"), read(dir / "stderr")};
+        if (result.status != 0 && result.status != 42 && result.status != 134)
+            std::println(std::cerr, "D program status {}: {}", result.status, result.err);
+
+        return result;
+    }
+
     inline std::string fixture(std::string_view name)
     {
         auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();

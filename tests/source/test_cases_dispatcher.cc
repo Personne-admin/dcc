@@ -202,6 +202,8 @@ namespace
         std::vector<std::string> required_coff_undefined;
         std::vector<std::string> forbidden_coff_defined;
         std::vector<std::string> required_coff_defined;
+        std::vector<std::pair<std::string, std::uint8_t>> required_coff_comdat;
+        std::vector<std::string> forbidden_coff_comdat;
         std::vector<std::string> contains;
         std::vector<std::pair<std::string, std::string>> env;
     };
@@ -873,6 +875,37 @@ namespace
                             auto value = trim(std::string_view{tl}.substr(21));
                             if (!value.empty())
                                 e.required_coff_defined.push_back(std::move(value));
+                        }
+                        else if (starts_with(tl, "REQUIRE-COFF-COMDAT:"))
+                        {
+                            std::istringstream fields{trim(std::string_view{tl}.substr(20))};
+                            std::string symbol;
+                            std::string selection;
+                            if (fields >> symbol >> selection)
+                            {
+                                std::uint8_t value = 0;
+                                if (selection == "ANY")
+                                    value = 2;
+                                else if (selection == "ASSOCIATIVE")
+                                    value = 5;
+                                else
+                                {
+                                    try
+                                    {
+                                        value = static_cast<std::uint8_t>(std::stoul(selection, nullptr, 0));
+                                    }
+                                    catch (...)
+                                    {
+                                    }
+                                }
+                                e.required_coff_comdat.emplace_back(std::move(symbol), value);
+                            }
+                        }
+                        else if (starts_with(tl, "FORBID-COFF-COMDAT:"))
+                        {
+                            auto value = trim(std::string_view{tl}.substr(19));
+                            if (!value.empty())
+                                e.forbidden_coff_comdat.push_back(std::move(value));
                         }
                     }
                 }
@@ -2520,6 +2553,8 @@ namespace
                     std::string name;
                     std::int16_t section{};
                     std::uint8_t storage_class{};
+                    std::uint8_t aux_count{};
+                    std::size_t offset{};
                 };
                 std::unordered_map<std::uint32_t, ParsedCoffSymbol> symbols;
                 auto read_c_string = [&](std::size_t off, std::size_t end) {
@@ -2554,10 +2589,12 @@ namespace
                             name = read_c_string(off, off + 8);
 
                         auto raw_section = static_cast<std::uint16_t>(rd_coff(off + 12, 2));
+                        auto aux_count = static_cast<std::uint8_t>(rd_coff(off + 17, 1));
                         symbols[index] = {.name = std::move(name),
                                           .section = static_cast<std::int16_t>(raw_section),
-                                          .storage_class = static_cast<std::uint8_t>(rd_coff(off + 16, 1))};
-                        auto aux_count = static_cast<std::uint8_t>(rd_coff(off + 17, 1));
+                                          .storage_class = static_cast<std::uint8_t>(rd_coff(off + 16, 1)),
+                                          .aux_count = aux_count,
+                                          .offset = off};
                         index += 1U + aux_count;
                     }
 
@@ -2594,6 +2631,48 @@ namespace
                         {
                             elf_valid = false;
                             std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is not defined in COFF output  ({}:{})", required_name, path.string(),
+                                         exp.base_line);
+                        }
+                    }
+
+                    auto comdat_selection = [&](std::string const& symbol_name) -> std::optional<std::uint8_t> {
+                        auto key = std::ranges::find_if(symbols, [&](auto const& entry) { return entry.second.name == symbol_name && entry.second.section > 0; });
+                        if (key == symbols.end())
+                            return std::nullopt;
+                        auto section = key->second.section;
+                        auto header = 20U + static_cast<std::size_t>(section - 1) * 40;
+                        if (section > section_count || (rd_coff(header + 36, 4) & 0x1000U) == 0)
+                            return std::nullopt;
+                        std::vector<std::uint32_t> indices;
+                        for (auto const& [index, symbol] : symbols)
+                            if (symbol.section == section)
+                                indices.push_back(index);
+                        std::ranges::sort(indices);
+                        if (indices.size() < 2 || indices[1] != key->first)
+                            return std::nullopt;
+                        auto const& definition = symbols[indices[0]];
+                        if (definition.storage_class != 3 || definition.aux_count != 1)
+                            return std::nullopt;
+                        return static_cast<std::uint8_t>(rd_coff(definition.offset + 18 + 14, 1));
+                    };
+
+                    for (auto const& [required_name, selection] : exp.required_coff_comdat)
+                    {
+                        auto actual = comdat_selection(required_name);
+                        if (!actual || *actual != selection)
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is not the key of a COMDAT section with selection {}  ({}:{})", required_name,
+                                         selection, path.string(), exp.base_line);
+                        }
+                    }
+
+                    for (auto const& forbidden_name : exp.forbidden_coff_comdat)
+                    {
+                        if (comdat_selection(forbidden_name))
+                        {
+                            elf_valid = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: '{}' is unexpectedly in a COMDAT section  ({}:{})", forbidden_name, path.string(),
                                          exp.base_line);
                         }
                     }

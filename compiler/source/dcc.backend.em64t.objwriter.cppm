@@ -190,6 +190,28 @@ namespace dcc::backend::em64t
         constexpr std::uint32_t IMAGE_SCN_MEM_READ = 0x40000000;
         constexpr std::uint32_t IMAGE_SCN_MEM_WRITE = 0x80000000;
         constexpr std::uint32_t IMAGE_SCN_ALIGN_16BYTES = 0x00500000;
+        constexpr std::uint32_t IMAGE_SCN_ALIGN_4BYTES = 0x00300000;
+        constexpr std::uint32_t IMAGE_SCN_LNK_COMDAT = 0x00001000;
+        constexpr std::uint8_t IMAGE_COMDAT_SELECT_ANY = 2;
+        constexpr std::uint8_t IMAGE_COMDAT_SELECT_ASSOCIATIVE = 5;
+        constexpr std::size_t no_coff_comdat = std::numeric_limits<std::size_t>::max();
+
+        [[nodiscard]] bool is_link_once(ir::Linkage linkage)
+        {
+            return linkage == ir::Linkage::LinkOnceODR || linkage == ir::Linkage::WeakODR;
+        }
+
+        [[nodiscard]] std::uint32_t coff_comdat_checksum(std::span<std::uint8_t const> data)
+        {
+            std::uint32_t crc = 0;
+            for (auto byte : data)
+            {
+                crc ^= byte;
+                for (int bit = 0; bit < 8; ++bit)
+                    crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+            }
+            return crc;
+        }
 
         constexpr std::uint16_t IMAGE_REL_AMD64_REL32 = 0x0004;
         constexpr std::uint16_t IMAGE_REL_AMD64_ADDR64 = 0x0001;
@@ -1753,6 +1775,20 @@ export namespace dcc::backend::em64t
             std::uint32_t addend{};
         };
 
+        struct CoffComdat
+        {
+            std::size_t func{};
+            std::uint32_t text_index{};
+            std::uint32_t rdata_index{};
+            std::vector<std::uint8_t> rdata;
+            std::vector<CoffReloc> text_rels;
+            std::vector<CoffReloc> rdata_rels;
+            std::uint32_t text_raw{};
+            std::uint32_t rdata_raw{};
+            std::size_t text_reloc_block{};
+            std::size_t rdata_reloc_block{};
+        };
+
         struct CoffCustomSection
         {
             std::string name;
@@ -1829,6 +1865,8 @@ export namespace dcc::backend::em64t
             std::uint32_t sec_idx;
             std::uint64_t value;
             std::uint64_t size;
+            std::size_t comdat{no_coff_comdat};
+            bool comdat_rdata{};
         };
         std::vector<CoffSym> coff_syms;
         std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
@@ -1840,7 +1878,7 @@ export namespace dcc::backend::em64t
         std::uint32_t sec_rdata = 0, sec_data = 0, sec_bss = 0;
         bool has_coff_jt = false;
         for (auto const& mf : mod.functions)
-            if (!mf.jump_tables.empty())
+            if (!mf.jump_tables.empty() && !is_link_once(mf.linkage))
             {
                 has_coff_jt = true;
                 break;
@@ -1894,6 +1932,21 @@ export namespace dcc::backend::em64t
                                  .size = 0});
         }
 
+        std::vector<CoffComdat> comdats;
+        std::vector<std::size_t> func_comdat(mod.functions.size(), no_coff_comdat);
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
+        {
+            if (!is_link_once(mod.functions[fi].linkage))
+                continue;
+            CoffComdat comdat;
+            comdat.func = fi;
+            comdat.text_index = next_sec++;
+            if (!mod.functions[fi].jump_tables.empty())
+                comdat.rdata_index = next_sec++;
+            func_comdat[fi] = comdats.size();
+            comdats.push_back(std::move(comdat));
+        }
+
         for (auto& gl : globals)
         {
             if (!gl.g->section.empty())
@@ -1919,8 +1972,14 @@ export namespace dcc::backend::em64t
         std::vector<std::uint8_t> text_data;
         std::vector<std::size_t> func_starts;
         func_starts.reserve(func_codes.size());
-        for (auto const& code : func_codes)
+        for (std::size_t fi = 0; fi < func_codes.size(); ++fi)
         {
+            auto const& code = func_codes[fi];
+            if (func_comdat[fi] != no_coff_comdat)
+            {
+                func_starts.push_back(0);
+                continue;
+            }
             func_starts.push_back(text_data.size());
             text_data.insert(text_data.end(), code.begin(), code.end());
             while (text_data.size() % 16 != 0)
@@ -1930,14 +1989,39 @@ export namespace dcc::backend::em64t
         for (std::size_t i = 0; i < func_names.size(); ++i)
         {
             auto so = add_str(func_names[i]);
+            std::uint32_t func_sec = 1;
+            if (func_comdat[i] != no_coff_comdat)
+            {
+                func_sec = comdats[func_comdat[i]].text_index;
+                coff_syms.push_back({.name = ".text",
+                                     .str_off = text_sec_str,
+                                     .is_func = false,
+                                     .is_object = false,
+                                     .is_sec = true,
+                                     .sec_idx = func_sec,
+                                     .value = 0,
+                                     .size = 0,
+                                     .comdat = func_comdat[i]});
+            }
             coff_syms.push_back({.name = func_names[i],
                                  .str_off = so,
                                  .is_func = true,
                                  .is_object = false,
-                                 .sec_idx = 1,
+                                 .sec_idx = func_sec,
                                  .value = func_starts[i],
                                  .size = func_codes[i].size()});
             sym_name_to_idx[func_names[i]] = static_cast<std::uint32_t>(coff_syms.size() - 1);
+            if (func_comdat[i] != no_coff_comdat && comdats[func_comdat[i]].rdata_index != 0)
+                coff_syms.push_back({.name = ".rdata",
+                                     .str_off = 0,
+                                     .is_func = false,
+                                     .is_object = false,
+                                     .is_sec = true,
+                                     .sec_idx = comdats[func_comdat[i]].rdata_index,
+                                     .value = 0,
+                                     .size = 0,
+                                     .comdat = func_comdat[i],
+                                     .comdat_rdata = true});
         }
 
         std::uint64_t bss_sec_size = 0;
@@ -1986,7 +2070,7 @@ export namespace dcc::backend::em64t
                                          .is_func = false,
                                          .is_object = false,
                                          .is_local = true,
-                                         .sec_idx = 1,
+                                         .sec_idx = func_comdat[fi] == no_coff_comdat ? 1U : comdats[func_comdat[fi]].text_index,
                                          .value = block_offset,
                                          .size = 0});
                     sym_name_to_idx[sym_name] = static_cast<std::uint32_t>(coff_syms.size() - 1);
@@ -1995,16 +2079,17 @@ export namespace dcc::backend::em64t
         }
 
         std::unordered_map<std::string, std::size_t> jt_sym_slot;
-        for (auto const& mf : mod.functions)
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
         {
-            for (auto const& jt : mf.jump_tables)
+            for (auto const& jt : mod.functions[fi].jump_tables)
             {
                 if (sym_name_to_idx.contains(jt.symbol))
                     continue;
 
                 auto so = add_str(jt.symbol);
+                auto jt_sec = func_comdat[fi] == no_coff_comdat ? sec_rdata : comdats[func_comdat[fi]].rdata_index;
                 coff_syms.push_back(
-                    {.name = jt.symbol, .str_off = so, .is_func = false, .is_object = false, .is_local = true, .sec_idx = sec_rdata, .value = 0, .size = 0});
+                    {.name = jt.symbol, .str_off = so, .is_func = false, .is_object = false, .is_local = true, .sec_idx = jt_sec, .value = 0, .size = 0});
 
                 sym_name_to_idx[jt.symbol] = static_cast<std::uint32_t>(coff_syms.size() - 1);
                 jt_sym_slot[jt.symbol] = coff_syms.size() - 1;
@@ -2022,7 +2107,7 @@ export namespace dcc::backend::em64t
                     if (it != sym_name_to_idx.end() && it->second == static_cast<std::uint32_t>(ci))
                         it->second = static_cast<std::uint32_t>(ci) + aux_so_far;
                 }
-                if (cs.is_func)
+                if (cs.is_func || cs.comdat != no_coff_comdat)
                     ++aux_so_far;
             }
         }
@@ -2067,15 +2152,14 @@ export namespace dcc::backend::em64t
 
         auto [rdata_data, rdata_rels] = build_coff_init_data(rodata_globals, sec_rdata);
 
-        for (auto const& mf : mod.functions)
-        {
+        auto emit_jump_tables = [&](MFunction const& mf, std::vector<std::uint8_t>& section, std::vector<CoffReloc>& rels) {
             for (auto const& jt : mf.jump_tables)
             {
-                while (rdata_data.size() % 4 != 0)
-                    rdata_data.push_back(0);
+                while (section.size() % 4 != 0)
+                    section.push_back(0);
 
                 if (auto slot = jt_sym_slot.find(jt.symbol); slot != jt_sym_slot.end())
-                    coff_syms[slot->second].value = rdata_data.size();
+                    coff_syms[slot->second].value = section.size();
 
                 for (std::size_t ei = 0; ei < jt.targets.size(); ++ei)
                 {
@@ -2084,8 +2168,8 @@ export namespace dcc::backend::em64t
                     blk_sym += ".bb" + std::to_string(tgt_block);
 
                     auto blk_sym_it = sym_name_to_idx.find(blk_sym);
-                    std::uint64_t entry_va_offset = rdata_data.size();
-                    w32(rdata_data, 0);
+                    std::uint64_t entry_va_offset = section.size();
+                    w32(section, 0);
 
                     if (blk_sym_it != sym_name_to_idx.end())
                     {
@@ -2093,11 +2177,18 @@ export namespace dcc::backend::em64t
                         rel.virt_addr = static_cast<std::uint32_t>(entry_va_offset);
                         rel.sym_idx = blk_sym_it->second;
                         rel.type = IMAGE_REL_AMD64_REL32;
-                        rdata_rels.push_back(rel);
+                        rels.push_back(rel);
                     }
                 }
             }
-        }
+        };
+
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
+            if (func_comdat[fi] == no_coff_comdat)
+                emit_jump_tables(mod.functions[fi], rdata_data, rdata_rels);
+        for (auto& comdat : comdats)
+            if (comdat.rdata_index != 0)
+                emit_jump_tables(mod.functions[comdat.func], comdat.rdata, comdat.rdata_rels);
 
         auto [data_sec_data, data_rels] = build_coff_init_data(data_globals, sec_data);
 
@@ -2200,7 +2291,10 @@ export namespace dcc::backend::em64t
                         rtype = IMAGE_REL_AMD64_REL32;
                         break;
                 }
-                text_rels.push_back({.virt_addr = static_cast<std::uint32_t>(func_off + r.offset), .sym_idx = it->second, .type = rtype});
+                if (func_comdat[fi] != no_coff_comdat)
+                    comdats[func_comdat[fi]].text_rels.push_back({.virt_addr = static_cast<std::uint32_t>(r.offset), .sym_idx = it->second, .type = rtype});
+                else
+                    text_rels.push_back({.virt_addr = static_cast<std::uint32_t>(func_off + r.offset), .sym_idx = it->second, .type = rtype});
             }
         }
 
@@ -2212,6 +2306,8 @@ export namespace dcc::backend::em64t
         if (has_bss_sec)
             num_sec++;
         num_sec += static_cast<std::uint32_t>(custom_sections.size());
+        for (auto const& comdat : comdats)
+            num_sec += comdat.rdata_index != 0 ? 2U : 1U;
 
         std::uint32_t hdr_size = 20;
         std::uint32_t sec_hdr_size = 40;
@@ -2249,6 +2345,20 @@ export namespace dcc::backend::em64t
                 cur_raw += 4 - (cur_raw % 4);
         }
 
+        for (auto& comdat : comdats)
+        {
+            comdat.text_raw = cur_raw;
+            cur_raw += static_cast<std::uint32_t>(func_codes[comdat.func].size());
+            if (cur_raw % 4 != 0)
+                cur_raw += 4 - (cur_raw % 4);
+            if (comdat.rdata_index == 0)
+                continue;
+            comdat.rdata_raw = cur_raw;
+            cur_raw += static_cast<std::uint32_t>(comdat.rdata.size());
+            if (cur_raw % 4 != 0)
+                cur_raw += 4 - (cur_raw % 4);
+        }
+
         struct CoffSecReloc
         {
             std::uint32_t raw_start;
@@ -2270,6 +2380,15 @@ export namespace dcc::backend::em64t
                 sec_relocs.push_back({cs.raw_start, cs.rels});
             cs.reloc_block = static_cast<std::uint32_t>(sec_relocs.size() - 1);
         }
+        for (auto& comdat : comdats)
+        {
+            sec_relocs.push_back({comdat.text_raw, comdat.text_rels});
+            comdat.text_reloc_block = sec_relocs.size() - 1;
+            if (comdat.rdata_index == 0)
+                continue;
+            sec_relocs.push_back({comdat.rdata_raw, comdat.rdata_rels});
+            comdat.rdata_reloc_block = sec_relocs.size() - 1;
+        }
 
         for (auto& sr : sec_relocs)
         {
@@ -2283,7 +2402,7 @@ export namespace dcc::backend::em64t
         std::uint32_t sym_start = cur_raw;
         std::uint32_t num_func_aux = 0;
         for (auto const& cs : coff_syms)
-            if (cs.is_func)
+            if (cs.is_func || cs.comdat != no_coff_comdat)
                 num_func_aux++;
 
         std::uint32_t num_syms = static_cast<std::uint32_t>(coff_syms.size()) + num_func_aux;
@@ -2366,6 +2485,20 @@ export namespace dcc::backend::em64t
                               static_cast<std::uint16_t>(cs.rels.size()), cs.characteristics);
         }
 
+        for (auto const& comdat : comdats)
+        {
+            auto text_reloc_ptr = comdat.text_rels.empty() ? 0U : sec_relocs[comdat.text_reloc_block].raw_start;
+            write_sec_hdr(".text", 0, static_cast<std::uint32_t>(func_codes[comdat.func].size()), comdat.text_raw, text_reloc_ptr,
+                          static_cast<std::uint16_t>(comdat.text_rels.size()),
+                          IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_LNK_COMDAT);
+            if (comdat.rdata_index == 0)
+                continue;
+            auto rdata_reloc_ptr = comdat.rdata_rels.empty() ? 0U : sec_relocs[comdat.rdata_reloc_block].raw_start;
+            write_sec_hdr(".rdata", 0, static_cast<std::uint32_t>(comdat.rdata.size()), comdat.rdata_raw, rdata_reloc_ptr,
+                          static_cast<std::uint16_t>(comdat.rdata_rels.size()),
+                          IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_4BYTES | IMAGE_SCN_LNK_COMDAT);
+        }
+
         while (out.size() < text_raw_start)
             w8(out, 0);
         out.insert(out.end(), text_data.begin(), text_data.end());
@@ -2393,6 +2526,18 @@ export namespace dcc::backend::em64t
             out.insert(out.end(), cs.data.begin(), cs.data.end());
         }
 
+        for (auto const& comdat : comdats)
+        {
+            while (out.size() < comdat.text_raw)
+                w8(out, 0);
+            out.insert(out.end(), func_codes[comdat.func].begin(), func_codes[comdat.func].end());
+            if (comdat.rdata_index == 0)
+                continue;
+            while (out.size() < comdat.rdata_raw)
+                w8(out, 0);
+            out.insert(out.end(), comdat.rdata.begin(), comdat.rdata.end());
+        }
+
         for (auto const& sr : sec_relocs)
         {
             if (sr.rels.empty())
@@ -2406,6 +2551,9 @@ export namespace dcc::backend::em64t
                 w16(out, r.type);
             }
         }
+
+        while (out.size() < sym_start)
+            w8(out, 0);
 
         for (auto const& cs : coff_syms)
         {
@@ -2444,6 +2592,23 @@ export namespace dcc::backend::em64t
                 w16(out, 0);
                 w8(out, is_local ? 3 : 2);
                 w8(out, 0);
+            }
+            else if (cs.comdat != no_coff_comdat)
+            {
+                auto const& comdat = comdats[cs.comdat];
+                auto const& data = cs.comdat_rdata ? comdat.rdata : func_codes[comdat.func];
+                auto const& rels = cs.comdat_rdata ? comdat.rdata_rels : comdat.text_rels;
+                w16(out, 0);
+                w8(out, 3);
+                w8(out, 1);
+                w32(out, static_cast<std::uint32_t>(data.size()));
+                w16(out, static_cast<std::uint16_t>(rels.size()));
+                w16(out, 0);
+                w32(out, coff_comdat_checksum(data));
+                w16(out, static_cast<std::uint16_t>(comdat.text_index));
+                w8(out, cs.comdat_rdata ? IMAGE_COMDAT_SELECT_ASSOCIATIVE : IMAGE_COMDAT_SELECT_ANY);
+                w8(out, 0);
+                w16(out, 0);
             }
             else
             {
