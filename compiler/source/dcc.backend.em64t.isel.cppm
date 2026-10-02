@@ -3567,10 +3567,12 @@ namespace dcc::backend::em64t
                             xchg.opc = MOpc::LOCK_XCHG16mr;
                         else if (st_width == 4)
                             xchg.opc = MOpc::LOCK_XCHG32mr;
+                        VReg scratch = ctx.mfunc.new_vreg();
+                        emit_mov(ctx, scratch, val);
                         xchg.num_ops = 2;
                         xchg.num_defs = 0;
                         xchg.ops[0] = MOp::from_mem(MMem::make_base_disp(addr));
-                        xchg.ops[1] = MOp::from_reg(val);
+                        xchg.ops[1] = MOp::from_reg(scratch);
                         ctx.append_instr((xchg));
 
                         if (as->ordering >= IrMemoryOrdering::Release)
