@@ -140,14 +140,14 @@ namespace dcc::backend::em64t
 
         [[nodiscard]] bool is_gpr_src_xmm_opc(MOpc opc) noexcept
         {
-            return opc == MOpc::CVTSI2SD_r || opc == MOpc::CVTSI2SDrr || opc == MOpc::CVTSI2SD64rr || opc == MOpc::CVTSI2SS_r ||
-                   opc == MOpc::CVTSI2SSrr || opc == MOpc::CVTSI2SS64rr;
+            return opc == MOpc::CVTSI2SD_r || opc == MOpc::CVTSI2SDrr || opc == MOpc::CVTSI2SD64rr || opc == MOpc::CVTSI2SS_r || opc == MOpc::CVTSI2SSrr ||
+                   opc == MOpc::CVTSI2SS64rr;
         }
 
         [[nodiscard]] bool is_xmm_src_gpr_opc(MOpc opc) noexcept
         {
-            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr ||
-                   opc == MOpc::CVTSS2SIrr || opc == MOpc::CVTTSS2SI_r || opc == MOpc::MOVQ64rr_rev;
+            return opc == MOpc::CVTSD2SI64rr || opc == MOpc::CVTTSD2SI_r || opc == MOpc::CVTSD2SIrr || opc == MOpc::CVTSS2SI64rr || opc == MOpc::CVTSS2SIrr ||
+                   opc == MOpc::CVTTSS2SI_r || opc == MOpc::MOVQ64rr_rev;
         }
 
         [[nodiscard]] std::unordered_set<VReg> infer_reg_classes(MFunction const& func)
@@ -1039,8 +1039,8 @@ namespace dcc::backend::em64t
                         if (found != xmm_scratch.end())
                             return found->second;
                         PhysReg chosen = PhysReg::XMM15;
-                        for (auto candidate : {PhysReg::XMM15, PhysReg::XMM14, PhysReg::XMM13, PhysReg::XMM12, PhysReg::XMM11,
-                                               PhysReg::XMM10, PhysReg::XMM9, PhysReg::XMM8})
+                        for (auto candidate :
+                             {PhysReg::XMM15, PhysReg::XMM14, PhysReg::XMM13, PhysReg::XMM12, PhysReg::XMM11, PhysReg::XMM10, PhysReg::XMM9, PhysReg::XMM8})
                             if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
                             {
                                 chosen = candidate;
@@ -1069,9 +1069,8 @@ namespace dcc::backend::em64t
                         if (found != memory_scratch.end())
                             return found->second;
                         PhysReg chosen = PhysReg::R11;
-                        for (auto candidate : {PhysReg::R11, PhysReg::R10, PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8,
-                                               PhysReg::R9, PhysReg::RSI, PhysReg::RDI, PhysReg::RBX, PhysReg::R12, PhysReg::R13,
-                                               PhysReg::R14, PhysReg::R15})
+                        for (auto candidate : {PhysReg::R11, PhysReg::R10, PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9, PhysReg::RSI,
+                                               PhysReg::RDI, PhysReg::RBX, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15})
                             if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
                             {
                                 chosen = candidate;
@@ -1268,7 +1267,7 @@ namespace dcc::backend::em64t
 
                         auto const& lr = *it->second;
                         VReg scratch = (lr.reg_class == RegClass::XMM && xmm_scratch.contains(v)) ? xmm_scratch.at(v)
-                                       : (lr.reg_class == RegClass::XMM)                           ? scratch_xmm
+                                       : (lr.reg_class == RegClass::XMM)                          ? scratch_xmm
                                        : memory_scratch.contains(v)                               ? memory_scratch.at(v)
                                                                                                   : scratch_gpr;
 
@@ -1327,9 +1326,15 @@ namespace dcc::backend::em64t
             bool w64 = is_win64(func, target);
 
             std::vector<PhysReg> used_callee_saves;
+            std::vector<PhysReg> used_xmm_saves;
 
             auto note = [&](PhysReg pr) {
-                if (reg_class(pr) != RegClass::XMM && is_callee_saved_gpr(pr, w64) && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
+                if (reg_class(pr) == RegClass::XMM)
+                {
+                    if (w64 && is_callee_saved_win64(pr) && std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
+                        used_xmm_saves.push_back(pr);
+                }
+                else if (is_callee_saved_gpr(pr, w64) && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
                     used_callee_saves.push_back(pr);
             };
 
@@ -1355,12 +1360,28 @@ namespace dcc::backend::em64t
                 }
             }
 
-            if (used_callee_saves.empty())
+            if (used_callee_saves.empty() && used_xmm_saves.empty())
                 return;
 
             std::ranges::sort(used_callee_saves, [](PhysReg a, PhysReg b) { return static_cast<int>(a) < static_cast<int>(b); });
+            std::ranges::sort(used_xmm_saves, [](PhysReg a, PhysReg b) { return static_cast<int>(a) < static_cast<int>(b); });
 
             auto& entry = func.entry_block();
+
+            std::vector<std::pair<PhysReg, std::uint32_t>> xmm_slots;
+            for (auto pr : used_xmm_saves)
+                xmm_slots.emplace_back(pr, func.new_frame_slot(16, 16));
+
+            for (auto const& [pr, slot] : std::views::reverse(xmm_slots))
+            {
+                MInstr save;
+                save.opc = MOpc::MOVAPSmr;
+                save.num_ops = 2;
+                save.num_defs = 0;
+                save.ops[0] = MOp::from_frame_slot(slot);
+                save.ops[1] = MOp::from_reg(VReg::phys(pr));
+                entry.instrs.insert(entry.instrs.begin(), save);
+            }
 
             for (auto pr : used_callee_saves)
             {
@@ -1391,7 +1412,18 @@ namespace dcc::backend::em64t
                         blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(insert_at), pop);
                     }
 
-                    i += num_pops;
+                    for (auto const& [pr, slot] : xmm_slots)
+                    {
+                        MInstr restore;
+                        restore.opc = MOpc::MOVAPSrm;
+                        restore.num_ops = 2;
+                        restore.num_defs = 1;
+                        restore.ops[0] = MOp::from_reg(VReg::phys(pr));
+                        restore.ops[1] = MOp::from_frame_slot(slot);
+                        blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(insert_at), restore);
+                    }
+
+                    i += num_pops + xmm_slots.size();
                 }
             }
         }
