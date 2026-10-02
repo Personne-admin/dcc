@@ -1,0 +1,26 @@
+=== FILE: main.dc ===
+module m;
+
+public u8 edge() {
+    u8 x = 200 + 55;
+    return x;
+}
+
+public i8 low() {
+    i8 y = -127 - 1;
+    return y;
+}
+
+public u8 halved() {
+    u8 z = 250 / 2;
+    return z;
+}
+
+public u8 wraps_at_runtime(u8 v) {
+    return v + 200;
+}
+
+public u8 typed_operands_wrap() {
+    u8 w = (200 as u8) + (100 as u8);
+    return w;
+}

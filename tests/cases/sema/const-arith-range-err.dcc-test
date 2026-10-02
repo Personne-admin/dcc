@@ -1,0 +1,28 @@
+=== FILE: main.dc ===
+module m;
+
+public u8 sum() {
+    u8 x = 200 + 100;
+    return x;
+}
+
+public u8 below() {
+    u8 y = 1 - 2;
+    return y;
+}
+
+public i8 signed_edge() {
+    i8 z = 127 + 1;
+    return z;
+}
+
+public i32 wide() {
+    i32 w = 2147483647 + 1;
+    return w;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: integer overflow in constant expression
+main.dc:9: integer overflow in constant expression
+main.dc:14: integer overflow in constant expression
+main.dc:19: integer overflow in constant expression
