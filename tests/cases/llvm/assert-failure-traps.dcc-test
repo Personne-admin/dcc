@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public usize idx = 7;
+
+public i32 f() {
+    u8[4] a;
+    a[0] = 1;
+    return a[idx] as i32;
+}
+
+=== EXPECT-LLVM-PATTERNS FLAGS: -fbounds-check -verify ===
+CONTAINS: call void @_DC0F1.6.assert8.__assert
+CONTAINS: call void @llvm.trap()

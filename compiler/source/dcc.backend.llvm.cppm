@@ -4870,9 +4870,18 @@ namespace dcc::backend
                             LLVMBuildRetVoid(builder);
                         break;
                     }
-                    case IrNodeKind::Unreachable:
+                    case IrNodeKind::Unreachable: {
+                        auto* current = LLVMGetInsertBlock(builder);
+                        auto* last = current ? LLVMGetLastInstruction(current) : nullptr;
+                        if (last && LLVMIsACallInst(last))
+                        {
+                            auto const trap_id = LLVMLookupIntrinsicID("llvm.trap", 9);
+                            auto* trap_fn = LLVMGetIntrinsicDeclaration(LLVMGetGlobalParent(llvm_func), trap_id, nullptr, 0);
+                            LLVMBuildCall2(builder, LLVMIntrinsicGetType(ctx, trap_id, nullptr, 0), trap_fn, nullptr, 0, "");
+                        }
                         LLVMBuildUnreachable(builder);
                         break;
+                    }
                     case IrNodeKind::Switch: {
                         auto* sw = static_cast<IrSwitchInst const*>(term);
                         auto* val = lookup(sw->value);
