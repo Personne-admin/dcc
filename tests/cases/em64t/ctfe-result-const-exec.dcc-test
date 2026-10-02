@@ -219,24 +219,38 @@ entry:
   ret void
 }
 
-define %3 @_DC0F1.4.test13.make_usize_ok0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() {
+define { i64, i64 } @_DC0F1.4.test13.make_usize_ok0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() {
 entry:
   %"1" = alloca [8 x i8], align 1
   store [8 x i8] zeroinitializer, ptr %"1", align 1
   store i64 7, ptr %"1", align 4
   %"2" = load [8 x i8], ptr %"1", align 1
   %"3" = insertvalue %3 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"2", 2
-  ret %3 %"3"
+  %0 = alloca %3, align 8
+  store %3 %"3", ptr %0, align 1
+  %1 = load i64, ptr %0, align 1
+  %2 = getelementptr inbounds i8, ptr %0, i64 8
+  %3 = load i64, ptr %2, align 1
+  %4 = insertvalue { i64, i64 } undef, i64 %1, 0
+  %5 = insertvalue { i64, i64 } %4, i64 %3, 1
+  ret { i64, i64 } %5
 }
 
-define %3 @_DC0F1.4.test14.make_usize_err0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() {
+define { i64, i64 } @_DC0F1.4.test14.make_usize_err0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() {
 entry:
   %"1" = alloca [8 x i8], align 1
   store [8 x i8] zeroinitializer, ptr %"1", align 1
   store i8 2, ptr %"1", align 1
   %"2" = load [8 x i8], ptr %"1", align 1
   %"3" = insertvalue %3 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"2", 2
-  ret %3 %"3"
+  %0 = alloca %3, align 8
+  store %3 %"3", ptr %0, align 1
+  %1 = load i64, ptr %0, align 1
+  %2 = getelementptr inbounds i8, ptr %0, i64 8
+  %3 = load i64, ptr %2, align 1
+  %4 = insertvalue { i64, i64 } undef, i64 %1, 0
+  %5 = insertvalue { i64, i64 } %4, i64 %3, 1
+  ret { i64, i64 } %5
 }
 
 define i32 @dcc_main() {

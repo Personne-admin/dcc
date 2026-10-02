@@ -18,9 +18,16 @@ target triple = "x86_64-elf"
 
 %0 = type { i64, i64 }
 
-define %0 @make_point(i64 %x, i64 %y) {
+define { i64, i64 } @make_point(i64 %x, i64 %y) {
 entry:
   %0 = insertvalue %0 undef, i64 %x, 0
   %"0" = insertvalue %0 %0, i64 %y, 1
-  ret %0 %"0"
+  %1 = alloca %0, align 8
+  store %0 %"0", ptr %1, align 4
+  %2 = load i64, ptr %1, align 1
+  %3 = getelementptr inbounds i8, ptr %1, i64 8
+  %4 = load i64, ptr %3, align 1
+  %5 = insertvalue { i64, i64 } undef, i64 %2, 0
+  %6 = insertvalue { i64, i64 } %5, i64 %4, 1
+  ret { i64, i64 } %6
 }

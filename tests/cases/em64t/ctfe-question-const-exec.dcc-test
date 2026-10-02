@@ -157,10 +157,15 @@ $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.te
 @_DC0G1.4.test4.E_OKD1.4.test8.FmtError0. = constant i8 0
 @_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0. = constant i8 2
 
-define i64 @_DC0F1.4.test4.scan1SCqi8uIu({ ptr, i64 } %s) {
+define i64 @_DC0F1.4.test4.scan1SCqi8uIu(i64 %0, i64 %1) {
 entry:
+  %2 = alloca { ptr, i64 }, align 8
+  store i64 %0, ptr %2, align 1
+  %3 = getelementptr inbounds i8, ptr %2, i64 8
+  store i64 %1, ptr %3, align 1
+  %4 = load { ptr, i64 }, ptr %2, align 8
   %"0" = alloca { ptr, i64 }, align 8
-  store { ptr, i64 } %s, ptr %"0", align 8
+  store { ptr, i64 } %4, ptr %"0", align 8
   %"1" = alloca i64, align 8
   store i64 0, ptr %"1", align 4
   br label %while.cond1
@@ -200,8 +205,10 @@ if.merge6:                                        ; preds = %if.else5
   br label %while.cond1
 }
 
-define %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+define { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
 entry:
+  %0 = alloca %0, align 8
+  %1 = alloca %0, align 8
   %"0" = icmp eq i1 %ok, false
   %"2" = alloca [8 x i8], align 1
   %"6" = alloca [8 x i8], align 1
@@ -212,7 +219,13 @@ if.then1:                                         ; preds = %entry
   store i8 2, ptr %"2", align 1
   %"3" = load [8 x i8], ptr %"2", align 1
   %"4" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"3", 2
-  ret %0 %"4"
+  store %0 %"4", ptr %1, align 1
+  %2 = load i64, ptr %1, align 1
+  %3 = getelementptr inbounds i8, ptr %1, i64 8
+  %4 = load i64, ptr %3, align 1
+  %5 = insertvalue { i64, i64 } undef, i64 %2, 0
+  %6 = insertvalue { i64, i64 } %5, i64 %4, 1
+  ret { i64, i64 } %6
 
 if.else2:                                         ; preds = %entry
   br label %if.merge3
@@ -222,13 +235,28 @@ if.merge3:                                        ; preds = %if.else2
   store i64 6, ptr %"6", align 4
   %"7" = load [8 x i8], ptr %"6", align 1
   %"8" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"7", 2
-  ret %0 %"8"
+  store %0 %"8", ptr %0, align 1
+  %7 = load i64, ptr %0, align 1
+  %8 = getelementptr inbounds i8, ptr %0, i64 8
+  %9 = load i64, ptr %8, align 1
+  %10 = insertvalue { i64, i64 } undef, i64 %7, 0
+  %11 = insertvalue { i64, i64 } %10, i64 %9, 1
+  ret { i64, i64 } %11
 }
 
-define %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+define { i64, i64 } @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
 entry:
+  %0 = alloca %0, align 8
+  %1 = alloca %0, align 8
   %"0" = alloca i64, align 8
-  %"1" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %2 = call { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %3 = extractvalue { i64, i64 } %2, 0
+  %4 = extractvalue { i64, i64 } %2, 1
+  %5 = alloca %0, align 8
+  store i64 %3, ptr %5, align 1
+  %6 = getelementptr inbounds i8, ptr %5, i64 8
+  store i64 %4, ptr %6, align 1
+  %"1" = load %0, ptr %5, align 1
   %"2" = alloca %0, align 8
   store %0 %"1", ptr %"2", align 1
   %"3" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"2")
@@ -246,7 +274,13 @@ unwrap.fail2:                                     ; preds = %entry
   store i8 %"5", ptr %"7", align 1
   %"8" = load [8 x i8], ptr %"7", align 1
   %"9" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"8", 2
-  ret %0 %"9"
+  store %0 %"9", ptr %0, align 1
+  %7 = load i64, ptr %0, align 1
+  %8 = getelementptr inbounds i8, ptr %0, i64 8
+  %9 = load i64, ptr %8, align 1
+  %10 = insertvalue { i64, i64 } undef, i64 %7, 0
+  %11 = insertvalue { i64, i64 } %10, i64 %9, 1
+  ret { i64, i64 } %11
 
 unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   %"10" = phi i64 [ %"4", %unwrap.is_ok1 ]
@@ -257,13 +291,30 @@ unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   store i64 %"12", ptr %"14", align 4
   %"15" = load [8 x i8], ptr %"14", align 1
   %"16" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"15", 2
-  ret %0 %"16"
+  store %0 %"16", ptr %1, align 1
+  %12 = load i64, ptr %1, align 1
+  %13 = getelementptr inbounds i8, ptr %1, i64 8
+  %14 = load i64, ptr %13, align 1
+  %15 = insertvalue { i64, i64 } undef, i64 %12, 0
+  %16 = insertvalue { i64, i64 } %15, i64 %14, 1
+  ret { i64, i64 } %16
 }
 
-define %0 @_DC0F1.4.test5.chain1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+define { i64, i64 } @_DC0F1.4.test5.chain1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
 entry:
+  %0 = alloca %0, align 8
+  %1 = alloca %0, align 8
+  %2 = alloca %0, align 8
+  %3 = alloca %0, align 8
   %"0" = alloca i64, align 8
-  %"1" = call %0 @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %4 = call { i64, i64 } @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %5 = extractvalue { i64, i64 } %4, 0
+  %6 = extractvalue { i64, i64 } %4, 1
+  %7 = alloca %0, align 8
+  store i64 %5, ptr %7, align 1
+  %8 = getelementptr inbounds i8, ptr %7, i64 8
+  store i64 %6, ptr %8, align 1
+  %"1" = load %0, ptr %7, align 1
   %"2" = alloca %0, align 8
   store %0 %"1", ptr %"2", align 1
   %"3" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"2")
@@ -284,12 +335,24 @@ unwrap.fail2:                                     ; preds = %entry
   store i8 %"5", ptr %"7", align 1
   %"8" = load [8 x i8], ptr %"7", align 1
   %"9" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"8", 2
-  ret %0 %"9"
+  store %0 %"9", ptr %0, align 1
+  %9 = load i64, ptr %0, align 1
+  %10 = getelementptr inbounds i8, ptr %0, i64 8
+  %11 = load i64, ptr %10, align 1
+  %12 = insertvalue { i64, i64 } undef, i64 %9, 0
+  %13 = insertvalue { i64, i64 } %12, i64 %11, 1
+  ret { i64, i64 } %13
 
 unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   %"10" = phi i64 [ %"4", %unwrap.is_ok1 ]
   store i64 %"10", ptr %"0", align 4
-  %"12" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %14 = call { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %15 = extractvalue { i64, i64 } %14, 0
+  %16 = extractvalue { i64, i64 } %14, 1
+  store i64 %15, ptr %3, align 1
+  %17 = getelementptr inbounds i8, ptr %3, i64 8
+  store i64 %16, ptr %17, align 1
+  %"12" = load %0, ptr %3, align 1
   store %0 %"12", ptr %"13", align 1
   %"14" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"13")
   br i1 %"14", label %unwrap.is_ok4, label %unwrap.fail5
@@ -304,7 +367,13 @@ unwrap.fail5:                                     ; preds = %unwrap.merge3
   store i8 %"16", ptr %"18", align 1
   %"19" = load [8 x i8], ptr %"18", align 1
   %"20" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"19", 2
-  ret %0 %"20"
+  store %0 %"20", ptr %1, align 1
+  %18 = load i64, ptr %1, align 1
+  %19 = getelementptr inbounds i8, ptr %1, i64 8
+  %20 = load i64, ptr %19, align 1
+  %21 = insertvalue { i64, i64 } undef, i64 %18, 0
+  %22 = insertvalue { i64, i64 } %21, i64 %20, 1
+  ret { i64, i64 } %22
 
 unwrap.merge6:                                    ; preds = %unwrap.is_ok4
   %"21" = phi i64 [ %"15", %unwrap.is_ok4 ]
@@ -316,15 +385,30 @@ unwrap.merge6:                                    ; preds = %unwrap.is_ok4
   store i64 %"24", ptr %"26", align 4
   %"27" = load [8 x i8], ptr %"26", align 1
   %"28" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"27", 2
-  ret %0 %"28"
+  store %0 %"28", ptr %2, align 1
+  %23 = load i64, ptr %2, align 1
+  %24 = getelementptr inbounds i8, ptr %2, i64 8
+  %25 = load i64, ptr %24, align 1
+  %26 = insertvalue { i64, i64 } undef, i64 %23, 0
+  %27 = insertvalue { i64, i64 } %26, i64 %25, 1
+  ret { i64, i64 } %27
 }
 
-define %0 @_DC0F1.4.test12.acc_question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+define { i64, i64 } @_DC0F1.4.test12.acc_question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
 entry:
+  %0 = alloca %0, align 8
+  %1 = alloca %0, align 8
   %"0" = alloca i64, align 8
   store i64 10, ptr %"0", align 4
   %"1" = load i64, ptr %"0", align 4
-  %"2" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %2 = call { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %3 = extractvalue { i64, i64 } %2, 0
+  %4 = extractvalue { i64, i64 } %2, 1
+  %5 = alloca %0, align 8
+  store i64 %3, ptr %5, align 1
+  %6 = getelementptr inbounds i8, ptr %5, i64 8
+  store i64 %4, ptr %6, align 1
+  %"2" = load %0, ptr %5, align 1
   %"3" = alloca %0, align 8
   store %0 %"2", ptr %"3", align 1
   %"4" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"3")
@@ -342,7 +426,13 @@ unwrap.fail2:                                     ; preds = %entry
   store i8 %"6", ptr %"8", align 1
   %"9" = load [8 x i8], ptr %"8", align 1
   %"10" = insertvalue %0 { i8 1, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"9", 2
-  ret %0 %"10"
+  store %0 %"10", ptr %0, align 1
+  %7 = load i64, ptr %0, align 1
+  %8 = getelementptr inbounds i8, ptr %0, i64 8
+  %9 = load i64, ptr %8, align 1
+  %10 = insertvalue { i64, i64 } undef, i64 %7, 0
+  %11 = insertvalue { i64, i64 } %10, i64 %9, 1
+  ret { i64, i64 } %11
 
 unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   %"11" = phi i64 [ %"5", %unwrap.is_ok1 ]
@@ -353,12 +443,25 @@ unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   store i64 %"13", ptr %"15", align 4
   %"16" = load [8 x i8], ptr %"15", align 1
   %"17" = insertvalue %0 { i8 0, [7 x i8] undef, [8 x i8] undef }, [8 x i8] %"16", 2
-  ret %0 %"17"
+  store %0 %"17", ptr %1, align 1
+  %12 = load i64, ptr %1, align 1
+  %13 = getelementptr inbounds i8, ptr %1, i64 8
+  %14 = load i64, ptr %13, align 1
+  %15 = insertvalue { i64, i64 } undef, i64 %12, 0
+  %16 = insertvalue { i64, i64 } %15, i64 %14, 1
+  ret { i64, i64 } %16
 }
 
 define i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 %ok) {
 entry:
-  %"0" = call %0 @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %0 = call { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
+  %1 = extractvalue { i64, i64 } %0, 0
+  %2 = extractvalue { i64, i64 } %0, 1
+  %3 = alloca %0, align 8
+  store i64 %1, ptr %3, align 1
+  %4 = getelementptr inbounds i8, ptr %3, i64 8
+  store i64 %2, ptr %4, align 1
+  %"0" = load %0, ptr %3, align 1
   %"1" = alloca %0, align 8
   store %0 %"0", ptr %"1", align 1
   %"2" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %"1")

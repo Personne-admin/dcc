@@ -270,6 +270,13 @@ namespace dcc::backend
             }
         }
 
+        enum class AggregateAbi : std::uint8_t
+        {
+            Native,
+            SysV64,
+            Win64,
+        };
+
         struct TypeCache
         {
             LLVMContextRef ctx;
@@ -277,8 +284,12 @@ namespace dcc::backend
             bool little_endian;
             std::unordered_map<IrType const*, LLVMTypeRef> map;
             std::unordered_map<IrType const*, std::vector<unsigned>> field_index_map;
+            AggregateAbi aggregate_abi{AggregateAbi::Native};
 
-            explicit TypeCache(LLVMContextRef c, std::uint8_t pb, bool le) : ctx(c), pointer_bits(pb), little_endian(le) {}
+            explicit TypeCache(LLVMContextRef c, std::uint8_t pb, bool le, AggregateAbi abi = AggregateAbi::Native)
+                : ctx(c), pointer_bits(pb), little_endian(le), aggregate_abi(abi)
+            {
+            }
 
             [[nodiscard]] bool indirect(IrType const* t) const noexcept
             {
@@ -511,6 +522,356 @@ namespace dcc::backend
         [[nodiscard]] LLVMTypeRef llvm_mem_type_cached(TypeCache& tc, IrType const* t)
         {
             return c_api_type_cached(tc, t, true);
+        }
+
+        struct ArgAbi
+        {
+            enum class Kind : std::uint8_t
+            {
+                Direct,
+                Indirect,
+                Coerce,
+                Memory,
+            };
+
+            Kind kind{Kind::Direct};
+            std::vector<LLVMTypeRef> pieces;
+            unsigned first_param{};
+        };
+
+        struct SignatureAbi
+        {
+            bool sret{false};
+            bool sret_boundary{false};
+            ArgAbi ret;
+            std::vector<ArgAbi> params;
+            std::vector<LLVMTypeRef> param_types;
+            LLVMTypeRef ret_type{};
+            LLVMTypeRef fn_type{};
+
+            [[nodiscard]] bool rewrites() const noexcept
+            {
+                if (sret_boundary || ret.kind == ArgAbi::Kind::Coerce)
+                    return true;
+                return std::ranges::any_of(params, [](ArgAbi const& p) { return p.kind == ArgAbi::Kind::Coerce || p.kind == ArgAbi::Kind::Memory; });
+            }
+        };
+
+        [[nodiscard]] bool is_aggregate_like(IrType const* t) noexcept
+        {
+            return t && (t->kind == IrTypeKind::Aggregate || t->kind == IrTypeKind::Array || t->kind == IrTypeKind::Slice) && t->byte_size > 0;
+        }
+
+        struct AbiLeaf
+        {
+            std::uint64_t offset;
+            std::uint64_t size;
+            bool is_float;
+        };
+
+        void flatten_abi_leaves(IrType const* t, std::uint64_t base, std::uint8_t pointer_bytes, std::vector<AbiLeaf>& out)
+        {
+            if (!t)
+                return;
+            switch (t->kind)
+            {
+                case IrTypeKind::Bool:
+                case IrTypeKind::Int:
+                    out.push_back({base, t->byte_size, false});
+                    break;
+                case IrTypeKind::Pointer:
+                case IrTypeKind::Func:
+                    out.push_back({base, pointer_bytes, false});
+                    break;
+                case IrTypeKind::Float:
+                    out.push_back({base, t->byte_size, true});
+                    break;
+                case IrTypeKind::Slice:
+                    out.push_back({base, pointer_bytes, false});
+                    out.push_back({base + pointer_bytes, pointer_bytes, false});
+                    break;
+                case IrTypeKind::Array: {
+                    auto const* at = static_cast<IrArrayType const*>(t);
+                    std::uint64_t stride = at->element ? at->element->byte_size : 0;
+                    for (std::uint64_t i = 0; i < at->count && stride > 0; ++i)
+                        flatten_abi_leaves(at->element, base + i * stride, pointer_bytes, out);
+                    break;
+                }
+                case IrTypeKind::Aggregate: {
+                    auto const* agg = static_cast<IrAggregateType const*>(t);
+                    for (std::size_t i = 0; i < agg->members.size() && i < agg->member_offsets.size(); ++i)
+                        flatten_abi_leaves(agg->members[i], base + agg->member_offsets[i], pointer_bytes, out);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        [[nodiscard]] bool classify_sysv_aggregate(TypeCache& tc, IrType const* t, std::vector<LLVMTypeRef>& pieces, unsigned& ints, unsigned& sses)
+        {
+            pieces.clear();
+            ints = 0;
+            sses = 0;
+            std::uint64_t const size = t->byte_size;
+            if (size > 16)
+                return false;
+
+            std::vector<AbiLeaf> leaves;
+            flatten_abi_leaves(t, 0, static_cast<std::uint8_t>(tc.pointer_bits / 8), leaves);
+
+            enum class Cls : std::uint8_t
+            {
+                None,
+                Integer,
+                Sse,
+            };
+            Cls cls[2] = {Cls::None, Cls::None};
+            bool only_f32[2] = {true, true};
+            for (auto const& leaf : leaves)
+            {
+                if (leaf.size == 0)
+                    continue;
+                if (leaf.offset % leaf.size != 0 || leaf.offset / 8 != (leaf.offset + leaf.size - 1) / 8)
+                    return false;
+                auto e = static_cast<std::size_t>(leaf.offset / 8);
+                if (e > 1)
+                    return false;
+                if (!leaf.is_float)
+                    cls[e] = Cls::Integer;
+                else if (cls[e] != Cls::Integer)
+                    cls[e] = Cls::Sse;
+                if (!leaf.is_float || leaf.size != 4)
+                    only_f32[e] = false;
+            }
+
+            auto const eightbytes = static_cast<std::size_t>((size + 7) / 8);
+            for (std::size_t e = 0; e < eightbytes; ++e)
+            {
+                std::uint64_t const bytes = std::min<std::uint64_t>(8, size - e * 8);
+                if (cls[e] == Cls::Sse)
+                {
+                    ++sses;
+                    if (!only_f32[e])
+                        pieces.push_back(LLVMDoubleTypeInContext(tc.ctx));
+                    else if (bytes <= 4)
+                        pieces.push_back(LLVMFloatTypeInContext(tc.ctx));
+                    else
+                        pieces.push_back(LLVMVectorType(LLVMFloatTypeInContext(tc.ctx), 2));
+                }
+                else
+                {
+                    ++ints;
+                    pieces.push_back(LLVMIntTypeInContext(tc.ctx, static_cast<unsigned>(bytes * 8)));
+                }
+            }
+            return true;
+        }
+
+        [[nodiscard]] AggregateAbi aggregate_abi_for(TypeCache const& tc, IrFunction const* fn)
+        {
+            if (tc.aggregate_abi == AggregateAbi::Native || !fn)
+                return tc.aggregate_abi;
+            for (auto const& a : fn->attrs)
+            {
+                if (a.kind != IrFuncAttr::CallingConv)
+                    continue;
+                auto lower = [](std::string_view v) {
+                    std::string out{v};
+                    for (auto& ch : out)
+                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    return out;
+                };
+                auto cc = lower(a.value);
+                if (cc == "win64")
+                    return AggregateAbi::Win64;
+                if (cc == "sysv" || cc == "systemv")
+                    return AggregateAbi::SysV64;
+            }
+            return tc.aggregate_abi;
+        }
+
+        [[nodiscard]] SignatureAbi compute_signature_abi(TypeCache& tc, IrType const* ret, std::span<IrType const* const> params, AggregateAbi abi)
+        {
+            SignatureAbi sig;
+            auto* ptr_ty = LLVMPointerTypeInContext(tc.ctx, 0);
+            unsigned free_ints = 6;
+            unsigned free_sses = 8;
+
+            sig.sret = tc.indirect(ret);
+            if (!sig.sret && abi != AggregateAbi::Native && is_aggregate_like(ret))
+            {
+                if (abi == AggregateAbi::Win64)
+                {
+                    auto n = ret->byte_size;
+                    if (n == 1 || n == 2 || n == 4 || n == 8)
+                    {
+                        sig.ret.kind = ArgAbi::Kind::Coerce;
+                        sig.ret.pieces.push_back(LLVMIntTypeInContext(tc.ctx, static_cast<unsigned>(n * 8)));
+                    }
+                    else
+                        sig.sret_boundary = true;
+                }
+                else
+                {
+                    unsigned ints = 0;
+                    unsigned sses = 0;
+                    if (classify_sysv_aggregate(tc, ret, sig.ret.pieces, ints, sses))
+                        sig.ret.kind = ArgAbi::Kind::Coerce;
+                    else
+                        sig.sret_boundary = true;
+                }
+            }
+
+            if (sig.sret || sig.sret_boundary)
+            {
+                sig.ret_type = LLVMVoidTypeInContext(tc.ctx);
+                sig.param_types.push_back(ptr_ty);
+                --free_ints;
+            }
+            else if (sig.ret.kind == ArgAbi::Kind::Coerce)
+                sig.ret_type = sig.ret.pieces.size() == 1
+                                   ? sig.ret.pieces[0]
+                                   : LLVMStructTypeInContext(tc.ctx, sig.ret.pieces.data(), static_cast<unsigned>(sig.ret.pieces.size()), 0);
+            else
+            {
+                sig.ret_type = llvm_type_cached(tc, ret);
+                if (!sig.ret_type)
+                    sig.ret_type = LLVMVoidTypeInContext(tc.ctx);
+            }
+
+            for (auto const* pt : params)
+            {
+                ArgAbi arg;
+                arg.first_param = static_cast<unsigned>(sig.param_types.size());
+                if (tc.indirect(pt))
+                {
+                    arg.kind = ArgAbi::Kind::Indirect;
+                    sig.param_types.push_back(ptr_ty);
+                }
+                else if (abi != AggregateAbi::Native && is_aggregate_like(pt))
+                {
+                    if (abi == AggregateAbi::Win64)
+                    {
+                        auto n = pt->byte_size;
+                        if (n == 1 || n == 2 || n == 4 || n == 8)
+                        {
+                            arg.kind = ArgAbi::Kind::Coerce;
+                            arg.pieces.push_back(LLVMIntTypeInContext(tc.ctx, static_cast<unsigned>(n * 8)));
+                        }
+                        else
+                            arg.kind = ArgAbi::Kind::Memory;
+                    }
+                    else
+                    {
+                        unsigned ints = 0;
+                        unsigned sses = 0;
+                        if (classify_sysv_aggregate(tc, pt, arg.pieces, ints, sses) && ints <= free_ints && sses <= free_sses)
+                        {
+                            arg.kind = ArgAbi::Kind::Coerce;
+                            free_ints -= ints;
+                            free_sses -= sses;
+                        }
+                        else
+                        {
+                            arg.kind = ArgAbi::Kind::Memory;
+                            arg.pieces.clear();
+                        }
+                    }
+                    if (arg.kind == ArgAbi::Kind::Coerce)
+                        sig.param_types.insert(sig.param_types.end(), arg.pieces.begin(), arg.pieces.end());
+                    else
+                        sig.param_types.push_back(ptr_ty);
+                }
+                else
+                {
+                    auto* lt = llvm_type_cached(tc, pt);
+                    if (!lt)
+                        lt = LLVMInt32TypeInContext(tc.ctx);
+                    sig.param_types.push_back(lt);
+                    if (pt && pt->kind == IrTypeKind::Float)
+                    {
+                        if (free_sses > 0)
+                            --free_sses;
+                    }
+                    else
+                    {
+                        unsigned need = pt && pt->byte_size > 8 ? 2u : 1u;
+                        free_ints = free_ints >= need ? free_ints - need : 0;
+                    }
+                }
+                sig.params.push_back(std::move(arg));
+            }
+
+            sig.fn_type = LLVMFunctionType(sig.ret_type, sig.param_types.data(), static_cast<unsigned>(sig.param_types.size()), 0);
+            return sig;
+        }
+
+        [[nodiscard]] LLVMValueRef abi_spill_slot(LLVMBuilderRef builder, TypeCache& tc, IrType const* t)
+        {
+            auto* insert_bb = LLVMGetInsertBlock(builder);
+            auto* func = insert_bb ? LLVMGetBasicBlockParent(insert_bb) : nullptr;
+            auto* entry = func ? LLVMGetEntryBasicBlock(func) : nullptr;
+            auto* ty = llvm_type_cached(tc, t);
+            LLVMValueRef slot = nullptr;
+            if (entry && entry != insert_bb)
+            {
+                auto* saved_loc = LLVMGetCurrentDebugLocation2(builder);
+                auto* first = LLVMGetFirstInstruction(entry);
+                if (first)
+                    LLVMPositionBuilderBefore(builder, first);
+                else
+                    LLVMPositionBuilderAtEnd(builder, entry);
+                slot = LLVMBuildAlloca(builder, ty, "");
+                LLVMPositionBuilderAtEnd(builder, insert_bb);
+                LLVMSetCurrentDebugLocation2(builder, saved_loc);
+            }
+            else
+                slot = LLVMBuildAlloca(builder, ty, "");
+            LLVMSetAlignment(slot, static_cast<unsigned>(std::max<std::uint64_t>(8, t->byte_align)));
+            return slot;
+        }
+
+        [[nodiscard]] LLVMValueRef abi_piece_ptr(LLVMBuilderRef builder, TypeCache& tc, LLVMValueRef base, std::size_t index)
+        {
+            if (index == 0)
+                return base;
+            auto* i8 = LLVMInt8TypeInContext(tc.ctx);
+            LLVMValueRef offset = LLVMConstInt(LLVMInt64TypeInContext(tc.ctx), index * 8, 0);
+            return LLVMBuildInBoundsGEP2(builder, i8, base, &offset, 1, "");
+        }
+
+        [[nodiscard]] std::vector<LLVMValueRef> abi_split(LLVMBuilderRef builder, TypeCache& tc, IrType const* t, LLVMValueRef value,
+                                                          std::vector<LLVMTypeRef> const& pieces)
+        {
+            auto* slot = abi_spill_slot(builder, tc, t);
+            LLVMBuildStore(builder, value, slot);
+            std::vector<LLVMValueRef> out;
+            for (std::size_t i = 0; i < pieces.size(); ++i)
+            {
+                auto* load = LLVMBuildLoad2(builder, pieces[i], abi_piece_ptr(builder, tc, slot, i), "");
+                LLVMSetAlignment(load, 1);
+                out.push_back(load);
+            }
+            return out;
+        }
+
+        [[nodiscard]] LLVMValueRef abi_join(LLVMBuilderRef builder, TypeCache& tc, IrType const* t, std::span<LLVMValueRef const> values)
+        {
+            auto* slot = abi_spill_slot(builder, tc, t);
+            for (std::size_t i = 0; i < values.size(); ++i)
+            {
+                auto* store = LLVMBuildStore(builder, values[i], abi_piece_ptr(builder, tc, slot, i));
+                LLVMSetAlignment(store, 1);
+            }
+            return LLVMBuildLoad2(builder, llvm_type_cached(tc, t), slot, "");
+        }
+
+        [[nodiscard]] LLVMValueRef abi_memory_copy(LLVMBuilderRef builder, TypeCache& tc, IrType const* t, LLVMValueRef value)
+        {
+            auto* slot = abi_spill_slot(builder, tc, t);
+            LLVMBuildStore(builder, value, slot);
+            return slot;
         }
 
         void set_constant_error(std::string* error, std::string message)
@@ -1249,7 +1610,11 @@ namespace dcc::backend
                 }
 
                 std::unordered_map<IrValue const*, LLVMValueRef> val_map;
-                TypeCache type_cache{ctx, opts.target.pointer_bits, opts.target.little_endian};
+                auto const aggregate_abi = opts.target.arch != Arch::X86_64 ? AggregateAbi::Native
+                                           : (opts.target.os == dcc::target::Os::Windows || opts.target.object_format == dcc::target::ObjectFormat::Coff)
+                                               ? AggregateAbi::Win64
+                                               : AggregateAbi::SysV64;
+                TypeCache type_cache{ctx, opts.target.pointer_bits, opts.target.little_endian, aggregate_abi};
 
                 auto* debug_ptr = wants_debug ? &debug : nullptr;
 
@@ -2016,25 +2381,10 @@ namespace dcc::backend
                 if (!ft)
                     return false;
 
-                bool const sret = tc.indirect(ft->return_type);
-                auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : llvm_type_cached(tc, ft->return_type);
-                if (!ret_ty)
-                    ret_ty = LLVMVoidTypeInContext(ctx);
+                auto const sig = compute_signature_abi(tc, ft->return_type, ft->params, aggregate_abi_for(tc, func));
+                bool const sret = sig.sret || sig.sret_boundary;
 
-                std::vector<LLVMTypeRef> param_tys;
-                if (sret)
-                    param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
-                for (const auto* pt : ft->params)
-                {
-                    auto* lt = tc.indirect(pt) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, pt);
-                    if (!lt)
-                        lt = LLVMInt32TypeInContext(ctx);
-
-                    param_tys.push_back(lt);
-                }
-
-                auto* func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
-                auto* llvm_func = LLVMAddFunction(mod, std::string{func->name}.c_str(), func_ty);
+                auto* llvm_func = LLVMAddFunction(mod, std::string{func->name}.c_str(), sig.fn_type);
                 apply_linkage_and_comdat(llvm_func, func->linkage, mod, func->name);
                 val_map[func] = llvm_func;
 
@@ -2048,9 +2398,9 @@ namespace dcc::backend
                 };
                 if (sret)
                     add_indirect_attr(1, ft->return_type, "sret");
-                for (std::size_t i = 0; i < ft->params.size(); ++i)
-                    if (tc.indirect(ft->params[i]))
-                        add_indirect_attr(static_cast<unsigned>(i + 1 + static_cast<std::size_t>(sret)), ft->params[i], "byval");
+                for (std::size_t i = 0; i < ft->params.size() && i < sig.params.size(); ++i)
+                    if (sig.params[i].kind == ArgAbi::Kind::Indirect || sig.params[i].kind == ArgAbi::Kind::Memory)
+                        add_indirect_attr(sig.params[i].first_param + 1, ft->params[i], "byval");
 
                 if (debug && debug->dibuilder && debug->difile)
                 {
@@ -2144,23 +2494,17 @@ namespace dcc::backend
 
                 if (func->entry_block)
                 {
-                    auto num_params = LLVMCountParams(llvm_func);
-
-                    std::vector<LLVMValueRef> llvm_params(static_cast<std::size_t>(num_params));
-                    LLVMGetParams(llvm_func, llvm_params.data());
-
-                    std::size_t i = 0;
-                    for (auto* pv : llvm_params)
+                    for (std::size_t i = 0; i < func->entry_block->params.size() && i < sig.params.size(); ++i)
                     {
-                        if (i >= static_cast<std::size_t>(sret) && i - static_cast<std::size_t>(sret) < func->entry_block->params.size())
-                        {
-                            auto* param = func->entry_block->params[i - static_cast<std::size_t>(sret)];
-                            if (param && !param->name.empty())
-                                LLVMSetValueName2(pv, std::string{param->name}.c_str(), param->name.size());
+                        auto const& abi = sig.params[i];
+                        if (abi.kind != ArgAbi::Kind::Direct && abi.kind != ArgAbi::Kind::Indirect)
+                            continue;
+                        auto* param = func->entry_block->params[i];
+                        auto* pv = LLVMGetParam(llvm_func, abi.first_param);
+                        if (param && !param->name.empty())
+                            LLVMSetValueName2(pv, std::string{param->name}.c_str(), param->name.size());
 
-                            val_map[param] = pv;
-                        }
-                        ++i;
+                        val_map[param] = pv;
                     }
                 }
 
@@ -2312,6 +2656,31 @@ namespace dcc::backend
                 auto* builder = LLVMCreateBuilderInContext(ctx);
                 LlvmBuilderGuard bld_guard{builder};
 
+                if (func->entry_block && func->func_type)
+                {
+                    auto* entry_bb = bb_map[func->entry_block];
+                    auto const sig = compute_signature_abi(tc, func->func_type->return_type, func->func_type->params, aggregate_abi_for(tc, func));
+                    if (entry_bb && sig.rewrites())
+                    {
+                        LLVMPositionBuilderAtEnd(builder, entry_bb);
+                        for (std::size_t i = 0; i < func->entry_block->params.size() && i < sig.params.size(); ++i)
+                        {
+                            auto const& abi = sig.params[i];
+                            auto* param = func->entry_block->params[i];
+                            auto const* pt = func->func_type->params[i];
+                            if (abi.kind == ArgAbi::Kind::Coerce)
+                            {
+                                std::vector<LLVMValueRef> parts;
+                                for (std::size_t k = 0; k < abi.pieces.size(); ++k)
+                                    parts.push_back(LLVMGetParam(llvm_func, abi.first_param + static_cast<unsigned>(k)));
+                                val_map[param] = abi_join(builder, tc, pt, parts);
+                            }
+                            else if (abi.kind == ArgAbi::Kind::Memory)
+                                val_map[param] = LLVMBuildLoad2(builder, llvm_type_cached(tc, pt), LLVMGetParam(llvm_func, abi.first_param), "");
+                        }
+                    }
+                }
+
                 std::vector<IrBasicBlock*> emit_order;
                 {
                     std::unordered_map<IrBasicBlock const*, std::size_t> position;
@@ -2414,7 +2783,7 @@ namespace dcc::backend
                     {
                         apply_debug_loc(builder, LocKey{bb->id, instruction_index, true});
                         auto const diag_count = diags.size();
-                        if (!emit_terminator(bb->terminator, builder, ctx, tc, val_map, bb_map, diags, llvm_func))
+                        if (!emit_terminator(bb->terminator, builder, ctx, tc, val_map, bb_map, diags, llvm_func, func))
                         {
                             if (diags.size() == diag_count)
                                 add_diag(diags, bb->terminator->range,
@@ -3661,21 +4030,42 @@ namespace dcc::backend
                         if (!callee)
                             return false;
 
+                        std::vector<IrType const*> arg_types;
+                        arg_types.reserve(c->args.size());
+                        for (auto* a : c->args)
+                            arg_types.push_back(a->type);
+                        auto const* callee_ref = ir_cast<IrGlobalRef>(c->callee);
+                        auto const sig = compute_signature_abi(tc, c->type, arg_types, aggregate_abi_for(tc, callee_ref ? callee_ref->function : nullptr));
+
                         std::vector<LLVMValueRef> args;
-                        bool const sret = tc.indirect(c->type);
+                        bool const sret = sig.sret;
                         LLVMValueRef result_slot = nullptr;
                         if (sret)
                         {
                             result_slot = build_frame_slot(builder, llvm_type_cached(tc, c->type));
                             args.push_back(result_slot);
                         }
-                        for (auto* a : c->args)
+                        else if (sig.sret_boundary)
                         {
-                            auto* av = lookup(a);
+                            result_slot = abi_spill_slot(builder, tc, c->type);
+                            args.push_back(result_slot);
+                        }
+                        for (std::size_t ai = 0; ai < c->args.size(); ++ai)
+                        {
+                            auto* av = lookup(c->args[ai]);
                             if (!av)
                                 return false;
 
-                            args.push_back(av);
+                            auto const& abi = sig.params[ai];
+                            if (abi.kind == ArgAbi::Kind::Coerce)
+                            {
+                                auto parts = abi_split(builder, tc, c->args[ai]->type, av, abi.pieces);
+                                args.insert(args.end(), parts.begin(), parts.end());
+                            }
+                            else if (abi.kind == ArgAbi::Kind::Memory)
+                                args.push_back(abi_memory_copy(builder, tc, c->args[ai]->type, av));
+                            else
+                                args.push_back(av);
                         }
 
                         if (auto* gref = ir_cast<IrGlobalRef>(c->callee))
@@ -3716,34 +4106,17 @@ namespace dcc::backend
                             }
                         }
 
-                        std::vector<LLVMTypeRef> param_tys;
-                        if (sret)
-                            param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
-                        for (auto* a : c->args)
-                        {
-                            auto* pt = tc.indirect(a->type) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, a->type);
-                            if (!pt)
-                                pt = LLVMInt32TypeInContext(ctx);
-
-                            param_tys.push_back(pt);
-                        }
-
-                        auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : llvm_type_cached(tc, c->type);
-                        if (!ret_ty)
-                            ret_ty = LLVMVoidTypeInContext(ctx);
-
-                        auto* func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
-                        auto* call_inst = LLVMBuildCall2(builder, func_ty, callee, args.data(), static_cast<unsigned>(args.size()), "");
+                        auto* call_inst = LLVMBuildCall2(builder, sig.fn_type, callee, args.data(), static_cast<unsigned>(args.size()), "");
                         auto add_indirect_call_attr = [&](unsigned index, IrType const* type, const char* name) {
                             auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
                             if (kind != 0)
                                 LLVMAddCallSiteAttribute(call_inst, index, LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, type)));
                         };
-                        if (sret)
+                        if (sret || sig.sret_boundary)
                             add_indirect_call_attr(1, c->type, "sret");
                         for (std::size_t i = 0; i < c->args.size(); ++i)
-                            if (tc.indirect(c->args[i]->type))
-                                add_indirect_call_attr(static_cast<unsigned>(i + 1 + static_cast<std::size_t>(sret)), c->args[i]->type, "byval");
+                            if (sig.params[i].kind == ArgAbi::Kind::Indirect || sig.params[i].kind == ArgAbi::Kind::Memory)
+                                add_indirect_call_attr(sig.params[i].first_param + 1, c->args[i]->type, "byval");
 
                         bool call_cc_error = false;
                         auto cc_opt = get_calling_conv_for_call(c->callee, target, diags, call_cc_error);
@@ -3762,8 +4135,21 @@ namespace dcc::backend
                             }
                         }
 
-                        set_name(sret ? result_slot : call_inst);
-                        val_map[inst] = sret ? result_slot : call_inst;
+                        LLVMValueRef result = sret ? result_slot : call_inst;
+                        if (sig.sret_boundary)
+                            result = LLVMBuildLoad2(builder, llvm_type_cached(tc, c->type), result_slot, "");
+                        else if (sig.ret.kind == ArgAbi::Kind::Coerce)
+                        {
+                            std::vector<LLVMValueRef> parts;
+                            if (sig.ret.pieces.size() == 1)
+                                parts.push_back(call_inst);
+                            else
+                                for (std::size_t k = 0; k < sig.ret.pieces.size(); ++k)
+                                    parts.push_back(LLVMBuildExtractValue(builder, call_inst, static_cast<unsigned>(k), ""));
+                            result = abi_join(builder, tc, c->type, parts);
+                        }
+                        set_name(result);
+                        val_map[inst] = result;
                         break;
                     }
                     case IrNodeKind::CallTail: {
@@ -3772,21 +4158,42 @@ namespace dcc::backend
                         if (!callee)
                             return false;
 
+                        std::vector<IrType const*> arg_types;
+                        arg_types.reserve(c->args.size());
+                        for (auto* a : c->args)
+                            arg_types.push_back(a->type);
+                        auto const* callee_ref = ir_cast<IrGlobalRef>(c->callee);
+                        auto const sig = compute_signature_abi(tc, c->type, arg_types, aggregate_abi_for(tc, callee_ref ? callee_ref->function : nullptr));
+
                         std::vector<LLVMValueRef> args;
-                        bool const sret = tc.indirect(c->type);
+                        bool const sret = sig.sret;
                         LLVMValueRef result_slot = nullptr;
                         if (sret)
                         {
                             result_slot = build_frame_slot(builder, llvm_type_cached(tc, c->type));
                             args.push_back(result_slot);
                         }
-                        for (auto* a : c->args)
+                        else if (sig.sret_boundary)
                         {
-                            auto* av = lookup(a);
+                            result_slot = abi_spill_slot(builder, tc, c->type);
+                            args.push_back(result_slot);
+                        }
+                        for (std::size_t ai = 0; ai < c->args.size(); ++ai)
+                        {
+                            auto* av = lookup(c->args[ai]);
                             if (!av)
                                 return false;
 
-                            args.push_back(av);
+                            auto const& abi = sig.params[ai];
+                            if (abi.kind == ArgAbi::Kind::Coerce)
+                            {
+                                auto parts = abi_split(builder, tc, c->args[ai]->type, av, abi.pieces);
+                                args.insert(args.end(), parts.begin(), parts.end());
+                            }
+                            else if (abi.kind == ArgAbi::Kind::Memory)
+                                args.push_back(abi_memory_copy(builder, tc, c->args[ai]->type, av));
+                            else
+                                args.push_back(av);
                         }
 
                         if (auto* gref = ir_cast<IrGlobalRef>(c->callee))
@@ -3826,36 +4233,19 @@ namespace dcc::backend
                             }
                         }
 
-                        std::vector<LLVMTypeRef> param_tys;
-                        if (sret)
-                            param_tys.push_back(LLVMPointerTypeInContext(ctx, 0));
-                        for (auto* a : c->args)
-                        {
-                            auto* pt = tc.indirect(a->type) ? LLVMPointerTypeInContext(ctx, 0) : llvm_type_cached(tc, a->type);
-                            if (!pt)
-                                pt = LLVMInt32TypeInContext(ctx);
-
-                            param_tys.push_back(pt);
-                        }
-
-                        auto* ret_ty = sret ? LLVMVoidTypeInContext(ctx) : llvm_type_cached(tc, c->type);
-                        if (!ret_ty)
-                            ret_ty = LLVMVoidTypeInContext(ctx);
-
-                        auto* func_ty = LLVMFunctionType(ret_ty, param_tys.data(), static_cast<unsigned>(param_tys.size()), 0);
-                        auto* call_inst = LLVMBuildCall2(builder, func_ty, callee, args.data(), static_cast<unsigned>(args.size()), "");
-                        if (sret)
+                        auto* call_inst = LLVMBuildCall2(builder, sig.fn_type, callee, args.data(), static_cast<unsigned>(args.size()), "");
+                        if (sret || sig.sret_boundary)
                         {
                             auto kind = LLVMGetEnumAttributeKindForName("sret", 4);
                             if (kind != 0)
                                 LLVMAddCallSiteAttribute(call_inst, 1, LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, c->type)));
                         }
                         for (std::size_t i = 0; i < c->args.size(); ++i)
-                            if (tc.indirect(c->args[i]->type))
+                            if (sig.params[i].kind == ArgAbi::Kind::Indirect || sig.params[i].kind == ArgAbi::Kind::Memory)
                             {
                                 auto kind = LLVMGetEnumAttributeKindForName("byval", 5);
                                 if (kind != 0)
-                                    LLVMAddCallSiteAttribute(call_inst, static_cast<unsigned>(i + 1 + static_cast<std::size_t>(sret)),
+                                    LLVMAddCallSiteAttribute(call_inst, sig.params[i].first_param + 1,
                                                              LLVMCreateTypeAttribute(ctx, kind, llvm_type_cached(tc, c->args[i]->type)));
                             }
 
@@ -3876,10 +4266,23 @@ namespace dcc::backend
                             }
                         }
 
-                        if (!sret && std::ranges::none_of(c->args, [&](auto* a) { return tc.indirect(a->type); }))
+                        if (!sret && !sig.rewrites() && std::ranges::none_of(c->args, [&](auto* a) { return tc.indirect(a->type); }))
                             LLVMSetTailCallKind(call_inst, LLVMTailCallKindMustTail);
-                        set_name(sret ? result_slot : call_inst);
-                        val_map[inst] = sret ? result_slot : call_inst;
+                        LLVMValueRef result = sret ? result_slot : call_inst;
+                        if (sig.sret_boundary)
+                            result = LLVMBuildLoad2(builder, llvm_type_cached(tc, c->type), result_slot, "");
+                        else if (sig.ret.kind == ArgAbi::Kind::Coerce)
+                        {
+                            std::vector<LLVMValueRef> parts;
+                            if (sig.ret.pieces.size() == 1)
+                                parts.push_back(call_inst);
+                            else
+                                for (std::size_t k = 0; k < sig.ret.pieces.size(); ++k)
+                                    parts.push_back(LLVMBuildExtractValue(builder, call_inst, static_cast<unsigned>(k), ""));
+                            result = abi_join(builder, tc, c->type, parts);
+                        }
+                        set_name(result);
+                        val_map[inst] = result;
                         break;
                     }
                     case IrNodeKind::Aggregate: {
@@ -4366,7 +4769,7 @@ namespace dcc::backend
             [[nodiscard]] static bool emit_terminator(IrNode const* term, LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc,
                                                       std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
                                                       std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map, std::vector<BackendDiagnostic>& diags,
-                                                      LLVMValueRef llvm_func)
+                                                      LLVMValueRef llvm_func, IrFunction const* func)
             {
                 if (!term)
                 {
@@ -4433,10 +4836,32 @@ namespace dcc::backend
                             if (!v)
                                 return false;
 
+                            auto const ret_sig = compute_signature_abi(tc, func->func_type ? func->func_type->return_type : r->value->type,
+                                                                       func->func_type ? std::span<IrType const* const>{func->func_type->params}
+                                                                                       : std::span<IrType const* const>{},
+                                                                       aggregate_abi_for(tc, func));
                             if (tc.indirect(r->value->type))
                             {
                                 copy_indirect(builder, ctx, r->value->type, LLVMGetParam(llvm_func, 0), v);
                                 LLVMBuildRetVoid(builder);
+                            }
+                            else if (ret_sig.sret_boundary)
+                            {
+                                LLVMBuildStore(builder, v, LLVMGetParam(llvm_func, 0));
+                                LLVMBuildRetVoid(builder);
+                            }
+                            else if (ret_sig.ret.kind == ArgAbi::Kind::Coerce)
+                            {
+                                auto parts = abi_split(builder, tc, r->value->type, v, ret_sig.ret.pieces);
+                                if (parts.size() == 1)
+                                    LLVMBuildRet(builder, parts[0]);
+                                else
+                                {
+                                    LLVMValueRef agg = LLVMGetUndef(ret_sig.ret_type);
+                                    for (std::size_t k = 0; k < parts.size(); ++k)
+                                        agg = LLVMBuildInsertValue(builder, agg, parts[k], static_cast<unsigned>(k), "");
+                                    LLVMBuildRet(builder, agg);
+                                }
                             }
                             else
                                 LLVMBuildRet(builder, v);

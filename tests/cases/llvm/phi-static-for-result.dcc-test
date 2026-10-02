@@ -34,10 +34,13 @@ $_DC0S1.4.test10.accumulate3i32si32si32si32sX3ti32sti32sti32s = comdat any
 
 @_DC0G1.4.test8.arg_sinki32s = global i32 0
 
-define i32 @_DC0F1.4.test9.unwrap_or2D1.4.test6.Result2.i32si32si32si32s(%0 %x, i32 %fallback) {
+define i32 @_DC0F1.4.test9.unwrap_or2D1.4.test6.Result2.i32si32si32si32s(i64 %0, i32 %fallback) {
 entry:
+  %1 = alloca %0, align 8
+  store i64 %0, ptr %1, align 1
+  %2 = load %0, ptr %1, align 1
   %"0" = alloca %0, align 8
-  store %0 %x, ptr %"0", align 1
+  store %0 %2, ptr %"0", align 1
   %"1" = load %0, ptr %"0", align 1
   %"6" = alloca [4 x i8], align 1
   br label %match.arm0.test3

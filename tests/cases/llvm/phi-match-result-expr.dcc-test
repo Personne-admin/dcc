@@ -18,10 +18,13 @@ target triple = "x86_64-elf"
 
 %0 = type { i8, [3 x i8], [4 x i8] }
 
-define i32 @f(%0 %x) {
+define i32 @f(i64 %0) {
 entry:
+  %1 = alloca %0, align 8
+  store i64 %0, ptr %1, align 1
+  %2 = load %0, ptr %1, align 1
   %"0" = alloca %0, align 8
-  store %0 %x, ptr %"0", align 1
+  store %0 %2, ptr %"0", align 1
   %"1" = load %0, ptr %"0", align 1
   %"6" = alloca [4 x i8], align 1
   %"12" = alloca [4 x i8], align 1
