@@ -31,7 +31,7 @@ ci_section deb
 ci/release/build-deb.sh "$DEB_VERSION" "$out" "${MAKE_ARGS[@]}"
 
 ci_section msi
-msi_args=(BUILD_TYPE=release STATIC_LINK=1 PREFIX=/usr ENABLE_LLVM=1 DCC=/tmp/dcc-bounded DCC_VERSION="$DCC_VERSION" MSI_VERSION="$MSI_VERSION")
+msi_args=(BUILD_TYPE=release STATIC_LINK=1 PREFIX=/usr ENABLE_LLVM=1 "DCC_WRAPPER=timeout $DCC_TIMEOUT" DCC_VERSION="$DCC_VERSION" MSI_VERSION="$MSI_VERSION")
 make -j"$JOBS" "${msi_args[@]}" tools-windows
 make "${msi_args[@]}" msi
 cp "build-windows/dcc-$MSI_VERSION-x86_64.msi" "$out/dcc-$DCC_VERSION-x86_64.msi"

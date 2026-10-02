@@ -4,6 +4,7 @@ TARGET ?= x86_64-linux
 BACKEND ?= llvm
 LIBDCEXT_OPT ?= O2
 DCC ?= $(NATIVE_BUILD_DIR)/bin/dcc
+DCC_WRAPPER ?=
 MINGW_SYSROOT ?= /opt/llvm-mingw
 MINGW_TARGET ?= x86_64-w64-mingw32
 MINGW_CC := $(wildcard $(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-clang)
@@ -95,7 +96,7 @@ $(DC_OBJS): $(DC_SRCS)
 $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	@mkdir -p $(dir $@)
 	$(call MSG,DCC,$<)
-	$(Q)$(DCC) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
+	$(Q)$(DCC_WRAPPER) $(DCC) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
 
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
