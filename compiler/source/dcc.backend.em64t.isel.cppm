@@ -3567,6 +3567,8 @@ namespace dcc::backend::em64t
                             xchg.opc = MOpc::LOCK_XCHG16mr;
                         else if (st_width == 4)
                             xchg.opc = MOpc::LOCK_XCHG32mr;
+                        else if (st_width == 8)
+                            xchg.opc = MOpc::LOCK_XCHG64mr;
                         VReg scratch = ctx.mfunc.new_vreg();
                         emit_mov(ctx, scratch, val);
                         xchg.num_ops = 2;
@@ -3641,6 +3643,13 @@ namespace dcc::backend::em64t
                                 lock_opc = pick(MOpc::LOCK_XOR32mr, MOpc::LOCK_XOR16mr, MOpc::LOCK_XOR8mr);
                                 break;
                         }
+                    }
+                    else if (rmw_width == 8)
+                    {
+                        if (ar->op == IrAtomicRmwOp::Xchg)
+                            lock_opc = MOpc::LOCK_XCHG64mr;
+                        else if (ar->op == IrAtomicRmwOp::Add || ar->op == IrAtomicRmwOp::Sub)
+                            lock_opc = MOpc::LOCK_XADD64mr;
                     }
 
                     VReg result = ctx.mfunc.new_vreg();
