@@ -86,3 +86,25 @@ TEST_CASE("Windows child standard output reaches an inherited pipe")
     if (windows())
         CHECK_EQ(os_test::run(os_test::fixture("pipe-redirection.dc"), true).status, 0);
 }
+
+TEST_CASE("custom backend jump tables link and run on the execution target")
+{
+    auto r = os_test::run_modules({{"main.dc",
+                                    "module main;\n\ni32 classify(i32 v) {\n    return match v {\n        0 => 10,\n        1 => 20,\n        2 => 30,\n"
+                                    "        3 => 41,\n        4 => 50,\n        5 => 60,\n        6 => 70,\n        7 => 42,\n        _ => 0,\n    };\n}\n\n"
+                                    "public i32 main() {\n    return classify(7);\n}\n"}},
+                                  windows(), "custom");
+    CHECK_EQ(r.status, 42);
+}
+
+TEST_CASE("custom backend objects sharing template instances link and run on the execution target")
+{
+    std::string const templates = "module t;\n\npublic T twice(T)(T x) {\n    return x + x;\n}\n\npublic T scale(T)(T v) {\n    return match v {\n"
+                                  "        0 => 2,\n        1 => 3,\n        2 => 5,\n        3 => 7,\n        4 => 11,\n        5 => 13,\n        6 => 17,\n"
+                                  "        7 => 40,\n        _ => 0,\n    };\n}\n";
+    std::string const a = "module a;\n\nimport t;\n\npublic i32 fa(i32 x) {\n    return t::twice(x) + t::scale(x);\n}\n";
+    std::string const b = "module b;\n\nimport t;\n\npublic i32 fb(i32 x) {\n    return t::scale(x) - t::twice(x);\n}\n";
+    std::string const main = "module main;\n\nimport a;\nimport b;\n\npublic i32 main() {\n    return a::fa(1) + b::fb(7) + 11;\n}\n";
+    auto r = os_test::run_modules({{"t.dc", templates}, {"a.dc", a}, {"b.dc", b}, {"main.dc", main}}, windows(), "custom");
+    CHECK_EQ(r.status, 42);
+}

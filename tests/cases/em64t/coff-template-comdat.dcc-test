@@ -1,0 +1,47 @@
+=== FILE: t.dc ===
+module t;
+
+public T twice(T)(T x) {
+    return x + x;
+}
+
+public T scale(T)(T v) {
+    return match v {
+        0 => 2,
+        1 => 3,
+        2 => 5,
+        3 => 7,
+        4 => 11,
+        5 => 13,
+        6 => 17,
+        7 => 40,
+        _ => 0,
+    };
+}
+
+=== FILE: main.dc ===
+module main;
+
+import t;
+
+@nomangle
+public i32 apply(i32 x) {
+    return t::twice(x) + t::scale(x);
+}
+
+@nomangle
+public i32 dcc_main() {
+    return apply(1);
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-EM64T-OBJECT ===
+TARGET: x86_64-coff
+REQUIRE-COFF-COMDAT: _DC0S1.1.t5.twice1i32si32sX1ti32s ANY
+REQUIRE-COFF-COMDAT: _DC0S1.1.t5.scale1i32si32sX1ti32s ANY
+REQUIRE-COFF-COMDAT: .Ljt__DC0S1_1_t5_scale1i32si32sX1ti32s_0 ASSOCIATIVE
+FORBID-COFF-COMDAT: apply
+FORBID-COFF-COMDAT: dcc_main
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 _DC0S1.1.t5.twice1i32si32sX1ti32s
+REQUIRE-COFF-RELOC: .rdata IMAGE_REL_AMD64_REL32 _DC0S1.1.t5.scale1i32si32sX1ti32s.bb4
