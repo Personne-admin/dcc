@@ -1401,7 +1401,14 @@ namespace dcc::backend::em64t
 
             if (cc != CallConvKind::SysV)
             {
-                rp.is_memory = true;
+                if (!win64_register_sized(ret))
+                {
+                    rp.is_memory = true;
+                    return rp;
+                }
+                rp.classes[0] = ArgClass::Integer;
+                rp.num_pieces = 1;
+                rp.has_int0 = true;
                 return rp;
             }
 
