@@ -20,6 +20,15 @@ bool same([] const u8 a, [] const u8 b) {
     return mem::equal(a, b);
 }
 
+u8[256] host_store;
+
+[] const u8 host([] const u8 want) {
+    for usize i = 0; i < want.len; i++ {
+        host_store[i] = if want[i] == ('/' as u8) { path::separator() } else { want[i] };
+    }
+    return slice::from_raw_const(&host_store[0], want.len);
+}
+
 i32 check_normalize([] const u8 input, [] const u8 want, u8* buf, usize cap) {
     [] u8 out = slice::from_raw(buf, cap);
     Result([] u8, Error) r = path::normalize(input, out);
@@ -37,41 +46,41 @@ i32 test_normalize_cases() {
     [] u8 out = slice::from_raw(&store[0], 128);
     Result([] u8, Error) r;
     r = path::normalize("a/./b", out);
-    if r.is_err() || !same(r.unwrap(), "a/b") { return 10; }
+    if r.is_err() || !same(r.unwrap(), host("a/b")) { return 10; }
     r = path::normalize("a/b/../c", out);
-    if r.is_err() || !same(r.unwrap(), "a/c") { return 11; }
+    if r.is_err() || !same(r.unwrap(), host("a/c")) { return 11; }
     r = path::normalize("a//b", out);
-    if r.is_err() || !same(r.unwrap(), "a/b") { return 12; }
+    if r.is_err() || !same(r.unwrap(), host("a/b")) { return 12; }
     r = path::normalize("a/b/..", out);
-    if r.is_err() || !same(r.unwrap(), "a") { return 13; }
+    if r.is_err() || !same(r.unwrap(), host("a")) { return 13; }
     r = path::normalize(".", out);
-    if r.is_err() || !same(r.unwrap(), ".") { return 14; }
+    if r.is_err() || !same(r.unwrap(), host(".")) { return 14; }
     r = path::normalize("", out);
-    if r.is_err() || !same(r.unwrap(), ".") { return 15; }
+    if r.is_err() || !same(r.unwrap(), host(".")) { return 15; }
     r = path::normalize("..", out);
-    if r.is_err() || !same(r.unwrap(), "..") { return 16; }
+    if r.is_err() || !same(r.unwrap(), host("..")) { return 16; }
     r = path::normalize("../..", out);
-    if r.is_err() || !same(r.unwrap(), "../..") { return 17; }
+    if r.is_err() || !same(r.unwrap(), host("../..")) { return 17; }
     r = path::normalize("a/../..", out);
-    if r.is_err() || !same(r.unwrap(), "..") { return 18; }
+    if r.is_err() || !same(r.unwrap(), host("..")) { return 18; }
     r = path::normalize("/..", out);
-    if r.is_err() || !same(r.unwrap(), "/") { return 19; }
+    if r.is_err() || !same(r.unwrap(), host("/")) { return 19; }
     r = path::normalize("/a/../..", out);
-    if r.is_err() || !same(r.unwrap(), "/") { return 20; }
+    if r.is_err() || !same(r.unwrap(), host("/")) { return 20; }
     r = path::normalize("a/b/", out);
-    if r.is_err() || !same(r.unwrap(), "a/b") { return 21; }
+    if r.is_err() || !same(r.unwrap(), host("a/b")) { return 21; }
     r = path::normalize("/a/b/", out);
-    if r.is_err() || !same(r.unwrap(), "/a/b") { return 22; }
+    if r.is_err() || !same(r.unwrap(), host("/a/b")) { return 22; }
     r = path::normalize("a///b//c", out);
-    if r.is_err() || !same(r.unwrap(), "a/b/c") { return 23; }
+    if r.is_err() || !same(r.unwrap(), host("a/b/c")) { return 23; }
     r = path::normalize("a/b/c/../../d", out);
-    if r.is_err() || !same(r.unwrap(), "a/d") { return 24; }
+    if r.is_err() || !same(r.unwrap(), host("a/d")) { return 24; }
     r = path::normalize("aa/bb/cc/../../dd", out);
-    if r.is_err() || !same(r.unwrap(), "aa/dd") { return 25; }
+    if r.is_err() || !same(r.unwrap(), host("aa/dd")) { return 25; }
     r = path::normalize("a/b/c/d/../../../e", out);
-    if r.is_err() || !same(r.unwrap(), "a/e") { return 26; }
+    if r.is_err() || !same(r.unwrap(), host("a/e")) { return 26; }
     r = path::normalize("a/b/c/../..", out);
-    if r.is_err() || !same(r.unwrap(), "a") { return 27; }
+    if r.is_err() || !same(r.unwrap(), host("a")) { return 27; }
     return 0;
 }
 
@@ -141,7 +150,7 @@ i32 test_join() {
     [] u8 out = slice::from_raw(&store[0], 64);
     Result([] u8, Error) r;
     r = path::join("a", "b", out);
-    if r.is_err() || !same(r.unwrap(), "a/b") { return 40; }
+    if r.is_err() || !same(r.unwrap(), host("a/b")) { return 40; }
     r = path::join("a", "/b", out);
     if r.is_err() || !same(r.unwrap(), "/b") { return 41; }
     r = path::join("", "b", out);
@@ -174,9 +183,9 @@ i32 test_relative() {
     r = path::relative("a/b", "a/b/c", out);
     if r.is_err() || !same(r.unwrap(), "c") { return 51; }
     r = path::relative("a/b/c", "a/d", out);
-    if r.is_err() || !same(r.unwrap(), "../../d") { return 52; }
+    if r.is_err() || !same(r.unwrap(), host("../../d")) { return 52; }
     r = path::relative("/a/b", "/c/d", out);
-    if r.is_err() || !same(r.unwrap(), "../../c/d") { return 53; }
+    if r.is_err() || !same(r.unwrap(), host("../../c/d")) { return 53; }
     r = path::relative("/a", "b", out);
     if r.is_ok() || r.unwrap_err() != Error::InvalidArgument { return 54; }
     r = path::relative("a", "/b", out);
@@ -184,12 +193,40 @@ i32 test_relative() {
     r = path::relative("a/./b", "a/b/../b/c", out);
     if r.is_err() || !same(r.unwrap(), "c") { return 56; }
     r = path::relative("/a/b", "/a/b/c/d", out);
-    if r.is_err() || !same(r.unwrap(), "c/d") { return 57; }
+    if r.is_err() || !same(r.unwrap(), host("c/d")) { return 57; }
     // small out
     u8[1] tiny;
     [] u8 tout = slice::from_raw(&tiny[0], 1);
     r = path::relative("a", "a/b/c/d", tout);
     if r.is_ok() || r.unwrap_err() != Error::NameTooLong { return 58; }
+    return 0;
+}
+
+i32 test_separator_forms() {
+    u8[64] store;
+    [] u8 out = slice::from_raw(&store[0], 64);
+    Result([] u8, Error) r;
+    r = path::normalize("a/b//", out);
+    if r.is_err() || !same(r.unwrap(), host("a/b")) { return 110; }
+    static if core::target::OS == core::target::Os::Windows {
+        r = path::normalize("a\\.\\b", out);
+        if r.is_err() || !same(r.unwrap(), "a\\b") { return 111; }
+        r = path::normalize("a/b\\..\\c", out);
+        if r.is_err() || !same(r.unwrap(), "a\\c") { return 112; }
+        r = path::normalize("a\\b\\", out);
+        if r.is_err() || !same(r.unwrap(), "a\\b") { return 113; }
+        r = path::join("a\\", "b", out);
+        if r.is_err() || !same(r.unwrap(), "a\\b") { return 114; }
+    } else {
+        r = path::normalize("a\\b", out);
+        if r.is_err() || !same(r.unwrap(), "a\\b") { return 115; }
+        r = path::normalize("a\\b/", out);
+        if r.is_err() || !same(r.unwrap(), "a\\b") { return 116; }
+        r = path::join("a\\", "b", out);
+        if r.is_err() || !same(r.unwrap(), "a\\/b") { return 117; }
+    }
+    r = path::join("a/", "b", out);
+    if r.is_err() || !same(r.unwrap(), "a/b") { return 118; }
     return 0;
 }
 
@@ -320,6 +357,10 @@ public i32 main() {
         return code;
     }
     code = test_relative();
+    if code != 0 {
+        return code;
+    }
+    code = test_separator_forms();
     if code != 0 {
         return code;
     }
