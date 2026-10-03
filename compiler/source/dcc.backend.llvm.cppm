@@ -2387,6 +2387,9 @@ namespace dcc::backend
                 auto* llvm_func = LLVMAddFunction(mod, std::string{func->name}.c_str(), sig.fn_type);
                 apply_linkage_and_comdat(llvm_func, func->linkage, mod, func->name);
                 val_map[func] = llvm_func;
+                auto const uwtable_kind = LLVMGetEnumAttributeKindForName("uwtable", 7);
+                auto* uwtable = LLVMCreateEnumAttribute(ctx, uwtable_kind, 2);
+                LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), uwtable);
 
                 auto add_indirect_attr = [&](unsigned index, IrType const* type, const char* name) {
                     auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
@@ -2460,7 +2463,7 @@ namespace dcc::backend
                     LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), no_arg_probe_attr);
                 }
 
-                if (!opts.omit_frame_pointer)
+                if (!opts.omit_frame_pointer || opts.target.object_format == dcc::target::ObjectFormat::Coff)
                 {
                     auto const* fp_key = "frame-pointer";
                     auto const* fp_val = "all";
