@@ -115,7 +115,26 @@ export namespace dcc::backend::em64t
                     break;
             }
 
-            entry.instrs.insert(entry.instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), sub_rsp);
+            if (w64 && frame_size >= 4096)
+            {
+                MInstr probe_size;
+                probe_size.opc = MOpc::MOV64ri32;
+                probe_size.num_ops = 2;
+                probe_size.num_defs = 1;
+                probe_size.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+                probe_size.ops[1] = MOp::from_imm(frame_size);
+
+                MInstr probe;
+                probe.opc = MOpc::CALL_rel32;
+                probe.num_ops = 1;
+                probe.ops[0] = MOp::from_symbol("__chkstk");
+
+                entry.instrs.insert(entry.instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), {probe_size, probe, sub_rsp});
+            }
+            else
+            {
+                entry.instrs.insert(entry.instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), sub_rsp);
+            }
         }
 
         for (auto& blk : func.blocks)
