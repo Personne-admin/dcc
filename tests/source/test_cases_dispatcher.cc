@@ -1194,6 +1194,102 @@ namespace
         return out;
     }
 
+    std::string normalize_llvm_unwind_attrs(std::string_view input)
+    {
+        std::vector<std::string> lines;
+        std::unordered_map<unsigned, std::optional<unsigned>> attr_ids;
+        std::unordered_map<std::string, unsigned> attr_values;
+        unsigned next_id = 0;
+
+        auto remove_attr = [](std::string& line, std::string_view attr) {
+            std::string needle = " " + std::string(attr);
+            auto pos = line.find(needle);
+            while (pos != std::string::npos)
+            {
+                auto end = pos + needle.size();
+                if (end == line.size() || line[end] == ' ' || line[end] == '}')
+                    line.erase(pos, needle.size());
+                pos = line.find(needle, pos);
+            }
+        };
+
+        std::size_t offset = 0;
+        while (offset < input.size())
+        {
+            auto end = input.find('\n', offset);
+            std::string line{input.substr(offset, end == std::string_view::npos ? input.size() - offset : end - offset)};
+            offset = end == std::string_view::npos ? input.size() : end + 1;
+
+            remove_attr(line, "uwtable");
+            remove_attr(line, "\"frame-pointer\"=\"all\"");
+            if (line == "; Function Attrs:")
+                continue;
+
+            if (line.starts_with("attributes #"))
+            {
+                auto hash_end = line.find(' ', 12);
+                auto open = line.find('{', hash_end);
+                auto close = line.rfind('}');
+                if (hash_end != std::string::npos && open != std::string::npos && close != std::string::npos)
+                {
+                    unsigned id = static_cast<unsigned>(std::stoul(line.substr(12, hash_end - 12)));
+                    std::string attrs = line.substr(open + 1, close - open - 1);
+                    while (!attrs.empty() && attrs.front() == ' ')
+                        attrs.erase(attrs.begin());
+                    while (!attrs.empty() && attrs.back() == ' ')
+                        attrs.pop_back();
+                    if (attrs.empty())
+                    {
+                        attr_ids[id] = std::nullopt;
+                        continue;
+                    }
+                    if (auto it = attr_values.find(attrs); it != attr_values.end())
+                    {
+                        attr_ids[id] = it->second;
+                        continue;
+                    }
+                    attr_ids[id] = next_id++;
+                    attr_values.emplace(attrs, *attr_ids[id]);
+                    line = std::format("attributes #{} = {{ {} }}", *attr_ids[id], attrs);
+                }
+            }
+            lines.push_back(std::move(line));
+        }
+
+        for (auto& line : lines)
+        {
+            if (line.starts_with("attributes #"))
+                continue;
+            for (std::size_t pos = 0; pos < line.size();)
+            {
+                if (line[pos] != '#' || pos + 1 == line.size() || !std::isdigit(static_cast<unsigned char>(line[pos + 1])))
+                {
+                    ++pos;
+                    continue;
+                }
+                auto end = pos + 1;
+                while (end < line.size() && std::isdigit(static_cast<unsigned char>(line[end])))
+                    ++end;
+                unsigned id = static_cast<unsigned>(std::stoul(line.substr(pos + 1, end - pos - 1)));
+                if (auto it = attr_ids.find(id); it != attr_ids.end())
+                {
+                    std::string replacement = it->second ? std::format("#{}", *it->second) : "";
+                    if (replacement.empty() && pos > 0 && line[pos - 1] == ' ')
+                        --pos;
+                    line.replace(pos, end - pos, replacement);
+                    pos += replacement.size();
+                }
+                else
+                    pos = end;
+            }
+        }
+
+        std::string out;
+        for (auto const& line : lines)
+            out += line + '\n';
+        return normalize(out);
+    }
+
     std::vector<std::string_view> split_lines(std::string_view s)
     {
         std::vector<std::string_view> lines;
@@ -2200,8 +2296,8 @@ namespace
                 }
             if (body_provided)
             {
-                auto a = normalize(actual);
-                auto e = normalize(exp.body);
+                auto a = normalize_llvm_unwind_attrs(actual);
+                auto e = normalize_llvm_unwind_attrs(exp.body);
                 if (a != e)
                 {
                     ok = false;

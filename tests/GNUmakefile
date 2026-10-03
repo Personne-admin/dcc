@@ -18,6 +18,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py linux
 	$(Q)$<
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/cross_backend.py linux --build $(BUILD_DIR)
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/unwind.py
 test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py win
 	$(Q)DCC_TEST_WINDOWS=1 WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $<
