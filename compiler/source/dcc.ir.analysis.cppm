@@ -234,11 +234,13 @@ export namespace dcc::ir::analysis
                 auto* bb_idom = dt.idom[bb];
                 for (auto* p : bb_preds)
                 {
+                    if (!rpo_idx.contains(p))
+                        continue;
                     IrBasicBlock const* runner = p;
                     while (runner != bb_idom)
                     {
                         dt.frontier[runner].push_back(bb);
-                        runner = dt.idom[runner];
+                        runner = dt.idom.at(runner);
                     }
                 }
             }
