@@ -847,6 +847,16 @@ u8 b = 256 as u8;        // error
 u8* p = addr as u8*;     // integer to pointer
 ```
 
+In a cast target, a trailing `*` or `^` belongs to the pointer type when the
+following token cannot begin an operand. This includes `)`, `;`, `,`, `]`, `}`,
+`{`, binary-only operators, `const`, `volatile`, another pointer suffix, and
+a segment register after `^`. Otherwise `*` is multiplication and `^` is XOR.
+For a run of `*` or `^`, the parser looks through the run: `p as u8**` is a
+pointer-to-pointer cast, while `x as u8* *q` means `(x as u8) * (*q)`.
+Thus `x as f64 * 0.5` multiplies the cast value, while `p as u8*;`,
+`f(p as u8*)`, `p as u8* const`, `if p as u8* {`, and `p as u8^GS`
+retain their pointer casts.
+
 ### 9.3 Literals & type inference
 
 No implicit conversions, so literals need to be smart:
