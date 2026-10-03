@@ -1539,6 +1539,79 @@ namespace
 
         auto emitted_error_count = static_cast<std::size_t>(
             std::ranges::count_if(diag.diagnostics(), [](dcc::diag::Diagnostic const& d) { return d.severity() == dcc::diag::Severity::Error; }));
+        if (auto* capture_root = std::getenv("DCC_BYTE_CAPTURE_ROOT"))
+        {
+            std::error_code ec;
+            auto relative = fs::relative(path, fs::canonical("tests/cases", ec), ec);
+            if (ec)
+                relative = path.filename();
+            auto output_dir = fs::path{capture_root} / "fixtures" / relative;
+            fs::create_directories(output_dir, ec);
+            if (ec)
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  cannot create byte capture directory: {}", output_dir.string());
+            }
+            else
+            {
+                std::ofstream status{output_dir / "status.txt", std::ios::binary};
+                if (emitted_error_count != 0)
+                    status << "sema-error " << emitted_error_count << '\n';
+                else if (fixture_target && fixture_target->arch != dcc::target::Arch::X86_64)
+                    status << "target-unavailable " << fx.target_name << '\n';
+                else
+                {
+                    auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
+                    if (!mod)
+                        status << "no-module\n";
+                    else
+                    {
+                        for (auto target_name : {"x86_64-elf", "x86_64-coff"})
+                        {
+                            if (fixture_target && fixture_target->object_format != dcc::target::TargetConfig::parse_triple(target_name)->object_format)
+                                continue;
+                            auto target = *dcc::target::TargetConfig::parse_triple(target_name);
+                            dcc::ir::IrContext ir_ctx{256 * 1024, &target};
+                            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+                            auto* ir_mod = lowerer->lower_module(*mod);
+                            if (!lowerer->lower_errors().empty())
+                            {
+                                status << target_name << " lower-error";
+                                for (auto const& message : lowerer->lower_errors())
+                                    status << ' ' << message;
+                                status << '\n';
+                                continue;
+                            }
+                            for (auto opt : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
+                            {
+                                dcc::backend::BackendOptions backend_opts;
+                                backend_opts.target = target;
+                                backend_opts.opt_level = opt;
+                                backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes, dcc::backend::ArtifactKind::AsmText};
+                                auto artifact = dcc::backend::make_em64t_backend()->emit(*ir_mod, backend_opts);
+                                auto stem = std::format("{}-{}", target_name, opt == dcc::ir::pass::OptLevel::O0 ? "O0" : "O2");
+                                if (artifact.object_bytes && artifact.asm_text)
+                                {
+                                    std::ofstream object{output_dir / (stem + ".o"), std::ios::binary};
+                                    object.write(reinterpret_cast<char const*>(artifact.object_bytes->data()),
+                                                 static_cast<std::streamsize>(artifact.object_bytes->size()));
+                                    std::ofstream assembly{output_dir / (stem + ".s"), std::ios::binary};
+                                    assembly.write(artifact.asm_text->data(), static_cast<std::streamsize>(artifact.asm_text->size()));
+                                    status << stem << " ok\n";
+                                }
+                                else
+                                {
+                                    status << stem << " backend-error";
+                                    for (auto const& diagnostic : artifact.diagnostics)
+                                        status << ' ' << diagnostic.message;
+                                    status << '\n';
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
         if (fx.expected_error_count && emitted_error_count != *fx.expected_error_count)
         {
             ok = false;
