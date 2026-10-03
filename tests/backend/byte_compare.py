@@ -16,7 +16,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def run(command, cwd, env=None, log=None):
+def run(command, cwd, env=None, log=None, check=True):
     merged = dict(os.environ, LC_ALL="C", LANG="C.UTF-8", CXX="clang++", CC="clang", AR="ar")
     if env:
         merged.update(env)
@@ -28,12 +28,24 @@ def run(command, cwd, env=None, log=None):
             stdout=output,
             stderr=subprocess.STDOUT,
         )
-    if result.returncode:
+    if check and result.returncode:
         raise RuntimeError("command failed (%d): %s%s" % (result.returncode, " ".join(map(str, command)), " in " + str(log) if log else ""))
+    return result.returncode
 
 
-def compiler(tree, args, log):
-    run(["timeout", "60", tree / "build/bin/dcc", *args], tree, log=log)
+def compiler(tree, args, artifact, log):
+    code = run(["timeout", "60", tree / "build/bin/dcc", *args], tree, log=log, check=False)
+    if code == 0:
+        status = "OK"
+    elif code == 124:
+        status = "TIMEOUT 124"
+    elif code < 0 or code >= 128:
+        status = "CRASH %d" % code
+    else:
+        status = "ERROR %d" % code
+    artifact.with_name(artifact.name + ".status").write_text(status + "\n")
+    if code:
+        artifact.unlink(missing_ok=True)
 
 
 def capture_abi(tree, output, log):
@@ -53,7 +65,7 @@ def capture_abi(tree, output, log):
                 for kind, flag, suffix in (("object", "-c", ".o"), ("asm", "-S", ".s")):
                     artifact = output / "abi" / kind / (stem + suffix)
                     artifact.parent.mkdir(parents=True, exist_ok=True)
-                    compiler(tree, ["-target", target, "-fbackend", "custom", "-" + opt, "-I", str(source), flag, "-o", str(artifact), str(source / ("abi_%s.dc" % side))], log)
+                    compiler(tree, ["-target", target, "-fbackend", "custom", "-" + opt, "-I", str(source), flag, "-o", str(artifact), str(source / ("abi_%s.dc" % side))], artifact, log)
     shutil.rmtree(source)
 
 
@@ -66,7 +78,7 @@ def capture_libdcext(tree, output, log):
                 for kind, flag, suffix in (("object", "-c", ".o"), ("asm", "-S", ".s")):
                     artifact = output / "libdcext" / target / opt / kind / (str(relative) + suffix)
                     artifact.parent.mkdir(parents=True, exist_ok=True)
-                    compiler(tree, ["-flibdcext", os_name, "-target", target, "-fbackend", "custom", "-" + opt, "-I", str(tree / "libdcext"), flag, "-o", str(artifact), str(source)], log)
+                    compiler(tree, ["-flibdcext", os_name, "-target", target, "-fbackend", "custom", "-" + opt, "-I", str(tree / "libdcext"), flag, "-o", str(artifact), str(source)], artifact, log)
 
 
 def make_manifest(output, revision):
