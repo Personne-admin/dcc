@@ -1,4 +1,5 @@
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -1570,42 +1571,90 @@ namespace
                         {
                             if (fixture_target && fixture_target->object_format != dcc::target::TargetConfig::parse_triple(target_name)->object_format)
                                 continue;
-                            auto target = *dcc::target::TargetConfig::parse_triple(target_name);
-                            dcc::ir::IrContext ir_ctx{256 * 1024, &target};
-                            auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
-                            auto* ir_mod = lowerer->lower_module(*mod);
-                            if (!lowerer->lower_errors().empty())
-                            {
-                                status << target_name << " lower-error";
-                                for (auto const& message : lowerer->lower_errors())
-                                    status << ' ' << message;
-                                status << '\n';
-                                continue;
-                            }
                             for (auto opt : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
                             {
-                                dcc::backend::BackendOptions backend_opts;
-                                backend_opts.target = target;
-                                backend_opts.opt_level = opt;
-                                backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes, dcc::backend::ArtifactKind::AsmText};
-                                auto artifact = dcc::backend::make_em64t_backend()->emit(*ir_mod, backend_opts);
                                 auto stem = std::format("{}-{}", target_name, opt == dcc::ir::pass::OptLevel::O0 ? "O0" : "O2");
-                                if (artifact.object_bytes && artifact.asm_text)
-                                {
+                                auto capture = [&]() {
+                                    auto target = *dcc::target::TargetConfig::parse_triple(target_name);
+                                    dcc::ir::IrContext ir_ctx{256 * 1024, &target};
+                                    auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+                                    auto* ir_mod = lowerer->lower_module(*mod);
+                                    if (!lowerer->lower_errors().empty())
+                                    {
+                                        std::ofstream result{output_dir / (stem + ".status")};
+                                        result << "LOWER_ERROR";
+                                        for (auto const& message : lowerer->lower_errors())
+                                            result << ' ' << message;
+                                        result << '\n';
+                                        return;
+                                    }
+                                    dcc::backend::BackendOptions backend_opts;
+                                    backend_opts.target = target;
+                                    backend_opts.opt_level = opt;
+                                    backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes, dcc::backend::ArtifactKind::AsmText};
+                                    auto artifact = dcc::backend::make_em64t_backend()->emit(*ir_mod, backend_opts);
+                                    std::ofstream result{output_dir / (stem + ".status")};
+                                    if (!artifact.object_bytes || !artifact.asm_text)
+                                    {
+                                        result << "BACKEND_ERROR";
+                                        for (auto const& diagnostic : artifact.diagnostics)
+                                            result << ' ' << diagnostic.message;
+                                        result << '\n';
+                                        return;
+                                    }
                                     std::ofstream object{output_dir / (stem + ".o"), std::ios::binary};
                                     object.write(reinterpret_cast<char const*>(artifact.object_bytes->data()),
                                                  static_cast<std::streamsize>(artifact.object_bytes->size()));
                                     std::ofstream assembly{output_dir / (stem + ".s"), std::ios::binary};
                                     assembly.write(artifact.asm_text->data(), static_cast<std::streamsize>(artifact.asm_text->size()));
-                                    status << stem << " ok\n";
+                                    result << "OK\n";
+                                };
+#ifndef _WIN32
+                                std::cout.flush();
+                                std::cerr.flush();
+                                auto pid = fork();
+                                if (pid == 0)
+                                {
+                                    capture();
+                                    _exit(0);
+                                }
+                                if (pid > 0)
+                                {
+                                    int child_status = 0;
+                                    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+                                    pid_t waited = 0;
+                                    while ((waited = waitpid(pid, &child_status, WNOHANG)) == 0)
+                                    {
+                                        if (std::chrono::steady_clock::now() >= deadline)
+                                        {
+                                            kill(pid, SIGKILL);
+                                            waitpid(pid, &child_status, 0);
+                                            std::ofstream{output_dir / (stem + ".status")} << "TIMEOUT 124\n";
+                                            break;
+                                        }
+                                        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+                                    }
+                                    if (waited != 0 && (!WIFEXITED(child_status) || WEXITSTATUS(child_status) != 0))
+                                        std::ofstream{output_dir / (stem + ".status")}
+                                            << std::format("CRASH {}\n", WIFSIGNALED(child_status) ? 128 + WTERMSIG(child_status) : WEXITSTATUS(child_status));
                                 }
                                 else
+                                    capture();
+#else
+                                capture();
+#endif
+                                auto capture_status = output_dir / (stem + ".status");
+                                if (fs::exists(capture_status))
                                 {
-                                    status << stem << " backend-error";
-                                    for (auto const& diagnostic : artifact.diagnostics)
-                                        status << ' ' << diagnostic.message;
-                                    status << '\n';
+                                    std::ifstream result{capture_status};
+                                    std::ostringstream content;
+                                    content << result.rdbuf();
+                                    for (auto suffix : {".o.status", ".s.status"})
+                                        std::ofstream{output_dir / (stem + suffix)} << content.str();
+                                    status << stem << ' ' << content.str();
                                 }
+                                else
+                                    status << stem << " CRASH missing status\n";
                             }
                         }
                     }
