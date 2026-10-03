@@ -1,0 +1,158 @@
+=== FILE: main.dc ===
+module m;
+void g(u8* p) { }
+void f(u8* p, u8* q, u8 x, u8 count, f64 y, u8^GS h) {
+    f64 a = y as f64 * 0.5;
+    u8 b = x as u8 * count;
+    u8* c = p as u8*;
+    g(p as u8*);
+    u8* const d = p as u8* const;
+    u8** e = &p as u8**;
+    u8 z = x as u8* *q;
+    u8 w = x as u8 ^ count;
+    if p as u8* { }
+    h as u8^GS;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=g
+    Return
+      Primitive void
+    Params
+      Param name=p
+        Pointer
+          Primitive u8
+    Body
+  Func name=f
+    Return
+      Primitive void
+    Params
+      Param name=p
+        Pointer
+          Primitive u8
+      Param name=q
+        Pointer
+          Primitive u8
+      Param name=x
+        Primitive u8
+      Param name=count
+        Primitive u8
+      Param name=y
+        Primitive f64
+      Param name=h
+        BasedPointer GS
+          Primitive u8
+    Body
+      Var name=a
+        Type
+          Primitive f64
+        Init
+          Binary op=*
+            Cast
+              Target
+                Primitive f64
+              Operand
+                Ident y
+            FloatLiteral 0.5
+      Var name=b
+        Type
+          Primitive u8
+        Init
+          Binary op=*
+            Cast
+              Target
+                Primitive u8
+              Operand
+                Ident x
+            Ident count
+      Var name=c
+        Type
+          Pointer
+            Primitive u8
+        Init
+          Cast
+            Target
+              Pointer
+                Primitive u8
+            Operand
+              Ident p
+      ExprStmt
+        Call
+          Callee
+            Ident g
+          Args
+            Cast
+              Target
+                Pointer
+                  Primitive u8
+              Operand
+                Ident p
+      Var name=d
+        Type
+          Qualified const
+            Pointer
+              Primitive u8
+        Init
+          Cast
+            Target
+              Qualified const
+                Pointer
+                  Primitive u8
+            Operand
+              Ident p
+      Var name=e
+        Type
+          Pointer
+            Pointer
+              Primitive u8
+        Init
+          Cast
+            Target
+              Pointer
+                Pointer
+                  Primitive u8
+            Operand
+              Unary op=&
+                Ident p
+      Var name=z
+        Type
+          Primitive u8
+        Init
+          Binary op=*
+            Cast
+              Target
+                Primitive u8
+              Operand
+                Ident x
+            Unary op=*
+              Ident q
+      Var name=w
+        Type
+          Primitive u8
+        Init
+          Binary op=^
+            Cast
+              Target
+                Primitive u8
+              Operand
+                Ident x
+            Ident count
+      ExprStmt
+        If
+          Cond
+            Cast
+              Target
+                Pointer
+                  Primitive u8
+              Operand
+                Ident p
+          Then
+      ExprStmt
+        Cast
+          Target
+            BasedPointer GS
+              Primitive u8
+          Operand
+            Ident h

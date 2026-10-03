@@ -1554,20 +1554,20 @@ export namespace dcc::parser
             return d;
         }
 
-        ast::TypeExpr* parse_type(bool allow_restricted = false)
+        ast::TypeExpr* parse_type(bool allow_restricted = false, bool cast_target = false)
         {
             auto start = loc();
             auto first_error = m_recovery_errors.size();
-            auto* result = parse_type_impl(allow_restricted);
+            auto* result = parse_type_impl(allow_restricted, cast_target);
             return mark_recovered(result, first_error, range_from(start));
         }
 
-        ast::TypeExpr* parse_type_impl(bool allow_restricted)
+        ast::TypeExpr* parse_type_impl(bool allow_restricted, bool cast_target)
         {
             auto start = loc();
             auto prefix_quals = parse_qualifiers();
 
-            auto* base = parse_type_atom(allow_restricted);
+            auto* base = parse_type_atom(allow_restricted, cast_target);
             if (!base)
                 return nullptr;
 
@@ -1577,7 +1577,7 @@ export namespace dcc::parser
                 base = m_ctx.make<ast::QualifiedType>(range, prefix_quals, base);
             }
 
-            base = parse_type_suffix(base, allow_restricted);
+            base = parse_type_suffix(base, allow_restricted, cast_target);
 
             return base;
         }
@@ -1601,7 +1601,7 @@ export namespace dcc::parser
             return q;
         }
 
-        ast::TypeExpr* parse_type_atom(bool allow_restricted)
+        ast::TypeExpr* parse_type_atom(bool allow_restricted, bool cast_target)
         {
             auto start = loc();
 
@@ -1609,7 +1609,7 @@ export namespace dcc::parser
             {
                 advance();
                 advance();
-                auto* el = parse_type(allow_restricted);
+                auto* el = parse_type(allow_restricted, cast_target);
                 if (!el)
                     return nullptr;
 
@@ -1625,7 +1625,7 @@ export namespace dcc::parser
                 if (check(TK::Identifier))
                     segment_name = advance().interned;
                 advance();
-                auto* el = parse_type(allow_restricted);
+                auto* el = parse_type(allow_restricted, cast_target);
                 if (!el)
                     return nullptr;
 
@@ -1643,7 +1643,7 @@ export namespace dcc::parser
 
             if (match(TK::LParen))
             {
-                auto* inner = parse_type(true);
+                auto* inner = parse_type(true, cast_target);
                 expect(TK::RParen, "after grouped type");
                 return inner;
             }
@@ -1678,7 +1678,59 @@ export namespace dcc::parser
             return name == "CS" || name == "DS" || name == "ES" || name == "SS" || name == "FS" || name == "GS";
         }
 
-        ast::TypeExpr* parse_type_suffix(ast::TypeExpr* base, bool allow_restricted)
+        [[nodiscard]] static bool can_begin_cast_operand(TK kind) noexcept
+        {
+            switch (kind)
+            {
+                case TK::Identifier:
+                case TK::IntLiteral:
+                case TK::FloatLiteral:
+                case TK::StringLiteral:
+                case TK::U16StringLiteral:
+                case TK::CharLiteral:
+                case TK::U16CharLiteral:
+                case TK::KwTrue:
+                case TK::KwFalse:
+                case TK::KwNull:
+                case TK::LParen:
+                case TK::KwIf:
+                case TK::KwMatch:
+                case TK::KwSizeof:
+                case TK::KwAlignof:
+                case TK::KwOffsetof:
+                case TK::KwCompiles:
+                case TK::KwAsm:
+                case TK::Pipe:
+                case TK::Minus:
+                case TK::Bang:
+                case TK::Tilde:
+                case TK::Amp:
+                case TK::Increment:
+                case TK::Decrement:
+                case TK::At:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool cast_pointer_suffix()
+        {
+            std::size_t offset = 1;
+            TK previous = peek().kind;
+            for (;;)
+            {
+                auto const& token = peek(offset);
+                if (previous == TK::Caret && token.kind == TK::Identifier && is_segment_register_name(token.interned))
+                    return true;
+                if (token.kind != TK::Star && token.kind != TK::Caret)
+                    return !can_begin_cast_operand(token.kind);
+                previous = token.kind;
+                ++offset;
+            }
+        }
+
+        ast::TypeExpr* parse_type_suffix(ast::TypeExpr* base, bool allow_restricted, bool cast_target)
         {
             auto start = base->range.begin;
 
@@ -1765,14 +1817,16 @@ export namespace dcc::parser
                     continue;
                 }
 
-                if (match(TK::Star))
+                if (check(TK::Star) && (!cast_target || cast_pointer_suffix()))
                 {
+                    advance();
                     base = m_ctx.make<ast::PointerType>(range_from(start), base);
                     continue;
                 }
 
-                if (match(TK::Caret))
+                if (check(TK::Caret) && (!cast_target || cast_pointer_suffix()))
                 {
+                    advance();
                     auto* ptr = m_ctx.make<ast::PointerType>(range_from(start), base);
                     ptr->is_far = true;
                     if (check(TK::Identifier) && is_segment_register_name(peek().interned))
@@ -4030,7 +4084,7 @@ export namespace dcc::parser
 
                 if (op == TK::KwAs)
                 {
-                    auto* type = parse_type(!no_struct_lit);
+                    auto* type = parse_type(!no_struct_lit, true);
                     auto range = sm::SourceRange{left->range.begin, m_prev_end};
                     left = m_ctx.make<ast::CastExpr>(range, left, type);
                     is_stmt = false;
