@@ -1,0 +1,42 @@
+module main;
+
+import std::os::thread;
+
+using std::os::thread;
+
+volatile i32 answer;
+
+@noinline void touch(volatile u8* data, i32 seed) {
+    data[0] = seed as u8;
+    data[65535] = (seed + 1) as u8;
+}
+
+@noinline i32 leaf(i32 seed) {
+    u8[65536] data;
+    touch(&data[0] as volatile u8*, seed);
+    return data[0] as i32 + data[65535] as i32;
+}
+
+@noinline i32 middle(i32 seed) {
+    u8[65536] data;
+    touch(&data[0] as volatile u8*, seed);
+    return leaf(seed + 1) + data[0] as i32;
+}
+
+@noinline i32 outer(i32 seed) {
+    u8[65536] data;
+    touch(&data[0] as volatile u8*, seed);
+    return middle(seed + 1) + data[0] as i32;
+}
+
+void worker() {
+    answer = outer(1);
+}
+
+public i32 main() {
+    thread::Thread task = thread::spawn(worker).unwrap();
+    if !task.join().is_ok() {
+        return 1;
+    }
+    return if answer == 10 { 42 } else { 2 };
+}

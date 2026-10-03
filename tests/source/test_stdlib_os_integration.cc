@@ -87,6 +87,18 @@ TEST_CASE("Windows child standard output reaches an inherited pipe")
         CHECK_EQ(os_test::run(os_test::fixture("pipe-redirection.dc"), true).status, 0);
 }
 
+TEST_CASE("Win64 stack probes preserve large frames on a fresh thread")
+{
+    if (!windows())
+        return;
+
+    auto const source = os_test::fixture("win64-stack-probe.dc");
+    REQUIRE(!source.empty());
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, true, backend).status, 42);
+}
+
 TEST_CASE("custom backend jump tables link and run on the execution target")
 {
     auto r = os_test::run_modules({{"main.dc",
