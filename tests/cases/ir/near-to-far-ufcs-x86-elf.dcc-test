@@ -1,0 +1,27 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+public u16 read_ds(u8* pointer) { return pointer.segment(); }
+public u8^ grow(u8* pointer, usize offset) { return pointer.with_offset(offset); }
+
+=== EXPECT-IR ===
+module "m"
+u16@_DC0F1.1.m7.read_ds1Pqi8ui16u(ptr<u8>) {
+%entry(ptr<u8> %pointer):
+  %0 = pointer_offset ptr<u8> %pointer
+  %1 = read_segment ds
+  %2 = make_pointer usize %0, u16 %1 to ptr<u8, far>
+  %3 = pointer_segment ptr<u8, far> %2
+  ret u16 %3
+}
+
+ptr<u8, far>@_DC0F1.1.m4.grow2Pqi8uIuHqi8u(ptr<u8>, usize) {
+%entry(ptr<u8> %pointer, usize %offset):
+  %0 = pointer_offset ptr<u8> %pointer
+  %1 = read_segment ds
+  %2 = make_pointer usize %0, u16 %1 to ptr<u8, far>
+  %3 = pointer_segment ptr<u8, far> %2
+  %4 = make_pointer usize %offset, u16 %3 to ptr<u8, far>
+  ret ptr<u8, far> %4
+}

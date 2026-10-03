@@ -3,6 +3,7 @@ export module dcc.ir.pass;
 import std;
 import dcc.ir;
 import dcc.ir.analysis;
+import dcc.target;
 
 namespace dcc::ir::pass
 {
@@ -321,7 +322,7 @@ namespace dcc::ir::pass
                 }
                 case IrTypeKind::Pointer: {
                     auto* pt = static_cast<IrPointerType const*>(t);
-                    result = dst.pointer_to(clone_type_impl(pt->pointee, dst, cctx), pt->seg);
+                    result = dst.pointer_to(clone_type_impl(pt->pointee, dst, cctx), pt->seg, pt->flavor);
                     break;
                 }
                 case IrTypeKind::Aggregate: {
@@ -341,7 +342,7 @@ namespace dcc::ir::pass
                 }
                 case IrTypeKind::Slice: {
                     auto* st = static_cast<IrSliceType const*>(t);
-                    result = dst.slice_t(clone_type_impl(st->element, dst, cctx), st->seg);
+                    result = dst.slice_t(clone_type_impl(st->element, dst, cctx), st->seg, st->flavor);
                     break;
                 }
                 case IrTypeKind::Func: {
@@ -393,6 +394,11 @@ namespace dcc::ir::pass
                 case IrNodeKind::NullConstant: {
                     auto* c = static_cast<IrNullConstant const*>(v);
                     result = dst.null_const(clone_type_impl(c->type, dst, cctx));
+                    break;
+                }
+                case IrNodeKind::PointerConstant: {
+                    auto* p = static_cast<IrPointerConstant const*>(v);
+                    result = dst.pointer_const(clone_type_impl(p->type, dst, cctx), p->offset, p->segment);
                     break;
                 }
                 case IrNodeKind::StringConstant: {
@@ -608,8 +614,28 @@ namespace dcc::ir::pass
                     CLONE_CAST(PtrToI, ptrtoi);
                     CLONE_CAST(IToPtr, itoptr);
                     CLONE_CAST(Bitcast, bitcast);
-                    CLONE_CAST(Segcast, segcast);
 #undef CLONE_CAST
+
+                case IrNodeKind::ReadSegment: {
+                    result = dst.read_segment(static_cast<IrReadSegmentInst const*>(v)->segment);
+                    break;
+                }
+                case IrNodeKind::MakePointer: {
+                    auto* p = static_cast<IrMakePointerInst const*>(v);
+                    result =
+                        dst.make_pointer(clone_type_impl(p->type, dst, cctx), clone_value_impl(p->offset, dst, cctx), clone_value_impl(p->segment, dst, cctx));
+                    break;
+                }
+                case IrNodeKind::PointerOffset: {
+                    auto* p = static_cast<IrPointerOffsetInst const*>(v);
+                    result = dst.pointer_offset(clone_value_impl(p->pointer, dst, cctx));
+                    break;
+                }
+                case IrNodeKind::PointerSegment: {
+                    auto* p = static_cast<IrPointerSegmentInst const*>(v);
+                    result = dst.pointer_segment(clone_value_impl(p->pointer, dst, cctx));
+                    break;
+                }
 
                 case IrNodeKind::Extract: {
                     auto* e = static_cast<IrExtractInst const*>(v);
@@ -938,5 +964,361 @@ namespace dcc::ir::pass
     {
         return cloner_detail::clone_module_impl(src, dst);
     }
+
+    export class IrVerifier
+    {
+    public:
+        explicit IrVerifier(dcc::target::TargetConfig const& target) : m_target(target) {}
+
+        [[nodiscard]] std::vector<std::string> verify(IrModule const& module)
+        {
+            for (auto* global : module.globals)
+            {
+                if (!global)
+                    continue;
+
+                verify_type(global->type);
+                verify_value(global->init);
+            }
+            for (auto* function : module.functions)
+            {
+                if (!function)
+                    continue;
+
+                verify_type(function->func_type);
+                for (auto* block : function->blocks)
+                {
+                    if (!block)
+                        continue;
+
+                    for (auto* param : block->params)
+                        verify_value(param);
+                    for (auto* inst : block->instructions)
+                        verify_value(inst);
+                    if (block->terminator && block->terminator->kind == IrNodeKind::Ret)
+                    {
+                        auto* ret = static_cast<IrRetInst const*>(block->terminator);
+                        if (ret->value && (segmented(ret->value->type) || segmented(function->func_type->return_type)) &&
+                            ret->value->type != function->func_type->return_type)
+                            error("return changes pointer flavor or segment register");
+                        verify_value(ret->value);
+                    }
+                }
+            }
+            return std::move(m_errors);
+        }
+
+    private:
+        dcc::target::TargetConfig const& m_target;
+        std::unordered_set<IrType const*> m_seen_types;
+        std::unordered_set<IrValue const*> m_seen_values;
+        std::vector<std::string> m_errors;
+
+        void error(std::string_view message) { m_errors.emplace_back(message); }
+
+        [[nodiscard]] bool segmented(IrType const* type) const
+        {
+            auto* ptr = ir_type_cast<IrPointerType>(type);
+            return ptr && ptr->flavor != PointerFlavor::Near;
+        }
+
+        [[nodiscard]] static bool integer_value(IrValue const* value, std::uint8_t bits)
+        {
+            auto* type = value ? ir_type_cast<IrIntType>(value->type) : nullptr;
+            return type && type->bits == bits && !type->is_signed;
+        }
+
+        [[nodiscard]] static bool same_pointer_flavor(IrPointerType const* lhs, IrPointerType const* rhs)
+        {
+            return lhs && rhs && lhs->flavor == rhs->flavor && lhs->seg == rhs->seg;
+        }
+
+        void verify_comparison(IrValue const* lhs, IrValue const* rhs)
+        {
+            if (lhs && rhs && (segmented(lhs->type) || segmented(rhs->type)) && lhs->type != rhs->type)
+                error("comparison mixes pointer flavors or segment registers");
+            verify_value(lhs);
+            verify_value(rhs);
+        }
+
+        [[nodiscard]] bool valid_register(Segment seg) const
+        {
+            if (m_target.arch == dcc::target::Arch::X86_64)
+                return seg == Segment::Fs || seg == Segment::Gs;
+            if (m_target.arch == dcc::target::Arch::I8086)
+                return seg == Segment::Cs || seg == Segment::Ds || seg == Segment::Es || seg == Segment::Ss;
+            return seg != Segment::None;
+        }
+
+        void verify_type(IrType const* type)
+        {
+            if (!type || !m_seen_types.insert(type).second)
+                return;
+
+            switch (type->kind)
+            {
+                case IrTypeKind::Pointer: {
+                    auto* ptr = static_cast<IrPointerType const*>(type);
+                    if ((ptr->flavor == PointerFlavor::Based) != (ptr->seg != Segment::None))
+                        error("pointer flavor and segment register disagree");
+                    if (ptr->flavor == PointerFlavor::Based && !valid_register(ptr->seg))
+                        error("based pointer uses a register unavailable on the target");
+                    if (ptr->flavor == PointerFlavor::Far && m_target.pointer_bits == 64)
+                        error("dynamic far pointer is invalid on x86-64");
+                    auto const expected_size =
+                        ptr->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 4u : 8u) : static_cast<unsigned>(m_target.pointer_bits / 8);
+                    auto const expected_align =
+                        ptr->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 2u : 4u) : static_cast<unsigned>(m_target.pointer_align);
+                    if (ptr->byte_size != expected_size || ptr->byte_align != expected_align)
+                        error("pointer layout does not match target flavor");
+                    verify_type(ptr->pointee);
+                    break;
+                }
+                case IrTypeKind::Slice: {
+                    auto* slice = static_cast<IrSliceType const*>(type);
+                    if ((slice->flavor == PointerFlavor::Based) != (slice->seg != Segment::None))
+                        error("slice flavor and segment register disagree");
+                    if (slice->flavor == PointerFlavor::Based && !valid_register(slice->seg))
+                        error("based slice uses a register unavailable on the target");
+                    if (slice->flavor == PointerFlavor::Far && m_target.pointer_bits == 64)
+                        error("dynamic far slice is invalid on x86-64");
+                    auto const pointer_size =
+                        slice->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 4u : 8u) : static_cast<unsigned>(m_target.pointer_bits / 8);
+                    auto const align =
+                        slice->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 2u : 4u) : static_cast<unsigned>(m_target.pointer_align);
+                    auto const unaligned = pointer_size + static_cast<unsigned>(m_target.pointer_bits / 8);
+                    auto const size = (unaligned + align - 1) / align * align;
+                    if (slice->byte_size != size || slice->byte_align != align)
+                        error("slice layout does not match target flavor");
+                    verify_type(slice->element);
+                    break;
+                }
+                case IrTypeKind::Array:
+                    verify_type(static_cast<IrArrayType const*>(type)->element);
+                    break;
+                case IrTypeKind::Aggregate:
+                    for (auto* member : static_cast<IrAggregateType const*>(type)->members)
+                        verify_type(member);
+                    break;
+                case IrTypeKind::Func: {
+                    auto* func = static_cast<IrFuncType const*>(type);
+                    verify_type(func->return_type);
+                    for (auto* param : func->params)
+                        verify_type(param);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+
+        void verify_value(IrValue const* value)
+        {
+            if (!value || !m_seen_values.insert(value).second)
+                return;
+
+            verify_type(value->type);
+            switch (value->kind)
+            {
+                case IrNodeKind::PointerConstant: {
+                    auto* constant = static_cast<IrPointerConstant const*>(value);
+                    auto* ptr = ir_type_cast<IrPointerType>(value->type);
+                    if (!ptr || (ptr->flavor != PointerFlavor::Far && constant->segment != 0) ||
+                        (m_target.pointer_bits < 64 && constant->offset >= (std::uint64_t{1} << m_target.pointer_bits)))
+                        error("pointer constant has invalid flavor or noncanonical fields");
+                    break;
+                }
+                case IrNodeKind::NullConstant:
+                    if (segmented(value->type) && static_cast<IrPointerType const*>(value->type)->flavor == PointerFlavor::Based)
+                        error("based pointer cannot contain null");
+                    break;
+                case IrNodeKind::ReadSegment: {
+                    auto* read = static_cast<IrReadSegmentInst const*>(value);
+                    auto* result = ir_type_cast<IrIntType>(value->type);
+                    if (!valid_register(read->segment) || !result || result->bits != 16 || result->is_signed)
+                        error("read_segment has invalid register or result type");
+                    break;
+                }
+                case IrNodeKind::MakePointer: {
+                    auto* make = static_cast<IrMakePointerInst const*>(value);
+                    auto* ptr = ir_type_cast<IrPointerType>(value->type);
+                    if (!ptr || !integer_value(make->offset, m_target.pointer_bits) || (ptr->flavor == PointerFlavor::Far) != (make->segment != nullptr))
+                        error("make_pointer has invalid flavor or offset operand");
+                    if (make->segment && !integer_value(make->segment, 16))
+                        error("make_pointer segment operand must be u16");
+                    verify_value(make->offset);
+                    verify_value(make->segment);
+                    break;
+                }
+                case IrNodeKind::PointerOffset:
+                case IrNodeKind::PointerSegment: {
+                    auto* pointer = value->kind == IrNodeKind::PointerOffset ? static_cast<IrPointerOffsetInst const*>(value)->pointer
+                                                                             : static_cast<IrPointerSegmentInst const*>(value)->pointer;
+                    auto* ptr = pointer ? ir_type_cast<IrPointerType>(pointer->type) : nullptr;
+                    if (!ptr || (value->kind == IrNodeKind::PointerSegment && ptr->flavor != PointerFlavor::Far))
+                        error("pointer extraction has invalid flavor");
+                    auto* result = ir_type_cast<IrIntType>(value->type);
+                    auto expected_bits = value->kind == IrNodeKind::PointerSegment ? 16 : m_target.pointer_bits;
+                    if (!result || result->bits != expected_bits || result->is_signed)
+                        error("pointer extraction has invalid result type");
+                    verify_value(pointer);
+                    break;
+                }
+                case IrNodeKind::PtrToI:
+                    if (segmented(static_cast<IrPtrToIInst const*>(value)->operand->type))
+                        error("integer cast of based or dynamic far pointer");
+                    break;
+                case IrNodeKind::IToPtr:
+                    if (segmented(value->type))
+                        error("integer cast to based or dynamic far pointer");
+                    break;
+                case IrNodeKind::Bitcast: {
+                    auto* cast = static_cast<IrBitcastInst const*>(value);
+                    auto* src = cast->operand ? ir_type_cast<IrPointerType>(cast->operand->type) : nullptr;
+                    auto* dst = ir_type_cast<IrPointerType>(value->type);
+                    if ((src && src->flavor != PointerFlavor::Near) || (dst && dst->flavor != PointerFlavor::Near))
+                        if (!src || !dst || src->flavor != dst->flavor || src->seg != dst->seg)
+                            error("bitcast changes pointer flavor or segment register");
+                    break;
+                }
+                case IrNodeKind::Gep: {
+                    auto* gep = static_cast<IrGepInst const*>(value);
+                    auto* src = gep->base ? ir_type_cast<IrPointerType>(gep->base->type) : nullptr;
+                    auto* dst = ir_type_cast<IrPointerType>(value->type);
+                    if ((src && src->flavor != PointerFlavor::Near) || (dst && dst->flavor != PointerFlavor::Near))
+                        if (!same_pointer_flavor(src, dst))
+                            error("GEP changes pointer flavor or segment register");
+                    verify_value(gep->base);
+                    for (auto const& index : gep->indices)
+                        verify_value(index.dynamic_index);
+                    break;
+                }
+                case IrNodeKind::Load:
+                case IrNodeKind::LoadVolatile: {
+                    auto* pointer = value->kind == IrNodeKind::Load ? static_cast<IrLoadInst const*>(value)->pointer
+                                                                    : static_cast<IrLoadVolatileInst const*>(value)->pointer;
+                    auto* ptr = pointer ? ir_type_cast<IrPointerType>(pointer->type) : nullptr;
+                    if (ptr && (segmented(pointer->type) || segmented(ptr->pointee)) && ptr->pointee != value->type)
+                        error("load changes pointer pointee type");
+                    verify_value(pointer);
+                    break;
+                }
+                case IrNodeKind::Store:
+                case IrNodeKind::StoreVolatile: {
+                    auto* pointer = value->kind == IrNodeKind::Store ? static_cast<IrStoreInst const*>(value)->pointer
+                                                                     : static_cast<IrStoreVolatileInst const*>(value)->pointer;
+                    auto* stored = value->kind == IrNodeKind::Store ? static_cast<IrStoreInst const*>(value)->value
+                                                                    : static_cast<IrStoreVolatileInst const*>(value)->value;
+                    auto* ptr = pointer ? ir_type_cast<IrPointerType>(pointer->type) : nullptr;
+                    if (ptr && stored && (segmented(pointer->type) || segmented(stored->type) || segmented(ptr->pointee)) && ptr->pointee != stored->type)
+                        error("store changes pointer pointee type");
+                    verify_value(pointer);
+                    verify_value(stored);
+                    break;
+                }
+#define VERIFY_CMP(K)                                                                                                                                          \
+    case IrNodeKind::K: {                                                                                                                                      \
+        auto* cmp = static_cast<Ir##K##Inst const*>(value);                                                                                                    \
+        verify_comparison(cmp->lhs, cmp->rhs);                                                                                                                 \
+        break;                                                                                                                                                 \
+    }
+                    VERIFY_CMP(CmpEq)
+                    VERIFY_CMP(CmpNe)
+                    VERIFY_CMP(CmpLt)
+                    VERIFY_CMP(CmpLe)
+                    VERIFY_CMP(CmpGt)
+                    VERIFY_CMP(CmpGe)
+                    VERIFY_CMP(CmpOLt)
+                    VERIFY_CMP(CmpOLe)
+                    VERIFY_CMP(CmpOGt)
+                    VERIFY_CMP(CmpOGe)
+                    VERIFY_CMP(CmpULt)
+                    VERIFY_CMP(CmpULe)
+                    VERIFY_CMP(CmpUGt)
+                    VERIFY_CMP(CmpUGe)
+#undef VERIFY_CMP
+                case IrNodeKind::Extract: {
+                    auto* extract = static_cast<IrExtractInst const*>(value);
+                    auto* slice = extract->aggregate ? ir_type_cast<IrSliceType>(extract->aggregate->type) : nullptr;
+                    if (slice && slice->flavor != PointerFlavor::Near && extract->field_index == slice_data_index)
+                    {
+                        auto* field = ir_type_cast<IrPointerType>(value->type);
+                        if (!field || field->flavor != slice->flavor || field->seg != slice->seg || field->pointee != slice->element)
+                            error("slice extraction changes pointer flavor");
+                    }
+                    verify_value(extract->aggregate);
+                    break;
+                }
+                case IrNodeKind::Insert: {
+                    auto* insert = static_cast<IrInsertInst const*>(value);
+                    auto* slice = ir_type_cast<IrSliceType>(value->type);
+                    if (slice && slice->flavor != PointerFlavor::Near && insert->field_index == slice_data_index)
+                    {
+                        auto* field = insert->value ? ir_type_cast<IrPointerType>(insert->value->type) : nullptr;
+                        if (!field || field->flavor != slice->flavor || field->seg != slice->seg || field->pointee != slice->element)
+                            error("slice insertion changes pointer flavor");
+                    }
+                    verify_value(insert->aggregate);
+                    verify_value(insert->value);
+                    break;
+                }
+                case IrNodeKind::Aggregate: {
+                    auto* aggregate = static_cast<IrAggregateInst const*>(value);
+                    auto* slice = ir_type_cast<IrSliceType>(value->type);
+                    if (slice && slice->flavor != PointerFlavor::Near && !aggregate->values.empty())
+                    {
+                        auto* field = aggregate->values[0] ? ir_type_cast<IrPointerType>(aggregate->values[0]->type) : nullptr;
+                        if (!field || field->flavor != slice->flavor || field->seg != slice->seg || field->pointee != slice->element)
+                            error("slice aggregate changes pointer flavor");
+                    }
+                    for (auto* member : aggregate->values)
+                        verify_value(member);
+                    break;
+                }
+                case IrNodeKind::Call:
+                case IrNodeKind::CallTail: {
+                    auto* callee =
+                        value->kind == IrNodeKind::Call ? static_cast<IrCallInst const*>(value)->callee : static_cast<IrCallTailInst const*>(value)->callee;
+                    auto const& args =
+                        value->kind == IrNodeKind::Call ? static_cast<IrCallInst const*>(value)->args : static_cast<IrCallTailInst const*>(value)->args;
+                    auto* callee_pointer = callee ? ir_type_cast<IrPointerType>(callee->type) : nullptr;
+                    auto* signature = callee_pointer ? ir_type_cast<IrFuncType>(callee_pointer->pointee)
+                                      : callee       ? ir_type_cast<IrFuncType>(callee->type)
+                                                     : nullptr;
+                    if (signature)
+                    {
+                        if ((segmented(value->type) || segmented(signature->return_type)) && value->type != signature->return_type)
+                            error("call changes based or far return type");
+                        auto count = std::min(args.size(), signature->params.size());
+                        for (std::size_t i = 0; i < count; ++i)
+                            if (args[i] && (segmented(args[i]->type) || segmented(signature->params[i])) && args[i]->type != signature->params[i])
+                                error("call mixes pointer flavors or segment registers");
+                    }
+                    verify_value(callee);
+                    for (auto* arg : args)
+                        verify_value(arg);
+                    break;
+                }
+                case IrNodeKind::AtomicLoad:
+                case IrNodeKind::AtomicStore:
+                case IrNodeKind::AtomicRmw:
+                case IrNodeKind::AtomicCmpXchg: {
+                    IrValue const* pointer = nullptr;
+                    if (value->kind == IrNodeKind::AtomicLoad)
+                        pointer = static_cast<IrAtomicLoadInst const*>(value)->pointer;
+                    else if (value->kind == IrNodeKind::AtomicStore)
+                        pointer = static_cast<IrAtomicStoreInst const*>(value)->pointer;
+                    else if (value->kind == IrNodeKind::AtomicRmw)
+                        pointer = static_cast<IrAtomicRmwInst const*>(value)->pointer;
+                    else
+                        pointer = static_cast<IrAtomicCmpXchgInst const*>(value)->pointer;
+                    verify_value(pointer);
+                    break;
+                }
+                default:
+                    break;
+            }
+        }
+    };
 
 } // namespace dcc::ir::pass

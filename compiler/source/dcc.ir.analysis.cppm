@@ -577,8 +577,18 @@ export namespace dcc::ir::analysis
                         record_use(static_cast<IrBitcastInst const*>(inst)->operand, const_cast<IrValue*>(inst));
                         break;
                     }
-                    case IrNodeKind::Segcast: {
-                        record_use(static_cast<IrSegcastInst const*>(inst)->operand, const_cast<IrValue*>(inst));
+                    case IrNodeKind::MakePointer: {
+                        auto* p = static_cast<IrMakePointerInst const*>(inst);
+                        record_use(p->offset, const_cast<IrValue*>(inst));
+                        record_use(p->segment, const_cast<IrValue*>(inst));
+                        break;
+                    }
+                    case IrNodeKind::PointerOffset: {
+                        record_use(static_cast<IrPointerOffsetInst const*>(inst)->pointer, const_cast<IrValue*>(inst));
+                        break;
+                    }
+                    case IrNodeKind::PointerSegment: {
+                        record_use(static_cast<IrPointerSegmentInst const*>(inst)->pointer, const_cast<IrValue*>(inst));
                         break;
                     }
 
@@ -987,10 +997,24 @@ export namespace dcc::ir::analysis
                                     gen_set.insert(c->operand);
                                 break;
                             }
-                            case IrNodeKind::Segcast: {
-                                auto* c = static_cast<IrSegcastInst const*>(n);
-                                if (!kill_set.contains(c->operand))
-                                    gen_set.insert(c->operand);
+                            case IrNodeKind::MakePointer: {
+                                auto* p = static_cast<IrMakePointerInst const*>(n);
+                                if (p->offset && !kill_set.contains(p->offset))
+                                    gen_set.insert(p->offset);
+                                if (p->segment && !kill_set.contains(p->segment))
+                                    gen_set.insert(p->segment);
+                                break;
+                            }
+                            case IrNodeKind::PointerOffset: {
+                                auto* p = static_cast<IrPointerOffsetInst const*>(n);
+                                if (!kill_set.contains(p->pointer))
+                                    gen_set.insert(p->pointer);
+                                break;
+                            }
+                            case IrNodeKind::PointerSegment: {
+                                auto* p = static_cast<IrPointerSegmentInst const*>(n);
+                                if (!kill_set.contains(p->pointer))
+                                    gen_set.insert(p->pointer);
                                 break;
                             }
                             case IrNodeKind::Extract: {

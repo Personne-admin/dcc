@@ -1,0 +1,65 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+public usize demo(u8* near, u8^FS based, u8^ far, usize off, u16 seg) {
+    u8^ a = near;
+    u8^ b = based as u8^;
+    u8* c = far as u8*;
+    u8^ d = seg:off;
+    u8^ e = d.with_segment(seg);
+    u8^ f = e.with_offset(off);
+    return a.offset() + b.offset() + c as usize + d.offset() + e.segment() as usize + f.offset();
+}
+
+=== EXPECT-IR ===
+module "m"
+usize@_DC0F1.1.m4.demo5Pqi8uBqFSi8uHqi8uIui16uIu(ptr<u8>, ptr<u8, based=fs>, ptr<u8, far>, usize, u16) {
+%entry(ptr<u8> %near, ptr<u8, based=fs> %based, ptr<u8, far> %far, usize %off, u16 %seg):
+  %0 = alloca ptr<u8, far>
+  %1 = pointer_offset ptr<u8> %near
+  %2 = read_segment ds
+  %3 = make_pointer usize %1, u16 %2 to ptr<u8, far>
+  store ptr<u8, far> %3, ptr<ptr<u8, far>> %0
+  %4 = alloca ptr<u8, far>
+  %5 = pointer_offset ptr<u8, based=fs> %based
+  %6 = read_segment fs
+  %7 = make_pointer usize %5, u16 %6 to ptr<u8, far>
+  store ptr<u8, far> %7, ptr<ptr<u8, far>> %4
+  %8 = alloca ptr<u8>
+  %9 = pointer_offset ptr<u8, far> %far
+  %10 = make_pointer usize %9 to ptr<u8>
+  store ptr<u8> %10, ptr<ptr<u8>> %8
+  %11 = alloca ptr<u8, far>
+  %12 = make_pointer usize %off, u16 %seg to ptr<u8, far>
+  store ptr<u8, far> %12, ptr<ptr<u8, far>> %11
+  %13 = alloca ptr<u8, far>
+  %14 = load ptr<u8, far>, ptr<ptr<u8, far>> %11
+  %15 = pointer_offset ptr<u8, far> %14
+  %16 = make_pointer usize %15, u16 %seg to ptr<u8, far>
+  store ptr<u8, far> %16, ptr<ptr<u8, far>> %13
+  %17 = alloca ptr<u8, far>
+  %18 = load ptr<u8, far>, ptr<ptr<u8, far>> %13
+  %19 = pointer_segment ptr<u8, far> %18
+  %20 = make_pointer usize %off, u16 %19 to ptr<u8, far>
+  store ptr<u8, far> %20, ptr<ptr<u8, far>> %17
+  %21 = load ptr<u8, far>, ptr<ptr<u8, far>> %0
+  %22 = pointer_offset ptr<u8, far> %21
+  %23 = load ptr<u8, far>, ptr<ptr<u8, far>> %4
+  %24 = pointer_offset ptr<u8, far> %23
+  %25 = add usize %22, usize %24
+  %26 = load ptr<u8>, ptr<ptr<u8>> %8
+  %27 = ptrtoi ptr<u8> %26 to usize
+  %28 = add usize %25, usize %27
+  %29 = load ptr<u8, far>, ptr<ptr<u8, far>> %11
+  %30 = pointer_offset ptr<u8, far> %29
+  %31 = add usize %28, usize %30
+  %32 = load ptr<u8, far>, ptr<ptr<u8, far>> %13
+  %33 = pointer_segment ptr<u8, far> %32
+  %34 = zext u16 %33 to usize
+  %35 = add usize %31, usize %34
+  %36 = load ptr<u8, far>, ptr<ptr<u8, far>> %17
+  %37 = pointer_offset ptr<u8, far> %36
+  %38 = add usize %35, usize %37
+  ret usize %38
+}

@@ -21,6 +21,7 @@ INT_TYPES = {
     "u64": ("uint64_t", 64, False),
 }
 FLOAT_TYPES = {"f32": "float", "f64": "double"}
+BASED_TYPES = {"BFS": "FS", "BGS": "GS"}
 STRUCTS = {
     "F2": [("x", "f64"), ("y", "f64")],
     "FS": [("x", "f32"), ("y", "f32")],
@@ -48,8 +49,12 @@ def is_agg(t):
     return is_bytes(t) or is_slice(t) or t in STRUCTS
 
 
+def is_based(t):
+    return t in BASED_TYPES
+
+
 def dc_type(t):
-    return "[] const u8" if is_slice(t) else t
+    return "[] const u8" if is_slice(t) else "u8^" + BASED_TYPES[t] if is_based(t) else t
 
 
 def wrap(value, bits, signed):
@@ -60,6 +65,8 @@ def wrap(value, bits, signed):
 
 
 def scalar_value(t, base, j):
+    if is_based(t):
+        return base * 17 + j + 1
     if t in INT_TYPES:
         _, bits, signed = INT_TYPES[t]
         v = base * 0x100000001 if bits == 64 else base * 3
@@ -70,7 +77,7 @@ def scalar_value(t, base, j):
 
 
 def contrib_scalar(t, v):
-    if t in INT_TYPES:
+    if t in INT_TYPES or is_based(t):
         return v & MASK
     return int(v * 4.0) & MASK
 
@@ -84,7 +91,7 @@ def agg_values(t, base):
 
 
 def contrib(t, v):
-    if t in INT_TYPES or t in FLOAT_TYPES:
+    if t in INT_TYPES or t in FLOAT_TYPES or is_based(t):
         return contrib_scalar(t, v)
     h = mix(0, len(v)) if is_slice(t) else 0
     fields = (
@@ -98,6 +105,8 @@ def contrib(t, v):
 
 
 def dc_lit(t, v):
+    if is_based(t):
+        return "%s:(%d as usize)" % (BASED_TYPES[t], v)
     if t in FLOAT_TYPES:
         return "(%r as %s)" % (float(v), t)
     return "((%d) as %s)" % (v, t)
@@ -106,6 +115,8 @@ def dc_lit(t, v):
 def c_type(t):
     if is_slice(t):
         return "struct SL"
+    if is_based(t):
+        return "uintptr_t"
     if t in INT_TYPES:
         return INT_TYPES[t][0]
     if t in FLOAT_TYPES:
@@ -114,6 +125,8 @@ def c_type(t):
 
 
 def c_lit(t, v):
+    if is_based(t):
+        return "(uintptr_t)%d" % v
     if t in FLOAT_TYPES:
         return "(%s)%r" % (FLOAT_TYPES[t], float(v))
     if t == "i64" and v == -(1 << 63):
@@ -173,6 +186,12 @@ def build_cases():
         cases.append(
             Case("ret", len(cases) + 1, ["i64", "f64", "i32", "f64", "i64"], r)
         )
+    cases += [
+        Case("param", len(cases) + 1, ["BFS", "i64", "BGS", "u8"]),
+        Case("param", len(cases) + 2, ["i64", "BGS", "BFS", "u64", "BFS"]),
+        Case("ret", len(cases) + 3, ["i64", "f64", "i32", "f64", "i64"], "BFS"),
+        Case("ret", len(cases) + 4, ["i64", "f64", "i32", "f64", "i64"], "BGS"),
+    ]
     return cases
 
 
@@ -194,6 +213,8 @@ def ret_value(case):
         return agg_values(t, seed)
     if t in FLOAT_TYPES:
         return seed + 0.5
+    if is_based(t):
+        return seed + 250
     _, bits, signed = INT_TYPES[t]
     return wrap(-seed if signed else seed + 250, bits, signed)
 
@@ -227,6 +248,8 @@ def gen_c_types():
 
 
 def dc_contrib_expr(t, expr):
+    if is_based(t):
+        return "(%s.offset() as u64)" % expr
     if t in INT_TYPES:
         return "(%s as u64)" % expr
     if t in FLOAT_TYPES:
@@ -239,7 +262,7 @@ def dc_contrib_expr(t, expr):
 
 
 def c_contrib_expr(t, expr):
-    if t in INT_TYPES:
+    if t in INT_TYPES or is_based(t):
         return "(uint64_t)(%s)" % expr
     if t in FLOAT_TYPES:
         return "(uint64_t)(int64_t)((double)(%s) * 4.0)" % expr
@@ -411,7 +434,7 @@ def clobber_expected(seed):
 
 
 def gen_dc_callee(cases):
-    out = ["module abi_callee;\n", gen_dc_types(), gen_dc_contribs()]
+    out = ["module abi_callee;\nimport core::seg;\n", gen_dc_types(), gen_dc_contribs()]
     for c in cases:
         params = ", ".join("%s a%d" % (dc_type(t), j) for j, t in enumerate(c.args))
         if c.kind == "param":
@@ -462,6 +485,8 @@ def gen_dc_callee(cases):
                 if t == "f32"
                 else "    u64 seed = %s;\n    return seed as f64 + 0.5;\n" % seed
             )
+        elif is_based(t):
+            body = "    u64 seed = %s;\n    return %s:((seed + 250) as usize);\n" % (seed, BASED_TYPES[t])
         else:
             _, bits, signed = INT_TYPES[t]
             expr = "(0 as i64 - (seed as i64))" if signed else "(seed + 250)"
@@ -558,6 +583,8 @@ def gen_c_callee(cases):
             body = "    %s r;\n    %s%s    return r;\n" % (c_type(t), seed, fills)
         elif t in FLOAT_TYPES:
             body = "    %s    return (%s)((double)seed + 0.5);\n" % (seed, c_type(t))
+        elif is_based(t):
+            body = "    %s    return (uintptr_t)(seed + 250);\n" % seed
         else:
             _, bits, signed = INT_TYPES[t]
             expr = "(int64_t)0 - (int64_t)seed" if signed else "seed + 250"
@@ -596,12 +623,14 @@ def ret_struct_fields(t, seed):
 def ret_scalar(t, seed):
     if t in FLOAT_TYPES:
         return seed + 0.5
+    if is_based(t):
+        return seed + 250
     _, bits, signed = INT_TYPES[t]
     return wrap(-seed if signed else seed + 250, bits, signed)
 
 
 def gen_dc_caller(cases):
-    out = ["module abi_caller;\n\nimport abi_callee;\n\nusing abi_callee::*;\n"]
+    out = ["module abi_caller;\n\nimport abi_callee;\nimport core::seg;\n\nusing abi_callee::*;\n"]
     for c in cases:
         decls = ""
         args = []
@@ -636,12 +665,17 @@ def gen_dc_caller(cases):
                     + dc_cmp_fields(t, "got", ret_struct_fields(t, seed), fail)
                 )
             else:
-                body = decls + "    %s got = %s;\n    if got != %s { %s }\n" % (
-                    t,
-                    call,
-                    dc_lit(t, ret_scalar(t, seed)),
-                    fail,
-                )
+                if is_based(t):
+                    body = decls + "    %s got = %s;\n    if got.offset() != (%d as usize) { %s }\n" % (
+                        dc_type(t), call, ret_scalar(t, seed), fail
+                    )
+                else:
+                    body = decls + "    %s got = %s;\n    if got != %s { %s }\n" % (
+                        t,
+                        call,
+                        dc_lit(t, ret_scalar(t, seed)),
+                        fail,
+                    )
         out.append(
             "@nomangle\npublic i32 abi_case%d() {\n%s    return 0;\n}\n"
             % (c.index, body)
@@ -881,57 +915,73 @@ def main():
     )
 
     cases = build_cases()
+    legacy_cases = [
+        c for c in cases if not is_based(c.ret) and not any(is_based(t) for t in c.args)
+    ]
+    based_case_count = len(cases) - len(legacy_cases)
     work = Path(args.work) if args.work else Path(tempfile.mkdtemp(prefix="dcc-abi-"))
     work.mkdir(parents=True, exist_ok=True)
+    legacy_work = work / "legacy"
+    legacy_work.mkdir(parents=True, exist_ok=True)
     (work / "abi_callee.dc").write_text(gen_dc_callee(cases))
     (work / "abi_caller.dc").write_text(gen_dc_caller(cases))
     (work / "callee.c").write_text(gen_c_callee(cases))
     (work / "caller.c").write_text(gen_c_caller(cases))
-    (work / "main.dc").write_text(gen_main(cases))
+    (work / "main-full.dc").write_text(gen_main(cases))
+    (work / "main-legacy.dc").write_text(gen_main(legacy_cases))
+    (legacy_work / "abi_callee.dc").write_text(gen_dc_callee(legacy_cases))
+    (legacy_work / "abi_caller.dc").write_text(gen_dc_caller(legacy_cases))
+    (legacy_work / "caller.c").write_text(gen_c_caller(legacy_cases))
 
     variants = ["llvm-O0", "llvm-O2", "custom-O0", "custom-O2", "c"]
     c_flags = ["-O2", "-ffreestanding", "-fno-builtin", "-fno-stack-protector", "-c"]
     objs = {}
     for side in ("caller", "callee"):
         for v in variants:
-            obj = work / ("%s-%s.o" % (side, v))
-            if v == "c":
-                run(cc + c_flags + ["-o", str(obj), str(work / ("%s.c" % side))])
-            else:
-                backend, opt = v.split("-")
-                run(
-                    timeout
-                    + [
-                        str(dcc),
-                        "-target",
-                        triple,
-                        "-fbackend",
-                        backend,
-                        "-" + opt,
-                        "-I",
-                        str(work),
-                        "-c",
-                        "-o",
-                        str(obj),
-                        str(work / ("abi_%s.dc" % side)),
-                    ]
-                )
-            objs[(side, v)] = obj
-    main_obj = work / "main.o"
-    run(
-        timeout
-        + [
-            str(dcc),
-            "-flibdcext",
-            os_name,
-            "-target",
-            triple,
-            "-c",
-            "-o",
-            str(main_obj),
-            str(work / "main.dc"),
-        ]
-    )
+            subsets = ("legacy",) if v.startswith("custom") else ("full", "legacy") if side == "caller" else ("full",)
+            for subset in subsets:
+                source_dir = legacy_work if subset == "legacy" else work
+                obj = work / ("%s-%s-%s.o" % (side, v, subset))
+                if v == "c":
+                    run(cc + c_flags + ["-o", str(obj), str(source_dir / ("%s.c" % side))])
+                else:
+                    backend, opt = v.split("-")
+                    run(
+                        timeout
+                        + [
+                            str(dcc),
+                            "-target",
+                            triple,
+                            "-fbackend",
+                            backend,
+                            "-" + opt,
+                            "-I",
+                            str(source_dir),
+                            "-c",
+                            "-o",
+                            str(obj),
+                            str(source_dir / ("abi_%s.dc" % side)),
+                        ]
+                    )
+                objs[(side, v, subset)] = obj
+    main_objs = {}
+    for subset in ("full", "legacy"):
+        obj = work / ("main-%s.o" % subset)
+        run(
+            timeout
+            + [
+                str(dcc),
+                "-flibdcext",
+                os_name,
+                "-target",
+                triple,
+                "-c",
+                "-o",
+                str(obj),
+                str(work / ("main-%s.dc" % subset)),
+            ]
+        )
+        main_objs[subset] = obj
 
     names = {c.index: c.describe() for c in cases}
     names[len(cases) + 1] = (
@@ -948,11 +998,12 @@ def main():
     )
     results = {}
     for caller, callee in pairs:
+        subset = "legacy" if caller.startswith("custom") or callee.startswith("custom") else "full"
         exe = work / ("abi-%s-%s.exe" % (caller, callee))
         objects = [
-            str(main_obj),
-            str(objs[("caller", caller)]),
-            str(objs[("callee", callee)]),
+            str(main_objs[subset]),
+            str(objs[("caller", caller, subset)]),
+            str(objs[("callee", callee, "legacy" if callee.startswith("custom") else "full")]),
         ]
         if windows:
             link = (
@@ -1013,6 +1064,11 @@ def main():
             print(error, file=sys.stderr)
             failed = ["build failure"]
         results[(caller, callee)] = failed
+        if subset == "legacy":
+            print(
+                "EXCLUDED %s -> %s: %d based-pointer ABI cases (custom far/based lowering is deferred)"
+                % (caller, callee, based_case_count)
+            )
         if failed:
             failures += 1
     width = max(len(v) for v in variants) + 2

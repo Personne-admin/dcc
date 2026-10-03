@@ -1527,6 +1527,15 @@ namespace
         };
 
         bool ok = true;
+        auto verify_fixture_ir = [&](dcc::ir::IrModule const* module, dcc::target::TargetConfig const& target, std::size_t line) {
+            dcc::ir::pass::IrVerifier verifier{target};
+            auto errors = verifier.verify(*module);
+            for (auto const& error : errors)
+                std::println(std::cerr, "    FAIL  IR verification: {}  ({}:{})", error, path.string(), line);
+            if (!errors.empty())
+                ok = false;
+            return errors.empty();
+        };
 
         auto emitted_error_count = static_cast<std::size_t>(
             std::ranges::count_if(diag.diagnostics(), [](dcc::diag::Diagnostic const& d) { return d.severity() == dcc::diag::Severity::Error; }));
@@ -2152,10 +2161,13 @@ namespace
                 continue;
             }
 
-            dcc::ir::IrContext ir_ctx;
+            auto ir_target = fixture_target.value_or(dcc::target::TargetConfig::host_default());
+            dcc::ir::IrContext ir_ctx{256 * 1024, &ir_target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
                                                                      exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
+            if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, ir_target, exp.base_line))
+                continue;
             if (exp.is_error)
             {
                 if (lowerer->lower_errors().empty())
@@ -2234,6 +2246,8 @@ namespace
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
                                                                      exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
+            if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
+                continue;
 
             target.no_red_zone = exp.no_red_zone;
             target.no_simd = exp.no_simd;
@@ -2391,6 +2405,8 @@ namespace
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
             auto* ir_mod = lowerer->lower_module(*mod);
+            if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
+                continue;
 
             target.no_red_zone = exp.no_red_zone;
             target.no_simd = exp.no_simd;
@@ -2551,6 +2567,8 @@ namespace
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
                                                                      exp.restricted_check, exp.partial_eval);
             auto* ir_mod = lowerer->lower_module(*mod);
+            if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
+                continue;
 
             if (exp.pic)
                 target.position_independent_code = true;
@@ -3466,6 +3484,8 @@ namespace
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
             auto* ir_mod = lowerer->lower_module(*mod);
+            if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
+                continue;
 
             if (!lowerer->lower_errors().empty())
             {

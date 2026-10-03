@@ -1,0 +1,11 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+
+public usize offset(u8^ ptr) {
+    return ptr.offset();
+}
+
+=== EXPECT-LLVM-ERRORS ===
+dynamic far pointers are not supported by the llvm backend

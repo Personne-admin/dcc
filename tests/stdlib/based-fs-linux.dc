@@ -1,0 +1,47 @@
+module main;
+
+import std::sys::linux::syscall;
+import std::os::thread;
+
+using std::os::thread;
+
+volatile i32 failures;
+volatile usize first_base;
+
+@noinline bool zero_offset_is_valid(usize^FS pointer, usize expected) {
+    usize value = *pointer;
+    usize^FS zero = FS:0;
+    return pointer == zero && value == expected;
+}
+
+i32 check_fs(usize seed) {
+    usize[4] tls;
+    tls[0] = seed;
+    tls[1] = seed + 7;
+    usize old_base = 0;
+    if std::sys::linux::syscall::raw2(158, 0x1003, &old_base as usize) != 0 { return 1; }
+    if std::sys::linux::syscall::raw2(158, 0x1002, &tls[0] as usize) != 0 { return 2; }
+    usize base = 0;
+    i32 result = 0;
+    if std::sys::linux::syscall::raw2(158, 0x1003, &base as usize) != 0 { result = 3; }
+    usize^FS first = FS:0;
+    usize^FS second = FS:8;
+    if base != &tls[0] as usize || !zero_offset_is_valid(first, seed) || *second != seed + 7 { result = 4; }
+    if seed == 31 { first_base = base; }
+    if seed == 53 && base == first_base { result = 7; }
+    *second = seed + 11;
+    if tls[1] != seed + 11 { result = 5; }
+    if std::sys::linux::syscall::raw2(158, 0x1002, old_base) != 0 { return 6; }
+    return result;
+}
+
+void worker() {
+    failures = check_fs(31);
+}
+
+public i32 main() {
+    thread::Thread t = thread::spawn(worker).unwrap();
+    if !t.join().is_ok() || failures != 0 { return 1; }
+    if check_fs(53) != 0 { return 2; }
+    return 42;
+}

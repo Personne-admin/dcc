@@ -1388,6 +1388,41 @@ export namespace dcc::ir::lower
             m_lower_errors.emplace_back("far and based pointers are not supported by this backend yet");
         }
 
+        static ir::Segment lower_segment(dcc::types::SegReg segment)
+        {
+            switch (segment)
+            {
+                case dcc::types::SegReg::None: return ir::Segment::None;
+                case dcc::types::SegReg::CS: return ir::Segment::Cs;
+                case dcc::types::SegReg::DS: return ir::Segment::Ds;
+                case dcc::types::SegReg::ES: return ir::Segment::Es;
+                case dcc::types::SegReg::SS: return ir::Segment::Ss;
+                case dcc::types::SegReg::FS: return ir::Segment::Fs;
+                case dcc::types::SegReg::GS: return ir::Segment::Gs;
+            }
+            std::unreachable();
+        }
+
+        static ir::PointerFlavor lower_pointer_flavor(dcc::types::PointerFlavor flavor)
+        {
+            switch (flavor)
+            {
+                case dcc::types::PointerFlavor::Near: return ir::PointerFlavor::Near;
+                case dcc::types::PointerFlavor::Based: return ir::PointerFlavor::Based;
+                case dcc::types::PointerFlavor::Far: return ir::PointerFlavor::Far;
+            }
+            std::unreachable();
+        }
+
+        IrGepInst* gep_preserving_flavor(IrType const* result_type, IrValue* base)
+        {
+            auto* base_pointer = base ? ir_type_cast<IrPointerType>(base->type) : nullptr;
+            auto* result_pointer = ir_type_cast<IrPointerType>(result_type);
+            if (base_pointer && result_pointer)
+                result_type = m_ctx.pointer_to(result_pointer->pointee, base_pointer->seg, base_pointer->flavor);
+            return m_ctx.gep(result_type, base);
+        }
+
         IrType const* lower_type(dcc::types::TypePtr type)
         {
             if (!type)
@@ -1422,10 +1457,8 @@ export namespace dcc::ir::lower
 
             if (auto* pt = dcc::types::type_cast<dcc::types::PointerType>(type))
             {
-                if (pt->flavor != dcc::types::PointerFlavor::Near)
-                    report_far_pointer_unsupported();
                 auto* ir_pointee = lower_type(pt->pointee);
-                return m_ctx.pointer_to(ir_pointee, ir::Segment::None);
+                return m_ctx.pointer_to(ir_pointee, lower_segment(pt->segment), lower_pointer_flavor(pt->flavor));
             }
 
             if (auto* fpt = dcc::types::type_cast<dcc::types::FuncPtrType>(type))
@@ -1461,10 +1494,8 @@ export namespace dcc::ir::lower
 
             if (auto* st = dcc::types::type_cast<dcc::types::SliceType>(type))
             {
-                if (st->flavor != dcc::types::PointerFlavor::Near)
-                    report_far_pointer_unsupported();
                 auto* ir_el = lower_type(st->element);
-                return m_ctx.slice_t(ir_el, ir::Segment::None);
+                return m_ctx.slice_t(ir_el, lower_segment(st->segment), lower_pointer_flavor(st->flavor));
             }
 
             if (auto* at = dcc::types::type_cast<dcc::types::ArrayType>(type))
@@ -1870,7 +1901,7 @@ export namespace dcc::ir::lower
                 append_inst(temp);
                 append_inst(m_ctx.store(iter_val, temp));
 
-                auto* gep0 = m_ctx.gep(m_ctx.pointer_to(ir_element_type), temp);
+                auto* gep0 = gep_preserving_flavor(m_ctx.pointer_to(ir_element_type), temp);
                 gep0->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(usize_type, 0), 0});
                 auto gep0_name = ident_name();
                 gep0->name = m_name_pool.back();
@@ -1924,7 +1955,7 @@ export namespace dcc::ir::lower
                 }
 
                 auto* elem_ptr_type = m_ctx.pointer_to(ir_element_type);
-                auto* gep = m_ctx.gep(elem_ptr_type, ptr_val);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, ptr_val);
                 gep->indices.push_back({IrGepInst::IndexKind::Array, cur_idx2, 0});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -2912,8 +2943,60 @@ export namespace dcc::ir::lower
                 }
 
                 case ast::ExprKind::SegConstruct: {
-                    report_far_pointer_unsupported();
-                    return m_ctx.null_const(m_ctx.pointer_to(m_ctx.int_t(8, false)));
+                    auto* construct = static_cast<ast::SegConstructExpr const*>(expr);
+                    auto* result_type = lower_type(get_sema_resolved_type(expr));
+                    if (expr->sema.const_value && expr->sema.const_value->kind() == dcc::comptime::Value::Kind::Far)
+                    {
+                        auto const& far = expr->sema.const_value->get_far();
+                        return m_ctx.pointer_const(result_type, far.offset, far.segment);
+                    }
+
+                    auto* pointer_type = ir_type_cast<IrPointerType>(result_type);
+                    if (!pointer_type)
+                        lower_panic(expr, "segment construction has no pointer result type");
+                    auto* offset = lower_expr(construct->offset);
+                    if (auto* offset_type = ir_type_cast<IrIntType>(offset->type); offset_type && offset_type->bits < m_ctx.pointer_bits())
+                    {
+                        auto* ext = m_ctx.zext(m_ctx.usize_t(), offset);
+                        auto ext_name = ident_name();
+                        ext->name = m_name_pool.back();
+                        append_inst(ext);
+                        offset = ext;
+                    }
+
+                    IrValue* segment = nullptr;
+                    if (pointer_type->flavor == PointerFlavor::Far)
+                    {
+                        auto reg = Segment::None;
+                        if (construct->segment->kind == ast::ExprKind::Ident)
+                            reg = lower_segment(dcc::types::TypeContext::seg_reg_from_name(static_cast<ast::IdentExpr const*>(construct->segment)->name));
+                        if (reg != Segment::None)
+                        {
+                            auto* read = m_ctx.read_segment(reg);
+                            auto read_name = ident_name();
+                            read->name = m_name_pool.back();
+                            append_inst(read);
+                            segment = read;
+                        }
+                        else
+                        {
+                            segment = lower_expr(construct->segment);
+                            if (auto* segment_type = ir_type_cast<IrIntType>(segment->type); segment_type && segment_type->bits < 16)
+                            {
+                                auto* ext = m_ctx.zext(m_ctx.int_t(16, false), segment);
+                                auto ext_name = ident_name();
+                                ext->name = m_name_pool.back();
+                                append_inst(ext);
+                                segment = ext;
+                            }
+                        }
+                    }
+
+                    auto* result = m_ctx.make_pointer(result_type, offset, segment);
+                    auto result_name = ident_name();
+                    result->name = m_name_pool.back();
+                    append_inst(result);
+                    return result;
                 }
 
                 case ast::ExprKind::Asm:
@@ -3827,8 +3910,8 @@ export namespace dcc::ir::lower
                 return ptr;
 
             auto* field_type = agg_type->members[0];
-            auto* field_ptr_type = m_ctx.pointer_to(field_type, ptr_type->seg);
-            auto* gep = m_ctx.gep(field_ptr_type, ptr);
+            auto* field_ptr_type = m_ctx.pointer_to(field_type, ptr_type->seg, ptr_type->flavor);
+            auto* gep = gep_preserving_flavor(field_ptr_type, ptr);
             gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 0});
             auto name = ident_name();
             gep->name = m_name_pool.back();
@@ -3850,11 +3933,66 @@ export namespace dcc::ir::lower
 
             if (auto const* owning = owning_module_of(func); owning && owning->canonical_path.str() == "core::seg")
             {
-                report_far_pointer_unsupported();
-                auto* ir_ret = lower_type(get_sema_resolved_type(call));
-                if (!ir_ret || ir_ret->kind == IrTypeKind::Void)
-                    return nullptr;
-                return zero_value(ir_ret);
+                std::vector<IrValue*> seg_args;
+                seg_args.reserve(call->args.size() + 1);
+                if (call->sema.ufcs_callee)
+                {
+                    auto* access = ast::node_cast<ast::FieldAccessExpr>(call->callee);
+                    if (!access)
+                        lower_panic(call, "core::seg UFCS call has no receiver");
+                    auto* receiver = access->object;
+                    auto* receiver_value = lower_expr(receiver);
+                    if (!func->params.empty())
+                        receiver_value = coerce_array_decay(receiver, receiver_value, get_sema_resolved_type(receiver), get_canonical_type(func->params[0].type));
+                    seg_args.push_back(receiver_value);
+                }
+                for (std::size_t i = 0; i < call->args.size(); ++i)
+                {
+                    auto* arg = call->args[i];
+                    auto* value = lower_expr(arg);
+                    auto param_index = i + (call->sema.ufcs_callee ? 1 : 0);
+                    if (param_index < func->params.size())
+                        value = coerce_array_decay(arg, value, get_sema_resolved_type(arg), get_canonical_type(func->params[param_index].type));
+                    seg_args.push_back(value);
+                }
+                if (seg_args.empty())
+                    lower_panic(call, "core::seg intrinsic requires a pointer argument");
+
+                auto emit_named = [&](IrValue* value) -> IrValue* {
+                    auto value_name = ident_name();
+                    value->name = m_name_pool.back();
+                    append_inst(value);
+                    return value;
+                };
+
+                if (auto* pointer_type = ir_type_cast<IrPointerType>(seg_args[0]->type); pointer_type && pointer_type->flavor == PointerFlavor::Near)
+                {
+                    auto* offset = emit_named(m_ctx.pointer_offset(seg_args[0]));
+                    auto* segment = emit_named(m_ctx.read_segment(Segment::Ds));
+                    seg_args[0] = emit_named(m_ctx.make_pointer(m_ctx.pointer_to(pointer_type->pointee, Segment::None, PointerFlavor::Far), offset, segment));
+                }
+
+                if (func->name == "offset")
+                    return emit_named(m_ctx.pointer_offset(seg_args[0]));
+                if (func->name == "segment")
+                    return emit_named(m_ctx.pointer_segment(seg_args[0]));
+                if (seg_args.size() < 2)
+                    lower_panic(call, "core::seg intrinsic requires two arguments");
+
+                auto* result_type = lower_type(get_sema_resolved_type(call));
+                if (func->name == "with_offset")
+                {
+                    IrValue* segment = nullptr;
+                    if (auto* pointer_type = ir_type_cast<IrPointerType>(seg_args[0]->type); pointer_type && pointer_type->flavor == PointerFlavor::Far)
+                        segment = emit_named(m_ctx.pointer_segment(seg_args[0]));
+                    return emit_named(m_ctx.make_pointer(result_type, seg_args[1], segment));
+                }
+                if (func->name == "with_segment")
+                {
+                    auto* offset = emit_named(m_ctx.pointer_offset(seg_args[0]));
+                    return emit_named(m_ctx.make_pointer(result_type, offset, seg_args[1]));
+                }
+                lower_panic(call, "unknown core::seg intrinsic");
             }
 
             auto name = func->name;
@@ -4298,7 +4436,7 @@ export namespace dcc::ir::lower
             }
 
             auto* stride = m_ctx.int_const(m_ctx.int_t(64, true), is_inc ? 1 : -1);
-            auto* gep = m_ctx.gep(m_ctx.pointer_to(lower_type(pt->pointee)), loaded);
+            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(pt->pointee)), loaded);
             gep->indices.push_back({IrGepInst::IndexKind::Array, stride, 0});
             return gep;
         }
@@ -4885,7 +5023,7 @@ export namespace dcc::ir::lower
                 offset = negated;
             }
 
-            auto* gep = m_ctx.gep(ty, pointer);
+            auto* gep = gep_preserving_flavor(ty, pointer);
             gep->indices.push_back({IrGepInst::IndexKind::Array, offset, 0});
             std::ignore = pointer_type;
             return gep;
@@ -5289,15 +5427,36 @@ export namespace dcc::ir::lower
                 auto* src_ptr = static_cast<IrPointerType const*>(src_ir_ty);
                 auto* dst_ptr = static_cast<IrPointerType const*>(dst_ir_ty);
 
-                if (src_ptr->seg != dst_ptr->seg)
+                if (src_ptr->flavor != dst_ptr->flavor)
                 {
-                    auto* inst = m_ctx.segcast(dst_ir_ty, operand);
-                    auto name = ident_name();
-                    inst->name = m_name_pool.back();
-                    append_inst(inst);
+                    auto* offset = m_ctx.pointer_offset(operand);
+                    auto offset_name = ident_name();
+                    offset->name = m_name_pool.back();
+                    append_inst(offset);
 
-                    return inst;
+                    IrValue* segment = nullptr;
+                    if (dst_ptr->flavor == PointerFlavor::Far)
+                    {
+                        if (src_ptr->flavor != PointerFlavor::Near && src_ptr->flavor != PointerFlavor::Based)
+                            lower_panic(c, "invalid pointer flavor conversion");
+                        auto* read = m_ctx.read_segment(src_ptr->flavor == PointerFlavor::Near ? Segment::Ds : src_ptr->seg);
+                        auto segment_name = ident_name();
+                        read->name = m_name_pool.back();
+                        append_inst(read);
+                        segment = read;
+                    }
+                    else if (src_ptr->flavor != PointerFlavor::Far || dst_ptr->flavor != PointerFlavor::Near)
+                        lower_panic(c, "invalid pointer flavor conversion");
+
+                    auto* result = m_ctx.make_pointer(dst_ir_ty, offset, segment);
+                    auto result_name = ident_name();
+                    result->name = m_name_pool.back();
+                    append_inst(result);
+                    return result;
                 }
+
+                if (src_ptr->seg != dst_ptr->seg)
+                    lower_panic(c, "invalid based pointer register conversion");
 
                 auto* inst = m_ctx.bitcast(dst_ir_ty, operand);
                 auto name = ident_name();
@@ -5336,7 +5495,7 @@ export namespace dcc::ir::lower
                 auto const* ir_arr = static_cast<IrArrayType const*>(src_ir_ty);
                 auto* ir_elem_type = ir_arr->element;
 
-                auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), arr_ptr);
+                auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), arr_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -5945,7 +6104,7 @@ export namespace dcc::ir::lower
                                         if (operand_ir_is_aggregate(operand_val->type))
                                         {
                                             auto* base_ptr = lower_addr_of(me->operand);
-                                            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_payload_arr_ty), base_ptr);
+                                            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_payload_arr_ty), base_ptr);
                                             gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 1});
                                             auto gep_name = ident_name();
                                             gep->name = m_name_pool.back();
@@ -6364,7 +6523,7 @@ export namespace dcc::ir::lower
                                             auto* ir_byte = m_ctx.int_t(8, false);
                                             auto* l_ir_payload_arr_ty = m_ctx.array_t(ir_byte, layout->payload_size);
                                             auto* base_ptr = lower_addr_of(operand_expr);
-                                            auto* gep = m_ctx.gep(m_ctx.pointer_to(l_ir_payload_arr_ty), base_ptr);
+                                            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(l_ir_payload_arr_ty), base_ptr);
                                             gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 1});
                                             auto gep_name = ident_name();
                                             gep->name = m_name_pool.back();
@@ -6474,7 +6633,7 @@ export namespace dcc::ir::lower
                         IrValue* field_val = nullptr;
                         if (operand_ir_is_aggregate(value->type))
                         {
-                            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_field_ty, ir::Segment::None), value);
+                            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_field_ty, ir::Segment::None), value);
                             gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field.resolved_field_index});
                             auto name = ident_name();
                             gep->name = m_name_pool.back();
@@ -6502,7 +6661,7 @@ export namespace dcc::ir::lower
                                 auto* ptr_sema_ty = make_ptr_sema_type(field_sema_ty, dcc::types::Qual::None);
                                 if (operand_ir_is_aggregate(value->type))
                                 {
-                                    auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_field_ty, ir::Segment::None), value);
+                                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_field_ty, ir::Segment::None), value);
                                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field.resolved_field_index});
                                     auto name = ident_name();
                                     gep->name = m_name_pool.back();
@@ -6670,14 +6829,14 @@ export namespace dcc::ir::lower
                         alloca->name = m_name_pool.back();
                         append_inst(alloca);
 
-                        auto* gep_elem = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), alloca);
+                        auto* gep_elem = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), alloca);
                         gep_elem->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
                         auto gep_name = ident_name();
                         gep_elem->name = m_name_pool.back();
                         append_inst(gep_elem);
                         append_inst(m_ctx.store(tail_val, gep_elem));
 
-                        auto* ptr_to_first = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), alloca);
+                        auto* ptr_to_first = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), alloca);
                         ptr_to_first->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
                         auto ptr_name = ident_name();
                         ptr_to_first->name = m_name_pool.back();
@@ -7210,7 +7369,7 @@ export namespace dcc::ir::lower
                 return nullptr;
 
             auto* ir_elem_type = lower_type(slice_ty->element);
-            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), base_ptr);
+            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), base_ptr);
             gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.usize_t(), 0), 0});
             auto gep_name = ident_name();
             gep->name = m_name_pool.back();
@@ -7902,6 +8061,10 @@ export namespace dcc::ir::lower
         {
             switch (cv.kind())
             {
+                case dcc::comptime::Value::Kind::Far: {
+                    auto const& far = cv.get_far();
+                    return m_ctx.pointer_const(lower_type(target_type ? target_type : cv.type), far.offset, far.segment);
+                }
                 case dcc::comptime::Value::Kind::Int:
                     return m_ctx.int_const(lower_type(cv.type), cv.get_int());
                 case dcc::comptime::Value::Kind::Float:
@@ -8111,10 +8274,6 @@ export namespace dcc::ir::lower
                     if (cv.is_null_ptr())
                         return m_ctx.null_const(lower_type(target_type ? target_type : cv.type));
                     lower_panic("non-null comptime pointer materialization not supported");
-                }
-                case dcc::comptime::Value::Kind::Far: {
-                    report_far_pointer_unsupported();
-                    return m_ctx.null_const(m_ctx.pointer_to(m_ctx.int_t(8, false)));
                 }
                 case dcc::comptime::Value::Kind::Unknown:
                     lower_panic("unknown comptime value cannot be used as a constant");
@@ -8531,7 +8690,7 @@ export namespace dcc::ir::lower
                     if (!elem_val)
                         continue;
 
-                    auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), alloca);
+                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), alloca);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), static_cast<std::int64_t>(idx)), 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -8539,7 +8698,7 @@ export namespace dcc::ir::lower
                     append_inst(m_ctx.store(elem_val, gep));
                 }
 
-                auto* ptr_to_first = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), alloca);
+                auto* ptr_to_first = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), alloca);
                 ptr_to_first->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
                 auto ptr_name = ident_name();
                 ptr_to_first->name = m_name_pool.back();
@@ -8888,7 +9047,7 @@ export namespace dcc::ir::lower
                 return nullptr;
 
             auto* ir_elem_type = lower_type(element_type);
-            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), base_ptr);
+            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), base_ptr);
             gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.usize_t(), 0), 0});
             auto gep_name = ident_name();
             gep->name = m_name_pool.back();
@@ -8915,7 +9074,7 @@ export namespace dcc::ir::lower
             append_inst(m_ctx.store(arr_val, temp));
 
             auto* ir_elem_type = lower_type(element_type);
-            auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), temp);
+            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), temp);
             gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
             auto gep_name = ident_name();
             gep->name = m_name_pool.back();
@@ -8941,14 +9100,51 @@ export namespace dcc::ir::lower
 
         IrValue* coerce_array_decay(ast::Expr const* src_expr, IrValue* val, dcc::types::TypePtr src_sema_type, dcc::types::TypePtr target_sema_type)
         {
-            if (!val || !target_sema_type || !as_sema_array(src_sema_type))
+            if (!val || !target_sema_type)
                 return val;
 
-            if (target_sema_type->kind == types::TypeKind::Slice)
-                return coerce_array_to_slice(src_expr, val, src_sema_type, target_sema_type);
+            if (as_sema_array(src_sema_type))
+            {
+                if (target_sema_type->kind == types::TypeKind::Slice)
+                    return coerce_array_to_slice(src_expr, val, src_sema_type, target_sema_type);
 
-            if (target_sema_type->kind == types::TypeKind::Pointer)
-                return coerce_array_to_pointer(src_expr, val, src_sema_type, target_sema_type);
+                if (target_sema_type->kind == types::TypeKind::Pointer)
+                    val = coerce_array_to_pointer(src_expr, val, src_sema_type, target_sema_type);
+            }
+
+            auto* target_pointer = types::type_cast<types::PointerType>(target_sema_type);
+            auto* source_pointer = ir_type_cast<IrPointerType>(val->type);
+            if (!target_pointer || !source_pointer)
+                return val;
+
+            auto* target_ir = lower_type(target_sema_type);
+            if (source_pointer->flavor == PointerFlavor::Near && target_pointer->flavor == types::PointerFlavor::Far)
+            {
+                auto* offset = m_ctx.pointer_offset(val);
+                auto offset_name = ident_name();
+                offset->name = m_name_pool.back();
+                append_inst(offset);
+                auto* segment = m_ctx.read_segment(Segment::Ds);
+                auto segment_name = ident_name();
+                segment->name = m_name_pool.back();
+                append_inst(segment);
+                auto* converted = m_ctx.make_pointer(target_ir, offset, segment);
+                auto converted_name = ident_name();
+                converted->name = m_name_pool.back();
+                append_inst(converted);
+                return converted;
+            }
+
+            auto* target_ir_pointer = ir_type_cast<IrPointerType>(target_ir);
+            if (target_ir_pointer && source_pointer->flavor != PointerFlavor::Near && source_pointer->flavor == target_ir_pointer->flavor &&
+                source_pointer->seg == target_ir_pointer->seg && val->type != target_ir)
+            {
+                auto* converted = m_ctx.bitcast(target_ir, val);
+                auto converted_name = ident_name();
+                converted->name = m_name_pool.back();
+                append_inst(converted);
+                return converted;
+            }
 
             return val;
         }
@@ -8999,7 +9195,7 @@ export namespace dcc::ir::lower
                 append_inst(m_ctx.store(arr_val, temp));
 
                 auto* ir_elem_type = lower_type(at->element);
-                auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), temp);
+                auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), temp);
                 gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(m_ctx.int_t(64, false), 0), 0});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -9087,7 +9283,7 @@ export namespace dcc::ir::lower
                     if (it != m_value_map.end() && it->second.is_storage)
                     {
                         auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, it->second.value);
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, it->second.value);
                         gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -9107,7 +9303,7 @@ export namespace dcc::ir::lower
                         {
                             auto* global_ptr = m_ctx.global_ref(global, m_ctx.pointer_to(global->type));
                             auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                            auto* gep = m_ctx.gep(elem_ptr_type, global_ptr);
+                            auto* gep = gep_preserving_flavor(elem_ptr_type, global_ptr);
                             gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                             auto gep_name = ident_name();
                             gep->name = m_name_pool.back();
@@ -9167,7 +9363,7 @@ export namespace dcc::ir::lower
                         append_inst(base_ptr);
                     }
 
-                    auto* gep = m_ctx.gep(m_ctx.pointer_to(lower_type(field_sema_ty)), base_ptr);
+                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(field_sema_ty)), base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9198,7 +9394,7 @@ export namespace dcc::ir::lower
                             append_inst(base_ptr);
                         }
 
-                        auto* gep = m_ctx.gep(m_ctx.pointer_to(lower_type(field_sema_ty)), base_ptr);
+                        auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(field_sema_ty)), base_ptr);
                         gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -9237,7 +9433,7 @@ export namespace dcc::ir::lower
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
             {
                 auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
-                auto* gep = m_ctx.gep(m_ctx.pointer_to(lower_type(field_sema_ty)), obj_val);
+                auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(field_sema_ty)), obj_val);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -9334,7 +9530,7 @@ export namespace dcc::ir::lower
                 lower_panic(fa, "FAM without element type");
             auto* ir_elem_type = lower_type(elem_type);
             auto* zero_idx = m_ctx.int_const(m_ctx.int_t(64, false), 0);
-            auto* fam_gep = m_ctx.gep(m_ctx.pointer_to(ir_elem_type), field_gep);
+            auto* fam_gep = gep_preserving_flavor(m_ctx.pointer_to(ir_elem_type), field_gep);
             fam_gep->indices.push_back({IrGepInst::IndexKind::Array, zero_idx, 0});
             auto fam_gep_name = ident_name();
             fam_gep->name = m_name_pool.back();
@@ -9377,7 +9573,7 @@ export namespace dcc::ir::lower
                 }
 
                 auto* nested_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                auto* nested_gep = m_ctx.gep(nested_ptr_type, base_ptr);
+                auto* nested_gep = gep_preserving_flavor(nested_ptr_type, base_ptr);
                 nested_gep->indices.push_back({IrGepInst::IndexKind::Array, nested_index, 0});
                 auto nested_gep_name = ident_name();
                 nested_gep->name = m_name_pool.back();
@@ -9395,7 +9591,8 @@ export namespace dcc::ir::lower
 
             if (obj_val->type && obj_val->type->kind == IrTypeKind::Slice)
             {
-                auto* ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                auto* slice_type = static_cast<IrSliceType const*>(obj_val->type);
+                auto* ptr_type = m_ctx.pointer_to(ir_resolved_type, slice_type->seg, slice_type->flavor);
                 auto* ptr_extract = m_ctx.extract(ptr_type, obj_val, 0);
                 auto ptr_name = ident_name();
                 ptr_extract->name = m_name_pool.back();
@@ -9410,8 +9607,8 @@ export namespace dcc::ir::lower
                 if (m_bounds_check)
                     emit_bounds_check(ptr_extract, len_extract, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Slice);
 
-                auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                auto* gep = m_ctx.gep(elem_ptr_type, ptr_extract);
+                auto* elem_ptr_type = ptr_type;
+                auto* gep = gep_preserving_flavor(elem_ptr_type, ptr_extract);
                 gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -9452,7 +9649,7 @@ export namespace dcc::ir::lower
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
                     auto* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9489,7 +9686,7 @@ export namespace dcc::ir::lower
                     }
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9528,7 +9725,7 @@ export namespace dcc::ir::lower
                     IrValue* base_ptr = load_lvalue_pointer_layers(const_cast<IrGlobalRef*>(gr), obj_sema_type);
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9572,7 +9769,7 @@ export namespace dcc::ir::lower
                     append_inst(m_ctx.store(obj_val, temp));
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, temp);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, temp);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9589,7 +9786,7 @@ export namespace dcc::ir::lower
             if (obj_val->type && obj_val->type->kind == IrTypeKind::Pointer)
             {
                 auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                auto* gep = m_ctx.gep(elem_ptr_type, obj_val);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, obj_val);
                 gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -9631,7 +9828,7 @@ export namespace dcc::ir::lower
                 if (lv.entry && lv.entry->is_storage)
                 {
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_element_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, lv.entry->value);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, lv.entry->value);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(usize_type, 0), 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9641,7 +9838,7 @@ export namespace dcc::ir::lower
                 else if (lv.gep_ptr)
                 {
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_element_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, lv.gep_ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, lv.gep_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(usize_type, 0), 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9660,7 +9857,7 @@ export namespace dcc::ir::lower
                     append_inst(m_ctx.store(obj_val, temp));
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_element_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, temp);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, temp);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(usize_type, 0), 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9862,7 +10059,7 @@ export namespace dcc::ir::lower
             append_inst(slice_len);
 
             auto* elem_ptr_type = m_ctx.pointer_to(ir_element_type);
-            auto* gep = m_ctx.gep(elem_ptr_type, source_ptr);
+            auto* gep = gep_preserving_flavor(elem_ptr_type, source_ptr);
             gep->indices.push_back({IrGepInst::IndexKind::Array, start_val, 0});
 
             auto gep_name = ident_name();
@@ -9932,7 +10129,7 @@ export namespace dcc::ir::lower
                     if (it != m_value_map.end() && it->second.is_storage)
                     {
                         auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, it->second.value);
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, it->second.value);
                         gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -9948,7 +10145,7 @@ export namespace dcc::ir::lower
                             auto* ptr_type = m_ctx.pointer_to(global->type);
                             auto* global_ref = m_ctx.global_ref(global, ptr_type);
                             auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                            auto* gep = m_ctx.gep(elem_ptr_type, global_ref);
+                            auto* gep = gep_preserving_flavor(elem_ptr_type, global_ref);
                             gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                             auto gep_name = ident_name();
                             gep->name = m_name_pool.back();
@@ -9985,7 +10182,7 @@ export namespace dcc::ir::lower
                     IrValue* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
 
                     auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10003,7 +10200,7 @@ export namespace dcc::ir::lower
                         IrValue* base_ptr = load_lvalue_pointer_layers(global_ref, obj_sema_type);
 
                         auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                        auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                         gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -10018,7 +10215,7 @@ export namespace dcc::ir::lower
                 auto* base_ptr = lower_index_lvalue(static_cast<ast::IndexExpr const*>(fa->object));
                 base_ptr = load_lvalue_pointer_layers(base_ptr, obj_sema_type);
                 auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -10031,7 +10228,7 @@ export namespace dcc::ir::lower
                 auto* inner_ptr = lower_field_lvalue(static_cast<ast::FieldAccessExpr const*>(fa->object));
                 inner_ptr = load_lvalue_pointer_layers(inner_ptr, obj_sema_type);
                 auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                auto* gep = m_ctx.gep(elem_ptr_type, inner_ptr);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, inner_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -10046,7 +10243,7 @@ export namespace dcc::ir::lower
                 {
                     auto* ptr = lower_expr(ue->operand);
                     auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                    auto* gep = m_ctx.gep(elem_ptr_type, ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10060,7 +10257,7 @@ export namespace dcc::ir::lower
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
             {
                 auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                auto* gep = m_ctx.gep(elem_ptr_type, obj_val);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, obj_val);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -10073,7 +10270,7 @@ export namespace dcc::ir::lower
                 if (gr->global)
                 {
                     auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
-                    auto* gep = m_ctx.gep(elem_ptr_type, const_cast<IrGlobalRef*>(gr));
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, const_cast<IrGlobalRef*>(gr));
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10101,7 +10298,7 @@ export namespace dcc::ir::lower
 
             auto make_gep = [&](IrValue* base_ptr) -> IrValue* {
                 auto* elem_ptr_type = m_ctx.pointer_to(lower_type(elem_sema_ty));
-                auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -10190,7 +10387,7 @@ export namespace dcc::ir::lower
                 auto* obj_val = lower_expr(inner);
                 if (inner_ty && inner_ty->kind == types::TypeKind::Pointer)
                 {
-                    auto* gep = m_ctx.gep(m_ctx.pointer_to(ir_resolved_type), obj_val);
+                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_resolved_type), obj_val);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, pa->resolved_field_index});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10232,14 +10429,16 @@ export namespace dcc::ir::lower
                 {
                     if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Slice)
                     {
-                        auto* ptr_to_field = m_ctx.pointer_to(m_ctx.pointer_to(ir_resolved_type));
-                        auto* gep_ptr = m_ctx.gep(ptr_to_field, it->second.value);
+                        auto* slice_type = static_cast<IrSliceType const*>(lower_type(obj_sema_type));
+                        auto* data_ptr_type = m_ctx.pointer_to(ir_resolved_type, slice_type->seg, slice_type->flavor);
+                        auto* ptr_to_field = m_ctx.pointer_to(data_ptr_type);
+                        auto* gep_ptr = gep_preserving_flavor(ptr_to_field, it->second.value);
                         gep_ptr->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 0});
                         auto gep_ptr_name = ident_name();
                         gep_ptr->name = m_name_pool.back();
                         append_inst(gep_ptr);
 
-                        auto* ptr_val = m_ctx.load(m_ctx.pointer_to(ir_resolved_type), gep_ptr);
+                        auto* ptr_val = m_ctx.load(data_ptr_type, gep_ptr);
                         auto ptr_load_name = ident_name();
                         ptr_val->name = m_name_pool.back();
                         append_inst(ptr_val);
@@ -10247,7 +10446,7 @@ export namespace dcc::ir::lower
                         if (m_bounds_check)
                         {
                             auto* ptr_to_len_field = m_ctx.pointer_to(m_ctx.usize_t());
-                            auto* gep_len = m_ctx.gep(ptr_to_len_field, it->second.value);
+                            auto* gep_len = gep_preserving_flavor(ptr_to_len_field, it->second.value);
                             gep_len->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 1});
                             auto gep_len_name = ident_name();
                             gep_len->name = m_name_pool.back();
@@ -10261,8 +10460,8 @@ export namespace dcc::ir::lower
                             emit_bounds_check(ptr_val, len_val, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Slice);
                         }
 
-                        auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, ptr_val);
+                        auto* elem_ptr_type = data_ptr_type;
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, ptr_val);
                         gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -10290,7 +10489,7 @@ export namespace dcc::ir::lower
 
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
                     auto* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10325,7 +10524,7 @@ export namespace dcc::ir::lower
                         auto* global_ref = m_ctx.global_ref(global, ptr_type);
                         auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
                         auto* base_ptr = load_lvalue_pointer_layers(global_ref, obj_sema_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                         gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -10342,7 +10541,8 @@ export namespace dcc::ir::lower
                     auto* entry_val = it->second.value;
                     if (entry_val->type && entry_val->type->kind == IrTypeKind::Slice)
                     {
-                        auto* ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                        auto* slice_type = static_cast<IrSliceType const*>(entry_val->type);
+                        auto* ptr_type = m_ctx.pointer_to(ir_resolved_type, slice_type->seg, slice_type->flavor);
                         auto* ptr_extract = m_ctx.extract(ptr_type, entry_val, 0);
                         auto ptr_name = ident_name();
                         ptr_extract->name = m_name_pool.back();
@@ -10357,8 +10557,8 @@ export namespace dcc::ir::lower
                             emit_bounds_check(ptr_extract, len_extract, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Slice);
                         }
 
-                        auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, ptr_extract);
+                        auto* elem_ptr_type = ptr_type;
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, ptr_extract);
                         gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -10369,7 +10569,7 @@ export namespace dcc::ir::lower
                     if (entry_val->type && entry_val->type->kind == IrTypeKind::Pointer)
                     {
                         auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                        auto* gep = m_ctx.gep(elem_ptr_type, entry_val);
+                        auto* gep = gep_preserving_flavor(elem_ptr_type, entry_val);
                         gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -10404,7 +10604,7 @@ export namespace dcc::ir::lower
                 }
 
                 auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                auto* gep = m_ctx.gep(elem_ptr_type, base_ptr);
+                auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -10418,7 +10618,7 @@ export namespace dcc::ir::lower
                 if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
                 {
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, obj_val);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, obj_val);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10428,7 +10628,8 @@ export namespace dcc::ir::lower
 
                 if (obj_val->type && obj_val->type->kind == IrTypeKind::Slice)
                 {
-                    auto* ptr_type = m_ctx.pointer_to(ir_resolved_type);
+                    auto* slice_type = static_cast<IrSliceType const*>(obj_val->type);
+                    auto* ptr_type = m_ctx.pointer_to(ir_resolved_type, slice_type->seg, slice_type->flavor);
                     auto* ptr_extract = m_ctx.extract(ptr_type, obj_val, 0);
                     auto ptr_name = ident_name();
                     ptr_extract->name = m_name_pool.back();
@@ -10443,8 +10644,8 @@ export namespace dcc::ir::lower
                         emit_bounds_check(ptr_extract, len_extract, index_val, idx_expr->range, idx_expr->index->range, BoundsCheckKind::Slice);
                     }
 
-                    auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, ptr_extract);
+                    auto* elem_ptr_type = ptr_type;
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, ptr_extract);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -10455,7 +10656,7 @@ export namespace dcc::ir::lower
                 if (obj_val->type && obj_val->type->kind == IrTypeKind::Pointer)
                 {
                     auto* elem_ptr_type = m_ctx.pointer_to(ir_resolved_type);
-                    auto* gep = m_ctx.gep(elem_ptr_type, obj_val);
+                    auto* gep = gep_preserving_flavor(elem_ptr_type, obj_val);
                     gep->indices.push_back({IrGepInst::IndexKind::Array, index_val, 0});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();

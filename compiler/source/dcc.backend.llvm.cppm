@@ -263,8 +263,20 @@ namespace dcc::backend
                         return LLVMDoubleTypeInContext(ctx);
                     return LLVMFloatTypeInContext(ctx);
                 }
-                case IrTypeKind::Pointer:
-                    return LLVMPointerTypeInContext(ctx, 0);
+                case IrTypeKind::Pointer: {
+                    auto* pt = static_cast<IrPointerType const*>(t);
+                    unsigned address_space = 0;
+                    if (pt->flavor == PointerFlavor::Based)
+                    {
+                        if (pt->seg == Segment::Gs)
+                            address_space = 256;
+                        else if (pt->seg == Segment::Fs)
+                            address_space = 257;
+                        else if (pt->seg == Segment::Ss)
+                            address_space = 258;
+                    }
+                    return LLVMPointerTypeInContext(ctx, address_space);
+                }
                 default:
                     return nullptr;
             }
@@ -323,9 +335,20 @@ namespace dcc::backend
 
                 if (t->kind == IrTypeKind::Slice)
                 {
+                    auto* slice = static_cast<IrSliceType const*>(t);
                     auto* usize_llvm = LLVMIntTypeInContext(ctx, pointer_bits);
+                    unsigned address_space = 0;
+                    if (slice->flavor == PointerFlavor::Based)
+                    {
+                        if (slice->seg == Segment::Gs)
+                            address_space = 256;
+                        else if (slice->seg == Segment::Fs)
+                            address_space = 257;
+                        else if (slice->seg == Segment::Ss)
+                            address_space = 258;
+                    }
                     LLVMTypeRef fields[] = {
-                        LLVMPointerTypeInContext(ctx, 0),
+                        LLVMPointerTypeInContext(ctx, address_space),
                         usize_llvm,
                     };
                     auto* slice_ty = LLVMStructTypeInContext(ctx, fields, 2, 0);
@@ -963,6 +986,17 @@ namespace dcc::backend
                     return true;
                 case IrNodeKind::NullConstant:
                     return true;
+                case IrNodeKind::PointerConstant: {
+                    auto* pointer = static_cast<IrPointerConstant const*>(value);
+                    auto* pointer_type = ir_type_cast<IrPointerType>(storage_type);
+                    if (!pointer_type)
+                        return false;
+                    auto const offset_size = pointer_type->flavor == PointerFlavor::Far ? pointer_type->byte_size / 2 : pointer_type->byte_size;
+                    write_integer_bytes(output.first(static_cast<std::size_t>(offset_size)), pointer->offset, 0, little_endian);
+                    if (pointer_type->flavor == PointerFlavor::Far)
+                        write_integer_bytes(output.subspan(static_cast<std::size_t>(offset_size), 2), pointer->segment, 0, little_endian);
+                    return true;
+                }
                 case IrNodeKind::StringConstant: {
                     auto const& string = static_cast<IrStringConstant const*>(value)->value;
                     if (string.size() > output.size())
@@ -1307,6 +1341,15 @@ namespace dcc::backend
                 }
                 case IrNodeKind::NullConstant:
                     return LLVMConstNull(expected_mem_type ? expected_mem_type : c_api_type_cached(tc, v->type));
+                case IrNodeKind::PointerConstant: {
+                    auto* p = static_cast<IrPointerConstant const*>(v);
+                    auto* pointer_ty = expected_mem_type ? expected_mem_type : c_api_type_cached(tc, p->type);
+                    if (!pointer_ty)
+                        return nullptr;
+                    auto* offset_ty = LLVMIntTypeInContext(ctx, tc.pointer_bits);
+                    auto* offset = LLVMConstInt(offset_ty, p->offset, false);
+                    return LLVMConstIntToPtr(offset, pointer_ty);
+                }
                 case IrNodeKind::GlobalRef: {
                     auto* g = static_cast<IrGlobalRef const*>(v);
 
@@ -2087,11 +2130,67 @@ namespace dcc::backend
             [[nodiscard]] static bool precheck_module(IrModule const& module, std::vector<BackendDiagnostic>& diags)
             {
                 bool has_unsupported = false;
+                std::unordered_set<IrType const*> seen_types;
+                std::function<void(IrType const*)> check_type = [&](IrType const* type) {
+                    if (!type || !seen_types.insert(type).second)
+                        return;
+                    switch (type->kind)
+                    {
+                        case IrTypeKind::Pointer: {
+                            auto* ptr = static_cast<IrPointerType const*>(type);
+                            if (ptr->flavor == PointerFlavor::Far)
+                            {
+                                add_diag(diags, {}, "dynamic far pointers are not supported by the llvm backend");
+                                has_unsupported = true;
+                            }
+                            else if (ptr->flavor == PointerFlavor::Based && ptr->seg != Segment::Fs && ptr->seg != Segment::Gs && ptr->seg != Segment::Ss)
+                            {
+                                add_diag(diags, {}, "CS, DS, and ES based pointers are not supported by the llvm backend");
+                                has_unsupported = true;
+                            }
+                            check_type(ptr->pointee);
+                            break;
+                        }
+                        case IrTypeKind::Slice: {
+                            auto* slice = static_cast<IrSliceType const*>(type);
+                            if (slice->flavor == PointerFlavor::Far)
+                            {
+                                add_diag(diags, {}, "dynamic far slices are not supported by the llvm backend");
+                                has_unsupported = true;
+                            }
+                            else if (slice->flavor == PointerFlavor::Based && slice->seg != Segment::Fs && slice->seg != Segment::Gs &&
+                                     slice->seg != Segment::Ss)
+                            {
+                                add_diag(diags, {}, "CS, DS, and ES based slices are not supported by the llvm backend");
+                                has_unsupported = true;
+                            }
+                            check_type(slice->element);
+                            break;
+                        }
+                        case IrTypeKind::Array:
+                            check_type(static_cast<IrArrayType const*>(type)->element);
+                            break;
+                        case IrTypeKind::Aggregate:
+                            for (auto* member : static_cast<IrAggregateType const*>(type)->members)
+                                check_type(member);
+                            break;
+                        case IrTypeKind::Func: {
+                            auto* func_type = static_cast<IrFuncType const*>(type);
+                            check_type(func_type->return_type);
+                            for (auto* param : func_type->params)
+                                check_type(param);
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                };
 
                 for (auto* func : module.functions)
                 {
                     if (!func)
                         continue;
+                    check_type(func->func_type);
 
                     for (auto* bb : func->blocks)
                     {
@@ -2099,7 +2198,11 @@ namespace dcc::backend
                             continue;
 
                         for (auto* inst : bb->instructions)
+                        {
+                            if (inst)
+                                check_type(inst->type);
                             has_unsupported |= precheck_instruction(inst, diags);
+                        }
                         if (bb->terminator)
                             has_unsupported |= precheck_terminator(bb->terminator, diags);
                     }
@@ -2116,6 +2219,7 @@ namespace dcc::backend
                         has_unsupported = true;
                         continue;
                     }
+                    check_type(g->type);
 
                     switch (g->type->kind)
                     {
@@ -2141,6 +2245,38 @@ namespace dcc::backend
 
                 switch (inst->kind)
                 {
+                    case IrNodeKind::ReadSegment:
+                    case IrNodeKind::PointerSegment:
+                        add_diag(diags, inst->range, "dynamic far pointers are not supported by the llvm backend");
+                        return true;
+                    case IrNodeKind::MakePointer:
+                        if (static_cast<IrMakePointerInst const*>(inst)->segment)
+                        {
+                            add_diag(diags, inst->range, "dynamic far pointers are not supported by the llvm backend");
+                            return true;
+                        }
+                        break;
+                    case IrNodeKind::AtomicLoad:
+                    case IrNodeKind::AtomicStore:
+                    case IrNodeKind::AtomicRmw:
+                    case IrNodeKind::AtomicCmpXchg: {
+                        IrValue const* pointer = nullptr;
+                        if (inst->kind == IrNodeKind::AtomicLoad)
+                            pointer = static_cast<IrAtomicLoadInst const*>(inst)->pointer;
+                        else if (inst->kind == IrNodeKind::AtomicStore)
+                            pointer = static_cast<IrAtomicStoreInst const*>(inst)->pointer;
+                        else if (inst->kind == IrNodeKind::AtomicRmw)
+                            pointer = static_cast<IrAtomicRmwInst const*>(inst)->pointer;
+                        else
+                            pointer = static_cast<IrAtomicCmpXchgInst const*>(inst)->pointer;
+                        if (pointer && pointer->type && pointer->type->kind == IrTypeKind::Pointer &&
+                            static_cast<IrPointerType const*>(pointer->type)->flavor != PointerFlavor::Near)
+                        {
+                            add_diag(diags, inst->range, "atomics through based or dynamic far pointers are not supported by the llvm backend");
+                            return true;
+                        }
+                        break;
+                    }
                     case IrNodeKind::Load:
                         if (!static_cast<IrLoadInst const*>(inst)->pointer)
                         {
@@ -3969,6 +4105,33 @@ namespace dcc::backend
                         val_map[inst] = r;
                         break;
                     }
+                    case IrNodeKind::MakePointer: {
+                        auto* p = static_cast<IrMakePointerInst const*>(inst);
+                        if (p->segment)
+                            return false;
+                        auto* offset = lookup(p->offset);
+                        auto* dst_ty = llvm_type_cached(tc, p->type);
+                        if (!offset || !dst_ty)
+                            return false;
+                        auto* r = LLVMBuildIntToPtr(builder, offset, dst_ty, "");
+                        set_name(r);
+                        val_map[inst] = r;
+                        break;
+                    }
+                    case IrNodeKind::PointerOffset: {
+                        auto* p = static_cast<IrPointerOffsetInst const*>(inst);
+                        auto* pointer = lookup(p->pointer);
+                        auto* dst_ty = llvm_type_cached(tc, p->type);
+                        if (!pointer || !dst_ty)
+                            return false;
+                        auto* r = LLVMBuildPtrToInt(builder, pointer, dst_ty, "");
+                        set_name(r);
+                        val_map[inst] = r;
+                        break;
+                    }
+                    case IrNodeKind::ReadSegment:
+                    case IrNodeKind::PointerSegment:
+                        return false;
                     case IrNodeKind::Bitcast: {
                         auto* b = static_cast<IrBitcastInst const*>(inst);
                         auto* op = lookup(b->operand);
@@ -3977,18 +4140,6 @@ namespace dcc::backend
                             return false;
 
                         auto* r = LLVMBuildBitCast(builder, op, dst_ty, "");
-                        set_name(r);
-                        val_map[inst] = r;
-                        break;
-                    }
-                    case IrNodeKind::Segcast: {
-                        auto* s = static_cast<IrSegcastInst const*>(inst);
-                        auto* op = lookup(s->operand);
-                        auto* dst_ty = llvm_type_cached(tc, s->type);
-                        if (!op || !dst_ty)
-                            return false;
-
-                        auto* r = LLVMBuildPointerCast(builder, op, dst_ty, "");
                         set_name(r);
                         val_map[inst] = r;
                         break;

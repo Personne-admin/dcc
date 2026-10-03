@@ -1,0 +1,15 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+public u8 load_slice([^FS]u8 slice, usize index) { return slice[index]; }
+public void store_slice([^GS]u8 slice, usize index, u8 value) { slice[index] = value; }
+public [^FS]u8 make_slice(u8^FS pointer, usize length) { return core::seg::from_raw(pointer, length); }
+
+=== EXPECT-LLVM-PATTERNS ===
+CONTAINS: define i8 @_DC0F1.1.m10.load_slice2KqFSi8uIui8u({ ptr addrspace(257), i32 } %slice, i32 %index)
+CONTAINS: getelementptr i8, ptr addrspace(257)
+CONTAINS: load i8, ptr addrspace(257)
+CONTAINS: define void @_DC0F1.1.m11.store_slice3KqGSi8uIui8uv({ ptr addrspace(256), i32 } %slice, i32 %index, i8 %value)
+CONTAINS: store i8 %value, ptr addrspace(256)
+CONTAINS: define { ptr addrspace(257), i32 } @_DC0F1.1.m10.make_slice2BqFSi8uIuKqFSi8u(ptr addrspace(257) %pointer, i32 %length)

@@ -6,5 +6,13 @@ public usize demo([^GS]u8 s) {
     return s.len;
 }
 
-=== EXPECT-IR-ERRORS ===
-far and based pointers are not supported by this backend yet
+=== EXPECT-IR ===
+module "m"
+usize@_DC0F1.1.m4.demo1KqGSi8uIu([]gs u8) {
+%entry([]gs u8 %s):
+  %0 = alloca []gs u8
+  store []gs u8 %s, ptr<[]gs u8> %0
+  %1 = gep ptr<[]gs u8> %0, field #1
+  %2 = load usize, ptr<usize> %1
+  ret usize %2
+}

@@ -3115,8 +3115,7 @@ namespace dcc::backend::em64t
                 case IrNodeKind::IToFp:
                 case IrNodeKind::PtrToI:
                 case IrNodeKind::IToPtr:
-                case IrNodeKind::Bitcast:
-                case IrNodeKind::Segcast: {
+                case IrNodeKind::Bitcast: {
                     IrValue const* operand = nullptr;
 
                     auto get_operand = [](IrValue const* v) -> IrValue const* {
@@ -3142,8 +3141,6 @@ namespace dcc::backend::em64t
                                 return static_cast<IrIToPtrInst const*>(v)->operand;
                             case IrNodeKind::Bitcast:
                                 return static_cast<IrBitcastInst const*>(v)->operand;
-                            case IrNodeKind::Segcast:
-                                return static_cast<IrSegcastInst const*>(v)->operand;
                             default:
                                 return nullptr;
                         }
@@ -3266,8 +3263,7 @@ namespace dcc::backend::em64t
                             break;
                         }
                         case IrNodeKind::PtrToI:
-                        case IrNodeKind::IToPtr:
-                        case IrNodeKind::Segcast: {
+                        case IrNodeKind::IToPtr: {
                             VReg dst = emit_unary_op(ctx, MOpc::MOV64rr, op_vreg);
                             ctx.set_vreg(inst, dst);
                             break;
