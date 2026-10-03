@@ -33,6 +33,47 @@ namespace dcc::backend
 {
     namespace
     {
+        [[nodiscard]] bool has_segmented_type(ir::IrType const* type, std::unordered_set<ir::IrType const*>& seen)
+        {
+            if (!type || !seen.insert(type).second)
+                return false;
+            switch (type->kind)
+            {
+                case ir::IrTypeKind::Pointer: {
+                    auto* ptr = static_cast<ir::IrPointerType const*>(type);
+                    return ptr->flavor != ir::PointerFlavor::Near || has_segmented_type(ptr->pointee, seen);
+                }
+                case ir::IrTypeKind::Slice: {
+                    auto* slice = static_cast<ir::IrSliceType const*>(type);
+                    return slice->flavor != ir::PointerFlavor::Near || has_segmented_type(slice->element, seen);
+                }
+                case ir::IrTypeKind::Array:
+                    return has_segmented_type(static_cast<ir::IrArrayType const*>(type)->element, seen);
+                case ir::IrTypeKind::Aggregate:
+                    for (auto* member : static_cast<ir::IrAggregateType const*>(type)->members)
+                        if (has_segmented_type(member, seen))
+                            return true;
+                    return false;
+                case ir::IrTypeKind::Func: {
+                    auto* func = static_cast<ir::IrFuncType const*>(type);
+                    if (has_segmented_type(func->return_type, seen))
+                        return true;
+                    for (auto* param : func->params)
+                        if (has_segmented_type(param, seen))
+                            return true;
+                    return false;
+                }
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool has_segmented_type(ir::IrType const* type)
+        {
+            std::unordered_set<ir::IrType const*> seen;
+            return has_segmented_type(type, seen);
+        }
+
         class Em64tBackendImpl : public Backend
         {
         public:
@@ -67,6 +108,35 @@ namespace dcc::backend
                 // TODO: honor opts.target.cpu baseline for instruction selection
                 if (opts.opt_level > dcc::ir::pass::OptLevel::O0 && !std::getenv("DCC_BENCH_SKIP_IR_PASSES"))
                     input_module = dcc::ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
+
+                for (auto* global : input_module->globals)
+                    if (global && has_segmented_type(global->type))
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "far and based pointers are not supported by this backend yet"});
+                        return artifact;
+                    }
+                for (auto* func : input_module->functions)
+                {
+                    if (!func)
+                        continue;
+                    if (has_segmented_type(func->func_type))
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{{}, "far and based pointers are not supported by this backend yet"});
+                        return artifact;
+                    }
+                    for (auto* block : func->blocks)
+                    {
+                        if (!block)
+                            continue;
+                        for (auto* inst : block->instructions)
+                            if (inst && (has_segmented_type(inst->type) || inst->kind == ir::IrNodeKind::ReadSegment ||
+                                         inst->kind == ir::IrNodeKind::PointerSegment))
+                            {
+                                artifact.diagnostics.push_back(BackendDiagnostic{{}, "far and based pointers are not supported by this backend yet"});
+                                return artifact;
+                            }
+                    }
+                }
 
                 if (auto mismatch = find_bad_global_initializer(*input_module))
                 {

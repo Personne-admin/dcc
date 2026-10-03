@@ -52,7 +52,10 @@ namespace dcc::ir::pass
             case IrNodeKind::PtrToI:
             case IrNodeKind::IToPtr:
             case IrNodeKind::Bitcast:
-            case IrNodeKind::Segcast:
+            case IrNodeKind::ReadSegment:
+            case IrNodeKind::MakePointer:
+            case IrNodeKind::PointerOffset:
+            case IrNodeKind::PointerSegment:
             case IrNodeKind::Gep:
             case IrNodeKind::Extract:
             case IrNodeKind::Insert:
@@ -232,9 +235,29 @@ namespace dcc::ir::pass
                     CAST_CASE(PtrToI);
                     CAST_CASE(IToPtr);
                     CAST_CASE(Bitcast);
-                    CAST_CASE(Segcast);
 
 #undef CAST_CASE
+
+                case IrNodeKind::MakePointer: {
+                    auto* p = static_cast<IrMakePointerInst*>(node);
+                    if (p->offset == old_val)
+                        p->offset = new_val;
+                    if (p->segment == old_val)
+                        p->segment = new_val;
+                    break;
+                }
+                case IrNodeKind::PointerOffset: {
+                    auto* p = static_cast<IrPointerOffsetInst*>(node);
+                    if (p->pointer == old_val)
+                        p->pointer = new_val;
+                    break;
+                }
+                case IrNodeKind::PointerSegment: {
+                    auto* p = static_cast<IrPointerSegmentInst*>(node);
+                    if (p->pointer == old_val)
+                        p->pointer = new_val;
+                    break;
+                }
 
                 case IrNodeKind::Extract: {
                     auto& agg = static_cast<IrExtractInst*>(node)->aggregate;
@@ -340,6 +363,7 @@ namespace dcc::ir::pass
                 case IrNodeKind::FloatConstant:
                 case IrNodeKind::BoolConstant:
                 case IrNodeKind::NullConstant:
+                case IrNodeKind::PointerConstant:
                 case IrNodeKind::StringConstant:
                 case IrNodeKind::Local:
                 case IrNodeKind::GlobalRef:
@@ -1189,8 +1213,11 @@ namespace dcc::ir::pass
                 case IrNodeKind::PtrToI:
                 case IrNodeKind::IToPtr:
                 case IrNodeKind::Bitcast:
-                case IrNodeKind::Segcast:
-                case IrNodeKind::Extract:
+            case IrNodeKind::ReadSegment:
+            case IrNodeKind::MakePointer:
+            case IrNodeKind::PointerOffset:
+            case IrNodeKind::PointerSegment:
+            case IrNodeKind::Extract:
                 case IrNodeKind::Insert:
                 case IrNodeKind::Aggregate:
                 case IrNodeKind::Gep:
@@ -1568,10 +1595,14 @@ namespace dcc::ir::pass
                     auto* c = static_cast<IrIToPtrInst const*>(v);
                     return inline_backward_flows_to(c->operand, target, seen, steps);
                 }
-                case IrNodeKind::Segcast: {
-                    auto* c = static_cast<IrSegcastInst const*>(v);
-                    return inline_backward_flows_to(c->operand, target, seen, steps);
+                case IrNodeKind::MakePointer: {
+                    auto* p = static_cast<IrMakePointerInst const*>(v);
+                    return inline_backward_flows_to(p->offset, target, seen, steps) || inline_backward_flows_to(p->segment, target, seen, steps);
                 }
+                case IrNodeKind::PointerOffset:
+                    return inline_backward_flows_to(static_cast<IrPointerOffsetInst const*>(v)->pointer, target, seen, steps);
+                case IrNodeKind::PointerSegment:
+                    return inline_backward_flows_to(static_cast<IrPointerSegmentInst const*>(v)->pointer, target, seen, steps);
                 case IrNodeKind::Zext: {
                     auto* c = static_cast<IrZextInst const*>(v);
                     return inline_backward_flows_to(c->operand, target, seen, steps);
@@ -1887,6 +1918,7 @@ namespace dcc::ir::pass
                 case IrNodeKind::FloatConstant:
                 case IrNodeKind::BoolConstant:
                 case IrNodeKind::NullConstant:
+                case IrNodeKind::PointerConstant:
                 case IrNodeKind::StringConstant:
                     return true;
                 default:
@@ -2586,10 +2618,8 @@ namespace dcc::ir::pass
                     auto* ci = static_cast<IrBitcastInst const*>(v);
                     return clone1(ci->operand, ci->type, &IrContext::bitcast);
                 }
-                default: {
-                    auto* ci = static_cast<IrSegcastInst const*>(v);
-                    return clone1(ci->operand, ci->type, &IrContext::segcast);
-                }
+                default:
+                    return nullptr;
             }
         }
         [[nodiscard]] static IrValue* inline_clone_value_impl(IrValue const* v, InlineClone& ic);
@@ -2622,6 +2652,7 @@ namespace dcc::ir::pass
                 case IrNodeKind::FloatConstant:
                 case IrNodeKind::BoolConstant:
                 case IrNodeKind::NullConstant:
+                case IrNodeKind::PointerConstant:
                 case IrNodeKind::StringConstant:
                 case IrNodeKind::GlobalRef:
                 case IrNodeKind::Function:
@@ -2694,9 +2725,27 @@ namespace dcc::ir::pass
                 case IrNodeKind::PtrToI:
                 case IrNodeKind::IToPtr:
                 case IrNodeKind::Bitcast:
-                case IrNodeKind::Segcast:
                     result = inline_clone_cast(v, ic);
                     break;
+                case IrNodeKind::ReadSegment: {
+                    result = ic.ctx->read_segment(static_cast<IrReadSegmentInst const*>(v)->segment);
+                    break;
+                }
+                case IrNodeKind::MakePointer: {
+                    auto* p = static_cast<IrMakePointerInst const*>(v);
+                    result = ic.ctx->make_pointer(p->type, inline_clone_value(p->offset, ic), inline_clone_value(p->segment, ic));
+                    break;
+                }
+                case IrNodeKind::PointerOffset: {
+                    auto* p = static_cast<IrPointerOffsetInst const*>(v);
+                    result = ic.ctx->pointer_offset(inline_clone_value(p->pointer, ic));
+                    break;
+                }
+                case IrNodeKind::PointerSegment: {
+                    auto* p = static_cast<IrPointerSegmentInst const*>(v);
+                    result = ic.ctx->pointer_segment(inline_clone_value(p->pointer, ic));
+                    break;
+                }
                 case IrNodeKind::Alloca: {
                     auto* a = static_cast<IrAllocaInst const*>(v);
                     if (a->count != nullptr)

@@ -30,6 +30,13 @@ export namespace dcc::ir
         Ss,
     };
 
+    enum class PointerFlavor : std::uint8_t
+    {
+        Near,
+        Based,
+        Far,
+    };
+
     struct IrType
     {
         IrTypeKind kind;
@@ -96,11 +103,21 @@ export namespace dcc::ir
 
         IrType const* pointee;
         Segment seg{Segment::None};
+        PointerFlavor flavor{PointerFlavor::Near};
 
-        IrPointerType(IrType const* p, Segment s = Segment::None, std::uint8_t pb = 64, std::uint8_t pa = 8) : IrType(Kind), pointee(p), seg(s)
+        IrPointerType(IrType const* p, Segment s = Segment::None, PointerFlavor f = PointerFlavor::Near, std::uint8_t pb = 64, std::uint8_t pa = 8)
+            : IrType(Kind), pointee(p), seg(s), flavor(f)
         {
-            byte_size = pb / 8;
-            byte_align = pa;
+            if (flavor == PointerFlavor::Far)
+            {
+                byte_size = pb <= 16 ? 4 : pb <= 32 ? 8 : 16;
+                byte_align = pb <= 16 ? 2 : pb <= 32 ? 4 : 8;
+            }
+            else
+            {
+                byte_size = pb / 8;
+                byte_align = pa;
+            }
         }
     };
 
@@ -139,12 +156,24 @@ export namespace dcc::ir
 
         IrType const* element;
         Segment seg{Segment::None};
+        PointerFlavor flavor{PointerFlavor::Near};
 
-        IrSliceType(IrType const* el, Segment s = Segment::None, std::uint8_t pointer_bits = 64, std::uint8_t pointer_align = 8)
-            : IrType(Kind), element(el), seg(s)
+        IrSliceType(IrType const* el, Segment s = Segment::None, PointerFlavor f = PointerFlavor::Near, std::uint8_t pointer_bits = 64,
+                    std::uint8_t pointer_align = 8)
+            : IrType(Kind), element(el), seg(s), flavor(f)
         {
-            byte_size = 2 * (static_cast<std::uint64_t>(pointer_bits) / 8);
-            byte_align = pointer_align;
+            if (flavor == PointerFlavor::Far)
+            {
+                byte_align = pointer_bits <= 16 ? 2 : pointer_bits <= 32 ? 4 : 8;
+                std::uint64_t const pointer_size = pointer_bits <= 16 ? 4 : pointer_bits <= 32 ? 8 : 16;
+                auto const unaligned = pointer_size + static_cast<std::uint64_t>(pointer_bits) / 8;
+                byte_size = (unaligned + byte_align - 1) / byte_align * byte_align;
+            }
+            else
+            {
+                byte_size = 2 * (static_cast<std::uint64_t>(pointer_bits) / 8);
+                byte_align = pointer_align;
+            }
         }
     };
 
@@ -202,6 +231,7 @@ export namespace dcc::ir
         FloatConstant,
         BoolConstant,
         NullConstant,
+        PointerConstant,
         StringConstant,
 
         Local,
@@ -257,7 +287,10 @@ export namespace dcc::ir
         PtrToI,
         IToPtr,
         Bitcast,
-        Segcast,
+        ReadSegment,
+        MakePointer,
+        PointerOffset,
+        PointerSegment,
 
         Extract,
         Insert,
@@ -351,6 +384,14 @@ export namespace dcc::ir
     {
         static constexpr auto Kind = IrNodeKind::NullConstant;
         explicit IrNullConstant(IrType const* t) : IrValue(Kind) { type = t; }
+    };
+
+    struct IrPointerConstant : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::PointerConstant;
+        std::uint64_t offset;
+        std::uint16_t segment;
+        IrPointerConstant(IrType const* t, std::uint64_t o, std::uint16_t s) : IrValue(Kind), offset(o), segment(s) { type = t; }
     };
 
     struct IrStringConstant : IrValue
@@ -926,13 +967,41 @@ export namespace dcc::ir
         IrBitcastInst(IrType const* dst_t, IrValue* o) : IrValue(Kind), operand(o) { type = dst_t; }
     };
 
-    struct IrSegcastInst : IrValue
+    struct IrReadSegmentInst : IrValue
     {
-        static constexpr auto Kind = IrNodeKind::Segcast;
+        static constexpr auto Kind = IrNodeKind::ReadSegment;
 
-        IrValue* operand;
+        Segment segment;
 
-        IrSegcastInst(IrType const* dst_t, IrValue* o) : IrValue(Kind), operand(o) { type = dst_t; }
+        IrReadSegmentInst(IrType const* result_t, Segment s) : IrValue(Kind), segment(s) { type = result_t; }
+    };
+
+    struct IrMakePointerInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::MakePointer;
+
+        IrValue* offset;
+        IrValue* segment;
+
+        IrMakePointerInst(IrType const* result_t, IrValue* o, IrValue* s) : IrValue(Kind), offset(o), segment(s) { type = result_t; }
+    };
+
+    struct IrPointerOffsetInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::PointerOffset;
+
+        IrValue* pointer;
+
+        IrPointerOffsetInst(IrType const* result_t, IrValue* p) : IrValue(Kind), pointer(p) { type = result_t; }
+    };
+
+    struct IrPointerSegmentInst : IrValue
+    {
+        static constexpr auto Kind = IrNodeKind::PointerSegment;
+
+        IrValue* pointer;
+
+        IrPointerSegmentInst(IrType const* result_t, IrValue* p) : IrValue(Kind), pointer(p) { type = result_t; }
     };
 
     struct IrExtractInst : IrValue
@@ -1332,13 +1401,13 @@ export namespace dcc::ir
             return t;
         }
 
-        [[nodiscard]] IrType const* pointer_to(IrType const* pointee, Segment seg = Segment::None)
+        [[nodiscard]] IrType const* pointer_to(IrType const* pointee, Segment seg = Segment::None, PointerFlavor flavor = PointerFlavor::Near)
         {
             for (auto const* t : m_pointers)
-                if (t->pointee == pointee && t->seg == seg)
+                if (t->pointee == pointee && t->seg == seg && t->flavor == flavor)
                     return t;
 
-            auto* t = make<IrPointerType>(pointee, seg, m_pointer_bits, m_pointer_align);
+            auto* t = make<IrPointerType>(pointee, seg, flavor, m_pointer_bits, m_pointer_align);
             m_pointers.push_back(t);
             return t;
         }
@@ -1393,13 +1462,13 @@ export namespace dcc::ir
             return t;
         }
 
-        [[nodiscard]] IrType const* slice_t(IrType const* element, Segment seg = Segment::None)
+        [[nodiscard]] IrType const* slice_t(IrType const* element, Segment seg = Segment::None, PointerFlavor flavor = PointerFlavor::Near)
         {
             for (auto const* t : m_slices)
-                if (t->element == element && t->seg == seg)
+                if (t->element == element && t->seg == seg && t->flavor == flavor)
                     return t;
 
-            auto* t = make<IrSliceType>(element, seg, m_pointer_bits, m_pointer_align);
+            auto* t = make<IrSliceType>(element, seg, flavor, m_pointer_bits, m_pointer_align);
             m_slices.push_back(t);
             return t;
         }
@@ -1423,6 +1492,10 @@ export namespace dcc::ir
         [[nodiscard]] IrBoolConstant* bool_const(bool v) { return make<IrBoolConstant>(bool_t(), v); }
 
         [[nodiscard]] IrNullConstant* null_const(IrType const* ptr_t) { return make<IrNullConstant>(ptr_t); }
+        [[nodiscard]] IrPointerConstant* pointer_const(IrType const* ptr_t, std::uint64_t offset, std::uint16_t segment = 0)
+        {
+            return make<IrPointerConstant>(ptr_t, offset, segment);
+        }
 
         [[nodiscard]] IrStringConstant* string_const(IrType const* t, std::string_view v) { return make<IrStringConstant>(t, v); }
 
@@ -1502,7 +1575,13 @@ export namespace dcc::ir
         [[nodiscard]] IrPtrToIInst* ptrtoi(IrType const* dst, IrValue* o) { return make<IrPtrToIInst>(dst, o); }
         [[nodiscard]] IrIToPtrInst* itoptr(IrType const* dst, IrValue* o) { return make<IrIToPtrInst>(dst, o); }
         [[nodiscard]] IrBitcastInst* bitcast(IrType const* dst, IrValue* o) { return make<IrBitcastInst>(dst, o); }
-        [[nodiscard]] IrSegcastInst* segcast(IrType const* dst, IrValue* o) { return make<IrSegcastInst>(dst, o); }
+        [[nodiscard]] IrReadSegmentInst* read_segment(Segment s) { return make<IrReadSegmentInst>(int_t(16, false), s); }
+        [[nodiscard]] IrMakePointerInst* make_pointer(IrType const* dst, IrValue* offset, IrValue* segment = nullptr)
+        {
+            return make<IrMakePointerInst>(dst, offset, segment);
+        }
+        [[nodiscard]] IrPointerOffsetInst* pointer_offset(IrValue* ptr) { return make<IrPointerOffsetInst>(usize_t(), ptr); }
+        [[nodiscard]] IrPointerSegmentInst* pointer_segment(IrValue* ptr) { return make<IrPointerSegmentInst>(int_t(16, false), ptr); }
 
         [[nodiscard]] IrExtractInst* extract(IrType const* field_t, IrValue* agg, std::uint32_t fi) { return make<IrExtractInst>(field_t, agg, fi); }
         [[nodiscard]] IrInsertInst* insert(IrType const* result_t, IrValue* agg, std::uint32_t fi, IrValue* v)
@@ -1744,9 +1823,11 @@ export namespace dcc::ir
                     auto* pt = static_cast<IrPointerType const*>(t);
                     write("ptr<");
                     print_type(pt->pointee);
-                    if (pt->seg != Segment::None)
+                    if (pt->flavor == PointerFlavor::Far)
+                        write(", far");
+                    else if (pt->flavor == PointerFlavor::Based)
                     {
-                        write(", seg=");
+                        write(", based=");
                         write(seg_str(pt->seg));
                     }
                     write(">");
@@ -1779,8 +1860,8 @@ export namespace dcc::ir
                 }
                 case IrTypeKind::Slice: {
                     auto* st = static_cast<IrSliceType const*>(t);
-                    write("[]");
-                    if (st->seg != Segment::None)
+                    write(st->flavor == PointerFlavor::Far ? "[^]" : "[]");
+                    if (st->flavor == PointerFlavor::Based)
                     {
                         write(seg_str(st->seg));
                         write(" ");
@@ -1848,6 +1929,11 @@ export namespace dcc::ir
                 }
                 case IrNodeKind::NullConstant: {
                     write("#null");
+                    break;
+                }
+                case IrNodeKind::PointerConstant: {
+                    auto* p = static_cast<IrPointerConstant const*>(v);
+                    std::format_to(std::back_inserter(m_out), "#{}:{}", p->segment, p->offset);
                     break;
                 }
                 case IrNodeKind::StringConstant: {
@@ -1919,6 +2005,7 @@ export namespace dcc::ir
                 case IrNodeKind::FloatConstant:
                 case IrNodeKind::BoolConstant:
                 case IrNodeKind::NullConstant:
+                case IrNodeKind::PointerConstant:
                 case IrNodeKind::StringConstant:
                 case IrNodeKind::GlobalRef:
                 case IrNodeKind::Local:
@@ -2107,9 +2194,43 @@ export namespace dcc::ir
                 case IrNodeKind::Bitcast:
                     print_cast("bitcast", static_cast<IrBitcastInst const*>(inst), result_name);
                     break;
-                case IrNodeKind::Segcast:
-                    print_cast("segcast", static_cast<IrSegcastInst const*>(inst), result_name);
+                case IrNodeKind::ReadSegment: {
+                    auto* s = static_cast<IrReadSegmentInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = read_segment {}\n", result_name, seg_str(s->segment));
                     break;
+                }
+                case IrNodeKind::MakePointer: {
+                    auto* p = static_cast<IrMakePointerInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = make_pointer ", result_name);
+                    print_op(p->offset);
+                    if (p->segment)
+                    {
+                        write(", ");
+                        print_op(p->segment);
+                    }
+                    write(" to ");
+                    print_type(p->type);
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::PointerOffset: {
+                    auto* p = static_cast<IrPointerOffsetInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = pointer_offset ", result_name);
+                    print_op(p->pointer);
+                    m_out += '\n';
+                    break;
+                }
+                case IrNodeKind::PointerSegment: {
+                    auto* p = static_cast<IrPointerSegmentInst const*>(inst);
+                    pad();
+                    std::format_to(std::back_inserter(m_out), "%{} = pointer_segment ", result_name);
+                    print_op(p->pointer);
+                    m_out += '\n';
+                    break;
+                }
 
                 case IrNodeKind::Extract:
                     print_extract(static_cast<IrExtractInst const*>(inst), result_name);

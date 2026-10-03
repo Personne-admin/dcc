@@ -10,5 +10,17 @@ public i32 demo(u8^GS b, usize o) {
     return f as i32;
 }
 
-=== EXPECT-IR-ERRORS ===
-far and based pointers are not supported by this backend yet
+=== EXPECT-IR ===
+module "m"
+i32@_DC0F1.1.m4.demo2BqGSi8uIui32s(ptr<u8, based=gs>, usize) {
+%entry(ptr<u8, based=gs> %b, usize %o):
+  %0 = alloca usize
+  %1 = pointer_offset ptr<u8, based=gs> %b
+  store usize %1, ptr<usize> %0
+  %2 = alloca ptr<u8, based=gs>
+  %3 = make_pointer usize %o to ptr<u8, based=gs>
+  store ptr<u8, based=gs> %3, ptr<ptr<u8, based=gs>> %2
+  %4 = load usize, ptr<usize> %0
+  %5 = trunc usize %4 to i32
+  ret i32 %5
+}

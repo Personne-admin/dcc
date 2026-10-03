@@ -1,0 +1,13 @@
+module main;
+
+public i32 main() {
+    usize^GS teb_self = GS:0x30;
+    usize^GS peb_slot = GS:0x60;
+    usize teb = *teb_self;
+    usize peb = *peb_slot;
+    if teb == 0 || peb == 0 { return 1; }
+    usize* near_self = (teb + 0x30) as usize*;
+    usize* near_peb = (teb + 0x60) as usize*;
+    if *near_self != teb || *near_peb != peb { return 2; }
+    return 42;
+}

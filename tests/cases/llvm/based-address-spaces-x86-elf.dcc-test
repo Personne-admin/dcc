@@ -1,0 +1,13 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+public u8 load_fs(u8^FS p) { return *p; }
+public void store_gs(u8^GS p, u8 value) { *p = value; }
+public u8 load_ss_at(u8^SS p, usize offset) { return *(p + offset); }
+public u8 call_fs(u8^FS p) { return load_fs(p); }
+
+=== EXPECT-LLVM-PATTERNS ===
+CONTAINS: load i8, ptr addrspace(257) %p
+CONTAINS: store i8 %value, ptr addrspace(256) %p
+CONTAINS: getelementptr i8, ptr addrspace(258) %p
+CONTAINS: call i8 @_DC0F1.1.m7.load_fs1BqFSi8ui8u(ptr addrspace(257) %p)

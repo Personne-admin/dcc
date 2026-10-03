@@ -1,9 +1,11 @@
 import std;
 
 import dcc.ir;
+import dcc.ir.pass;
 import dcc.target;
 import dcc.backend;
 import dcc.backend.llvm;
+import dcc.backend.em64t;
 
 #include "harness.hh"
 
@@ -842,4 +844,118 @@ TEST_CASE("omit-frame-pointer-false-asm-has-frame-pointer-prologue")
                               (asm_text.find("push") != std::string::npos && asm_text.find("rbp") != std::string::npos);
 
     CHECK(has_frame_prologue);
+}
+
+TEST_CASE("ir-verifier-rejects-segmented-pointer-mismatches")
+{
+    auto target = TargetConfig::host_default();
+    IrContext ctx{256 * 1024, &target};
+    auto* mod = ctx.module("segmented_verify");
+    auto* i8 = ctx.int_t(8, false);
+    auto* i32 = ctx.int_t(32, false);
+    auto* fs = ctx.pointer_to(i8, Segment::Fs, PointerFlavor::Based);
+    auto* gs = ctx.pointer_to(i8, Segment::Gs, PointerFlavor::Based);
+    auto* ss = ctx.pointer_to(i8, Segment::Ss, PointerFlavor::Based);
+    IrType const* params[] = {gs};
+    auto* signature = ir_type_cast<IrFuncType>(ctx.func_t(fs, params));
+    auto* function = ctx.function("bad", signature);
+    auto* block = ctx.basic_block("entry", 0);
+    auto* arg = ctx.local("arg", 0, gs);
+    auto* invalid_reg = ctx.local("ss", 1, ss);
+    block->params.push_back(arg);
+    block->params.push_back(invalid_reg);
+    block->instructions.push_back(ctx.make_pointer(fs, ctx.int_const(i32, 4), ctx.int_const(ctx.int_t(16, false), 1)));
+    block->instructions.push_back(ctx.ptrtoi(ctx.usize_t(), arg));
+    block->instructions.push_back(ctx.bitcast(fs, arg));
+    block->instructions.push_back(ctx.gep(fs, arg));
+    block->instructions.push_back(ctx.cmp_eq(arg, ctx.pointer_const(fs, 0, 1)));
+    block->instructions.push_back(ctx.cmp_eq(arg, ctx.null_const(gs)));
+    block->terminator = ctx.ret(arg);
+    function->blocks.push_back(block);
+    function->entry_block = block;
+    mod->functions.push_back(function);
+    const_cast<IrPointerType*>(static_cast<IrPointerType const*>(fs))->byte_size = 4;
+
+    dcc::ir::pass::IrVerifier verifier{target};
+    auto errors = verifier.verify(*mod);
+    auto has = [&](std::string_view needle) {
+        return std::ranges::any_of(errors, [&](std::string const& error) { return error.find(needle) != std::string::npos; });
+    };
+    CHECK(has("pointer layout"));
+    CHECK(has("register unavailable"));
+    CHECK(has("make_pointer"));
+    CHECK(has("integer cast"));
+    CHECK(has("bitcast"));
+    CHECK(has("GEP"));
+    CHECK(has("comparison"));
+    CHECK(has("based pointer cannot contain null"));
+    CHECK(has("pointer constant"));
+    CHECK(has("return"));
+}
+
+TEST_CASE("custom-backend-rejects-far-and-based-ir")
+{
+    auto target = TargetConfig::host_default();
+    IrContext ctx{256 * 1024, &target};
+    auto* i8 = ctx.int_t(8, false);
+    auto* based = ctx.pointer_to(i8, Segment::Fs, PointerFlavor::Based);
+    BackendOptions opts;
+    opts.target = target;
+    opts.requested_artifacts = {ArtifactKind::ObjectBytes};
+    auto backend = make_em64t_backend();
+    std::array<IrType const*, 4> types = {based, ctx.pointer_to(i8, Segment::None, PointerFlavor::Far), ctx.slice_t(i8, Segment::Fs, PointerFlavor::Based),
+                                          ctx.slice_t(i8, Segment::None, PointerFlavor::Far)};
+    for (auto* type : types)
+    {
+        auto* mod = ctx.module("segmented_custom");
+        IrType const* params[] = {type};
+        mod->functions.push_back(ctx.function("segmented", ir_type_cast<IrFuncType>(ctx.func_t(type, params))));
+        auto artifact = backend->emit(*mod, opts);
+        REQUIRE(!artifact.diagnostics.empty());
+        CHECK(artifact.diagnostics[0].message == "far and based pointers are not supported by this backend yet");
+    }
+}
+
+TEST_CASE("llvm-x86-based-pointer-asm-uses-segment-overrides")
+{
+    TargetConfig target;
+    target.triple = "x86-elf";
+    target.arch = Arch::X86;
+    target.os = Os::Linux;
+    target.object_format = ObjectFormat::Elf;
+    target.pointer_bits = 32;
+    target.pointer_align = 4;
+    target.little_endian = true;
+
+    IrContext ctx{256 * 1024, &target};
+    auto* mod = ctx.module("based_x86");
+    auto* i8 = ctx.int_t(8, false);
+    for (auto segment : {Segment::Fs, Segment::Gs, Segment::Ss})
+    {
+        auto* pointer = ctx.pointer_to(i8, segment, PointerFlavor::Based);
+        IrType const* params[] = {pointer, i8};
+        auto* function = ctx.function(segment == Segment::Fs ? "use_fs" : segment == Segment::Gs ? "use_gs" : "use_ss",
+                                      ir_type_cast<IrFuncType>(ctx.func_t(i8, params)));
+        auto* block = ctx.basic_block("entry", 0);
+        auto* address = ctx.local("address", 0, pointer);
+        auto* value = ctx.local("value", 1, i8);
+        block->params.push_back(address);
+        block->params.push_back(value);
+        auto* loaded = ctx.load(i8, address);
+        block->instructions.push_back(loaded);
+        block->instructions.push_back(ctx.store(value, address));
+        block->terminator = ctx.ret(loaded);
+        function->blocks.push_back(block);
+        function->entry_block = block;
+        mod->functions.push_back(function);
+    }
+
+    BackendOptions opts;
+    opts.target = target;
+    opts.requested_artifacts = {ArtifactKind::AsmText};
+    auto artifact = make_llvm_backend()->emit(*mod, opts);
+    REQUIRE(artifact.diagnostics.empty());
+    REQUIRE(artifact.asm_text.has_value());
+    for (auto override : {"%fs:", "%gs:", "%ss:"})
+        CHECK(artifact.asm_text->find(override) != std::string::npos);
 }

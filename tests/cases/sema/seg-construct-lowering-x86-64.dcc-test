@@ -7,5 +7,12 @@ public i32 demo(u64 o) {
     return 0;
 }
 
-=== EXPECT-IR-ERRORS ===
-far and based pointers are not supported by this backend yet
+=== EXPECT-IR ===
+module "m"
+i32@_DC0F1.1.m4.demo1i64ui32s(u64) {
+%entry(u64 %o):
+  %0 = alloca ptr<u8, based=gs>
+  %1 = make_pointer u64 %o to ptr<u8, based=gs>
+  store ptr<u8, based=gs> %1, ptr<ptr<u8, based=gs>> %0
+  ret i32 #0
+}
