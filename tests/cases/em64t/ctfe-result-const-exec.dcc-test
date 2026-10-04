@@ -127,27 +127,27 @@ target triple = "x86_64-elf"
 %2 = type { i8, [7 x i8], [40 x i8] }
 %3 = type { i8, [7 x i8], [8 x i8] }
 
-$_DC0S1.4.test10.default_of0IuX1tIu = comdat any
+$_DC0S1.4.test10.default_of0D1.4.test5.Chunk0.X1tD1.4.test5.Chunk0. = comdat any
 
 $_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0. = comdat any
 
-$_DC0S1.4.test10.default_of0D1.4.test5.Chunk0.X1tD1.4.test5.Chunk0. = comdat any
+$_DC0S1.4.test10.default_of0IuX1tIu = comdat any
 
-$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
-
-$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
-
-$_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
-
-$_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
-
-$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0. = comdat any
-
-$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test5.Chunk0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
+$_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
 
 $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0. = comdat any
 
-$_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
+$_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test5.Chunk0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0. = comdat any
+
+$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0. = comdat any
 
 @_DC0G1.4.test5.PLAIND1.4.test5.Chunk0. = constant %0 { i64 8, %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, i8 1, [7 x i8] zeroinitializer }
 @_DC0G1.4.test8.CHUNK_OKD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0. = constant %2 { i8 0, [7 x i8] zeroinitializer, [40 x i8] c"\08\00\00\00\00\00\00\00 \01\0A\00\00\00\00\00\00\00\00\00\00\00\00\00\FF\FF\FF\FF\FF\FF\FF\FF\01\00\00\00\00\00\00\00" }
@@ -163,7 +163,8 @@ $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.F
 @6 = private constant %1 { i8 32, i8 1, i8 10, i8 0, i8 0, i8 0, i8 0, i8 0, i64 0, i64 -1 }, align 8
 @7 = private constant %0 zeroinitializer, align 8
 
-define void @_DC0F1.4.test12.default_opts0D1.4.test4.Opts0.(ptr sret(%1) %0) {
+; Function Attrs: uwtable
+define void @_DC0F1.4.test12.default_opts0D1.4.test4.Opts0.(ptr sret(%1) %0) #0 {
 entry:
   %"0" = alloca %1, align 8
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 @0, i64 24, i1 false)
@@ -171,7 +172,8 @@ entry:
   ret void
 }
 
-define void @_DC0F1.4.test10.make_chunk0D1.4.test5.Chunk0.(ptr sret(%0) %0) {
+; Function Attrs: uwtable
+define void @_DC0F1.4.test10.make_chunk0D1.4.test5.Chunk0.(ptr sret(%0) %0) #0 {
 entry:
   %"0" = alloca %0, align 8
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 @1, i64 40, i1 false)
@@ -179,7 +181,8 @@ entry:
   ret void
 }
 
-define void @_DC0F1.4.test13.make_chunk_ok0D1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.(ptr sret(%2) %0) {
+; Function Attrs: uwtable
+define void @_DC0F1.4.test13.make_chunk_ok0D1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.(ptr sret(%2) %0) #0 {
 entry:
   %"1" = alloca [40 x i8], align 1
   %1 = alloca [40 x i8], align 1
@@ -200,7 +203,8 @@ entry:
   ret void
 }
 
-define void @_DC0F1.4.test14.make_chunk_err0D1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.(ptr sret(%2) %0) {
+; Function Attrs: uwtable
+define void @_DC0F1.4.test14.make_chunk_err0D1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.(ptr sret(%2) %0) #0 {
 entry:
   %"1" = alloca [40 x i8], align 1
   %1 = alloca [40 x i8], align 1
@@ -219,7 +223,8 @@ entry:
   ret void
 }
 
-define { i64, i64 } @_DC0F1.4.test13.make_usize_ok0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() {
+; Function Attrs: uwtable
+define { i64, i64 } @_DC0F1.4.test13.make_usize_ok0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() #0 {
 entry:
   %"1" = alloca [8 x i8], align 1
   store [8 x i8] zeroinitializer, ptr %"1", align 1
@@ -236,7 +241,8 @@ entry:
   ret { i64, i64 } %5
 }
 
-define { i64, i64 } @_DC0F1.4.test14.make_usize_err0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() {
+; Function Attrs: uwtable
+define { i64, i64 } @_DC0F1.4.test14.make_usize_err0D1.4.test6.Result2.IuD1.4.test8.FmtError0.() #0 {
 entry:
   %"1" = alloca [8 x i8], align 1
   store [8 x i8] zeroinitializer, ptr %"1", align 1
@@ -253,7 +259,8 @@ entry:
   ret { i64, i64 } %5
 }
 
-define i32 @dcc_main() {
+; Function Attrs: uwtable
+define i32 @dcc_main() #0 {
 entry:
   %0 = alloca %1, align 8
   %1 = alloca %1, align 8
@@ -419,21 +426,8 @@ if.merge42:                                       ; preds = %if.else41
   ret i32 0
 }
 
-define linkonce_odr i64 @_DC0S1.4.test10.default_of0IuX1tIu() comdat {
-entry:
-  %"0" = alloca i64, align 8
-  %"1" = load i64, ptr %"0", align 4
-  ret i64 %"1"
-}
-
-define linkonce_odr i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.() comdat {
-entry:
-  %"0" = alloca i8, align 1
-  %"1" = load i8, ptr %"0", align 1
-  ret i8 %"1"
-}
-
-define linkonce_odr void @_DC0S1.4.test10.default_of0D1.4.test5.Chunk0.X1tD1.4.test5.Chunk0.(ptr sret(%0) %0) comdat {
+; Function Attrs: uwtable
+define linkonce_odr void @_DC0S1.4.test10.default_of0D1.4.test5.Chunk0.X1tD1.4.test5.Chunk0.(ptr sret(%0) %0) #0 comdat {
 entry:
   %"0" = alloca %0, align 8
   %"1" = alloca %0, align 8
@@ -442,48 +436,94 @@ entry:
   ret void
 }
 
-define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.() #0 comdat {
 entry:
-  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self)
-  %"1" = icmp eq i1 %"0", false
-  ret i1 %"1"
+  %"0" = alloca i8, align 1
+  %"1" = load i8, ptr %"0", align 1
+  ret i8 %"1"
 }
 
-define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i64 @_DC0S1.4.test10.default_of0IuX1tIu() #0 comdat {
 entry:
-  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self)
-  %"1" = icmp eq i1 %"0", false
-  ret i1 %"1"
+  %"0" = alloca i64, align 8
+  %"1" = load i64, ptr %"0", align 4
+  ret i64 %"1"
 }
 
-define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) #0 comdat {
 entry:
-  %"0" = load %3, ptr %self, align 1
+  %"3" = alloca [40 x i8], align 1
+  %"0" = alloca %2, align 8
+  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 %self, i64 48, i1 false)
+  %"5" = alloca [40 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
-  %"3" = phi i1 [ true, %match.arm0.body4 ], [ false, %match.arm1.body6 ]
-  ret i1 %"3"
+  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
+  ret i8 %"8"
 
 match.fail2:                                      ; No predecessors!
   unreachable
 
 match.arm0.test3:                                 ; preds = %entry
-  %"1" = extractvalue %3 %"0", 0
-  %"2" = icmp eq i8 %"1", 0
+  %0 = getelementptr %2, ptr %"0", i32 0, i32 0
+  %"1" = load i8, ptr %0, align 1
+  %"2" = icmp eq i8 %"1", 1
   br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
+  %1 = getelementptr %2, ptr %"0", i32 0, i32 2
+  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"3", ptr align 1 %1, i64 40, i1 false)
+  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"5", ptr align 1 %"3", i64 40, i1 false)
+  %"6" = load i8, ptr %"5", align 1
   br label %match.merge1
 
 match.arm1.test5:                                 ; preds = %match.arm0.test3
   br label %match.arm1.body6
 
 match.arm1.body6:                                 ; preds = %match.arm1.test5
+  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
   br label %match.merge1
 }
 
-define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
+entry:
+  %"0" = load %3, ptr %self, align 1
+  %"5" = alloca [8 x i8], align 1
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
+  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
+  ret i8 %"8"
+
+match.fail2:                                      ; No predecessors!
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"1" = extractvalue %3 %"0", 0
+  %"2" = icmp eq i8 %"1", 1
+  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  %"3" = extractvalue %3 %"0", 2
+  store [8 x i8] %"3", ptr %"5", align 1
+  %"6" = load i8, ptr %"5", align 1
+  br label %match.merge1
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  br label %match.arm1.body6
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
+  br label %match.merge1
+}
+
+; Function Attrs: uwtable
+define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) #0 comdat {
 entry:
   %"0" = alloca %2, align 8
   call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 %self, i64 48, i1 false)
@@ -512,15 +552,15 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
   br label %match.merge1
 }
 
-define linkonce_odr i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
 entry:
   %"0" = load %3, ptr %self, align 1
-  %"5" = alloca [8 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
-  %"8" = phi i64 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
-  ret i64 %"8"
+  %"3" = phi i1 [ true, %match.arm0.body4 ], [ false, %match.arm1.body6 ]
+  ret i1 %"3"
 
 match.fail2:                                      ; No predecessors!
   unreachable
@@ -531,20 +571,33 @@ match.arm0.test3:                                 ; preds = %entry
   br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
-  %"3" = extractvalue %3 %"0", 2
-  store [8 x i8] %"3", ptr %"5", align 1
-  %"6" = load i64, ptr %"5", align 4
   br label %match.merge1
 
 match.arm1.test5:                                 ; preds = %match.arm0.test3
   br label %match.arm1.body6
 
 match.arm1.body6:                                 ; preds = %match.arm1.test5
-  %"7" = call i64 @_DC0S1.4.test10.default_of0IuX1tIu()
   br label %match.merge1
 }
 
-define linkonce_odr void @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test5.Chunk0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr sret(%0) %0, ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) #0 comdat {
+entry:
+  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.bX2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self)
+  %"1" = icmp eq i1 %"0", false
+  ret i1 %"1"
+}
+
+; Function Attrs: uwtable
+define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
+entry:
+  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self)
+  %"1" = icmp eq i1 %"0", false
+  ret i1 %"1"
+}
+
+; Function Attrs: uwtable
+define linkonce_odr void @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test5.Chunk0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr sret(%0) %0, ptr %self) #0 comdat {
 entry:
   %"8" = alloca %0, align 8
   %"6" = alloca %0, align 8
@@ -585,79 +638,45 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
   br label %match.merge1
 }
 
-define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
 entry:
   %"0" = load %3, ptr %self, align 1
   %"5" = alloca [8 x i8], align 1
   br label %match.arm0.test3
 
 match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
-  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
-  ret i8 %"8"
+  %"8" = phi i64 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
+  ret i64 %"8"
 
 match.fail2:                                      ; No predecessors!
   unreachable
 
 match.arm0.test3:                                 ; preds = %entry
   %"1" = extractvalue %3 %"0", 0
-  %"2" = icmp eq i8 %"1", 1
+  %"2" = icmp eq i8 %"1", 0
   br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
 
 match.arm0.body4:                                 ; preds = %match.arm0.test3
   %"3" = extractvalue %3 %"0", 2
   store [8 x i8] %"3", ptr %"5", align 1
-  %"6" = load i8, ptr %"5", align 1
+  %"6" = load i64, ptr %"5", align 4
   br label %match.merge1
 
 match.arm1.test5:                                 ; preds = %match.arm0.test3
   br label %match.arm1.body6
 
 match.arm1.body6:                                 ; preds = %match.arm1.test5
-  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
-  br label %match.merge1
-}
-
-define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.D1.4.test5.Chunk0.D1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tD1.4.test5.Chunk0.tD1.4.test8.FmtError0.(ptr %self) comdat {
-entry:
-  %"3" = alloca [40 x i8], align 1
-  %"0" = alloca %2, align 8
-  call void @llvm.memcpy.p0.p0.i64(ptr align 8 %"0", ptr align 8 %self, i64 48, i1 false)
-  %"5" = alloca [40 x i8], align 1
-  br label %match.arm0.test3
-
-match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
-  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
-  ret i8 %"8"
-
-match.fail2:                                      ; No predecessors!
-  unreachable
-
-match.arm0.test3:                                 ; preds = %entry
-  %0 = getelementptr %2, ptr %"0", i32 0, i32 0
-  %"1" = load i8, ptr %0, align 1
-  %"2" = icmp eq i8 %"1", 1
-  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
-
-match.arm0.body4:                                 ; preds = %match.arm0.test3
-  %1 = getelementptr %2, ptr %"0", i32 0, i32 2
-  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"3", ptr align 1 %1, i64 40, i1 false)
-  call void @llvm.memcpy.p0.p0.i64(ptr align 1 %"5", ptr align 1 %"3", i64 40, i1 false)
-  %"6" = load i8, ptr %"5", align 1
-  br label %match.merge1
-
-match.arm1.test5:                                 ; preds = %match.arm0.test3
-  br label %match.arm1.body6
-
-match.arm1.body6:                                 ; preds = %match.arm1.test5
-  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
+  %"7" = call i64 @_DC0S1.4.test10.default_of0IuX1tIu()
   br label %match.merge1
 }
 
 ; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: readwrite)
-declare void @llvm.memcpy.p0.p0.i64(ptr noalias writeonly captures(none), ptr noalias readonly captures(none), i64, i1 immarg) #0
+declare void @llvm.memcpy.p0.p0.i64(ptr noalias writeonly captures(none), ptr noalias readonly captures(none), i64, i1 immarg) #1
 
 ; Function Attrs: nocallback nofree nounwind willreturn memory(argmem: write)
-declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #1
+declare void @llvm.memset.p0.i64(ptr writeonly captures(none), i8, i64, i1 immarg) #2
 
-attributes #0 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
-attributes #1 = { nocallback nofree nounwind willreturn memory(argmem: write) }
+attributes #0 = { uwtable }
+attributes #1 = { nocallback nofree nounwind willreturn memory(argmem: readwrite) }
+attributes #2 = { nocallback nofree nounwind willreturn memory(argmem: write) }

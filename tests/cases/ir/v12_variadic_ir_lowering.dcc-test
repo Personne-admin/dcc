@@ -35,13 +35,13 @@ void@_DC0F1.4.test6.caller0v() {
   ret void
 }
 
+linkonce_odr u64@_DC0S1.4.test5.sz_of1i32si64uX1ti32s(i32) {
+%entry(i32 %x):
+  ret u64 #1
+}
+
 linkonce_odr void@_DC0S1.4.test7.forward1i32svX1ti32s(i32) {
 %entry(i32 %x):
   call fn(@_DC0F1.4.test6.target1i32sv)(i32 %x)
   ret void
-}
-
-linkonce_odr u64@_DC0S1.4.test5.sz_of1i32si64uX1ti32s(i32) {
-%entry(i32 %x):
-  ret u64 #1
 }

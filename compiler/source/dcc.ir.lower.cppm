@@ -480,6 +480,7 @@ export namespace dcc::ir::lower
 
             if (m_spec_reg)
             {
+                auto first_specialization = m_module->functions.size();
                 auto specs = m_spec_reg->entries();
 
                 std::ranges::sort(specs, [](auto const& a, auto const& b) {
@@ -516,6 +517,8 @@ export namespace dcc::ir::lower
                     if (spec.specialization_decl)
                         create_specialization_shell(spec);
                 }
+                std::ranges::sort(m_module->functions.begin() + static_cast<std::ptrdiff_t>(first_specialization), m_module->functions.end(),
+                                  [](IrFunction const* a, IrFunction const* b) { return a->name < b->name; });
             }
         }
 
@@ -540,18 +543,20 @@ export namespace dcc::ir::lower
             for (auto& [fd, ir_func] : m_func_map)
                 queue_func(fd);
 
-            std::ranges::sort(to_lower, [](ast::FuncDecl const* a, ast::FuncDecl const* b) {
+            std::ranges::sort(to_lower, [&](ast::FuncDecl const* a, ast::FuncDecl const* b) {
                 auto const a_ok = a->range.begin.valid();
                 auto const b_ok = b->range.begin.valid();
                 if (a_ok != b_ok)
                     return a_ok > b_ok;
                 if (!a_ok)
-                    return a->name < b->name;
+                    return m_func_map.at(a)->name < m_func_map.at(b)->name;
                 auto a_file = static_cast<std::uint32_t>(a->range.begin.fileId);
                 auto b_file = static_cast<std::uint32_t>(b->range.begin.fileId);
                 if (a_file != b_file)
                     return a_file < b_file;
-                return a->range.begin.offset < b->range.begin.offset;
+                if (a->range.begin.offset != b->range.begin.offset)
+                    return a->range.begin.offset < b->range.begin.offset;
+                return m_func_map.at(a)->name < m_func_map.at(b)->name;
             });
 
             std::size_t head = 0;
