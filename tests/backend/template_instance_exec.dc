@@ -1,0 +1,14 @@
+module main;
+
+T copy(T)(T value) { return value; }
+T copy_n(T, u64 N)(T value) { return value + (N as T); }
+
+public i32 main() {
+    i32(*)(i32) first = copy!i32;
+    u8(*)(u8) second = copy_n!(u8, 23);
+    copy!i32;
+    copy_n!(u8, 23);
+    if first(17) != 17 { return 1; }
+    if second(7) != 30 { return 2; }
+    return 0;
+}

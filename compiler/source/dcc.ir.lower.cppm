@@ -2433,7 +2433,7 @@ export namespace dcc::ir::lower
 
                 case ast::StmtKind::Expr: {
                     auto* es = static_cast<ast::ExprStmt const*>(stmt);
-                    if (es->expr)
+                    if (es->expr && es->expr->kind != ast::ExprKind::TemplateInst)
                         lower_expr(es->expr);
                     break;
                 }
@@ -3036,6 +3036,9 @@ export namespace dcc::ir::lower
 
                 case ast::ExprKind::Asm:
                     return lower_asm(*static_cast<ast::AsmExpr const*>(expr), get_sema_resolved_type(expr));
+
+                case ast::ExprKind::TemplateInst:
+                    return lower_addr_of(expr);
 
                 default: {
                     std::string reason = std::format("unsupported expression kind: {}", static_cast<int>(expr->kind));
