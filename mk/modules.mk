@@ -1,8 +1,9 @@
 _MODULES_DEP_MK := $(DEP_DIR)/$(notdir $(CURDIR)).modules.$(ENABLE_LLVM).d.mk
 _SCAN_CXXFLAGS := $(BASE_CXXFLAGS) $(LOCAL_CXXFLAGS)
+_SCANNED_MODULE_SRCS := $(shell sed -n 's/^SCANNED_MODULE_SRCS := //p' "$(_MODULES_DEP_MK)" 2>/dev/null)
 
 _NEEDS_SCAN := $(shell \
-    if [ ! -f "$(_MODULES_DEP_MK)" ]; then \
+    if [ ! -f "$(_MODULES_DEP_MK)" ] || [ "$(sort $(MODULE_SRCS))" != "$(_SCANNED_MODULE_SRCS)" ]; then \
     echo yes; \
 else \
     for f in $(MODULE_SRCS); do \
