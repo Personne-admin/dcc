@@ -1,7 +1,7 @@
 export module dcc.backend.em64t.encode;
 
 import std;
-import dcc.backend.em64t.mir;
+import dcc.backend.x86.mir;
 
 export namespace dcc::backend::em64t
 {

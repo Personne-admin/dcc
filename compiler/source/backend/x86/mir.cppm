@@ -1,9 +1,9 @@
-export module dcc.backend.em64t.mir;
+export module dcc.backend.x86.mir;
 
 import std;
 import dcc.ir;
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::x86
 {
     enum class PhysReg : std::uint8_t
     {
@@ -1600,9 +1600,14 @@ export namespace dcc::backend::em64t
         return r;
     }
 
-} // namespace dcc::backend::em64t
+}
 
-template <> struct std::hash<dcc::backend::em64t::VReg>
+export namespace dcc::backend::em64t
 {
-    std::size_t operator()(dcc::backend::em64t::VReg const& v) const noexcept { return std::hash<std::uint32_t>{}(v.id); }
+    using namespace dcc::backend::x86;
+}
+
+template <> struct std::hash<dcc::backend::x86::VReg>
+{
+    std::size_t operator()(dcc::backend::x86::VReg const& v) const noexcept { return std::hash<std::uint32_t>{}(v.id); }
 };
