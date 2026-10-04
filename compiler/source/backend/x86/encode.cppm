@@ -2,6 +2,7 @@ export module dcc.backend.x86.encode;
 
 import std;
 import dcc.backend.x86.mir;
+import dcc.backend.x86.prefix;
 
 export namespace dcc::backend::x86
 {
@@ -2204,7 +2205,7 @@ namespace
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVQ64rr");
                     bool de = reg_is_extended(d);
                     bool se = reg_is_extended(s);
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     emit_u8(buf, static_cast<std::uint8_t>(0x48 | (de ? 0x04 : 0) | (se ? 0x01 : 0)));
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x6E);
@@ -2221,7 +2222,7 @@ namespace
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVQ64rr_rev");
                     bool de = reg_is_extended(d);
                     bool se = reg_is_extended(s);
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
 
                     emit_u8(buf, static_cast<std::uint8_t>(0x48 | (se ? 0x04 : 0) | (de ? 0x01 : 0)));
                     emit_u8(buf, 0x0F);
@@ -2351,7 +2352,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "UCOMISD");
                     auto s = resolve_phys_reg(ops[1], wrn, "UCOMISD");
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2E);
@@ -2721,7 +2722,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "XORPD");
                     auto s = resolve_phys_reg(ops[1], wrn, "XORPD");
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x57);
@@ -2805,7 +2806,7 @@ namespace
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
                         if (instr.opc == MOpc::LOCK_CMPXCHG16mr)
-                            emit_u8(buf, 0x66);
+                            append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (instr.opc == MOpc::LOCK_CMPXCHG64mr)
                             emit_rex(buf, true, se, ie, be);
@@ -2904,7 +2905,7 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_u8(buf, 0x66);
+                        append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (se || ie || be)
                             emit_rex(buf, false, se, ie, be);
@@ -2930,7 +2931,7 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_u8(buf, 0x66);
+                        append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (se || ie || be)
                             emit_rex(buf, false, se, ie, be);
@@ -2958,7 +2959,7 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        emit_u8(buf, 0x66);
+                        append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (se || ie || be)
                             emit_rex(buf, false, se, ie, be);
@@ -3199,7 +3200,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOV16rr");
                     auto s = resolve_phys_reg(ops[1], wrn, "MOV16rr");
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     emit_rex_if_extended(buf, false, s, d);
                     emit_u8(buf, 0x89);
                     emit_modrm(buf, 3, reg_low3(s), reg_low3(d));
@@ -3213,7 +3214,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOV16ri");
                     auto v = static_cast<std::uint16_t>(ops[1].imm & 0xFFFF);
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     if (reg_is_extended(d))
                         emit_rex(buf, false, false, false, true);
                     emit_u8(buf, static_cast<std::uint8_t>(0xB8 + reg_low3(d)));
@@ -3228,7 +3229,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOV16rm");
                     auto const& m = ops[1].mem;
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     if (m.base.is_physical())
                     {
                         auto b = m.base.phys_reg();
@@ -3251,7 +3252,7 @@ namespace
                 {
                     auto const& m = ops[0].mem;
                     auto s = resolve_phys_reg(ops[1], wrn, "MOV16mr");
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     if (!m.symbol.empty())
                     {
                         bool se = reg_is_extended(s);
@@ -3289,7 +3290,7 @@ namespace
                 {
                     auto const& m = ops[0].mem;
                     auto v = static_cast<std::uint16_t>(ops[1].imm & 0xFFFF);
-                    emit_u8(buf, 0x66);
+                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
                     if (m.base.is_physical())
                     {
                         auto b = m.base.phys_reg();

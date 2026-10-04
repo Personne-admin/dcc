@@ -5,11 +5,46 @@ import dcc.target;
 import dcc.backend.inline_asm;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
+import dcc.backend.x86.prefix;
 
 #include "harness.hh"
 
 using namespace dcc::ir;
 using namespace dcc::backend;
+
+SECTION("x86: legacy prefixes");
+
+TEST_CASE("operand address and segment overrides follow x86 prefix groups")
+{
+    using namespace dcc::backend::x86;
+    std::vector<std::uint8_t> bytes;
+    append_legacy_prefixes(bytes, EncodeMode::Long64, 16, 32, SegmentOverride::GS);
+    CHECK(bytes == (std::vector<std::uint8_t>{0x65, 0x66, 0x67}));
+
+    bytes.clear();
+    append_legacy_prefixes(bytes, EncodeMode::Long64, 64, 64, SegmentOverride::FS);
+    CHECK(bytes == (std::vector<std::uint8_t>{0x64}));
+
+    bytes.clear();
+    append_legacy_prefixes(bytes, EncodeMode::Protected32, 16, 16, SegmentOverride::SS);
+    CHECK(bytes == (std::vector<std::uint8_t>{0x36, 0x66, 0x67}));
+
+    bytes.clear();
+    append_legacy_prefixes(bytes, EncodeMode::Protected32, 32, 32, SegmentOverride::None);
+    CHECK(bytes.empty());
+
+    bytes.clear();
+    append_legacy_prefixes(bytes, EncodeMode::Real16, 32, 32, SegmentOverride::ES);
+    CHECK(bytes == (std::vector<std::uint8_t>{0x26, 0x66, 0x67}));
+
+    bytes.clear();
+    append_legacy_prefixes(bytes, EncodeMode::Real16, 16, 16, SegmentOverride::CS);
+    CHECK(bytes == (std::vector<std::uint8_t>{0x2e}));
+
+    bytes.clear();
+    append_legacy_prefixes(bytes, EncodeMode::Long64, 32, 64, SegmentOverride::DS);
+    CHECK(bytes == (std::vector<std::uint8_t>{0x3e}));
+}
 
 namespace
 {
