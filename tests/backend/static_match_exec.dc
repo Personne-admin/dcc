@@ -1,0 +1,40 @@
+module main;
+
+i32 select() {
+    i32 value = 0;
+    static match 6 * 7 {
+        42 if false => { value = 99; },
+        42 if true => { value = 7; },
+        _ => { value = 88; },
+    }
+    static match 3 {
+        1 => { value = 99; },
+        2 | 3 => { value += 2; },
+        _ => { value = 88; },
+    }
+    return value;
+}
+
+i32 loops() {
+    i32 value = 0;
+    i32 n = 0;
+    while n < 5 {
+        n += 1;
+        static match 1 {
+            1 => {
+                defer value += 10;
+                if n == 2 { continue; }
+                if n == 4 { break; }
+                value += n;
+            },
+            _ => { value = 99; },
+        }
+    }
+    return value;
+}
+
+public i32 main() {
+    if select() != 9 { return 1; }
+    if loops() != 44 { return 2; }
+    return 0;
+}

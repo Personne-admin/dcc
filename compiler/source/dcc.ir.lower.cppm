@@ -2598,6 +2598,16 @@ export namespace dcc::ir::lower
                     break;
                 }
 
+                case ast::StmtKind::StaticMatch: {
+                    auto* sm = static_cast<ast::StaticMatchStmt const*>(stmt);
+                    if (sm->taken_arm >= static_cast<std::int32_t>(sm->arms.size()))
+                        lower_panic(stmt, "selected static match arm is out of range");
+                    if (sm->taken_arm >= 0)
+                        if (auto* body = sm->arms[static_cast<std::size_t>(sm->taken_arm)].body)
+                            std::ignore = lower_expr(body);
+                    break;
+                }
+
                 case ast::StmtKind::StaticFor: {
                     lower_panic(stmt, "StaticFor reached IR lowering");
                 }
