@@ -61,50 +61,6 @@ export namespace dcc::backend::x86
         return RegClass::GPR64;
     }
 
-    [[nodiscard]] bool is_callee_saved_sysv(PhysReg r) noexcept
-    {
-        switch (r)
-        {
-            case PhysReg::RBX:
-            case PhysReg::RBP:
-            case PhysReg::R12:
-            case PhysReg::R13:
-            case PhysReg::R14:
-            case PhysReg::R15:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    [[nodiscard]] bool is_callee_saved_win64(PhysReg r) noexcept
-    {
-        switch (r)
-        {
-            case PhysReg::RBX:
-            case PhysReg::RBP:
-            case PhysReg::RSI:
-            case PhysReg::RDI:
-            case PhysReg::R12:
-            case PhysReg::R13:
-            case PhysReg::R14:
-            case PhysReg::R15:
-            case PhysReg::XMM6:
-            case PhysReg::XMM7:
-            case PhysReg::XMM8:
-            case PhysReg::XMM9:
-            case PhysReg::XMM10:
-            case PhysReg::XMM11:
-            case PhysReg::XMM12:
-            case PhysReg::XMM13:
-            case PhysReg::XMM14:
-            case PhysReg::XMM15:
-                return true;
-            default:
-                return false;
-        }
-    }
-
     struct VReg
     {
         static constexpr std::uint32_t kPhysBit = 0x80000000U;
