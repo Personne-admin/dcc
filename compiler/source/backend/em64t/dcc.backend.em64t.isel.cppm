@@ -7,7 +7,7 @@ export module dcc.backend.em64t.isel;
 import std;
 import dcc.ir;
 import dcc.ir.analysis;
-import dcc.backend.em64t.mir;
+import dcc.backend.x86.mir;
 import dcc.backend.inline_asm;
 import dcc.target;
 

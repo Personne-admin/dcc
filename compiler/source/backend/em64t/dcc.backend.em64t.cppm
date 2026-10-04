@@ -15,7 +15,7 @@ import dcc.ir;
 import dcc.ir.pass;
 import dcc.ir.transforms;
 import dcc.target;
-import dcc.backend.em64t.mir;
+import dcc.backend.x86.mir;
 import dcc.backend.inline_asm;
 import dcc.backend.em64t.isel;
 import dcc.backend.em64t.regalloc;
@@ -181,7 +181,7 @@ namespace dcc::backend
                 }
 
                 if (want_asm)
-                    artifact.asm_text = emit_intel_asm(*input_module, mfuncs, opts.target);
+                    artifact.asm_text = em64t::emit_intel_asm(*input_module, mfuncs, opts.target);
 
                 if (need_encode)
                 {

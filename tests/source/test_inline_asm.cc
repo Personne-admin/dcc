@@ -3,7 +3,7 @@ import dcc.ir;
 import dcc.sm;
 import dcc.target;
 import dcc.backend.inline_asm;
-import dcc.backend.em64t.mir;
+import dcc.backend.x86.mir;
 import dcc.backend.em64t.encode;
 
 #include "harness.hh"

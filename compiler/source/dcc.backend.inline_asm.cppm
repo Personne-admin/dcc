@@ -4,7 +4,7 @@ import std;
 import dcc.ir;
 import dcc.sm;
 import dcc.target;
-import dcc.backend.em64t.mir;
+import dcc.backend.x86.mir;
 
 export namespace dcc::backend
 {

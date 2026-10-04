@@ -2,7 +2,7 @@ export module dcc.backend.em64t.objwriter;
 
 import std;
 import dcc.ir;
-import dcc.backend.em64t.mir;
+import dcc.backend.x86.mir;
 import dcc.backend.em64t.encode;
 import dcc.target;
 
