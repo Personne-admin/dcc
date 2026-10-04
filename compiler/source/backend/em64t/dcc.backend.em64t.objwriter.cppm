@@ -3,7 +3,7 @@ export module dcc.backend.em64t.objwriter;
 import std;
 import dcc.ir;
 import dcc.backend.x86.mir;
-import dcc.backend.em64t.encode;
+import dcc.backend.x86.encode;
 import dcc.target;
 
 #define into_u8 static_cast<std::uint8_t>

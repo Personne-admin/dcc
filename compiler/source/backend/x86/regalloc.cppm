@@ -1,11 +1,11 @@
-export module dcc.backend.em64t.regalloc;
+export module dcc.backend.x86.regalloc;
 
 import std;
 import dcc.ir;
 import dcc.backend.x86.mir;
 import dcc.target;
 
-namespace dcc::backend::em64t
+namespace dcc::backend::x86
 {
     namespace
     {
@@ -1941,9 +1941,9 @@ namespace dcc::backend::em64t
 
     } // anonymous namespace
 
-} // namespace dcc::backend::em64t
+}
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::x86
 {
     void regalloc(MFunction& func, target::TargetConfig const& target)
     {
@@ -1965,4 +1965,9 @@ export namespace dcc::backend::em64t
         remove_redundant_moves(func);
     }
 
-} // namespace dcc::backend::em64t
+}
+
+export namespace dcc::backend::em64t
+{
+    using namespace dcc::backend::x86;
+}

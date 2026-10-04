@@ -1,9 +1,9 @@
-export module dcc.backend.em64t.encode;
+export module dcc.backend.x86.encode;
 
 import std;
 import dcc.backend.x86.mir;
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::x86
 {
     struct Reloc
     {
@@ -31,11 +31,11 @@ export namespace dcc::backend::em64t
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr);
 
-} // namespace dcc::backend::em64t
+}
 
 namespace
 {
-    using namespace dcc::backend::em64t;
+    using namespace dcc::backend::x86;
 
     static void emit_u8(std::vector<std::uint8_t>& buf, std::uint8_t v)
     {
@@ -3400,7 +3400,7 @@ namespace
 
 } // anonymous namespace
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::x86
 {
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr)
     {
@@ -3471,4 +3471,9 @@ export namespace dcc::backend::em64t
         return r;
     }
 
-} // namespace dcc::backend::em64t
+}
+
+export namespace dcc::backend::em64t
+{
+    using namespace dcc::backend::x86;
+}

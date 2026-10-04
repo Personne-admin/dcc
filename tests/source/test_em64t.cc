@@ -3,7 +3,7 @@ import dcc.ir;
 import dcc.target;
 import dcc.backend.em64t.isel;
 import dcc.backend.x86.mir;
-import dcc.backend.em64t.regalloc;
+import dcc.backend.x86.regalloc;
 
 #include "harness.hh"
 
