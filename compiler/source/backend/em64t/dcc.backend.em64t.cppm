@@ -18,9 +18,9 @@ import dcc.target;
 import dcc.backend.x86.mir;
 import dcc.backend.inline_asm;
 import dcc.backend.em64t.isel;
-import dcc.backend.em64t.regalloc;
+import dcc.backend.x86.regalloc;
 import dcc.backend.em64t.framelay;
-import dcc.backend.em64t.encode;
+import dcc.backend.x86.encode;
 import dcc.backend.em64t.objwriter;
 import dcc.backend.em64t.assembler;
 
