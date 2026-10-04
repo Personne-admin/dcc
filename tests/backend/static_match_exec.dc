@@ -33,8 +33,19 @@ i32 loops() {
     return value;
 }
 
+i32 static_if_flow() {
+    i32 value = 0;
+    static if true {
+        defer value += 2;
+        value += 3;
+    }
+    value += 5;
+    return value;
+}
+
 public i32 main() {
     if select() != 9 { return 1; }
     if loops() != 44 { return 2; }
+    if static_if_flow() != 10 { return 3; }
     return 0;
 }
