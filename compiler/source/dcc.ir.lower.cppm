@@ -30,6 +30,10 @@ export namespace dcc::ir::lower
 
         IrModule* lower_module(sema::ModuleInfo const& mod)
         {
+            m_failure_range = {};
+            m_failure_kind.clear();
+            try
+            {
             m_entry_module = &mod;
 
             auto segs = mod.canonical_path.segments();
@@ -55,7 +59,20 @@ export namespace dcc::ir::lower
 
             if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
                 emit_specialize_stats();
-
+            }
+            catch (std::exception const& error)
+            {
+                std::string message = error.what();
+                if (message.find("_kind=") == std::string::npos)
+                    message += std::format(" construct_kind={}", m_failure_kind.empty() ? m_active_kind : m_failure_kind);
+                if (message.find(" at file=") == std::string::npos)
+                    message += fmt_loc(m_failure_range.begin.valid() ? m_failure_range : m_active_range);
+                m_lower_errors.emplace_back(std::format("internal error during IR lowering: {}", message));
+            }
+            catch (...)
+            {
+                m_lower_errors.emplace_back(std::format("internal error during IR lowering: unknown failure{}", fmt_loc(m_active_range)));
+            }
             return m_module;
         }
 
@@ -1103,9 +1120,25 @@ export namespace dcc::ir::lower
         {
             Lowerer& lowerer;
             sm::SourceRange prev;
+            std::string prev_kind;
 
-            explicit SourceRangeGuard(Lowerer& l, sm::SourceRange r) : lowerer(l), prev(l.m_active_range) { lowerer.m_active_range = r; }
-            ~SourceRangeGuard() { lowerer.m_active_range = prev; }
+            explicit SourceRangeGuard(Lowerer& l, sm::SourceRange r, std::string kind = {})
+                : lowerer(l), prev(l.m_active_range), prev_kind(l.m_active_kind)
+            {
+                lowerer.m_active_range = r;
+                if (!kind.empty())
+                    lowerer.m_active_kind = std::move(kind);
+            }
+            ~SourceRangeGuard()
+            {
+                if (std::uncaught_exceptions() && !lowerer.m_failure_range.begin.valid())
+                {
+                    lowerer.m_failure_range = lowerer.m_active_range;
+                    lowerer.m_failure_kind = lowerer.m_active_kind;
+                }
+                lowerer.m_active_range = prev;
+                lowerer.m_active_kind = std::move(prev_kind);
+            }
 
             SourceRangeGuard(SourceRangeGuard const&) = delete;
             SourceRangeGuard& operator=(SourceRangeGuard const&) = delete;
@@ -1309,52 +1342,44 @@ export namespace dcc::ir::lower
             return s;
         }
 
-        [[noreturn]] static void lower_panic(std::string_view msg)
+        [[noreturn]] void lower_panic(std::string_view msg) const
         {
-            std::println(std::cerr, "IR lowerer panic: {}", msg);
-            std::abort();
+            throw std::runtime_error(std::format("{} {}{}", msg, m_active_kind, fmt_loc(m_active_range)));
         }
 
         [[noreturn]] static void lower_panic(ast::Decl const* decl, std::string_view msg)
         {
-            std::println(std::cerr, "IR lowerer panic: {}{}", msg, fmt_ctx(decl));
-            std::abort();
+            throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(decl)));
         }
 
         [[noreturn]] static void lower_panic(ast::Expr const* expr, std::string_view msg)
         {
-            std::println(std::cerr, "IR lowerer panic: {}{}", msg, fmt_ctx(expr));
-            std::abort();
+            throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(expr)));
         }
 
         [[noreturn]] static void lower_panic(ast::Stmt const* stmt, std::string_view msg)
         {
-            std::println(std::cerr, "IR lowerer panic: {}{}", msg, fmt_ctx(stmt));
-            std::abort();
+            throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(stmt)));
         }
 
         [[noreturn]] static void lower_unimplemented(ast::Decl const* decl, std::string_view feature)
         {
-            std::println(std::cerr, "IR lowerer unimplemented: {}{}", feature, fmt_ctx(decl));
-            std::abort();
+            throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_ctx(decl)));
         }
 
         [[noreturn]] static void lower_unimplemented(ast::Expr const* expr, std::string_view feature)
         {
-            std::println(std::cerr, "IR lowerer unimplemented: {}{}", feature, fmt_ctx(expr));
-            std::abort();
+            throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_ctx(expr)));
         }
 
         [[noreturn]] static void lower_unimplemented(ast::Stmt const* stmt, std::string_view feature)
         {
-            std::println(std::cerr, "IR lowerer unimplemented: {}{}", feature, fmt_ctx(stmt));
-            std::abort();
+            throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_ctx(stmt)));
         }
 
         [[noreturn]] static void lower_unimplemented(sm::SourceRange range, std::string_view feature)
         {
-            std::println(std::cerr, "IR lowerer unimplemented: {}{}", feature, fmt_loc(range));
-            std::abort();
+            throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_loc(range)));
         }
 
         static dcc::types::TypePtr get_canonical_type(ast::TypeExpr const* type_expr)
@@ -1400,7 +1425,7 @@ export namespace dcc::ir::lower
                 case dcc::types::SegReg::FS: return ir::Segment::Fs;
                 case dcc::types::SegReg::GS: return ir::Segment::Gs;
             }
-            std::unreachable();
+            throw std::runtime_error("invalid segment register in IR lowering");
         }
 
         static ir::PointerFlavor lower_pointer_flavor(dcc::types::PointerFlavor flavor)
@@ -1411,7 +1436,7 @@ export namespace dcc::ir::lower
                 case dcc::types::PointerFlavor::Based: return ir::PointerFlavor::Based;
                 case dcc::types::PointerFlavor::Far: return ir::PointerFlavor::Far;
             }
-            std::unreachable();
+            throw std::runtime_error("invalid pointer flavor in IR lowering");
         }
 
         IrGepInst* gep_preserving_flavor(IrType const* result_type, IrValue* base)
@@ -2397,7 +2422,7 @@ export namespace dcc::ir::lower
             if (!stmt)
                 return;
 
-            SourceRangeGuard guard(*this, stmt->range);
+            SourceRangeGuard guard(*this, stmt->range, std::format("stmt_kind={}", static_cast<int>(stmt->kind)));
 
             switch (stmt->kind)
             {
@@ -2755,7 +2780,7 @@ export namespace dcc::ir::lower
             if (!expr)
                 lower_panic("null expression");
 
-            SourceRangeGuard guard(*this, expr->range);
+            SourceRangeGuard guard(*this, expr->range, std::format("expr_kind={}", static_cast<int>(expr->kind)));
 
             if (!m_residual_env.empty())
             {
@@ -6942,6 +6967,9 @@ export namespace dcc::ir::lower
         SpecializeStats m_specialize_stats{};
 
         sm::SourceRange m_active_range{};
+        sm::SourceRange m_failure_range{};
+        std::string m_active_kind{"module"};
+        std::string m_failure_kind;
         std::uint32_t m_next_scope_id{};
 
         IrFunction* m_assert_func{};
