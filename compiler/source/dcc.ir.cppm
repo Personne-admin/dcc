@@ -1431,7 +1431,7 @@ export namespace dcc::ir
             }
 
             if (members.size() != member_offsets.size())
-                std::abort();
+                throw std::runtime_error("aggregate member and offset counts differ");
 
             auto* t = make<IrAggregateType>(m_arena);
             t->members.assign(members.begin(), members.end());
@@ -1663,7 +1663,7 @@ export namespace dcc::ir
             std::ignore = byte_size;
             std::ignore = byte_align;
             if (members.size() != member_offsets.size())
-                std::abort();
+                throw std::runtime_error("aggregate member and offset counts differ");
 
             std::uint64_t expected_offset = 0;
             std::uint64_t expected_max_align = 1;
@@ -1679,15 +1679,15 @@ export namespace dcc::ir
 
                 expected_offset = (expected_offset + align - 1) / align * align;
                 if (member_offsets[i] != expected_offset)
-                    std::abort();
+                    throw std::runtime_error("aggregate member offset disagrees with layout");
 
                 expected_offset += member->byte_size;
             }
             if (byte_align != expected_max_align)
-                std::abort();
+                throw std::runtime_error("aggregate alignment disagrees with layout");
 
             if (byte_size != (expected_offset + expected_max_align - 1) / expected_max_align * expected_max_align)
-                std::abort();
+                throw std::runtime_error("aggregate size disagrees with layout");
         }
 
         template <typename A, typename B> static bool same_span(A const& a, B const& b) noexcept

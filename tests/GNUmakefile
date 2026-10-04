@@ -83,6 +83,7 @@ test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_domtree_cycles.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_lowering_diagnostics.py $(BUILD_DIR)/bin/dcc
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
