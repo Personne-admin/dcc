@@ -136,17 +136,17 @@ target triple = "x86_64-elf"
 
 %0 = type { i8, [7 x i8], [8 x i8] }
 
-$_DC0S1.4.test10.default_of0IuX1tIu = comdat any
-
 $_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0. = comdat any
 
-$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
+$_DC0S1.4.test10.default_of0IuX1tIu = comdat any
+
+$_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0. = comdat any
 
 $_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
 
-$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0. = comdat any
+$_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0. = comdat any
 
-$_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0. = comdat any
+$_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0. = comdat any
 
 @_DC0G1.4.test4.Q_OKD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 0, [7 x i8] zeroinitializer, [8 x i8] c"\07\00\00\00\00\00\00\00" }
 @_DC0G1.4.test5.Q_ERRD1.4.test6.Result2.IuD1.4.test8.FmtError0. = constant %0 { i8 1, [7 x i8] zeroinitializer, [8 x i8] c"\02\00\00\00\00\00\00\00" }
@@ -157,7 +157,8 @@ $_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.te
 @_DC0G1.4.test4.E_OKD1.4.test8.FmtError0. = constant i8 0
 @_DC0G1.4.test5.E_ERRD1.4.test8.FmtError0. = constant i8 2
 
-define i64 @_DC0F1.4.test4.scan1SCqi8uIu(i64 %0, i64 %1) {
+; Function Attrs: uwtable
+define i64 @_DC0F1.4.test4.scan1SCqi8uIu(i64 %0, i64 %1) #0 {
 entry:
   %2 = alloca { ptr, i64 }, align 8
   store i64 %0, ptr %2, align 1
@@ -205,7 +206,8 @@ if.merge6:                                        ; preds = %if.else5
   br label %while.cond1
 }
 
-define { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+; Function Attrs: uwtable
+define { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) #0 {
 entry:
   %0 = alloca %0, align 8
   %1 = alloca %0, align 8
@@ -244,7 +246,8 @@ if.merge3:                                        ; preds = %if.else2
   ret { i64, i64 } %11
 }
 
-define { i64, i64 } @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+; Function Attrs: uwtable
+define { i64, i64 } @_DC0F1.4.test8.question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) #0 {
 entry:
   %0 = alloca %0, align 8
   %1 = alloca %0, align 8
@@ -300,7 +303,8 @@ unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   ret { i64, i64 } %16
 }
 
-define { i64, i64 } @_DC0F1.4.test5.chain1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+; Function Attrs: uwtable
+define { i64, i64 } @_DC0F1.4.test5.chain1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) #0 {
 entry:
   %0 = alloca %0, align 8
   %1 = alloca %0, align 8
@@ -394,7 +398,8 @@ unwrap.merge6:                                    ; preds = %unwrap.is_ok4
   ret { i64, i64 } %27
 }
 
-define { i64, i64 } @_DC0F1.4.test12.acc_question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) {
+; Function Attrs: uwtable
+define { i64, i64 } @_DC0F1.4.test12.acc_question1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok) #0 {
 entry:
   %0 = alloca %0, align 8
   %1 = alloca %0, align 8
@@ -452,7 +457,8 @@ unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   ret { i64, i64 } %16
 }
 
-define i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 %ok) {
+; Function Attrs: uwtable
+define i8 @_DC0F1.4.test9.first_err1bD1.4.test8.FmtError0.(i1 %ok) #0 {
 entry:
   %0 = call { i64, i64 } @_DC0F1.4.test7.checked1bD1.4.test6.Result2.IuD1.4.test8.FmtError0.(i1 %ok)
   %1 = extractvalue { i64, i64 } %0, 0
@@ -480,12 +486,14 @@ unwrap.merge3:                                    ; preds = %unwrap.is_ok1
   ret i8 0
 }
 
-define void @_DC0F1.4.test16.verify_first_err0v() {
+; Function Attrs: uwtable
+define void @_DC0F1.4.test16.verify_first_err0v() #0 {
 entry:
   ret void
 }
 
-define i32 @dcc_main() {
+; Function Attrs: uwtable
+define i32 @dcc_main() #0 {
 entry:
   %"15" = alloca %0, align 8
   %"20" = alloca %0, align 8
@@ -685,28 +693,57 @@ if.merge56:                                       ; preds = %if.else55
   ret i32 0
 }
 
-define linkonce_odr i64 @_DC0S1.4.test10.default_of0IuX1tIu() comdat {
-entry:
-  %"0" = alloca i64, align 8
-  %"1" = load i64, ptr %"0", align 4
-  ret i64 %"1"
-}
-
-define linkonce_odr i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.() comdat {
+; Function Attrs: uwtable
+define linkonce_odr i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.() #0 comdat {
 entry:
   %"0" = alloca i8, align 1
   %"1" = load i8, ptr %"0", align 1
   ret i8 %"1"
 }
 
-define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i64 @_DC0S1.4.test10.default_of0IuX1tIu() #0 comdat {
 entry:
-  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self)
-  %"1" = icmp eq i1 %"0", false
-  ret i1 %"1"
+  %"0" = alloca i64, align 8
+  %"1" = load i64, ptr %"0", align 4
+  ret i64 %"1"
 }
 
-define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
+entry:
+  %"0" = load %0, ptr %self, align 1
+  %"5" = alloca [8 x i8], align 1
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
+  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
+  ret i8 %"8"
+
+match.fail2:                                      ; No predecessors!
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"1" = extractvalue %0 %"0", 0
+  %"2" = icmp eq i8 %"1", 1
+  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  %"3" = extractvalue %0 %"0", 2
+  store [8 x i8] %"3", ptr %"5", align 1
+  %"6" = load i8, ptr %"5", align 1
+  br label %match.merge1
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  br label %match.arm1.body6
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
+  br label %match.merge1
+}
+
+; Function Attrs: uwtable
+define linkonce_odr i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
 entry:
   %"0" = load %0, ptr %self, align 1
   br label %match.arm0.test3
@@ -733,7 +770,16 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
   br label %match.merge1
 }
 
-define linkonce_odr i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
+; Function Attrs: uwtable
+define linkonce_odr i1 @_DC0S1.4.test6.is_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
+entry:
+  %"0" = call i1 @_DC0S1.4.test5.is_ok1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.bX2tIutD1.4.test8.FmtError0.(ptr %self)
+  %"1" = icmp eq i1 %"0", false
+  ret i1 %"1"
+}
+
+; Function Attrs: uwtable
+define linkonce_odr i64 @_DC0S1.4.test6.unwrap1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.IuX2tIutD1.4.test8.FmtError0.(ptr %self) #0 comdat {
 entry:
   %"0" = load %0, ptr %self, align 1
   %"5" = alloca [8 x i8], align 1
@@ -765,34 +811,4 @@ match.arm1.body6:                                 ; preds = %match.arm1.test5
   br label %match.merge1
 }
 
-define linkonce_odr i8 @_DC0S1.4.test10.unwrap_err1PCqD1.4.test6.Result2.IuD1.4.test8.FmtError0.D1.4.test8.FmtError0.X2tIutD1.4.test8.FmtError0.(ptr %self) comdat {
-entry:
-  %"0" = load %0, ptr %self, align 1
-  %"5" = alloca [8 x i8], align 1
-  br label %match.arm0.test3
-
-match.merge1:                                     ; preds = %match.arm1.body6, %match.arm0.body4
-  %"8" = phi i8 [ %"6", %match.arm0.body4 ], [ %"7", %match.arm1.body6 ]
-  ret i8 %"8"
-
-match.fail2:                                      ; No predecessors!
-  unreachable
-
-match.arm0.test3:                                 ; preds = %entry
-  %"1" = extractvalue %0 %"0", 0
-  %"2" = icmp eq i8 %"1", 1
-  br i1 %"2", label %match.arm0.body4, label %match.arm1.test5
-
-match.arm0.body4:                                 ; preds = %match.arm0.test3
-  %"3" = extractvalue %0 %"0", 2
-  store [8 x i8] %"3", ptr %"5", align 1
-  %"6" = load i8, ptr %"5", align 1
-  br label %match.merge1
-
-match.arm1.test5:                                 ; preds = %match.arm0.test3
-  br label %match.arm1.body6
-
-match.arm1.body6:                                 ; preds = %match.arm1.test5
-  %"7" = call i8 @_DC0S1.4.test10.default_of0D1.4.test8.FmtError0.X1tD1.4.test8.FmtError0.()
-  br label %match.merge1
-}
+attributes #0 = { uwtable }

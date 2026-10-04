@@ -1,0 +1,8 @@
+module m;
+
+void print(const char* fmt)(i32 out) {}
+
+void use() {
+    print("Hello", 1);
+    print("World", 2);
+}

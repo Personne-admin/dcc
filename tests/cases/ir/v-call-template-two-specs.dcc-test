@@ -34,12 +34,12 @@ u32@_DC0F1.4.test8.test_u320i32u() {
   ret u32 %1
 }
 
-linkonce_odr u32@_DC0S1.4.test8.identity1i32ui32uX1ti32u(u32) {
-%entry(u32 %x):
-  ret u32 %x
-}
-
 linkonce_odr i32@_DC0S1.4.test8.identity1i32si32sX1ti32s(i32) {
 %entry(i32 %x):
   ret i32 %x
+}
+
+linkonce_odr u32@_DC0S1.4.test8.identity1i32ui32uX1ti32u(u32) {
+%entry(u32 %x):
+  ret u32 %x
 }

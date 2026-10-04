@@ -49,14 +49,14 @@ i32@_DC0L1.4.test1.03.2730i32s() {
   ret i32 #42
 }
 
-linkonce_odr void@_DC0S1.4.test5.apply2L1.03.202i32svX2tL1.03.202ti32s(ptr<fn(i32) -> void>, i32) {
-%entry(ptr<fn(i32) -> void> %callable, i32 %args):
-  call fn(%callable)(i32 %args)
-  ret void
-}
-
 linkonce_odr i32@_DC0S1.4.test10.get_return1pi32s0i32sX1ti32s(ptr<fn() -> i32>) {
 %entry(ptr<fn() -> i32> %callable):
   %0 = call fn(%callable)() -> i32
   ret i32 %0
+}
+
+linkonce_odr void@_DC0S1.4.test5.apply2L1.03.202i32svX2tL1.03.202ti32s(ptr<fn(i32) -> void>, i32) {
+%entry(ptr<fn(i32) -> void> %callable, i32 %args):
+  call fn(%callable)(i32 %args)
+  ret void
 }
