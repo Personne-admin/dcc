@@ -1122,15 +1122,21 @@ namespace
         }
     };
 
-    std::optional<Sandbox> materialize(Fixture const& fx)
+    std::optional<Sandbox> materialize(Fixture const& fx, fs::path const& source_path)
     {
         std::error_code ec;
         auto base = fs::temp_directory_path(ec);
         if (ec)
             return std::nullopt;
 
-        auto tag = std::format("dcc-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
-        auto root = base / tag;
+        auto root = base / std::format("dcc-test-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+        if (std::getenv("DCC_BYTE_CAPTURE_ROOT"))
+        {
+            auto relative = fs::relative(source_path, fs::canonical("tests/cases", ec), ec);
+            if (ec || relative.empty() || relative.native().find("..") != std::string::npos)
+                return std::nullopt;
+            root = base / "dcc-byte-fixtures" / relative;
+        }
         if (!fs::create_directories(root, ec))
             return std::nullopt;
 
@@ -1459,7 +1465,7 @@ namespace
             }
         }
 
-        auto sb = materialize(fx);
+        auto sb = materialize(fx, path);
         if (!sb)
         {
             ++stats.failed;
