@@ -1363,12 +1363,8 @@ namespace dcc::ir::pass
 
         [[nodiscard]] static std::vector<IrFunction*> inline_bottom_up_order(IrModule& mod, InlineScc const& scc)
         {
-            std::unordered_map<std::size_t, std::vector<std::size_t>> succ;
-            std::unordered_map<std::size_t, std::size_t> indeg;
-            for (auto& [f, id] : scc.comp)
-                indeg[id] = 0;
-
-            std::unordered_map<std::size_t, std::vector<std::size_t>> dag;
+            std::vector<std::size_t> indeg(scc.comp_size.size());
+            std::vector<std::vector<std::size_t>> dag(scc.comp_size.size());
             for (auto* f : mod.functions)
             {
                 if (!f)
@@ -1414,8 +1410,8 @@ namespace dcc::ir::pass
             }
 
             std::vector<std::size_t> stack;
-            for (auto& [id, d] : indeg)
-                if (d == 0)
+            for (std::size_t id = 0; id < indeg.size(); ++id)
+                if (indeg[id] == 0)
                     stack.push_back(id);
 
             std::vector<std::size_t> topo;
@@ -1429,7 +1425,7 @@ namespace dcc::ir::pass
                         stack.push_back(dep);
             }
 
-            std::unordered_map<std::size_t, std::size_t> rank;
+            std::vector<std::size_t> rank(scc.comp_size.size());
             for (std::size_t i = 0; i < topo.size(); ++i)
                 rank[topo[i]] = i;
 

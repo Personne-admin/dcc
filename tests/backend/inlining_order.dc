@@ -1,0 +1,18 @@
+module m;
+
+i32 total = 0;
+
+void accumulate(i32 x) { total += x; }
+
+using Callable(F, P...) = compiles(F f, P args) {
+    f(args...);
+};
+
+void run(F, P...)(F f, P args) if Callable(F, P...) {
+    f(args...);
+}
+
+void test() {
+    run(|a, b, c -> accumulate(a + b + c), 1, 2, 3);
+    run(|x -> accumulate(x * 2), 10);
+}
