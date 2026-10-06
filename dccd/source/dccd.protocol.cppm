@@ -1143,6 +1143,7 @@ export namespace dccd::protocol
         std::optional<std::uint32_t> tabWidth;
         std::optional<std::uint32_t> maxEmptyLines;
         std::optional<std::string> lineEnding;
+        std::optional<std::string> pointerAlignment;
 
         [[nodiscard]] static FormattingOptions from_json(JsonValue const& v)
         {
