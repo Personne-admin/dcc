@@ -21,6 +21,10 @@ export namespace dccd::format
         std::size_t range_scan_steps{};
     };
 
+    std::size_t apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml);
+
+    bool load_clang_format(protocol::FormattingOptions& options, std::filesystem::path const& file);
+
     [[nodiscard]] std::optional<protocol::TextEdit> format_document(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
                                                                     protocol::FormattingOptions const& options,
                                                                     dcc::sm::PositionEncoding position_encoding = dcc::sm::PositionEncoding::Utf16);
@@ -51,6 +55,214 @@ module :private;
 
 namespace dccd::format
 {
+    namespace
+    {
+        [[nodiscard]] std::string_view trim_ws(std::string_view s) noexcept
+        {
+            while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r'))
+                s.remove_prefix(1);
+            while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r'))
+                s.remove_suffix(1);
+            return s;
+        }
+
+        [[nodiscard]] std::string lower(std::string_view s)
+        {
+            std::string r{s};
+            for (auto& c : r)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            return r;
+        }
+
+        [[nodiscard]] std::optional<std::uint32_t> parse_uint(std::string_view v) noexcept
+        {
+            std::uint32_t n{};
+            auto const [ptr, ec] = std::from_chars(v.data(), v.data() + v.size(), n);
+            if (ec != std::errc{} || ptr != v.data() + v.size())
+                return std::nullopt;
+
+            return n;
+        }
+
+        [[nodiscard]] std::optional<bool> parse_bool(std::string_view v)
+        {
+            auto const l = lower(v);
+            if (l == "true" || l == "yes" || l == "on")
+                return true;
+            if (l == "false" || l == "no" || l == "off")
+                return false;
+            return std::nullopt;
+        }
+
+        [[nodiscard]] std::vector<std::pair<std::string, std::string>> read_top_level_keys(std::string_view yaml)
+        {
+            std::vector<std::vector<std::pair<std::string, std::string>>> docs(1);
+            std::size_t pos = 0;
+            while (pos <= yaml.size())
+            {
+                auto const nl = yaml.find('\n', pos);
+                auto line = yaml.substr(pos, nl == std::string_view::npos ? std::string_view::npos : nl - pos);
+                pos = nl == std::string_view::npos ? yaml.size() + 1 : nl + 1;
+
+                if (line.starts_with("---"))
+                {
+                    docs.emplace_back();
+                    continue;
+                }
+                if (line.empty() || line.front() == ' ' || line.front() == '\t' || line.front() == '#' || line.front() == '-')
+                    continue;
+
+                auto const colon = line.find(':');
+                if (colon == std::string_view::npos)
+                    continue;
+
+                auto key = trim_ws(line.substr(0, colon));
+                auto val = line.substr(colon + 1);
+                if (auto const hash = val.find(" #"); hash != std::string_view::npos)
+                    val = val.substr(0, hash);
+
+                val = trim_ws(val);
+                if (val.size() >= 2 && (val.front() == '"' || val.front() == '\'') && val.back() == val.front())
+                    val = val.substr(1, val.size() - 2);
+
+                docs.back().emplace_back(std::string{key}, std::string{val});
+            }
+
+            for (auto& doc : docs)
+            {
+                bool applicable = true;
+                for (auto const& [k, v] : doc)
+                    if (k == "Language")
+                        applicable = v == "Cpp" || v == "C" || v == "ObjC" || v == "Dc";
+
+                if (applicable && !doc.empty())
+                    return std::move(doc);
+            }
+            return {};
+        }
+
+    }
+
+    std::size_t apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml)
+    {
+        auto const keys = read_top_level_keys(yaml);
+        std::size_t applied = 0;
+        std::optional<std::uint32_t> indent_width;
+        std::optional<std::uint32_t> tab_width;
+        std::optional<bool> use_tabs;
+
+        auto const preset = [&](std::uint32_t col, std::uint32_t indent) {
+            options.columnLimit = col;
+            indent_width = indent;
+            options.maxEmptyLines = 1;
+            ++applied;
+        };
+
+        for (auto const& [k, v] : keys)
+        {
+            if (k != "BasedOnStyle")
+                continue;
+
+            auto const style = lower(v);
+            if (style == "llvm" || style == "google" || style == "chromium" || style == "mozilla")
+                preset(80, 2);
+            else if (style == "webkit")
+                preset(0, 4);
+            else if (style == "microsoft")
+                preset(120, 4);
+            else if (style == "gnu")
+                preset(79, 2);
+        }
+
+        for (auto const& [k, v] : keys)
+        {
+            if (k == "ColumnLimit")
+            {
+                if (auto n = parse_uint(v))
+                    options.columnLimit = *n, ++applied;
+            }
+            else if (k == "IndentWidth")
+            {
+                if (auto n = parse_uint(v); n && *n > 0 && *n <= 100)
+                    indent_width = *n, ++applied;
+            }
+            else if (k == "TabWidth")
+            {
+                if (auto n = parse_uint(v); n && *n > 0 && *n <= 100)
+                    tab_width = *n, ++applied;
+            }
+            else if (k == "UseTab")
+            {
+                auto const l = lower(v);
+                if (l == "never" || l == "false")
+                    use_tabs = false, ++applied;
+                else if (l == "always" || l == "true" || l == "forindentation" || l == "forcontinuationandindentation" || l == "alignwithspaces")
+                    use_tabs = true, ++applied;
+            }
+            else if (k == "MaxEmptyLinesToKeep")
+            {
+                if (auto n = parse_uint(v))
+                    options.maxEmptyLines = *n, ++applied;
+            }
+            else if (k == "InsertNewlineAtEOF")
+            {
+                if (auto b = parse_bool(v))
+                    options.insertFinalNewline = *b, ++applied;
+            }
+            else if (k == "KeepEmptyLinesAtEOF")
+            {
+                if (auto b = parse_bool(v))
+                    options.trimFinalNewlines = !*b, ++applied;
+            }
+            else if (k == "LineEnding")
+            {
+                if (v == "LF" || v == "CRLF" || v == "DeriveLF" || v == "DeriveCRLF")
+                    options.lineEnding = v, ++applied;
+            }
+        }
+
+        if (indent_width)
+            options.tabSize = *indent_width;
+        if (use_tabs)
+            options.insertSpaces = !*use_tabs;
+        if (tab_width)
+            options.tabWidth = *tab_width;
+        else if (use_tabs && *use_tabs)
+            options.tabWidth = 4;
+
+        return applied;
+    }
+
+    bool load_clang_format(protocol::FormattingOptions& options, std::filesystem::path const& file)
+    {
+        namespace fs = std::filesystem;
+        std::error_code ec;
+        auto dir = fs::absolute(file, ec).parent_path();
+        while (!ec && !dir.empty())
+        {
+            for (char const* name : {".clang-format", "_clang-format"})
+            {
+                auto const candidate = dir / name;
+                if (!fs::is_regular_file(candidate, ec))
+                    continue;
+
+                std::ifstream in{candidate};
+                if (!in)
+                    continue;
+
+                std::string const text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+                apply_clang_format(options, text);
+                return true;
+            }
+            auto parent = dir.parent_path();
+            if (parent == dir)
+                break;
+
+            dir = std::move(parent);
+        }
+        return false;
+    }
+
     namespace
     {
         using dcc::lex::TokenKind;
