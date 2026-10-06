@@ -1,0 +1,8 @@
+module main;
+import lowering_helpers;
+public i32 main() {
+    if lowering_helpers::evaluate(1) != 222 { return 1; }
+    if lowering_helpers::evaluate(1 as u16) != 222 { return 2; }
+    if lowering_helpers::evaluate(1 as u64) != 222 { return 3; }
+    return 0;
+}

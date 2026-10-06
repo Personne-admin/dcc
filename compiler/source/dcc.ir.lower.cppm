@@ -483,40 +483,31 @@ export namespace dcc::ir::lower
                 auto first_specialization = m_module->functions.size();
                 auto specs = m_spec_reg->entries();
 
-                std::ranges::sort(specs, [](auto const& a, auto const& b) {
-                    auto a_name = a.template_decl ? a.template_decl->name : std::string_view{};
-                    auto b_name = b.template_decl ? b.template_decl->name : std::string_view{};
-                    if (a_name != b_name)
-                        return a_name < b_name;
-
-                    auto a_size = a.canonical_args.size();
-                    auto b_size = b.canonical_args.size();
-                    if (a_size != b_size)
-                        return a_size < b_size;
-
-                    for (std::size_t i = 0; i < a_size; ++i)
-                    {
-                        auto const& ac = a.canonical_args[i];
-                        auto const& bc = b.canonical_args[i];
-                        if (ac.tag != bc.tag)
-                            return static_cast<int>(ac.tag) < static_cast<int>(bc.tag);
-
-                        if (ac.type_ptr != bc.type_ptr)
-                            return ac.type_ptr < bc.type_ptr;
-
-                        if (ac.value_hash != bc.value_hash)
-                            return ac.value_hash < bc.value_hash;
-                    }
-                    return false;
-                });
-
+                std::vector<std::pair<std::string, sema::SpecializationView const*>> ordered_specs;
                 for (auto const& spec : specs)
                 {
-                    if (spec.state != sema::SpecState::Analyzed)
+                    if (spec.state != sema::SpecState::Analyzed || !spec.specialization_decl)
                         continue;
-                    if (spec.specialization_decl)
-                        create_specialization_shell(spec);
+                    auto* fd = spec.specialization_decl;
+                    if (fd->sema.is_intrinsic)
+                        continue;
+                    auto module_path = module_path_for_decl(spec.template_decl ? static_cast<ast::Decl const*>(spec.template_decl) : nullptr);
+                    if (module_path.empty())
+                        module_path = std::span<std::string_view const>{m_module_path};
+                    std::vector<dcc::types::TypePtr> param_types;
+                    for (auto const& param : fd->params)
+                        param_types.push_back(get_canonical_type(param.type));
+                    std::vector<dcc::ir::mangle::TemplateArg> args;
+                    for (auto const& arg : spec.canonical_args)
+                        args.push_back(canonical_to_template_arg(arg));
+                    auto name = spec.template_decl ? spec.template_decl->name : std::string_view{};
+                    ordered_specs.emplace_back(dcc::ir::mangle::mangle_specialization(module_path, name, param_types,
+                                                                                     get_canonical_type(fd->return_type), args, m_nominal_resolver),
+                                               &spec);
                 }
+                std::ranges::sort(ordered_specs, [](auto const& a, auto const& b) { return a.first < b.first; });
+                for (auto const& entry : ordered_specs)
+                    create_specialization_shell(*entry.second);
                 std::ranges::sort(m_module->functions.begin() + static_cast<std::ptrdiff_t>(first_specialization), m_module->functions.end(),
                                   [](IrFunction const* a, IrFunction const* b) { return a->name < b->name; });
             }
@@ -543,7 +534,7 @@ export namespace dcc::ir::lower
             for (auto& [fd, ir_func] : m_func_map)
                 queue_func(fd);
 
-            std::ranges::sort(to_lower, [&](ast::FuncDecl const* a, ast::FuncDecl const* b) {
+            auto source_order = [&](ast::FuncDecl const* a, ast::FuncDecl const* b) {
                 auto const a_ok = a->range.begin.valid();
                 auto const b_ok = b->range.begin.valid();
                 if (a_ok != b_ok)
@@ -557,7 +548,8 @@ export namespace dcc::ir::lower
                 if (a->range.begin.offset != b->range.begin.offset)
                     return a->range.begin.offset < b->range.begin.offset;
                 return m_func_map.at(a)->name < m_func_map.at(b)->name;
-            });
+            };
+            std::ranges::sort(to_lower, source_order);
 
             std::size_t head = 0;
             while (head < to_lower.size())
@@ -570,8 +562,10 @@ export namespace dcc::ir::lower
 
                 lower_func_body(fd, it->second);
 
+                auto first_new = to_lower.size();
                 for (auto& [new_fd, new_ir_func] : m_func_map)
                     queue_func(new_fd);
+                std::ranges::sort(to_lower.begin() + static_cast<std::ptrdiff_t>(first_new), to_lower.end(), source_order);
             }
         }
 
