@@ -2554,3 +2554,58 @@ return a_very_long_receiver_name.first_operation().second_operation().third_oper
 }
 )dc");
 }
+
+namespace
+{
+    [[nodiscard]] std::optional<std::string> format_with_clang_format(std::string_view src, std::string_view yaml)
+    {
+        dcc::sm::SourceManager sm;
+        auto const fid = sm.add_synthetic("test_format.dc", std::string{src});
+        auto const* sf = sm.get(fid);
+        if (!sf)
+            return std::nullopt;
+
+        dcc::si::string_interner interner;
+        dccd::protocol::FormattingOptions opts;
+        dccd::format::apply_clang_format(opts, yaml);
+        auto edit = dccd::format::format_document(*sf, interner, opts);
+        if (!edit)
+            return std::nullopt;
+
+        return edit->newText;
+    }
+
+}
+
+TEST_CASE("clang-format IndentWidth and UseTab are honoured")
+{
+    auto const src = "void f() {\nreturn;\n}\n";
+    CHECK(format_with_clang_format(src, "IndentWidth: 2\n") == std::optional<std::string>{"void f() {\n  return;\n}\n"});
+    CHECK(format_with_clang_format(src, "UseTab: Always\nTabWidth: 4\nIndentWidth: 4\n") == std::optional<std::string>{"void f() {\n\treturn;\n}\n"});
+}
+
+TEST_CASE("clang-format MaxEmptyLinesToKeep and LineEnding are honoured")
+{
+    auto const src = "void f() {}\n\n\n\nvoid g() {}\n";
+    CHECK(format_with_clang_format(src, "MaxEmptyLinesToKeep: 1\n") == std::optional<std::string>{"void f() {}\n\nvoid g() {}\n"});
+    CHECK(format_with_clang_format("void f() {}\n", "LineEnding: CRLF\n") == std::optional<std::string>{"void f() {}\r\n"});
+}
+
+TEST_CASE("clang-format ColumnLimit changes wrapping and 0 disables it")
+{
+    auto const src = "void f() {\n    call_something(argument_number_one, argument_number_two, argument_number_three);\n}\n";
+    auto const wide = format_with_clang_format(src, "ColumnLimit: 200\n");
+    auto const none = format_with_clang_format(src, "ColumnLimit: 0\n");
+    auto const narrow = format_with_clang_format(src, "ColumnLimit: 40\n");
+    REQUIRE(wide.has_value());
+    CHECK(wide == none);
+    CHECK(narrow != wide);
+}
+
+TEST_CASE("clang-format BasedOnStyle presets apply before explicit keys")
+{
+    dccd::protocol::FormattingOptions opts;
+    dccd::format::apply_clang_format(opts, "BasedOnStyle: Microsoft\nIndentWidth: 3\n");
+    CHECK(opts.column_limit() == 120);
+    CHECK(opts.tabSize == 3);
+}
