@@ -46,6 +46,25 @@ TEST_CASE("operand address and segment overrides follow x86 prefix groups")
     CHECK(bytes == (std::vector<std::uint8_t>{0x3e}));
 }
 
+TEST_CASE("instruction encoding requires an implemented x86 mode")
+{
+    using namespace dcc::backend::x86;
+    MInstr instr;
+    instr.opc = MOpc::RET;
+    auto long_mode = encode_single_instruction(instr, EncodeMode::Long64);
+    REQUIRE(long_mode.has_value());
+    CHECK(*long_mode == (std::vector<std::uint8_t>{0xc3}));
+    for (auto mode : {EncodeMode::Protected32, EncodeMode::Real16})
+    {
+        auto result = encode_single_instruction(instr, mode);
+        CHECK(!result.has_value());
+        MFunction func;
+        auto function = encode_function(func, mode);
+        CHECK(function.bytes.empty());
+        CHECK_EQ(function.warnings.size(), 1u);
+    }
+}
+
 namespace
 {
     struct AsmFixture
@@ -98,7 +117,7 @@ namespace
 
     std::vector<std::uint8_t> try_encode(em64t::MInstr const& instr)
     {
-        auto result = em64t::encode_single_instruction(instr);
+        auto result = x86::encode_single_instruction(instr, x86::EncodeMode::Long64);
         if (!result.has_value())
             return {0xFF};
         return *result;
