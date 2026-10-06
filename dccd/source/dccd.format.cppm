@@ -21,7 +21,24 @@ export namespace dccd::format
         std::size_t range_scan_steps{};
     };
 
-    std::size_t apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml);
+    struct ClangFormatStyle
+    {
+        std::optional<std::uint32_t> columnLimit;
+        std::optional<std::uint32_t> indentWidth;
+        std::optional<std::uint32_t> tabWidth;
+        std::optional<std::uint32_t> maxEmptyLines;
+        std::optional<bool> useTabs;
+        std::optional<bool> insertNewlineAtEof;
+        std::optional<bool> keepEmptyLinesAtEof;
+        std::optional<std::string> lineEnding;
+        std::optional<std::string> pointerAlignment;
+    };
+
+    [[nodiscard]] ClangFormatStyle parse_clang_format(std::string_view yaml);
+
+    void apply_style(protocol::FormattingOptions& options, ClangFormatStyle const& style);
+
+    void apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml);
 
     bool load_clang_format(protocol::FormattingOptions& options, std::filesystem::path const& file);
 
@@ -143,19 +160,15 @@ namespace dccd::format
 
     }
 
-    std::size_t apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml)
+    ClangFormatStyle parse_clang_format(std::string_view yaml)
     {
         auto const keys = read_top_level_keys(yaml);
-        std::size_t applied = 0;
-        std::optional<std::uint32_t> indent_width;
-        std::optional<std::uint32_t> tab_width;
-        std::optional<bool> use_tabs;
+        ClangFormatStyle style;
 
         auto const preset = [&](std::uint32_t col, std::uint32_t indent) {
-            options.columnLimit = col;
-            indent_width = indent;
-            options.maxEmptyLines = 1;
-            ++applied;
+            style.columnLimit = col;
+            style.indentWidth = indent;
+            style.maxEmptyLines = 1;
         };
 
         for (auto const& [k, v] : keys)
@@ -163,14 +176,14 @@ namespace dccd::format
             if (k != "BasedOnStyle")
                 continue;
 
-            auto const style = lower(v);
-            if (style == "llvm" || style == "google" || style == "chromium" || style == "mozilla")
+            auto const based_on = lower(v);
+            if (based_on == "llvm" || based_on == "google" || based_on == "chromium" || based_on == "mozilla")
                 preset(80, 2);
-            else if (style == "webkit")
+            else if (based_on == "webkit")
                 preset(0, 4);
-            else if (style == "microsoft")
+            else if (based_on == "microsoft")
                 preset(120, 4);
-            else if (style == "gnu")
+            else if (based_on == "gnu")
                 preset(79, 2);
         }
 
@@ -179,63 +192,83 @@ namespace dccd::format
             if (k == "ColumnLimit")
             {
                 if (auto n = parse_uint(v))
-                    options.columnLimit = *n, ++applied;
+                    style.columnLimit = *n;
             }
             else if (k == "IndentWidth")
             {
                 if (auto n = parse_uint(v); n && *n > 0 && *n <= 100)
-                    indent_width = *n, ++applied;
+                    style.indentWidth = *n;
             }
             else if (k == "TabWidth")
             {
                 if (auto n = parse_uint(v); n && *n > 0 && *n <= 100)
-                    tab_width = *n, ++applied;
+                    style.tabWidth = *n;
             }
             else if (k == "UseTab")
             {
                 auto const l = lower(v);
                 if (l == "never" || l == "false")
-                    use_tabs = false, ++applied;
+                    style.useTabs = false;
                 else if (l == "always" || l == "true" || l == "forindentation" || l == "forcontinuationandindentation" || l == "alignwithspaces")
-                    use_tabs = true, ++applied;
+                    style.useTabs = true;
             }
             else if (k == "MaxEmptyLinesToKeep")
             {
                 if (auto n = parse_uint(v))
-                    options.maxEmptyLines = *n, ++applied;
+                    style.maxEmptyLines = *n;
             }
             else if (k == "InsertNewlineAtEOF")
             {
-                if (auto b = parse_bool(v))
-                    options.insertFinalNewline = *b, ++applied;
+                if (auto flag = parse_bool(v))
+                    style.insertNewlineAtEof = *flag;
             }
             else if (k == "KeepEmptyLinesAtEOF")
             {
-                if (auto b = parse_bool(v))
-                    options.trimFinalNewlines = !*b, ++applied;
+                if (auto flag = parse_bool(v))
+                    style.keepEmptyLinesAtEof = *flag;
             }
             else if (k == "LineEnding")
             {
                 if (v == "LF" || v == "CRLF" || v == "DeriveLF" || v == "DeriveCRLF")
-                    options.lineEnding = v, ++applied;
+                    style.lineEnding = v;
             }
             else if (k == "PointerAlignment")
             {
                 if (v == "Left" || v == "Right" || v == "Middle")
-                    options.pointerAlignment = v, ++applied;
+                    style.pointerAlignment = v;
             }
         }
 
-        if (indent_width)
-            options.tabSize = *indent_width;
-        if (use_tabs)
-            options.insertSpaces = !*use_tabs;
-        if (tab_width)
-            options.tabWidth = *tab_width;
-        else if (use_tabs && *use_tabs)
-            options.tabWidth = 4;
+        return style;
+    }
 
-        return applied;
+    void apply_style(protocol::FormattingOptions& options, ClangFormatStyle const& style)
+    {
+        if (style.columnLimit)
+            options.columnLimit = *style.columnLimit;
+        if (style.maxEmptyLines)
+            options.maxEmptyLines = *style.maxEmptyLines;
+        if (style.insertNewlineAtEof)
+            options.insertFinalNewline = *style.insertNewlineAtEof;
+        if (style.keepEmptyLinesAtEof)
+            options.trimFinalNewlines = !*style.keepEmptyLinesAtEof;
+        if (style.lineEnding)
+            options.lineEnding = style.lineEnding;
+        if (style.pointerAlignment)
+            options.pointerAlignment = style.pointerAlignment;
+        if (style.indentWidth)
+            options.tabSize = *style.indentWidth;
+        if (style.useTabs)
+            options.insertSpaces = !*style.useTabs;
+        if (style.tabWidth)
+            options.tabWidth = *style.tabWidth;
+        else if (style.useTabs && *style.useTabs)
+            options.tabWidth = 4;
+    }
+
+    void apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml)
+    {
+        apply_style(options, parse_clang_format(yaml));
     }
 
     bool load_clang_format(protocol::FormattingOptions& options, std::filesystem::path const& file)
@@ -256,7 +289,7 @@ namespace dccd::format
                     continue;
 
                 std::string const text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-                apply_clang_format(options, text);
+                apply_style(options, parse_clang_format(text));
                 return true;
             }
             auto parent = dir.parent_path();
