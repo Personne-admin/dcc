@@ -300,6 +300,22 @@ namespace dccd::format
             return (k >= TokenKind::Kwu8 && k <= TokenKind::KwIsize) || k == TokenKind::KwConst || k == TokenKind::KwRestrict || k == TokenKind::KwVolatile;
         }
 
+        enum class PointerAlign : std::uint8_t
+        {
+            Left,
+            Right,
+            Middle,
+        };
+
+        [[nodiscard]] PointerAlign pointer_align_of(protocol::FormattingOptions const& options) noexcept
+        {
+            if (options.pointerAlignment == "Right")
+                return PointerAlign::Right;
+            if (options.pointerAlignment == "Middle")
+                return PointerAlign::Middle;
+            return PointerAlign::Left;
+        }
+
         struct DelimitedGroup
         {
             std::size_t open_tok{};
@@ -344,6 +360,7 @@ namespace dccd::format
             std::vector<BinaryLayout> binary_layouts;
             int tab_size{4};
             std::size_t column_limit{80};
+            PointerAlign pointer_align{PointerAlign::Left};
             std::unordered_map<std::size_t, DelimitedGroup> groups;
         };
 
@@ -372,6 +389,11 @@ namespace dccd::format
             bool const prev_is_unary_operator = i - 1 < info.unary_operator.size() && info.unary_operator[i - 1];
             if (prev_is_unary_operator)
                 return false;
+
+            bool const prev_is_pointer_star = i - 1 < info.pointer_star.size() && info.pointer_star[i - 1];
+            if (prev_is_pointer_star && info.pointer_align == PointerAlign::Right && cur != TokenKind::Star)
+                if (cur == TokenKind::Identifier || cur == TokenKind::KwConst || cur == TokenKind::KwRestrict || cur == TokenKind::KwVolatile)
+                    return false;
 
             if (cur == TokenKind::Dot && prev == TokenKind::Comma)
                 return true;
@@ -437,7 +459,7 @@ namespace dccd::format
             if (cur == TokenKind::Star)
             {
                 if (i < info.pointer_star.size() && info.pointer_star[i])
-                    return false;
+                    return !prev_is_pointer_star && info.pointer_align != PointerAlign::Left;
 
                 if (is_binary_operator)
                     return true;
@@ -1622,6 +1644,7 @@ namespace dccd::format
             info.pointer_star.assign(tokens.size(), false);
             info.tab_size = static_cast<int>(options.tabSize);
             info.column_limit = options.column_limit();
+            info.pointer_align = pointer_align_of(options);
             stats.token_count = tokens.size();
 
             std::vector<Offset> begins;
@@ -1681,6 +1704,7 @@ namespace dccd::format
                                       .binary_layouts = {},
                                       .tab_size = static_cast<int>(options.tabSize),
                                       .column_limit = options.column_limit(),
+                                      .pointer_align = pointer_align_of(options),
                                       .groups = {}};
             }
 
