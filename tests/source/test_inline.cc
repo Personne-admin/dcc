@@ -172,6 +172,43 @@ namespace
         CHECK(!dom.strictly_dominates(entry, entry));
     }
 
+    SECTION("ir: dominance order");
+
+    TEST_CASE("dominance children are independent of allocation order")
+    {
+        std::array<unsigned, 4> allocation_order{0, 1, 2, 3};
+        do
+        {
+            IrContext in;
+            auto* mod = in.module("t");
+            auto* i32 = in.int_t(32, true);
+            IrType const* params[] = {in.bool_t()};
+            auto* func = mk_func(in, mod, "diamond", i32, params);
+            std::array<IrBasicBlock*, 4> blocks{};
+            for (auto index : allocation_order)
+            {
+                blocks[index] = in.basic_block(index);
+                blocks[index]->parent = func;
+            }
+            func->blocks.assign(blocks.begin(), blocks.end());
+            func->entry_block = blocks[0];
+            auto* condition = mk_param(in, blocks[0], "condition", 0, in.bool_t());
+            blocks[0]->terminator = in.br_cond(condition, blocks[1], blocks[2]);
+            blocks[1]->terminator = in.br(blocks[3]);
+            blocks[2]->terminator = in.br(blocks[3]);
+            blocks[3]->terminator = in.ret(in.int_const(i32, 0));
+            auto rpo = analysis::compute_rpo(*func);
+            auto dom = analysis::DomTree::build(*func, rpo, analysis::build_pred_map(*func));
+            std::vector<IrBasicBlock const*> expected;
+            for (auto* block : rpo)
+                if (block != func->entry_block)
+                    expected.push_back(block);
+            CHECK(dom.children.at(func->entry_block) == expected);
+            CHECK(dom.dominates(blocks[0], blocks[3]));
+            CHECK(!dom.dominates(blocks[1], blocks[3]));
+        } while (std::next_permutation(allocation_order.begin(), allocation_order.end()));
+    }
+
     SECTION("inline: callee gates");
 
     TEST_CASE("small leaf inlines away")
