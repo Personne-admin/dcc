@@ -3506,21 +3506,13 @@ namespace dcc::ir::pass
 
 } // namespace dcc::ir::pass
 
-namespace
+export namespace dcc::ir::pass
 {
-
-    struct AutoRegister
+    void register_builtin_passes(PassManager& pm)
     {
-        AutoRegister()
-        {
-            auto& pm = dcc::ir::pass::global_pass_manager();
-            pm.add_module_pass({.name = "inline", .min_level = dcc::ir::pass::OptLevel::O1, .run = dcc::ir::pass::inline_detail::inline_impl});
-            pm.add_function_pass({.name = "mem2reg", .min_level = dcc::ir::pass::OptLevel::O1, .run = dcc::ir::pass::mem2reg_impl});
-            pm.add_function_pass({.name = "dce", .min_level = dcc::ir::pass::OptLevel::O1, .run = dcc::ir::pass::dce_impl});
-            pm.add_function_pass({.name = "simplifycfg", .min_level = dcc::ir::pass::OptLevel::O1, .run = dcc::ir::pass::simplifycfg_impl});
-        }
-    };
-
-    AutoRegister auto_reg;
-
-} // anonymous namespace
+        pm.add_module_pass({.name = "inline", .min_level = OptLevel::O1, .run = inline_detail::inline_impl});
+        pm.add_function_pass({.name = "mem2reg", .min_level = OptLevel::O1, .run = mem2reg_impl});
+        pm.add_function_pass({.name = "dce", .min_level = OptLevel::O1, .run = dce_impl});
+        pm.add_function_pass({.name = "simplifycfg", .min_level = OptLevel::O1, .run = simplifycfg_impl});
+    }
+}

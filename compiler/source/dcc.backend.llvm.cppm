@@ -21,8 +21,7 @@ export module dcc.backend.llvm;
 import std;
 import dcc.backend;
 import dcc.ir;
-import dcc.ir.pass;
-import dcc.ir.transforms;
+import dcc.ir.pipeline;
 import dcc.backend.inline_asm;
 import dcc.target;
 import dcc.sm;
@@ -1527,13 +1526,16 @@ namespace dcc::backend
             }
         };
 
-        [[gnu::constructor]] void ensure_llvm_initialized()
+        void ensure_llvm_initialized()
         {
-            LLVMInitializeAllTargetInfos();
-            LLVMInitializeAllTargets();
-            LLVMInitializeAllTargetMCs();
-            LLVMInitializeAllAsmParsers();
-            LLVMInitializeAllAsmPrinters();
+            static std::once_flag initialized;
+            std::call_once(initialized, [] {
+                LLVMInitializeAllTargetInfos();
+                LLVMInitializeAllTargets();
+                LLVMInitializeAllTargetMCs();
+                LLVMInitializeAllAsmParsers();
+                LLVMInitializeAllAsmPrinters();
+            });
         }
 
         class LlvmBackendImpl : public Backend

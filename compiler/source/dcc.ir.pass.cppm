@@ -192,6 +192,8 @@ export namespace dcc::ir::pass
     public:
         void add_function_pass(FunctionPass pass) { m_func_passes.push_back(pass); }
         void add_module_pass(ModulePass pass) { m_module_passes.push_back(pass); }
+        [[nodiscard]] std::span<FunctionPass const> function_passes() const { return m_func_passes; }
+        [[nodiscard]] std::span<ModulePass const> module_passes() const { return m_module_passes; }
 
         [[nodiscard]] IrModule* run(IrModule const& input, IrContext& output_ctx, OptLevel level)
         {
@@ -267,12 +269,6 @@ export namespace dcc::ir::pass
         std::vector<FunctionPass> m_func_passes;
         std::vector<ModulePass> m_module_passes;
     };
-
-    [[nodiscard]] PassManager& global_pass_manager()
-    {
-        static PassManager pm;
-        return pm;
-    }
 
 } // namespace dcc::ir::pass
 
