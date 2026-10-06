@@ -2125,6 +2125,7 @@ export namespace dccd
         [[nodiscard]] std::optional<protocol::JsonValue> handle_formatting(protocol::RpcInfo const& rpc)
         {
             auto params = protocol::DocumentFormattingParams::from_json(rpc.params.value());
+            apply_workspace_style(params.textDocument.uri, params.options);
 
             std::println(m_log, "[dccd] formatting: uri={} tabSize={} insertSpaces={}", params.textDocument.uri, params.options.tabSize,
                          params.options.insertSpaces);
@@ -2151,6 +2152,7 @@ export namespace dccd
         [[nodiscard]] std::optional<protocol::JsonValue> handle_range_formatting(protocol::RpcInfo const& rpc)
         {
             auto params = protocol::DocumentRangeFormattingParams::from_json(rpc.params.value());
+            apply_workspace_style(params.textDocument.uri, params.options);
 
             std::println(m_log, "[dccd] rangeFormatting: uri={} range=({}:{})-({}:{}) tabSize={} insertSpaces={}", params.textDocument.uri,
                          params.range.start.line, params.range.start.character, params.range.end.line, params.range.end.character, params.options.tabSize,
@@ -2176,6 +2178,7 @@ export namespace dccd
         [[nodiscard]] std::optional<protocol::JsonValue> handle_on_type_formatting(protocol::RpcInfo const& rpc)
         {
             auto params = protocol::DocumentOnTypeFormattingParams::from_json(rpc.params.value());
+            apply_workspace_style(params.textDocument.uri, params.options);
 
             std::println(m_log, "[dccd] onTypeFormatting: uri={} ch=\"{}\" position=({}:{}) tabSize={} insertSpaces={}", params.textDocument.uri, params.ch,
                          params.position.line, params.position.character, params.options.tabSize, params.options.insertSpaces);
@@ -2196,6 +2199,13 @@ export namespace dccd
             std::println(m_log, "[dccd] onTypeFormatting: {} edit(s) for {}", arr.array_size(), params.textDocument.uri);
 
             return protocol::build_response(rpc.id.value(), std::move(arr));
+        }
+
+        void apply_workspace_style(std::string const& uri, protocol::FormattingOptions& options)
+        {
+            auto path = dcc::sm::SourceManager::parse_file_uri(uri);
+            if (path && dccd::format::load_clang_format(options, *path))
+                std::println(m_log, "[dccd] formatting: applied .clang-format for {}", uri);
         }
 
         [[nodiscard]] dcc::sm::SourceFile const* formatting_source_file(std::string const& uri)
