@@ -40,7 +40,20 @@ export namespace dccd::format
 
     void apply_clang_format(protocol::FormattingOptions& options, std::string_view yaml);
 
-    bool load_clang_format(protocol::FormattingOptions& options, std::filesystem::path const& file);
+    class StyleCache
+    {
+    public:
+        bool apply(protocol::FormattingOptions& options, std::filesystem::path const& file);
+
+    private:
+        struct Entry
+        {
+            std::filesystem::file_time_type mtime;
+            ClangFormatStyle style;
+        };
+
+        std::unordered_map<std::string, Entry> m_entries;
+    };
 
     [[nodiscard]] std::optional<protocol::TextEdit> format_document(dcc::sm::SourceFile const& sf, dcc::si::string_interner& interner,
                                                                     protocol::FormattingOptions const& options,
@@ -271,34 +284,59 @@ namespace dccd::format
         apply_style(options, parse_clang_format(yaml));
     }
 
-    bool load_clang_format(protocol::FormattingOptions& options, std::filesystem::path const& file)
+    namespace
+    {
+        [[nodiscard]] std::optional<std::filesystem::path> find_clang_format(std::filesystem::path const& file)
+        {
+            namespace fs = std::filesystem;
+            std::error_code ec;
+            auto dir = fs::absolute(file, ec).parent_path();
+            while (!ec && !dir.empty())
+            {
+                for (char const* name : {".clang-format", "_clang-format"})
+                {
+                    std::error_code probe_ec;
+                    auto candidate = dir / name;
+                    if (fs::is_regular_file(candidate, probe_ec))
+                        return candidate;
+                }
+
+                auto parent = dir.parent_path();
+                if (parent == dir)
+                    break;
+
+                dir = std::move(parent);
+            }
+            return std::nullopt;
+        }
+    }
+
+    bool StyleCache::apply(protocol::FormattingOptions& options, std::filesystem::path const& file)
     {
         namespace fs = std::filesystem;
+        auto const found = find_clang_format(file);
+        if (!found)
+            return false;
+
         std::error_code ec;
-        auto dir = fs::absolute(file, ec).parent_path();
-        while (!ec && !dir.empty())
+        auto const mtime = fs::last_write_time(*found, ec);
+        if (ec)
+            return false;
+
+        auto const key = found->string();
+        auto it = m_entries.find(key);
+        if (it == m_entries.end() || it->second.mtime != mtime)
         {
-            for (char const* name : {".clang-format", "_clang-format"})
-            {
-                auto const candidate = dir / name;
-                if (!fs::is_regular_file(candidate, ec))
-                    continue;
+            std::ifstream in{*found};
+            if (!in)
+                return false;
 
-                std::ifstream in{candidate};
-                if (!in)
-                    continue;
-
-                std::string const text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-                apply_style(options, parse_clang_format(text));
-                return true;
-            }
-            auto parent = dir.parent_path();
-            if (parent == dir)
-                break;
-
-            dir = std::move(parent);
+            std::string const text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+            it = m_entries.insert_or_assign(key, Entry{mtime, parse_clang_format(text)}).first;
         }
-        return false;
+
+        apply_style(options, it->second.style);
+        return true;
     }
 
     namespace

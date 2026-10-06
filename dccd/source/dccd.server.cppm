@@ -193,6 +193,7 @@ export namespace dccd
     private:
         std::optional<dcc::session::CompilerSession> m_session;
         std::ostream& m_log{std::cerr};
+        dccd::format::StyleCache m_style_cache;
         std::ostream* m_output{nullptr};
         bool m_should_exit{false};
         std::shared_ptr<transport::CancellationRegistry> m_cancellation;
@@ -2204,7 +2205,7 @@ export namespace dccd
         void apply_workspace_style(std::string const& uri, protocol::FormattingOptions& options)
         {
             auto path = dcc::sm::SourceManager::parse_file_uri(uri);
-            if (path && dccd::format::load_clang_format(options, *path))
+            if (path && m_style_cache.apply(options, *path))
                 std::println(m_log, "[dccd] formatting: applied .clang-format for {}", uri);
         }
 
