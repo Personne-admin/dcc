@@ -49,7 +49,9 @@ endef
 define create-archive
 	@mkdir -p $(dir $(1))
 	$(call MSG,AR,$(1))
-	$(Q)$(AR) rcs $(1) $(2)
+	$(Q)rm -f $(1).tmp
+	$(Q)$(AR) rcs $(1).tmp $(2)
+	$(Q)mv -f $(1).tmp $(1)
 endef
 
 define link-binary
@@ -57,4 +59,15 @@ define link-binary
 	$(call MSG,LD,$(1))
 	$(Q)$(CXX) $(BASE_LDFLAGS) $(2) $(3) $(LINK_TAIL_LDFLAGS) -o $(1)
 	$(DSYM_CMD)
+endef
+
+.PHONY: check-archive-inputs
+
+define track-archive-inputs
+$(1).objects: check-archive-inputs
+	@mkdir -p $$(dir $$@)
+	@printf '%s\n' '$(2)' > $$@.tmp
+	@if cmp -s $$@.tmp $$@; then rm -f $$@.tmp; else mv -f $$@.tmp $$@; fi
+
+$(1): $(1).objects
 endef

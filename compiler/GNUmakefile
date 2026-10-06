@@ -29,16 +29,20 @@ CC_OBJS := $(call objs-from-srcs,$(CC_SRCS))
 CC_DEPS := $(CC_OBJS:.o=.d)
 ALL_OBJS := $(MODULE_OBJS) $(CC_OBJS)
 
+LIB_OBJECTS_FILE := $(LIB).objects
+
 .PHONY: all clean
 
+$(eval $(call track-archive-inputs,$(LIB),$(ALL_OBJS)))
+
 $(LIB): $(ALL_OBJS)
-	$(call create-archive,$@,$^)
+	$(call create-archive,$@,$(ALL_OBJS))
 
 $(CC_OBJS): $(OBJ_DIR)/%.o: $(MODULE_PCM_FILES)
 	$(call compile-cxx,$(TOPLEVEL)/$*,$@,$(LOCAL_CXXFLAGS))
 
 clean:
-	rm -f $(ALL_OBJS) $(CC_DEPS) $(MODULE_PCM_FILES) $(LIB)
+	rm -f $(ALL_OBJS) $(CC_DEPS) $(MODULE_PCM_FILES) $(LIB) $(LIB_OBJECTS_FILE) $(LIB_OBJECTS_FILE).tmp $(LIB).tmp
 	rm -f $(STD_PCM) $(STD_COMPAT_PCM) $(STD_OBJ) $(STD_COMPAT_OBJ)
 	rm -f $(DEP_DIR)/compiler.modules.*.d.mk
 

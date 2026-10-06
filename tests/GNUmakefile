@@ -82,6 +82,7 @@ test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_archive_members.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_domtree_cycles.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_static_match.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_template_instance.py $(BUILD_DIR)/bin/dcc
