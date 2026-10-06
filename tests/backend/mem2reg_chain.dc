@@ -1,0 +1,21 @@
+module main;
+@nomangle @noinline public i32 f(i32 x) {
+    i32 y = x;
+    y = y;
+    y = y;
+    if x > 0 {
+        y = y;
+        y = y + 1;
+    } else {
+        y = y;
+        y = y + 2;
+    }
+    return y;
+}
+
+public i32 main() {
+    if f(-5) != -3 { return 1; }
+    if f(0) != 2 { return 2; }
+    if f(5) != 6 { return 3; }
+    return 0;
+}
