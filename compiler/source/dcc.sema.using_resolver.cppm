@@ -62,6 +62,58 @@ export namespace dcc::sema
         std::pmr::polymorphic_allocator<> m_alloc;
         std::unordered_set<ast::UsingDecl const*> m_resolved;
 
+        std::vector<std::pair<Scope const*, Scope*>> m_namespace_merges;
+        std::vector<std::pair<ast::Decl const*, ast::Decl const*>> m_type_conflicts;
+
+        static std::vector<std::pair<std::string_view, NameBinding const*>> sorted_bindings(Scope const& source)
+        {
+            std::vector<std::pair<std::string_view, NameBinding const*>> bindings;
+            for (auto const& [name, binding] : source.bindings())
+                bindings.emplace_back(name, &binding);
+            std::ranges::sort(bindings, {}, &std::pair<std::string_view, NameBinding const*>::first);
+            return bindings;
+        }
+
+        bool merge_namespace(Scope const& source, Scope& destination, bool exported)
+        {
+            auto pair = std::pair{&source, &destination};
+            if (&source == &destination || std::ranges::any_of(m_namespace_merges, [&](auto const& active) { return active.first == &source; }))
+                return false;
+            m_namespace_merges.push_back(pair);
+            bool changed = false;
+            for (auto const& [name, binding] : sorted_bindings(source))
+                changed = install_binding_in_scope(*binding, name, destination, exported) || changed;
+            m_namespace_merges.pop_back();
+            return changed;
+        }
+
+        void diagnose_type_conflict(Symbol const& existing, Symbol const& incoming)
+        {
+            auto pair = std::pair{existing.decl, incoming.decl};
+            if (!incoming.via_using || std::ranges::find(m_type_conflicts, pair) != m_type_conflicts.end())
+                return;
+            m_type_conflicts.push_back(pair);
+            auto diagnostic = diag::Diagnostic{diag::Severity::Error,
+                std::format("conflicting type injection for `{}`", path_str(incoming.via_using->alias_path))}
+                .primary(incoming.via_using->range);
+            if (existing.definition_range.valid())
+                std::move(diagnostic).secondary(existing.definition_range, "previous definition was here");
+            m_diag.emit(std::move(diagnostic));
+        }
+
+        bool merge_spilled_namespace(Scope const& source, Scope& destination)
+        {
+            if (&source == &destination || std::ranges::any_of(m_namespace_merges, [&](auto const& active) { return active.first == &source; }))
+                return false;
+            m_namespace_merges.emplace_back(&source, &destination);
+            bool changed = false;
+            for (auto const& [name, binding] : sorted_bindings(source))
+                if (has_any_spill(*binding))
+                    changed = copy_spilled_slots(*binding, name, destination) || changed;
+            m_namespace_merges.pop_back();
+            return changed;
+        }
+
         bool bind_imports(ModuleInfo& mod)
         {
             bool progress = false;
@@ -136,7 +188,11 @@ export namespace dcc::sema
                 leaf.module = &target;
                 leaf.is_exported = also_export;
 
-                return cur->bind_namespace(segs.back(), target.export_scope, leaf) == DefineResult::Ok;
+                NameBinding binding{m_alloc};
+                binding.has_namespace = true;
+                binding.namespace_scope = target.export_scope;
+                binding.namespace_sym = leaf;
+                return install_binding_in_scope(binding, segs.back(), *cur, also_export);
             };
 
             bool progress = write_path(*mod.own_scope);
@@ -222,7 +278,7 @@ export namespace dcc::sema
 
         static bool is_variable_like(SymbolKind k) noexcept { return k == SymbolKind::Variable || k == SymbolKind::ValueAlias; }
 
-        static bool install_binding_in_scope(NameBinding const& src, std::string_view target_name, Scope& dst, bool is_exported)
+        bool install_binding_in_scope(NameBinding const& src, std::string_view target_name, Scope& dst, bool is_exported)
         {
             bool added = false;
             auto* existing = dst.find_binding_local(target_name);
@@ -236,6 +292,8 @@ export namespace dcc::sema
                     added = merge_symbol(existing->type_sym, s) || added;
                 else if ((!existing || !existing->has_type) && dst.define_type(s) == DefineResult::Ok)
                     added = true;
+                else if (existing && existing->has_type && existing->type_sym.decl != s.decl)
+                    diagnose_type_conflict(existing->type_sym, s);
             }
 
             for (auto const& vs : src.value_syms)
@@ -283,6 +341,12 @@ export namespace dcc::sema
                     added = merge_symbol(binding->namespace_sym, s) || added;
                 else if ((!binding || !binding->has_namespace) && dst.bind_namespace(target_name, src.namespace_scope, s) == DefineResult::Ok)
                     added = true;
+                else if (binding && binding->has_namespace && src.namespace_scope)
+                {
+                    auto* group = dst.ensure_namespace(target_name, s, src.namespace_scope->kind());
+                    added = merge_symbol(binding->namespace_sym, s) || added;
+                    added = merge_namespace(*src.namespace_scope, *group, is_exported) || added;
+                }
             }
 
             return added;
@@ -294,7 +358,24 @@ export namespace dcc::sema
             for (auto* u : mod.using_worklist)
             {
                 if (m_resolved.contains(u))
+                {
+                    if (u->is_spill && u->using_kind == ast::UsingKind::Alias && u->alias_path.segments.size() > 1 && !has_nominal_attr(*u))
+                    {
+                        ast::Path const* path = nullptr;
+                        if (auto const* named = ast::node_cast<ast::NamedType>(u->target_type); named && named->template_args.empty())
+                            path = &named->path;
+                        else if (!u->target_path.is_empty())
+                            path = &u->target_path;
+                        if (path)
+                            if (auto source = resolve_target_binding(*mod.own_scope, *path); source && source->binding->has_type)
+                            {
+                                bool changed = false;
+                                std::ignore = install_path_alias_from(mod, *u, *path, &changed);
+                                progress = changed || progress;
+                            }
+                    }
                     continue;
+                }
 
                 if (try_resolve_using(mod, *u))
                 {
@@ -326,22 +407,25 @@ export namespace dcc::sema
             return false;
         }
 
-        bool install_path_alias_from(ModuleInfo& mod, ast::UsingDecl& u, ast::Path const& path)
+        bool install_path_alias_from(ModuleInfo& mod, ast::UsingDecl& u, ast::Path const& path, bool* changed = nullptr)
         {
             auto resolved = resolve_target_binding(*mod.own_scope, path);
             if (!resolved)
                 return false;
 
             std::string_view tail = u.alias_path.segments.back().name;
+            bool added = false;
             auto write = [&](Scope& root, bool spill) {
                 Scope* cur = walk_alias_prefix(root, u.alias_path, u, spill);
-                copy_all_slots(*resolved->binding, tail, *cur, &u, spill);
+                added = copy_all_slots(*resolved->binding, tail, *cur, &u, spill) || added;
             };
 
             write(*mod.own_scope, u.is_spill);
             if (u.is_public || u.is_spill)
                 write(*mod.export_scope, u.is_spill);
 
+            if (changed)
+                *changed = added;
             record_resolved(u, tail, primary_decl_of(*resolved->binding));
             return true;
         }
@@ -831,6 +915,8 @@ export namespace dcc::sema
                     added = merge_symbol(existing->type_sym, s) || added;
                 else if ((!existing || !existing->has_type) && dst.define_type(s) == DefineResult::Ok)
                     added = true;
+                else if (existing && existing->has_type && existing->type_sym.decl != s.decl)
+                    diagnose_type_conflict(existing->type_sym, s);
             }
 
             for (auto const& vs : src.value_syms)
@@ -879,6 +965,12 @@ export namespace dcc::sema
                     added = merge_symbol(binding->namespace_sym, s) || added;
                 else if ((!binding || !binding->has_namespace) && dst.bind_namespace(name, src.namespace_scope, s) == DefineResult::Ok)
                     added = true;
+                else if (binding && binding->has_namespace && src.namespace_scope)
+                {
+                    auto* group = dst.ensure_namespace(name, s, src.namespace_scope->kind());
+                    added = merge_symbol(binding->namespace_sym, s) || added;
+                    added = merge_spilled_namespace(*src.namespace_scope, *group) || added;
+                }
             }
 
             return added;

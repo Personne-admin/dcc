@@ -1,0 +1,17 @@
+=== FILE: first.dc ===
+module first;
+using public merged::word = u8;
+
+=== FILE: second.dc ===
+module second;
+using public merged::word = u16;
+
+=== FILE: main.dc ===
+module main;
+import first;
+import second;
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+first.dc:2: conflicting type injection for `merged::word`
