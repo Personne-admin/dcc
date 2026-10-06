@@ -1,5 +1,6 @@
 import std;
 import dcc.ir;
+import dcc.ir.analysis;
 import dcc.ir.pass;
 import dcc.ir.transforms;
 
@@ -127,6 +128,48 @@ namespace
             call->args.push_back(a);
         bb->instructions.push_back(call);
         return call;
+    }
+
+    SECTION("ir: dominance queries");
+
+    TEST_CASE("dominance queries terminate at the root and reject blocks outside the tree")
+    {
+        IrContext in;
+        auto* mod = in.module("t");
+        auto* i32 = in.int_t(32, true);
+        IrType const* params[] = {in.bool_t()};
+        auto* func = mk_func(in, mod, "diamond", i32, params);
+        auto* entry = mk_block(in, func, 0);
+        auto* left = mk_block(in, func, 1);
+        auto* right = mk_block(in, func, 2);
+        auto* join = mk_block(in, func, 3);
+        auto* unreachable = mk_block(in, func, 4);
+        auto* outside = in.basic_block(5);
+        auto* condition = mk_param(in, entry, "condition", 0, in.bool_t());
+        entry->terminator = in.br_cond(condition, left, right);
+        left->terminator = in.br(join);
+        right->terminator = in.br(join);
+        join->terminator = in.ret(in.int_const(i32, 0));
+        unreachable->terminator = in.ret(in.int_const(i32, 1));
+        auto rpo = analysis::compute_rpo(*func);
+        auto dom = analysis::DomTree::build(*func, rpo, analysis::build_pred_map(*func));
+        CHECK(dom.dominates(entry, entry));
+        CHECK(dom.dominates(entry, left));
+        CHECK(dom.dominates(entry, join));
+        CHECK(dom.dominates(join, join));
+        CHECK(!dom.dominates(left, join));
+        CHECK(!dom.dominates(right, left));
+        CHECK(!dom.dominates(join, entry));
+        CHECK(!dom.dominates(entry, unreachable));
+        CHECK(!dom.dominates(unreachable, join));
+        CHECK(!dom.dominates(unreachable, unreachable));
+        CHECK(!dom.dominates(outside, entry));
+        CHECK(!dom.dominates(entry, outside));
+        CHECK(!dom.dominates(outside, outside));
+        CHECK(!dom.dominates(nullptr, entry));
+        CHECK(!dom.dominates(entry, nullptr));
+        CHECK(dom.strictly_dominates(entry, join));
+        CHECK(!dom.strictly_dominates(entry, entry));
     }
 
     SECTION("inline: callee gates");
