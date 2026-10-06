@@ -3,40 +3,23 @@ export module dcc.backend.x86.regalloc;
 import std;
 import dcc.ir;
 import dcc.backend.x86.mir;
-import dcc.target;
+
+export namespace dcc::backend::x86
+{
+    struct RegisterPolicy
+    {
+        std::span<PhysReg const> gprs;
+        std::span<PhysReg const> xmms;
+        std::span<PhysReg const> callee_saved_gprs;
+        std::span<PhysReg const> callee_saved_xmms;
+        bool is_win64;
+    };
+}
 
 namespace dcc::backend::x86
 {
     namespace
     {
-        [[nodiscard]] bool is_callee_saved_win64(PhysReg r) noexcept
-        {
-            switch (r)
-            {
-                case PhysReg::RBX:
-                case PhysReg::RBP:
-                case PhysReg::RSI:
-                case PhysReg::RDI:
-                case PhysReg::R12:
-                case PhysReg::R13:
-                case PhysReg::R14:
-                case PhysReg::R15:
-                case PhysReg::XMM6:
-                case PhysReg::XMM7:
-                case PhysReg::XMM8:
-                case PhysReg::XMM9:
-                case PhysReg::XMM10:
-                case PhysReg::XMM11:
-                case PhysReg::XMM12:
-                case PhysReg::XMM13:
-                case PhysReg::XMM14:
-                case PhysReg::XMM15:
-                    return true;
-                default:
-                    return false;
-            }
-        }
-
         [[nodiscard]] bool is_branch(MOpc opc) noexcept
         {
             switch (opc)
@@ -676,69 +659,8 @@ namespace dcc::backend::x86
             std::ranges::sort(ranges, [](LiveRange const& a, LiveRange const& b) { return a.start < b.start; });
         }
 
-        [[nodiscard]] bool is_win64(MFunction const& func, target::TargetConfig const& target)
+        void linear_scan(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange>& ranges)
         {
-            if (target.os == dcc::target::Os::Windows)
-                return true;
-
-            if (target.object_format == dcc::target::ObjectFormat::Coff)
-                return true;
-
-            if (func.conv == ir::CallingConv::Win64)
-                return true;
-
-            return false;
-        }
-
-        struct RegSetInfo
-        {
-            std::span<PhysReg const> gprs;
-            std::span<PhysReg const> xmms;
-            bool is_win64;
-        };
-
-        constexpr PhysReg kSysVGPR[] = {
-            PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::RSI, PhysReg::RDI, PhysReg::R8,  PhysReg::R9,
-            PhysReg::R10, PhysReg::RBX, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15,
-        };
-
-        constexpr PhysReg kWin64GPR[] = {
-            PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8,  PhysReg::R9,  PhysReg::R10, PhysReg::RBX,
-            PhysReg::RDI, PhysReg::RSI, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15,
-        };
-
-        constexpr PhysReg kXMM[] = {
-            PhysReg::XMM0, PhysReg::XMM1, PhysReg::XMM2,  PhysReg::XMM3,  PhysReg::XMM4,  PhysReg::XMM5,  PhysReg::XMM6,  PhysReg::XMM7,
-            PhysReg::XMM8, PhysReg::XMM9, PhysReg::XMM10, PhysReg::XMM11, PhysReg::XMM12, PhysReg::XMM13, PhysReg::XMM14,
-        };
-
-        constexpr PhysReg kSysVCalleeSavedGPR[] = {
-            PhysReg::RBX, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15,
-        };
-
-        constexpr PhysReg kWin64CalleeSavedGPR[] = {
-            PhysReg::RBX, PhysReg::RDI, PhysReg::RSI, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15,
-        };
-        [[nodiscard]] RegSetInfo get_reg_set(MFunction const& func, target::TargetConfig const& target)
-        {
-            bool w64 = is_win64(func, target);
-            return RegSetInfo{
-                .gprs = w64 ? std::span<PhysReg const>{kWin64GPR} : std::span<PhysReg const>{kSysVGPR},
-                .xmms = std::span<PhysReg const>{kXMM},
-                .is_win64 = w64,
-            };
-        }
-
-        [[nodiscard]] bool is_callee_saved_gpr(PhysReg r, bool win64)
-        {
-            auto span = win64 ? std::span<PhysReg const>{kWin64CalleeSavedGPR} : std::span<PhysReg const>{kSysVCalleeSavedGPR};
-            return std::ranges::find(span, r) != span.end();
-        }
-
-        void linear_scan(MFunction& func, target::TargetConfig const& target, std::vector<LiveRange>& ranges)
-        {
-            auto regs = get_reg_set(func, target);
-
             auto gprs = regs.gprs;
             auto xmms = regs.xmms;
 
@@ -821,7 +743,7 @@ namespace dcc::backend::x86
 
                 PhysReg free_reg = PhysReg::None;
 
-                auto const callee_gpr_span = regs.is_win64 ? std::span<PhysReg const>{kWin64CalleeSavedGPR} : std::span<PhysReg const>{kSysVCalleeSavedGPR};
+                auto const callee_gpr_span = regs.callee_saved_gprs;
 
                 if (range.crosses_call && range.reg_class == RegClass::XMM)
                     free_reg = PhysReg::None;
@@ -867,7 +789,7 @@ namespace dcc::backend::x86
                                 continue;
                             if (range.reg_class == RegClass::XMM)
                                 continue;
-                            if (!is_callee_saved_gpr(a->assigned, regs.is_win64))
+                            if (std::ranges::find(regs.callee_saved_gprs, a->assigned) == regs.callee_saved_gprs.end())
                                 continue;
                         }
 
@@ -1349,20 +1271,18 @@ namespace dcc::backend::x86
             return opc == MOpc::CALL || opc == MOpc::CALL_rel32 || opc == MOpc::CALL_r64 || opc == MOpc::CALLm;
         }
 
-        void insert_callee_saves(MFunction& func, target::TargetConfig const& target, std::vector<LiveRange> const& ranges)
+        void insert_callee_saves(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange> const& ranges)
         {
-            bool w64 = is_win64(func, target);
-
             std::vector<PhysReg> used_callee_saves;
             std::vector<PhysReg> used_xmm_saves;
 
             auto note = [&](PhysReg pr) {
                 if (reg_class(pr) == RegClass::XMM)
                 {
-                    if (w64 && is_callee_saved_win64(pr) && std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
+                    if (std::ranges::find(regs.callee_saved_xmms, pr) != regs.callee_saved_xmms.end() && std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
                         used_xmm_saves.push_back(pr);
                 }
-                else if (is_callee_saved_gpr(pr, w64) && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
+                else if (std::ranges::find(regs.callee_saved_gprs, pr) != regs.callee_saved_gprs.end() && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
                     used_callee_saves.push_back(pr);
             };
 
@@ -1973,29 +1893,24 @@ namespace dcc::backend::x86
 
 export namespace dcc::backend::x86
 {
-    void regalloc(MFunction& func, target::TargetConfig const& target)
+    void regalloc(MFunction& func, RegisterPolicy const& regs)
     {
         eliminate_phis(func);
 
         std::vector<LiveRange> ranges;
         compute_liveness(func, ranges);
 
-        linear_scan(func, target, ranges);
+        linear_scan(func, regs, ranges);
 
         rewrite_function(func, ranges);
 
         resolve_parallel_copies(func);
 
-        insert_callee_saves(func, target, ranges);
+        insert_callee_saves(func, regs, ranges);
 
         post_check_and_fix(func);
 
         remove_redundant_moves(func);
     }
 
-}
-
-export namespace dcc::backend::em64t
-{
-    using namespace dcc::backend::x86;
 }
