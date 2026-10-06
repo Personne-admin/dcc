@@ -11,6 +11,8 @@
 
 import std;
 
+#include "llvm_fixture_normalize.hh"
+
 import dcc.sm;
 import dcc.si;
 import dcc.lex;
@@ -2438,8 +2440,8 @@ namespace
                 }
             if (body_provided)
             {
-                auto a = normalize_llvm_unwind_attrs(actual);
-                auto e = normalize_llvm_unwind_attrs(exp.body);
+                auto a = normalize_llvm_unwind_attrs(normalize_llvm_printer_versions(actual));
+                auto e = normalize_llvm_unwind_attrs(normalize_llvm_printer_versions(exp.body));
                 if (a != e)
                 {
                     ok = false;
