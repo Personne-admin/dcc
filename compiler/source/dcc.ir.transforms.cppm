@@ -556,15 +556,14 @@ namespace dcc::ir::pass
         auto const& dom = ctx.get_dom_tree();
         auto rpo = ctx.get_rpo();
 
-        std::unordered_map<IrBasicBlock const*, std::size_t> rpo_index;
-        for (std::size_t i = 0; i < rpo.size(); ++i)
-            rpo_index[rpo[i]] = i;
-
         std::unordered_set<IrBasicBlock*> idf;
         if (!def_blocks.empty())
         {
-            std::vector<IrBasicBlock*> worklist(def_blocks.begin(), def_blocks.end());
-            std::unordered_set<IrBasicBlock*> in_wl(def_blocks.begin(), def_blocks.end());
+            std::vector<IrBasicBlock*> worklist;
+            for (auto* bb : rpo)
+                if (def_blocks.contains(bb))
+                    worklist.push_back(bb);
+            std::unordered_set<IrBasicBlock*> in_wl(worklist.begin(), worklist.end());
 
             while (!worklist.empty())
             {
@@ -592,8 +591,10 @@ namespace dcc::ir::pass
         }
 
         std::unordered_map<IrBasicBlock*, IrPhiInst*> block_phi;
-        for (auto* dfb : idf)
+        for (auto* dfb : rpo)
         {
+            if (!idf.contains(dfb))
+                continue;
             auto* phi = ctx.ctx->phi(val_type);
             dfb->instructions.insert(dfb->instructions.begin(), phi);
             block_phi[dfb] = phi;
@@ -604,9 +605,13 @@ namespace dcc::ir::pass
         IrValue* zero_val = create_zero_for_type(val_type, *ctx.ctx);
 
         std::unordered_map<IrBasicBlock*, std::vector<IrBasicBlock*>> dom_children;
-        for (auto& [parent, kids] : dom.children)
-            for (auto* k : kids)
-                dom_children[const_cast<IrBasicBlock*>(parent)].push_back(const_cast<IrBasicBlock*>(k));
+        for (auto* parent : rpo)
+        {
+            auto it = dom.children.find(parent);
+            if (it != dom.children.end())
+                for (auto* child : it->second)
+                    dom_children[parent].push_back(const_cast<IrBasicBlock*>(child));
+        }
 
         std::vector<IrBasicBlock*> root_children;
         {
@@ -739,8 +744,12 @@ namespace dcc::ir::pass
         }
 
         auto const& pm = ctx.get_pred_map();
-        for (auto& [phi_bb, phi] : block_phi)
+        for (auto* phi_bb : rpo)
         {
+            auto phi_it = block_phi.find(phi_bb);
+            if (phi_it == block_phi.end())
+                continue;
+            auto* phi = phi_it->second;
             auto pit = pm.find(phi_bb);
             if (pit == pm.end())
                 continue;

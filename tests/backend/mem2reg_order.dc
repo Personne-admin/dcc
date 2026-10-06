@@ -1,0 +1,19 @@
+module main;
+@nomangle @noinline public i32 f(i32 x, i32 n) {
+    i32 y = x;
+    i32 i = 0;
+    while i < n {
+        if y > 7 {
+            y = y - 3;
+        } else {
+            y = y + 2;
+        }
+        i = i + 1;
+    }
+    return y;
+}
+public i32 main() {
+    if f(5, 4) != 8 { return 1; }
+    if f(10, 3) != 6 { return 2; }
+    return 0;
+}

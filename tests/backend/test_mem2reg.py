@@ -21,7 +21,7 @@ def main():
     args = parser.parse_args()
     if args.attempts < 1:
         parser.error("--attempts must be positive")
-    sources = args.source or [Path(__file__).with_name("mem2reg_chain.dc")]
+    sources = args.source or [Path(__file__).with_name(name) for name in ("mem2reg_chain.dc", "mem2reg_order.dc")]
     checks = 0
     with tempfile.TemporaryDirectory(prefix="dcc-mem2reg-") as temporary:
         root = Path(temporary)
