@@ -194,7 +194,7 @@ namespace dcc::backend
 
                     for (auto& mfunc : mfuncs)
                     {
-                        auto result = em64t::encode_function(mfunc);
+                        auto result = x86::encode_function(mfunc, x86::EncodeMode::Long64);
 
                         for (auto const& w : result.warnings)
                             if (w.find("encoding as") == std::string_view::npos)

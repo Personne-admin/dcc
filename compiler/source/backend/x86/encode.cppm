@@ -2,7 +2,7 @@ export module dcc.backend.x86.encode;
 
 import std;
 import dcc.backend.x86.mir;
-import dcc.backend.x86.prefix;
+export import dcc.backend.x86.prefix;
 
 export namespace dcc::backend::x86
 {
@@ -28,9 +28,9 @@ export namespace dcc::backend::x86
         std::vector<std::string> warnings;
     };
 
-    [[nodiscard]] EncodeResult encode_function(MFunction const& func);
+    [[nodiscard]] EncodeResult encode_function(MFunction const& func, EncodeMode mode);
 
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr);
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr, EncodeMode mode);
 
 }
 
@@ -554,7 +554,7 @@ namespace
         std::uint32_t target_label;
     };
 
-    static void encode_instr(MInstr const& instr, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
+    static void encode_instr(MInstr const& instr, EncodeMode mode, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
                              std::vector<std::string>& wrn)
     {
         auto const& ops = instr.ops;
@@ -2205,7 +2205,7 @@ namespace
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVQ64rr");
                     bool de = reg_is_extended(d);
                     bool se = reg_is_extended(s);
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     emit_u8(buf, static_cast<std::uint8_t>(0x48 | (de ? 0x04 : 0) | (se ? 0x01 : 0)));
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x6E);
@@ -2222,7 +2222,7 @@ namespace
                     auto s = resolve_phys_reg(ops[1], wrn, "MOVQ64rr_rev");
                     bool de = reg_is_extended(d);
                     bool se = reg_is_extended(s);
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
 
                     emit_u8(buf, static_cast<std::uint8_t>(0x48 | (se ? 0x04 : 0) | (de ? 0x01 : 0)));
                     emit_u8(buf, 0x0F);
@@ -2352,7 +2352,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "UCOMISD");
                     auto s = resolve_phys_reg(ops[1], wrn, "UCOMISD");
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x2E);
@@ -2722,7 +2722,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "XORPD");
                     auto s = resolve_phys_reg(ops[1], wrn, "XORPD");
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     emit_rex_if_extended(buf, false, d, s);
                     emit_u8(buf, 0x0F);
                     emit_u8(buf, 0x57);
@@ -2806,7 +2806,7 @@ namespace
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
                         if (instr.opc == MOpc::LOCK_CMPXCHG16mr)
-                            append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                            append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (instr.opc == MOpc::LOCK_CMPXCHG64mr)
                             emit_rex(buf, true, se, ie, be);
@@ -2905,7 +2905,7 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                        append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (se || ie || be)
                             emit_rex(buf, false, se, ie, be);
@@ -2931,7 +2931,7 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                        append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (se || ie || be)
                             emit_rex(buf, false, se, ie, be);
@@ -2959,7 +2959,7 @@ namespace
                         bool se = reg_is_extended(s);
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
-                        append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                        append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                         emit_u8(buf, 0xF0);
                         if (se || ie || be)
                             emit_rex(buf, false, se, ie, be);
@@ -3200,7 +3200,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOV16rr");
                     auto s = resolve_phys_reg(ops[1], wrn, "MOV16rr");
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     emit_rex_if_extended(buf, false, s, d);
                     emit_u8(buf, 0x89);
                     emit_modrm(buf, 3, reg_low3(s), reg_low3(d));
@@ -3214,7 +3214,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOV16ri");
                     auto v = static_cast<std::uint16_t>(ops[1].imm & 0xFFFF);
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     if (reg_is_extended(d))
                         emit_rex(buf, false, false, false, true);
                     emit_u8(buf, static_cast<std::uint8_t>(0xB8 + reg_low3(d)));
@@ -3229,7 +3229,7 @@ namespace
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "MOV16rm");
                     auto const& m = ops[1].mem;
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     if (m.base.is_physical())
                     {
                         auto b = m.base.phys_reg();
@@ -3252,7 +3252,7 @@ namespace
                 {
                     auto const& m = ops[0].mem;
                     auto s = resolve_phys_reg(ops[1], wrn, "MOV16mr");
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     if (!m.symbol.empty())
                     {
                         bool se = reg_is_extended(s);
@@ -3290,7 +3290,7 @@ namespace
                 {
                     auto const& m = ops[0].mem;
                     auto v = static_cast<std::uint16_t>(ops[1].imm & 0xFFFF);
-                    append_legacy_prefixes(buf, EncodeMode::Long64, 16, 0, SegmentOverride::None);
+                    append_legacy_prefixes(buf, mode, 16, 0, SegmentOverride::None);
                     if (m.base.is_physical())
                     {
                         auto b = m.base.phys_reg();
@@ -3403,8 +3403,10 @@ namespace
 
 export namespace dcc::backend::x86
 {
-    [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr)
+    [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr, EncodeMode mode)
     {
+        if (mode != EncodeMode::Long64)
+            return std::unexpected("instruction encoding is not implemented for this x86 mode");
         for (std::uint8_t i = 0; i < instr.num_ops; ++i)
         {
             auto const& op = instr.ops[i];
@@ -3418,7 +3420,7 @@ export namespace dcc::backend::x86
         std::vector<Reloc> relocs;
         std::vector<std::string> warnings;
         auto before = bytes.size();
-        encode_instr(instr, bytes, branches, relocs, warnings);
+        encode_instr(instr, mode, bytes, branches, relocs, warnings);
         if (!branches.empty() || !relocs.empty())
             return std::unexpected("inline assembly instruction requires a relocation, which is not supported");
         if (!warnings.empty())
@@ -3430,9 +3432,14 @@ export namespace dcc::backend::x86
         return result;
     }
 
-    [[nodiscard]] EncodeResult encode_function(MFunction const& func)
+    [[nodiscard]] EncodeResult encode_function(MFunction const& func, EncodeMode mode)
     {
         EncodeResult r;
+        if (mode != EncodeMode::Long64)
+        {
+            r.warnings.push_back("instruction encoding is not implemented for this x86 mode");
+            return r;
+        }
         std::unordered_map<std::uint32_t, std::size_t> lbl_off;
         std::vector<BranchPatch> branches;
 
@@ -3443,7 +3450,7 @@ export namespace dcc::backend::x86
 
             for (auto const& instr : blk.instrs)
             {
-                encode_instr(instr, r.bytes, branches, r.relocs, r.warnings);
+                encode_instr(instr, mode, r.bytes, branches, r.relocs, r.warnings);
             }
         }
 
