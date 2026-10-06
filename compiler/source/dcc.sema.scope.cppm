@@ -284,6 +284,15 @@ export namespace dcc::sema
             }
             else
             {
+                if (b.namespace_scope && b.namespace_scope->parent() != this)
+                {
+                    auto* source = b.namespace_scope;
+                    auto* p = m_alloc.allocate_object<Scope>();
+                    auto* local = std::construct_at(p, source->kind(), this, m_alloc);
+                    for (auto const& [binding_name, binding] : source->m_bindings)
+                        local->ensure_binding(binding_name) = binding;
+                    b.namespace_scope = local;
+                }
                 if (anchor.is_exported)
                     b.namespace_sym.is_exported = true;
                 if (anchor.is_spilled)

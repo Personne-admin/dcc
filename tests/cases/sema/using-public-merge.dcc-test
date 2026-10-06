@@ -1,0 +1,58 @@
+=== FILE: arch/portio.dc ===
+module arch::portio;
+public u16 last_port;
+public u8 last_value;
+public void io_out(u16 port, u8 value) { last_port = port; last_value = value; }
+
+=== FILE: dev/uart.dc ===
+module dev::uart;
+import arch::portio;
+@nominal using uart = u16;
+using public dev::uart = uart;
+using public dev::x = uart;
+public uart new_uart(u16 port) { return port as uart; }
+using public uart::new = new_uart;
+public void write(uart self, u8 value) { arch::portio::io_out(self as u16, value); }
+
+=== FILE: shared/source.dc ===
+module shared::source;
+public i32 mark() { return 7; }
+
+=== FILE: first.dc ===
+module first;
+using public shared::left = u8;
+using public fresh::word = u64;
+
+=== FILE: second.dc ===
+module second;
+using public shared::right = u32;
+
+=== FILE: main.dc ===
+module main;
+import shared::source;
+import arch::portio;
+import dev::uart;
+import first;
+import second;
+@nomangle public i32 dcc_main() {
+    dev::uart com1 = uart::new(0x3f8);
+    com1.write('H' as u8);
+    if arch::portio::last_port != 0x3f8 || arch::portio::last_value != ('H' as u8) { return 1; }
+    dev::x com2 = dev::uart::new(0x2f8);
+    if dev::uart::new_uart(0x3f8) != com1 { return 4; }
+    dev::uart::write(com2, 'J' as u8);
+    if arch::portio::last_port != 0x2f8 || arch::portio::last_value != ('J' as u8) { return 2; }
+    shared::left a = 3;
+    shared::right b = 4;
+    fresh::word c = 9;
+    if a != 3 || b != 4 || c != 9 || shared::source::mark() != 7 { return 3; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+
+=== EXPECT-LLVM ===
