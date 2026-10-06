@@ -16,7 +16,7 @@ global @_DC0G1.4.test5.valuei64s : i64 = #42
 
 const global @_DC0G1.4.test3.bigi64u : u64 = #300
 
-const global @_DC0G1.4.test5.smalli8u : u8 = #300
+const global @_DC0G1.4.test5.smalli8u : u8 = #44
 
 const global @_DC0G1.4.test8.narrowedi32s : i32 = #300
 

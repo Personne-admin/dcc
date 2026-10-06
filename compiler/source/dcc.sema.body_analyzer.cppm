@@ -1847,7 +1847,8 @@ export namespace dcc::sema
         {
             if (auto const* it = types::type_cast<types::IntType>(expected); it && fits_int_type(value, *it))
                 return expected;
-            return m_types.int_t(32, true);
+            auto const* i32 = types::type_cast<types::IntType>(m_types.int_t(32, true));
+            return m_types.int_t(i32 && fits_int_type(value, *i32) ? 32 : 64, true);
         }
 
         [[nodiscard]] static bool fits_magnitude(std::uint64_t magnitude, types::IntType const& ty) noexcept
@@ -9990,10 +9991,14 @@ export namespace dcc::sema
                                                     sm::SourceRange range, bool literal_operands = false)
         {
             auto result = const_eval::fold_binary(op, lhs, rhs, out_type);
-            if (result && literal_operands && is_arithmetic_fold_op(op) && !folded_int_fits(*result, out_type))
+            if (result && literal_operands && is_arithmetic_fold_op(op) && types::type_cast<types::IntType>(out_type))
             {
-                error(range, "integer overflow in constant expression");
-                return nullptr;
+                auto raw = const_eval::fold_binary(op, lhs, rhs, m_types.int_t(64, true));
+                if (!raw || !folded_int_fits(*raw, out_type))
+                {
+                    error(range, "integer overflow in constant expression");
+                    return nullptr;
+                }
             }
             if (result)
                 return make_value(std::move(*result));
@@ -11036,7 +11041,11 @@ export namespace dcc::sema
             bool const suppress_literal_fit = u.op == lex::TokenKind::Minus;
             auto const saved_suppress_literal_fit = m_in_explicit_conversion;
             m_in_explicit_conversion = suppress_literal_fit;
-            auto op = analyze_expr_or_error(mod, fn, scope, u.operand, loop_depth, next_off, expected_type, const_env);
+            auto operand_context = expected_type;
+            if (!operand_context && u.op == lex::TokenKind::Minus && u.operand && u.operand->kind == ast::ExprKind::IntLiteral &&
+                static_cast<ast::IntLiteralExpr const*>(u.operand)->value == std::numeric_limits<std::int64_t>::min())
+                operand_context = m_types.int_t(64, true);
+            auto op = analyze_expr_or_error(mod, fn, scope, u.operand, loop_depth, next_off, operand_context, const_env);
             m_in_explicit_conversion = saved_suppress_literal_fit;
             detail::ExprResult out = op;
             if (has_error(op.type))
@@ -11184,8 +11193,14 @@ export namespace dcc::sema
             if (u.op == lex::TokenKind::Minus && !m_in_explicit_conversion && out.constant && out.type && out.type->kind == types::TypeKind::Int)
             {
                 auto const* it = static_cast<types::IntType const*>(out.type);
-                if (out.constant->kind() == comptime::Value::Kind::Int && !fits_int_type(out.constant->get_int(), *it))
-                    error(u.range, "integer literal {} does not fit in type {}", out.constant->get_int(), format_type_str(out.type));
+                auto raw = op.constant ? const_eval::fold_unary(u.op, *op.constant, m_types.int_t(64, true)) : std::nullopt;
+                if (u.operand && u.operand->kind == ast::ExprKind::IntLiteral)
+                {
+                    auto magnitude = static_cast<std::uint64_t>(static_cast<ast::IntLiteralExpr const*>(u.operand)->value);
+                    raw = comptime::Value::make_int(std::bit_cast<std::int64_t>(std::uint64_t{} - magnitude), m_types.int_t(64, true));
+                }
+                if (raw && u.operand && untyped_literal_operand(*u.operand) && !fits_int_type(raw->get_int(), *it))
+                    error(u.range, "integer literal {} does not fit in type {}", raw->get_int(), format_type_str(out.type));
             }
 
             out.is_constant = out.constant != nullptr;
@@ -12372,7 +12387,8 @@ export namespace dcc::sema
             }
             auto const saved_suppress_literal_fit = m_in_explicit_conversion;
             m_in_explicit_conversion = true;
-            auto op = analyze_expr_or_error(mod, fn, scope, c.operand, loop_depth, next_off, expected_type, const_env);
+            auto operand_context = c.operand && untyped_literal_operand(*c.operand) ? nullptr : expected_type;
+            auto op = analyze_expr_or_error(mod, fn, scope, c.operand, loop_depth, next_off, operand_context, const_env);
             m_in_explicit_conversion = saved_suppress_literal_fit;
             detail::ExprResult out = op;
             if (c.target)

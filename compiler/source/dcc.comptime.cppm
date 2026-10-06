@@ -111,6 +111,15 @@ export namespace dcc::comptime
             assert(t && t->kind == types::TypeKind::Int);
             Value val;
             val.type = t;
+            auto const* integer = static_cast<types::IntType const*>(t);
+            if (integer->bits < 64)
+            {
+                auto const mask = (std::uint64_t{1} << integer->bits) - 1;
+                auto bits = static_cast<std::uint64_t>(v) & mask;
+                if (integer->is_signed && (bits & (std::uint64_t{1} << (integer->bits - 1))))
+                    bits |= ~mask;
+                v = std::bit_cast<std::int64_t>(bits);
+            }
             val.m_storage.template emplace<std::int64_t>(v);
             return val;
         }
@@ -583,6 +592,16 @@ export namespace dcc::comptime
                 case BinaryOp::Mul:
                 case BinaryOp::Div:
                 case BinaryOp::Rem: {
+                    auto const* integer = static_cast<types::IntType const*>(out_type);
+                    if (!integer->is_signed && (op == BinaryOp::Div || op == BinaryOp::Rem))
+                    {
+                        auto const divisor = static_cast<std::uint64_t>(rhs);
+                        if (divisor == 0)
+                            return std::nullopt;
+                        auto const dividend = static_cast<std::uint64_t>(lhs);
+                        auto const bits = op == BinaryOp::Div ? dividend / divisor : dividend % divisor;
+                        return make_int(std::bit_cast<std::int64_t>(bits), out_type);
+                    }
                     std::int64_t value{};
                     bool valid = true;
                     switch (op)
@@ -643,7 +662,8 @@ export namespace dcc::comptime
                         case BinaryOp::Shr:
                             valid = rhs_bits < 64;
                             if (valid)
-                                value = lhs_bits >> rhs_bits;
+                                value = static_cast<types::IntType const*>(out_type)->is_signed ? static_cast<std::uint64_t>(lhs >> rhs_bits)
+                                                                                                : lhs_bits >> rhs_bits;
                             break;
                         default:
                             valid = false;
