@@ -2609,3 +2609,14 @@ TEST_CASE("clang-format BasedOnStyle presets apply before explicit keys")
     CHECK(opts.column_limit() == 120);
     CHECK(opts.tabSize == 3);
 }
+
+TEST_CASE("clang-format PointerAlignment moves the star")
+{
+    auto const src = "void f(const char* a, char** b) {\n    const char* s = a;\n}\n";
+    CHECK(format_with_clang_format(src, "PointerAlignment: Left\n") == std::optional<std::string>{src});
+    CHECK(format_with_clang_format(src, "PointerAlignment: Right\n") ==
+          std::optional<std::string>{"void f(const char *a, char **b) {\n    const char *s = a;\n}\n"});
+    CHECK(format_with_clang_format(src, "PointerAlignment: Middle\n") ==
+          std::optional<std::string>{"void f(const char * a, char ** b) {\n    const char * s = a;\n}\n"});
+    CHECK(format_with_clang_format("void f(char *a) {}\n", "PointerAlignment: Left\n") == std::optional<std::string>{"void f(char* a) {}\n"});
+}
