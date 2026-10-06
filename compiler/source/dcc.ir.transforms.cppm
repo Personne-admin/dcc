@@ -615,8 +615,6 @@ namespace dcc::ir::pass
                 root_children = it->second;
         }
 
-        std::unordered_map<IrLoadInst*, IrValue*> load_replacements;
-
         auto* entry_bb = ctx.func->entry_block;
         {
             IrValue* current = zero_val;
@@ -640,7 +638,7 @@ namespace dcc::ir::pass
                 {
                     if (load->pointer == alloca)
                     {
-                        load_replacements[load] = current;
+                        replace_value_uses(*ctx.func, load, current);
                         it = entry_bb->instructions.erase(it);
                         erased = true;
                     }
@@ -703,7 +701,7 @@ namespace dcc::ir::pass
                     {
                         if (load->pointer == alloca)
                         {
-                            load_replacements[load] = current;
+                            replace_value_uses(*ctx.func, load, current);
                             it = bb->instructions.erase(it);
                             erased = true;
                         }
@@ -754,9 +752,6 @@ namespace dcc::ir::pass
                 phi->incoming.push_back({inc_val, pred});
             }
         }
-
-        for (auto& [load, new_val] : load_replacements)
-            replace_value_uses(*ctx.func, load, new_val);
 
         for (auto* bb : ctx.func->blocks)
         {
