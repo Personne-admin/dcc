@@ -1947,7 +1947,7 @@ namespace dccd::format
             return result;
         }
 
-        [[nodiscard]] std::string apply_output_options(std::string result, protocol::FormattingOptions const& options)
+        [[nodiscard]] std::string apply_output_options(std::string result, protocol::FormattingOptions const& options, std::string_view src_text)
         {
             if (options.trim_trailing_whitespace())
             {
@@ -1979,6 +1979,29 @@ namespace dccd::format
             else if (!options.insert_final_newline())
                 if (!result.empty() && result.back() == '\n')
                     result.pop_back();
+
+            if (options.lineEnding)
+            {
+                auto const& mode = *options.lineEnding;
+                bool crlf = mode == "CRLF";
+                if (mode == "DeriveCRLF" || mode == "DeriveLF")
+                {
+                    auto const nl = src_text.find('\n');
+                    crlf = nl == std::string_view::npos ? mode == "DeriveCRLF" : (nl > 0 && src_text[nl - 1] == '\r');
+                }
+                if (crlf)
+                {
+                    std::string out;
+                    out.reserve(result.size() + result.size() / 16);
+                    for (char const c : result)
+                    {
+                        if (c == '\n')
+                            out += '\r';
+                        out += c;
+                    }
+                    result = std::move(out);
+                }
+            }
 
             return result;
         }
@@ -2035,7 +2058,7 @@ namespace dccd::format
             if (!formatted.has_value())
                 return std::nullopt;
 
-            return apply_output_options(std::move(*formatted), options);
+            return apply_output_options(std::move(*formatted), options, src_text);
         }
 
         [[nodiscard]] std::optional<std::pair<dcc::sm::SourceRange, std::string>> derive_minimal_edit(std::string_view orig, std::string_view formatted)
