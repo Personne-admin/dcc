@@ -56,7 +56,6 @@ namespace dccd::format
         using dcc::lex::TokenKind;
         using dcc::sm::Offset;
 
-        constexpr std::size_t kMaxLineWidth = 80;
         constexpr std::size_t kNoTokenIndex = std::numeric_limits<std::size_t>::max();
 
         [[nodiscard]] std::string make_indent(int level, protocol::FormattingOptions const& opts)
@@ -139,6 +138,7 @@ namespace dccd::format
             std::unordered_set<std::size_t> attached_bodies;
             std::vector<BinaryLayout> binary_layouts;
             int tab_size{4};
+            std::size_t column_limit{80};
             std::unordered_map<std::size_t, DelimitedGroup> groups;
         };
 
@@ -565,6 +565,11 @@ namespace dccd::format
             return false;
         }
 
+        [[nodiscard]] std::size_t limit_of(StructuralInfo const& info) noexcept
+        {
+            return info.column_limit == 0 ? std::numeric_limits<std::size_t>::max() : info.column_limit;
+        }
+
         [[nodiscard]] std::unordered_map<std::size_t, DelimitedGroup> analyze_groups(std::vector<dcc::lex::Token> const& tokens, std::string_view src,
                                                                                      Trivia const& trivia, StructuralInfo const& info)
         {
@@ -784,7 +789,7 @@ namespace dccd::format
                     else if (!info.parsed || !ast_block)
                     {
                         std::size_t const content_width = cum[content_end(g)] - cum[g.open_tok + 1];
-                        if (!block_context && content_width <= kMaxLineWidth)
+                        if (!block_context && content_width <= limit_of(info))
                             want_compact = true;
                     }
                     if (want_compact && g.has_direct_newline && !ast_restricted)
@@ -828,7 +833,7 @@ namespace dccd::format
                             --width;
                         if (!nested)
                             width += static_cast<std::size_t>(brace_depth[context]) * static_cast<std::size_t>(info.tab_size);
-                        if (width > kMaxLineWidth)
+                        if (width > limit_of(info))
                             g.wrap = true;
                     }
                 }
@@ -1409,6 +1414,7 @@ namespace dccd::format
             info.unary_operator.assign(tokens.size(), false);
             info.pointer_star.assign(tokens.size(), false);
             info.tab_size = static_cast<int>(options.tabSize);
+            info.column_limit = options.column_limit();
             stats.token_count = tokens.size();
 
             std::vector<Offset> begins;
@@ -1467,6 +1473,7 @@ namespace dccd::format
                                       .attached_bodies = {},
                                       .binary_layouts = {},
                                       .tab_size = static_cast<int>(options.tabSize),
+                                      .column_limit = options.column_limit(),
                                       .groups = {}};
             }
 
@@ -1535,7 +1542,7 @@ namespace dccd::format
                     continue;
 
                 auto const width = widths[layout.end] - widths[starts[layout.begin]] + (static_cast<std::size_t>(depths[layout.begin]) * options.tabSize);
-                bool const wrap = width > kMaxLineWidth;
+                bool const wrap = width > limit_of(info);
                 for (auto i = layout.begin + 1; i < layout.end; ++i)
                     chain_gap[i] = true;
 
