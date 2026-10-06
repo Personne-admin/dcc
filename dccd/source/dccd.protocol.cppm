@@ -1139,6 +1139,11 @@ export namespace dccd::protocol
         std::optional<bool> insertFinalNewline;
         std::optional<bool> trimFinalNewlines;
 
+        std::optional<std::uint32_t> columnLimit;
+        std::optional<std::uint32_t> tabWidth;
+        std::optional<std::uint32_t> maxEmptyLines;
+        std::optional<std::string> lineEnding;
+
         [[nodiscard]] static FormattingOptions from_json(JsonValue const& v)
         {
             FormattingOptions opts;
@@ -1166,6 +1171,10 @@ export namespace dccd::protocol
         [[nodiscard]] bool trim_trailing_whitespace() const noexcept { return trimTrailingWhitespace.value_or(false); }
 
         [[nodiscard]] bool trim_final_newlines() const noexcept { return trimFinalNewlines.value_or(false); }
+
+        [[nodiscard]] std::size_t column_limit() const noexcept { return columnLimit.value_or(80); }
+
+        [[nodiscard]] std::uint32_t tab_width() const noexcept { return tabWidth.value_or(tabSize); }
     };
 
     struct DocumentFormattingParams
