@@ -1,0 +1,335 @@
+module main;
+
+u8 shl_u8(u8 v) { return v << 1; }
+@runtime u8 runtime_shl_u8(u8 v) { return v << 1; }
+u8 shr_u8(u8 v) { return v >> 1; }
+@runtime u8 runtime_shr_u8(u8 v) { return v >> 1; }
+u8 rotl_u8(u8 v) { return (((v as u8) << 1) | ((v as u8) >> 7)) as u8; }
+@runtime u8 runtime_rotl_u8(u8 v) { return (((v as u8) << 1) | ((v as u8) >> 7)) as u8; }
+u8 rotr_u8(u8 v) { return (((v as u8) >> 1) | ((v as u8) << 7)) as u8; }
+@runtime u8 runtime_rotr_u8(u8 v) { return (((v as u8) >> 1) | ((v as u8) << 7)) as u8; }
+u8 add_u8(u8 v) { return v + 1; }
+@runtime u8 runtime_add_u8(u8 v) { return v + 1; }
+u8 sub_u8(u8 v) { return v - 1; }
+@runtime u8 runtime_sub_u8(u8 v) { return v - 1; }
+u8 mul_u8(u8 v) { return v * 3; }
+@runtime u8 runtime_mul_u8(u8 v) { return v * 3; }
+u8 not_u8(u8 v) { return ~v; }
+@runtime u8 runtime_not_u8(u8 v) { return ~v; }
+u8 neg_u8(u8 v) { return (-(v as i8)) as u8; }
+@runtime u8 runtime_neg_u8(u8 v) { return (-(v as i8)) as u8; }
+u8 cast_u8(u64 v) { return v as u8; }
+@runtime u8 runtime_cast_u8(u64 v) { return v as u8; }
+i8 shl_i8(i8 v) { return v << 1; }
+@runtime i8 runtime_shl_i8(i8 v) { return v << 1; }
+i8 shr_i8(i8 v) { return v >> 1; }
+@runtime i8 runtime_shr_i8(i8 v) { return v >> 1; }
+i8 rotl_i8(i8 v) { return (((v as u8) << 1) | ((v as u8) >> 7)) as i8; }
+@runtime i8 runtime_rotl_i8(i8 v) { return (((v as u8) << 1) | ((v as u8) >> 7)) as i8; }
+i8 rotr_i8(i8 v) { return (((v as u8) >> 1) | ((v as u8) << 7)) as i8; }
+@runtime i8 runtime_rotr_i8(i8 v) { return (((v as u8) >> 1) | ((v as u8) << 7)) as i8; }
+i8 add_i8(i8 v) { return v + 1; }
+@runtime i8 runtime_add_i8(i8 v) { return v + 1; }
+i8 sub_i8(i8 v) { return v - 1; }
+@runtime i8 runtime_sub_i8(i8 v) { return v - 1; }
+i8 mul_i8(i8 v) { return v * 3; }
+@runtime i8 runtime_mul_i8(i8 v) { return v * 3; }
+i8 not_i8(i8 v) { return ~v; }
+@runtime i8 runtime_not_i8(i8 v) { return ~v; }
+i8 neg_i8(i8 v) { return -v; }
+@runtime i8 runtime_neg_i8(i8 v) { return -v; }
+i8 cast_i8(u64 v) { return v as i8; }
+@runtime i8 runtime_cast_i8(u64 v) { return v as i8; }
+u16 shl_u16(u16 v) { return v << 1; }
+@runtime u16 runtime_shl_u16(u16 v) { return v << 1; }
+u16 shr_u16(u16 v) { return v >> 1; }
+@runtime u16 runtime_shr_u16(u16 v) { return v >> 1; }
+u16 rotl_u16(u16 v) { return (((v as u16) << 1) | ((v as u16) >> 15)) as u16; }
+@runtime u16 runtime_rotl_u16(u16 v) { return (((v as u16) << 1) | ((v as u16) >> 15)) as u16; }
+u16 rotr_u16(u16 v) { return (((v as u16) >> 1) | ((v as u16) << 15)) as u16; }
+@runtime u16 runtime_rotr_u16(u16 v) { return (((v as u16) >> 1) | ((v as u16) << 15)) as u16; }
+u16 add_u16(u16 v) { return v + 1; }
+@runtime u16 runtime_add_u16(u16 v) { return v + 1; }
+u16 sub_u16(u16 v) { return v - 1; }
+@runtime u16 runtime_sub_u16(u16 v) { return v - 1; }
+u16 mul_u16(u16 v) { return v * 3; }
+@runtime u16 runtime_mul_u16(u16 v) { return v * 3; }
+u16 not_u16(u16 v) { return ~v; }
+@runtime u16 runtime_not_u16(u16 v) { return ~v; }
+u16 neg_u16(u16 v) { return (-(v as i16)) as u16; }
+@runtime u16 runtime_neg_u16(u16 v) { return (-(v as i16)) as u16; }
+u16 cast_u16(u64 v) { return v as u16; }
+@runtime u16 runtime_cast_u16(u64 v) { return v as u16; }
+i16 shl_i16(i16 v) { return v << 1; }
+@runtime i16 runtime_shl_i16(i16 v) { return v << 1; }
+i16 shr_i16(i16 v) { return v >> 1; }
+@runtime i16 runtime_shr_i16(i16 v) { return v >> 1; }
+i16 rotl_i16(i16 v) { return (((v as u16) << 1) | ((v as u16) >> 15)) as i16; }
+@runtime i16 runtime_rotl_i16(i16 v) { return (((v as u16) << 1) | ((v as u16) >> 15)) as i16; }
+i16 rotr_i16(i16 v) { return (((v as u16) >> 1) | ((v as u16) << 15)) as i16; }
+@runtime i16 runtime_rotr_i16(i16 v) { return (((v as u16) >> 1) | ((v as u16) << 15)) as i16; }
+i16 add_i16(i16 v) { return v + 1; }
+@runtime i16 runtime_add_i16(i16 v) { return v + 1; }
+i16 sub_i16(i16 v) { return v - 1; }
+@runtime i16 runtime_sub_i16(i16 v) { return v - 1; }
+i16 mul_i16(i16 v) { return v * 3; }
+@runtime i16 runtime_mul_i16(i16 v) { return v * 3; }
+i16 not_i16(i16 v) { return ~v; }
+@runtime i16 runtime_not_i16(i16 v) { return ~v; }
+i16 neg_i16(i16 v) { return -v; }
+@runtime i16 runtime_neg_i16(i16 v) { return -v; }
+i16 cast_i16(u64 v) { return v as i16; }
+@runtime i16 runtime_cast_i16(u64 v) { return v as i16; }
+u32 shl_u32(u32 v) { return v << 1; }
+@runtime u32 runtime_shl_u32(u32 v) { return v << 1; }
+u32 shr_u32(u32 v) { return v >> 1; }
+@runtime u32 runtime_shr_u32(u32 v) { return v >> 1; }
+u32 rotl_u32(u32 v) { return (((v as u32) << 1) | ((v as u32) >> 31)) as u32; }
+@runtime u32 runtime_rotl_u32(u32 v) { return (((v as u32) << 1) | ((v as u32) >> 31)) as u32; }
+u32 rotr_u32(u32 v) { return (((v as u32) >> 1) | ((v as u32) << 31)) as u32; }
+@runtime u32 runtime_rotr_u32(u32 v) { return (((v as u32) >> 1) | ((v as u32) << 31)) as u32; }
+u32 add_u32(u32 v) { return v + 1; }
+@runtime u32 runtime_add_u32(u32 v) { return v + 1; }
+u32 sub_u32(u32 v) { return v - 1; }
+@runtime u32 runtime_sub_u32(u32 v) { return v - 1; }
+u32 mul_u32(u32 v) { return v * 3; }
+@runtime u32 runtime_mul_u32(u32 v) { return v * 3; }
+u32 not_u32(u32 v) { return ~v; }
+@runtime u32 runtime_not_u32(u32 v) { return ~v; }
+u32 neg_u32(u32 v) { return (-(v as i32)) as u32; }
+@runtime u32 runtime_neg_u32(u32 v) { return (-(v as i32)) as u32; }
+u32 cast_u32(u64 v) { return v as u32; }
+@runtime u32 runtime_cast_u32(u64 v) { return v as u32; }
+i32 shl_i32(i32 v) { return v << 1; }
+@runtime i32 runtime_shl_i32(i32 v) { return v << 1; }
+i32 shr_i32(i32 v) { return v >> 1; }
+@runtime i32 runtime_shr_i32(i32 v) { return v >> 1; }
+i32 rotl_i32(i32 v) { return (((v as u32) << 1) | ((v as u32) >> 31)) as i32; }
+@runtime i32 runtime_rotl_i32(i32 v) { return (((v as u32) << 1) | ((v as u32) >> 31)) as i32; }
+i32 rotr_i32(i32 v) { return (((v as u32) >> 1) | ((v as u32) << 31)) as i32; }
+@runtime i32 runtime_rotr_i32(i32 v) { return (((v as u32) >> 1) | ((v as u32) << 31)) as i32; }
+i32 add_i32(i32 v) { return v + 1; }
+@runtime i32 runtime_add_i32(i32 v) { return v + 1; }
+i32 sub_i32(i32 v) { return v - 1; }
+@runtime i32 runtime_sub_i32(i32 v) { return v - 1; }
+i32 mul_i32(i32 v) { return v * 3; }
+@runtime i32 runtime_mul_i32(i32 v) { return v * 3; }
+i32 not_i32(i32 v) { return ~v; }
+@runtime i32 runtime_not_i32(i32 v) { return ~v; }
+i32 neg_i32(i32 v) { return -v; }
+@runtime i32 runtime_neg_i32(i32 v) { return -v; }
+i32 cast_i32(u64 v) { return v as i32; }
+@runtime i32 runtime_cast_i32(u64 v) { return v as i32; }
+u64 shl_u64(u64 v) { return v << 1; }
+@runtime u64 runtime_shl_u64(u64 v) { return v << 1; }
+u64 shr_u64(u64 v) { return v >> 1; }
+@runtime u64 runtime_shr_u64(u64 v) { return v >> 1; }
+u64 rotl_u64(u64 v) { return (((v as u64) << 1) | ((v as u64) >> 63)) as u64; }
+@runtime u64 runtime_rotl_u64(u64 v) { return (((v as u64) << 1) | ((v as u64) >> 63)) as u64; }
+u64 rotr_u64(u64 v) { return (((v as u64) >> 1) | ((v as u64) << 63)) as u64; }
+@runtime u64 runtime_rotr_u64(u64 v) { return (((v as u64) >> 1) | ((v as u64) << 63)) as u64; }
+u64 add_u64(u64 v) { return v + 1; }
+@runtime u64 runtime_add_u64(u64 v) { return v + 1; }
+u64 sub_u64(u64 v) { return v - 1; }
+@runtime u64 runtime_sub_u64(u64 v) { return v - 1; }
+u64 mul_u64(u64 v) { return v * 3; }
+@runtime u64 runtime_mul_u64(u64 v) { return v * 3; }
+u64 not_u64(u64 v) { return ~v; }
+@runtime u64 runtime_not_u64(u64 v) { return ~v; }
+u64 neg_u64(u64 v) { return (-(v as i64)) as u64; }
+@runtime u64 runtime_neg_u64(u64 v) { return (-(v as i64)) as u64; }
+u64 cast_u64(u64 v) { return v as u64; }
+@runtime u64 runtime_cast_u64(u64 v) { return v as u64; }
+i64 shl_i64(i64 v) { return v << 1; }
+@runtime i64 runtime_shl_i64(i64 v) { return v << 1; }
+i64 shr_i64(i64 v) { return v >> 1; }
+@runtime i64 runtime_shr_i64(i64 v) { return v >> 1; }
+i64 rotl_i64(i64 v) { return (((v as u64) << 1) | ((v as u64) >> 63)) as i64; }
+@runtime i64 runtime_rotl_i64(i64 v) { return (((v as u64) << 1) | ((v as u64) >> 63)) as i64; }
+i64 rotr_i64(i64 v) { return (((v as u64) >> 1) | ((v as u64) << 63)) as i64; }
+@runtime i64 runtime_rotr_i64(i64 v) { return (((v as u64) >> 1) | ((v as u64) << 63)) as i64; }
+i64 add_i64(i64 v) { return v + 1; }
+@runtime i64 runtime_add_i64(i64 v) { return v + 1; }
+i64 sub_i64(i64 v) { return v - 1; }
+@runtime i64 runtime_sub_i64(i64 v) { return v - 1; }
+i64 mul_i64(i64 v) { return v * 3; }
+@runtime i64 runtime_mul_i64(i64 v) { return v * 3; }
+i64 not_i64(i64 v) { return ~v; }
+@runtime i64 runtime_not_i64(i64 v) { return ~v; }
+i64 neg_i64(i64 v) { return -v; }
+@runtime i64 runtime_neg_i64(i64 v) { return -v; }
+i64 cast_i64(u64 v) { return v as i64; }
+@runtime i64 runtime_cast_i64(u64 v) { return v as i64; }
+
+public i32 main() {
+    static if shl_u8(0x81 as u8) != (2 as u8) { return 1; }
+    if runtime_shl_u8(0x81 as u8) != shl_u8(0x81 as u8) { return 1; }
+    static if shr_u8(0x81 as u8) != (64 as u8) { return 2; }
+    if runtime_shr_u8(0x81 as u8) != shr_u8(0x81 as u8) { return 2; }
+    static if rotl_u8(0x81 as u8) != (3 as u8) { return 3; }
+    if runtime_rotl_u8(0x81 as u8) != rotl_u8(0x81 as u8) { return 3; }
+    static if rotr_u8(0x81 as u8) != (192 as u8) { return 4; }
+    if runtime_rotr_u8(0x81 as u8) != rotr_u8(0x81 as u8) { return 4; }
+    static if add_u8(0xff as u8) != (0 as u8) { return 5; }
+    if runtime_add_u8(0xff as u8) != add_u8(0xff as u8) { return 5; }
+    static if sub_u8(0x0 as u8) != (255 as u8) { return 6; }
+    if runtime_sub_u8(0x0 as u8) != sub_u8(0x0 as u8) { return 6; }
+    static if mul_u8(0x41 as u8) != (195 as u8) { return 7; }
+    if runtime_mul_u8(0x41 as u8) != mul_u8(0x41 as u8) { return 7; }
+    static if not_u8(0x2 as u8) != (253 as u8) { return 8; }
+    if runtime_not_u8(0x2 as u8) != not_u8(0x2 as u8) { return 8; }
+    static if neg_u8(0x2 as u8) != (254 as u8) { return 9; }
+    if runtime_neg_u8(0x2 as u8) != neg_u8(0x2 as u8) { return 9; }
+    static if cast_u8(0xffffffffffffffff) != (255 as u8) { return 10; }
+    if runtime_cast_u8(0xffffffffffffffff) != cast_u8(0xffffffffffffffff) { return 10; }
+    static if shl_i8(0x81 as i8) != (2 as i8) { return 11; }
+    if runtime_shl_i8(0x81 as i8) != shl_i8(0x81 as i8) { return 11; }
+    static if shr_i8(0x81 as i8) != (-64 as i8) { return 12; }
+    if runtime_shr_i8(0x81 as i8) != shr_i8(0x81 as i8) { return 12; }
+    static if rotl_i8(0x81 as i8) != (3 as i8) { return 13; }
+    if runtime_rotl_i8(0x81 as i8) != rotl_i8(0x81 as i8) { return 13; }
+    static if rotr_i8(0x81 as i8) != (-64 as i8) { return 14; }
+    if runtime_rotr_i8(0x81 as i8) != rotr_i8(0x81 as i8) { return 14; }
+    static if add_i8(0x7f as i8) != (-128 as i8) { return 15; }
+    if runtime_add_i8(0x7f as i8) != add_i8(0x7f as i8) { return 15; }
+    static if sub_i8(0x11 as i8) != (16 as i8) { return 16; }
+    if runtime_sub_i8(0x11 as i8) != sub_i8(0x11 as i8) { return 16; }
+    static if mul_i8(0x41 as i8) != (-61 as i8) { return 17; }
+    if runtime_mul_i8(0x41 as i8) != mul_i8(0x41 as i8) { return 17; }
+    static if not_i8(0x2 as i8) != (-3 as i8) { return 18; }
+    if runtime_not_i8(0x2 as i8) != not_i8(0x2 as i8) { return 18; }
+    static if neg_i8(0x2 as i8) != (-2 as i8) { return 19; }
+    if runtime_neg_i8(0x2 as i8) != neg_i8(0x2 as i8) { return 19; }
+    static if cast_i8(0xffffffffffffffff) != (-1 as i8) { return 20; }
+    if runtime_cast_i8(0xffffffffffffffff) != cast_i8(0xffffffffffffffff) { return 20; }
+    static if shl_u16(0x8001 as u16) != (2 as u16) { return 21; }
+    if runtime_shl_u16(0x8001 as u16) != shl_u16(0x8001 as u16) { return 21; }
+    static if shr_u16(0x8001 as u16) != (16384 as u16) { return 22; }
+    if runtime_shr_u16(0x8001 as u16) != shr_u16(0x8001 as u16) { return 22; }
+    static if rotl_u16(0x8001 as u16) != (3 as u16) { return 23; }
+    if runtime_rotl_u16(0x8001 as u16) != rotl_u16(0x8001 as u16) { return 23; }
+    static if rotr_u16(0x8001 as u16) != (49152 as u16) { return 24; }
+    if runtime_rotr_u16(0x8001 as u16) != rotr_u16(0x8001 as u16) { return 24; }
+    static if add_u16(0xffff as u16) != (0 as u16) { return 25; }
+    if runtime_add_u16(0xffff as u16) != add_u16(0xffff as u16) { return 25; }
+    static if sub_u16(0x0 as u16) != (65535 as u16) { return 26; }
+    if runtime_sub_u16(0x0 as u16) != sub_u16(0x0 as u16) { return 26; }
+    static if mul_u16(0x4001 as u16) != (49155 as u16) { return 27; }
+    if runtime_mul_u16(0x4001 as u16) != mul_u16(0x4001 as u16) { return 27; }
+    static if not_u16(0x2 as u16) != (65533 as u16) { return 28; }
+    if runtime_not_u16(0x2 as u16) != not_u16(0x2 as u16) { return 28; }
+    static if neg_u16(0x2 as u16) != (65534 as u16) { return 29; }
+    if runtime_neg_u16(0x2 as u16) != neg_u16(0x2 as u16) { return 29; }
+    static if cast_u16(0xffffffffffffffff) != (65535 as u16) { return 30; }
+    if runtime_cast_u16(0xffffffffffffffff) != cast_u16(0xffffffffffffffff) { return 30; }
+    static if shl_i16(0x8001 as i16) != (2 as i16) { return 31; }
+    if runtime_shl_i16(0x8001 as i16) != shl_i16(0x8001 as i16) { return 31; }
+    static if shr_i16(0x8001 as i16) != (-16384 as i16) { return 32; }
+    if runtime_shr_i16(0x8001 as i16) != shr_i16(0x8001 as i16) { return 32; }
+    static if rotl_i16(0x8001 as i16) != (3 as i16) { return 33; }
+    if runtime_rotl_i16(0x8001 as i16) != rotl_i16(0x8001 as i16) { return 33; }
+    static if rotr_i16(0x8001 as i16) != (-16384 as i16) { return 34; }
+    if runtime_rotr_i16(0x8001 as i16) != rotr_i16(0x8001 as i16) { return 34; }
+    static if add_i16(0x7fff as i16) != (-32768 as i16) { return 35; }
+    if runtime_add_i16(0x7fff as i16) != add_i16(0x7fff as i16) { return 35; }
+    static if sub_i16(0x11 as i16) != (16 as i16) { return 36; }
+    if runtime_sub_i16(0x11 as i16) != sub_i16(0x11 as i16) { return 36; }
+    static if mul_i16(0x4001 as i16) != (-16381 as i16) { return 37; }
+    if runtime_mul_i16(0x4001 as i16) != mul_i16(0x4001 as i16) { return 37; }
+    static if not_i16(0x2 as i16) != (-3 as i16) { return 38; }
+    if runtime_not_i16(0x2 as i16) != not_i16(0x2 as i16) { return 38; }
+    static if neg_i16(0x2 as i16) != (-2 as i16) { return 39; }
+    if runtime_neg_i16(0x2 as i16) != neg_i16(0x2 as i16) { return 39; }
+    static if cast_i16(0xffffffffffffffff) != (-1 as i16) { return 40; }
+    if runtime_cast_i16(0xffffffffffffffff) != cast_i16(0xffffffffffffffff) { return 40; }
+    static if shl_u32(0x80000001 as u32) != (2 as u32) { return 41; }
+    if runtime_shl_u32(0x80000001 as u32) != shl_u32(0x80000001 as u32) { return 41; }
+    static if shr_u32(0x80000001 as u32) != (1073741824 as u32) { return 42; }
+    if runtime_shr_u32(0x80000001 as u32) != shr_u32(0x80000001 as u32) { return 42; }
+    static if rotl_u32(0x80000001 as u32) != (3 as u32) { return 43; }
+    if runtime_rotl_u32(0x80000001 as u32) != rotl_u32(0x80000001 as u32) { return 43; }
+    static if rotr_u32(0x80000001 as u32) != (3221225472 as u32) { return 44; }
+    if runtime_rotr_u32(0x80000001 as u32) != rotr_u32(0x80000001 as u32) { return 44; }
+    static if add_u32(0xffffffff as u32) != (0 as u32) { return 45; }
+    if runtime_add_u32(0xffffffff as u32) != add_u32(0xffffffff as u32) { return 45; }
+    static if sub_u32(0x0 as u32) != (4294967295 as u32) { return 46; }
+    if runtime_sub_u32(0x0 as u32) != sub_u32(0x0 as u32) { return 46; }
+    static if mul_u32(0x40000001 as u32) != (3221225475 as u32) { return 47; }
+    if runtime_mul_u32(0x40000001 as u32) != mul_u32(0x40000001 as u32) { return 47; }
+    static if not_u32(0x2 as u32) != (4294967293 as u32) { return 48; }
+    if runtime_not_u32(0x2 as u32) != not_u32(0x2 as u32) { return 48; }
+    static if neg_u32(0x2 as u32) != (4294967294 as u32) { return 49; }
+    if runtime_neg_u32(0x2 as u32) != neg_u32(0x2 as u32) { return 49; }
+    static if cast_u32(0xffffffffffffffff) != (4294967295 as u32) { return 50; }
+    if runtime_cast_u32(0xffffffffffffffff) != cast_u32(0xffffffffffffffff) { return 50; }
+    static if shl_i32(0x80000001 as i32) != (2 as i32) { return 51; }
+    if runtime_shl_i32(0x80000001 as i32) != shl_i32(0x80000001 as i32) { return 51; }
+    static if shr_i32(0x80000001 as i32) != (-1073741824 as i32) { return 52; }
+    if runtime_shr_i32(0x80000001 as i32) != shr_i32(0x80000001 as i32) { return 52; }
+    static if rotl_i32(0x80000001 as i32) != (3 as i32) { return 53; }
+    if runtime_rotl_i32(0x80000001 as i32) != rotl_i32(0x80000001 as i32) { return 53; }
+    static if rotr_i32(0x80000001 as i32) != (-1073741824 as i32) { return 54; }
+    if runtime_rotr_i32(0x80000001 as i32) != rotr_i32(0x80000001 as i32) { return 54; }
+    static if add_i32(0x7fffffff as i32) != (-2147483648 as i32) { return 55; }
+    if runtime_add_i32(0x7fffffff as i32) != add_i32(0x7fffffff as i32) { return 55; }
+    static if sub_i32(0x11 as i32) != (16 as i32) { return 56; }
+    if runtime_sub_i32(0x11 as i32) != sub_i32(0x11 as i32) { return 56; }
+    static if mul_i32(0x40000001 as i32) != (-1073741821 as i32) { return 57; }
+    if runtime_mul_i32(0x40000001 as i32) != mul_i32(0x40000001 as i32) { return 57; }
+    static if not_i32(0x2 as i32) != (-3 as i32) { return 58; }
+    if runtime_not_i32(0x2 as i32) != not_i32(0x2 as i32) { return 58; }
+    static if neg_i32(0x2 as i32) != (-2 as i32) { return 59; }
+    if runtime_neg_i32(0x2 as i32) != neg_i32(0x2 as i32) { return 59; }
+    static if cast_i32(0xffffffffffffffff) != (-1 as i32) { return 60; }
+    if runtime_cast_i32(0xffffffffffffffff) != cast_i32(0xffffffffffffffff) { return 60; }
+    static if shl_u64(0x8000000000000001 as u64) != (2 as u64) { return 61; }
+    if runtime_shl_u64(0x8000000000000001 as u64) != shl_u64(0x8000000000000001 as u64) { return 61; }
+    static if shr_u64(0x8000000000000001 as u64) != (4611686018427387904 as u64) { return 62; }
+    if runtime_shr_u64(0x8000000000000001 as u64) != shr_u64(0x8000000000000001 as u64) { return 62; }
+    static if rotl_u64(0x8000000000000001 as u64) != (3 as u64) { return 63; }
+    if runtime_rotl_u64(0x8000000000000001 as u64) != rotl_u64(0x8000000000000001 as u64) { return 63; }
+    static if rotr_u64(0x8000000000000001 as u64) != (13835058055282163712 as u64) { return 64; }
+    if runtime_rotr_u64(0x8000000000000001 as u64) != rotr_u64(0x8000000000000001 as u64) { return 64; }
+    static if add_u64(0x11 as u64) != (18 as u64) { return 65; }
+    if runtime_add_u64(0x11 as u64) != add_u64(0x11 as u64) { return 65; }
+    static if sub_u64(0x11 as u64) != (16 as u64) { return 66; }
+    if runtime_sub_u64(0x11 as u64) != sub_u64(0x11 as u64) { return 66; }
+    static if mul_u64(0x11 as u64) != (51 as u64) { return 67; }
+    if runtime_mul_u64(0x11 as u64) != mul_u64(0x11 as u64) { return 67; }
+    static if not_u64(0x2 as u64) != (18446744073709551613 as u64) { return 68; }
+    if runtime_not_u64(0x2 as u64) != not_u64(0x2 as u64) { return 68; }
+    static if neg_u64(0x2 as u64) != (18446744073709551614 as u64) { return 69; }
+    if runtime_neg_u64(0x2 as u64) != neg_u64(0x2 as u64) { return 69; }
+    static if cast_u64(0xffffffffffffffff) != (18446744073709551615 as u64) { return 70; }
+    if runtime_cast_u64(0xffffffffffffffff) != cast_u64(0xffffffffffffffff) { return 70; }
+    static if shl_i64(0x8000000000000001 as i64) != (2 as i64) { return 71; }
+    if runtime_shl_i64(0x8000000000000001 as i64) != shl_i64(0x8000000000000001 as i64) { return 71; }
+    static if shr_i64(0x8000000000000001 as i64) != (-4611686018427387904 as i64) { return 72; }
+    if runtime_shr_i64(0x8000000000000001 as i64) != shr_i64(0x8000000000000001 as i64) { return 72; }
+    static if rotl_i64(0x8000000000000001 as i64) != (3 as i64) { return 73; }
+    if runtime_rotl_i64(0x8000000000000001 as i64) != rotl_i64(0x8000000000000001 as i64) { return 73; }
+    static if rotr_i64(0x8000000000000001 as i64) != (-4611686018427387904 as i64) { return 74; }
+    if runtime_rotr_i64(0x8000000000000001 as i64) != rotr_i64(0x8000000000000001 as i64) { return 74; }
+    static if add_i64(0x11 as i64) != (18 as i64) { return 75; }
+    if runtime_add_i64(0x11 as i64) != add_i64(0x11 as i64) { return 75; }
+    static if sub_i64(0x11 as i64) != (16 as i64) { return 76; }
+    if runtime_sub_i64(0x11 as i64) != sub_i64(0x11 as i64) { return 76; }
+    static if mul_i64(0x11 as i64) != (51 as i64) { return 77; }
+    if runtime_mul_i64(0x11 as i64) != mul_i64(0x11 as i64) { return 77; }
+    static if not_i64(0x2 as i64) != (-3 as i64) { return 78; }
+    if runtime_not_i64(0x2 as i64) != not_i64(0x2 as i64) { return 78; }
+    static if neg_i64(0x2 as i64) != (-2 as i64) { return 79; }
+    if runtime_neg_i64(0x2 as i64) != neg_i64(0x2 as i64) { return 79; }
+    static if cast_i64(0xffffffffffffffff) != (-1 as i64) { return 80; }
+    if runtime_cast_i64(0xffffffffffffffff) != cast_i64(0xffffffffffffffff) { return 80; }
+    i8 minimum8 = -128;
+    i16 minimum16 = -32768;
+    i32 minimum32 = -2147483648;
+    i64 minimum64 = -9223372036854775808;
+    if minimum8 != (-128 as i8) { return 81; }
+    if minimum16 != (-32768 as i16) { return 81; }
+    if minimum32 != (-2147483648 as i32) { return 81; }
+    if minimum64 != (-9223372036854775808 as i64) { return 81; }
+    static if (0xa0968c82786e645a as u64) != (11571590784569205850 as u64) { return 82; }
+    return 0;
+}

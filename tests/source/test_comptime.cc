@@ -582,8 +582,8 @@ TEST_CASE("fold_unary bitnot int")
 TEST_CASE("fold_unary minus INT64_MIN fails")
 {
     types::TypeContext ctx;
-    auto v = comptime::Value::make_int(std::numeric_limits<std::int64_t>::min(), i32(ctx));
-    auto r = v.fold_unary(comptime::UnaryOp::Minus, i32(ctx));
+    auto v = comptime::Value::make_int(std::numeric_limits<std::int64_t>::min(), ctx.int_t(64, true));
+    auto r = v.fold_unary(comptime::UnaryOp::Minus, ctx.int_t(64, true));
     CHECK(!r.has_value());
 }
 
@@ -1077,4 +1077,33 @@ TEST_CASE("slices hold partially unknown elements")
     auto v = comptime::Value::make_slice(std::move(elems), t);
     CHECK(v.at(0).is_unknown());
     CHECK_EQ(v.at(1).get_int(), 2);
+}
+
+TEST_CASE("integer values and folded results are canonical at every supported width")
+{
+    types::TypeContext ctx;
+    for (auto bits : {8, 16, 32, 64})
+        for (auto is_signed : {false, true})
+        {
+            auto type = ctx.int_t(static_cast<std::uint8_t>(bits), is_signed);
+            auto const mask = bits == 64 ? ~std::uint64_t{} : (std::uint64_t{1} << bits) - 1;
+            auto all = comptime::Value::make_int(-1, type);
+            auto const expected = is_signed ? std::int64_t{-1} : std::bit_cast<std::int64_t>(mask);
+            CHECK_EQ(all.get_int(), expected);
+            auto two = comptime::Value::make_int(2, type);
+            auto inverted = two.fold_unary(comptime::UnaryOp::BitNot, type);
+            REQUIRE(inverted.has_value());
+            CHECK_EQ(static_cast<std::uint64_t>(inverted->get_int()) & mask, mask - 2);
+            auto shifted = all.fold_binary(comptime::BinaryOp::Shr, comptime::Value::make_int(1, type), type);
+            REQUIRE(shifted.has_value());
+            CHECK_EQ(shifted->get_int(), is_signed ? std::int64_t{-1} : static_cast<std::int64_t>(mask >> 1));
+            auto cast = comptime::Value::make_int(-1, ctx.int_t(64, false)).fold_cast(type);
+            REQUIRE(cast.has_value());
+            CHECK_EQ(cast->get_int(), expected);
+        }
+    auto type = ctx.int_t(64, false);
+    auto maximum = comptime::Value::make_int(-1, type);
+    auto quotient = maximum.fold_binary(comptime::BinaryOp::Div, comptime::Value::make_int(2, type), type);
+    REQUIRE(quotient.has_value());
+    CHECK_EQ(quotient->get_int(), std::numeric_limits<std::int64_t>::max());
 }

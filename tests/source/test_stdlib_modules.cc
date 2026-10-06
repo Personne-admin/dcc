@@ -2188,3 +2188,11 @@ TEST_CASE("process exit returns main's code while another thread is active")
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(build_and_run(source, backend, optimization), 37);
 }
+
+TEST_CASE("ctfe integer operations match runtime at every width on both backends")
+{
+    auto source = stdlib_fixture("ctfe-integer-canonical.dc");
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, backend, optimization), 0);
+}

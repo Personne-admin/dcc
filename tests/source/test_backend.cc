@@ -959,3 +959,29 @@ TEST_CASE("llvm-x86-based-pointer-asm-uses-segment-overrides")
     for (auto override : {"%fs:", "%gs:", "%ss:"})
         CHECK(artifact.asm_text->find(override) != std::string::npos);
 }
+
+TEST_CASE("llvm masks integer constants before constructing apint values")
+{
+    for (auto bits : {8, 16, 32})
+        for (auto is_signed : {false, true})
+        {
+            IrContext ctx;
+            auto* module = ctx.module("integer_constants");
+            auto* type = ctx.int_t(static_cast<std::uint8_t>(bits), is_signed);
+            auto* function = ctx.function("canonical", ir_type_cast<IrFuncType>(ctx.func_t(ctx.bool_t(), {})));
+            auto* block = ctx.basic_block("entry", 0);
+            function->entry_block = block;
+            function->blocks.push_back(block);
+            auto* comparison = ctx.cmp_eq(ctx.int_const(type, (std::int64_t{1} << bits) | 3), ctx.int_const(type, 3));
+            block->instructions.push_back(comparison);
+            block->terminator = ctx.ret(comparison);
+            module->functions.push_back(function);
+            BackendOptions options;
+            options.target = TargetConfig::host_default();
+            options.requested_artifacts = {ArtifactKind::LlvmIrText};
+            auto artifact = make_llvm_backend()->emit(*module, options);
+            REQUIRE(artifact.llvm_ir_text.has_value());
+            CHECK(artifact.diagnostics.empty());
+            CHECK(artifact.llvm_ir_text->find("ret i1 true") != std::string::npos);
+        }
+}
