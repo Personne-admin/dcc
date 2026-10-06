@@ -128,14 +128,14 @@ export namespace dcc::ir::analysis
 
         [[nodiscard]] bool dominates(IrBasicBlock const* a, IrBasicBlock const* b) const
         {
-            if (!a || !b)
+            if (!a || !b || !idom.contains(a) || !idom.contains(b))
                 return false;
 
             if (a == b)
                 return true;
 
             auto it = idom.find(b);
-            while (it != idom.end() && it->second != b)
+            while (it != idom.end() && it->second && it->second != it->first)
             {
                 if (it->second == a)
                     return true;
