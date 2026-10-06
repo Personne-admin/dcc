@@ -1,8 +1,7 @@
 import std;
 import dcc.ir;
 import dcc.ir.analysis;
-import dcc.ir.pass;
-import dcc.ir.transforms;
+import dcc.ir.pipeline;
 
 #include "harness.hh"
 
@@ -128,6 +127,22 @@ namespace
             call->args.push_back(a);
         bb->instructions.push_back(call);
         return call;
+    }
+
+    TEST_CASE("the default pass manager explicitly registers every built-in pass once")
+    {
+        auto const& manager = dcc::ir::pass::global_pass_manager();
+        auto modules = manager.module_passes();
+        auto functions = manager.function_passes();
+        REQUIRE(modules.size() == 1);
+        CHECK_EQ(modules[0].name, "inline");
+        REQUIRE(functions.size() == 3);
+        CHECK_EQ(functions[0].name, "mem2reg");
+        CHECK_EQ(functions[1].name, "dce");
+        CHECK_EQ(functions[2].name, "simplifycfg");
+        CHECK_EQ(&manager, &dcc::ir::pass::global_pass_manager());
+        CHECK_EQ(manager.module_passes().size(), 1u);
+        CHECK_EQ(manager.function_passes().size(), 3u);
     }
 
     SECTION("ir: dominance queries");
