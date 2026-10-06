@@ -23,6 +23,11 @@ namespace ast = dcc::ast;
 
 namespace
 {
+    [[nodiscard]] std::vector<std::string_view> mp(std::initializer_list<std::string_view> parts)
+    {
+        return std::vector<std::string_view>{parts};
+    }
+
     bool demangle_check(std::string_view s)
     {
         mangle::DemangledName d;
@@ -571,7 +576,7 @@ TEST_CASE("mangle_function void fn root::main")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* fd = make_func(actx, "main");
-    auto s = mangle::mangle_function({"root"}, *fd, {}, ctx.m_voidt());
+    auto s = mangle::mangle_function(mp({"root"}), *fd, {}, ctx.m_voidt());
     CHECK_EQ(s, "_DC0F1.4.root4.main0v");
 }
 
@@ -581,7 +586,7 @@ TEST_CASE("mangle_function add(i32,i32)->i32 in math")
     ast::AstContext actx;
     auto* fd = make_func(actx, "add");
     std::vector<types::TypePtr> params = {i32(ctx), i32(ctx)};
-    auto s = mangle::mangle_function({"math"}, *fd, params, i32(ctx));
+    auto s = mangle::mangle_function(mp({"math"}), *fd, params, i32(ctx));
     CHECK_EQ(s, "_DC0F1.4.math3.add2i32si32si32s");
 }
 
@@ -590,7 +595,7 @@ TEST_CASE("mangle_function with stdcall")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* fd = make_func(actx, "foo", false, "stdcall");
-    auto s = mangle::mangle_function({"win32"}, *fd, {}, ctx.m_voidt());
+    auto s = mangle::mangle_function(mp({"win32"}), *fd, {}, ctx.m_voidt());
     CHECK_EQ(s, "_DC0F1.5.win323.foo0vc1");
 }
 
@@ -602,7 +607,7 @@ TEST_CASE("mangle_function with template type arg")
     std::vector<types::TypePtr> params = {i32(ctx)};
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
-    auto s = mangle::mangle_function({"lib"}, *fd, params, ctx.m_voidt(), targs);
+    auto s = mangle::mangle_function(mp({"lib"}), *fd, params, ctx.m_voidt(), targs);
     CHECK_EQ(s, "_DC0F1.3.lib3.foo1i32svX1ti32s");
 }
 
@@ -615,7 +620,7 @@ TEST_CASE("mangle_function with 2 template type args")
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, f64(ctx), nullptr});
-    auto s = mangle::mangle_function({"lib"}, *fd, params, ctx.m_voidt(), targs);
+    auto s = mangle::mangle_function(mp({"lib"}), *fd, params, ctx.m_voidt(), targs);
     CHECK_EQ(s, "_DC0F1.3.lib7.convert1i32svX2ti32stf64.");
 }
 
@@ -624,7 +629,7 @@ TEST_CASE("mangle_function @nomangle returns raw name")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* fd = make_func(actx, "my_raw_fn", true);
-    auto s = mangle::mangle_function({"ignored"}, *fd, {}, ctx.m_voidt());
+    auto s = mangle::mangle_function(mp({"ignored"}), *fd, {}, ctx.m_voidt());
     CHECK_EQ(s, "my_raw_fn");
 }
 
@@ -636,7 +641,7 @@ TEST_CASE("mangle_specialization foo<i32>(i32)->void")
     std::vector<types::TypePtr> params = {i32(ctx)};
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
-    auto s = mangle::mangle_specialization({"lib"}, "foo", params, ctx.m_voidt(), targs);
+    auto s = mangle::mangle_specialization(mp({"lib"}), "foo", params, ctx.m_voidt(), targs);
     CHECK_EQ(s, "_DC0S1.3.lib3.foo1i32svX1ti32s");
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -649,7 +654,7 @@ TEST_CASE("mangle_specialization foo<i32>(i32)->void")
 TEST_CASE("mangle_specialization empty params and targs")
 {
     types::TypeContext ctx;
-    auto s = mangle::mangle_specialization({"ns"}, "empty", {}, ctx.m_voidt());
+    auto s = mangle::mangle_specialization(mp({"ns"}), "empty", {}, ctx.m_voidt());
     CHECK_EQ(s, "_DC0S1.2.ns5.empty0v");
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -662,7 +667,7 @@ TEST_CASE("mangle_specialization with value template arg")
     ast::AstContext actx;
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Value, i32(ctx), actx.own_value(comptime::Value::make_int(42, i32(ctx)))});
-    auto s = mangle::mangle_specialization({"lib"}, "val", {}, ctx.m_voidt(), targs);
+    auto s = mangle::mangle_specialization(mp({"lib"}), "val", {}, ctx.m_voidt(), targs);
     CHECK_EQ(s, "_DC0S1.3.lib3.val0vX1vIi32s42");
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -675,7 +680,7 @@ TEST_CASE("mangle_function multi-segment module path")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* fd = make_func(actx, "startup");
-    auto s = mangle::mangle_function({"com", "example", "app"}, *fd, {}, ctx.m_voidt());
+    auto s = mangle::mangle_function(mp({"com", "example", "app"}), *fd, {}, ctx.m_voidt());
     CHECK_EQ(s, "_DC0F3.3.com7.example3.app7.startup0v");
 }
 
@@ -684,8 +689,8 @@ TEST_CASE("mangle_function same name different modules differ")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* fd = make_func(actx, "run");
-    auto s1 = mangle::mangle_function({"mod_a"}, *fd, {}, ctx.m_voidt());
-    auto s2 = mangle::mangle_function({"mod_b"}, *fd, {}, ctx.m_voidt());
+    auto s1 = mangle::mangle_function(mp({"mod_a"}), *fd, {}, ctx.m_voidt());
+    auto s2 = mangle::mangle_function(mp({"mod_b"}), *fd, {}, ctx.m_voidt());
     CHECK_NE(s1, s2);
 }
 
@@ -696,7 +701,7 @@ TEST_CASE("mangle_global i32 x in app")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* vd = make_var(actx, "x");
-    auto s = mangle::mangle_global({"app"}, *vd, i32(ctx));
+    auto s = mangle::mangle_global(mp({"app"}), *vd, i32(ctx));
     CHECK_EQ(s, "_DC0G1.3.app1.xi32s");
 }
 
@@ -705,7 +710,7 @@ TEST_CASE("mangle_global @nomangle returns raw name")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* vd = make_var(actx, "my_global", true);
-    auto s = mangle::mangle_global({"ignored"}, *vd, i32(ctx));
+    auto s = mangle::mangle_global(mp({"ignored"}), *vd, i32(ctx));
     CHECK_EQ(s, "my_global");
 }
 
@@ -785,8 +790,8 @@ TEST_CASE("same function name different modules")
     types::TypeContext ctx;
     ast::AstContext actx;
     auto* fd = make_func(actx, "frobnicate");
-    auto s1 = mangle::mangle_function({"a", "b"}, *fd, {}, ctx.m_voidt());
-    auto s2 = mangle::mangle_function({"c", "d"}, *fd, {}, ctx.m_voidt());
+    auto s1 = mangle::mangle_function(mp({"a", "b"}), *fd, {}, ctx.m_voidt());
+    auto s2 = mangle::mangle_function(mp({"c", "d"}), *fd, {}, ctx.m_voidt());
     CHECK_NE(s1, s2);
 }
 
@@ -798,8 +803,8 @@ TEST_CASE("same template different scalar args")
     std::vector<mangle::TemplateArg> targs1, targs2;
     targs1.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Value, i32(ctx), actx.own_value(comptime::Value::make_int(42, i32(ctx)))});
     targs2.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Value, i32(ctx), actx.own_value(comptime::Value::make_int(99, i32(ctx)))});
-    auto s1 = mangle::mangle_function({"lib"}, *fd, {}, ctx.m_voidt(), targs1);
-    auto s2 = mangle::mangle_function({"lib"}, *fd, {}, ctx.m_voidt(), targs2);
+    auto s1 = mangle::mangle_function(mp({"lib"}), *fd, {}, ctx.m_voidt(), targs1);
+    auto s2 = mangle::mangle_function(mp({"lib"}), *fd, {}, ctx.m_voidt(), targs2);
     CHECK_NE(s1, s2);
 }
 
@@ -822,8 +827,8 @@ TEST_CASE("aggregate NTTP Point{1,2} vs Point{1,3}")
     std::vector<mangle::TemplateArg> ta1, ta2;
     ta1.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Value, point_t, actx.own_value(make_pt(1, 2))});
     ta2.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Value, point_t, actx.own_value(make_pt(1, 3))});
-    auto s1 = mangle::mangle_function({"lib"}, *fd, {}, ctx.m_voidt(), ta1);
-    auto s2 = mangle::mangle_function({"lib"}, *fd, {}, ctx.m_voidt(), ta2);
+    auto s1 = mangle::mangle_function(mp({"lib"}), *fd, {}, ctx.m_voidt(), ta1);
+    auto s2 = mangle::mangle_function(mp({"lib"}), *fd, {}, ctx.m_voidt(), ta2);
     CHECK_NE(s1, s2);
 }
 
@@ -833,8 +838,8 @@ TEST_CASE("default vs stdcall produce different manglings")
     ast::AstContext actx;
     auto* fd1 = make_func(actx, "proc");
     auto* fd2 = make_func(actx, "proc", false, "stdcall");
-    auto s1 = mangle::mangle_function({"win"}, *fd1, {}, ctx.m_voidt());
-    auto s2 = mangle::mangle_function({"win"}, *fd2, {}, ctx.m_voidt());
+    auto s1 = mangle::mangle_function(mp({"win"}), *fd1, {}, ctx.m_voidt());
+    auto s2 = mangle::mangle_function(mp({"win"}), *fd2, {}, ctx.m_voidt());
     CHECK_NE(s1, s2);
 }
 
@@ -1234,7 +1239,7 @@ TEST_CASE("mangle_type_specialization Optional<i32>")
     types::TypeContext ctx;
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
-    auto s = mangle::mangle_type_specialization({"core"}, "Optional", targs);
+    auto s = mangle::mangle_type_specialization(mp({"core"}), "Optional", targs);
     CHECK_EQ(s, "_DC0Y1.4.core8.OptionalX1ti32s");
 }
 
@@ -1244,7 +1249,7 @@ TEST_CASE("mangle_type_specialization Result<i32, f64>")
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, f64(ctx), nullptr});
-    auto s = mangle::mangle_type_specialization({"core"}, "Result", targs);
+    auto s = mangle::mangle_type_specialization(mp({"core"}), "Result", targs);
     CHECK_EQ(s, "_DC0Y1.4.core6.ResultX2ti32stf64.");
 }
 
@@ -1255,14 +1260,14 @@ TEST_CASE("mangle_type_specialization with value template arg Array<i32, 42>")
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Value, i32(ctx), actx.own_value(comptime::Value::make_int(42, i32(ctx)))});
-    auto s = mangle::mangle_type_specialization({"std"}, "Array", targs);
+    auto s = mangle::mangle_type_specialization(mp({"std"}), "Array", targs);
     CHECK_EQ(s, "_DC0Y1.3.std5.ArrayX2ti32svIi32s42");
 }
 
 TEST_CASE("mangle_type_specialization empty template args")
 {
     types::TypeContext ctx;
-    auto s = mangle::mangle_type_specialization({"lib"}, "NonTemplate");
+    auto s = mangle::mangle_type_specialization(mp({"lib"}), "NonTemplate");
     CHECK_EQ(s, "_DC0Y1.3.lib11.NonTemplate");
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -1278,7 +1283,7 @@ TEST_CASE("mangle_type_specialization round-trip demangle")
     types::TypeContext ctx;
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
-    auto s = mangle::mangle_type_specialization({"core"}, "Optional", targs);
+    auto s = mangle::mangle_type_specialization(mp({"core"}), "Optional", targs);
     CHECK_EQ(s, "_DC0Y1.4.core8.OptionalX1ti32s");
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -1307,7 +1312,7 @@ TEST_CASE("mangle_type_specialization multi-segment module path")
     types::TypeContext ctx;
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
-    auto s = mangle::mangle_type_specialization({"std", "collections"}, "Vec", targs);
+    auto s = mangle::mangle_type_specialization(mp({"std", "collections"}), "Vec", targs);
     CHECK_EQ(s, "_DC0Y2.3.std11.collections3.VecX1ti32s");
 }
 
@@ -1322,7 +1327,7 @@ TEST_CASE("mangle_type_specialization with user type resolution")
     std::vector<mangle::TemplateArg> targs;
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, i32(ctx), nullptr});
     targs.push_back(mangle::TemplateArg{mangle::TemplateArg::Kind::Type, string_t, nullptr});
-    auto s = mangle::mangle_type_specialization({"core"}, "Result", targs, resolver);
+    auto s = mangle::mangle_type_specialization(mp({"core"}), "Result", targs, resolver);
     CHECK(s.starts_with("_DC0Y1.4.core6.ResultX2ti32stD"));
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -1346,7 +1351,7 @@ TEST_CASE("mangle_lambda_function uses distinct _DC0L path and source identity")
     fd->synthesized_lambda = true;
     fd->lambda_source = l;
     std::vector<types::TypePtr> params = {i32(ctx)};
-    auto s = mangle::mangle_function({"main"}, *fd, params, i32(ctx));
+    auto s = mangle::mangle_function(mp({"main"}), *fd, params, i32(ctx));
     CHECK_EQ(s, "_DC0L1.4.main1.33.5121i32si32s");
     auto d = mangle::demangle(s);
     REQUIRE(d.has_value());
@@ -1366,10 +1371,10 @@ TEST_CASE("mangle_lambda_function distinct from same-named source function")
     fd->synthesized_lambda = true;
     fd->lambda_source = l;
     std::vector<types::TypePtr> params = {i32(ctx)};
-    auto lambda_s = mangle::mangle_function({"main"}, *fd, params, i32(ctx));
+    auto lambda_s = mangle::mangle_function(mp({"main"}), *fd, params, i32(ctx));
 
     auto* src = actx.make<ast::FuncDecl>(dcc::sm::SourceRange{}, "__lambda_0", dcc::sm::SourceRange{});
-    auto src_s = mangle::mangle_function({"main"}, *src, params, i32(ctx));
+    auto src_s = mangle::mangle_function(mp({"main"}), *src, params, i32(ctx));
 
     CHECK_NE(lambda_s, src_s);
     CHECK(lambda_s.starts_with("_DC0L"));
@@ -1391,8 +1396,8 @@ TEST_CASE("mangle_lambda_function same-signature lambdas differ")
     fd2->synthesized_lambda = true;
     fd2->lambda_source = l2;
     std::vector<types::TypePtr> params = {i32(ctx)};
-    auto s1 = mangle::mangle_function({"main"}, *fd1, params, i32(ctx));
-    auto s2 = mangle::mangle_function({"main"}, *fd2, params, i32(ctx));
+    auto s1 = mangle::mangle_function(mp({"main"}), *fd1, params, i32(ctx));
+    auto s2 = mangle::mangle_function(mp({"main"}), *fd2, params, i32(ctx));
     CHECK_NE(s1, s2);
     CHECK_EQ(s1, "_DC0L1.4.main1.33.1001i32si32s");
     CHECK_EQ(s2, "_DC0L1.4.main1.33.3001i32si32s");
@@ -1461,8 +1466,8 @@ TEST_CASE("pack-spliced function pointer substitution interns and mangles expand
             CHECK_EQ(expanded->byte_align, expected->byte_align);
             std::array<types::TypePtr, 1> actual_params{expanded};
             std::array<types::TypePtr, 1> expected_params{expected};
-            CHECK_EQ(mangle::mangle_function({"test"}, *symbol, actual_params, ctx.m_voidt()),
-                     mangle::mangle_function({"test"}, *symbol, expected_params, ctx.m_voidt()));
+            CHECK_EQ(mangle::mangle_function(mp({"test"}), *symbol, actual_params, ctx.m_voidt()),
+                     mangle::mangle_function(mp({"test"}), *symbol, expected_params, ctx.m_voidt()));
         }
     }
 }
@@ -1523,7 +1528,7 @@ void use() {
         CHECK(actual == expected);
         std::array<types::TypePtr, 1> actual_params{actual};
         std::array<types::TypePtr, 1> expected_params{expected};
-        CHECK_EQ(mangle::mangle_function({"test"}, *symbol, actual_params, ctx.m_voidt()),
-                 mangle::mangle_function({"test"}, *symbol, expected_params, ctx.m_voidt()));
+        CHECK_EQ(mangle::mangle_function(mp({"test"}), *symbol, actual_params, ctx.m_voidt()),
+                 mangle::mangle_function(mp({"test"}), *symbol, expected_params, ctx.m_voidt()));
     }
 }
