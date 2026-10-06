@@ -87,8 +87,9 @@ $(TARGET_STAMP): FORCE
 	@mkdir -p $(dir $@)
 	@if [ "$$(cat $@ 2>/dev/null)" != "$(TARGET)-$(BACKEND)" ]; then echo "$(TARGET)-$(BACKEND)" > $@; fi
 
+$(eval $(call track-archive-inputs,$(LIBDCEXT_A),$(ALL_OBJS)))
+
 $(LIBDCEXT_A): $(ALL_OBJS) $(DCC) $(TARGET_STAMP)
-	@rm -f $@
 	$(call create-archive,$@,$(ALL_OBJS))
 
 $(DC_OBJS): $(DC_SRCS)
@@ -142,5 +143,5 @@ uninstall:
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
 
 clean:
-	rm -f $(DC_OBJS) $(ASM_OBJS) $(LIBDCEXT_A) $(TARGET_STAMP)
+	rm -f $(DC_OBJS) $(ASM_OBJS) $(LIBDCEXT_A) $(LIBDCEXT_A).objects $(LIBDCEXT_A).objects.tmp $(LIBDCEXT_A).tmp $(TARGET_STAMP)
 	rm -rf $(HEADER_DST)
