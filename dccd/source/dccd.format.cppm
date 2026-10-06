@@ -411,12 +411,17 @@ namespace dccd::format
             }
         }
 
-        [[nodiscard]] int desired_newlines(int src_nl, int indent, TokenKind cur_kind, TokenKind prev_kind) noexcept
+        [[nodiscard]] int desired_newlines(int src_nl, int indent, TokenKind cur_kind, TokenKind prev_kind,
+                                           std::optional<std::uint32_t> max_empty_lines) noexcept
         {
             if (src_nl == 0)
                 return 0;
 
             int target = (src_nl >= 4) ? 3 : src_nl;
+            int cap = indent > 0 ? 2 : 3;
+            if (max_empty_lines)
+                cap = static_cast<int>(std::min<std::uint32_t>(*max_empty_lines, 100)) + 1;
+            target = std::min(target, cap);
 
             if (indent == 0 && target < 2)
             {
@@ -425,10 +430,7 @@ namespace dccd::format
                         target = 2;
             }
 
-            if (indent > 0 && target > 2)
-                target = 2;
-
-            return target;
+            return std::min(target, cap);
         }
 
         enum class TriviaKind : std::uint8_t
@@ -1711,7 +1713,7 @@ namespace dccd::format
                         {
                             if (src_nl > 0)
                             {
-                                need_newlines = desired_newlines(src_nl, indent, tok.kind, prev_kind);
+                                need_newlines = desired_newlines(src_nl, indent, tok.kind, prev_kind, options.maxEmptyLines);
                                 if (need_newlines < base)
                                     need_newlines = base;
                             }
