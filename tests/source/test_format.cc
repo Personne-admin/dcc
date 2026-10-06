@@ -2620,3 +2620,40 @@ TEST_CASE("clang-format PointerAlignment moves the star")
           std::optional<std::string>{"void f(const char * a, char ** b) {\n    const char * s = a;\n}\n"});
     CHECK(format_with_clang_format("void f(char *a) {}\n", "PointerAlignment: Left\n") == std::optional<std::string>{"void f(char* a) {}\n"});
 }
+
+TEST_CASE("style cache applies the nearest .clang-format and reloads it when it changes")
+{
+    namespace fs = std::filesystem;
+    auto const root = fs::temp_directory_path() / "dccd_style_cache_test";
+    fs::remove_all(root);
+    fs::create_directories(root / "src" / "nested");
+
+    auto const write_config = [&](std::string_view text, int age_seconds) {
+        auto const config = root / ".clang-format";
+        std::ofstream{config} << text;
+        fs::last_write_time(config, fs::file_time_type::clock::now() + std::chrono::seconds{age_seconds});
+    };
+
+    dccd::format::StyleCache cache;
+    auto const file = root / "src" / "nested" / "a.dc";
+
+    dccd::protocol::FormattingOptions none;
+    CHECK(!cache.apply(none, file));
+    CHECK(!none.columnLimit.has_value());
+
+    write_config("ColumnLimit: 100\n", 0);
+    dccd::protocol::FormattingOptions first;
+    CHECK(cache.apply(first, file));
+    CHECK(first.column_limit() == 100);
+
+    write_config("ColumnLimit: 60\n", 5);
+    dccd::protocol::FormattingOptions second;
+    CHECK(cache.apply(second, file));
+    CHECK(second.column_limit() == 60);
+
+    dccd::protocol::FormattingOptions third;
+    CHECK(cache.apply(third, file));
+    CHECK(third.column_limit() == 60);
+
+    fs::remove_all(root);
+}
