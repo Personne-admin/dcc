@@ -219,6 +219,11 @@ namespace dccd::format
                 if (v == "LF" || v == "CRLF" || v == "DeriveLF" || v == "DeriveCRLF")
                     options.lineEnding = v, ++applied;
             }
+            else if (k == "PointerAlignment")
+            {
+                if (v == "Left" || v == "Right" || v == "Middle")
+                    options.pointerAlignment = v, ++applied;
+            }
         }
 
         if (indent_width)
