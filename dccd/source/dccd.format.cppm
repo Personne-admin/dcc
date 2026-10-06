@@ -60,20 +60,13 @@ namespace dccd::format
 
         [[nodiscard]] std::string make_indent(int level, protocol::FormattingOptions const& opts)
         {
-            std::string s;
+            auto const columns = static_cast<std::size_t>(level) * static_cast<std::size_t>(opts.tabSize);
             if (opts.insertSpaces)
-            {
-                auto total = static_cast<std::size_t>(level) * static_cast<std::size_t>(opts.tabSize);
-                s.reserve(total);
-                for (std::size_t i = 0; i < total; ++i)
-                    s += ' ';
-            }
-            else
-            {
-                s.reserve(static_cast<std::size_t>(level));
-                for (int i = 0; i < level; ++i)
-                    s += '\t';
-            }
+                return std::string(columns, ' ');
+
+            auto const tab = std::max<std::size_t>(1, opts.tab_width());
+            std::string s(columns / tab, '\t');
+            s.append(columns % tab, ' ');
             return s;
         }
 
