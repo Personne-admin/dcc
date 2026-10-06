@@ -220,9 +220,12 @@ export namespace dcc::ir::analysis
                 }
             }
 
-            for (auto& [bb, parent] : dt.idom)
+            for (auto* bb : rpo)
+            {
+                auto* parent = dt.idom.at(bb);
                 if (parent && parent != bb)
                     dt.children[parent].push_back(bb);
+            }
 
             for (auto* bb : rpo)
             {
