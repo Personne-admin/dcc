@@ -18,7 +18,7 @@ def main():
     dcc = args.dcc.resolve()
     if args.attempts < 1:
         parser.error("--attempts must be positive")
-    sources = args.source or [Path(__file__).with_name(name) for name in ("nttp_order.dc", "inlining_order.dc")]
+    sources = args.source or [Path(__file__).with_name(name) for name in ("nttp_order.dc", "inlining_order.dc", "lowering_order.dc")]
     checks = 0
     with tempfile.TemporaryDirectory(prefix="dcc-codegen-determinism-") as temporary:
         root = Path(temporary)

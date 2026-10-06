@@ -1,0 +1,7 @@
+module lowering_helpers;
+using Text = []const u8;
+public i32 evaluate(T)(T x) {
+    Text(*)(i32) a = |i32 v -> "left" as []const u8;
+    Text(*)(i32) b = |i32 v -> "right" as []const u8;
+    return (a(x as i32)[0] as i32) + (b(x as i32)[0] as i32);
+}
