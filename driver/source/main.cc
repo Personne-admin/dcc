@@ -268,7 +268,7 @@ namespace
          "<os>",
          k_choice_libdcext,
          Phase::Both,
-         "link with libdcext for a hosted os",
+         "link with libdcext for the selected os",
          "host",
          [](Options& o, bool on, std::string_view v, char**) {
              o.libdcext = on;
@@ -1715,6 +1715,30 @@ namespace
         return std::format("dcext-{}-{}", dcc::target::os_name(target.os), backend_name);
     }
 
+    [[nodiscard]] bool require_libdcext_archive(Options const& opts, dcc::target::TargetConfig const& target, std::filesystem::path const& prefix)
+    {
+        auto filename = std::format("lib{}.a", libdcext_library_name(target, opts.backend_name));
+        std::vector<std::filesystem::path> paths;
+        for (auto const& path : opts.library_paths)
+            paths.emplace_back(path);
+
+        paths.push_back(prefix / "lib");
+        std::string searched;
+        for (auto const& path : paths)
+        {
+            std::error_code ec;
+            if (std::filesystem::is_regular_file(path / filename, ec) && !ec)
+                return true;
+
+            if (!searched.empty())
+                searched += ", ";
+            searched += (path / filename).string();
+        }
+
+        std::println(std::cerr, "dcc: error: missing libdcext archive '{}'; searched: {}", filename, searched);
+        return false;
+    }
+
     [[nodiscard]] std::vector<std::string> explicit_linker_args(Options const& opts)
     {
         std::vector<std::string> args;
@@ -1813,6 +1837,8 @@ namespace
         }
 
         auto prefix = dcc::config::current_prefix(argv).path;
+        if (opts.libdcext && !require_libdcext_archive(opts, target, prefix))
+            return 1;
 
         std::string cmd = "ld.lld --static --no-dynamic-linker --fatal-warnings -o ";
         cmd += shell_quote(output_path.string());
@@ -2120,6 +2146,8 @@ auto main(int argc, char** argv) -> int
             if (opts.libdcext &&
                 (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
             {
+                if (!require_libdcext_archive(opts, target, prefix))
+                    return 1;
                 backend_opts.library_paths.push_back((prefix / "lib").string());
                 backend_opts.libraries.push_back(libdcext_library_name(target, opts.backend_name));
             }
