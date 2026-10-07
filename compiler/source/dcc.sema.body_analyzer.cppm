@@ -2717,9 +2717,9 @@ export namespace dcc::sema
 
             auto lc = file->line_col(range.begin.offset);
             if (!lc)
-                return std::format("{}:?:?", file->path().string());
+                return std::format("{}:?:?", sm.map_output_path(file->path().string()));
 
-            return std::format("{}:{}:{}", file->path().string(), lc->line, lc->column);
+            return std::format("{}:{}:{}", sm.map_output_path(file->path().string()), lc->line, lc->column);
         }
 
         void push_concept_frame(std::string_view concept_name, std::pmr::vector<std::pair<std::string_view, std::pmr::string>> param_bindings,
@@ -9935,7 +9935,7 @@ export namespace dcc::sema
 
             std::vector<comptime::Value> elements;
             elements.reserve(3);
-            elements.push_back(comptime::Value::make_string(file->path().string(), fields[0].type));
+            elements.push_back(comptime::Value::make_string(m_diag.source_manager().map_output_path(file->path().string()), fields[0].type));
             elements.push_back(comptime::Value::make_int(lc->line, fields[1].type));
             elements.push_back(comptime::Value::make_int(lc->column, fields[2].type));
             return make_value(comptime::Value::make_aggregate(std::move(elements), ty));

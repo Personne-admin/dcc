@@ -49,6 +49,21 @@ namespace dcc::backend
             return LLVMConstInt(type, value, sign_extend);
         }
 
+        void remap_debug_file(sm::SourceManager const* source_manager, std::string& filename, std::string& directory)
+        {
+            if (!source_manager)
+                return;
+            auto full = (std::filesystem::path(directory) / filename).lexically_normal().generic_string();
+            auto mapped = source_manager->map_output_path(full);
+            auto mapped_directory = source_manager->map_output_path(directory);
+            if (mapped != full || mapped_directory != directory)
+            {
+                auto relative = std::filesystem::path(mapped).lexically_relative(std::filesystem::path(mapped_directory));
+                filename = relative.empty() ? mapped : relative.generic_string();
+                directory = std::move(mapped_directory);
+            }
+        }
+
         struct DebugEmitContext
         {
             LLVMDIBuilderRef dibuilder = nullptr;
@@ -107,6 +122,7 @@ namespace dcc::backend
                     directory.clear();
                 }
 
+                remap_debug_file(sm, filename, directory);
                 auto* file_node = LLVMDIBuilderCreateFile(dibuilder, filename.c_str(), filename.size(), directory.empty() ? "." : directory.c_str(),
                                                           directory.empty() ? 1 : directory.size());
                 file_map[file_id] = file_node;
@@ -1637,6 +1653,7 @@ namespace dcc::backend
                         cu_directory = ".";
                     }
 
+                    remap_debug_file(opts.source_manager, cu_filename, cu_directory);
                     debug.difile = LLVMDIBuilderCreateFile(debug.dibuilder, cu_filename.c_str(), cu_filename.size(),
                                                            cu_directory.empty() ? "." : cu_directory.c_str(), cu_directory.empty() ? 1 : cu_directory.size());
 

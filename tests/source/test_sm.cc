@@ -600,3 +600,31 @@ TEST_CASE("SourceFile low-level conversion accepts an explicit encoding argument
     REQUIRE(pos.has_value());
     CHECK_EQ(pos->character, 3u);
 }
+
+TEST_CASE("sm: output prefix maps use the longest prefix once")
+{
+    sm::SourceManager source;
+    CHECK_EQ(source.map_output_path("/checkout/file.dc"), std::string("/checkout/file.dc"));
+    source.add_file_prefix_map("/checkout", "src");
+    source.add_file_prefix_map("/checkout/lib", "library");
+    source.add_file_prefix_map("/checkout", "later");
+    CHECK_EQ(source.map_output_path("/checkout/lib/test.dc"), std::string("library/test.dc"));
+    CHECK_EQ(source.map_output_path("/checkout/main.dc"), std::string("later/main.dc"));
+    source.add_file_prefix_map("library", "recursive");
+    CHECK_EQ(source.map_output_path("/checkout/lib/test.dc"), std::string("library/test.dc"));
+    source.add_file_prefix_map("/checkout/lib/test.dc", "renamed.dc");
+    CHECK_EQ(source.map_output_path("/checkout/lib/test.dc"), std::string("renamed.dc"));
+    source.add_file_prefix_map("/checkout/", "");
+    CHECK_EQ(source.map_output_path("/checkout/main.dc"), std::string("main.dc"));
+}
+
+#ifdef _WIN32
+TEST_CASE("sm: prefix maps accept native and generic windows paths")
+{
+    sm::SourceManager source;
+    source.add_file_prefix_map("C:\\checkout", "src");
+    CHECK_EQ(source.map_output_path("C:\\checkout\\main.dc"), std::string("src/main.dc"));
+    CHECK_EQ(source.map_output_path("C:/checkout/main.dc"), std::string("src/main.dc"));
+    CHECK_EQ(source.map_output_path("D:\\other\\main.dc"), std::string("D:\\other\\main.dc"));
+}
+#endif

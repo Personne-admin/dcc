@@ -489,7 +489,7 @@ export namespace dcc::diag
             m_os << ' ' << std::string(static_cast<std::size_t>(gutter_w), ' ') << "--> ";
             style_off();
 
-            m_os << file.path().string();
+            m_os << m_sm.map_output_path(file.path().string());
             if (lc)
                 m_os << ':' << lc->line << ':' << lc->column;
             m_os << '\n';
@@ -800,7 +800,7 @@ export namespace dcc::diag
                     m_os << ' ' << std::string(static_cast<std::size_t>(gutter_w), ' ') << "::: ";
                     style_off();
 
-                    m_os << file->path().string();
+                    m_os << m_sm.map_output_path(file->path().string());
 
                     auto lc = file->line_col(primary->range.begin.offset);
                     if (lc)

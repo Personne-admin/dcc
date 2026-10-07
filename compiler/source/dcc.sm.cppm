@@ -507,6 +507,29 @@ export namespace dcc::sm
         SourceManager(SourceManager&&) = default;
         SourceManager& operator=(SourceManager&&) = default;
 
+        void add_file_prefix_map(std::string old_prefix, std::string new_prefix)
+        {
+#ifdef _WIN32
+            std::ranges::replace(old_prefix, '\\', '/');
+#endif
+            m_file_prefix_maps.emplace_back(std::move(old_prefix), std::move(new_prefix));
+        }
+
+        [[nodiscard]] std::string map_output_path(std::string_view path) const
+        {
+            std::string normalized(path);
+#ifdef _WIN32
+            std::ranges::replace(normalized, '\\', '/');
+#endif
+            std::pair<std::string, std::string> const* best = nullptr;
+            for (auto const& mapping : m_file_prefix_maps)
+                if (normalized.starts_with(mapping.first) && (!best || mapping.first.size() >= best->first.size()))
+                    best = &mapping;
+            if (!best)
+                return std::string(path);
+            return best->second + normalized.substr(best->first.size());
+        }
+
         [[nodiscard]] std::expected<FileId, Error> load(std::filesystem::path const& path);
         [[nodiscard]] FileId add_synthetic(std::string name, std::string content);
 
@@ -741,6 +764,7 @@ export namespace dcc::sm
 
     private:
         std::vector<std::unique_ptr<SourceFile>> m_files;
+        std::vector<std::pair<std::string, std::string>> m_file_prefix_maps;
         std::uint64_t m_next_content_revision{1};
         PositionEncoding m_position_encoding{PositionEncoding::Utf16};
 

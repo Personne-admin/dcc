@@ -2156,7 +2156,7 @@ export namespace dcc::ir::lower
             {
                 auto const* f = sm_ptr->get(resolved_range.begin.fileId);
                 if (f)
-                    file = f->path().filename().string();
+                    file = std::filesystem::path(sm_ptr->map_output_path(f->path().string())).filename().string();
                 auto lc = sm_ptr->line_col(resolved_range.begin);
                 if (lc)
                     line = static_cast<int>(lc->line);
@@ -2295,7 +2295,7 @@ export namespace dcc::ir::lower
             {
                 auto const* f = sm_ptr->get(resolved_range.begin.fileId);
                 if (f)
-                    file = f->path().filename().string();
+                    file = std::filesystem::path(sm_ptr->map_output_path(f->path().string())).filename().string();
                 auto lc = sm_ptr->line_col(resolved_range.begin);
                 if (lc)
                     line = static_cast<int>(lc->line);
@@ -3406,7 +3406,7 @@ export namespace dcc::ir::lower
             if (fn && fn->range.valid() && m_source_manager)
             {
                 if (auto const* source = m_source_manager->get(fn->range.begin.fileId))
-                    file = source->path().string();
+                    file = m_source_manager->map_output_path(source->path().string());
             }
             return name + " @ " + file;
         }
@@ -10061,7 +10061,7 @@ export namespace dcc::ir::lower
                     {
                         auto const* f = sm_ptr->get(resolved_range.begin.fileId);
                         if (f)
-                            file = f->path().filename().string();
+                            file = std::filesystem::path(sm_ptr->map_output_path(f->path().string())).filename().string();
                         auto lc = sm_ptr->line_col(resolved_range.begin);
                         if (lc)
                             line = static_cast<int>(lc->line);
