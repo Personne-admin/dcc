@@ -67,6 +67,7 @@ namespace
         std::filesystem::path output_file;
         std::optional<std::filesystem::path> depfile;
         std::vector<std::filesystem::path> import_paths;
+        std::vector<std::string> file_prefix_maps;
         bool dump_ast{false};
         bool dump_ir{false};
         bool dump_llvm{false};
@@ -215,6 +216,17 @@ namespace
          "target triple (x86_64-elf, x86-elf, x86_64-coff, x86-coff, i8086-binary)",
          "host",
          [](Options& o, bool, std::string_view v, char**) { o.target_triple = v; }},
+
+        {"-ffile-prefix-map",
+         "",
+         {},
+         Arg::Required,
+         "<old>=<new>",
+         {},
+         Phase::Compile,
+         "remap emitted source paths (repeatable, longest prefix wins)",
+         "",
+         [](Options& o, bool, std::string_view v, char**) { o.file_prefix_maps.emplace_back(v); }},
 
         {"-farch",
          "",
@@ -1949,6 +1961,17 @@ auto main(int argc, char** argv) -> int
     }
 
     dcc::session::CompilerSession session;
+    for (auto const& mapping : opts.file_prefix_maps)
+    {
+        auto separator = mapping.find('=');
+        if (separator == std::string::npos)
+        {
+            std::println(std::cerr, "dcc: error: -ffile-prefix-map requires OLD=NEW");
+            return 1;
+        }
+        session.source_manager().add_file_prefix_map(mapping.substr(0, separator), mapping.substr(separator + 1));
+    }
+
 
     auto prefix = dcc::config::current_prefix(argv).path;
 

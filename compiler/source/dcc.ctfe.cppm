@@ -439,7 +439,7 @@ export namespace dcc::ctfe
 
             std::vector<comptime::Value> elements;
             elements.reserve(3);
-            elements.push_back(comptime::Value::make_string(file->path().string(), type_of(fields[0].type)));
+            elements.push_back(comptime::Value::make_string(m_context.source_manager->map_output_path(file->path().string()), type_of(fields[0].type)));
             elements.push_back(comptime::Value::make_int(lc->line, type_of(fields[1].type)));
             elements.push_back(comptime::Value::make_int(lc->column, type_of(fields[2].type)));
             return comptime::Value::make_aggregate(std::move(elements), type);
