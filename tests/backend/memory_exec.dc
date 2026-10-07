@@ -1,0 +1,45 @@
+module main;
+
+@nomangle extern void* test_memcpy(void* dst, const void* src, usize count);
+@nomangle extern void* test_memmove(void* dst, const void* src, usize count);
+@nomangle extern void* test_memset(void* dst, i32 value, usize count);
+@nomangle extern i32 test_memcmp(const void* left, const void* right, usize count);
+
+@nomangle public i32 memory_test() {
+    u8[32] a;
+    u8[32] b;
+    for usize i = 0; i < 32; i++ { a[i] = i as u8; b[i] = 0; }
+    void* p = &b[1] as void*;
+    if test_memcpy(p, &a[1] as const void*, 17) != p { return 1; }
+    for usize i = 1; i < 18; i++ { if b[i] != a[i] { return 2; } }
+    if b[0] != 0 || b[18] != 0 { return 3; }
+    if test_memset(p, 0x180, 17) != p { return 4; }
+    for usize i = 1; i < 18; i++ { if b[i] != 0x80 { return 5; } }
+    if b[0] != 0 || b[18] != 0 { return 6; }
+    if test_memcmp(&a[1] as const void*, &a[1] as const void*, 17) != 0 { return 7; }
+    if test_memcmp(&b[1] as const void*, &a[1] as const void*, 17) <= 0 { return 8; }
+    if test_memcmp(&a[1] as const void*, &b[1] as const void*, 17) >= 0 { return 9; }
+    p = &a[3] as void*;
+    if test_memmove(p, &a[1] as const void*, 17) != p { return 10; }
+    for usize i = 0; i < 17; i++ { if a[i + 3] != (i + 1) as u8 { return 11; } }
+    if a[0] != 0 || a[1] != 1 || a[2] != 2 || a[20] != 20 { return 12; }
+    for usize i = 0; i < 32; i++ { a[i] = i as u8; }
+    p = &a[1] as void*;
+    if test_memmove(p, &a[3] as const void*, 17) != p { return 13; }
+    for usize i = 0; i < 17; i++ { if a[i + 1] != (i + 3) as u8 { return 14; } }
+    if a[0] != 0 || a[18] != 18 { return 15; }
+    if test_memmove(p, p as const void*, 17) != p { return 16; }
+    if test_memmove(&b[1] as void*, &a[1] as const void*, 17) != &b[1] as void* { return 17; }
+    if test_memcmp(&a[1] as const void*, &b[1] as const void*, 17) != 0 { return 18; }
+    if test_memcpy(p, null as const void*, 0) != p { return 19; }
+    if test_memmove(p, null as const void*, 0) != p { return 20; }
+    if test_memset(p, 3, 0) != p { return 21; }
+    if test_memcmp(null as const void*, null as const void*, 0) != 0 { return 22; }
+    if a[1] != 3 { return 23; }
+    if test_memcpy(null as void*, null as const void*, 0) != null { return 24; }
+    if test_memmove(null as void*, null as const void*, 0) != null { return 25; }
+    if test_memset(null as void*, 3, 0) != null { return 26; }
+    return 0;
+}
+
+public i32 main() { return memory_test(); }

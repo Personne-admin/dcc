@@ -1,0 +1,13 @@
+module main;
+
+public struct Big { u8[8192] data; }
+@nomangle public void copy(Big* dst, Big* src) { *dst = *src; }
+
+public i32 main() {
+    Big a;
+    Big b;
+    a.data[0] = 19;
+    a.data[8191] = 23;
+    copy(&b, &a);
+    return b.data[0] as i32 + b.data[8191] as i32 - 42;
+}
