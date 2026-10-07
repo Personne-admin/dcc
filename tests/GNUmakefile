@@ -20,6 +20,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/cross_backend.py linux --build $(BUILD_DIR)
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/unwind.py
 test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
+	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py win
 	$(Q)DCC_TEST_WINDOWS=1 WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $<
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/abi/cross_backend.py win --build $(BUILD_DIR)
@@ -82,6 +83,7 @@ test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_no_simd.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_archive_members.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_domtree_cycles.py $(BUILD_DIR)/bin/dcc

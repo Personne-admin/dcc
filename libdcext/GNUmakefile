@@ -43,6 +43,8 @@ else
   ASM_TARGET := $(DCC_TARGET)
 endif
 
+ASM_ABI_FLAGS := $(if $(filter windows,$(TARGET_OS)),-DDCC_WINDOWS_MEMORY)
+
 OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)-$(BACKEND)
 
 FREESTANDING_EXCLUDE := $(TOPLEVEL)/libdcext/std/sys/linux/syscall.dc $(TOPLEVEL)/libdcext/std/sys/win/imports.dc
@@ -51,10 +53,10 @@ TOPLEVEL_SRCS := $(TOPLEVEL)/libdcext/assert.dc
 
 ifeq ($(TARGET),x86_64-freestanding)
   DC_SRCS := $(filter-out $(FREESTANDING_EXCLUDE),$(call find-sources,$(TOPLEVEL)/libdcext/std,dc)) $(TOPLEVEL_SRCS)
-  ASM_SRCS :=
+  ASM_SRCS := $(TOPLEVEL)/libdcext/common/memory.asm
 else
   DC_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/std,dc) $(TOPLEVEL_SRCS)
-  ASM_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/$(PLATFORM_DIR),asm)
+  ASM_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/$(PLATFORM_DIR),asm) $(TOPLEVEL)/libdcext/common/memory.asm
 endif
 
 DC_OBJS := $(call objs-from-srcs,$(DC_SRCS))
@@ -111,7 +113,7 @@ $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
 	$(call MSG,ASM,$<)
-	$(Q)$(ASM_CC) $(FILE_PREFIX_MAP_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
+	$(Q)$(ASM_CC) $(FILE_PREFIX_MAP_FLAGS) $(ASM_ABI_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
 
 COMPDB_TARGETS ?= x86_64-linux x86_64-windows
 COMPDB_SCRIPT := $(TOPLEVEL)/mk/gen_compdb.py
@@ -134,7 +136,7 @@ compdb-fragment-one:
 		$(DC_SRCS)
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
 		--cxx "$(ASM_CC)" \
-		--cxxflags "-c -target $(ASM_TARGET) -x assembler-with-cpp" \
+		--cxxflags "$(ASM_ABI_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-asm.json" \
 		$(ASM_SRCS)
