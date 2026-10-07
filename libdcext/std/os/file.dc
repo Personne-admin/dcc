@@ -108,144 +108,156 @@ public OpenFlags read_write() {
 //!
 
 // At least one access mode is required; mutation flags require write access.
-public Result(File, Error) open([] const u8 name, OpenFlags flags) {
-    if (!flags.read && !flags.write) || (!flags.write && (flags.truncate || flags.append)) {
-        return Result::Err(Error::InvalidArgument);
-    }
-    // Explicit Err construction preserves mapping calls with the current
-    // compiler (implicit construction of call expressions drops the call).
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW p;
-        path::to_pathw(name, &p) ?;
-
-        win::abi::Dword access = 0;
-        if flags.read {
-            access = access | win::abi::GENERIC_READ;
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(File, Error) open([] const u8 name, OpenFlags flags) {
+        if (!flags.read && !flags.write) || (!flags.write && (flags.truncate || flags.append)) {
+            return Result::Err(Error::InvalidArgument);
         }
-        if flags.write {
-            // FILE_APPEND_DATA without FILE_WRITE_DATA makes *every* write append,
-            // even after seek, matching O_APPEND rather than just initial seek.
-            access = access | if flags.append { win::abi::FILE_APPEND_DATA } else { win::abi::GENERIC_WRITE };
-        }
+        // Explicit Err construction preserves mapping calls with the current
+        // compiler (implicit construction of call expressions drops the call).
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW p;
+            path::to_pathw(name, &p) ?;
 
-        win::abi::Dword disposition = if flags.create && flags.exclusive {
-            win::abi::CREATE_NEW
-        } else {
-            if flags.create && flags.truncate {
-                win::abi::CREATE_ALWAYS
+            win::abi::Dword access = 0;
+            if flags.read {
+                access = access | win::abi::GENERIC_READ;
+            }
+            if flags.write {
+                // FILE_APPEND_DATA without FILE_WRITE_DATA makes *every* write append,
+                // even after seek, matching O_APPEND rather than just initial seek.
+                access = access | if flags.append { win::abi::FILE_APPEND_DATA } else { win::abi::GENERIC_WRITE };
+            }
+
+            win::abi::Dword disposition = if flags.create && flags.exclusive {
+                win::abi::CREATE_NEW
             } else {
-                if flags.create {
-                    win::abi::OPEN_ALWAYS
+                if flags.create && flags.truncate {
+                    win::abi::CREATE_ALWAYS
                 } else {
-                    if flags.truncate {
-                        win::abi::TRUNCATE_EXISTING
+                    if flags.create {
+                        win::abi::OPEN_ALWAYS
                     } else {
-                        win::abi::OPEN_EXISTING
+                        if flags.truncate {
+                            win::abi::TRUNCATE_EXISTING
+                        } else {
+                            win::abi::OPEN_EXISTING
+                        }
                     }
                 }
+            };
+
+            win::abi::Handle h = win::imports::CreateFileW(
+                path::wide_ptr(&p),
+                access,
+                win::abi::FILE_SHARE_READ | win::abi::FILE_SHARE_WRITE,
+                null as win::abi::SecurityAttributes*,
+                disposition,
+                win::abi::FILE_ATTRIBUTE_NORMAL,
+                null as win::abi::Handle
+            );
+
+            if h as isize == win::abi::INVALID_HANDLE_VALUE {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
             }
-        };
 
-        win::abi::Handle h = win::imports::CreateFileW(
-            path::wide_ptr(&p),
-            access,
-            win::abi::FILE_SHARE_READ | win::abi::FILE_SHARE_WRITE,
-            null as win::abi::SecurityAttributes*,
-            disposition,
-            win::abi::FILE_ATTRIBUTE_NORMAL,
-            null as win::abi::Handle
-        );
-
-        if h as isize == win::abi::INVALID_HANDLE_VALUE {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
-        }
-
-        File out = File {handle = h as isize};
-        if flags.append {
-            // This sets the initial read/position cursor only. FILE_APPEND_DATA
-            // above re-evaluates EOF on every write, including after a seek or
-            // another handle extending the file (O_APPEND semantics).
-            // https://learn.microsoft.com/en-us/windows/win32/fileio/file-access-rights-constants
-            Status(Error) tail = seek(&out, 0, Seek::End);
-            if !tail.is_ok() {
-                close(&out);
-                return Result::Err(tail.unwrap_err());
+            File out = File {handle = h as isize};
+            if flags.append {
+                // This sets the initial read/position cursor only. FILE_APPEND_DATA
+                // above re-evaluates EOF on every write, including after a seek or
+                // another handle extending the file (O_APPEND semantics).
+                // https://learn.microsoft.com/en-us/windows/win32/fileio/file-access-rights-constants
+                Status(Error) tail = seek(&out, 0, Seek::End);
+                if !tail.is_ok() {
+                    close(&out);
+                    return Result::Err(tail.unwrap_err());
+                }
             }
-        }
 
-        return Result::Ok(out);
-    } else static if core::target::OS == core::target::Os::Linux {
-        path::PathZ p;
-        path::to_pathz(name, &p) ?;
+            return Result::Ok(out);
+        } else static if core::target::OS == core::target::Os::Linux {
+            path::PathZ p;
+            path::to_pathz(name, &p) ?;
 
-        i32 bits = if flags.read && flags.write {
-            linux::abi::O_RDWR
-        } else {
-            if flags.write {
-                linux::abi::O_WRONLY
+            i32 bits = if flags.read && flags.write {
+                linux::abi::O_RDWR
             } else {
-                linux::abi::O_RDONLY
+                if flags.write {
+                    linux::abi::O_WRONLY
+                } else {
+                    linux::abi::O_RDONLY
+                }
+            };
+
+            bits = bits | linux::abi::O_CLOEXEC;
+            if flags.create {
+                bits = bits | linux::abi::O_CREAT;
             }
-        };
+            if flags.truncate {
+                bits = bits | linux::abi::O_TRUNC;
+            }
+            if flags.append {
+                bits = bits | linux::abi::O_APPEND;
+            }
+            if flags.exclusive {
+                bits = bits | linux::abi::O_EXCL;
+            }
 
-        bits = bits | linux::abi::O_CLOEXEC;
-        if flags.create {
-            bits = bits | linux::abi::O_CREAT;
-        }
-        if flags.truncate {
-            bits = bits | linux::abi::O_TRUNC;
-        }
-        if flags.append {
-            bits = bits | linux::abi::O_APPEND;
-        }
-        if flags.exclusive {
-            bits = bits | linux::abi::O_EXCL;
-        }
+            isize ret = linux::syscall::open(path::ptr(&p), bits, flags.mode);
+            if linux::abi::is_error(ret) {
+                return Result::Err(error::from_syscall(ret));
+            }
 
-        isize ret = linux::syscall::open(path::ptr(&p), bits, flags.mode);
-        if linux::abi::is_error(ret) {
-            return Result::Err(error::from_syscall(ret));
+            return Result::Ok(File {handle = ret});
+        } else {
+            core::compile_error("std::os::file has no backend for this target");
+            return Error::NotSupported;
         }
-
-        return Result::Ok(File {handle = ret});
-    } else {
-        core::compile_error("std::os::file has no backend for this target");
-        return Error::NotSupported;
     }
 }
 
-public Result(File, Error) create([] const u8 name) {
-    return open(name, write_only());
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(File, Error) create([] const u8 name) {
+        return open(name, write_only());
+    }
 }
 
 //!
 //! Standard streams
 //!
 
-File standard(u32 which) {
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Dword id = match which {
-            0 => win::abi::STD_INPUT_HANDLE,
-            1 => win::abi::STD_OUTPUT_HANDLE,
-            _ => win::abi::STD_ERROR_HANDLE,
-        };
+static if core::target::OS != core::target::Os::Freestanding {
+    File standard(u32 which) {
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Dword id = match which {
+                0 => win::abi::STD_INPUT_HANDLE,
+                1 => win::abi::STD_OUTPUT_HANDLE,
+                _ => win::abi::STD_ERROR_HANDLE,
+            };
 
-        return File {handle = win::imports::GetStdHandle(id) as isize};
-    } else {
-        return File {handle = which as isize};
+            return File {handle = win::imports::GetStdHandle(id) as isize};
+        } else {
+            return File {handle = which as isize};
+        }
     }
 }
 
-public File stdin() {
-    return standard(0);
+static if core::target::OS != core::target::Os::Freestanding {
+    public File stdin() {
+        return standard(0);
+    }
 }
 
-public File stdout() {
-    return standard(1);
+static if core::target::OS != core::target::Os::Freestanding {
+    public File stdout() {
+        return standard(1);
+    }
 }
 
-public File stderr() {
-    return standard(2);
+static if core::target::OS != core::target::Os::Freestanding {
+    public File stderr() {
+        return standard(2);
+    }
 }
 
 //!
@@ -265,426 +277,454 @@ u32 clamp_dword(usize n) {
     };
 }
 
-public Result(usize, Error) read(File* self, [] u8 buf) {
-    if buf.len == 0 {
-        return Result::Ok(0 as usize);
-    }
-
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Dword got = 0;
-        win::abi::Bool ok = win::imports::ReadFile(
-            self.handle as win::abi::Handle,
-            buf.ptr as void*,
-            clamp_dword(buf.len),
-            &got,
-            null as win::abi::Overlapped*
-        );
-
-        if !win::abi::succeeded(ok) {
-            win::abi::Dword code = win::imports::GetLastError();
-
-            // a closed pipe is end of input, not an error
-            if code == win::abi::ERROR_BROKEN_PIPE {
-                return Result::Ok(0 as usize);
-            }
-
-            return Result::Err(error::from_win32(code));
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(usize, Error) read(File* self, [] u8 buf) {
+        if buf.len == 0 {
+            return Result::Ok(0 as usize);
         }
 
-        return Result::Ok(got as usize);
-    } else {
-        while true {
-            isize ret = linux::syscall::read(
-                self.handle as linux::abi::Fd,
-                buf
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Dword got = 0;
+            win::abi::Bool ok = win::imports::ReadFile(
+                self.handle as win::abi::Handle,
+                buf.ptr as void*,
+                clamp_dword(buf.len),
+                &got,
+                null as win::abi::Overlapped*
             );
-            if !linux::abi::is_error(ret) {
-                return Result::Ok(ret as usize);
+
+            if !win::abi::succeeded(ok) {
+                win::abi::Dword code = win::imports::GetLastError();
+
+                // a closed pipe is end of input, not an error
+                if code == win::abi::ERROR_BROKEN_PIPE {
+                    return Result::Ok(0 as usize);
+                }
+
+                return Result::Err(error::from_win32(code));
             }
 
-            if linux::abi::errno_of(ret) != linux::abi::EINTR {
-                return Result::Err(error::from_syscall(ret));
+            return Result::Ok(got as usize);
+        } else {
+            while true {
+                isize ret = linux::syscall::read(
+                    self.handle as linux::abi::Fd,
+                    buf
+                );
+                if !linux::abi::is_error(ret) {
+                    return Result::Ok(ret as usize);
+                }
+
+                if linux::abi::errno_of(ret) != linux::abi::EINTR {
+                    return Result::Err(error::from_syscall(ret));
+                }
             }
         }
     }
 }
 
-public Result(usize, Error) write(File* self, [] const u8 buf) {
-    if buf.len == 0 {
-        return Result::Ok(0 as usize);
-    }
-
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Dword put = 0;
-        win::abi::Bool ok = win::imports::WriteFile(
-            self.handle as win::abi::Handle,
-            buf.ptr as const void*,
-            clamp_dword(buf.len),
-            &put,
-            null as win::abi::Overlapped*
-        );
-
-        if !win::abi::succeeded(ok) {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(usize, Error) write(File* self, [] const u8 buf) {
+        if buf.len == 0 {
+            return Result::Ok(0 as usize);
         }
 
-        return Result::Ok(put as usize);
-    } else {
-        while true {
-            isize ret = linux::syscall::write(
-                self.handle as linux::abi::Fd,
-                buf
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Dword put = 0;
+            win::abi::Bool ok = win::imports::WriteFile(
+                self.handle as win::abi::Handle,
+                buf.ptr as const void*,
+                clamp_dword(buf.len),
+                &put,
+                null as win::abi::Overlapped*
             );
-            if !linux::abi::is_error(ret) {
-                return Result::Ok(ret as usize);
+
+            if !win::abi::succeeded(ok) {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
             }
 
-            if linux::abi::errno_of(ret) != linux::abi::EINTR {
-                return Result::Err(error::from_syscall(ret));
+            return Result::Ok(put as usize);
+        } else {
+            while true {
+                isize ret = linux::syscall::write(
+                    self.handle as linux::abi::Fd,
+                    buf
+                );
+                if !linux::abi::is_error(ret) {
+                    return Result::Ok(ret as usize);
+                }
+
+                if linux::abi::errno_of(ret) != linux::abi::EINTR {
+                    return Result::Err(error::from_syscall(ret));
+                }
             }
         }
     }
 }
 
-/// writes every byte or fails. a short write with no error means the sink
-/// is closed, so it is reported rather than retried forever.
-public Status(Error) write_all(File* self, [] const u8 buf) {
-    usize sent = 0;
+static if core::target::OS != core::target::Os::Freestanding {
+    /// writes every byte or fails. a short write with no error means the sink
+    /// is closed, so it is reported rather than retried forever.
+    public Status(Error) write_all(File* self, [] const u8 buf) {
+        usize sent = 0;
 
-    while sent < buf.len {
-        Result(usize, Error) step = write(self, buf[sent..buf.len]);
-        if step.is_err() {
-            return Status::Err(step.unwrap_err());
+        while sent < buf.len {
+            Result(usize, Error) step = write(self, buf[sent..buf.len]);
+            if step.is_err() {
+                return Status::Err(step.unwrap_err());
+            }
+
+            usize n = step.unwrap();
+            if n == 0 {
+                return Error::BrokenPipe;
+            }
+
+            sent = sent + n;
         }
 
-        usize n = step.unwrap();
-        if n == 0 {
-            return Error::BrokenPipe;
-        }
-
-        sent = sent + n;
+        return Status::Ok;
     }
-
-    return Status::Ok;
 }
 
-/// fills `buf` or stops at end of input. returns the bytes read.
-public Result(usize, Error) read_all(File* self, [] u8 buf) {
-    usize got = 0;
+static if core::target::OS != core::target::Os::Freestanding {
+    /// fills `buf` or stops at end of input. returns the bytes read.
+    public Result(usize, Error) read_all(File* self, [] u8 buf) {
+        usize got = 0;
 
-    while got < buf.len {
-        Result(usize, Error) step = read(self, buf[got..buf.len]);
-        if step.is_err() {
-            return Result::Err(step.unwrap_err());
+        while got < buf.len {
+            Result(usize, Error) step = read(self, buf[got..buf.len]);
+            if step.is_err() {
+                return Result::Err(step.unwrap_err());
+            }
+
+            usize n = step.unwrap();
+            if n == 0 {
+                return Result::Ok(got);
+            }
+
+            got = got + n;
         }
 
-        usize n = step.unwrap();
-        if n == 0 {
-            return Result::Ok(got);
-        }
-
-        got = got + n;
+        return Result::Ok(got);
     }
-
-    return Result::Ok(got);
 }
 
 //!
 //! Positioning and metadata
 //!
 
-public Status(Error) seek(File* self, i64 offset, Seek from) {
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Dword method = match from {
-            Seek::Set => win::abi::FILE_BEGIN,
-            Seek::Current => win::abi::FILE_CURRENT,
-            _ => win::abi::FILE_END,
-        };
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) seek(File* self, i64 offset, Seek from) {
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Dword method = match from {
+                Seek::Set => win::abi::FILE_BEGIN,
+                Seek::Current => win::abi::FILE_CURRENT,
+                _ => win::abi::FILE_END,
+            };
 
-        i64 landed = 0;
-        win::abi::Bool ok = win::imports::SetFilePointerEx(
-            self.handle as win::abi::Handle,
-            offset,
-            &landed,
-            method
-        );
+            i64 landed = 0;
+            win::abi::Bool ok = win::imports::SetFilePointerEx(
+                self.handle as win::abi::Handle,
+                offset,
+                &landed,
+                method
+            );
 
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            i32 whence = match from {
+                Seek::Set => linux::abi::SEEK_SET,
+                Seek::Current => linux::abi::SEEK_CUR,
+                _ => linux::abi::SEEK_END,
+            };
+
+            isize ret = linux::syscall::lseek(
+                self.handle as linux::abi::Fd,
+                offset,
+                whence
+            );
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        i32 whence = match from {
-            Seek::Set => linux::abi::SEEK_SET,
-            Seek::Current => linux::abi::SEEK_CUR,
-            _ => linux::abi::SEEK_END,
-        };
-
-        isize ret = linux::syscall::lseek(
-            self.handle as linux::abi::Fd,
-            offset,
-            whence
-        );
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
-public Result(u64, Error) position(File* self) {
-    static if core::target::OS == core::target::Os::Windows {
-        i64 landed = 0;
-        win::abi::Bool ok = win::imports::SetFilePointerEx(
-            self.handle as win::abi::Handle,
-            0,
-            &landed,
-            win::abi::FILE_CURRENT
-        );
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(u64, Error) position(File* self) {
+        static if core::target::OS == core::target::Os::Windows {
+            i64 landed = 0;
+            win::abi::Bool ok = win::imports::SetFilePointerEx(
+                self.handle as win::abi::Handle,
+                0,
+                &landed,
+                win::abi::FILE_CURRENT
+            );
 
-        if !win::abi::succeeded(ok) {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
+            if !win::abi::succeeded(ok) {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Result::Ok(landed as u64);
+        } else {
+            isize ret = linux::syscall::lseek(
+                self.handle as linux::abi::Fd,
+                0,
+                linux::abi::SEEK_CUR
+            );
+            if linux::abi::is_error(ret) {
+                return Result::Err(error::from_syscall(ret));
+            }
+
+            return Result::Ok(ret as u64);
         }
-
-        return Result::Ok(landed as u64);
-    } else {
-        isize ret = linux::syscall::lseek(
-            self.handle as linux::abi::Fd,
-            0,
-            linux::abi::SEEK_CUR
-        );
-        if linux::abi::is_error(ret) {
-            return Result::Err(error::from_syscall(ret));
-        }
-
-        return Result::Ok(ret as u64);
     }
 }
 
-public Result(u64, Error) size(File* self) {
-    static if core::target::OS == core::target::Os::Windows {
-        i64 bytes = 0;
-        win::abi::Bool ok = win::imports::GetFileSizeEx(
-            self.handle as win::abi::Handle,
-            &bytes
-        );
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(u64, Error) size(File* self) {
+        static if core::target::OS == core::target::Os::Windows {
+            i64 bytes = 0;
+            win::abi::Bool ok = win::imports::GetFileSizeEx(
+                self.handle as win::abi::Handle,
+                &bytes
+            );
 
-        if !win::abi::succeeded(ok) {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
+            if !win::abi::succeeded(ok) {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Result::Ok(bytes as u64);
+        } else {
+            linux::abi::Stat info;
+            isize ret = linux::syscall::fstat(
+                self.handle as linux::abi::Fd,
+                &info
+            );
+            if linux::abi::is_error(ret) {
+                return Result::Err(error::from_syscall(ret));
+            }
+
+            return Result::Ok(info.size as u64);
         }
-
-        return Result::Ok(bytes as u64);
-    } else {
-        linux::abi::Stat info;
-        isize ret = linux::syscall::fstat(
-            self.handle as linux::abi::Fd,
-            &info
-        );
-        if linux::abi::is_error(ret) {
-            return Result::Err(error::from_syscall(ret));
-        }
-
-        return Result::Ok(info.size as u64);
     }
 }
 
-public Status(Error) truncate(File* self, u64 length) {
-    static if core::target::OS == core::target::Os::Windows {
-        seek(self, length as i64, Seek::Set) ?;
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) truncate(File* self, u64 length) {
+        static if core::target::OS == core::target::Os::Windows {
+            seek(self, length as i64, Seek::Set) ?;
 
-        win::abi::Bool ok = win::imports::SetEndOfFile(
-            self.handle as win::abi::Handle
-        );
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            win::abi::Bool ok = win::imports::SetEndOfFile(
+                self.handle as win::abi::Handle
+            );
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            isize ret = linux::syscall::ftruncate(
+                self.handle as linux::abi::Fd,
+                length as i64
+            );
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        isize ret = linux::syscall::ftruncate(
-            self.handle as linux::abi::Fd,
-            length as i64
-        );
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
-/// flushes the kernel's copy of the file to the device.
-public Status(Error) sync(File* self) {
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Bool ok = win::imports::FlushFileBuffers(
-            self.handle as win::abi::Handle
-        );
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
-        }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// flushes the kernel's copy of the file to the device.
+    public Status(Error) sync(File* self) {
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Bool ok = win::imports::FlushFileBuffers(
+                self.handle as win::abi::Handle
+            );
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
 
-        return Status::Ok;
-    } else {
-        isize ret = linux::syscall::fsync(self.handle as linux::abi::Fd);
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
+            return Status::Ok;
+        } else {
+            isize ret = linux::syscall::fsync(self.handle as linux::abi::Fd);
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
 
-        return Status::Ok;
+            return Status::Ok;
+        }
     }
 }
 
-/// closes the handle. errors are dropped: there is nothing a caller can
-/// usefully do about a failing close, and retrying it is unsafe.
-public void close(File* self) {
-    if self.handle == INVALID_HANDLE {
-        return;
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// closes the handle. errors are dropped: there is nothing a caller can
+    /// usefully do about a failing close, and retrying it is unsafe.
+    public void close(File* self) {
+        if self.handle == INVALID_HANDLE {
+            return;
+        }
 
-    static if core::target::OS == core::target::Os::Windows {
-        win::imports::CloseHandle(self.handle as win::abi::Handle);
-    } else {
-        linux::syscall::close(self.handle as linux::abi::Fd);
-    }
+        static if core::target::OS == core::target::Os::Windows {
+            win::imports::CloseHandle(self.handle as win::abi::Handle);
+        } else {
+            linux::syscall::close(self.handle as linux::abi::Fd);
+        }
 
-    self.handle = INVALID_HANDLE;
+        self.handle = INVALID_HANDLE;
+    }
 }
 
 //!
 //! Filesystem operations
 //!
 
-public Status(Error) delete_file([] const u8 name) {
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW p;
-        path::to_pathw(name, &p) ?;
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) delete_file([] const u8 name) {
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW p;
+            path::to_pathw(name, &p) ?;
 
-        win::abi::Bool ok = win::imports::DeleteFileW(path::wide_ptr(&p));
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            win::abi::Bool ok = win::imports::DeleteFileW(path::wide_ptr(&p));
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            path::PathZ p;
+            path::to_pathz(name, &p) ?;
+
+            isize ret = linux::syscall::unlinkat(
+                linux::abi::AT_FDCWD,
+                path::ptr(&p),
+                0
+            );
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        path::PathZ p;
-        path::to_pathz(name, &p) ?;
-
-        isize ret = linux::syscall::unlinkat(
-            linux::abi::AT_FDCWD,
-            path::ptr(&p),
-            0
-        );
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
-public Status(Error) make_directory([] const u8 name) {
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW p;
-        path::to_pathw(name, &p) ?;
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) make_directory([] const u8 name) {
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW p;
+            path::to_pathw(name, &p) ?;
 
-        win::abi::Bool ok = win::imports::CreateDirectoryW(
-            path::wide_ptr(&p),
-            null as win::abi::SecurityAttributes*
-        );
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            win::abi::Bool ok = win::imports::CreateDirectoryW(
+                path::wide_ptr(&p),
+                null as win::abi::SecurityAttributes*
+            );
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            path::PathZ p;
+            path::to_pathz(name, &p) ?;
+
+            isize ret = linux::syscall::mkdirat(
+                linux::abi::AT_FDCWD,
+                path::ptr(&p),
+                linux::abi::DEFAULT_DIR_MODE
+            );
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        path::PathZ p;
-        path::to_pathz(name, &p) ?;
-
-        isize ret = linux::syscall::mkdirat(
-            linux::abi::AT_FDCWD,
-            path::ptr(&p),
-            linux::abi::DEFAULT_DIR_MODE
-        );
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
-public Status(Error) remove_directory([] const u8 name) {
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW p;
-        path::to_pathw(name, &p) ?;
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) remove_directory([] const u8 name) {
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW p;
+            path::to_pathw(name, &p) ?;
 
-        win::abi::Bool ok = win::imports::RemoveDirectoryW(
-            path::wide_ptr(&p)
-        );
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            win::abi::Bool ok = win::imports::RemoveDirectoryW(
+                path::wide_ptr(&p)
+            );
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            path::PathZ p;
+            path::to_pathz(name, &p) ?;
+
+            isize ret = linux::syscall::unlinkat(
+                linux::abi::AT_FDCWD,
+                path::ptr(&p),
+                linux::abi::AT_REMOVEDIR
+            );
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        path::PathZ p;
-        path::to_pathz(name, &p) ?;
-
-        isize ret = linux::syscall::unlinkat(
-            linux::abi::AT_FDCWD,
-            path::ptr(&p),
-            linux::abi::AT_REMOVEDIR
-        );
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
-/// renames `from` to `to`, replacing `to` if it exists. within one
-/// filesystem this is atomic, which is what makes write-temp-then-rename
-/// a safe way to update a file. across filesystems it fails rather than
-/// silently copying.
-public Status(Error) rename([] const u8 from, [] const u8 to) {
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW old_path;
-        path::PathW new_path;
-        path::to_pathw(from, &old_path) ?;
-        path::to_pathw(to, &new_path) ?;
+static if core::target::OS != core::target::Os::Freestanding {
+    /// renames `from` to `to`, replacing `to` if it exists. within one
+    /// filesystem this is atomic, which is what makes write-temp-then-rename
+    /// a safe way to update a file. across filesystems it fails rather than
+    /// silently copying.
+    public Status(Error) rename([] const u8 from, [] const u8 to) {
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW old_path;
+            path::PathW new_path;
+            path::to_pathw(from, &old_path) ?;
+            path::to_pathw(to, &new_path) ?;
 
-        win::abi::Bool ok = win::imports::MoveFileExW(
-            path::wide_ptr(&old_path),
-            path::wide_ptr(&new_path),
-            win::abi::MOVEFILE_REPLACE_EXISTING
-        );
+            win::abi::Bool ok = win::imports::MoveFileExW(
+                path::wide_ptr(&old_path),
+                path::wide_ptr(&new_path),
+                win::abi::MOVEFILE_REPLACE_EXISTING
+            );
 
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            path::PathZ old_path;
+            path::PathZ new_path;
+            path::to_pathz(from, &old_path) ?;
+            path::to_pathz(to, &new_path) ?;
+
+            isize ret = linux::syscall::renameat(
+                linux::abi::AT_FDCWD,
+                path::ptr(&old_path),
+                linux::abi::AT_FDCWD,
+                path::ptr(&new_path)
+            );
+
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        path::PathZ old_path;
-        path::PathZ new_path;
-        path::to_pathz(from, &old_path) ?;
-        path::to_pathz(to, &new_path) ?;
-
-        isize ret = linux::syscall::renameat(
-            linux::abi::AT_FDCWD,
-            path::ptr(&old_path),
-            linux::abi::AT_FDCWD,
-            path::ptr(&new_path)
-        );
-
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
@@ -698,158 +738,168 @@ public Status(Error) rename([] const u8 from, [] const u8 to) {
 //! surprising than differing by platform.
 //!
 
-public Result(dir::Metadata, Error) metadata([] const u8 name) {
-    static if core::target::OS == core::target::Os::Windows {
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(dir::Metadata, Error) metadata([] const u8 name) {
+        static if core::target::OS == core::target::Os::Windows {
+            usize root = path::root_len(name);
+            usize end = name.len;
+            while end > root && path::is_separator(name[end - 1]) {
+                end--;
+            }
+
+            path::PathW p;
+            path::to_pathw(name[0..end], &p) ?;
+
+            win::abi::Win32FindDataW found_data;
+            win::abi::Handle h = win::imports::FindFirstFileW(
+                path::wide_ptr(&p),
+                &found_data
+            );
+
+            if h as isize == win::abi::INVALID_HANDLE_VALUE {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            win::imports::FindClose(h);
+
+            win::abi::Win32FindDataW* found = &found_data;
+            u64 bytes = ((found.file_size_high as u64) << 32) | (found.file_size_low as u64);
+
+            dir::Metadata out = {
+                size = bytes,
+                kind = dir::kind_from_attributes(found.attributes),
+                id = 0,
+            };
+
+            return Result::Ok(out);
+        } else {
+            path::PathZ p;
+            path::to_pathz(name, &p) ?;
+
+            linux::abi::Stat info;
+            isize ret = linux::syscall::fstatat(
+                linux::abi::AT_FDCWD,
+                path::ptr(&p),
+                &info,
+                linux::abi::AT_SYMLINK_NOFOLLOW
+            );
+
+            if linux::abi::is_error(ret) {
+                return Result::Err(error::from_syscall(ret));
+            }
+
+            dir::Metadata out = {
+                size = info.size as u64,
+                kind = dir::kind_from_mode(info.mode),
+                id = info.ino,
+            };
+
+            return Result::Ok(out);
+        }
+    }
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    /// true when the name resolves to anything at all. a permission failure
+    /// on a parent directory is reported as absence, because that is all the
+    /// caller can observe.
+    public bool exists([] const u8 name) {
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW p;
+            Status(Error) converted = path::to_pathw(name, &p);
+            if !converted.is_ok() {
+                return false;
+            }
+
+            win::abi::Dword attributes = win::imports::GetFileAttributesW(
+                path::wide_ptr(&p)
+            );
+
+            return attributes != win::abi::INVALID_FILE_ATTRIBUTES;
+        } else {
+            path::PathZ p;
+            Status(Error) converted = path::to_pathz(name, &p);
+            if !converted.is_ok() {
+                return false;
+            }
+
+            linux::abi::Stat info;
+            isize ret = linux::syscall::fstatat(
+                linux::abi::AT_FDCWD,
+                path::ptr(&p),
+                &info,
+                linux::abi::AT_SYMLINK_NOFOLLOW
+            );
+
+            return !linux::abi::is_error(ret);
+        }
+    }
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    public bool is_directory([] const u8 name) {
+        Result(dir::Metadata, Error) info = metadata(name);
+        if info.is_err() {
+            return false;
+        }
+
+        return info.unwrap().kind == dir::EntryKind::Directory;
+    }
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    public bool is_file([] const u8 name) {
+        Result(dir::Metadata, Error) info = metadata(name);
+        if info.is_err() {
+            return false;
+        }
+
+        return info.unwrap().kind == dir::EntryKind::File;
+    }
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    /// creates `name` and every missing parent. an existing directory is
+    /// success; an existing non-directory is `AlreadyExists`.
+    ///
+    /// the create-then-check order is deliberate: testing first and creating
+    /// second loses to a concurrent creator, while a failed create followed
+    /// by a directory check is correct whoever wins.
+    public Status(Error) make_directory_all([] const u8 name) {
+        if name.len == 0 {
+            return Error::InvalidArgument;
+        }
+
         usize root = path::root_len(name);
-        usize end = name.len;
-        while end > root && path::is_separator(name[end - 1]) {
-            end--;
+        usize i = root;
+
+        while true {
+            while i < name.len && path::is_separator(name[i]) {
+                i++;
+            }
+
+            while i < name.len && !path::is_separator(name[i]) {
+                i++;
+            }
+
+            if i == root {
+                break;
+            }
+
+            [] const u8 prefix = name[0..i];
+            Status(Error) made = make_directory(prefix);
+
+            if !made.is_ok() && !is_directory(prefix) {
+                return made;
+            }
+
+            if i >= name.len {
+                break;
+            }
         }
 
-        path::PathW p;
-        path::to_pathw(name[0..end], &p) ?;
-
-        win::abi::Win32FindDataW found_data;
-        win::abi::Handle h = win::imports::FindFirstFileW(
-            path::wide_ptr(&p),
-            &found_data
-        );
-
-        if h as isize == win::abi::INVALID_HANDLE_VALUE {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
-        }
-
-        win::imports::FindClose(h);
-
-        win::abi::Win32FindDataW* found = &found_data;
-        u64 bytes = ((found.file_size_high as u64) << 32) | (found.file_size_low as u64);
-
-        dir::Metadata out = {
-            size = bytes,
-            kind = dir::kind_from_attributes(found.attributes),
-            id = 0,
-        };
-
-        return Result::Ok(out);
-    } else {
-        path::PathZ p;
-        path::to_pathz(name, &p) ?;
-
-        linux::abi::Stat info;
-        isize ret = linux::syscall::fstatat(
-            linux::abi::AT_FDCWD,
-            path::ptr(&p),
-            &info,
-            linux::abi::AT_SYMLINK_NOFOLLOW
-        );
-
-        if linux::abi::is_error(ret) {
-            return Result::Err(error::from_syscall(ret));
-        }
-
-        dir::Metadata out = {
-            size = info.size as u64,
-            kind = dir::kind_from_mode(info.mode),
-            id = info.ino,
-        };
-
-        return Result::Ok(out);
+        return Status::Ok;
     }
-}
-
-/// true when the name resolves to anything at all. a permission failure
-/// on a parent directory is reported as absence, because that is all the
-/// caller can observe.
-public bool exists([] const u8 name) {
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW p;
-        Status(Error) converted = path::to_pathw(name, &p);
-        if !converted.is_ok() {
-            return false;
-        }
-
-        win::abi::Dword attributes = win::imports::GetFileAttributesW(
-            path::wide_ptr(&p)
-        );
-
-        return attributes != win::abi::INVALID_FILE_ATTRIBUTES;
-    } else {
-        path::PathZ p;
-        Status(Error) converted = path::to_pathz(name, &p);
-        if !converted.is_ok() {
-            return false;
-        }
-
-        linux::abi::Stat info;
-        isize ret = linux::syscall::fstatat(
-            linux::abi::AT_FDCWD,
-            path::ptr(&p),
-            &info,
-            linux::abi::AT_SYMLINK_NOFOLLOW
-        );
-
-        return !linux::abi::is_error(ret);
-    }
-}
-
-public bool is_directory([] const u8 name) {
-    Result(dir::Metadata, Error) info = metadata(name);
-    if info.is_err() {
-        return false;
-    }
-
-    return info.unwrap().kind == dir::EntryKind::Directory;
-}
-
-public bool is_file([] const u8 name) {
-    Result(dir::Metadata, Error) info = metadata(name);
-    if info.is_err() {
-        return false;
-    }
-
-    return info.unwrap().kind == dir::EntryKind::File;
-}
-
-/// creates `name` and every missing parent. an existing directory is
-/// success; an existing non-directory is `AlreadyExists`.
-///
-/// the create-then-check order is deliberate: testing first and creating
-/// second loses to a concurrent creator, while a failed create followed
-/// by a directory check is correct whoever wins.
-public Status(Error) make_directory_all([] const u8 name) {
-    if name.len == 0 {
-        return Error::InvalidArgument;
-    }
-
-    usize root = path::root_len(name);
-    usize i = root;
-
-    while true {
-        while i < name.len && path::is_separator(name[i]) {
-            i++;
-        }
-
-        while i < name.len && !path::is_separator(name[i]) {
-            i++;
-        }
-
-        if i == root {
-            break;
-        }
-
-        [] const u8 prefix = name[0..i];
-        Status(Error) made = make_directory(prefix);
-
-        if !made.is_ok() && !is_directory(prefix) {
-            return made;
-        }
-
-        if i >= name.len {
-            break;
-        }
-    }
-
-    return Status::Ok;
 }
 
 //!
@@ -871,21 +921,25 @@ public FileWriter new_file_writer(File file) {
 }
 public using FileWriter::new = new_file_writer;
 
-Status(fmt::FmtError) file_write(void* ctx, [] const u8 bytes) {
-    FileWriter* self = ctx as FileWriter*;
+static if core::target::OS != core::target::Os::Freestanding {
+    Status(fmt::FmtError) file_write(void* ctx, [] const u8 bytes) {
+        FileWriter* self = ctx as FileWriter*;
 
-    Status(Error) st = write_all(&self.file, bytes);
-    if !st.is_ok() {
-        self.failed = true;
-        self.last_error = st.unwrap_err();
-        return fmt::FmtError::SinkFailed;
+        Status(Error) st = write_all(&self.file, bytes);
+        if !st.is_ok() {
+            self.failed = true;
+            self.last_error = st.unwrap_err();
+            return fmt::FmtError::SinkFailed;
+        }
+
+        return Status::Ok;
     }
-
-    return Status::Ok;
 }
 
-public fmt::Writer writer(FileWriter* self) {
-    return fmt::Writer {ctx = self as void*, write_fn = file_write};
+static if core::target::OS != core::target::Os::Freestanding {
+    public fmt::Writer writer(FileWriter* self) {
+        return fmt::Writer {ctx = self as void*, write_fn = file_write};
+    }
 }
 
 public Status(Error) status(const FileWriter* self) {

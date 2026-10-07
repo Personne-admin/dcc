@@ -1,5 +1,7 @@
 module std::os::thread_pool;
 
+import core::target;
+
 import std::mem;
 import std::os::heap;
 import std::os::thread;
@@ -29,150 +31,164 @@ public struct ThreadPool {
     thread::Condvar idle;
 }
 
-void worker_main(void* context) {
-    ThreadPool* self = context as ThreadPool*;
-    while true {
-        self.guard.lock();
-        while self.queue_count == 0 && !self.stopping {
-            self.work.wait(&self.guard);
-        }
-        if self.queue_count == 0 {
+static if core::target::OS != core::target::Os::Freestanding {
+    void worker_main(void* context) {
+        ThreadPool* self = context as ThreadPool*;
+        while true {
+            self.guard.lock();
+            while self.queue_count == 0 && !self.stopping {
+                self.work.wait(&self.guard);
+            }
+            if self.queue_count == 0 {
+                self.guard.unlock();
+                return;
+            }
+
+            Task task = self.queue[self.queue_head];
+            self.queue_head = (self.queue_head + 1) % self.queue.len;
+            self.queue_count--;
+            self.active_count++;
             self.guard.unlock();
-            return;
+
+            task.entry(task.context);
+
+            self.guard.lock();
+            self.active_count--;
+            if self.queue_count == 0 && self.active_count == 0 {
+                self.idle.broadcast();
+            }
+            self.guard.unlock();
         }
-
-        Task task = self.queue[self.queue_head];
-        self.queue_head = (self.queue_head + 1) % self.queue.len;
-        self.queue_count--;
-        self.active_count++;
-        self.guard.unlock();
-
-        task.entry(task.context);
-
-        self.guard.lock();
-        self.active_count--;
-        if self.queue_count == 0 && self.active_count == 0 {
-            self.idle.broadcast();
-        }
-        self.guard.unlock();
     }
 }
 
-public Result(ThreadPool*, Error) create(mem::Allocator alloc, usize worker_count) {
-    if worker_count == 0 {
-        return Error::InvalidArgument;
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(ThreadPool*, Error) create(mem::Allocator alloc, usize worker_count) {
+        if worker_count == 0 {
+            return Error::InvalidArgument;
+        }
 
-    Result([] ThreadPool, mem::AllocError) pool_r = alloc.alloc_zeroed(1);
-    if pool_r.is_err() {
-        return Error::OutOfMemory;
-    }
-    ThreadPool* self = pool_r.unwrap().ptr;
-    self.alloc = alloc;
+        Result([] ThreadPool, mem::AllocError) pool_r = alloc.alloc_zeroed(1);
+        if pool_r.is_err() {
+            return Error::OutOfMemory;
+        }
+        ThreadPool* self = pool_r.unwrap().ptr;
+        self.alloc = alloc;
 
-    Result([] thread::Thread, mem::AllocError) workers_r = alloc.alloc(worker_count);
-    if workers_r.is_err() {
-        alloc.destroy(self);
-        return Error::OutOfMemory;
-    }
-    self.workers = workers_r.unwrap();
-
-    for usize i = 0; i < worker_count; i++ {
-        Result(thread::Thread, Error) worker_r = thread::spawn_raw(worker_main, self as void*);
-        if worker_r.is_err() {
-            Error failure = worker_r.unwrap_err();
-            self.shutdown();
+        Result([] thread::Thread, mem::AllocError) workers_r = alloc.alloc(worker_count);
+        if workers_r.is_err() {
             alloc.destroy(self);
-            return failure;
+            return Error::OutOfMemory;
         }
-        self.workers[i] = worker_r.unwrap();
-        self.worker_count++;
+        self.workers = workers_r.unwrap();
+
+        for usize i = 0; i < worker_count; i++ {
+            Result(thread::Thread, Error) worker_r = thread::spawn_raw(worker_main, self as void*);
+            if worker_r.is_err() {
+                Error failure = worker_r.unwrap_err();
+                self.shutdown();
+                alloc.destroy(self);
+                return failure;
+            }
+            self.workers[i] = worker_r.unwrap();
+            self.worker_count++;
+        }
+
+        return Result::Ok(self);
     }
-
-    return Result::Ok(self);
 }
 
-public Result(ThreadPool*, Error) create(usize worker_count) {
-    return create(heap::allocator(), worker_count);
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result(ThreadPool*, Error) create(usize worker_count) {
+        return create(heap::allocator(), worker_count);
+    }
 }
 
-public Status(Error) submit(ThreadPool* self, void(*)(void*) entry, void* context) {
-    self.guard.lock();
-    if self.stopping {
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) submit(ThreadPool* self, void(*)(void*) entry, void* context) {
+        self.guard.lock();
+        if self.stopping {
+            self.guard.unlock();
+            return Error::Canceled;
+        }
+
+        if self.queue_count == self.queue.len {
+            usize old_capacity = self.queue.len;
+            usize max_capacity = (0xFFFFFFFFFFFFFFFF as usize) / 2;
+            if old_capacity > max_capacity {
+                self.guard.unlock();
+                return Error::OutOfMemory;
+            }
+            usize new_capacity = if old_capacity == 0 { 64 } else { old_capacity * 2 };
+            Result([] Task, mem::AllocError) grown_r = self.alloc.alloc(new_capacity);
+            if grown_r.is_err() {
+                self.guard.unlock();
+                return Error::OutOfMemory;
+            }
+
+            [] Task grown = grown_r.unwrap();
+            for usize i = 0; i < self.queue_count; i++ {
+                grown[i] = self.queue[(self.queue_head + i) % old_capacity];
+            }
+            if old_capacity != 0 {
+                self.alloc.free(self.queue);
+            }
+            self.queue = grown;
+            self.queue_head = 0;
+        }
+
+        usize tail = (self.queue_head + self.queue_count) % self.queue.len;
+        self.queue[tail] = Task {entry = entry, context = context};
+        self.queue_count++;
+        self.work.signal();
         self.guard.unlock();
-        return Error::Canceled;
+        return Status::Ok;
     }
-
-    if self.queue_count == self.queue.len {
-        usize old_capacity = self.queue.len;
-        usize max_capacity = (0xFFFFFFFFFFFFFFFF as usize) / 2;
-        if old_capacity > max_capacity {
-            self.guard.unlock();
-            return Error::OutOfMemory;
-        }
-        usize new_capacity = if old_capacity == 0 { 64 } else { old_capacity * 2 };
-        Result([] Task, mem::AllocError) grown_r = self.alloc.alloc(new_capacity);
-        if grown_r.is_err() {
-            self.guard.unlock();
-            return Error::OutOfMemory;
-        }
-
-        [] Task grown = grown_r.unwrap();
-        for usize i = 0; i < self.queue_count; i++ {
-            grown[i] = self.queue[(self.queue_head + i) % old_capacity];
-        }
-        if old_capacity != 0 {
-            self.alloc.free(self.queue);
-        }
-        self.queue = grown;
-        self.queue_head = 0;
-    }
-
-    usize tail = (self.queue_head + self.queue_count) % self.queue.len;
-    self.queue[tail] = Task {entry = entry, context = context};
-    self.queue_count++;
-    self.work.signal();
-    self.guard.unlock();
-    return Status::Ok;
 }
 
-public void wait_all(ThreadPool* self) {
-    self.guard.lock();
-    while self.queue_count != 0 || self.active_count != 0 {
-        self.idle.wait(&self.guard);
-    }
-    self.guard.unlock();
-}
-
-public void shutdown(ThreadPool* self) {
-    self.guard.lock();
-    if self.stopping {
-        while !self.joined {
+static if core::target::OS != core::target::Os::Freestanding {
+    public void wait_all(ThreadPool* self) {
+        self.guard.lock();
+        while self.queue_count != 0 || self.active_count != 0 {
             self.idle.wait(&self.guard);
         }
         self.guard.unlock();
-        return;
     }
-    self.stopping = true;
-    self.work.broadcast();
-    self.guard.unlock();
-
-    for usize i = 0; i < self.worker_count; i++ {
-        self.workers[i].join().unwrap();
-    }
-    if self.queue.len != 0 {
-        self.alloc.free(self.queue);
-    }
-    self.alloc.free(self.workers);
-
-    self.guard.lock();
-    self.joined = true;
-    self.idle.broadcast();
-    self.guard.unlock();
 }
 
-public void destroy(ThreadPool* self) {
-    self.shutdown();
-    mem::Allocator alloc = self.alloc;
-    alloc.destroy(self);
+static if core::target::OS != core::target::Os::Freestanding {
+    public void shutdown(ThreadPool* self) {
+        self.guard.lock();
+        if self.stopping {
+            while !self.joined {
+                self.idle.wait(&self.guard);
+            }
+            self.guard.unlock();
+            return;
+        }
+        self.stopping = true;
+        self.work.broadcast();
+        self.guard.unlock();
+
+        for usize i = 0; i < self.worker_count; i++ {
+            self.workers[i].join().unwrap();
+        }
+        if self.queue.len != 0 {
+            self.alloc.free(self.queue);
+        }
+        self.alloc.free(self.workers);
+
+        self.guard.lock();
+        self.joined = true;
+        self.idle.broadcast();
+        self.guard.unlock();
+    }
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    public void destroy(ThreadPool* self) {
+        self.shutdown();
+        mem::Allocator alloc = self.alloc;
+        alloc.destroy(self);
+    }
 }
