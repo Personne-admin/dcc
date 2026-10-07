@@ -89,8 +89,10 @@ DCC_INSTALL_PREFIX ?= $(abspath $(PREFIX))
 PREFIX_STAMP := $(DEP_DIR)/dcc-prefix.stamp
 DCC_PREFIX_DEF := -DDCC_INSTALL_PREFIX='"$(DCC_INSTALL_PREFIX)"'
 
+FILE_PREFIX_MAP_FLAGS ?= -ffile-prefix-map=$(TOPLEVEL)=dcc
+
 BASE_CXXFLAGS := $(CXXSTD) $(WARNS) $(OPT_FLAGS) $(DEBUG_FLAGS) $(SAN_FLAGS) \
-                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(DCC_PREFIX_DEF) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="")
+                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(DCC_PREFIX_DEF) $(FILE_PREFIX_MAP_FLAGS) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="")
 
 ifeq ($(CROSS),windows)
   BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) -static

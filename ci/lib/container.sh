@@ -7,7 +7,7 @@ TOPLEVEL="$(pwd)"
 LOG_DIR="${DCC_CI_OUT:-/tmp}/logs"
 mkdir -p "$LOG_DIR"
 
-MAKE_ARGS=(CXX=clang++ CC=clang AR=ar BUILD_TYPE=release STATIC_LINK=1 "DCC_WRAPPER=timeout $DCC_TIMEOUT")
+MAKE_ARGS=("FILE_PREFIX_MAP_FLAGS=-ffile-prefix-map=$TOPLEVEL=dcc" CXX=clang++ CC=clang AR=ar BUILD_TYPE=release STATIC_LINK=1 "DCC_WRAPPER=timeout $DCC_TIMEOUT")
 
 ci_make() {
     make -j"$JOBS" "${MAKE_ARGS[@]}" "$@"

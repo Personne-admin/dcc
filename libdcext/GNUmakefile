@@ -78,6 +78,15 @@ headers:
 	$(Q)cp $(STD_SRC) $(BUILD_DIR)/include/
 	$(Q)cp $(ASSERT_SRC) $(BUILD_DIR)/include/
 
+PATH_FLAGS_STAMP := $(OBJ_DIR)/.file-prefix-map-flags
+
+$(PATH_FLAGS_STAMP): FORCE
+	@mkdir -p $(dir $@)
+	@printf '%s\n' "$(FILE_PREFIX_MAP_FLAGS)" > $@.tmp
+	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
+
+$(DC_OBJS) $(ASM_OBJS): $(PATH_FLAGS_STAMP)
+
 TARGET_STAMP := $(BUILD_DIR)/lib/.libdcext-target-stamp
 
 .PHONY: FORCE
@@ -97,12 +106,12 @@ $(DC_OBJS): $(DC_SRCS)
 $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	@mkdir -p $(dir $@)
 	$(call MSG,DCC,$<)
-	$(Q)$(DCC_WRAPPER) $(DCC) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
+	$(Q)$(DCC_WRAPPER) $(DCC) $(FILE_PREFIX_MAP_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
 
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
 	$(call MSG,ASM,$<)
-	$(Q)$(ASM_CC) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
+	$(Q)$(ASM_CC) $(FILE_PREFIX_MAP_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
 
 COMPDB_TARGETS ?= x86_64-linux x86_64-windows
 COMPDB_SCRIPT := $(TOPLEVEL)/mk/gen_compdb.py
@@ -119,7 +128,7 @@ compdb-fragment:
 compdb-fragment-one:
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
 		--cxx "$(DCC)" \
-		--cxxflags "-c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
+		--cxxflags "$(FILE_PREFIX_MAP_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-dc.json" \
 		$(DC_SRCS)

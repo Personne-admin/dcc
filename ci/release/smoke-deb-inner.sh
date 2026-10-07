@@ -22,7 +22,7 @@ work="$(mktemp -d)"
 cp /smoke/hello.dc "$work/"
 cd "$work"
 for backend in llvm custom; do
-    dcc -flibdcext linux -fbackend "$backend" hello.dc -o "hello-$backend"
+    dcc "-ffile-prefix-map=$work=dcc-smoke" -flibdcext linux -fbackend "$backend" hello.dc -o "hello-$backend"
     set +e
     output="$("./hello-$backend")"
     rc=$?

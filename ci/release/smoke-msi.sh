@@ -25,7 +25,7 @@ wine "$inst/bin/dcc.exe" --version | tr -d '\r' | tee "$version_out"
 cp "$here/smoke/hello.dc" "$work/"
 cd "$work"
 for backend in llvm custom; do
-    wine "$inst/bin/dcc.exe" -flibdcext windows -target x86_64-coff -fbackend "$backend" -c -o "hello-$backend.obj" hello.dc
+    wine "$inst/bin/dcc.exe" "-ffile-prefix-map=$(winepath -w "$work")=dcc-smoke" -flibdcext windows -target x86_64-coff -fbackend "$backend" -c -o "hello-$backend.obj" hello.dc
     "$mingw/bin/x86_64-w64-mingw32-clang" -nostdlib -Wl,--entry,_start -Wl,--subsystem,console -o "hello-$backend.exe" \
         "hello-$backend.obj" "$inst/lib/libdcext-windows-$backend.a" -lkernel32 -lws2_32 -ladvapi32 -lshell32
     set +e

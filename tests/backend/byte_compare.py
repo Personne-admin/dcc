@@ -34,7 +34,7 @@ def run(command, cwd, env=None, log=None, check=True):
 
 
 def compiler(tree, args, artifact, log):
-    code = run(["timeout", "60", tree / "build/bin/dcc", *args], tree, log=log, check=False)
+    code = run(["timeout", "60", tree / "build/bin/dcc", "-ffile-prefix-map=" + str(tree) + "=dcc", *args], tree, log=log, check=False)
     if code == 0:
         status = "OK"
     elif code == 124:
@@ -65,7 +65,7 @@ def capture_abi(tree, output, log):
                 for kind, flag, suffix in (("object", "-c", ".o"), ("asm", "-S", ".s")):
                     artifact = output / "abi" / kind / (stem + suffix)
                     artifact.parent.mkdir(parents=True, exist_ok=True)
-                    compiler(tree, ["-target", target, "-fbackend", "custom", "-" + opt, "-I", str(source), flag, "-o", str(artifact), str(source / ("abi_%s.dc" % side))], artifact, log)
+                    compiler(tree, ["-target", target, "-fbackend", "custom", "-" + opt, "-I", str(source), "-ffile-prefix-map=" + str(source) + "=dcc-abi", flag, "-o", str(artifact), str(source / ("abi_%s.dc" % side))], artifact, log)
     shutil.rmtree(source)
 
 
@@ -98,7 +98,7 @@ def capture(tree, output):
     output.mkdir(parents=True)
     log = output / "capture.log"
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tree, text=True).strip()
-    run(["make", "-j4", "test", "DCC_WRAPPER=timeout 60"], tree, {"DCC_BYTE_CAPTURE_ROOT": str(output)}, log)
+    run(["make", "-j4", "test", "DCC_WRAPPER=timeout 60"], tree, {"DCC_BYTE_CAPTURE_ROOT": str(output), "DCC_BYTE_SOURCE_ROOT": str(tree)}, log)
     capture_libdcext(tree, output, log)
     capture_abi(tree, output, log)
     manifest = make_manifest(output, revision)
