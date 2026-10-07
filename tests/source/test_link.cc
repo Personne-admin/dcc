@@ -361,18 +361,13 @@ TEST_CASE("explicit -flibdcext linux selects the linux archive")
     }
 }
 
-TEST_CASE("explicit -flibdcext freestanding names the freestanding archive")
+TEST_CASE("explicit freestanding archive links without hosted startup")
 {
     TempDir td;
-    write_solo(td);
-
-    auto solo_o = td.file("solo.o");
-    REQUIRE(run_dcc("-flibdcext -c -o " + shell_quote(solo_o) + " " + shell_quote(td.file("solo.dc"))).rc == 0);
-
+    td.write_file("free.dc", "module free;\n@nomangle public void _start() {}\n");
     auto prog = td.file("freebin");
-    auto r = run_dcc("-flibdcext=freestanding -o " + shell_quote(prog) + " " + shell_quote(solo_o));
-    CHECK_NE(r.rc, 0);
-    CHECK(output_contains(r, "dcext-freestanding-llvm"));
+    auto r = run_dcc("-flibdcext=freestanding -e _start -o " + shell_quote(prog) + " " + shell_quote(td.file("free.dc")));
+    CHECK_EQ(r.rc, 0);
 }
 
 TEST_CASE("objects built for mismatched targets fail the link")

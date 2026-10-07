@@ -27,6 +27,7 @@ else ifeq ($(TARGET),x86_64-freestanding)
   PLATFORM_DIR :=
   DCC_TARGET := x86_64-elf
   TARGET_OS := freestanding
+  LIBDCEXT_TARGET_FLAGS := -fno-simd -fno-x87 -fno-red-zone -fpic
 else
   $(error libdcext does not yet support target $(TARGET); expected x86_64-linux, x86_64-windows, or x86_64-freestanding)
 endif
@@ -84,7 +85,7 @@ PATH_FLAGS_STAMP := $(OBJ_DIR)/.file-prefix-map-flags
 
 $(PATH_FLAGS_STAMP): FORCE
 	@mkdir -p $(dir $@)
-	@printf '%s\n' "$(FILE_PREFIX_MAP_FLAGS)" > $@.tmp
+	@printf '%s\n' "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS)" > $@.tmp
 	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
 
 $(DC_OBJS) $(ASM_OBJS): $(PATH_FLAGS_STAMP)
@@ -108,7 +109,7 @@ $(DC_OBJS): $(DC_SRCS)
 $(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	@mkdir -p $(dir $@)
 	$(call MSG,DCC,$<)
-	$(Q)$(DCC_WRAPPER) $(DCC) $(FILE_PREFIX_MAP_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
+	$(Q)$(DCC_WRAPPER) $(DCC) $(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
 
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
@@ -130,7 +131,7 @@ compdb-fragment:
 compdb-fragment-one:
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
 		--cxx "$(DCC)" \
-		--cxxflags "$(FILE_PREFIX_MAP_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
+		--cxxflags "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-dc.json" \
 		$(DC_SRCS)
