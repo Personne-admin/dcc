@@ -1476,6 +1476,14 @@ namespace
         }
 
         dcc::sm::SourceManager sm;
+        if (std::getenv("DCC_BYTE_CAPTURE_ROOT"))
+        {
+            auto* source_root = std::getenv("DCC_BYTE_SOURCE_ROOT");
+            auto* std_root = std::getenv("DCC_TEST_LIBDCEXT_SRC");
+            auto root = source_root ? fs::path(source_root) : std_root ? fs::path(std_root).parent_path() : fs::current_path();
+            sm.add_file_prefix_map(root.generic_string(), "dcc");
+            sm.add_file_prefix_map((fs::temp_directory_path() / "dcc-byte-fixtures").generic_string(), "dcc-fixtures");
+        }
         std::ostringstream diag_sink;
         dcc::diag::DiagnosticEngine diag{sm, diag_sink};
         diag.set_color(false);
@@ -1689,7 +1697,7 @@ namespace
                         continue;
 
                     auto const& got = *got_it;
-                    auto leaf = fs::path{got.file}.lexically_relative(sb->root).string();
+                    auto leaf = fs::path{got.file}.lexically_relative(fs::path{sm.map_output_path(sb->root.generic_string())}).string();
                     auto message_matches = fx.exact_errors ? got.message == want.substring : got.message.find(want.substring) != std::string::npos;
                     if ((leaf == want.file || got.file == want.file) && got.line == want.line && (!want.column || got.column == *want.column) &&
                         message_matches)
@@ -1705,7 +1713,7 @@ namespace
                     ok = false;
                     std::println(std::cerr, "    FAIL  expected error not seen: {}:{}: {}  ({}:1)", want.file, want.line, want.substring, path.string());
                     for (auto const& got : captured)
-                        std::println(std::cerr, "          got error: {}:{}: {}", fs::path{got.file}.lexically_relative(sb->root).string(), got.line,
+                        std::println(std::cerr, "          got error: {}:{}: {}", fs::path{got.file}.lexically_relative(fs::path{sm.map_output_path(sb->root.generic_string())}).string(), got.line,
                                      got.message);
                 }
             }
@@ -1726,7 +1734,7 @@ namespace
                 bool matched = false;
                 for (auto const& got : captured)
                 {
-                    auto leaf = fs::path{got.file}.lexically_relative(sb->root).string();
+                    auto leaf = fs::path{got.file}.lexically_relative(fs::path{sm.map_output_path(sb->root.generic_string())}).string();
                     if ((leaf == want.file || got.file == want.file) && got.line == want.line && got.message.find(want.substring) != std::string::npos)
                     {
                         matched = true;
@@ -1738,7 +1746,7 @@ namespace
                     ok = false;
                     std::println(std::cerr, "    FAIL  expected warning not seen: {}:{}: {}  ({}:1)", want.file, want.line, want.substring, path.string());
                     for (auto const& got : captured)
-                        std::println(std::cerr, "          got warning: {}:{}: {}", fs::path{got.file}.lexically_relative(sb->root).string(), got.line,
+                        std::println(std::cerr, "          got warning: {}:{}: {}", fs::path{got.file}.lexically_relative(fs::path{sm.map_output_path(sb->root.generic_string())}).string(), got.line,
                                      got.message);
                 }
             }
