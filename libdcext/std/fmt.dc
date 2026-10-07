@@ -1,6 +1,7 @@
 module std::fmt;
 
 import core;
+import core::target;
 import std::math;
 import std::mem;
 import std::slice;
@@ -314,134 +315,137 @@ public Status(FmtError) format_signed(
 
 public using usize DEFAULT_PRECISION = 6;
 
-Status(FmtError) write_special(const Writer* w, f64 value, const Options* opts) {
-    if math::is_nan(value) {
-        return write_padded(w, "nan", opts);
-    }
-
-    if math::signbit(value) {
-        return write_padded(w, "-inf", opts);
-    }
-
-    return write_padded(
-        w,
-        if opts.plus_sign {
-            "+inf"
-        } else {
-            "inf"
-        },
-        opts
-    );
-}
-
-public Status(FmtError) format_float(
-    const Writer* w,
-    f64 value,
-    const Options* opts
-) {
-    if !math::is_finite(value) {
-        return write_special(w, value, opts);
-    }
-
-    u8[512] scratch;
-    [] u8 view = scratch;
-    BufferWriter sink = BufferWriter::new(view);
-    Writer inner = sink.writer();
-
-    usize precision = if opts.precision == NO_PRECISION {
-        DEFAULT_PRECISION
-    } else {
-        opts.precision
-    };
-
-    f64 v = value;
-    if math::signbit(v) {
-        inner.write_byte('-' as u8) ?;
-        v = -v;
-    } else if opts.plus_sign {
-        inner.write_byte('+' as u8) ?;
-    }
-
-    i32 exponent = 0;
-    if opts.scientific && v != 0.0 {
-        exponent = math::floor(math::log10(v)) as i32;
-        v = v / math::pow(10.0, exponent as f64);
-
-        if v >= 10.0 {
-            v = v / 10.0;
-            exponent++;
+static if core::target::FLOAT_AVAILABLE {
+    Status(FmtError) write_special(const Writer* w, f64 value, const Options* opts) {
+        if math::is_nan(value) {
+            return write_padded(w, "nan", opts);
         }
-        if v < 1.0 {
-            v = v * 10.0;
-            exponent--;
+
+        if math::signbit(value) {
+            return write_padded(w, "-inf", opts);
         }
-    }
 
-    write_fixed(&inner, v, precision) ?;
-
-    if opts.scientific {
-        inner.write_byte(
-            if opts.uppercase {
-                'E' as u8
+        return write_padded(
+            w,
+            if opts.plus_sign {
+                "+inf"
             } else {
-                'e' as u8
-            }
-        ) ?;
-        inner.write_byte(
-            if exponent < 0 {
-                '-' as u8
-            } else {
-                '+' as u8
-            }
-        ) ?;
-
-        Options exp_opts = Options::default();
-        exp_opts.width = 2;
-        exp_opts.zero_pad = true;
-        format_unsigned(
-            &inner,
-            if exponent < 0 {
-                (0 - exponent) as u64
-            } else {
-                exponent as u64
+                "inf"
             },
-            &exp_opts
-        ) ?;
+            opts
+        );
     }
 
-    return write_padded(w, sink.written_slice(), opts);
-}
+    public Status(FmtError) format_float(
+        const Writer* w,
+        f64 value,
+        const Options* opts
+    ) {
+        if !math::is_finite(value) {
+            return write_special(w, value, opts);
+        }
 
-Status(FmtError) write_fixed(const Writer* w, f64 value, usize precision) {
-    f64 rounded = value + 0.5 * math::pow(10.0, -(precision as f64));
+        u8[512] scratch;
+        [] u8 view = scratch;
+        BufferWriter sink = BufferWriter::new(view);
+        Writer inner = sink.writer();
 
-    f64 integral = math::floor(rounded);
-    f64 fraction = rounded - integral;
+        usize precision = if opts.precision == NO_PRECISION {
+            DEFAULT_PRECISION
+        } else {
+            opts.precision
+        };
 
-    Options plain = Options::default();
+        f64 v = value;
+        if math::signbit(v) {
+            inner.write_byte('-' as u8) ?;
+            v = -v;
+        } else if opts.plus_sign {
+            inner.write_byte('+' as u8) ?;
+        }
 
-    if integral < 1.8446744073709552e19 {
-        format_unsigned(w, integral as u64, &plain) ?;
-    } else {
-        w.write_all("<overflow>") ?;
+        i32 exponent = 0;
+        if opts.scientific && v != 0.0 {
+            exponent = math::floor(math::log10(v)) as i32;
+            v = v / math::pow(10.0, exponent as f64);
+
+            if v >= 10.0 {
+                v = v / 10.0;
+                exponent++;
+            }
+            if v < 1.0 {
+                v = v * 10.0;
+                exponent--;
+            }
+        }
+
+        write_fixed(&inner, v, precision) ?;
+
+        if opts.scientific {
+            inner.write_byte(
+                if opts.uppercase {
+                    'E' as u8
+                } else {
+                    'e' as u8
+                }
+            ) ?;
+            inner.write_byte(
+                if exponent < 0 {
+                    '-' as u8
+                } else {
+                    '+' as u8
+                }
+            ) ?;
+
+            Options exp_opts = Options::default();
+            exp_opts.width = 2;
+            exp_opts.zero_pad = true;
+            format_unsigned(
+                &inner,
+                if exponent < 0 {
+                    (0 - exponent) as u64
+                } else {
+                    exponent as u64
+                },
+                &exp_opts
+            ) ?;
+        }
+
+        return write_padded(w, sink.written_slice(), opts);
     }
 
-    if precision == 0 {
+    Status(FmtError) write_fixed(const Writer* w, f64 value, usize precision) {
+        f64 rounded = value + 0.5 * math::pow(10.0, -(precision as f64));
+
+        f64 integral = math::floor(rounded);
+        f64 fraction = rounded - integral;
+
+        Options plain = Options::default();
+
+        if integral < 1.8446744073709552e19 {
+            format_unsigned(w, integral as u64, &plain) ?;
+        } else {
+            w.write_all("<overflow>") ?;
+        }
+
+        if precision == 0 {
+            return Status::Ok;
+        }
+
+        w.write_byte('.' as u8) ?;
+
+        f64 f = fraction;
+        for usize i = 0; i < precision; i++ {
+            f = f * 10.0;
+            f64 digit = math::floor(f);
+            w.write_byte(('0' as u8) + (digit as u32 as u8)) ?;
+            f = f - digit;
+        }
+
         return Status::Ok;
     }
-
-    w.write_byte('.' as u8) ?;
-
-    f64 f = fraction;
-    for usize i = 0; i < precision; i++ {
-        f = f * 10.0;
-        f64 digit = math::floor(f);
-        w.write_byte(('0' as u8) + (digit as u32 as u8)) ?;
-        f = f - digit;
-    }
-
-    return Status::Ok;
 }
+
 
 //!
 //! Value dispatch
@@ -487,7 +491,11 @@ public Status(FmtError) format_value(T)(
             format_signed(w, value as i64, opts) ?;
         }
     } else static if T == f32 || T == f64 {
-        format_float(w, value as f64, opts) ?;
+        static if core::target::FLOAT_AVAILABLE {
+            format_float(w, value as f64, opts) ?;
+        } else {
+            core::compile_error("floating-point formatting is unavailable without floating-point support");
+        }
     } else static if T == [] const u8 {
         write_padded(w, value, opts) ?;
     } else static if compiles (T t, const Writer* q, const Options* o) {

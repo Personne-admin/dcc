@@ -13,6 +13,7 @@
 module std::toml;
 
 import core;
+import core::target;
 import std::mem;
 import std::slice;
 import std::utf8;
@@ -90,16 +91,29 @@ public struct TablePath {
 //! Values
 //!
 
-public enum Scalar {
-    String(Str),
-    Integer(i64),
-    Float(f64),
-    Bool(bool),
-    OffsetDateTime(DateTime),
-    LocalDateTime(DateTime),
-    LocalDate(Date),
-    LocalTime(Time),
+static if core::target::FLOAT_AVAILABLE {
+    public enum Scalar {
+        String(Str),
+        Integer(i64),
+        Float(f64),
+        Bool(bool),
+        OffsetDateTime(DateTime),
+        LocalDateTime(DateTime),
+        LocalDate(Date),
+        LocalTime(Time),
+    }
+} else {
+    public enum Scalar {
+        String(Str),
+        Integer(i64),
+        Bool(bool),
+        OffsetDateTime(DateTime),
+        LocalDateTime(DateTime),
+        LocalDate(Date),
+        LocalTime(Time),
+    }
 }
+
 
 public enum Event {
     Table(TablePath),
@@ -757,133 +771,157 @@ bool starts_special_float(const Scanner* self) {
     return c == ('i' as u8) || c == ('n' as u8);
 }
 
-Result(Scalar, TomlError) read_special_float(Scanner* self, bool negative) {
-    u8 c = peek(self);
+static if core::target::FLOAT_AVAILABLE {
+    Result(Scalar, TomlError) read_special_float(Scanner* self, bool negative) {
+        u8 c = peek(self);
 
-    if c == ('i' as u8) {
+        if c == ('i' as u8) {
+            for usize i = 0; i < 3; i++ {
+                take(self);
+            }
+
+            f64 infinity = 1.0e308 * 10.0;
+            return Result::Ok(
+                Scalar::Float(
+                    if negative {
+                        -infinity
+                    } else {
+                        infinity
+                    }
+                )
+            );
+        }
+
         for usize i = 0; i < 3; i++ {
             take(self);
         }
 
-        f64 infinity = 1.0e308 * 10.0;
-        return Result::Ok(
-            Scalar::Float(
-                if negative {
-                    -infinity
-                } else {
-                    infinity
-                }
-            )
-        );
+        f64 zero = 0.0;
+        return Result::Ok(Scalar::Float(zero / zero));
     }
-
-    for usize i = 0; i < 3; i++ {
-        take(self);
-    }
-
-    f64 zero = 0.0;
-    return Result::Ok(Scalar::Float(zero / zero));
 }
 
-/// scans a decimal number, which may turn out to be a float.
+
+// scans a decimal number, which may turn out to be a float.
 Result(Scalar, TomlError) read_decimal(Scanner* self) {
-    bool negative = false;
+    static if core::target::FLOAT_AVAILABLE {
+        bool negative = false;
 
-    if !at_end(self)
-        && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
-    {
-        negative = peek(self) == ('-' as u8);
-        take(self);
-    }
-
-    if starts_special_float(self) {
-        return read_special_float(self, negative);
-    }
-
-    usize start = self.at.offset;
-    usize digits = 0;
-    u64 whole = read_digits(self, 10, &digits) ?;
-
-    bool is_float = false;
-    i32 exponent = 0;
-    f64 mantissa = whole as f64;
-
-    if !at_end(self) && peek(self) == ('.' as u8) {
-        take(self);
-        is_float = true;
-
-        usize fraction_digits = 0;
-        usize before = self.at.offset;
-        u64 fraction = read_digits(self, 10, &fraction_digits) ?;
-
-        // count the source digits, since leading zeros matter to the scale
-        usize span = 0;
-        for usize i = before; i < self.at.offset; i++ {
-            if self.input[i] != ('_' as u8) {
-                span++;
-            }
-        }
-
-        mantissa = mantissa * parse::scale_by_ten(1.0, span as i32)
-        + fraction as f64;
-        exponent = exponent - span as i32;
-    }
-
-    if !at_end(self)
-        && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8))
-    {
-        take(self);
-        is_float = true;
-
-        bool negative_exponent = false;
         if !at_end(self)
             && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
         {
-            negative_exponent = peek(self) == ('-' as u8);
+            negative = peek(self) == ('-' as u8);
             take(self);
         }
 
-        usize exponent_digits = 0;
-        u64 written = read_digits(self, 10, &exponent_digits) ?;
-
-        if written > 100000 {
-            written = 100000;
+        if starts_special_float(self) {
+            return read_special_float(self, negative);
         }
 
-        exponent = exponent + if negative_exponent {
-            0 - written as i32
-        } else {
-            written as i32
-        };
-    }
+        usize start = self.at.offset;
+        usize digits = 0;
+        u64 whole = read_digits(self, 10, &digits) ?;
 
-    if !is_float {
-        Result(i64, NumError) value = parse::signed_from_magnitude(
-            whole,
-            negative
-        );
-        if value.is_err() {
+        bool is_float = false;
+        i32 exponent = 0;
+        f64 mantissa = whole as f64;
+
+        if !at_end(self) && peek(self) == ('.' as u8) {
+            take(self);
+            is_float = true;
+
+            usize fraction_digits = 0;
+            usize before = self.at.offset;
+            u64 fraction = read_digits(self, 10, &fraction_digits) ?;
+
+            // count the source digits, since leading zeros matter to the scale
+            usize span = 0;
+            for usize i = before; i < self.at.offset; i++ {
+                if self.input[i] != ('_' as u8) {
+                    span++;
+                }
+            }
+
+            mantissa = mantissa * parse::scale_by_ten(1.0, span as i32)
+            + fraction as f64;
+            exponent = exponent - span as i32;
+        }
+
+        if !at_end(self)
+            && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8))
+        {
+            take(self);
+            is_float = true;
+
+            bool negative_exponent = false;
+            if !at_end(self)
+                && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
+            {
+                negative_exponent = peek(self) == ('-' as u8);
+                take(self);
+            }
+
+            usize exponent_digits = 0;
+            u64 written = read_digits(self, 10, &exponent_digits) ?;
+
+            if written > 100000 {
+                written = 100000;
+            }
+
+            exponent = exponent + if negative_exponent {
+                0 - written as i32
+            } else {
+                written as i32
+            };
+        }
+
+        if !is_float {
+            Result(i64, NumError) value = parse::signed_from_magnitude(
+                whole,
+                negative
+            );
+            if value.is_err() {
+                return TomlError::NumberOutOfRange;
+            }
+
+            return Result::Ok(Scalar::Integer(value.unwrap()));
+        }
+
+        f64 value = parse::scale_by_ten(mantissa, exponent);
+
+        if value > 1.7976931348623157e308 {
             return TomlError::NumberOutOfRange;
         }
 
+        return Result::Ok(
+            Scalar::Float(
+                if negative {
+                    -value
+                } else {
+                    value
+                }
+            )
+        );
+    } else {
+        bool negative = false;
+        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+            negative = peek(self) == ('-' as u8);
+            take(self);
+        }
+        if starts_special_float(self) {
+            return TomlError::InvalidNumber;
+        }
+        usize digits = 0;
+        u64 whole = read_digits(self, 10, &digits) ?;
+        if !at_end(self) && (peek(self) == ('.' as u8) || peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+            return TomlError::InvalidNumber;
+        }
+        Result(i64, NumError) value = parse::signed_from_magnitude(whole, negative);
+        if value.is_err() {
+            return TomlError::NumberOutOfRange;
+        }
         return Result::Ok(Scalar::Integer(value.unwrap()));
     }
-
-    f64 value = parse::scale_by_ten(mantissa, exponent);
-
-    if value > 1.7976931348623157e308 {
-        return TomlError::NumberOutOfRange;
-    }
-
-    return Result::Ok(
-        Scalar::Float(
-            if negative {
-                -value
-            } else {
-                value
-            }
-        )
-    );
 }
 
 //!
@@ -1357,18 +1395,33 @@ public struct Table {
     [] Entry entries;
 }
 
-public enum Value {
-    String([] const u8),
-    Integer(i64),
-    Float(f64),
-    Bool(bool),
-    OffsetDateTime(DateTime),
-    LocalDateTime(DateTime),
-    LocalDate(Date),
-    LocalTime(Time),
-    Array([] Value),
-    Table(Table),
+static if core::target::FLOAT_AVAILABLE {
+    public enum Value {
+        String([] const u8),
+        Integer(i64),
+        Float(f64),
+        Bool(bool),
+        OffsetDateTime(DateTime),
+        LocalDateTime(DateTime),
+        LocalDate(Date),
+        LocalTime(Time),
+        Array([] Value),
+        Table(Table),
+    }
+} else {
+    public enum Value {
+        String([] const u8),
+        Integer(i64),
+        Bool(bool),
+        OffsetDateTime(DateTime),
+        LocalDateTime(DateTime),
+        LocalDate(Date),
+        LocalTime(Time),
+        Array([] Value),
+        Table(Table),
+    }
 }
+
 
 //!
 //! Building
@@ -1734,22 +1787,40 @@ Result(Value, TomlError) scalar_value(
     const mem::Allocator* alloc,
     Scalar item
 ) {
-    return match item {
-        Scalar::String(text) => {
-            Result([] const u8, TomlError) decoded = string_text(alloc, &text);
-            if decoded.is_err() {
-                return decoded.unwrap_err();
-            }
-            Result::Ok(Value::String(decoded.unwrap()))
-        },
-        Scalar::Integer(v) => Result::Ok(Value::Integer(v)),
-        Scalar::Float(v) => Result::Ok(Value::Float(v)),
-        Scalar::Bool(v) => Result::Ok(Value::Bool(v)),
-        Scalar::OffsetDateTime(v) => Result::Ok(Value::OffsetDateTime(v)),
-        Scalar::LocalDateTime(v) => Result::Ok(Value::LocalDateTime(v)),
-        Scalar::LocalDate(v) => Result::Ok(Value::LocalDate(v)),
-        Scalar::LocalTime(v) => Result::Ok(Value::LocalTime(v)),
-    };
+    static if core::target::FLOAT_AVAILABLE {
+        return match item {
+            Scalar::String(text) => {
+                Result([] const u8, TomlError) decoded = string_text(alloc, &text);
+                if decoded.is_err() {
+                    return decoded.unwrap_err();
+                }
+                Result::Ok(Value::String(decoded.unwrap()))
+            },
+            Scalar::Integer(v) => Result::Ok(Value::Integer(v)),
+            Scalar::Float(v) => Result::Ok(Value::Float(v)),
+            Scalar::Bool(v) => Result::Ok(Value::Bool(v)),
+            Scalar::OffsetDateTime(v) => Result::Ok(Value::OffsetDateTime(v)),
+            Scalar::LocalDateTime(v) => Result::Ok(Value::LocalDateTime(v)),
+            Scalar::LocalDate(v) => Result::Ok(Value::LocalDate(v)),
+            Scalar::LocalTime(v) => Result::Ok(Value::LocalTime(v)),
+        };
+    } else {
+        return match item {
+            Scalar::String(text) => {
+                Result([] const u8, TomlError) decoded = string_text(alloc, &text);
+                if decoded.is_err() {
+                    return decoded.unwrap_err();
+                }
+                Result::Ok(Value::String(decoded.unwrap()))
+            },
+            Scalar::Integer(v) => Result::Ok(Value::Integer(v)),
+            Scalar::Bool(v) => Result::Ok(Value::Bool(v)),
+            Scalar::OffsetDateTime(v) => Result::Ok(Value::OffsetDateTime(v)),
+            Scalar::LocalDateTime(v) => Result::Ok(Value::LocalDateTime(v)),
+            Scalar::LocalDate(v) => Result::Ok(Value::LocalDate(v)),
+            Scalar::LocalTime(v) => Result::Ok(Value::LocalTime(v)),
+        };
+    }
 }
 
 /// borrows the source when the string carried no escape, and decodes
@@ -1928,13 +1999,16 @@ public Optional(i64) as_integer(const Value* self) {
     };
 }
 
-public Optional(f64) as_float(const Value* self) {
-    return match *self {
-        Value::Float(v) => Optional::Some(v),
-        Value::Integer(v) => Optional::Some(v as f64),
-        _ => Optional::None,
-    };
+static if core::target::FLOAT_AVAILABLE {
+    public Optional(f64) as_float(const Value* self) {
+        return match *self {
+            Value::Float(v) => Optional::Some(v),
+            Value::Integer(v) => Optional::Some(v as f64),
+            _ => Optional::None,
+        };
+    }
 }
+
 
 public Optional(bool) as_bool(const Value* self) {
     return match *self {
