@@ -1,0 +1,46 @@
+module freestanding_modules;
+import core;
+import std::map;
+import std::array;
+import std::hash;
+import std::sha;
+import std::mem;
+import std::json;
+import std::toml;
+import std::fmt;
+import std::result;
+import assert;
+
+@nomangle public i32 kernel_test() {
+    u8[16384] backing;
+    std::mem::FixedBuffer buffer = std::mem::new_fixed_buffer(backing[0..16384]);
+    std::mem::Allocator allocator = buffer.allocator();
+    std::array::Array(u64) values = std::array::new_array(allocator);
+    if !values.push(7).is_ok() { return 1; }
+    std::map::Map(u64, u64) mapping = std::map::new_map(allocator);
+    if mapping.put(3, 7).is_err() { return 2; }
+    if mapping.get(3).unwrap_some() != 7 { return 3; }
+    if std::hash::fnv1a_64("abc") == 0 {
+        assert::__assert("freestanding_modules.dc", 23, "kernel_test", "hash is nonzero");
+    }
+    u8[32] digest;
+    if !std::sha::sha256("abc", digest[0..32]).is_ok() { return 4; }
+    if digest[0] != 0xba || digest[31] != 0xad { return 5; }
+    std::json::Scanner json = std::json::scan("42");
+    if json.next().is_err() { return 6; }
+    json = std::json::scan("1.5");
+    if json.next().unwrap_err() != std::json::JsonError::InvalidNumber { return 7; }
+    json = std::json::scan("1e2");
+    if json.next().unwrap_err() != std::json::JsonError::InvalidNumber { return 8; }
+    std::toml::Scanner toml = std::toml::scan("x = 42");
+    if toml.next().is_err() || toml.next().is_err() { return 9; }
+    toml = std::toml::scan("x = 1.5");
+    if toml.next().is_err() { return 10; }
+    if toml.next().unwrap_err() != std::toml::TomlError::InvalidNumber { return 11; }
+    toml = std::toml::scan("x = inf");
+    if toml.next().is_err() { return 12; }
+    if toml.next().unwrap_err() != std::toml::TomlError::InvalidNumber { return 13; }
+    u8[32] text;
+    if std::fmt::format_buf(text, "{}", 42).is_err() { return 14; }
+    return 0;
+}

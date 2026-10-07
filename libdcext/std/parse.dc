@@ -6,6 +6,8 @@
 
 module std::parse;
 
+import core::target;
+
 public import std::result;
 
 using result::{ Result };
@@ -86,67 +88,71 @@ public u32 hex_value(u8 c) {
 //! scaling is applied in steps and the result is approximate.
 //!
 
-f64[23] POW10 = {
-    1.0,
-    10.0,
-    100.0,
-    1000.0,
-    10000.0,
-    100000.0,
-    1000000.0,
-    10000000.0,
-    100000000.0,
-    1000000000.0,
-    10000000000.0,
-    100000000000.0,
-    1000000000000.0,
-    10000000000000.0,
-    100000000000000.0,
-    1000000000000000.0,
-    10000000000000000.0,
-    100000000000000000.0,
-    1000000000000000000.0,
-    10000000000000000000.0,
-    100000000000000000000.0,
-    1000000000000000000000.0,
-    10000000000000000000000.0,
-};
-
+static if core::target::FLOAT_AVAILABLE {
+    f64[23] POW10 = {
+        1.0,
+        10.0,
+        100.0,
+        1000.0,
+        10000.0,
+        100000.0,
+        1000000.0,
+        10000000.0,
+        100000000.0,
+        1000000000.0,
+        10000000000.0,
+        100000000000.0,
+        1000000000000.0,
+        10000000000000.0,
+        100000000000000.0,
+        1000000000000000.0,
+        10000000000000000.0,
+        100000000000000000.0,
+        1000000000000000000.0,
+        10000000000000000000.0,
+        100000000000000000000.0,
+        1000000000000000000000.0,
+        10000000000000000000000.0,
+    };
+}
 public using i32 POW10_EXACT = 22;
 
-public f64 scale_by_ten(f64 mantissa, i32 exponent) {
-    if exponent == 0 {
-        return mantissa;
-    }
+static if core::target::FLOAT_AVAILABLE {
+    public f64 scale_by_ten(f64 mantissa, i32 exponent) {
+        if exponent == 0 {
+            return mantissa;
+        }
 
-    f64 v = mantissa;
+        f64 v = mantissa;
 
-    if exponent > 0 {
-        i32 left = exponent;
-        while left > POW10_EXACT {
-            v = v * POW10[POW10_EXACT as usize];
-            left = left - POW10_EXACT;
+        if exponent > 0 {
+            i32 left = exponent;
+            while left > POW10_EXACT {
+                v = v * POW10[POW10_EXACT as usize];
+                left = left - POW10_EXACT;
 
-            if v > 1.7976931348623157e308 {
+                if v > 1.7976931348623157e308 {
+                    return v;
+                }
+            }
+
+            return v * POW10[left as usize];
+        }
+
+        i32 right = 0 - exponent;
+        while right > POW10_EXACT {
+            v = v / POW10[POW10_EXACT as usize];
+            right = right - POW10_EXACT;
+
+            if v == 0.0 {
                 return v;
             }
         }
 
-        return v * POW10[left as usize];
+        return v / POW10[right as usize];
     }
-
-    i32 right = 0 - exponent;
-    while right > POW10_EXACT {
-        v = v / POW10[POW10_EXACT as usize];
-        right = right - POW10_EXACT;
-
-        if v == 0.0 {
-            return v;
-        }
-    }
-
-    return v / POW10[right as usize];
 }
+
 
 //!
 //! Shared numbers
@@ -252,24 +258,26 @@ public Result(u64, NumError) accumulate_digits(
     return Result::Ok(value);
 }
 
-/// assembles a float from a decimal mantissa and a base-ten exponent.
-/// Overflow reports `OutOfRange` rather than returning an infinity.
-public Result(f64, NumError) float_from_parts(
-    u64 mantissa,
-    i32 exponent,
-    bool negative
-) {
-    f64 value = scale_by_ten(mantissa as f64, exponent);
+static if core::target::FLOAT_AVAILABLE {
+    /// assembles a float from a decimal mantissa and a base-ten exponent.
+    /// Overflow reports `OutOfRange` rather than returning an infinity.
+    public Result(f64, NumError) float_from_parts(
+        u64 mantissa,
+        i32 exponent,
+        bool negative
+    ) {
+        f64 value = scale_by_ten(mantissa as f64, exponent);
 
-    if value > 1.7976931348623157e308 {
-        return NumError::OutOfRange;
-    }
-
-    return Result::Ok(
-        if negative {
-            -value
-        } else {
-            value
+        if value > 1.7976931348623157e308 {
+            return NumError::OutOfRange;
         }
-    );
+
+        return Result::Ok(
+            if negative {
+                -value
+            } else {
+                value
+            }
+        );
+    }
 }

@@ -15,6 +15,7 @@
 module std::json;
 
 import core;
+import core::target;
 import std::fmt;
 import std::mem;
 import std::slice;
@@ -52,20 +53,37 @@ public enum JsonError : u8 {
 //! building anything.
 //!
 
-public enum Event {
-    ObjectBegin,
-    ObjectEnd,
-    ArrayBegin,
-    ArrayEnd,
-    /// borrows the input unless `needs_unescape` is set on the scanner
-    Key([] const u8),
-    String([] const u8),
-    Integer(i64),
-    Float(f64),
-    Bool(bool),
-    Null,
-    End,
+static if core::target::FLOAT_AVAILABLE {
+    public enum Event {
+        ObjectBegin,
+        ObjectEnd,
+        ArrayBegin,
+        ArrayEnd,
+        /// borrows the input unless `needs_unescape` is set on the scanner
+        Key([] const u8),
+        String([] const u8),
+        Integer(i64),
+        Float(f64),
+        Bool(bool),
+        Null,
+        End,
+    }
+} else {
+    public enum Event {
+        ObjectBegin,
+        ObjectEnd,
+        ArrayBegin,
+        ArrayEnd,
+        /// borrows the input unless `needs_unescape` is set on the scanner
+        Key([] const u8),
+        String([] const u8),
+        Integer(i64),
+        Bool(bool),
+        Null,
+        End,
+    }
 }
+
 
 //!
 //! Scanner
@@ -329,83 +347,86 @@ Result(i64, JsonError) to_integer([] const u8 text) {
 
 using usize MANTISSA_DIGITS = 19;
 
-Result(f64, JsonError) to_float([] const u8 text) {
-    usize i = 0;
-    bool negative = false;
+static if core::target::FLOAT_AVAILABLE {
+    Result(f64, JsonError) to_float([] const u8 text) {
+        usize i = 0;
+        bool negative = false;
 
-    if text[0] == ('-' as u8) {
-        negative = true;
-        i = 1;
-    }
-
-    u64 mantissa = 0;
-    usize taken = 0;
-    i32 exponent = 0;
-
-    while i < text.len && parse::is_digit(text[i]) {
-        if taken < MANTISSA_DIGITS {
-            mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
-            taken++;
-        } else {
-            // past the precision f64 can hold; keep the magnitude only
-            exponent = exponent + 1;
+        if text[0] == ('-' as u8) {
+            negative = true;
+            i = 1;
         }
 
-        i++;
-    }
-
-    if i < text.len && text[i] == ('.' as u8) {
-        i++;
+        u64 mantissa = 0;
+        usize taken = 0;
+        i32 exponent = 0;
 
         while i < text.len && parse::is_digit(text[i]) {
             if taken < MANTISSA_DIGITS {
                 mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
                 taken++;
-                exponent = exponent - 1;
-            }
-
-            i++;
-        }
-    }
-
-    if i < text.len && (text[i] == ('e' as u8) || text[i] == ('E' as u8)) {
-        i++;
-
-        bool negative_exponent = false;
-        if i < text.len && (text[i] == ('+' as u8) || text[i] == ('-' as u8)) {
-            negative_exponent = text[i] == ('-' as u8);
-            i++;
-        }
-
-        i32 written = 0;
-        while i < text.len && parse::is_digit(text[i]) {
-            // clamp rather than wrap: anything past this overflows or
-            // underflows the result regardless of the exact value
-            if written < 100000 {
-                written = written * 10 + (text[i] - ('0' as u8)) as i32;
+            } else {
+                // past the precision f64 can hold; keep the magnitude only
+                exponent = exponent + 1;
             }
 
             i++;
         }
 
-        exponent = exponent + if negative_exponent {
-            0 - written
-        } else {
-            written
-        };
-    }
+        if i < text.len && text[i] == ('.' as u8) {
+            i++;
 
-    Result(f64, NumError) value = parse::float_from_parts(
-        mantissa,
-        exponent,
-        negative
-    );
-    if value.is_err() {
-        return JsonError::NumberOutOfRange;
-    }
+            while i < text.len && parse::is_digit(text[i]) {
+                if taken < MANTISSA_DIGITS {
+                    mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
+                    taken++;
+                    exponent = exponent - 1;
+                }
 
-    return Result::Ok(value.unwrap());
+                i++;
+            }
+        }
+
+        if i < text.len && (text[i] == ('e' as u8) || text[i] == ('E' as u8)) {
+            i++;
+
+            bool negative_exponent = false;
+            if i < text.len && (text[i] == ('+' as u8) || text[i] == ('-' as u8)) {
+                negative_exponent = text[i] == ('-' as u8);
+                i++;
+            }
+
+            i32 written = 0;
+            while i < text.len && parse::is_digit(text[i]) {
+                // clamp rather than wrap: anything past this overflows or
+                // underflows the result regardless of the exact value
+                if written < 100000 {
+                    written = written * 10 + (text[i] - ('0' as u8)) as i32;
+                }
+
+                i++;
+            }
+
+            exponent = exponent + if negative_exponent {
+                0 - written
+            } else {
+                written
+            };
+        }
+
+        Result(f64, NumError) value = parse::float_from_parts(
+            mantissa,
+            exponent,
+            negative
+        );
+        if value.is_err() {
+            return JsonError::NumberOutOfRange;
+        }
+
+        return Result::Ok(value.unwrap());
+    }
 }
+
 
 Result(Event, JsonError) read_number(Scanner* self) {
     usize start = self.at.offset;
@@ -470,7 +491,11 @@ Result(Event, JsonError) read_number(Scanner* self) {
     [] const u8 text = self.input[start..self.at.offset];
 
     if is_float {
-        return Result::Ok(Event::Float(to_float(text) ?));
+        static if core::target::FLOAT_AVAILABLE {
+            return Result::Ok(Event::Float(to_float(text) ?));
+        } else {
+            return JsonError::InvalidNumber;
+        }
     }
 
     return Result::Ok(Event::Integer(to_integer(text) ?));
@@ -750,15 +775,27 @@ public struct Member {
     Value value;
 }
 
-public enum Value {
-    Null,
-    Bool(bool),
-    Integer(i64),
-    Float(f64),
-    String([] const u8),
-    Array([] Value),
-    Object([] Member),
+static if core::target::FLOAT_AVAILABLE {
+    public enum Value {
+        Null,
+        Bool(bool),
+        Integer(i64),
+        Float(f64),
+        String([] const u8),
+        Array([] Value),
+        Object([] Member),
+    }
+} else {
+    public enum Value {
+        Null,
+        Bool(bool),
+        Integer(i64),
+        String([] const u8),
+        Array([] Value),
+        Object([] Member),
+    }
 }
+
 
 //!
 //! Growable storage
@@ -928,22 +965,40 @@ Result(Value, JsonError) build(
     Scanner* self,
     Event event
 ) {
-    return match event {
-        Event::Null => Result::Ok(Value::Null),
-        Event::Bool(b) => Result::Ok(Value::Bool(b)),
-        Event::Integer(v) => Result::Ok(Value::Integer(v)),
-        Event::Float(v) => Result::Ok(Value::Float(v)),
-        Event::String(raw) => {
-            Result([] const u8, JsonError) text = materialize(alloc, self, raw);
-            if text.is_err() {
-                return text.unwrap_err();
-            }
-            Result::Ok(Value::String(text.unwrap()))
-        },
-        Event::ArrayBegin => build_array(alloc, self),
-        Event::ObjectBegin => build_object(alloc, self),
-        _ => Result::Err(JsonError::UnexpectedByte),
-    };
+    static if core::target::FLOAT_AVAILABLE {
+        return match event {
+            Event::Null => Result::Ok(Value::Null),
+            Event::Bool(b) => Result::Ok(Value::Bool(b)),
+            Event::Integer(v) => Result::Ok(Value::Integer(v)),
+            Event::Float(v) => Result::Ok(Value::Float(v)),
+            Event::String(raw) => {
+                Result([] const u8, JsonError) text = materialize(alloc, self, raw);
+                if text.is_err() {
+                    return text.unwrap_err();
+                }
+                Result::Ok(Value::String(text.unwrap()))
+            },
+            Event::ArrayBegin => build_array(alloc, self),
+            Event::ObjectBegin => build_object(alloc, self),
+            _ => Result::Err(JsonError::UnexpectedByte),
+        };
+    } else {
+        return match event {
+            Event::Null => Result::Ok(Value::Null),
+            Event::Bool(b) => Result::Ok(Value::Bool(b)),
+            Event::Integer(v) => Result::Ok(Value::Integer(v)),
+            Event::String(raw) => {
+                Result([] const u8, JsonError) text = materialize(alloc, self, raw);
+                if text.is_err() {
+                    return text.unwrap_err();
+                }
+                Result::Ok(Value::String(text.unwrap()))
+            },
+            Event::ArrayBegin => build_array(alloc, self),
+            Event::ObjectBegin => build_object(alloc, self),
+            _ => Result::Err(JsonError::UnexpectedByte),
+        };
+    }
 }
 
 /// parses one document. strings borrow `input` unless they carried an
@@ -1071,13 +1126,16 @@ public Optional(i64) as_integer(const Value* self) {
 
 /// an `Integer` widens here, since every i64 a document can carry is
 /// representable; a `Float` never narrows the other way.
-public Optional(f64) as_float(const Value* self) {
-    return match *self {
-        Value::Float(v) => Optional::Some(v),
-        Value::Integer(v) => Optional::Some(v as f64),
-        _ => Optional::None,
-    };
+static if core::target::FLOAT_AVAILABLE {
+    public Optional(f64) as_float(const Value* self) {
+        return match *self {
+            Value::Float(v) => Optional::Some(v),
+            Value::Integer(v) => Optional::Some(v as f64),
+            _ => Optional::None,
+        };
+    }
 }
+
 
 public Optional(bool) as_bool(const Value* self) {
     return match *self {
@@ -1283,11 +1341,14 @@ public Status(fmt::FmtError) integer(Emitter* self, i64 value) {
     return fmt::format_signed(&self.out, value, &opts);
 }
 
-public Status(fmt::FmtError) float(Emitter* self, f64 value) {
-    separate(self) ?;
-    fmt::Options opts = fmt::Options::default();
-    return fmt::format_float(&self.out, value, &opts);
+static if core::target::FLOAT_AVAILABLE {
+    public Status(fmt::FmtError) float(Emitter* self, f64 value) {
+        separate(self) ?;
+        fmt::Options opts = fmt::Options::default();
+        return fmt::format_float(&self.out, value, &opts);
+    }
 }
+
 
 public Status(fmt::FmtError) boolean(Emitter* self, bool value) {
     separate(self) ?;
@@ -1306,28 +1367,52 @@ public Status(fmt::FmtError) null_value(Emitter* self) {
 }
 
 public Status(fmt::FmtError) value(Emitter* self, const Value* item) {
-    return match *item {
-        Value::Null => null_value(self),
-        Value::Bool(v) => boolean(self, v),
-        Value::Integer(v) => integer(self, v),
-        Value::Float(v) => float(self, v),
-        Value::String(v) => string(self, v),
-        Value::Array(items) => {
-            begin_array(self) ?;
-            for usize i = 0; i < items.len; i++ {
-                value(self, &items[i]) ?;
-            }
-            end_array(self)
-        },
-        Value::Object(members) => {
-            begin_object(self) ?;
-            for usize i = 0; i < members.len; i++ {
-                key(self, members[i].key) ?;
-                value(self, &members[i].value) ?;
-            }
-            end_object(self)
-        },
-    };
+    static if core::target::FLOAT_AVAILABLE {
+        return match *item {
+            Value::Null => null_value(self),
+            Value::Bool(v) => boolean(self, v),
+            Value::Integer(v) => integer(self, v),
+            Value::Float(v) => float(self, v),
+            Value::String(v) => string(self, v),
+            Value::Array(items) => {
+                begin_array(self) ?;
+                for usize i = 0; i < items.len; i++ {
+                    value(self, &items[i]) ?;
+                }
+                end_array(self)
+            },
+            Value::Object(members) => {
+                begin_object(self) ?;
+                for usize i = 0; i < members.len; i++ {
+                    key(self, members[i].key) ?;
+                    value(self, &members[i].value) ?;
+                }
+                end_object(self)
+            },
+        };
+    } else {
+        return match *item {
+            Value::Null => null_value(self),
+            Value::Bool(v) => boolean(self, v),
+            Value::Integer(v) => integer(self, v),
+            Value::String(v) => string(self, v),
+            Value::Array(items) => {
+                begin_array(self) ?;
+                for usize i = 0; i < items.len; i++ {
+                    value(self, &items[i]) ?;
+                }
+                end_array(self)
+            },
+            Value::Object(members) => {
+                begin_object(self) ?;
+                for usize i = 0; i < members.len; i++ {
+                    key(self, members[i].key) ?;
+                    value(self, &members[i].value) ?;
+                }
+                end_object(self)
+            },
+        };
+    }
 }
 
 /// renders `item` to `w`. `indent` of 0 is compact.
