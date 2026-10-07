@@ -10,12 +10,12 @@ trap 'rm -rf "$stage"' EXIT
 pkg="$stage/dcc"
 
 make install DESTDIR="$pkg" PREFIX=/usr "$@" >/dev/null
-find "$pkg/usr/lib" -name 'libdcext-*.a' ! -name 'libdcext-linux-llvm.a' ! -name 'libdcext-linux-custom.a' -delete
+find "$pkg/usr/lib" -name 'libdcext-*.a' ! -name 'libdcext-linux-llvm.a' ! -name 'libdcext-linux-custom.a' ! -name 'libdcext-freestanding-llvm.a' ! -name 'libdcext-freestanding-custom.a' -delete
 install -m 644 LICENSE "$pkg/usr/share/doc/dcc/copyright"
 strip --strip-unneeded "$pkg/usr/bin/dcc" "$pkg/usr/bin/dccd" "$pkg/usr/bin/dcdoc"
 
 libs="$(cd "$pkg/usr/lib" && ls)"
-if [[ "$libs" != $'libdcext-linux-custom.a\nlibdcext-linux-llvm.a' ]]; then
+if [[ "$libs" != $'libdcext-freestanding-custom.a\nlibdcext-freestanding-llvm.a\nlibdcext-linux-custom.a\nlibdcext-linux-llvm.a' ]]; then
     echo "error: unexpected libraries in package: $libs" >&2
     exit 1
 fi

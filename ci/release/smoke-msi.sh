@@ -12,11 +12,11 @@ wine msiexec /i "$msi" /qn
 wineserver -w
 inst="$WINEPREFIX/drive_c/Program Files/dcc"
 (cd "$inst" && find . -type f | sort) > "$work/installed.txt"
-for f in ./bin/dcc.exe ./bin/dccd.exe ./LICENSE ./lib/libdcext-windows-llvm.a ./lib/libdcext-windows-custom.a ./include/std.dc; do
+for f in ./bin/dcc.exe ./bin/dccd.exe ./LICENSE ./lib/libdcext-windows-llvm.a ./lib/libdcext-windows-custom.a ./lib/libdcext-freestanding-llvm.a ./lib/libdcext-freestanding-custom.a ./include/std.dc; do
     grep -qxF "$f" "$work/installed.txt" || { echo "error: $f not installed" >&2; exit 1; }
 done
 echo "installed $(wc -l < "$work/installed.txt") files under C:\\Program Files\\dcc"
-if grep -E '^\./lib/' "$work/installed.txt" | grep -vE '/libdcext-windows-(llvm|custom)\.a$'; then
+if grep -E '^\./lib/' "$work/installed.txt" | grep -vE '/libdcext-(windows|freestanding)-(llvm|custom)\.a$'; then
     echo "error: unexpected libraries installed" >&2
     exit 1
 fi
