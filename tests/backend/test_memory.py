@@ -44,7 +44,7 @@ def main():
         for backend in ("llvm", "custom"):
             check_memory(lib / ("libdcext-" + os_name + "-" + backend + ".a"), scratch)
             for opt in ("O0", "O2"):
-                exe = scratch / (backend + opt)
+                exe = scratch / (backend + opt + (".exe" if windows else ""))
                 obj = scratch / "test.o"
                 run([dcc, "-target", target, "-flibdcext", os_name, "-fbackend", backend, "-" + opt, "-c", source, "-o", obj])
                 if windows:
