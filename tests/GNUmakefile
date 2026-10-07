@@ -83,6 +83,7 @@ test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_float_available.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_missing_libdcext.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_no_simd.py $(BUILD_DIR)/bin/dcc

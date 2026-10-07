@@ -2006,6 +2006,8 @@ auto main(int argc, char** argv) -> int
     compile_opts.injected_decls = std::move(opts.injected_decls);
 
     compile_opts.target = resolve_target_or_exit(opts);
+    compile_opts.target.no_simd = !opts.simd;
+    compile_opts.target.no_x87 = !opts.x87;
 
     compile_opts.import_roots.push_back(input_path.parent_path());
 

@@ -322,6 +322,10 @@ public SourceLocation source_location();
         auto const* os = target.os == dcc::target::Os::Linux ? "Linux" : target.os == dcc::target::Os::Windows ? "Windows" : "Freestanding";
         auto const* arch = target.arch == dcc::target::Arch::X86_64 ? "X86_64" : target.arch == dcc::target::Arch::I8086 ? "I8086" : "X86";
 
+        bool const float_available = target.arch == dcc::target::Arch::X86_64 ? !target.no_simd
+                                     : target.arch == dcc::target::Arch::X86  ? !target.no_x87
+                                                                              : false;
+
         return std::format(R"dc(module core::target;
 
 public enum Os {{
@@ -339,9 +343,10 @@ public enum Arch {{
 public const Os OS = Os::{};
 public const Arch ARCH = Arch::{};
 public const bool IS_64_BIT = {};
+public const bool FLOAT_AVAILABLE = {};
 
 )dc",
-                           os, arch, target.pointer_bits == 64);
+                           os, arch, target.pointer_bits == 64, float_available);
     }
 
     [[nodiscard]] std::string generate_core_seg_source(dcc::target::TargetConfig const& target)
