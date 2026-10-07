@@ -40,6 +40,12 @@ import assert;
     toml = std::toml::scan("x = inf");
     if toml.next().is_err() { return 12; }
     if toml.next().unwrap_err() != std::toml::TomlError::InvalidNumber { return 13; }
+    toml = std::toml::scan("x = 1e2");
+    if toml.next().is_err() { return 15; }
+    if toml.next().unwrap_err() != std::toml::TomlError::InvalidNumber { return 16; }
+    toml = std::toml::scan("x = nan");
+    if toml.next().is_err() { return 17; }
+    if toml.next().unwrap_err() != std::toml::TomlError::InvalidNumber { return 18; }
     u8[32] text;
     if std::fmt::format_buf(text, "{}", 42).is_err() { return 14; }
     return 0;

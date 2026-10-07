@@ -65,6 +65,10 @@ dcdoc: compiler
 
 libdcext: driver
 	@$(MAKE) -C libdcext
+ifneq ($(ENABLE_LLVM),0)
+	@$(MAKE) -C libdcext TARGET=x86_64-freestanding BACKEND=llvm
+endif
+	@$(MAKE) -C libdcext TARGET=x86_64-freestanding BACKEND=custom
 
 tools-windows:
 	@$(MAKE) CROSS=windows driver

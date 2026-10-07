@@ -1,0 +1,27 @@
+module kernel;
+
+import std::debug;
+
+public struct Big { u8[8192] data; }
+
+@nomangle public Big value;
+@nomangle public u64 counter = 17;
+
+public struct Zero { u64[32] words; }
+@nomangle public void clear(Zero* dst) { *dst = Zero { words = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0} }; }
+@nomangle public void copy(Big* dst, Big* src) { *dst = *src; }
+@nomangle public Big copied(Big src) { return src; }
+
+@nomangle public i32 kernel_test() {
+    std::debug::set_panic_handler(null);
+    Zero zero;
+    clear(&zero);
+    if zero.words[0] != 0 || zero.words[31] != 0 { return 3; }
+    value.data[0] = 19;
+    value.data[8191] = 23;
+    Big local = copied(value);
+    if local.data[0] != 19 || local.data[8191] != 23 { return 1; }
+    copy(&value, &local);
+    if value.data[8191] != 23 || counter != 17 { return 2; }
+    return 0;
+}
