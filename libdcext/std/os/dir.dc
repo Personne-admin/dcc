@@ -144,70 +144,72 @@ usize strlen_bounded([] const u8 bytes, usize at, usize bound) {
 //! Opening
 //!
 
-/// initializes `out` for iterating `path`. dot entries are reported.
-public Status(Error) open([] const u8 path, Iterator* out) {
-    out.handle = INVALID;
-    out.len = 0;
-    out.pos = 0;
-    out.first_pending = false;
-    out.exhausted = false;
+static if core::target::OS != core::target::Os::Freestanding {
+    /// initializes `out` for iterating `path`. dot entries are reported.
+    public Status(Error) open([] const u8 path, Iterator* out) {
+        out.handle = INVALID;
+        out.len = 0;
+        out.pos = 0;
+        out.first_pending = false;
+        out.exhausted = false;
 
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW wide;
-        path::to_pathw(path, &wide) ?;
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW wide;
+            path::to_pathw(path, &wide) ?;
 
-        if wide.len + 3 > path::MAX_WIDE {
-            return Error::NameTooLong;
-        }
+            if wide.len + 3 > path::MAX_WIDE {
+                return Error::NameTooLong;
+            }
 
-        for usize i = 0; i < wide.len; i++ {
-            out.pattern.units[i] = wide.units[i];
-        }
+            for usize i = 0; i < wide.len; i++ {
+                out.pattern.units[i] = wide.units[i];
+            }
 
-        usize n = wide.len;
-        if n > 0
-            && (wide.units[n - 1] == ('\\' as u16) || wide.units[n - 1] == ('/' as u16))
-        {
-            out.pattern.units[n] = '*' as u16;
-            n++;
+            usize n = wide.len;
+            if n > 0
+                && (wide.units[n - 1] == ('\\' as u16) || wide.units[n - 1] == ('/' as u16))
+            {
+                out.pattern.units[n] = '*' as u16;
+                n++;
+            } else {
+                out.pattern.units[n] = '\\' as u16;
+                out.pattern.units[n + 1] = '*' as u16;
+                n = n + 2;
+            }
+
+            out.pattern.units[n] = 0;
+            out.pattern.len = n;
+
+            win::abi::Handle h = win::imports::FindFirstFileW(
+                path::wide_ptr(&out.pattern),
+                &out.win_data
+            );
+
+            if h as isize == win::abi::INVALID_HANDLE_VALUE {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            out.handle = h as isize;
+            out.first_pending = true;
+            return Status::Ok;
+        } else static if core::target::OS == core::target::Os::Linux {
+            path::PathZ p;
+            path::to_pathz(path, &p) ?;
+
+            i32 bits = linux::abi::O_RDONLY
+                | linux::abi::O_DIRECTORY
+                | linux::abi::O_CLOEXEC;
+            isize ret = linux::syscall::open(path::ptr(&p), bits, 0);
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            out.handle = ret;
+            return Status::Ok;
         } else {
-            out.pattern.units[n] = '\\' as u16;
-            out.pattern.units[n + 1] = '*' as u16;
-            n = n + 2;
+            core::compile_error("std::os::dir has no backend for this target");
+            return Error::NotSupported;
         }
-
-        out.pattern.units[n] = 0;
-        out.pattern.len = n;
-
-        win::abi::Handle h = win::imports::FindFirstFileW(
-            path::wide_ptr(&out.pattern),
-            &out.win_data
-        );
-
-        if h as isize == win::abi::INVALID_HANDLE_VALUE {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
-        }
-
-        out.handle = h as isize;
-        out.first_pending = true;
-        return Status::Ok;
-    } else static if core::target::OS == core::target::Os::Linux {
-        path::PathZ p;
-        path::to_pathz(path, &p) ?;
-
-        i32 bits = linux::abi::O_RDONLY
-            | linux::abi::O_DIRECTORY
-            | linux::abi::O_CLOEXEC;
-        isize ret = linux::syscall::open(path::ptr(&p), bits, 0);
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        out.handle = ret;
-        return Status::Ok;
-    } else {
-        core::compile_error("std::os::dir has no backend for this target");
-        return Error::NotSupported;
     }
 }
 
@@ -219,230 +221,238 @@ Result(usize, Error) transcode_name([] const u16 wide, [] u8 out) {
     return path::from_wide(wide, out);
 }
 
-/// yields the next entry. names borrow the iterator and die on the
-/// following call. read failures and the end both surface as None.
-public Optional(Entry) next(Iterator* self) {
-    if self.exhausted || self.handle == INVALID {
-        return Optional::None;
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// yields the next entry. names borrow the iterator and die on the
+    /// following call. read failures and the end both surface as None.
+    public Optional(Entry) next(Iterator* self) {
+        if self.exhausted || self.handle == INVALID {
+            return Optional::None;
+        }
 
-    [] u8 view = slice::from_raw(&self.buffer[0], 8192);
+        [] u8 view = slice::from_raw(&self.buffer[0], 8192);
 
-    static if core::target::OS == core::target::Os::Windows {
-        while true {
-            win::abi::Win32FindDataW* current = &self.win_data;
-            if self.first_pending {
-                self.first_pending = false;
-            } else {
-                win::abi::Bool ok = win::imports::FindNextFileW(
-                    self.handle as win::abi::Handle,
-                    &self.win_data
+        static if core::target::OS == core::target::Os::Windows {
+            while true {
+                win::abi::Win32FindDataW* current = &self.win_data;
+                if self.first_pending {
+                    self.first_pending = false;
+                } else {
+                    win::abi::Bool ok = win::imports::FindNextFileW(
+                        self.handle as win::abi::Handle,
+                        &self.win_data
+                    );
+
+                    if !win::abi::succeeded(ok) {
+                        self.exhausted = true;
+                        return Optional::None;
+                    }
+                }
+
+                [] const u16 wide = slice::from_raw_const!u16(
+                    &current.file_name[0],
+                    260
                 );
 
-                if !win::abi::succeeded(ok) {
+                Result(usize, Error) text = transcode_name(wide, view);
+                if text.is_err() {
+                    continue;
+                }
+
+                usize n = text.unwrap();
+
+                Entry entry = {
+                    name = view[0..n],
+                    kind = kind_from_attributes(current.attributes),
+                    id = 0,
+                };
+
+                return Optional::Some(entry);
+            }
+        } else {
+            if self.pos >= self.len {
+                isize ret = linux::syscall::getdents64(
+                    self.handle as linux::abi::Fd,
+                    view
+                );
+
+                if linux::abi::is_error(ret) || ret == 0 {
                     self.exhausted = true;
                     return Optional::None;
                 }
+
+                self.len = ret as usize;
+                self.pos = 0;
             }
 
-            [] const u16 wide = slice::from_raw_const!u16(
-                &current.file_name[0],
-                260
-            );
-
-            Result(usize, Error) text = transcode_name(wide, view);
-            if text.is_err() {
-                continue;
-            }
-
-            usize n = text.unwrap();
-
-            Entry entry = {
-                name = view[0..n],
-                kind = kind_from_attributes(current.attributes),
-                id = 0,
-            };
-
-            return Optional::Some(entry);
-        }
-    } else {
-        if self.pos >= self.len {
-            isize ret = linux::syscall::getdents64(
-                self.handle as linux::abi::Fd,
-                view
-            );
-
-            if linux::abi::is_error(ret) || ret == 0 {
+            usize at = self.pos;
+            u16 reclen = load_u16_le(view, at + 16);
+            if reclen < 19 || at + (reclen as usize) > self.len {
                 self.exhausted = true;
                 return Optional::None;
             }
 
-            self.len = ret as usize;
+            u64 id = load_u64_le(view, at);
+            EntryKind kind = kind_from_linux(view[at + 18]);
+            usize bound = (reclen as usize) - 19;
+            usize name_len = strlen_bounded(view, at + 19, bound);
+            self.pos = at + (reclen as usize);
+
+            Entry entry = {
+                name = view[at + 19..at + 19 + name_len],
+                kind = kind,
+                id = id,
+            };
+            return Optional::Some(entry);
+        }
+    }
+}
+
+static if core::target::OS != core::target::Os::Freestanding {
+    /// restarts iteration from the first entry.
+    public Status(Error) rewind(Iterator* self) {
+        if self.handle == INVALID {
+            return Error::BadHandle;
+        }
+
+        static if core::target::OS == core::target::Os::Windows {
+            win::imports::FindClose(self.handle as win::abi::Handle);
+            win::abi::Handle h = win::imports::FindFirstFileW(
+                path::wide_ptr(&self.pattern),
+                &self.win_data
+            );
+
+            if h as isize == win::abi::INVALID_HANDLE_VALUE {
+                self.handle = INVALID;
+                self.exhausted = true;
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            self.handle = h as isize;
+            self.first_pending = true;
+            self.exhausted = false;
+            return Status::Ok;
+        } else {
+            isize ret = linux::syscall::lseek(
+                self.handle as linux::abi::Fd,
+                0,
+                linux::abi::SEEK_SET
+            );
+
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            self.len = 0;
             self.pos = 0;
+            self.exhausted = false;
+            return Status::Ok;
         }
-
-        usize at = self.pos;
-        u16 reclen = load_u16_le(view, at + 16);
-        if reclen < 19 || at + (reclen as usize) > self.len {
-            self.exhausted = true;
-            return Optional::None;
-        }
-
-        u64 id = load_u64_le(view, at);
-        EntryKind kind = kind_from_linux(view[at + 18]);
-        usize bound = (reclen as usize) - 19;
-        usize name_len = strlen_bounded(view, at + 19, bound);
-        self.pos = at + (reclen as usize);
-
-        Entry entry = {
-            name = view[at + 19..at + 19 + name_len],
-            kind = kind,
-            id = id,
-        };
-        return Optional::Some(entry);
     }
 }
 
-/// restarts iteration from the first entry.
-public Status(Error) rewind(Iterator* self) {
-    if self.handle == INVALID {
-        return Error::BadHandle;
-    }
-
-    static if core::target::OS == core::target::Os::Windows {
-        win::imports::FindClose(self.handle as win::abi::Handle);
-        win::abi::Handle h = win::imports::FindFirstFileW(
-            path::wide_ptr(&self.pattern),
-            &self.win_data
-        );
-
-        if h as isize == win::abi::INVALID_HANDLE_VALUE {
-            self.handle = INVALID;
-            self.exhausted = true;
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+static if core::target::OS != core::target::Os::Freestanding {
+    /// releases the iteration handle. safe on a closed iterator.
+    public void close(Iterator* self) {
+        if self.handle == INVALID {
+            return;
         }
 
-        self.handle = h as isize;
-        self.first_pending = true;
-        self.exhausted = false;
-        return Status::Ok;
-    } else {
-        isize ret = linux::syscall::lseek(
-            self.handle as linux::abi::Fd,
-            0,
-            linux::abi::SEEK_SET
-        );
-
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
+        static if core::target::OS == core::target::Os::Windows {
+            win::imports::FindClose(self.handle as win::abi::Handle);
+        } else {
+            linux::syscall::close(self.handle as linux::abi::Fd);
         }
 
-        self.len = 0;
-        self.pos = 0;
-        self.exhausted = false;
-        return Status::Ok;
+        self.handle = INVALID;
+        self.exhausted = true;
     }
-}
-
-/// releases the iteration handle. safe on a closed iterator.
-public void close(Iterator* self) {
-    if self.handle == INVALID {
-        return;
-    }
-
-    static if core::target::OS == core::target::Os::Windows {
-        win::imports::FindClose(self.handle as win::abi::Handle);
-    } else {
-        linux::syscall::close(self.handle as linux::abi::Fd);
-    }
-
-    self.handle = INVALID;
-    self.exhausted = true;
 }
 
 //!
 //! Entry metadata
 //!
 
-/// stats the file `entry` names without following symlinks.
-public Result(Metadata, Error) stat_at(Iterator* self, const Entry* entry) {
-    if self.handle == INVALID {
-        return Error::BadHandle;
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// stats the file `entry` names without following symlinks.
+    public Result(Metadata, Error) stat_at(Iterator* self, const Entry* entry) {
+        if self.handle == INVALID {
+            return Error::BadHandle;
+        }
 
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW full;
-        usize n = self.pattern.len;
-        usize dir_len = if n >= 1 {
-            n - 1
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW full;
+            usize n = self.pattern.len;
+            usize dir_len = if n >= 1 {
+                n - 1
+            } else {
+                0
+            };
+
+            for usize i = 0; i < dir_len; i++ {
+                full.units[i] = self.pattern.units[i];
+            }
+
+            Result(path::PathW, Error) tail = widen_entry(entry.name);
+            if tail.is_err() {
+                return tail.unwrap_err();
+            }
+
+            path::PathW tail_path = tail.unwrap();
+            if dir_len + tail_path.len + 1 > path::MAX_WIDE {
+                return Error::NameTooLong;
+            }
+
+            for usize i = 0; i < tail_path.len; i++ {
+                full.units[dir_len + i] = tail_path.units[i];
+            }
+
+            full.units[dir_len + tail_path.len] = 0;
+            full.len = dir_len + tail_path.len;
+
+            win::abi::Win32FindDataW found_data;
+            win::abi::Handle h = win::imports::FindFirstFileW(
+                path::wide_ptr(&full),
+                &found_data
+            );
+            win::abi::Win32FindDataW* found = &found_data;
+
+            if h as isize == win::abi::INVALID_HANDLE_VALUE {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            win::imports::FindClose(h);
+
+            u64 size = ((found.file_size_high as u64) << 32) | (found.file_size_low as u64);
+            Metadata out = {
+                size = size,
+                kind = kind_from_attributes(found.attributes),
+                id = 0,
+            };
+            return Result::Ok(out);
         } else {
-            0
-        };
+            path::PathZ p;
+            to_entry_pathz(entry.name, &p) ?;
 
-        for usize i = 0; i < dir_len; i++ {
-            full.units[i] = self.pattern.units[i];
+            linux::abi::Stat info;
+            isize ret = linux::syscall::fstatat(
+                self.handle as linux::abi::Fd,
+                path::ptr(&p),
+                &info,
+                linux::abi::AT_SYMLINK_NOFOLLOW
+            );
+
+            if linux::abi::is_error(ret) {
+                return Result::Err(error::from_syscall(ret));
+            }
+
+            Metadata out = {
+                size = info.size as u64,
+                kind = kind_from_mode(info.mode),
+                id = info.ino,
+            };
+
+            return Result::Ok(out);
         }
-
-        Result(path::PathW, Error) tail = widen_entry(entry.name);
-        if tail.is_err() {
-            return tail.unwrap_err();
-        }
-
-        path::PathW tail_path = tail.unwrap();
-        if dir_len + tail_path.len + 1 > path::MAX_WIDE {
-            return Error::NameTooLong;
-        }
-
-        for usize i = 0; i < tail_path.len; i++ {
-            full.units[dir_len + i] = tail_path.units[i];
-        }
-
-        full.units[dir_len + tail_path.len] = 0;
-        full.len = dir_len + tail_path.len;
-
-        win::abi::Win32FindDataW found_data;
-        win::abi::Handle h = win::imports::FindFirstFileW(
-            path::wide_ptr(&full),
-            &found_data
-        );
-        win::abi::Win32FindDataW* found = &found_data;
-
-        if h as isize == win::abi::INVALID_HANDLE_VALUE {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
-        }
-
-        win::imports::FindClose(h);
-
-        u64 size = ((found.file_size_high as u64) << 32) | (found.file_size_low as u64);
-        Metadata out = {
-            size = size,
-            kind = kind_from_attributes(found.attributes),
-            id = 0,
-        };
-        return Result::Ok(out);
-    } else {
-        path::PathZ p;
-        to_entry_pathz(entry.name, &p) ?;
-
-        linux::abi::Stat info;
-        isize ret = linux::syscall::fstatat(
-            self.handle as linux::abi::Fd,
-            path::ptr(&p),
-            &info,
-            linux::abi::AT_SYMLINK_NOFOLLOW
-        );
-
-        if linux::abi::is_error(ret) {
-            return Result::Err(error::from_syscall(ret));
-        }
-
-        Metadata out = {
-            size = info.size as u64,
-            kind = kind_from_mode(info.mode),
-            id = info.ino,
-        };
-
-        return Result::Ok(out);
     }
 }
 

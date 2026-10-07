@@ -36,56 +36,64 @@ using error::Error;
 //! Termination
 //!
 
-/// ends the process. does not return and does not run any cleanup.
-public void exit(i32 status) {
-    static if core::target::OS == core::target::Os::Windows {
-        win::imports::ExitProcess(status as u32);
-    } else {
-        linux::syscall::exit_group(status);
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// ends the process. does not return and does not run any cleanup.
+    public void exit(i32 status) {
+        static if core::target::OS == core::target::Os::Windows {
+            win::imports::ExitProcess(status as u32);
+        } else {
+            linux::syscall::exit_group(status);
+        }
 
-    // unreachable: both calls above diverge.
-    while true {}
+        // unreachable: both calls above diverge.
+        while true {}
+    }
 }
 
 public using i32 ABORT_EXIT_STATUS = 134;
 
-/// ends the process abnormally, without flushing anything.
-public void abort() {
-    static if core::target::OS == core::target::Os::Windows {
-        win::imports::TerminateProcess(
-            win::imports::GetCurrentProcess(),
-            ABORT_EXIT_STATUS as u32
-        );
-    } else {
-        linux::syscall::kill(
-            linux::syscall::getpid() as linux::abi::Pid,
-            linux::abi::SIGABRT
-        );
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// ends the process abnormally, without flushing anything.
+    public void abort() {
+        static if core::target::OS == core::target::Os::Windows {
+            win::imports::TerminateProcess(
+                win::imports::GetCurrentProcess(),
+                ABORT_EXIT_STATUS as u32
+            );
+        } else {
+            linux::syscall::kill(
+                linux::syscall::getpid() as linux::abi::Pid,
+                linux::abi::SIGABRT
+            );
+        }
 
-    // a blocked or ignored SIGABRT lands here
-    exit(ABORT_EXIT_STATUS);
+        // a blocked or ignored SIGABRT lands here
+        exit(ABORT_EXIT_STATUS);
+    }
 }
 
 //!
 //! Identity and scheduling
 //!
 
-public u32 process_id() {
-    static if core::target::OS == core::target::Os::Windows {
-        return win::imports::GetCurrentProcessId();
-    } else {
-        return linux::syscall::getpid() as u32;
+static if core::target::OS != core::target::Os::Freestanding {
+    public u32 process_id() {
+        static if core::target::OS == core::target::Os::Windows {
+            return win::imports::GetCurrentProcessId();
+        } else {
+            return linux::syscall::getpid() as u32;
+        }
     }
 }
 
-/// hands the rest of the current time slice back to the scheduler.
-public void yield_now() {
-    static if core::target::OS == core::target::Os::Windows {
-        win::imports::Sleep(0);
-    } else {
-        linux::syscall::sched_yield();
+static if core::target::OS != core::target::Os::Freestanding {
+    /// hands the rest of the current time slice back to the scheduler.
+    public void yield_now() {
+        static if core::target::OS == core::target::Os::Windows {
+            win::imports::Sleep(0);
+        } else {
+            linux::syscall::sched_yield();
+        }
     }
 }
 
@@ -98,32 +106,36 @@ public void yield_now() {
 //! dying, and there is no second channel to report on.
 //!
 
-void report_panic([] const u8 message, SourceLocation sl) {
-    u8[512] scratch;
-    file::File err = file::stderr();
+static if core::target::OS != core::target::Os::Freestanding {
+    void report_panic([] const u8 message, SourceLocation sl) {
+        u8[512] scratch;
+        file::File err = file::stderr();
 
-    file::write_all(&err, "panic: ");
-    file::write_all(&err, message);
-    file::write_all(&err, "\n  at ");
+        file::write_all(&err, "panic: ");
+        file::write_all(&err, message);
+        file::write_all(&err, "\n  at ");
 
-    match fmt::format_buf(
-        scratch,
-        "{}:{}:{}\n",
-        sl.file,
-        sl.line,
-        sl.column
-    ) {
-        Result::Ok(rendered) => file::write_all(&err, rendered),
-        Result::Err(_) => file::write_all(&err, "<unknown location>\n"),
+        match fmt::format_buf(
+            scratch,
+            "{}:{}:{}\n",
+            sl.file,
+            sl.line,
+            sl.column
+        ) {
+            Result::Ok(rendered) => file::write_all(&err, rendered),
+            Result::Err(_) => file::write_all(&err, "<unknown location>\n"),
+        }
+
+        file::sync(&err);
+        exit(ABORT_EXIT_STATUS);
     }
-
-    file::sync(&err);
-    exit(ABORT_EXIT_STATUS);
 }
 
-/// routes panics to stderr and terminates. install once, early.
-public void install_panic_handler() {
-    debug::set_panic_handler(report_panic);
+static if core::target::OS != core::target::Os::Freestanding {
+    /// routes panics to stderr and terminates. install once, early.
+    public void install_panic_handler() {
+        debug::set_panic_handler(report_panic);
+    }
 }
 
 //!
@@ -132,19 +144,21 @@ public void install_panic_handler() {
 //! Called by the entry stub before it dispatches to main.
 //!
 
-@nomangle public void __dc_rt_init(i32 argc, void** argv) {
-    install_panic_handler();
+static if core::target::OS != core::target::Os::Freestanding {
+    @nomangle public void __dc_rt_init(i32 argc, void** argv) {
+        install_panic_handler();
 
-    saved_argc = argc;
-    saved_argv = argv as const u8**;
+        saved_argc = argc;
+        saved_argv = argv as const u8**;
 
-    static if core::target::OS == core::target::Os::Linux {
-        // envp sits right after the argv NULL: argv[argc + 1].
-        saved_envp = (
-            argv as usize + (argc as usize + 1) * 8
-        ) as const u8**;
-    } else {
-        saved_envp = &empty_env as const u8**;
+        static if core::target::OS == core::target::Os::Linux {
+            // envp sits right after the argv NULL: argv[argc + 1].
+            saved_envp = (
+                argv as usize + (argc as usize + 1) * 8
+            ) as const u8**;
+        } else {
+            saved_envp = &empty_env as const u8**;
+        }
     }
 }
 
@@ -212,28 +226,30 @@ public struct Vars {
     bool done;
 }
 
-/// starts an iteration over the environment. call `close` when done;
-/// on Windows it releases the block the OS handed us.
-public Vars vars() {
-    Vars self;
-    self.offset = 0;
-    self.done = false;
+static if core::target::OS != core::target::Os::Freestanding {
+    /// starts an iteration over the environment. call `close` when done;
+    /// on Windows it releases the block the OS handed us.
+    public Vars vars() {
+        Vars self;
+        self.offset = 0;
+        self.done = false;
 
-    static if core::target::OS == core::target::Os::Windows {
-        self.cursor = null as const u8**;
-        self.block = win::imports::GetEnvironmentStringsW() as void*;
-        if self.block == null {
-            self.done = true;
+        static if core::target::OS == core::target::Os::Windows {
+            self.cursor = null as const u8**;
+            self.block = win::imports::GetEnvironmentStringsW() as void*;
+            if self.block == null {
+                self.done = true;
+            }
+        } else {
+            self.cursor = saved_envp;
+            self.block = null as void*;
+            if (self.cursor as usize) == 0 {
+                self.done = true;
+            }
         }
-    } else {
-        self.cursor = saved_envp;
-        self.block = null as void*;
-        if (self.cursor as usize) == 0 {
-            self.done = true;
-        }
+
+        return self;
     }
-
-    return self;
 }
 
 Optional(Var) split_entry([] const u8 text) {
@@ -310,61 +326,67 @@ public Optional(Var) next(Vars* self) {
     }
 }
 
-public void close(Vars* self) {
-    self.done = true;
+static if core::target::OS != core::target::Os::Freestanding {
+    public void close(Vars* self) {
+        self.done = true;
 
-    static if core::target::OS == core::target::Os::Windows {
-        if self.block != null {
-            win::imports::FreeEnvironmentStringsW(
-                self.block as win::abi::Wchar*
-            );
+        static if core::target::OS == core::target::Os::Windows {
+            if self.block != null {
+                win::imports::FreeEnvironmentStringsW(
+                    self.block as win::abi::Wchar*
+                );
 
-            self.block = null as void*;
+                self.block = null as void*;
+            }
+        } else {
+            return;
         }
-    } else {
-        return;
     }
 }
 
-/// copies the value of `name` into `out` and returns the written
-/// subslice. reports `NotFound` when the variable is unset. the copy is
-/// deliberate: it gives one lifetime rule on both targets.
-public Result([] const u8, Error) get_var([] const u8 name, [] u8 out) {
-    Vars it = vars();
-    defer close(&it);
+static if core::target::OS != core::target::Os::Freestanding {
+    /// copies the value of `name` into `out` and returns the written
+    /// subslice. reports `NotFound` when the variable is unset. the copy is
+    /// deliberate: it gives one lifetime rule on both targets.
+    public Result([] const u8, Error) get_var([] const u8 name, [] u8 out) {
+        Vars it = vars();
+        defer close(&it);
 
-    while true {
-        Optional(Var) step = next(&it);
-        if step.is_none() {
-            break;
+        while true {
+            Optional(Var) step = next(&it);
+            if step.is_none() {
+                break;
+            }
+
+            Var entry = step.unwrap_some();
+            if !mem::equal(entry.name, name) {
+                continue;
+            }
+
+            if entry.value.len > out.len {
+                return Error::NameTooLong;
+            }
+
+            mem::copy(out[0..entry.value.len], entry.value);
+            return Result::Ok(out[0..entry.value.len] as [] const u8);
         }
 
-        Var entry = step.unwrap_some();
-        if !mem::equal(entry.name, name) {
-            continue;
-        }
-
-        if entry.value.len > out.len {
-            return Error::NameTooLong;
-        }
-
-        mem::copy(out[0..entry.value.len], entry.value);
-        return Result::Ok(out[0..entry.value.len] as [] const u8);
+        return Error::NotFound;
     }
-
-    return Error::NotFound;
 }
 
-public bool has_var([] const u8 name) {
-    u8[1] scratch;
-    Result([] const u8, Error) got = get_var(name, scratch[0..1]);
+static if core::target::OS != core::target::Os::Freestanding {
+    public bool has_var([] const u8 name) {
+        u8[1] scratch;
+        Result([] const u8, Error) got = get_var(name, scratch[0..1]);
 
-    if got.is_ok() {
-        return true;
+        if got.is_ok() {
+            return true;
+        }
+
+        // a value too long for the probe buffer still means the name is set
+        return got.unwrap_err() == Error::NameTooLong;
     }
-
-    // a value too long for the probe buffer still means the name is set
-    return got.unwrap_err() == Error::NameTooLong;
 }
 
 //!
@@ -375,65 +397,69 @@ public bool has_var([] const u8 name) {
 //! carry yourself.
 //!
 
-public Result([] const u8, Error) current_dir([] u8 out) {
-    static if core::target::OS == core::target::Os::Windows {
-        u16[4096] units;
-        win::abi::Dword got = win::imports::GetCurrentDirectoryW(
-            4096,
-            &units[0]
-        );
+static if core::target::OS != core::target::Os::Freestanding {
+    public Result([] const u8, Error) current_dir([] u8 out) {
+        static if core::target::OS == core::target::Os::Windows {
+            u16[4096] units;
+            win::abi::Dword got = win::imports::GetCurrentDirectoryW(
+                4096,
+                &units[0]
+            );
 
-        if got == 0 {
-            return Result::Err(error::from_win32(win::imports::GetLastError()));
+            if got == 0 {
+                return Result::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            if got as usize >= 4096 {
+                return Error::NameTooLong;
+            }
+
+            [] const u16 wide = slice::from_raw_const!u16(&units[0], got as usize);
+            usize n = path::from_wide(wide, out) ?;
+            return Result::Ok(out[0..n] as [] const u8);
+        } else {
+            isize ret = linux::syscall::getcwd(out);
+            if linux::abi::is_error(ret) {
+                return Result::Err(error::from_syscall(ret));
+            }
+
+            // getcwd counts the terminator; the caller wants the name
+            usize n = ret as usize;
+            if n == 0 {
+                return Error::Unexpected;
+            }
+
+            return Result::Ok(out[0..n - 1] as [] const u8);
         }
-
-        if got as usize >= 4096 {
-            return Error::NameTooLong;
-        }
-
-        [] const u16 wide = slice::from_raw_const!u16(&units[0], got as usize);
-        usize n = path::from_wide(wide, out) ?;
-        return Result::Ok(out[0..n] as [] const u8);
-    } else {
-        isize ret = linux::syscall::getcwd(out);
-        if linux::abi::is_error(ret) {
-            return Result::Err(error::from_syscall(ret));
-        }
-
-        // getcwd counts the terminator; the caller wants the name
-        usize n = ret as usize;
-        if n == 0 {
-            return Error::Unexpected;
-        }
-
-        return Result::Ok(out[0..n - 1] as [] const u8);
     }
 }
 
-public Status(Error) set_current_dir([] const u8 name) {
-    static if core::target::OS == core::target::Os::Windows {
-        path::PathW p;
-        path::to_pathw(name, &p) ?;
+static if core::target::OS != core::target::Os::Freestanding {
+    public Status(Error) set_current_dir([] const u8 name) {
+        static if core::target::OS == core::target::Os::Windows {
+            path::PathW p;
+            path::to_pathw(name, &p) ?;
 
-        win::abi::Bool ok = win::imports::SetCurrentDirectoryW(
-            path::wide_ptr(&p)
-        );
+            win::abi::Bool ok = win::imports::SetCurrentDirectoryW(
+                path::wide_ptr(&p)
+            );
 
-        if !win::abi::succeeded(ok) {
-            return Status::Err(error::from_win32(win::imports::GetLastError()));
+            if !win::abi::succeeded(ok) {
+                return Status::Err(error::from_win32(win::imports::GetLastError()));
+            }
+
+            return Status::Ok;
+        } else {
+            path::PathZ p;
+            path::to_pathz(name, &p) ?;
+
+            isize ret = linux::syscall::chdir(path::ptr(&p));
+            if linux::abi::is_error(ret) {
+                return Status::Err(error::from_syscall(ret));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        path::PathZ p;
-        path::to_pathz(name, &p) ?;
-
-        isize ret = linux::syscall::chdir(path::ptr(&p));
-        if linux::abi::is_error(ret) {
-            return Status::Err(error::from_syscall(ret));
-        }
-
-        return Status::Ok;
     }
 }
 
@@ -585,224 +611,228 @@ usize push_quoted([] u8 out, usize at, [] const u8 arg) {
     return n;
 }
 
-void redirect_fd(file::Handle fd, i32 target) {
-    static if core::target::OS == core::target::Os::Windows {
-        return;
-    } else {
-        if fd == STDIO_INHERIT {
+static if core::target::OS != core::target::Os::Freestanding {
+    void redirect_fd(file::Handle fd, i32 target) {
+        static if core::target::OS == core::target::Os::Windows {
             return;
-        }
+        } else {
+            if fd == STDIO_INHERIT {
+                return;
+            }
 
-        if fd == target as file::Handle {
-            return;
-        }
+            if fd == target as file::Handle {
+                return;
+            }
 
-        linux::syscall::dup3(fd as linux::abi::Fd, target, 0);
-        linux::syscall::close(fd as linux::abi::Fd);
+            linux::syscall::dup3(fd as linux::abi::Fd, target, 0);
+            linux::syscall::close(fd as linux::abi::Fd);
+        }
     }
 }
 
-/// spawns `cmd`. stdio handles that are not `STDIO_INHERIT` become the
-/// child's standard streams; on Windows they must be inheritable (see
-/// `pipe::create_inheritable`). the parent keeps its own copies and must
-/// close the ends it does not use. the environment is inherited.
-///
-/// `alloc` backs the argument vector only, and everything taken from it
-/// is released before this returns.
-public Result(Child, Error) spawn(
-    const mem::Allocator* alloc,
-    const Command* cmd
-) {
-    if cmd.program.len == 0 || has_nul(cmd.program) {
-        return Result::Err(Error::InvalidArgument);
-    }
-
-    for usize i = 0; i < cmd.args.len; i++ {
-        if has_nul(cmd.args[i]) {
+static if core::target::OS != core::target::Os::Freestanding {
+    /// spawns `cmd`. stdio handles that are not `STDIO_INHERIT` become the
+    /// child's standard streams; on Windows they must be inheritable (see
+    /// `pipe::create_inheritable`). the parent keeps its own copies and must
+    /// close the ends it does not use. the environment is inherited.
+    ///
+    /// `alloc` backs the argument vector only, and everything taken from it
+    /// is released before this returns.
+    public Result(Child, Error) spawn(
+        const mem::Allocator* alloc,
+        const Command* cmd
+    ) {
+        if cmd.program.len == 0 || has_nul(cmd.program) {
             return Result::Err(Error::InvalidArgument);
         }
-    }
 
-    static if core::target::OS == core::target::Os::Windows {
-        usize bound = quote_bound(cmd.program);
         for usize i = 0; i < cmd.args.len; i++ {
-            bound = bound + quote_bound(cmd.args[i]) + 1;
+            if has_nul(cmd.args[i]) {
+                return Result::Err(Error::InvalidArgument);
+            }
         }
 
-        Result([] u8, mem::AllocError) narrow_slot = alloc.raw_alloc(bound, 1);
-        if narrow_slot.is_err() {
-            return Error::OutOfMemory;
-        }
+        static if core::target::OS == core::target::Os::Windows {
+            usize bound = quote_bound(cmd.program);
+            for usize i = 0; i < cmd.args.len; i++ {
+                bound = bound + quote_bound(cmd.args[i]) + 1;
+            }
 
-        [] u8 narrow = narrow_slot.unwrap();
-        defer alloc.raw_free(narrow, 1);
+            Result([] u8, mem::AllocError) narrow_slot = alloc.raw_alloc(bound, 1);
+            if narrow_slot.is_err() {
+                return Error::OutOfMemory;
+            }
 
-        usize n = push_quoted(narrow, 0, cmd.program);
-        for usize i = 0; i < cmd.args.len; i++ {
-            narrow[n] = ' ' as u8;
-            n++;
-            n = push_quoted(narrow, n, cmd.args[i]);
-        }
+            [] u8 narrow = narrow_slot.unwrap();
+            defer alloc.raw_free(narrow, 1);
 
-        // one UTF-16 unit per UTF-8 byte is always enough, plus the NUL
-        Result([] u8, mem::AllocError) wide_slot = alloc.raw_alloc(
-            (n + 1) * 2,
-            alignof (u16)
-        );
-        if wide_slot.is_err() {
-            return Error::OutOfMemory;
-        }
+            usize n = push_quoted(narrow, 0, cmd.program);
+            for usize i = 0; i < cmd.args.len; i++ {
+                narrow[n] = ' ' as u8;
+                n++;
+                n = push_quoted(narrow, n, cmd.args[i]);
+            }
 
-        [] u8 wide_bytes = wide_slot.unwrap();
-        defer alloc.raw_free(wide_bytes, alignof (u16));
-
-        [] u16 wide = slice::from_raw(wide_bytes.ptr as u16*, n + 1);
-        path::to_wide(narrow[0..n], wide) ?;
-
-        win::abi::StartupInfoW si;
-        si.cb = sizeof (win::abi::StartupInfoW) as u32;
-        si.reserved = null as win::abi::Wchar*;
-        si.desktop = null as win::abi::Wchar*;
-        si.title = null as win::abi::Wchar*;
-        si.x = 0;
-        si.y = 0;
-        si.x_size = 0;
-        si.y_size = 0;
-        si.x_count_chars = 0;
-        si.y_count_chars = 0;
-        si.fill_attribute = 0;
-        si.flags = 0;
-        si.show_window = 0;
-        si.reserved2_len = 0;
-        si.reserved2 = null as win::abi::Byte*;
-        si.std_input = win::imports::GetStdHandle(
-            win::abi::STD_INPUT_HANDLE
-        );
-        si.std_output = win::imports::GetStdHandle(
-            win::abi::STD_OUTPUT_HANDLE
-        );
-        si.std_error = win::imports::GetStdHandle(
-            win::abi::STD_ERROR_HANDLE
-        );
-
-        if cmd.stdio.input != STDIO_INHERIT {
-            si.std_input = cmd.stdio.input as win::abi::Handle;
-            si.flags = win::abi::STARTF_USESTDHANDLES;
-        }
-
-        if cmd.stdio.output != STDIO_INHERIT {
-            si.std_output = cmd.stdio.output as win::abi::Handle;
-            si.flags = win::abi::STARTF_USESTDHANDLES;
-        }
-
-        if cmd.stdio.error != STDIO_INHERIT {
-            si.std_error = cmd.stdio.error as win::abi::Handle;
-            si.flags = win::abi::STARTF_USESTDHANDLES;
-        }
-
-        win::abi::ProcessInformation pi;
-        win::abi::Bool ok = win::imports::CreateProcessW(
-            null,
-            &wide[0],
-            null,
-            null,
-            win::abi::TRUE,
-            0,
-            null,
-            null,
-            &si,
-            &pi
-        );
-
-        if !win::abi::succeeded(ok) {
-            return Result::Err(
-                error::from_win32(win::imports::GetLastError())
+            // one UTF-16 unit per UTF-8 byte is always enough, plus the NUL
+            Result([] u8, mem::AllocError) wide_slot = alloc.raw_alloc(
+                (n + 1) * 2,
+                alignof (u16)
             );
-        }
+            if wide_slot.is_err() {
+                return Error::OutOfMemory;
+            }
 
-        Child c;
-        c.pid = pi.process_id as usize;
-        c.process = pi.process;
-        c.thread = pi.thread;
-        c.waited = 0;
-        c.reserved = 0;
-        return Result::Ok(c);
-    } else {
-        usize blob_len = cmd.program.len + 1;
-        for usize i = 0; i < cmd.args.len; i++ {
-            blob_len = blob_len + cmd.args[i].len + 1;
-        }
+            [] u8 wide_bytes = wide_slot.unwrap();
+            defer alloc.raw_free(wide_bytes, alignof (u16));
 
-        Result([] u8, mem::AllocError) blob_slot = alloc.raw_alloc(blob_len, 1);
-        if blob_slot.is_err() {
-            return Error::OutOfMemory;
-        }
+            [] u16 wide = slice::from_raw(wide_bytes.ptr as u16*, n + 1);
+            path::to_wide(narrow[0..n], wide) ?;
 
-        [] u8 blob = blob_slot.unwrap();
-        defer alloc.raw_free(blob, 1);
-
-        Result([] u8, mem::AllocError) vec_slot = alloc.raw_alloc(
-            (cmd.args.len + 2) * sizeof (void*),
-            alignof (void*)
-        );
-        if vec_slot.is_err() {
-            return Error::OutOfMemory;
-        }
-
-        [] u8 vec_bytes = vec_slot.unwrap();
-        defer alloc.raw_free(vec_bytes, alignof (void*));
-
-        const u8** vec = vec_bytes.ptr as const u8**;
-
-        usize at = 0;
-        mem::copy(blob[at..at + cmd.program.len], cmd.program);
-        blob[at + cmd.program.len] = 0;
-        vec[0] = &blob[at] as const u8*;
-        at = at + cmd.program.len + 1;
-
-        for usize i = 0; i < cmd.args.len; i++ {
-            [] const u8 arg = cmd.args[i];
-            mem::copy(blob[at..at + arg.len], arg);
-            blob[at + arg.len] = 0;
-            vec[i + 1] = &blob[at] as const u8*;
-            at = at + arg.len + 1;
-        }
-
-        vec[cmd.args.len + 1] = null as const u8*;
-
-        const u8** envp = saved_envp;
-        if (envp as usize) == 0 {
-            envp = &empty_env as const u8**;
-        }
-
-        isize r = linux::syscall::clone(linux::abi::SIGCHLD, 0, 0, 0, 0);
-        if linux::abi::is_error(r) {
-            return Result::Err(error::from_syscall(r));
-        }
-
-        if r == 0 {
-            // the child reaches execve or exit_group, never a return, so
-            // the defers above are a parent-only concern
-            redirect_fd(cmd.stdio.input, 0);
-            redirect_fd(cmd.stdio.output, 1);
-            redirect_fd(cmd.stdio.error, 2);
-            linux::syscall::execve(
-                vec[0],
-                vec,
-                envp
+            win::abi::StartupInfoW si;
+            si.cb = sizeof (win::abi::StartupInfoW) as u32;
+            si.reserved = null as win::abi::Wchar*;
+            si.desktop = null as win::abi::Wchar*;
+            si.title = null as win::abi::Wchar*;
+            si.x = 0;
+            si.y = 0;
+            si.x_size = 0;
+            si.y_size = 0;
+            si.x_count_chars = 0;
+            si.y_count_chars = 0;
+            si.fill_attribute = 0;
+            si.flags = 0;
+            si.show_window = 0;
+            si.reserved2_len = 0;
+            si.reserved2 = null as win::abi::Byte*;
+            si.std_input = win::imports::GetStdHandle(
+                win::abi::STD_INPUT_HANDLE
             );
-            linux::syscall::exit_group(127);
+            si.std_output = win::imports::GetStdHandle(
+                win::abi::STD_OUTPUT_HANDLE
+            );
+            si.std_error = win::imports::GetStdHandle(
+                win::abi::STD_ERROR_HANDLE
+            );
 
-            while true {}
+            if cmd.stdio.input != STDIO_INHERIT {
+                si.std_input = cmd.stdio.input as win::abi::Handle;
+                si.flags = win::abi::STARTF_USESTDHANDLES;
+            }
+
+            if cmd.stdio.output != STDIO_INHERIT {
+                si.std_output = cmd.stdio.output as win::abi::Handle;
+                si.flags = win::abi::STARTF_USESTDHANDLES;
+            }
+
+            if cmd.stdio.error != STDIO_INHERIT {
+                si.std_error = cmd.stdio.error as win::abi::Handle;
+                si.flags = win::abi::STARTF_USESTDHANDLES;
+            }
+
+            win::abi::ProcessInformation pi;
+            win::abi::Bool ok = win::imports::CreateProcessW(
+                null,
+                &wide[0],
+                null,
+                null,
+                win::abi::TRUE,
+                0,
+                null,
+                null,
+                &si,
+                &pi
+            );
+
+            if !win::abi::succeeded(ok) {
+                return Result::Err(
+                    error::from_win32(win::imports::GetLastError())
+                );
+            }
+
+            Child c;
+            c.pid = pi.process_id as usize;
+            c.process = pi.process;
+            c.thread = pi.thread;
+            c.waited = 0;
+            c.reserved = 0;
+            return Result::Ok(c);
+        } else {
+            usize blob_len = cmd.program.len + 1;
+            for usize i = 0; i < cmd.args.len; i++ {
+                blob_len = blob_len + cmd.args[i].len + 1;
+            }
+
+            Result([] u8, mem::AllocError) blob_slot = alloc.raw_alloc(blob_len, 1);
+            if blob_slot.is_err() {
+                return Error::OutOfMemory;
+            }
+
+            [] u8 blob = blob_slot.unwrap();
+            defer alloc.raw_free(blob, 1);
+
+            Result([] u8, mem::AllocError) vec_slot = alloc.raw_alloc(
+                (cmd.args.len + 2) * sizeof (void*),
+                alignof (void*)
+            );
+            if vec_slot.is_err() {
+                return Error::OutOfMemory;
+            }
+
+            [] u8 vec_bytes = vec_slot.unwrap();
+            defer alloc.raw_free(vec_bytes, alignof (void*));
+
+            const u8** vec = vec_bytes.ptr as const u8**;
+
+            usize at = 0;
+            mem::copy(blob[at..at + cmd.program.len], cmd.program);
+            blob[at + cmd.program.len] = 0;
+            vec[0] = &blob[at] as const u8*;
+            at = at + cmd.program.len + 1;
+
+            for usize i = 0; i < cmd.args.len; i++ {
+                [] const u8 arg = cmd.args[i];
+                mem::copy(blob[at..at + arg.len], arg);
+                blob[at + arg.len] = 0;
+                vec[i + 1] = &blob[at] as const u8*;
+                at = at + arg.len + 1;
+            }
+
+            vec[cmd.args.len + 1] = null as const u8*;
+
+            const u8** envp = saved_envp;
+            if (envp as usize) == 0 {
+                envp = &empty_env as const u8**;
+            }
+
+            isize r = linux::syscall::clone(linux::abi::SIGCHLD, 0, 0, 0, 0);
+            if linux::abi::is_error(r) {
+                return Result::Err(error::from_syscall(r));
+            }
+
+            if r == 0 {
+                // the child reaches execve or exit_group, never a return, so
+                // the defers above are a parent-only concern
+                redirect_fd(cmd.stdio.input, 0);
+                redirect_fd(cmd.stdio.output, 1);
+                redirect_fd(cmd.stdio.error, 2);
+                linux::syscall::execve(
+                    vec[0],
+                    vec,
+                    envp
+                );
+                linux::syscall::exit_group(127);
+
+                while true {}
+            }
+
+            Child c;
+            c.pid = r as usize;
+            c.process = null as void*;
+            c.thread = null as void*;
+            c.waited = 0;
+            c.reserved = 0;
+            return Result::Ok(c);
         }
-
-        Child c;
-        c.pid = r as usize;
-        c.process = null as void*;
-        c.thread = null as void*;
-        c.waited = 0;
-        c.reserved = 0;
-        return Result::Ok(c);
     }
 }
 
@@ -818,166 +848,172 @@ ExitStatus decode_status(i32 status) {
     return st;
 }
 
-/// waits for the child, reaps it, and releases its handles. each child
-/// must be waited exactly once; waiting again reports `BadHandle`.
-/// always wait after `kill`: killing does not reap.
-public Result(ExitStatus, Error) wait(Child* self) {
-    if self.waited != 0 {
-        return Result::Err(Error::BadHandle);
+static if core::target::OS != core::target::Os::Freestanding {
+    /// waits for the child, reaps it, and releases its handles. each child
+    /// must be waited exactly once; waiting again reports `BadHandle`.
+    /// always wait after `kill`: killing does not reap.
+    public Result(ExitStatus, Error) wait(Child* self) {
+        if self.waited != 0 {
+            return Result::Err(Error::BadHandle);
+        }
+
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Dword r = win::imports::WaitForSingleObject(
+                self.process as win::abi::Handle,
+                win::abi::INFINITE
+            );
+
+            if r != win::abi::WAIT_OBJECT_0 {
+                return Result::Err(
+                    error::from_win32(win::imports::GetLastError())
+                );
+            }
+
+            win::abi::Dword code = 0;
+            win::abi::Bool ok = win::imports::GetExitCodeProcess(
+                self.process as win::abi::Handle,
+                &code
+            );
+
+            if !win::abi::succeeded(ok) {
+                return Result::Err(
+                    error::from_win32(win::imports::GetLastError())
+                );
+            }
+
+            win::imports::CloseHandle(self.thread as win::abi::Handle);
+            win::imports::CloseHandle(self.process as win::abi::Handle);
+            self.waited = 1;
+
+            ExitStatus st;
+            st.code = code as i32;
+            return Result::Ok(st);
+        } else {
+            i32 status = 0;
+
+            while true {
+                isize r = linux::syscall::wait4(
+                    self.pid as linux::abi::Pid,
+                    &status,
+                    0
+                );
+
+                if !linux::abi::is_error(r) {
+                    self.waited = 1;
+                    return Result::Ok(decode_status(status));
+                }
+
+                if linux::abi::errno_of(r) != linux::abi::EINTR {
+                    return Result::Err(error::from_syscall(r));
+                }
+            }
+        }
     }
+}
 
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Dword r = win::imports::WaitForSingleObject(
-            self.process as win::abi::Handle,
-            win::abi::INFINITE
-        );
-
-        if r != win::abi::WAIT_OBJECT_0 {
-            return Result::Err(
-                error::from_win32(win::imports::GetLastError())
-            );
+static if core::target::OS != core::target::Os::Freestanding {
+    /// polls once. `None` means still running; like `wait`, a finished child
+    /// is reaped and must not be waited again.
+    public Result(Optional(ExitStatus), Error) try_wait(Child* self) {
+        if self.waited != 0 {
+            return Result::Err(Error::BadHandle);
         }
 
-        win::abi::Dword code = 0;
-        win::abi::Bool ok = win::imports::GetExitCodeProcess(
-            self.process as win::abi::Handle,
-            &code
-        );
-
-        if !win::abi::succeeded(ok) {
-            return Result::Err(
-                error::from_win32(win::imports::GetLastError())
-            );
-        }
-
-        win::imports::CloseHandle(self.thread as win::abi::Handle);
-        win::imports::CloseHandle(self.process as win::abi::Handle);
-        self.waited = 1;
-
-        ExitStatus st;
-        st.code = code as i32;
-        return Result::Ok(st);
-    } else {
-        i32 status = 0;
-
-        while true {
-            isize r = linux::syscall::wait4(
-                self.pid as linux::abi::Pid,
-                &status,
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Dword r = win::imports::WaitForSingleObject(
+                self.process as win::abi::Handle,
                 0
             );
 
-            if !linux::abi::is_error(r) {
-                self.waited = 1;
-                return Result::Ok(decode_status(status));
-            }
-
-            if linux::abi::errno_of(r) != linux::abi::EINTR {
-                return Result::Err(error::from_syscall(r));
-            }
-        }
-    }
-}
-
-/// polls once. `None` means still running; like `wait`, a finished child
-/// is reaped and must not be waited again.
-public Result(Optional(ExitStatus), Error) try_wait(Child* self) {
-    if self.waited != 0 {
-        return Result::Err(Error::BadHandle);
-    }
-
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Dword r = win::imports::WaitForSingleObject(
-            self.process as win::abi::Handle,
-            0
-        );
-
-        if r == win::abi::WAIT_TIMEOUT {
-            return Result::Ok(Optional::None);
-        }
-
-        if r != win::abi::WAIT_OBJECT_0 {
-            return Result::Err(
-                error::from_win32(win::imports::GetLastError())
-            );
-        }
-
-        win::abi::Dword code = 0;
-        win::abi::Bool ok = win::imports::GetExitCodeProcess(
-            self.process as win::abi::Handle,
-            &code
-        );
-
-        if !win::abi::succeeded(ok) {
-            return Result::Err(
-                error::from_win32(win::imports::GetLastError())
-            );
-        }
-
-        win::imports::CloseHandle(self.thread as win::abi::Handle);
-        win::imports::CloseHandle(self.process as win::abi::Handle);
-        self.waited = 1;
-
-        ExitStatus st;
-        st.code = code as i32;
-        return Result::Ok(Optional::Some(st));
-    } else {
-        i32 status = 0;
-
-        while true {
-            isize r = linux::syscall::wait4(
-                self.pid as linux::abi::Pid,
-                &status,
-                linux::abi::WNOHANG
-            );
-
-            if r == 0 {
+            if r == win::abi::WAIT_TIMEOUT {
                 return Result::Ok(Optional::None);
             }
 
-            if !linux::abi::is_error(r) {
-                self.waited = 1;
-                return Result::Ok(Optional::Some(decode_status(status)));
+            if r != win::abi::WAIT_OBJECT_0 {
+                return Result::Err(
+                    error::from_win32(win::imports::GetLastError())
+                );
             }
 
-            if linux::abi::errno_of(r) != linux::abi::EINTR {
-                return Result::Err(error::from_syscall(r));
+            win::abi::Dword code = 0;
+            win::abi::Bool ok = win::imports::GetExitCodeProcess(
+                self.process as win::abi::Handle,
+                &code
+            );
+
+            if !win::abi::succeeded(ok) {
+                return Result::Err(
+                    error::from_win32(win::imports::GetLastError())
+                );
+            }
+
+            win::imports::CloseHandle(self.thread as win::abi::Handle);
+            win::imports::CloseHandle(self.process as win::abi::Handle);
+            self.waited = 1;
+
+            ExitStatus st;
+            st.code = code as i32;
+            return Result::Ok(Optional::Some(st));
+        } else {
+            i32 status = 0;
+
+            while true {
+                isize r = linux::syscall::wait4(
+                    self.pid as linux::abi::Pid,
+                    &status,
+                    linux::abi::WNOHANG
+                );
+
+                if r == 0 {
+                    return Result::Ok(Optional::None);
+                }
+
+                if !linux::abi::is_error(r) {
+                    self.waited = 1;
+                    return Result::Ok(Optional::Some(decode_status(status)));
+                }
+
+                if linux::abi::errno_of(r) != linux::abi::EINTR {
+                    return Result::Err(error::from_syscall(r));
+                }
             }
         }
     }
 }
 
-/// asks the child to terminate. the signal is honored on Linux and
-/// ignored on Windows, where termination is unconditional. does not
-/// reap: `wait` afterwards.
-public Status(Error) kill(Child* self, i32 signal) {
-    if self.waited != 0 {
-        return Status::Err(Error::BadHandle);
-    }
+static if core::target::OS != core::target::Os::Freestanding {
+    /// asks the child to terminate. the signal is honored on Linux and
+    /// ignored on Windows, where termination is unconditional. does not
+    /// reap: `wait` afterwards.
+    public Status(Error) kill(Child* self, i32 signal) {
+        if self.waited != 0 {
+            return Status::Err(Error::BadHandle);
+        }
 
-    static if core::target::OS == core::target::Os::Windows {
-        win::abi::Bool ok = win::imports::TerminateProcess(
-            self.process as win::abi::Handle,
-            1 as u32
-        );
-
-        if !win::abi::succeeded(ok) {
-            return Status::Err(
-                error::from_win32(win::imports::GetLastError())
+        static if core::target::OS == core::target::Os::Windows {
+            win::abi::Bool ok = win::imports::TerminateProcess(
+                self.process as win::abi::Handle,
+                1 as u32
             );
+
+            if !win::abi::succeeded(ok) {
+                return Status::Err(
+                    error::from_win32(win::imports::GetLastError())
+                );
+            }
+
+            return Status::Ok;
+        } else {
+            isize r = linux::syscall::kill(
+                self.pid as linux::abi::Pid,
+                signal
+            );
+
+            if linux::abi::is_error(r) {
+                return Status::Err(error::from_syscall(r));
+            }
+
+            return Status::Ok;
         }
-
-        return Status::Ok;
-    } else {
-        isize r = linux::syscall::kill(
-            self.pid as linux::abi::Pid,
-            signal
-        );
-
-        if linux::abi::is_error(r) {
-            return Status::Err(error::from_syscall(r));
-        }
-
-        return Status::Ok;
     }
 }
