@@ -164,7 +164,22 @@ namespace dcc::backend
                         artifact.diagnostics.push_back(BackendDiagnostic{diag.where, "custom backend: " + diag.message});
                     if (!asm_diags.empty())
                         return artifact;
+
                     em64t::regalloc(mfunc, opts.target);
+                    if (opts.target.no_simd)
+                    {
+                        for (auto const& block : mfunc.blocks)
+                            for (auto const& inst : block.instrs)
+                                for (unsigned i = 0; i < inst.num_ops; ++i)
+                                    if (inst.ops[i].kind == em64t::MOpKind::Reg && inst.ops[i].reg.is_physical() &&
+                                        em64t::reg_class(inst.ops[i].reg.phys_reg()) == em64t::RegClass::XMM)
+                                    {
+                                        artifact.diagnostics.push_back(
+                                            BackendDiagnostic{.where = {}, .message = "custom backend: floating-point or SIMD operation requires SIMD"});
+                                        return artifact;
+                                    }
+                    }
+
                     em64t::frame_layout(mfunc, opts.target);
                     mfuncs.push_back(std::move(mfunc));
                 }
