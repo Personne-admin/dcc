@@ -10,4 +10,4 @@ if gh release view "$tag" >/dev/null 2>&1; then
     echo "error: release $tag already exists" >&2
     exit 1
 fi
-gh release create "$tag" --verify-tag --title "dcc ${tag#v}" --notes-file RELEASE_NOTES.md "${assets[@]}" SHA256SUMS
+gh release create "$tag" --verify-tag --draft --title "dcc ${tag#v}" --notes-file RELEASE_NOTES.md "${assets[@]}" SHA256SUMS
