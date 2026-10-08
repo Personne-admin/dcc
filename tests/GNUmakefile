@@ -3,7 +3,7 @@ include $(RULES_MK)
 
 LOCAL_CXXFLAGS := $(LLVM_DEFS) $(LLVM_CXXFLAGS)
 
-.PHONY: all test test-lsp-diagnostics clean
+.PHONY: all test test-lsp-diagnostics test-i8086 clean
 
 COMPILER_LIB := $(BUILD_DIR)/lib/libcompiler.a
 
@@ -79,6 +79,9 @@ DCDOC_OBJS := \
 
 all: test
 
+test-i8086:
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py
+
 test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
 
@@ -103,6 +106,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_prefix_map.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_codegen_determinism.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_mem2reg.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \
