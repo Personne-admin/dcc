@@ -40,6 +40,12 @@ export namespace dcc::backend::x86
         XMM13,
         XMM14,
         XMM15,
+        ES,
+        CS,
+        SS,
+        DS,
+        FS,
+        GS,
         None,
         Count,
     };
@@ -48,6 +54,7 @@ export namespace dcc::backend::x86
     {
         GPR,
         XMM,
+        Segment,
     };
 
     [[nodiscard]] RegClass reg_class(PhysReg r) noexcept
@@ -58,6 +65,9 @@ export namespace dcc::backend::x86
 
         if (v >= static_cast<std::uint8_t>(PhysReg::XMM0) && v <= static_cast<std::uint8_t>(PhysReg::XMM15))
             return RegClass::XMM;
+
+        if (v >= static_cast<std::uint8_t>(PhysReg::ES) && v <= static_cast<std::uint8_t>(PhysReg::GS))
+            return RegClass::Segment;
 
         return RegClass::GPR;
     }
@@ -1443,21 +1453,34 @@ export namespace dcc::backend::x86
                 return "xmm14"sv;
             case PhysReg::XMM15:
                 return "xmm15"sv;
+            case PhysReg::ES:
+                return "es"sv;
+            case PhysReg::CS:
+                return "cs"sv;
+            case PhysReg::SS:
+                return "ss"sv;
+            case PhysReg::DS:
+                return "ds"sv;
+            case PhysReg::FS:
+                return "fs"sv;
+            case PhysReg::GS:
+                return "gs"sv;
         }
         return "?reg?"sv;
     }
 
-    [[nodiscard]] std::string_view reg_class_name(RegClass rc)
+    [[nodiscard]] std::string reg_class_name(RegClass rc, unsigned bits)
     {
-        using namespace std::literals;
         switch (rc)
         {
             case RegClass::GPR:
-                return "GPR64"sv;
+                return std::format("GPR{}", bits);
             case RegClass::XMM:
-                return "XMM"sv;
+                return "XMM";
+            case RegClass::Segment:
+                return std::format("SEG{}", bits);
         }
-        return "?"sv;
+        return "?";
     }
 
     [[nodiscard]] std::string format_vreg(VReg vreg)

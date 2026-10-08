@@ -82,6 +82,8 @@ namespace
         auto v = static_cast<std::uint8_t>(r);
         if (v >= static_cast<std::uint8_t>(PhysReg::XMM0) && v <= static_cast<std::uint8_t>(PhysReg::XMM15))
             return v - static_cast<std::uint8_t>(PhysReg::XMM0);
+        if (v >= static_cast<std::uint8_t>(PhysReg::ES) && v <= static_cast<std::uint8_t>(PhysReg::GS))
+            return v - static_cast<std::uint8_t>(PhysReg::ES);
         return v;
     }
 
