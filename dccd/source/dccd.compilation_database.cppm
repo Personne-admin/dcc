@@ -375,12 +375,13 @@ namespace dccd
                 continue;
             }
 
-            if ((arg == "-o" || arg == "--depfile" || arg == "-mcmodel" || arg == "-fbackend" || arg == "-farch") && i + 1 < argv.size())
+            if ((arg == "-o" || arg == "--depfile" || arg == "--compdb-entry" || arg == "-mcmodel" || arg == "-fbackend" || arg == "-farch") &&
+                i + 1 < argv.size())
             {
                 ++i;
                 continue;
             }
-            if (arg.starts_with("-mcmodel=") || arg.starts_with("-fbackend=") || arg.starts_with("-farch="))
+            if (arg.starts_with("--compdb-entry=") || arg.starts_with("-mcmodel=") || arg.starts_with("-fbackend=") || arg.starts_with("-farch="))
                 continue;
 
             if (detail::is_known_irrelevant_flag(arg))

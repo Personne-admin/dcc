@@ -34,6 +34,8 @@ import dcc.backend.em64t.objwriter;
 #include <windows.h>
 #endif
 
+#include "compdb.hh"
+
 #include <array>
 #include <cstdio>
 
@@ -66,6 +68,8 @@ namespace
         std::vector<std::filesystem::path> input_files;
         std::filesystem::path output_file;
         std::optional<std::filesystem::path> depfile;
+        std::optional<std::filesystem::path> compdb_entry;
+        std::optional<std::filesystem::path> merge_compdb;
         std::vector<std::filesystem::path> import_paths;
         std::vector<std::string> file_prefix_maps;
         bool dump_ast{false};
@@ -194,6 +198,11 @@ namespace
          "build a shared library (.so / .dll)",
          "",
          [](Options& o, bool on, std::string_view, char**) { o.shared_library = on; }},
+
+        {"--compdb-entry", "", {}, Arg::Required, "<file>", {}, Phase::Compile, "write a JSON compilation database entry", "",
+         [](Options& o, bool, std::string_view v, char**) { o.compdb_entry = std::filesystem::path{v}; }},
+        {"--merge-compdb", "", {}, Arg::Required, "<out>", {}, Phase::Immediate, "merge JSON entry files into a compilation database", "",
+         [](Options& o, bool, std::string_view v, char**) { o.merge_compdb = std::filesystem::path{v}; }},
 
         {"--depfile",
          "",
@@ -524,7 +533,7 @@ namespace
 
         {"-fdump-llvm", "", {}, Arg::None, "", {}, Phase::Compile, "dump LLVM IR", "", [](Options& o, bool on, std::string_view, char**) { o.dump_llvm = on; }},
 
-        {"-fdump-mir", "", {}, Arg::None, "", {}, Phase::Compile, "dump em64t MIR", "", [](Options& o, bool on, std::string_view, char**) { o.dump_mir = on; }},
+        {"-fdump-mir", "", {}, Arg::None, "", {}, Phase::Compile, "dump custom backend MIR", "", [](Options& o, bool on, std::string_view, char**) { o.dump_mir = on; }},
 
         {"-h", "", k_alias_help, Arg::None, "", {}, Phase::Immediate, "show this help", "", [](Options& o, bool, std::string_view, char**) { o.help = true; }},
 
@@ -862,6 +871,7 @@ namespace
 
         std::println("usage: dcc [options] <input-file>");
         std::println("       dcc -o <output> <input1.o> [<input2.o> ...] [link options]");
+        std::println("       dcc --merge-compdb <out> [<entry files> ...]");
         std::println("");
         std::println("options:");
 
@@ -1418,7 +1428,7 @@ namespace
         return !ec_a && !ec_b && ca == cb;
     }
 
-    bool write_depfile_atomic(std::filesystem::path const& dest, std::string_view content)
+    bool write_file_atomic(std::filesystem::path const& dest, std::string_view content)
     {
         auto parent = dest.parent_path();
         static std::atomic<int> s_temp_seq{0};
@@ -1529,6 +1539,93 @@ namespace
 #endif
     }
 
+    int merge_compdb(Options const& opts)
+    {
+        std::map<std::pair<std::string, std::string>, compdb::Entry> entries;
+        for (auto const& path : opts.input_files)
+        {
+            std::error_code ec;
+            if (!std::filesystem::is_regular_file(path, ec))
+            {
+                std::println(std::cerr, "dcc: error: cannot read compilation database entry '{}'", path.string());
+                return 1;
+            }
+            std::ifstream in(path, std::ios::binary);
+            std::string content((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            if (!in.is_open() || in.bad())
+            {
+                std::println(std::cerr, "dcc: error: cannot read compilation database entry '{}'", path.string());
+                return 1;
+            }
+            auto entry = compdb::Parser(content).parse();
+            if (!entry)
+            {
+                std::println(std::cerr, "dcc: error: invalid compilation database entry '{}': expected directory, file, arguments (string array), and output",
+                             path.string());
+                return 1;
+            }
+            entry->directory = compdb::absolute(entry->directory);
+            entry->file = compdb::absolute(entry->file, entry->directory);
+            entry->output = compdb::absolute(entry->output, entry->directory);
+            auto key = std::pair{entry->file, entry->output};
+            entries.insert_or_assign(std::move(key), std::move(*entry));
+        }
+        std::string content = "[";
+        bool first = true;
+        for (auto const& [key, entry] : entries)
+        {
+            if (!first)
+                content += ',';
+            first = false;
+            content += "\n" + compdb::serialize(entry);
+        }
+        content += "\n]\n";
+        if (!write_file_atomic(*opts.merge_compdb, content))
+        {
+            std::println(std::cerr, "dcc: error: cannot write compilation database '{}'", opts.merge_compdb->string());
+            return 1;
+        }
+        return 0;
+    }
+
+    bool emit_compdb(Options const& opts, std::filesystem::path const& input, std::filesystem::path const& output, dcc::sema::ModuleInfo const* root,
+                     dcc::sema::ModuleGraph const& graph, dcc::sm::SourceManager const& sm, int argc, char** argv)
+    {
+        if (!opts.compdb_entry)
+            return true;
+        if (output.empty())
+        {
+            std::println(std::cerr, "dcc: error: --compdb-entry requires a filesystem output artifact");
+            return false;
+        }
+        auto deps = collect_depfile_dependencies(root, graph, sm);
+        for (auto const& dep : deps)
+        {
+            if (same_file_path(*opts.compdb_entry, dep))
+            {
+                std::println(std::cerr, "dcc: error: --compdb-entry destination '{}' is the same as an input source file '{}'", opts.compdb_entry->string(),
+                             dep.string());
+                return false;
+            }
+        }
+        compdb::Entry entry{compdb::absolute(std::filesystem::current_path()), compdb::absolute(input), {}, compdb::absolute(output)};
+        for (int i = 0; i < argc; ++i)
+            entry.arguments.emplace_back(argv[i]);
+        auto content = compdb::serialize(entry) + "\n";
+        if (!compdb::Parser(content).parse())
+        {
+            std::println(std::cerr, "dcc: error: cannot encode compilation database entry '{}': paths and arguments must be valid UTF-8",
+                         opts.compdb_entry->string());
+            return false;
+        }
+        if (!write_file_atomic(*opts.compdb_entry, content))
+        {
+            std::println(std::cerr, "dcc: error: cannot write compilation database entry '{}'", opts.compdb_entry->string());
+            return false;
+        }
+        return true;
+    }
+
     bool emit_depfile(std::filesystem::path const& depfile_path, std::filesystem::path const& target_path, dcc::sema::ModuleInfo const* root,
                       dcc::sema::ModuleGraph const& graph, dcc::sm::SourceManager const& sm)
     {
@@ -1563,7 +1660,7 @@ namespace
             return false;
         }
 
-        if (!write_depfile_atomic(depfile_path, *rule))
+        if (!write_file_atomic(depfile_path, *rule))
         {
             std::println(std::cerr, "dcc: error: cannot write dependency file '{}'", depfile_path.string());
             return false;
@@ -1908,6 +2005,9 @@ auto main(int argc, char** argv) -> int
 {
     auto opts = parse_args(argc, argv);
 
+    if (opts.merge_compdb && !opts.help)
+        return merge_compdb(opts);
+
     if (opts.help || opts.input_files.empty())
     {
         print_usage();
@@ -1924,7 +2024,14 @@ auto main(int argc, char** argv) -> int
     }
 
     if (all_objects)
+    {
+        if (opts.compdb_entry)
+        {
+            std::println(std::cerr, "dcc: error: --compdb-entry requires source compilation");
+            return 1;
+        }
         return run_link_mode(opts, argv);
+    }
 
     if (opts.input_files.size() > 1)
     {
@@ -1953,6 +2060,12 @@ auto main(int argc, char** argv) -> int
         }
     }
 
+    if (opts.compdb_entry && !writes_output_artifact(opts))
+    {
+        std::println(std::cerr, "dcc: error: --compdb-entry requires a filesystem output artifact");
+        return 1;
+    }
+
     if (opts.depfile && !writes_output_artifact(opts))
     {
         std::println(std::cerr, "dcc: error: --depfile requires a filesystem output artifact");
@@ -1965,6 +2078,18 @@ auto main(int argc, char** argv) -> int
     {
         std::println(std::cerr, "dcc: error: cannot find input file '{}'", opts.input_files.front().string());
         return 1;
+    }
+
+    if (opts.compdb_entry)
+    {
+        auto output = primary_output_path(opts, input_path, resolve_target_or_exit(opts));
+        if (same_file_path(*opts.compdb_entry, input_path) || (output && same_file_path(*opts.compdb_entry, *output)) ||
+            (opts.depfile && same_file_path(*opts.compdb_entry, *opts.depfile)))
+        {
+            std::println(std::cerr, "dcc: error: --compdb-entry destination '{}' conflicts with an input, output, or dependency file",
+                         opts.compdb_entry->string());
+            return 1;
+        }
     }
 
     if (opts.depfile)
@@ -2226,6 +2351,9 @@ auto main(int argc, char** argv) -> int
                 if (!write_artifacts(artifact, opts, input_path, target, &primary_output))
                     return 1;
 
+                if (!emit_compdb(opts, input_path, primary_output, module, sema->graph(), session.source_manager(), argc, argv))
+                    return 1;
+
                 if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager()))
                     return 1;
 #else
@@ -2256,6 +2384,9 @@ auto main(int argc, char** argv) -> int
 
                 std::filesystem::path primary_output;
                 if (!write_artifacts(artifact, opts, input_path, target, &primary_output))
+                    return 1;
+
+                if (!emit_compdb(opts, input_path, primary_output, module, sema->graph(), session.source_manager(), argc, argv))
                     return 1;
 
                 if (opts.depfile && !emit_depfile(*opts.depfile, primary_output, module, sema->graph(), session.source_manager()))
