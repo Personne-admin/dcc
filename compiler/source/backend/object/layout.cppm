@@ -212,6 +212,19 @@ export namespace dcc::backend::object
                 }
                 break;
             }
+            case ir::IrNodeKind::PointerConstant: {
+                auto* pc = static_cast<ir::IrPointerConstant const*>(val);
+                auto sz = expected_type->byte_size;
+                std::uint64_t uv = pc->offset;
+                std::vector<std::uint8_t> bytes(sz);
+                for (std::uint64_t i = 0; i < sz && i < 8; ++i)
+                {
+                    bytes[i] = into_u8(uv & 0xFF);
+                    uv >>= 8;
+                }
+                write_init_bytes(data, relocs, offset, bytes);
+                break;
+            }
             case ir::IrNodeKind::BoolConstant: {
                 auto* bc = static_cast<ir::IrBoolConstant const*>(val);
                 zero_init_bytes(data, relocs, offset, expected_type->byte_size);

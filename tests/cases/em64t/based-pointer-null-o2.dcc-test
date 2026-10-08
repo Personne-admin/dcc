@@ -1,0 +1,18 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+public i32 probe(u64^FS p) {
+    u64 v = *p;
+    u64^FS zero = FS:0;
+    if p == zero {
+        return 11;
+    }
+    return v as i32;
+}
+
+=== EXPECT-EM64T-ASM FLAGS: -O2 ===
+CONTAINS: qword [fs:rax]
+CONTAINS: cmp rax
+CONTAINS: je .if.then1
+CONTAINS: mov eax, 11

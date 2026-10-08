@@ -1,0 +1,91 @@
+=== FILE: test.dc ===
+module test;
+import core::seg;
+
+u8^FS global_fs = FS:24;
+u8^GS global_gs = GS:0;
+
+usize walk(u8^FS start, usize steps) {
+    u8^FS cur = start;
+    usize n = 0;
+    while n < steps {
+        cur = cur + 1;
+        n += 1;
+    }
+    return core::seg::offset(cur);
+}
+
+struct Pair { u8^FS first; u8^GS second; }
+struct Mixed { i32 tag; u8^FS pointer; f32 weight; }
+struct Tail { Mixed a; Mixed b; u8^GS tail; }
+
+Pair make_pair(u8^FS a, u8^GS b) {
+    Pair p;
+    p.first = a;
+    p.second = b;
+    return p;
+}
+
+usize sum_pair(Pair p) {
+    return core::seg::offset(p.first) + core::seg::offset(p.second);
+}
+
+Mixed make_mixed(u8^FS p) {
+    Mixed m;
+    m.tag = 7;
+    m.pointer = p + 3;
+    m.weight = 1.5;
+    return m;
+}
+
+Tail make_tail(u8^FS a, u8^GS b) {
+    Tail t;
+    t.a = make_mixed(a);
+    t.b = make_mixed(a + 100);
+    t.tail = b;
+    return t;
+}
+
+usize many(u8^FS a, u8^GS b, u8^FS c, u8^GS d, u8^FS e, u8^GS f, u8^FS g, u8^GS h) {
+    return core::seg::offset(a) + core::seg::offset(b) + core::seg::offset(c) + core::seg::offset(d) + core::seg::offset(e) + core::seg::offset(f) +
+           core::seg::offset(g) + core::seg::offset(h);
+}
+
+[^FS]u8 window(u8^FS base, usize len) {
+    [^FS]u8 s;
+    s.ptr = base;
+    s.len = len;
+    return s;
+}
+
+usize window_sum([^FS]u8 s) {
+    return core::seg::offset(s.ptr) + s.len;
+}
+
+@nomangle
+public i32 dcc_main() {
+    Pair p = make_pair(FS:16, GS:32);
+    if sum_pair(p) != 48 { return 1; }
+    Tail t = make_tail(FS:1000, GS:5);
+    if core::seg::offset(t.a.pointer) != 1003 { return 2; }
+    if core::seg::offset(t.b.pointer) != 1103 { return 3; }
+    if core::seg::offset(t.tail) != 5 { return 4; }
+    if t.a.tag != 7 || t.b.weight != 1.5 { return 5; }
+    if many(FS:1, GS:2, FS:3, GS:4, FS:5, GS:6, FS:7, GS:8) != 36 { return 6; }
+    if window_sum(window(FS:40, 2)) != 42 { return 7; }
+    u8^FS moved = core::seg::with_offset(p.first, 100);
+    if core::seg::offset(moved + 5) != 105 { return 8; }
+    u8^FS zero = FS:0;
+    if moved == zero { return 9; }
+    u8^FS sixteen = FS:16;
+    if p.first != sixteen { return 10; }
+    if core::seg::offset(global_fs) != 24 || core::seg::offset(global_gs) != 0 { return 11; }
+    if walk(FS:90, 7) != 97 { return 12; }
+    return 42;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 42

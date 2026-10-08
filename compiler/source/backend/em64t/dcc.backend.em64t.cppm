@@ -45,11 +45,19 @@ namespace dcc::backend
             {
                 case ir::IrTypeKind::Pointer: {
                     auto* ptr = static_cast<ir::IrPointerType const*>(type);
-                    return ptr->flavor != ir::PointerFlavor::Near || has_segmented_type(ptr->pointee, seen);
+                    if (ptr->flavor == ir::PointerFlavor::Far)
+                        return true;
+                    if (ptr->flavor == ir::PointerFlavor::Based && ptr->seg != ir::Segment::Fs && ptr->seg != ir::Segment::Gs)
+                        return true;
+                    return has_segmented_type(ptr->pointee, seen);
                 }
                 case ir::IrTypeKind::Slice: {
                     auto* slice = static_cast<ir::IrSliceType const*>(type);
-                    return slice->flavor != ir::PointerFlavor::Near || has_segmented_type(slice->element, seen);
+                    if (slice->flavor == ir::PointerFlavor::Far)
+                        return true;
+                    if (slice->flavor == ir::PointerFlavor::Based && slice->seg != ir::Segment::Fs && slice->seg != ir::Segment::Gs)
+                        return true;
+                    return has_segmented_type(slice->element, seen);
                 }
                 case ir::IrTypeKind::Array:
                     return has_segmented_type(static_cast<ir::IrArrayType const*>(type)->element, seen);
@@ -67,6 +75,29 @@ namespace dcc::backend
                             return true;
                     return false;
                 }
+                default:
+                    return false;
+            }
+        }
+
+        [[nodiscard]] bool is_based_pointer_value(ir::IrValue const* value)
+        {
+            return value && value->type && value->type->kind == ir::IrTypeKind::Pointer &&
+                   static_cast<ir::IrPointerType const*>(value->type)->flavor == ir::PointerFlavor::Based;
+        }
+
+        [[nodiscard]] bool is_based_atomic(ir::IrNode const* inst)
+        {
+            switch (inst->kind)
+            {
+                case ir::IrNodeKind::AtomicLoad:
+                    return is_based_pointer_value(static_cast<ir::IrAtomicLoadInst const*>(inst)->pointer);
+                case ir::IrNodeKind::AtomicStore:
+                    return is_based_pointer_value(static_cast<ir::IrAtomicStoreInst const*>(inst)->pointer);
+                case ir::IrNodeKind::AtomicRmw:
+                    return is_based_pointer_value(static_cast<ir::IrAtomicRmwInst const*>(inst)->pointer);
+                case ir::IrNodeKind::AtomicCmpXchg:
+                    return is_based_pointer_value(static_cast<ir::IrAtomicCmpXchgInst const*>(inst)->pointer);
                 default:
                     return false;
             }
@@ -133,12 +164,23 @@ namespace dcc::backend
                         if (!block)
                             continue;
                         for (auto* inst : block->instructions)
-                            if (inst &&
-                                (has_segmented_type(inst->type) || inst->kind == ir::IrNodeKind::ReadSegment || inst->kind == ir::IrNodeKind::PointerSegment))
+                        {
+                            if (!inst)
+                                continue;
+                            if (is_based_atomic(inst))
+                            {
+                                artifact.diagnostics.push_back(
+                                    BackendDiagnostic{{}, "custom backend: atomic operations through based pointers are not supported yet"});
+                                return artifact;
+                            }
+                            bool dynamic_make = inst->kind == ir::IrNodeKind::MakePointer && static_cast<ir::IrMakePointerInst const*>(inst)->segment;
+                            if (has_segmented_type(inst->type) || dynamic_make || inst->kind == ir::IrNodeKind::ReadSegment ||
+                                inst->kind == ir::IrNodeKind::PointerSegment)
                             {
                                 artifact.diagnostics.push_back(BackendDiagnostic{{}, "far and based pointers are not supported by this backend yet"});
                                 return artifact;
                             }
+                        }
                     }
                 }
 

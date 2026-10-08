@@ -894,18 +894,17 @@ TEST_CASE("ir-verifier-rejects-segmented-pointer-mismatches")
     CHECK(has("return"));
 }
 
-TEST_CASE("custom-backend-rejects-far-and-based-ir")
+TEST_CASE("custom-backend-rejects-far-and-unavailable-based-ir")
 {
     auto target = TargetConfig::host_default();
     IrContext ctx{256 * 1024, &target};
     auto* i8 = ctx.int_t(8, false);
-    auto* based = ctx.pointer_to(i8, Segment::Fs, PointerFlavor::Based);
     BackendOptions opts;
     opts.target = target;
     opts.requested_artifacts = {ArtifactKind::ObjectBytes};
     auto backend = make_em64t_backend();
-    std::array<IrType const*, 4> types = {based, ctx.pointer_to(i8, Segment::None, PointerFlavor::Far), ctx.slice_t(i8, Segment::Fs, PointerFlavor::Based),
-                                          ctx.slice_t(i8, Segment::None, PointerFlavor::Far)};
+    std::array<IrType const*, 4> types = {ctx.pointer_to(i8, Segment::None, PointerFlavor::Far), ctx.slice_t(i8, Segment::None, PointerFlavor::Far),
+                                          ctx.pointer_to(i8, Segment::Ss, PointerFlavor::Based), ctx.slice_t(i8, Segment::Ds, PointerFlavor::Based)};
     for (auto* type : types)
     {
         auto* mod = ctx.module("segmented_custom");
@@ -915,6 +914,45 @@ TEST_CASE("custom-backend-rejects-far-and-based-ir")
         REQUIRE(!artifact.diagnostics.empty());
         CHECK(artifact.diagnostics[0].message == "far and based pointers are not supported by this backend yet");
     }
+}
+
+TEST_CASE("custom-backend-accepts-fs-gs-based-ir-and-rejects-based-atomics")
+{
+    auto target = TargetConfig::host_default();
+    IrContext ctx{256 * 1024, &target};
+    auto* i64 = ctx.int_t(64, false);
+    BackendOptions opts;
+    opts.target = target;
+    opts.requested_artifacts = {ArtifactKind::ObjectBytes};
+    auto backend = make_em64t_backend();
+    for (auto segment : {Segment::Fs, Segment::Gs})
+        for (bool atomic : {false, true})
+        {
+            auto* based = ctx.pointer_to(i64, segment, PointerFlavor::Based);
+            auto* mod = ctx.module("based_custom");
+            IrType const* params[] = {based};
+            auto* function = ctx.function("based", ir_type_cast<IrFuncType>(ctx.func_t(i64, params)));
+            auto* block = ctx.basic_block("entry", 0);
+            auto* arg = ctx.local("p", 0, based);
+            block->params.push_back(arg);
+            IrValue* value = atomic ? static_cast<IrValue*>(ctx.atomic_load(i64, arg, IrMemoryOrdering::SeqCst)) : static_cast<IrValue*>(ctx.load(i64, arg));
+            block->instructions.push_back(value);
+            block->terminator = ctx.ret(value);
+            function->blocks.push_back(block);
+            function->entry_block = block;
+            mod->functions.push_back(function);
+            auto artifact = backend->emit(*mod, opts);
+            if (atomic)
+            {
+                REQUIRE(!artifact.diagnostics.empty());
+                CHECK(artifact.diagnostics[0].message.find("atomic operations through based pointers") != std::string::npos);
+            }
+            else
+            {
+                CHECK(artifact.diagnostics.empty());
+                CHECK(artifact.object_bytes.has_value());
+            }
+        }
 }
 
 TEST_CASE("llvm-x86-based-pointer-asm-uses-segment-overrides")

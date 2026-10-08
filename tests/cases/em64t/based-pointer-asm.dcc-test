@@ -1,0 +1,53 @@
+=== FILE: test.dc ===
+module test;
+
+public struct Rec { i32 a; i64 b; u8 c; }
+
+@nomangle
+public i64 rec_b(Rec^FS r) {
+    Rec v = *r;
+    return v.b;
+}
+
+@nomangle
+public void rec_put(Rec^GS r, Rec v) {
+    *r = v;
+}
+
+@nomangle
+public u64 read_fs(u64^FS p) {
+    return *p;
+}
+
+@nomangle
+public void write_gs(u64^GS p, u64 value) {
+    *p = value;
+}
+
+@nomangle
+public u64 read_gs_at(u64^GS p, usize index) {
+    return *(p + index);
+}
+
+@nomangle
+public u64 teb_self() {
+    u64^GS self = GS:0x30;
+    return *self;
+}
+
+@nomangle
+public u64 fs_base_slot() {
+    u64^FS slot = FS:0;
+    return *slot;
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: qword [fs:rax]
+CONTAINS: qword [gs:rax], rcx
+CONTAINS: [gs:rax + rcx*8]
+CONTAINS: [fs:rax + 8]
+CONTAINS: [gs:rax + 8]
+
+=== EXPECT-EM64T-ASM FLAGS: -O2 ===
+CONTAINS: qword [gs:48]
+CONTAINS: qword [fs:0]
