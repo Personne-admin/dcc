@@ -73,9 +73,9 @@ export namespace dcc::backend::x86
 
         unsigned default_operand = mode == EncodeMode::Real16 ? 16 : 32;
         unsigned default_address = mode == EncodeMode::Long64 ? 64 : mode == EncodeMode::Protected32 ? 32 : 16;
-        if (operand_bits && operand_bits != default_operand && !(mode == EncodeMode::Long64 && operand_bits == 64))
-            out.push_back(0x66);
         if (address_bits && address_bits != default_address)
             out.push_back(0x67);
+        if (operand_bits && operand_bits != default_operand && !(mode == EncodeMode::Long64 && operand_bits == 64))
+            out.push_back(0x66);
     }
 }

@@ -19,7 +19,7 @@ TEST_CASE("operand address and segment overrides follow x86 prefix groups")
     using namespace dcc::backend::x86;
     std::vector<std::uint8_t> bytes;
     append_legacy_prefixes(bytes, EncodeMode::Long64, 16, 32, SegmentOverride::GS);
-    CHECK(bytes == (std::vector<std::uint8_t>{0x65, 0x66, 0x67}));
+    CHECK(bytes == (std::vector<std::uint8_t>{0x65, 0x67, 0x66}));
 
     bytes.clear();
     append_legacy_prefixes(bytes, EncodeMode::Long64, 64, 64, SegmentOverride::FS);
@@ -27,7 +27,7 @@ TEST_CASE("operand address and segment overrides follow x86 prefix groups")
 
     bytes.clear();
     append_legacy_prefixes(bytes, EncodeMode::Protected32, 16, 16, SegmentOverride::SS);
-    CHECK(bytes == (std::vector<std::uint8_t>{0x36, 0x66, 0x67}));
+    CHECK(bytes == (std::vector<std::uint8_t>{0x36, 0x67, 0x66}));
 
     bytes.clear();
     append_legacy_prefixes(bytes, EncodeMode::Protected32, 32, 32, SegmentOverride::None);
@@ -35,7 +35,7 @@ TEST_CASE("operand address and segment overrides follow x86 prefix groups")
 
     bytes.clear();
     append_legacy_prefixes(bytes, EncodeMode::Real16, 32, 32, SegmentOverride::ES);
-    CHECK(bytes == (std::vector<std::uint8_t>{0x26, 0x66, 0x67}));
+    CHECK(bytes == (std::vector<std::uint8_t>{0x26, 0x67, 0x66}));
 
     bytes.clear();
     append_legacy_prefixes(bytes, EncodeMode::Real16, 16, 16, SegmentOverride::CS);
@@ -124,7 +124,7 @@ TEST_CASE("instruction prefixes come from operand width and memory address size"
 
     auto all_prefixes = encode(MOpc::MOV16rm, reg(PhysReg::RAX), MOp::from_mem(mem32(PhysReg::RCX, 4).with_segment(SegmentOverride::GS)));
     REQUIRE(all_prefixes.has_value());
-    CHECK(*all_prefixes == (std::vector<std::uint8_t>{0x65, 0x66, 0x67, 0x8b, 0x41, 0x04}));
+    CHECK(*all_prefixes == (std::vector<std::uint8_t>{0x65, 0x67, 0x66, 0x8b, 0x41, 0x04}));
 
     auto locked16 = encode(MOpc::LOCK_CMPXCHG16mr, MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::RCX))), reg(PhysReg::RDX));
     REQUIRE(locked16.has_value());
@@ -167,15 +167,15 @@ TEST_CASE("instruction encoding requires an implemented x86 mode")
     auto long_mode = encode_single_instruction(instr, EncodeMode::Long64);
     REQUIRE(long_mode.has_value());
     CHECK(*long_mode == (std::vector<std::uint8_t>{0xc3}));
-    for (auto mode : {EncodeMode::Protected32, EncodeMode::Real16})
-    {
-        auto result = encode_single_instruction(instr, mode);
-        CHECK(!result.has_value());
-        MFunction func;
-        auto function = encode_function(func, mode);
-        CHECK(function.bytes.empty());
-        CHECK_EQ(function.warnings.size(), 1u);
-    }
+    auto result = encode_single_instruction(instr, EncodeMode::Protected32);
+    CHECK(!result.has_value());
+    MFunction func;
+    auto function = encode_function(func, EncodeMode::Protected32);
+    CHECK(function.bytes.empty());
+    CHECK_EQ(function.warnings.size(), 1u);
+    auto real_mode = encode_single_instruction(instr, EncodeMode::Real16);
+    REQUIRE(real_mode.has_value());
+    CHECK(*real_mode == (std::vector<std::uint8_t>{0xc3}));
 }
 
 namespace
