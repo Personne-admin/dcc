@@ -412,6 +412,11 @@ namespace
                     }
                 }
                 r += '[';
+                if (m.segment != SegmentOverride::None)
+                {
+                    r += segment_name(m.segment);
+                    r += ':';
+                }
                 if (!m.symbol.empty())
                 {
                     r += "rel ";

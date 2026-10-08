@@ -22,6 +22,28 @@ export namespace dcc::backend::x86
         GS,
     };
 
+    [[nodiscard]] std::string_view segment_name(SegmentOverride segment) noexcept
+    {
+        switch (segment)
+        {
+            case SegmentOverride::None:
+                return {};
+            case SegmentOverride::CS:
+                return "cs";
+            case SegmentOverride::DS:
+                return "ds";
+            case SegmentOverride::ES:
+                return "es";
+            case SegmentOverride::SS:
+                return "ss";
+            case SegmentOverride::FS:
+                return "fs";
+            case SegmentOverride::GS:
+                return "gs";
+        }
+        return {};
+    }
+
     void append_legacy_prefixes(std::vector<std::uint8_t>& out, EncodeMode mode, unsigned operand_bits, unsigned address_bits,
                                 SegmentOverride segment)
     {

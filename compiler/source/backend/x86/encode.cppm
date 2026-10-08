@@ -217,6 +217,13 @@ namespace
         std::uint8_t bc = hb ? reg_low3(bp) : 0, ic = hi ? reg_low3(ip) : 0;
         bool need_sib = hi || (hb && rsp12);
         bool rbp_fake = hb && rbp;
+        if (mem.absolute)
+        {
+            emit_modrm(buf, 0, reg_code, 4);
+            emit_sib(buf, 1, 4, 5);
+            emit_u32_le(buf, static_cast<std::uint32_t>(disp));
+            return;
+        }
         if (!hb && !hi)
         {
             emit_modrm(buf, 0, reg_code, 5);
@@ -554,7 +561,7 @@ namespace
         std::uint32_t target_label;
     };
 
-    static void encode_instr(MInstr const& instr, EncodeMode mode, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
+    static void encode_instr_body(MInstr const& instr, EncodeMode mode, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
                              std::vector<std::string>& wrn)
     {
         auto const& ops = instr.ops;
@@ -3397,6 +3404,24 @@ namespace
     ud2_lbl:
         emit_u8(buf, 0x0F);
         emit_u8(buf, 0x0B);
+    }
+
+    static void encode_instr(MInstr const& instr, EncodeMode mode, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
+                             std::vector<std::string>& wrn)
+    {
+        MInstr rewritten = instr;
+        SegmentOverride segment = SegmentOverride::None;
+        for (std::uint8_t i = 0; i < rewritten.num_ops; ++i)
+        {
+            auto& op = rewritten.ops[i];
+            if (op.kind != MOpKind::Mem || op.mem.segment == SegmentOverride::None)
+                continue;
+            segment = op.mem.segment;
+            if (op.mem.absolute)
+                op.mem.base = VReg::phys(PhysReg::RBP);
+        }
+        append_legacy_prefixes(buf, mode, 0, 0, segment);
+        encode_instr_body(rewritten, mode, buf, branches, relocs, wrn);
     }
 
 } // anonymous namespace

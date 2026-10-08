@@ -2,6 +2,7 @@ export module dcc.backend.x86.mir;
 
 import std;
 import dcc.ir;
+export import dcc.backend.x86.prefix;
 
 export namespace dcc::backend::x86
 {
@@ -87,6 +88,24 @@ export namespace dcc::backend::x86
         std::int32_t disp = 0;
         std::string_view symbol{};
         bool is_got_indirect{false};
+        SegmentOverride segment{SegmentOverride::None};
+        bool absolute{false};
+
+        [[nodiscard]] MMem with_segment(SegmentOverride s) const noexcept
+        {
+            MMem copy = *this;
+            copy.segment = s;
+            return copy;
+        }
+
+        [[nodiscard]] static MMem make_segment_absolute(SegmentOverride s, std::int32_t d) noexcept
+        {
+            MMem mem{};
+            mem.disp = d;
+            mem.segment = s;
+            mem.absolute = true;
+            return mem;
+        }
 
         [[nodiscard]] static MMem make_base_disp(VReg base_reg, std::int32_t d = 0) noexcept { return MMem{base_reg, VReg{}, 1, d}; }
 
@@ -1469,6 +1488,11 @@ export namespace dcc::backend::x86
         }
 
         std::string r = "[";
+        if (mem.segment != SegmentOverride::None)
+        {
+            r += segment_name(mem.segment);
+            r += ':';
+        }
         if (mem.base.is_valid())
             r += format_vreg(mem.base);
         if (mem.index.is_valid())
