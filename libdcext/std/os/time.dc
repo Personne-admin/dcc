@@ -238,10 +238,7 @@ public bool is_valid_date(const Date* self) {
 }
 
 public bool is_valid_time(const Time* self) {
-    return self.hour < 24
-        && self.minute < 60
-        && self.second < 60
-        && self.nanosecond < NANOS_PER_SECOND as u32;
+    return self.hour < 24 && self.minute < 60 && self.second < 60 && self.nanosecond < NANOS_PER_SECOND as u32;
 }
 
 //!
@@ -392,10 +389,7 @@ public i64 to_unix_seconds(const DateTime* self) {
         self.date.day
     );
 
-    i64 secs = days * SECONDS_PER_DAY
-        + (self.time.hour as i64) * 3600
-        + (self.time.minute as i64) * 60
-        + self.time.second as i64;
+    i64 secs = days * SECONDS_PER_DAY + (self.time.hour as i64) * 3600 + (self.time.minute as i64) * 60 + self.time.second as i64;
 
     return secs - (self.offset_minutes as i64) * 60;
 }

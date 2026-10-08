@@ -32,7 +32,6 @@ public struct PathZ {
     usize len;
 }
 
-
 /// NUL-terminates `path` into `out`.
 public Status(Error) to_pathz([] const u8 path, PathZ* out) {
     if path.len + 1 > MAX_BYTES {
@@ -62,7 +61,6 @@ public struct PathW {
     u16[MAX_WIDE] units;
     usize len;
 }
-
 
 /// transcodes UTF-8 into NUL-terminated UTF-16 in `out`, returning the
 /// number of units written, not counting the terminator.
@@ -250,7 +248,7 @@ public [] const u8 stem([] const u8 path) {
 
 bool is_drive_letter(u8 c) {
     return (c >= ('a' as u8) && c <= ('z' as u8))
-        || (c >= ('A' as u8) && c <= ('Z' as u8));
+    || (c >= ('A' as u8) && c <= ('Z' as u8));
 }
 
 /// length of the leading root, or 0 for a relative path. on Windows a
@@ -319,7 +317,11 @@ public Result([] u8, Error) join(
     }
 
     bool need = !is_separator(base[base.len - 1]);
-    usize total = base.len + tail.len + if need { 1 } else { 0 };
+    usize total = base.len + tail.len + if need {
+        1
+    } else {
+        0
+    };
     if total > out.len {
         return Error::NameTooLong;
     }
@@ -387,9 +389,7 @@ public Result([] u8, Error) normalize([] const u8 path, [] u8 out) {
             continue;
         }
 
-        bool up = part.len == 2
-            && part[0] == ('.' as u8)
-            && part[1] == ('.' as u8);
+        bool up = part.len == 2 && part[0] == ('.' as u8) && part[1] == ('.' as u8);
 
         if up && depth > 0 && !dotdot_only {
             depth--;
@@ -532,7 +532,8 @@ public Result([] u8, Error) relative(
     while shared < nb_count && shared < nt_count {
         if !mem::equal(
             component_at(nb, rb, shared),
-            component_at(nt, rt, shared)) {
+            component_at(nt, rt, shared)
+        ) {
             break;
         }
 

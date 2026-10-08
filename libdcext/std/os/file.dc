@@ -126,7 +126,11 @@ static if core::target::OS != core::target::Os::Freestanding {
             if flags.write {
                 // FILE_APPEND_DATA without FILE_WRITE_DATA makes *every* write append,
                 // even after seek, matching O_APPEND rather than just initial seek.
-                access = access | if flags.append { win::abi::FILE_APPEND_DATA } else { win::abi::GENERIC_WRITE };
+                access = access | if flags.append {
+                    win::abi::FILE_APPEND_DATA
+                } else {
+                    win::abi::GENERIC_WRITE
+                };
             }
 
             win::abi::Dword disposition = if flags.create && flags.exclusive {

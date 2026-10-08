@@ -166,9 +166,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             }
 
             usize n = wide.len;
-            if n > 0
-                && (wide.units[n - 1] == ('\\' as u16) || wide.units[n - 1] == ('/' as u16))
-            {
+            if n > 0 && (wide.units[n - 1] == ('\\' as u16) || wide.units[n - 1] == ('/' as u16)) {
                 out.pattern.units[n] = '*' as u16;
                 n++;
             } else {
@@ -196,9 +194,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             path::PathZ p;
             path::to_pathz(path, &p) ?;
 
-            i32 bits = linux::abi::O_RDONLY
-                | linux::abi::O_DIRECTORY
-                | linux::abi::O_CLOEXEC;
+            i32 bits = linux::abi::O_RDONLY | linux::abi::O_DIRECTORY | linux::abi::O_CLOEXEC;
             isize ret = linux::syscall::open(path::ptr(&p), bits, 0);
             if linux::abi::is_error(ret) {
                 return Status::Err(error::from_syscall(ret));
