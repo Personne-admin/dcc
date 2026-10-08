@@ -1,0 +1,8 @@
+module dcext_abi;
+import core::target;
+
+static if core::target::FLOAT_AVAILABLE {
+    @nomangle public const u8 __dcc_libdcext_abi_requires_float_enabled = 0;
+} else {
+    @nomangle public const u8 __dcc_libdcext_abi_requires_float_disabled = 0;
+}

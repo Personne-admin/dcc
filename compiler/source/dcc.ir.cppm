@@ -1276,6 +1276,7 @@ export namespace dcc::ir
 
         IrValue* init{};
         bool is_constant{false};
+        bool retain{false};
         bool is_declaration{false};
         bool is_dll_import{};
         bool is_dll_export{};

@@ -28,6 +28,7 @@ namespace dcc::backend::em64t
         constexpr std::uint64_t SHF_ALLOC = 0x2;
         constexpr std::uint64_t SHF_EXECINSTR = 0x4;
         constexpr std::uint64_t SHF_WRITE = 0x1;
+        constexpr std::uint64_t SHF_GNU_RETAIN = 0x200000;
 
         constexpr std::uint32_t STB_LOCAL = 0;
         constexpr std::uint32_t STB_GLOBAL = 1;
@@ -383,6 +384,8 @@ export namespace dcc::backend::em64t
                 if (ty == SHT_PROGBITS)
                     cs.type = SHT_PROGBITS;
                 cs.flags |= fl;
+                if (gl.g->retain)
+                    cs.flags |= SHF_GNU_RETAIN;
                 cs.alignment = std::max(cs.alignment, gl.alignment);
                 cs.globals.push_back(&gl);
                 continue;

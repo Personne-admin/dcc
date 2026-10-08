@@ -30,6 +30,8 @@ namespace dcc::backend::em64t
         constexpr std::uint32_t IMAGE_SCN_ALIGN_16BYTES = 0x00500000;
         constexpr std::uint32_t IMAGE_SCN_ALIGN_4BYTES = 0x00300000;
         constexpr std::uint32_t IMAGE_SCN_LNK_COMDAT = 0x00001000;
+        constexpr std::uint32_t IMAGE_SCN_LNK_INFO = 0x00000200;
+        constexpr std::uint32_t IMAGE_SCN_LNK_REMOVE = 0x00000800;
         constexpr std::uint8_t IMAGE_COMDAT_SELECT_ANY = 2;
         constexpr std::uint8_t IMAGE_COMDAT_SELECT_ASSOCIATIVE = 5;
         constexpr std::size_t no_coff_comdat = std::numeric_limits<std::size_t>::max();
@@ -216,6 +218,8 @@ export namespace dcc::backend::em64t
                     cs.characteristics |= IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
                 else if (gl.sec == DataSection::Bss)
                     cs.characteristics |= IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+                if (sname == ".drectve")
+                    cs.characteristics = IMAGE_SCN_LNK_INFO | IMAGE_SCN_LNK_REMOVE;
                 if (gl.sec != DataSection::Bss)
                     cs.is_bss = false;
                 cs.globals.push_back(&gl);

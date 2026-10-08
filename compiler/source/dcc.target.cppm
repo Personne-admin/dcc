@@ -64,6 +64,8 @@ export namespace dcc::target
         CodeModel code_model{CodeModel::Default};
         std::string cpu;
 
+        [[nodiscard]] bool float_available() const noexcept { return arch == Arch::X86_64 ? !no_simd : arch == Arch::X86 ? !no_x87 : false; }
+
         [[nodiscard]] static std::optional<CodeModel> parse_code_model(std::string_view s)
         {
             if (s == "default")

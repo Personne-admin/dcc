@@ -366,7 +366,7 @@ TEST_CASE("explicit freestanding archive links without hosted startup")
     TempDir td;
     td.write_file("free.dc", "module free;\n@nomangle public void _start() {}\n");
     auto prog = td.file("freebin");
-    auto r = run_dcc("-flibdcext=freestanding -e _start -o " + shell_quote(prog) + " " + shell_quote(td.file("free.dc")));
+    auto r = run_dcc("-flibdcext=freestanding -fno-simd -fno-x87 -e _start -o " + shell_quote(prog) + " " + shell_quote(td.file("free.dc")));
     CHECK_EQ(r.rc, 0);
 }
 

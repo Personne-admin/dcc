@@ -50,7 +50,7 @@ OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)-$(BACKEND)
 
 FREESTANDING_EXCLUDE := $(TOPLEVEL)/libdcext/std/sys/linux/syscall.dc $(TOPLEVEL)/libdcext/std/sys/win/imports.dc
 
-TOPLEVEL_SRCS := $(TOPLEVEL)/libdcext/assert.dc
+TOPLEVEL_SRCS := $(TOPLEVEL)/libdcext/assert.dc $(TOPLEVEL)/libdcext/common/abi.dc
 
 ifeq ($(TARGET),x86_64-freestanding)
   DC_SRCS := $(filter-out $(FREESTANDING_EXCLUDE),$(call find-sources,$(TOPLEVEL)/libdcext/std,dc)) $(TOPLEVEL_SRCS)
