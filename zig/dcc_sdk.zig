@@ -219,6 +219,7 @@ pub const DccArtifact = struct {
     step: *Step.Run,
     output_file: LazyPath,
     depfile: ?LazyPath,
+    compdb_entry: ?LazyPath = null,
 
     /// Null for terminal stdout-only dump invocations.
     compile_command: ?CompileCommand,
@@ -486,11 +487,15 @@ pub fn compile(b: *Build, options: CompileOptions) DccArtifact {
     );
 
     const out_file = run.addOutputFileArg(out_name);
+    run.addArg("--compdb-entry");
+    const entry = run.addOutputFileArg(b.fmt("{s}.compdb.json", .{options.name}));
+    addAutomaticCompdb(b, options.dcc_exe, entry);
 
     return .{
         .step = run,
         .output_file = out_file,
         .depfile = depfile,
+        .compdb_entry = entry,
         .compile_command = makeCompileCommand(
             b,
             options,
@@ -498,6 +503,31 @@ pub fn compile(b: *Build, options: CompileOptions) DccArtifact {
             out_name,
         ),
     };
+}
+
+fn addAutomaticCompdb(b: *Build, dcc_exe: []const u8, entry: LazyPath) void {
+    const name = "dcc-compdb";
+    const merge: *Step.Run = if (b.top_level_steps.get(name)) |existing| reuse: {
+        if (existing.step.dependencies.items.len != 1 or
+            existing.step.dependencies.items[0].id != .run or
+            !std.mem.eql(u8, existing.step.dependencies.items[0].name, "dcc merge compilation database"))
+            @panic("dcc-compdb is reserved for the DCC SDK");
+        break :reuse @fieldParentPtr("step", existing.step.dependencies.items[0]);
+    } else create: {
+        const run = b.addSystemCommand(&.{
+            dcc_exe,
+            "--merge-compdb",
+            b.pathFromRoot("compile_commands.json"),
+        });
+        run.step.name = "dcc merge compilation database";
+        run.setCwd(b.path("."));
+        run.has_side_effects = true;
+        const step = b.step(name, "Generate the DCC compilation database");
+        step.dependOn(&run.step);
+        b.getInstallStep().dependOn(step);
+        break :create run;
+    };
+    merge.addFileArg(entry);
 }
 
 fn extension(kind: OutputKind, triple: TargetTriple) []const u8 {
