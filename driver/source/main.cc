@@ -2256,7 +2256,7 @@ auto main(int argc, char** argv) -> int
     bool need_backend = backend_needed(opts);
     if (opts.dump_ir || need_backend)
     {
-        if (compile_opts.target.arch == dcc::target::Arch::I8086)
+        if (compile_opts.target.arch == dcc::target::Arch::I8086 && need_backend)
         {
             if (need_backend && opts.backend_name == "llvm")
                 std::println(std::cerr, "dcc: error: LLVM backend does not support target '{}'; use -fbackend custom", compile_opts.target.triple);
