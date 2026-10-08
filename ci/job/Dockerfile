@@ -23,7 +23,7 @@ RUN set -eux; \
     echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/winehq.gpg] https://dl.winehq.org/wine-builds/ubuntu/ noble main" > /etc/apt/sources.list.d/winehq.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        git binutils libcmark-dev msitools wixl dpkg-dev fakeroot zstd unzip \
+        git binutils libcmark-dev msitools wixl dpkg-dev fakeroot zstd unzip qemu-system-x86 \
         "winehq-devel=${WINE_VERSION}" "wine-devel=${WINE_VERSION}" "wine-devel-amd64=${WINE_VERSION}" "wine-devel-i386=${WINE_VERSION}"; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
@@ -39,4 +39,4 @@ RUN set -eux; \
     echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint; \
     rm /tmp/actionlint.tar.gz; \
-    node --version; npm --version; wine --version; wixl --version; nasm -v; actionlint --version
+    node --version; npm --version; wine --version; wixl --version; nasm -v; qemu-system-i386 --version; actionlint --version
