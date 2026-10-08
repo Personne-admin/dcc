@@ -516,7 +516,16 @@ namespace
          Phase::Both,
          "pass <arg> to the linker",
          "",
-         [](Options& o, bool, std::string_view v, char**) { o.linker_args.emplace_back(v); }},
+         [](Options& o, bool, std::string_view v, char**) {
+             for (;;)
+             {
+                 auto comma = v.find(',');
+                 o.linker_args.emplace_back(v.substr(0, comma));
+                 if (comma == std::string_view::npos)
+                     break;
+                 v.remove_prefix(comma + 1);
+             }
+         }},
 
         {"-fdump-ast",
          "",
