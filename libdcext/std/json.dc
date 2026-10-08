@@ -84,7 +84,6 @@ static if core::target::FLOAT_AVAILABLE {
     }
 }
 
-
 //!
 //! Scanner
 //!
@@ -137,11 +136,7 @@ void skip_space(Scanner* self) {
     while !at_end(self) {
         u8 c = peek(self);
 
-        if c != (' ' as u8)
-            && c != ('\t' as u8)
-            && c != ('\n' as u8)
-            && c != ('\r' as u8)
-        {
+        if c != (' ' as u8) && c != ('\t' as u8) && c != ('\n' as u8) && c != ('\r' as u8) {
             return;
         }
 
@@ -427,7 +422,6 @@ static if core::target::FLOAT_AVAILABLE {
     }
 }
 
-
 Result(Event, JsonError) read_number(Scanner* self) {
     usize start = self.at.offset;
     bool is_float = false;
@@ -467,15 +461,11 @@ Result(Event, JsonError) read_number(Scanner* self) {
         }
     }
 
-    if !at_end(self)
-        && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8))
-    {
+    if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
         take(self);
         is_float = true;
 
-        if !at_end(self)
-            && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
-        {
+        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
             take(self);
         }
 
@@ -795,7 +785,6 @@ static if core::target::FLOAT_AVAILABLE {
         Object([] Member),
     }
 }
-
 
 //!
 //! Growable storage
@@ -1136,7 +1125,6 @@ static if core::target::FLOAT_AVAILABLE {
     }
 }
 
-
 public Optional(bool) as_bool(const Value* self) {
     return match *self {
         Value::Bool(v) => Optional::Some(v),
@@ -1348,7 +1336,6 @@ static if core::target::FLOAT_AVAILABLE {
         return fmt::format_float(&self.out, value, &opts);
     }
 }
-
 
 public Status(fmt::FmtError) boolean(Emitter* self, bool value) {
     separate(self) ?;

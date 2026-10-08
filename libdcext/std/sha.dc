@@ -55,9 +55,7 @@ public u32 rotr32(u32 v, u32 n) {
 }
 
 u32 load_be32([] const u8 bytes, usize at) {
-    return ((bytes[at] as u32) << 24) | ((bytes[at + 1] as u32) << 16)
-        | ((bytes[at + 2] as u32) << 8)
-        | (bytes[at + 3] as u32);
+    return ((bytes[at] as u32) << 24) | ((bytes[at + 1] as u32) << 16) | ((bytes[at + 2] as u32) << 8) | (bytes[at + 3] as u32);
 }
 
 u64 load_be64([] const u8 bytes, usize at) {
@@ -666,9 +664,7 @@ void sha512_block(Sha512* self, [] const u8 block) {
         u64 ch = (e & f) ^ (~e & g);
         u64 t1 = h + s1 + ch + K512[i] + w[i];
 
-        u64 s0 = math::rotr64(a, 28)
-            ^ math::rotr64(a, 34)
-            ^ math::rotr64(a, 39);
+        u64 s0 = math::rotr64(a, 28) ^ math::rotr64(a, 34) ^ math::rotr64(a, 39);
         u64 maj = (a & b) ^ (a & c) ^ (b & c);
         u64 t2 = s0 + maj;
 

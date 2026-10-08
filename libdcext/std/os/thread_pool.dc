@@ -1,7 +1,6 @@
 module std::os::thread_pool;
 
 import core::target;
-
 import std::mem;
 import std::os::heap;
 import std::os::thread;
@@ -119,7 +118,11 @@ static if core::target::OS != core::target::Os::Freestanding {
                 self.guard.unlock();
                 return Error::OutOfMemory;
             }
-            usize new_capacity = if old_capacity == 0 { 64 } else { old_capacity * 2 };
+            usize new_capacity = if old_capacity == 0 {
+                64
+            } else {
+                old_capacity * 2
+            };
             Result([] Task, mem::AllocError) grown_r = self.alloc.alloc(new_capacity);
             if grown_r.is_err() {
                 self.guard.unlock();

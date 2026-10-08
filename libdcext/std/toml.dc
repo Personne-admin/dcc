@@ -114,7 +114,6 @@ static if core::target::FLOAT_AVAILABLE {
     }
 }
 
-
 public enum Event {
     Table(TablePath),
     Key(KeyPath),
@@ -366,14 +365,7 @@ Status(TomlError) check_escape(Scanner* self, bool multiline) {
 
     u8 c = take(self);
 
-    if c == ('b' as u8)
-        || c == ('t' as u8)
-        || c == ('n' as u8)
-        || c == ('f' as u8)
-        || c == ('r' as u8)
-        || c == ('"' as u8)
-        || c == ('\\' as u8)
-    {
+    if c == ('b' as u8) || c == ('t' as u8) || c == ('n' as u8) || c == ('f' as u8) || c == ('r' as u8) || c == ('"' as u8) || c == ('\\' as u8) {
         return Status::Ok;
     }
 
@@ -801,15 +793,12 @@ static if core::target::FLOAT_AVAILABLE {
     }
 }
 
-
 // scans a decimal number, which may turn out to be a float.
 Result(Scalar, TomlError) read_decimal(Scanner* self) {
     static if core::target::FLOAT_AVAILABLE {
         bool negative = false;
 
-        if !at_end(self)
-            && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
-        {
+        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
             negative = peek(self) == ('-' as u8);
             take(self);
         }
@@ -847,16 +836,12 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
             exponent = exponent - span as i32;
         }
 
-        if !at_end(self)
-            && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8))
-        {
+        if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
             take(self);
             is_float = true;
 
             bool negative_exponent = false;
-            if !at_end(self)
-                && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8))
-            {
+            if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
                 negative_exponent = peek(self) == ('-' as u8);
                 take(self);
             }
@@ -1208,12 +1193,7 @@ Result(Event, TomlError) read_value(Scanner* self) {
         }
     }
 
-    if parse::is_digit(c)
-        || c == ('+' as u8)
-        || c == ('-' as u8)
-        || c == ('i' as u8)
-        || c == ('n' as u8)
-    {
+    if parse::is_digit(c) || c == ('+' as u8) || c == ('-' as u8) || c == ('i' as u8) || c == ('n' as u8) {
         return Result::Ok(Event::Scalar(read_decimal(self) ?));
     }
 
@@ -1421,7 +1401,6 @@ static if core::target::FLOAT_AVAILABLE {
         Table(Table),
     }
 }
-
 
 //!
 //! Building
@@ -2008,7 +1987,6 @@ static if core::target::FLOAT_AVAILABLE {
         };
     }
 }
-
 
 public Optional(bool) as_bool(const Value* self) {
     return match *self {

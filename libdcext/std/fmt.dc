@@ -446,7 +446,6 @@ static if core::target::FLOAT_AVAILABLE {
     }
 }
 
-
 //!
 //! Value dispatch
 //!
@@ -456,19 +455,7 @@ public Status(FmtError) format_value(T)(
     T value,
     const Options* opts
 ) {
-    static if T == bool
-        || T == u8
-        || T == u16
-        || T == u32
-        || T == u64
-        || T == usize
-        || T == char
-        || T == i8
-        || T == i16
-        || T == i32
-        || T == i64
-        || T == isize
-    {
+    static if T == bool || T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char || T == i8 || T == i16 || T == i32 || T == i64 || T == isize {
         static if T == bool {
             format_builtin_unsigned(w, value, opts) ?;
         } else static if compiles (T t) {
@@ -476,13 +463,7 @@ public Status(FmtError) format_value(T)(
             t - t;
         } {
             // unsigned when subtracting cannot produce a negative
-            static if T == u8
-                || T == u16
-                || T == u32
-                || T == u64
-                || T == usize
-                || T == char
-            {
+            static if T == u8 || T == u16 || T == u32 || T == u64 || T == usize || T == char {
                 format_builtin_unsigned(w, value, opts) ?;
             } else {
                 format_signed(w, value as i64, opts) ?;
@@ -569,10 +550,7 @@ Result(Chunk, FmtError) emit_until_placeholder(
             return parse_spec(fmt, i + 1);
         }
 
-        if fmt[i] == ('}' as u8)
-            && i + 1 < fmt.len
-            && fmt[i + 1] == ('}' as u8)
-        {
+        if fmt[i] == ('}' as u8) && i + 1 < fmt.len && fmt[i + 1] == ('}' as u8) {
             w.write_all(fmt[literal_start..i + 1]) ?;
             i = i + 2;
             literal_start = i;
