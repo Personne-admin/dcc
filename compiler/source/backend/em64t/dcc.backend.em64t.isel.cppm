@@ -11,6 +11,8 @@ import dcc.backend.x86.mir;
 import dcc.backend.inline_asm;
 import dcc.target;
 
+using namespace dcc::backend::x86;
+
 namespace dcc::backend::em64t
 {
     namespace

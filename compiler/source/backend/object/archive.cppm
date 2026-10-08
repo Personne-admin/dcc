@@ -4,7 +4,7 @@ import std;
 
 #define into_u8 static_cast<std::uint8_t>
 
-namespace dcc::backend::em64t
+namespace dcc::backend::object
 {
     [[nodiscard]] std::uint64_t rd_elf64_le(std::span<std::uint8_t const> data, std::size_t off)
     {
@@ -353,7 +353,7 @@ namespace dcc::backend::em64t
 
 }
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_archive_elf(std::vector<std::pair<std::string, std::vector<std::uint8_t>>> const& members)
     {

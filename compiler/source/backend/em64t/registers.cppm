@@ -6,6 +6,8 @@ import dcc.target;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.regalloc;
 
+using namespace dcc::backend::x86;
+
 namespace dcc::backend::em64t
 {
     namespace
@@ -70,6 +72,6 @@ export namespace dcc::backend::em64t
 {
     void regalloc(x86::MFunction& func, target::TargetConfig const& target)
     {
-        x86::regalloc(func, get_reg_set(func, target));
+        x86::allocate_registers(func, get_reg_set(func, target));
     }
 }

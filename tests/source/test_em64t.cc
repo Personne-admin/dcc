@@ -10,6 +10,7 @@ import dcc.backend.em64t.registers;
 
 using namespace dcc::ir;
 using namespace dcc::backend::em64t;
+using namespace dcc::backend::x86;
 
 SECTION("em64t: branch selection");
 

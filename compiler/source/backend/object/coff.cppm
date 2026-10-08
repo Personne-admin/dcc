@@ -1,4 +1,4 @@
-export module dcc.backend.em64t.objwriter;
+export module dcc.backend.object.coff;
 
 import std;
 import dcc.ir;
@@ -6,14 +6,12 @@ import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
 import dcc.target;
 import dcc.backend.object.layout;
-export import dcc.backend.object.archive;
-export import dcc.backend.object.elf64;
 
 #define into_u8 static_cast<std::uint8_t>
 
-namespace dcc::backend::em64t
+namespace dcc::backend::object
 {
-    using namespace dcc::backend::object;
+    using namespace dcc::backend::x86;
 
     namespace
     {
@@ -66,11 +64,11 @@ namespace dcc::backend::em64t
             return static_cast<std::uint32_t>((log2_align + 1) << 20);
         }
 
-    } // anonymous namespace
+    }
 
-} // namespace dcc::backend::em64t
+}
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_coff(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
                                                        target::TargetConfig const& target)

@@ -415,7 +415,7 @@ namespace dcc::backend::x86
         struct LiveRange
         {
             VReg vreg;
-            RegClass reg_class = RegClass::GPR64;
+            RegClass reg_class = RegClass::GPR;
             std::uint32_t start = (std::numeric_limits<std::uint32_t>::max)();
             std::uint32_t end = 0;
             PhysReg assigned = PhysReg::None;
@@ -618,7 +618,7 @@ namespace dcc::backend::x86
                 }
 
                 lr.start = std::min(lr.start, lr.end);
-                lr.reg_class = xmm_vregs.contains(vreg) ? RegClass::XMM : RegClass::GPR64;
+                lr.reg_class = xmm_vregs.contains(vreg) ? RegClass::XMM : RegClass::GPR;
 
                 ranges.push_back(lr);
             }
@@ -925,7 +925,7 @@ namespace dcc::backend::x86
                         {
                             auto it = range_map.find(op.reg);
                             if (it != range_map.end() && it->second->spilled)
-                                reloads_needed.push_back({op.reg, use_scratch, RegClass::GPR64});
+                                reloads_needed.push_back({op.reg, use_scratch, RegClass::GPR});
                         }
                         else if (op.kind == MOpKind::Mem)
                         {
@@ -933,13 +933,13 @@ namespace dcc::backend::x86
                             {
                                 auto it = range_map.find(op.mem.base);
                                 if (it != range_map.end() && it->second->spilled)
-                                    reloads_needed.push_back({op.mem.base, use_scratch, RegClass::GPR64});
+                                    reloads_needed.push_back({op.mem.base, use_scratch, RegClass::GPR});
                             }
                             if (op.mem.index.is_virtual())
                             {
                                 auto it = range_map.find(op.mem.index);
                                 if (it != range_map.end() && it->second->spilled)
-                                    reloads_needed.push_back({op.mem.index, use_scratch, RegClass::GPR64});
+                                    reloads_needed.push_back({op.mem.index, use_scratch, RegClass::GPR});
                             }
                         }
                     }
@@ -1049,7 +1049,7 @@ namespace dcc::backend::x86
                         for (auto const& rl : reloads_needed)
                         {
                             auto const* range = range_map.at(rl.spilled_vreg);
-                            if (range->reg_class != RegClass::GPR64 || memory_scratch.contains(rl.spilled_vreg))
+                            if (range->reg_class != RegClass::GPR || memory_scratch.contains(rl.spilled_vreg))
                                 continue;
                             PhysReg chosen = PhysReg::R11;
                             if (!memory_scratch.empty())
@@ -1854,7 +1854,7 @@ namespace dcc::backend::x86
                         auto& op = instr.ops[oi];
                         if (op.kind == MOpKind::Reg && op.reg.is_virtual())
                         {
-                            RegClass rc = xmm_vregs.contains(op.reg) ? RegClass::XMM : RegClass::GPR64;
+                            RegClass rc = xmm_vregs.contains(op.reg) ? RegClass::XMM : RegClass::GPR;
                             op.reg = (rc == RegClass::XMM) ? scratch_xmm : scratch_gpr;
                         }
                         else if (op.kind == MOpKind::Mem)
@@ -1893,7 +1893,7 @@ namespace dcc::backend::x86
 
 export namespace dcc::backend::x86
 {
-    void regalloc(MFunction& func, RegisterPolicy const& regs)
+    void allocate_registers(MFunction& func, RegisterPolicy const& regs)
     {
         eliminate_phis(func);
 
