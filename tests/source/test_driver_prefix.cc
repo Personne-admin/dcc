@@ -131,7 +131,7 @@ TEST_CASE("--version exits 0 and reports the release version")
     CHECK(version.starts_with("dcc " DCC_EXPECTED_VERSION " ("));
 }
 
-TEST_CASE("the i8086 target has no backend yet")
+TEST_CASE("the i8086 target has no code generator yet")
 {
     auto src = std::filesystem::temp_directory_path() / "dcc_no_backend_target.dc";
     {
@@ -139,11 +139,31 @@ TEST_CASE("the i8086 target has no backend yet")
         file << "module test;\nvoid f() {}\n";
     }
 
-    for (auto flags : {"-fdump-ir", "-fbackend custom -c -o /dev/null"})
+    for (auto flags : {"-fbackend custom -c -o /dev/null", "-fbackend custom -fdump-ir -c -o /dev/null", "-fbackend custom -S -o /dev/null"})
     {
         auto [code, output] = run_dcc("-target i8086-binary " + std::string{flags} + " " + shell_quote(src));
         CHECK(code != 0);
         CHECK(output.find("no backend for target 'i8086-binary'") != std::string::npos);
+    }
+
+    std::filesystem::remove(src);
+}
+
+TEST_CASE("the i8086 target dumps ir in every code model")
+{
+    auto src = std::filesystem::temp_directory_path() / "dcc_i8086_dump_ir.dc";
+    {
+        std::ofstream file{src};
+        file << "module test;\npublic usize f(u8* p, usize i) { return p[i] as usize + i; }";
+    }
+
+    for (auto model : {"", "-mcmodel=small", "-mcmodel=unreal", "-mcmodel=unreal32"})
+    {
+        auto [code, output] = run_dcc("-target i8086-binary " + std::string{model} + " -fdump-ir " + shell_quote(src));
+        CHECK(code == 0);
+        CHECK(output.find("module \"test\"") != std::string::npos);
+        CHECK(output.find("ret usize") != std::string::npos);
+        CHECK(output.find("no backend for target") == std::string::npos);
     }
 
     std::filesystem::remove(src);
