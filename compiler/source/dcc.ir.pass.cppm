@@ -1043,7 +1043,8 @@ namespace dcc::ir::pass
             if (m_target.arch == dcc::target::Arch::X86_64)
                 return seg == Segment::Fs || seg == Segment::Gs;
             if (m_target.arch == dcc::target::Arch::I8086)
-                return seg == Segment::Cs || seg == Segment::Ds || seg == Segment::Es || seg == Segment::Ss;
+                return seg == Segment::Cs || seg == Segment::Ds || seg == Segment::Es || seg == Segment::Ss ||
+                       (m_target.has_i386_segments() && (seg == Segment::Fs || seg == Segment::Gs));
             return seg != Segment::None;
         }
 

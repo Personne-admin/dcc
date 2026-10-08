@@ -1,0 +1,30 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+import core::seg;
+
+public u16 demo(u16^ FS f, u16^ GS g, u8^ far) {
+    u8^ a = f as u8^;
+    *g = *f;
+    return *f + a.segment();
+}
+
+=== EXPECT-IR ===
+module "m"
+u16@_DC0F1.1.m4.demo3BqFSi16uBqGSi16uHqi8ui16u(ptr<u16, based=fs>, ptr<u16, based=gs>, ptr<u8, far>) {
+%entry(ptr<u16, based=fs> %f, ptr<u16, based=gs> %g, ptr<u8, far> %far):
+  %0 = alloca ptr<u8, far>
+  %1 = pointer_offset ptr<u16, based=fs> %f
+  %2 = read_segment fs
+  %3 = make_pointer usize %1, u16 %2 to ptr<u8, far>
+  store ptr<u8, far> %3, ptr<ptr<u8, far>> %0
+  %4 = load u16, ptr<u16, based=fs> %f
+  store u16 %4, ptr<u16, based=gs> %g
+  %5 = load u16, ptr<u16, based=fs> %f
+  %6 = load ptr<u8, far>, ptr<ptr<u8, far>> %0
+  %7 = pointer_segment ptr<u8, far> %6
+  %8 = add u16 %5, u16 %7
+  ret u16 %8
+}
+
