@@ -100,6 +100,7 @@ export namespace dcc::backend::x86
         bool is_got_indirect{false};
         SegmentOverride segment{SegmentOverride::None};
         bool absolute{false};
+        std::uint8_t address_bits{0};
 
         [[nodiscard]] MMem with_segment(SegmentOverride s) const noexcept
         {
@@ -514,6 +515,201 @@ export namespace dcc::backend::x86
         REPMOVS,
         REPSTOS,
     };
+
+    [[nodiscard]] std::uint8_t operand_bits(MOpc opc) noexcept
+    {
+        switch (opc)
+        {
+            case MOpc::MOV64rr:
+            case MOpc::MOV64ri32:
+            case MOpc::MOV64ri:
+            case MOpc::MOV64mi32:
+            case MOpc::MOV64rm:
+            case MOpc::MOV64mr:
+            case MOpc::MOVZX64_32rr:
+            case MOpc::MOVZX64_16rr:
+            case MOpc::MOVZX64_8rr:
+            case MOpc::MOVZX64rr8:
+            case MOpc::MOVZX64rm8:
+            case MOpc::MOVZX64rr16:
+            case MOpc::MOVZX64rm16:
+            case MOpc::MOVSX64_32rr:
+            case MOpc::MOVSX64_16rr:
+            case MOpc::MOVSX64_8rr:
+            case MOpc::MOVSX64rr8:
+            case MOpc::MOVSX64rm8:
+            case MOpc::MOVSX64rr16:
+            case MOpc::MOVSX64rm16:
+            case MOpc::ADD64rr:
+            case MOpc::ADD64ri32:
+            case MOpc::ADD64rm:
+            case MOpc::SUB64rr:
+            case MOpc::SUB64ri32:
+            case MOpc::SUB64ri:
+            case MOpc::SUB64rm:
+            case MOpc::IMUL64rr:
+            case MOpc::IMUL64rri32:
+            case MOpc::IMUL64rri:
+            case MOpc::IMUL64rm:
+            case MOpc::IMUL64ri:
+            case MOpc::MUL64r:
+            case MOpc::IDIV64r:
+            case MOpc::DIV64r:
+            case MOpc::NEG64r:
+            case MOpc::NOT64r:
+            case MOpc::INC64r:
+            case MOpc::DEC64r:
+            case MOpc::AND64rr:
+            case MOpc::AND64ri32:
+            case MOpc::OR64rr:
+            case MOpc::OR64ri32:
+            case MOpc::XOR64rr:
+            case MOpc::XOR64ri32:
+            case MOpc::AND64rm:
+            case MOpc::AND64mr:
+            case MOpc::AND64ri:
+            case MOpc::OR64rm:
+            case MOpc::OR64mr:
+            case MOpc::OR64ri:
+            case MOpc::XOR64rm:
+            case MOpc::XOR64mr:
+            case MOpc::XOR64ri:
+            case MOpc::SHL64rCL:
+            case MOpc::SHL64ri8:
+            case MOpc::SHR64rCL:
+            case MOpc::SHR64ri8:
+            case MOpc::SAR64rCL:
+            case MOpc::SAR64ri8:
+            case MOpc::SHL64rcl:
+            case MOpc::SHL64ri:
+            case MOpc::SHR64rcl:
+            case MOpc::SHR64ri:
+            case MOpc::SAR64rcl:
+            case MOpc::SAR64ri:
+            case MOpc::CMP64rr:
+            case MOpc::CMP64ri32:
+            case MOpc::CMP64rm:
+            case MOpc::CMP64ri:
+            case MOpc::TEST64rr:
+            case MOpc::TEST64ri:
+            case MOpc::CMOV64Err:
+            case MOpc::CMOV64NErr:
+            case MOpc::CMOV64Lrr:
+            case MOpc::CMOV64GErr:
+            case MOpc::CMOV64LErr:
+            case MOpc::CMOV64Grr:
+            case MOpc::CMOV64Brr:
+            case MOpc::CMOV64AErr:
+            case MOpc::CMOV64BErr:
+            case MOpc::CMOV64Arr:
+            case MOpc::JMP_r64:
+            case MOpc::CALL_r64:
+            case MOpc::LEA64rm:
+            case MOpc::CQO:
+            case MOpc::PUSH64r:
+            case MOpc::POP64r:
+            case MOpc::PUSHFQ:
+            case MOpc::POPFQ:
+            case MOpc::PUSH64i:
+            case MOpc::PUSH64m:
+            case MOpc::LOCK_XADD64mr:
+            case MOpc::LOCK_CMPXCHG64mr:
+            case MOpc::LOCK_XCHG64mr:
+            case MOpc::LOCK_AND64mi32:
+            case MOpc::LOCK_OR64mi32:
+            case MOpc::LOCK_XOR64mi32:
+            case MOpc::XCHG64rr:
+                return 64;
+            case MOpc::MOV32rr:
+            case MOpc::MOV32ri:
+            case MOpc::MOV32mi:
+            case MOpc::MOV32rm:
+            case MOpc::MOV32mr:
+            case MOpc::MOVZX32_16rr:
+            case MOpc::MOVZX32_8rr:
+            case MOpc::MOVZX32rr8:
+            case MOpc::MOVZX32rm8:
+            case MOpc::MOVSX32_16rr:
+            case MOpc::MOVSX32_8rr:
+            case MOpc::ADD32rr:
+            case MOpc::ADD32ri:
+            case MOpc::ADD32rm:
+            case MOpc::SUB32rr:
+            case MOpc::SUB32ri:
+            case MOpc::SUB32rm:
+            case MOpc::IMUL32rr:
+            case MOpc::IMUL32rri:
+            case MOpc::IDIV32r:
+            case MOpc::DIV32r:
+            case MOpc::NEG32r:
+            case MOpc::NOT32r:
+            case MOpc::AND32rr:
+            case MOpc::AND32ri:
+            case MOpc::OR32rr:
+            case MOpc::OR32ri:
+            case MOpc::XOR32rr:
+            case MOpc::XOR32ri:
+            case MOpc::SHL32rCL:
+            case MOpc::SHL32ri8:
+            case MOpc::SHR32rCL:
+            case MOpc::SHR32ri8:
+            case MOpc::SAR32rCL:
+            case MOpc::SAR32ri8:
+            case MOpc::CMP32rr:
+            case MOpc::CMP32ri:
+            case MOpc::CMP32rm:
+            case MOpc::TEST32rr:
+            case MOpc::CDQ:
+            case MOpc::LOCK_XADD32mr:
+            case MOpc::LOCK_CMPXCHG32mr:
+            case MOpc::LOCK_XCHG32mr:
+            case MOpc::LOCK_AND32mr:
+            case MOpc::LOCK_OR32mr:
+            case MOpc::LOCK_XOR32mr:
+                return 32;
+            case MOpc::MOV16rr:
+            case MOpc::MOV16ri:
+            case MOpc::MOV16mi:
+            case MOpc::MOV16rm:
+            case MOpc::MOV16mr:
+            case MOpc::LOCK_XADD16mr:
+            case MOpc::LOCK_CMPXCHG16mr:
+            case MOpc::LOCK_XCHG16mr:
+            case MOpc::LOCK_AND16mr:
+            case MOpc::LOCK_OR16mr:
+            case MOpc::LOCK_XOR16mr:
+                return 16;
+            case MOpc::MOV8rr:
+            case MOpc::MOV8ri:
+            case MOpc::MOV8mi:
+            case MOpc::MOV8rm:
+            case MOpc::MOV8mr:
+            case MOpc::CMP8rr:
+            case MOpc::CMP8ri:
+            case MOpc::TEST8rr:
+            case MOpc::SETEr:
+            case MOpc::SETNEr:
+            case MOpc::SETLr:
+            case MOpc::SETGEr:
+            case MOpc::SETLEr:
+            case MOpc::SETGr:
+            case MOpc::SETBr:
+            case MOpc::SETAEr:
+            case MOpc::SETBEr:
+            case MOpc::SETAr:
+            case MOpc::LOCK_XADD8mr:
+            case MOpc::LOCK_CMPXCHG8mr:
+            case MOpc::LOCK_XCHG8mr:
+            case MOpc::LOCK_AND8mr:
+            case MOpc::LOCK_OR8mr:
+            case MOpc::LOCK_XOR8mr:
+            case MOpc::REPMOVS:
+            case MOpc::REPSTOS:
+                return 8;
+            default:
+                return 0;
+        }
+    }
 
     struct MInstr
     {
