@@ -1038,6 +1038,11 @@ namespace dcc::ir::pass
             verify_value(rhs);
         }
 
+        [[nodiscard]] std::uint8_t offset_bits(PointerFlavor flavor) const noexcept
+        {
+            return flavor == PointerFlavor::Near ? m_target.pointer_bits : m_target.far_offset_bits();
+        }
+
         [[nodiscard]] bool valid_register(Segment seg) const
         {
             if (m_target.arch == dcc::target::Arch::X86_64)
@@ -1063,10 +1068,11 @@ namespace dcc::ir::pass
                         error("based pointer uses a register unavailable on the target");
                     if (ptr->flavor == PointerFlavor::Far && m_target.pointer_bits == 64)
                         error("dynamic far pointer is invalid on x86-64");
-                    auto const expected_size =
-                        ptr->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 4u : 8u) : static_cast<unsigned>(m_target.pointer_bits / 8);
-                    auto const expected_align =
-                        ptr->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 2u : 4u) : static_cast<unsigned>(m_target.pointer_align);
+                    auto const bits = offset_bits(ptr->flavor);
+                    auto const expected_size = ptr->flavor == PointerFlavor::Far ? (bits == 16 ? 4u : 8u) : static_cast<unsigned>(bits / 8);
+                    auto const expected_align = ptr->flavor == PointerFlavor::Far        ? (bits == 16 ? 2u : 4u)
+                                                : ptr->flavor == PointerFlavor::Based ? static_cast<unsigned>(bits / 8)
+                                                                                      : static_cast<unsigned>(m_target.pointer_align);
                     if (ptr->byte_size != expected_size || ptr->byte_align != expected_align)
                         error("pointer layout does not match target flavor");
                     verify_type(ptr->pointee);
@@ -1080,10 +1086,11 @@ namespace dcc::ir::pass
                         error("based slice uses a register unavailable on the target");
                     if (slice->flavor == PointerFlavor::Far && m_target.pointer_bits == 64)
                         error("dynamic far slice is invalid on x86-64");
-                    auto const pointer_size =
-                        slice->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 4u : 8u) : static_cast<unsigned>(m_target.pointer_bits / 8);
-                    auto const align =
-                        slice->flavor == PointerFlavor::Far ? (m_target.pointer_bits == 16 ? 2u : 4u) : static_cast<unsigned>(m_target.pointer_align);
+                    auto const bits = offset_bits(slice->flavor);
+                    auto const pointer_size = slice->flavor == PointerFlavor::Far ? (bits == 16 ? 4u : 8u) : static_cast<unsigned>(bits / 8);
+                    auto const align = slice->flavor == PointerFlavor::Far        ? (bits == 16 ? 2u : 4u)
+                                       : slice->flavor == PointerFlavor::Based ? static_cast<unsigned>(bits / 8)
+                                                                               : static_cast<unsigned>(m_target.pointer_align);
                     auto const unaligned = pointer_size + static_cast<unsigned>(m_target.pointer_bits / 8);
                     auto const size = (unaligned + align - 1) / align * align;
                     if (slice->byte_size != size || slice->byte_align != align)
@@ -1140,7 +1147,7 @@ namespace dcc::ir::pass
                 case IrNodeKind::MakePointer: {
                     auto* make = static_cast<IrMakePointerInst const*>(value);
                     auto* ptr = ir_type_cast<IrPointerType>(value->type);
-                    if (!ptr || !integer_value(make->offset, m_target.pointer_bits) || (ptr->flavor == PointerFlavor::Far) != (make->segment != nullptr))
+                    if (!ptr || !integer_value(make->offset, offset_bits(ptr->flavor)) || (ptr->flavor == PointerFlavor::Far) != (make->segment != nullptr))
                         error("make_pointer has invalid flavor or offset operand");
                     if (make->segment && !integer_value(make->segment, 16))
                         error("make_pointer segment operand must be u16");
@@ -1156,7 +1163,7 @@ namespace dcc::ir::pass
                     if (!ptr || (value->kind == IrNodeKind::PointerSegment && ptr->flavor != PointerFlavor::Far))
                         error("pointer extraction has invalid flavor");
                     auto* result = ir_type_cast<IrIntType>(value->type);
-                    auto expected_bits = value->kind == IrNodeKind::PointerSegment ? 16 : m_target.pointer_bits;
+                    auto expected_bits = value->kind == IrNodeKind::PointerSegment ? 16 : ptr ? offset_bits(ptr->flavor) : m_target.pointer_bits;
                     if (!result || result->bits != expected_bits || result->is_signed)
                         error("pointer extraction has invalid result type");
                     verify_value(pointer);

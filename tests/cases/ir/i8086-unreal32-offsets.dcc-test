@@ -1,0 +1,81 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+public usize demo(u32^FS f, u8* near, usize i, usize big, u16 seg) {
+    u8^ far = near;
+    u8^ moved = far.with_offset(big);
+    u8^ based = f as u8^;
+    u8* back = moved as u8*;
+    u8^ built = seg:big;
+    u32^FS fixed = FS:big;
+    u32 v = f[i] + *fixed;
+    usize s = sizeof(usize) + sizeof(u8^FS) + sizeof(u8^);
+    return v as usize + s + far.offset() as usize + based.offset() as usize + back as usize + built.offset() as usize + near.offset() as usize;
+}
+
+=== EXPECT-IR ===
+module "m"
+usize@_DC0F1.1.m4.demo5BqFSi32uPqi8uIuIui16uIu(ptr<u32, based=fs>, ptr<u8>, usize, usize, u16) {
+%entry(ptr<u32, based=fs> %f, ptr<u8> %near, usize %i, usize %big, u16 %seg):
+  %0 = alloca ptr<u8, far>
+  %1 = pointer_offset ptr<u8> %near
+  %2 = read_segment ds
+  %3 = make_pointer usize %1, u16 %2 to ptr<u8, far>
+  store ptr<u8, far> %3, ptr<ptr<u8, far>> %0
+  %4 = alloca ptr<u8, far>
+  %5 = load ptr<u8, far>, ptr<ptr<u8, far>> %0
+  %6 = pointer_segment ptr<u8, far> %5
+  %7 = make_pointer usize %big, u16 %6 to ptr<u8, far>
+  store ptr<u8, far> %7, ptr<ptr<u8, far>> %4
+  %8 = alloca ptr<u8, far>
+  %9 = pointer_offset ptr<u32, based=fs> %f
+  %10 = read_segment fs
+  %11 = make_pointer usize %9, u16 %10 to ptr<u8, far>
+  store ptr<u8, far> %11, ptr<ptr<u8, far>> %8
+  %12 = alloca ptr<u8>
+  %13 = load ptr<u8, far>, ptr<ptr<u8, far>> %4
+  %14 = pointer_offset ptr<u8, far> %13
+  %15 = make_pointer usize %14 to ptr<u8>
+  store ptr<u8> %15, ptr<ptr<u8>> %12
+  %16 = alloca ptr<u8, far>
+  %17 = make_pointer usize %big, u16 %seg to ptr<u8, far>
+  store ptr<u8, far> %17, ptr<ptr<u8, far>> %16
+  %18 = alloca ptr<u32, based=fs>
+  %19 = make_pointer usize %big to ptr<u32, based=fs>
+  store ptr<u32, based=fs> %19, ptr<ptr<u32, based=fs>> %18
+  %20 = alloca u32
+  %21 = gep ptr<u32, based=fs> %f, %i
+  %22 = load u32, ptr<u32, based=fs> %21
+  %23 = load ptr<u32, based=fs>, ptr<ptr<u32, based=fs>> %18
+  %24 = load u32, ptr<u32, based=fs> %23
+  %25 = add u32 %22, u32 %24
+  store u32 %25, ptr<u32> %20
+  %26 = alloca usize
+  %27 = add usize #4, usize #4
+  %28 = add usize %27, usize #8
+  store usize %28, ptr<usize> %26
+  %29 = load u32, ptr<u32> %20
+  %30 = bitcast u32 %29 to usize
+  %31 = load usize, ptr<usize> %26
+  %32 = add usize %30, usize %31
+  %33 = load ptr<u8, far>, ptr<ptr<u8, far>> %0
+  %34 = pointer_offset ptr<u8, far> %33
+  %35 = add usize %32, usize %34
+  %36 = load ptr<u8, far>, ptr<ptr<u8, far>> %8
+  %37 = pointer_offset ptr<u8, far> %36
+  %38 = add usize %35, usize %37
+  %39 = load ptr<u8>, ptr<ptr<u8>> %12
+  %40 = ptrtoi ptr<u8> %39 to usize
+  %41 = add usize %38, usize %40
+  %42 = load ptr<u8, far>, ptr<ptr<u8, far>> %16
+  %43 = pointer_offset ptr<u8, far> %42
+  %44 = add usize %41, usize %43
+  %45 = pointer_offset ptr<u8> %near
+  %46 = read_segment ds
+  %47 = make_pointer usize %45, u16 %46 to ptr<u8, far>
+  %48 = pointer_offset ptr<u8, far> %47
+  %49 = add usize %44, usize %48
+  ret usize %49
+}
+

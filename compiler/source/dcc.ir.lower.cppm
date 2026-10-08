@@ -1438,6 +1438,23 @@ export namespace dcc::ir::lower
             throw std::runtime_error("invalid pointer flavor in IR lowering");
         }
 
+        IrValue* fit_pointer_offset(IrValue* offset, IrType const* pointer_type)
+        {
+            auto* pointer = ir_type_cast<IrPointerType>(pointer_type);
+            auto* offset_type = offset ? ir_type_cast<IrIntType>(offset->type) : nullptr;
+            if (!pointer || !offset_type)
+                return offset;
+            auto* target_type = m_ctx.offset_t(pointer->flavor);
+            auto const target_bits = static_cast<IrIntType const*>(target_type)->bits;
+            if (offset_type->bits == target_bits)
+                return offset;
+            IrValue* fitted = offset_type->bits < target_bits ? static_cast<IrValue*>(m_ctx.zext(target_type, offset)) : m_ctx.trunc(target_type, offset);
+            auto fitted_name = ident_name();
+            fitted->name = m_name_pool.back();
+            append_inst(fitted);
+            return fitted;
+        }
+
         IrGepInst* gep_preserving_flavor(IrType const* result_type, IrValue* base)
         {
             auto* base_pointer = base ? ir_type_cast<IrPointerType>(base->type) : nullptr;
@@ -2988,15 +3005,7 @@ export namespace dcc::ir::lower
                     auto* pointer_type = ir_type_cast<IrPointerType>(result_type);
                     if (!pointer_type)
                         lower_panic(expr, "segment construction has no pointer result type");
-                    auto* offset = lower_expr(construct->offset);
-                    if (auto* offset_type = ir_type_cast<IrIntType>(offset->type); offset_type && offset_type->bits < m_ctx.pointer_bits())
-                    {
-                        auto* ext = m_ctx.zext(m_ctx.usize_t(), offset);
-                        auto ext_name = ident_name();
-                        ext->name = m_name_pool.back();
-                        append_inst(ext);
-                        offset = ext;
-                    }
+                    auto* offset = fit_pointer_offset(lower_expr(construct->offset), pointer_type);
 
                     IrValue* segment = nullptr;
                     if (pointer_type->flavor == PointerFlavor::Far)
@@ -4004,9 +4013,10 @@ export namespace dcc::ir::lower
 
                 if (auto* pointer_type = ir_type_cast<IrPointerType>(seg_args[0]->type); pointer_type && pointer_type->flavor == PointerFlavor::Near)
                 {
-                    auto* offset = emit_named(m_ctx.pointer_offset(seg_args[0]));
+                    auto* far_type = m_ctx.pointer_to(pointer_type->pointee, Segment::None, PointerFlavor::Far);
+                    auto* offset = fit_pointer_offset(emit_named(m_ctx.pointer_offset(seg_args[0])), far_type);
                     auto* segment = emit_named(m_ctx.read_segment(Segment::Ds));
-                    seg_args[0] = emit_named(m_ctx.make_pointer(m_ctx.pointer_to(pointer_type->pointee, Segment::None, PointerFlavor::Far), offset, segment));
+                    seg_args[0] = emit_named(m_ctx.make_pointer(far_type, offset, segment));
                 }
 
                 if (func->name == "offset")
@@ -4022,7 +4032,7 @@ export namespace dcc::ir::lower
                     IrValue* segment = nullptr;
                     if (auto* pointer_type = ir_type_cast<IrPointerType>(seg_args[0]->type); pointer_type && pointer_type->flavor == PointerFlavor::Far)
                         segment = emit_named(m_ctx.pointer_segment(seg_args[0]));
-                    return emit_named(m_ctx.make_pointer(result_type, seg_args[1], segment));
+                    return emit_named(m_ctx.make_pointer(result_type, fit_pointer_offset(seg_args[1], result_type), segment));
                 }
                 if (func->name == "with_segment")
                 {
@@ -5485,7 +5495,7 @@ export namespace dcc::ir::lower
                     else if (src_ptr->flavor != PointerFlavor::Far || dst_ptr->flavor != PointerFlavor::Near)
                         lower_panic(c, "invalid pointer flavor conversion");
 
-                    auto* result = m_ctx.make_pointer(dst_ir_ty, offset, segment);
+                    auto* result = m_ctx.make_pointer(dst_ir_ty, fit_pointer_offset(offset, dst_ir_ty), segment);
                     auto result_name = ident_name();
                     result->name = m_name_pool.back();
                     append_inst(result);
@@ -9168,7 +9178,7 @@ export namespace dcc::ir::lower
                 auto segment_name = ident_name();
                 segment->name = m_name_pool.back();
                 append_inst(segment);
-                auto* converted = m_ctx.make_pointer(target_ir, offset, segment);
+                auto* converted = m_ctx.make_pointer(target_ir, fit_pointer_offset(offset, target_ir), segment);
                 auto converted_name = ident_name();
                 converted->name = m_name_pool.back();
                 append_inst(converted);

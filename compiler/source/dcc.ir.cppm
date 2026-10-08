@@ -1362,6 +1362,12 @@ export namespace dcc::ir
         }
 
         [[nodiscard]] std::uint8_t pointer_bits() const noexcept { return m_pointer_bits; }
+        [[nodiscard]] std::uint8_t offset_bits(PointerFlavor flavor) const noexcept { return flavor == PointerFlavor::Near ? m_pointer_bits : m_far_offset_bits; }
+        [[nodiscard]] IrType const* offset_t(PointerFlavor flavor)
+        {
+            auto const bits = offset_bits(flavor);
+            return bits == m_pointer_bits ? usize_t() : int_t(bits, false);
+        }
         [[nodiscard]] std::uint8_t pointer_align() const noexcept { return m_pointer_align; }
 
         IrContext(IrContext const&) = delete;
@@ -1586,7 +1592,11 @@ export namespace dcc::ir
         {
             return make<IrMakePointerInst>(dst, offset, segment);
         }
-        [[nodiscard]] IrPointerOffsetInst* pointer_offset(IrValue* ptr) { return make<IrPointerOffsetInst>(usize_t(), ptr); }
+        [[nodiscard]] IrPointerOffsetInst* pointer_offset(IrValue* ptr)
+        {
+            auto* pointer = ptr ? ir_type_cast<IrPointerType>(ptr->type) : nullptr;
+            return make<IrPointerOffsetInst>(pointer ? offset_t(pointer->flavor) : usize_t(), ptr);
+        }
         [[nodiscard]] IrPointerSegmentInst* pointer_segment(IrValue* ptr) { return make<IrPointerSegmentInst>(int_t(16, false), ptr); }
 
         [[nodiscard]] IrExtractInst* extract(IrType const* field_t, IrValue* agg, std::uint32_t fi) { return make<IrExtractInst>(field_t, agg, fi); }
