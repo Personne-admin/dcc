@@ -1,0 +1,53 @@
+=== FILE: test.dc ===
+module test;
+
+@nomangle
+const i32 dummy_ro = 0;
+
+@nomangle
+i32 dummy_data = 0;
+
+@nomangle
+i32 dummy_bss;
+
+u64 arith64(u64 acc, u64* p) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(a = acc, ptr = p)] { "mov rax, %[a]; add rax, [%[ptr]]; sub rax, [%[ptr]]; sub rax, [%[ptr]]" };
+    return r;
+}
+
+u64 and64(u64 acc, u64* p) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(a = acc, ptr = p)] { "mov rax, %[a]; and rax, [%[ptr]]" };
+    return r;
+}
+
+u64 or64(u64 acc, u64* p) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(a = acc, ptr = p)] { "mov rax, %[a]; or rax, [%[ptr]]" };
+    return r;
+}
+
+u64 xor64(u64 acc, u64* p) {
+    u64 r = asm @[intel, output(u64 in rax), inputs(a = acc, ptr = p)] { "mov rax, %[a]; xor rax, [%[ptr]]" };
+    return r;
+}
+
+u32 arith32(u32 acc, u32* p) {
+    u32 r = asm @[intel, output(u32 in eax), inputs(a = acc, ptr = p)] { "mov eax, %[a]; add eax, [%[ptr]]; sub eax, [%[ptr]]; sub eax, [%[ptr]]" };
+    return r;
+}
+
+@nomangle
+public i32 dcc_main() {
+    u64 cell = 6;
+    if arith64(15, &cell) != 9 { return 1; }
+    if and64(12, &cell) != 4 { return 2; }
+    if or64(9, &cell) != 15 { return 3; }
+    if xor64(12, &cell) != 10 { return 4; }
+    if cell != 6 { return 5; }
+    u32 small = 40;
+    if arith32(100, &small) != 60 { return 6; }
+    if small != 40 { return 7; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

@@ -517,6 +517,27 @@ namespace
         }
     }
 
+    static std::uint8_t alu_r_rm(MOpc o)
+    {
+        switch (o)
+        {
+            case MOpc::SUB64rm:
+            case MOpc::SUB32rm:
+                return 0x2B;
+            case MOpc::AND64rm:
+                return 0x23;
+            case MOpc::OR64rm:
+                return 0x0B;
+            case MOpc::XOR64rm:
+                return 0x33;
+            case MOpc::CMP64rm:
+            case MOpc::CMP32rm:
+                return 0x3B;
+            default:
+                return 0x03;
+        }
+    }
+
     static std::uint8_t alu_rm_r(MOpc o)
     {
         switch (o)
@@ -1275,7 +1296,7 @@ namespace
                         bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
                         bool be = reg_is_extended(b);
                         emit_rex(buf, w64, de, ie, be);
-                        emit_u8(buf, alu_rm_r(instr.opc));
+                        emit_u8(buf, alu_r_rm(instr.opc));
                         emit_mem(buf, m, reg_low3(d), wrn, "ALUrm");
                     }
                     else
