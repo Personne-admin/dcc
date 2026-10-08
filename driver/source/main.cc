@@ -130,7 +130,7 @@ namespace
     constexpr std::string_view k_alias_target[] = {"--target"};
     constexpr std::string_view k_alias_help[] = {"--help"};
 
-    constexpr std::string_view k_choice_model[] = {"default", "small", "kernel", "medium", "large"};
+    constexpr std::string_view k_choice_model[] = {"default", "small", "kernel", "medium", "large", "unreal", "unreal32"};
     constexpr std::string_view k_choice_backend[] = {"llvm", "custom"};
     constexpr std::string_view k_choice_libdcext[] = {"linux", "windows", "freestanding"};
     constexpr std::string_view k_choice_opt[] = {"0", "1", "2", "s"};
@@ -801,6 +801,11 @@ namespace
             std::exit(1);
         }
 
+        if (auto error = result->configure(opts.code_model.value_or(dcc::target::CodeModel::Default), opts.target_cpu))
+        {
+            std::println(std::cerr, "dcc: error: {}", *error);
+            std::exit(1);
+        }
         return *result;
     }
 

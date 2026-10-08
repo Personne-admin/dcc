@@ -239,6 +239,8 @@ namespace dcc::backend
         {
             switch (target.code_model)
             {
+                case CodeModel::Unreal:
+                case CodeModel::Unreal32:
                 case CodeModel::Default:
                     return LLVMCodeModelDefault;
                 case CodeModel::Small:

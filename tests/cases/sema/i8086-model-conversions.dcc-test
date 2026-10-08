@@ -1,0 +1,14 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+u8^ widen(u8* p) { return p; }
+u8^ based(u8^DS p) { return p as u8^; }
+u8^FS fs;
+u8^GS gs;
+void check() {
+    u8^ p = 0x1234:0x12345678;
+    usize off = p.offset();
+    u8^DS b = DS:0x12345678;
+    usize boff = b.offset();
+}

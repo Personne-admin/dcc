@@ -1,4 +1,4 @@
-=== TARGET: i8086-binary ===
+=== TARGET: i8086-binary FLAGS: -farch=8086 ===
 === FILE: main.dc ===
 module m;
 

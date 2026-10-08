@@ -220,12 +220,25 @@ Target validity:
 | target | dynamic `T^` | based `T^REG` |
 | x86_64 (long mode) | error | `FS` and `GS` only |
 | x86-elf, x86-coff (32-bit protected mode) | yes | all six registers |
-| i8086-binary | yes | `CS`, `DS`, `ES`, `SS` only |
+| i8086-binary | yes | all six with `-farch i386` or newer; CS/DS/ES/SS before i386 |
 
 Layout is fixed at sema time:
 
-- Dynamic `T^` on i8086-binary: 4 bytes, offset `u16` at +0, segment `u16`
-  at +2, alignment 2.
+On i8086-binary, `-target` selects the execution environment, `-farch` the
+instruction set (default i386), and `-mcmodel` the addressing model:
+
+| model | `T*`, `usize`, `isize` | based offset | dynamic `T^` size/alignment |
+|-------|-----------------------|--------------|----------------------------|
+| default, small | 16 bits | 16 bits | 4/2 |
+| unreal | 16 bits | 32 bits | 8/4 |
+| unreal32 | 32 bits | 32 bits | 8/4 |
+
+Dynamic pointers store offset at +0 and segment `u16` at +2 (small) or +4
+(unreal/unreal32), with two zero padding bytes in the latter layout.
+Unreal models require `-farch i386` or newer; incompatible flags are errors.
+The MVP permits 32-bit registers, arithmetic and addressing using operand
+and address-size prefixes in 16-bit code.
+
 - Dynamic `T^` on x86-elf and x86-coff: 8 bytes, offset `u32` at +0, selector
   `u16` at +4, two pad bytes at +6, alignment 4.
 - Based `T^REG`: same size and alignment as the target's offset width
@@ -315,6 +328,12 @@ Layout is fixed at sema time. The far pointer is at offset 0 and the
 | `[]T` | 4 bytes, align 2 | 8 bytes, align 4 | 16 bytes, align 8 |
 | `[^]T` | 6 bytes, align 2 | 12 bytes, align 4 | error |
 | `[^REG]T` | 4 bytes, align 2 | 8 bytes, align 4 | 16 bytes, align 8 |
+
+The i8086 column above is default/small. In unreal, near slices are 4/2,
+based slices 8/4 (offset32 at +0, length16 at +4, two trailing pad bytes),
+and dynamic slices 12/4 (pointer at +0, length16 at +8, two trailing pad bytes).
+In unreal32, near/based slices are 8/4 and dynamic slices 12/4, with length32
+at +4 or +8 respectively. All slice lengths remain `usize`.
 
 `.ptr` has type `T^` (or `T^REG` for a based slice, with the element
 qualifiers) and `.len` has type `usize`; both are assignable. Indexing,
@@ -1007,7 +1026,7 @@ construction is an error.
 
 **Operands.** Both operands must be integers. A constant part is
 range-checked: the segment must fit `u16`, the offset must fit the target's
-offset width (`u16` on i8086-binary, `u32` on x86-elf and x86-coff, `u64` on
+offset width (`u16` on small i8086-binary, `u32` on unreal/unreal32, `u32` on x86-elf and x86-coff, `u64` on
 x86-64). A runtime part must have an unsigned integer type no wider than
 the corresponding limit; wider or signed runtime operands are an error
 (cast explicitly with `as`). A numeric segment cannot target a based type:
@@ -1771,3 +1790,6 @@ Section references use [`module::slug#section`] or `[label|`module::slug#section
 Within a module, `[#slug]` is shorthand; `[#module::slug]` works across modules.
 The slug is lowercase words joined with hyphens. Repeated titles append `-2`,
 `-3`, and so on. Broken section references produce a warning and a recorded miss.
+
+On i8086 unreal, `core::seg::offset` and `with_offset` use `u32` so far/based offsets remain lossless despite 16-bit `usize`; other models retain `usize`.
+`core::target::CODE_MODEL` exposes the active `CodeModel` enum (Default, Small, Kernel, Medium, Large, Unreal, Unreal32).

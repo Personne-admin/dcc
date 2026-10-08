@@ -159,20 +159,23 @@ export namespace dcc::ir
         PointerFlavor flavor{PointerFlavor::Near};
 
         IrSliceType(IrType const* el, Segment s = Segment::None, PointerFlavor f = PointerFlavor::Near, std::uint8_t pointer_bits = 64,
-                    std::uint8_t pointer_align = 8)
+                    std::uint8_t pointer_align = 8, std::uint8_t offset_bits = 0)
             : IrType(Kind), element(el), seg(s), flavor(f)
         {
+            if (offset_bits == 0)
+                offset_bits = pointer_bits;
             if (flavor == PointerFlavor::Far)
             {
-                byte_align = pointer_bits <= 16 ? 2 : pointer_bits <= 32 ? 4 : 8;
-                std::uint64_t const pointer_size = pointer_bits <= 16 ? 4 : pointer_bits <= 32 ? 8 : 16;
+                byte_align = offset_bits <= 16 ? 2 : offset_bits <= 32 ? 4 : 8;
+                std::uint64_t const pointer_size = offset_bits <= 16 ? 4 : offset_bits <= 32 ? 8 : 16;
                 auto const unaligned = pointer_size + static_cast<std::uint64_t>(pointer_bits) / 8;
                 byte_size = (unaligned + byte_align - 1) / byte_align * byte_align;
             }
             else
             {
-                byte_size = 2 * (static_cast<std::uint64_t>(pointer_bits) / 8);
-                byte_align = pointer_align;
+                byte_align = flavor == PointerFlavor::Based ? offset_bits / 8 : pointer_align;
+                auto const size = (static_cast<std::uint64_t>(flavor == PointerFlavor::Based ? offset_bits : pointer_bits) + pointer_bits) / 8;
+                byte_size = (size + byte_align - 1) / byte_align * byte_align;
             }
         }
     };
@@ -1354,6 +1357,7 @@ export namespace dcc::ir
             {
                 m_pointer_bits = target->pointer_bits;
                 m_pointer_align = target->pointer_align;
+                m_far_offset_bits = target->far_offset_bits();
             }
         }
 
@@ -1408,7 +1412,8 @@ export namespace dcc::ir
                 if (t->pointee == pointee && t->seg == seg && t->flavor == flavor)
                     return t;
 
-            auto* t = make<IrPointerType>(pointee, seg, flavor, m_pointer_bits, m_pointer_align);
+            auto* t = make<IrPointerType>(pointee, seg, flavor, flavor == PointerFlavor::Near ? m_pointer_bits : m_far_offset_bits,
+                                          static_cast<std::uint8_t>(flavor == PointerFlavor::Near ? m_pointer_align : m_far_offset_bits / 8));
             m_pointers.push_back(t);
             return t;
         }
@@ -1469,7 +1474,7 @@ export namespace dcc::ir
                 if (t->element == element && t->seg == seg && t->flavor == flavor)
                     return t;
 
-            auto* t = make<IrSliceType>(element, seg, flavor, m_pointer_bits, m_pointer_align);
+            auto* t = make<IrSliceType>(element, seg, flavor, m_pointer_bits, m_pointer_align, m_far_offset_bits);
             m_slices.push_back(t);
             return t;
         }
@@ -1639,6 +1644,7 @@ export namespace dcc::ir
         IrVoidType const* m_void{};
         IrBoolType const* m_bool{};
 
+        std::uint8_t m_far_offset_bits{64};
         std::uint8_t m_pointer_bits{64};
         std::uint8_t m_pointer_align{8};
 

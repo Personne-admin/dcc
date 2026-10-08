@@ -1,6 +1,7 @@
 import std;
 
 import dcc.ir;
+import dcc.types;
 import dcc.ir.pass;
 import dcc.target;
 import dcc.backend;
@@ -984,4 +985,30 @@ TEST_CASE("llvm masks integer constants before constructing apint values")
             CHECK(artifact.diagnostics.empty());
             CHECK(artifact.llvm_ir_text->find("ret i1 true") != std::string::npos);
         }
+}
+
+TEST_CASE("i8086 code models agree across sema and ir layouts")
+{
+    for (auto model : {dcc::target::CodeModel::Small, dcc::target::CodeModel::Unreal, dcc::target::CodeModel::Unreal32})
+    {
+        auto target = *dcc::target::TargetConfig::parse_triple("i8086-binary");
+        REQUIRE(!target.configure(model, "i386"));
+        dcc::types::TypeContext types(32768, &target);
+        dcc::ir::IrContext ir(262144, &target);
+        auto element = types.int_t(8, false);
+        auto ir_element = ir.int_t(8, false);
+        for (auto flavor : {dcc::types::PointerFlavor::Near, dcc::types::PointerFlavor::Based, dcc::types::PointerFlavor::Far})
+        {
+            auto sema_pointer = types.pointer_with_flavor(element, dcc::types::Qual::None, flavor, dcc::types::SegReg::DS);
+            auto sema_slice = types.slice_t(element, dcc::types::Qual::None, flavor, dcc::types::SegReg::DS);
+            auto ir_flavor = flavor == dcc::types::PointerFlavor::Near ? dcc::ir::PointerFlavor::Near :
+                             flavor == dcc::types::PointerFlavor::Based ? dcc::ir::PointerFlavor::Based : dcc::ir::PointerFlavor::Far;
+            auto ir_pointer = ir.pointer_to(ir_element, dcc::ir::Segment::Ds, ir_flavor);
+            auto ir_slice = ir.slice_t(ir_element, dcc::ir::Segment::Ds, ir_flavor);
+            CHECK(sema_pointer->byte_size == ir_pointer->byte_size);
+            CHECK(sema_pointer->byte_align == ir_pointer->byte_align);
+            CHECK(sema_slice->byte_size == ir_slice->byte_size);
+            CHECK(sema_slice->byte_align == ir_slice->byte_align);
+        }
+    }
 }

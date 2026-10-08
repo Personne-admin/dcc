@@ -224,6 +224,8 @@ namespace
         std::vector<VirtualFile> files;
         std::string entry;
         std::string target_name;
+        dcc::target::CodeModel target_model{dcc::target::CodeModel::Default};
+        std::string target_cpu;
         std::size_t target_line{};
         std::vector<ExpectAst> ast_blocks;
         std::vector<ExpectScope> scope_blocks;
@@ -349,6 +351,20 @@ namespace
             else if (starts_with(h, "TARGET:"))
             {
                 fx.target_name = trim(std::string_view{h}.substr(7));
+                auto flags = fx.target_name.find(" FLAGS:");
+                if (flags != std::string::npos)
+                {
+                    std::istringstream options(fx.target_name.substr(flags + 7));
+                    fx.target_name.resize(flags);
+                    std::string option;
+                    while (options >> option)
+                    {
+                        if (option.starts_with("-mcmodel="))
+                            fx.target_model = dcc::target::TargetConfig::parse_code_model(option.substr(9)).value();
+                        else if (option.starts_with("-farch="))
+                            fx.target_cpu = option.substr(7);
+                    }
+                }
                 fx.target_line = sec.body_start_line - 1;
             }
             else if (starts_with(h, "MODE:") && trim(std::string_view{h}.substr(5)) == "interactive")
@@ -1466,6 +1482,14 @@ namespace
                 return false;
             }
         }
+
+        if (fixture_target)
+            if (auto error = fixture_target->configure(fx.target_model, fx.target_cpu))
+            {
+                ++stats.failed;
+                std::println(std::cerr, "    FAIL  invalid fixture target: {}", *error);
+                return false;
+            }
 
         auto sb = materialize(fx, path);
         if (!sb)

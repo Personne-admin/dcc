@@ -1,0 +1,15 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module m;
+u8^ const P = 0x1234:0x12345678;
+u8^DS const B = DS:0x12345678;
+=== EXPECT-BODY ===
+Module m
+  Var P type=u8^ storage=module offset=0
+    SegConstruct [type=u8^ const=0x1234:0x12345678 constant]
+      IntLiteral 4660 [type=i32 const=4660 constant]
+      IntLiteral 305419896 [type=i32 const=305419896 constant]
+  Var B type=u8^DS storage=module offset=0
+    SegConstruct [type=u8^DS const=0x0:0x12345678 constant]
+      Ident DS [type=<unresolved> const=<none>]
+      IntLiteral 305419896 [type=i32 const=305419896 constant]

@@ -1,0 +1,18 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal -farch=i386 ===
+=== FILE: main.dc ===
+module m;
+import core::seg;
+import core::target;
+static if (core::target::CODE_MODEL != core::target::CodeModel::Unreal) {
+    MissingType fail;
+}
+u8^ widen(u8* p) { return p; }
+u8^ based(u8^DS p) { return p as u8^; }
+void check() {
+    u8^ p = 0x1234:0x12345678;
+    u32 off = p.offset();
+    u8^DS b = DS:0x12345678;
+    u32 boff = b.offset();
+    p = p.with_offset(off);
+    b = b.with_offset(boff);
+}
