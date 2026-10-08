@@ -46,6 +46,8 @@ TEST_LDFLAGS := $(LLVM_LDFLAGS) $(CMARK_LIBS)
 $(OBJ_DIR)/tests/source/test_driver_prefix.cc.o: LOCAL_CXXFLAGS += -DDCC_EXPECTED_VERSION='"$(DCC_VERSION)"'
 $(OBJ_DIR)/tests/source/test_driver_prefix.cc.o: $(VERSION_STAMP)
 
+$(OBJ_DIR)/tests/source/test_x86_real16.cc.o: LOCAL_CXXFLAGS += -DDCC_I8086_RUNNER='"$(TOPLEVEL)/tests/i8086/run.py"'
+
 DCCD_FORMAT_OBJ := $(OBJ_DIR)/dccd.format.pcm.o
 DCCD_PROTOCOL_OBJ := $(OBJ_DIR)/dccd.protocol.pcm.o
 DCCD_WORKSPACE_OBJS := \

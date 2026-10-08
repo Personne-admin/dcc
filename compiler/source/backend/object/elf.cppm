@@ -27,6 +27,8 @@ export namespace dcc::backend::object
         std::uint64_t jump_table_entry_size;
         std::uint32_t jump_table_reloc;
         std::int64_t jump_table_addend;
+        bool class32{false};
+        bool rela{true};
     };
 
 } // namespace dcc::backend::object
@@ -45,6 +47,7 @@ namespace dcc::backend::object
         constexpr std::uint32_t SHT_SYMTAB = 2;
         constexpr std::uint32_t SHT_STRTAB = 3;
         constexpr std::uint32_t SHT_RELA = 4;
+        constexpr std::uint32_t SHT_REL = 9;
 
         constexpr std::uint64_t SHF_ALLOC = 0x2;
         constexpr std::uint64_t SHF_EXECINSTR = 0x4;
@@ -118,16 +121,81 @@ namespace dcc::backend::object
             return static_cast<std::uint64_t>(type) | (static_cast<std::uint64_t>(sym) << 32);
         }
 
-        void serialize_ehdr(std::vector<std::uint8_t>& b, Elf64_Ehdr const& h)
+        [[nodiscard]] std::uint64_t ehdr_size(ElfWriterPolicy const& arch) noexcept
+        {
+            return arch.class32 ? 52 : 64;
+        }
+
+        [[nodiscard]] std::uint64_t shdr_size(ElfWriterPolicy const& arch) noexcept
+        {
+            return arch.class32 ? 40 : 64;
+        }
+
+        [[nodiscard]] std::uint64_t sym_size(ElfWriterPolicy const& arch) noexcept
+        {
+            return arch.class32 ? 16 : 24;
+        }
+
+        [[nodiscard]] std::uint64_t rel_size(ElfWriterPolicy const& arch) noexcept
+        {
+            if (arch.rela)
+                return arch.class32 ? 12 : 24;
+            return arch.class32 ? 8 : 16;
+        }
+
+        [[nodiscard]] std::uint64_t table_alignment(ElfWriterPolicy const& arch) noexcept
+        {
+            return arch.class32 ? 4 : 8;
+        }
+
+        [[nodiscard]] std::uint32_t rel_section_type(ElfWriterPolicy const& arch) noexcept
+        {
+            return arch.rela ? SHT_RELA : SHT_REL;
+        }
+
+        void wword(std::vector<std::uint8_t>& b, ElfWriterPolicy const& arch, std::uint64_t v)
+        {
+            if (arch.class32)
+                w32(b, static_cast<std::uint32_t>(v));
+            else
+                w64(b, v);
+        }
+
+        void store_implicit_addend(std::vector<std::uint8_t>& data, std::uint64_t offset, std::uint64_t size, std::int64_t addend)
+        {
+            auto const value = static_cast<std::uint64_t>(addend);
+            for (std::uint64_t i = 0; i < size && offset + i < data.size(); ++i)
+                data[static_cast<std::size_t>(offset + i)] = static_cast<std::uint8_t>(value >> (i * 8));
+        }
+
+        [[nodiscard]] std::uint64_t reloc_field_size(Reloc::Kind kind) noexcept
+        {
+            switch (kind)
+            {
+                case Reloc::Kind::Abs16:
+                case Reloc::Kind::Rel16:
+                    return 2;
+                case Reloc::Kind::Abs64:
+                    return 8;
+                case Reloc::Kind::Abs32:
+                case Reloc::Kind::Rel32:
+                case Reloc::Kind::Rel32_Got:
+                case Reloc::Kind::Rel32_Call:
+                    return 4;
+            }
+            return 4;
+        }
+
+        void serialize_ehdr(std::vector<std::uint8_t>& b, Elf64_Ehdr const& h, ElfWriterPolicy const& arch)
         {
             for (auto c : h.e_ident)
                 w8(b, c);
             w16(b, h.e_type);
             w16(b, h.e_machine);
             w32(b, h.e_version);
-            w64(b, h.e_entry);
-            w64(b, h.e_phoff);
-            w64(b, h.e_shoff);
+            wword(b, arch, h.e_entry);
+            wword(b, arch, h.e_phoff);
+            wword(b, arch, h.e_shoff);
             w32(b, h.e_flags);
             w16(b, h.e_ehsize);
             w16(b, h.e_phentsize);
@@ -137,28 +205,55 @@ namespace dcc::backend::object
             w16(b, h.e_shstrndx);
         }
 
-        void serialize_shdr(std::vector<std::uint8_t>& b, Elf64_Shdr const& s)
+        void serialize_shdr(std::vector<std::uint8_t>& b, Elf64_Shdr const& s, ElfWriterPolicy const& arch)
         {
             w32(b, s.sh_name);
             w32(b, s.sh_type);
-            w64(b, s.sh_flags);
-            w64(b, s.sh_addr);
-            w64(b, s.sh_offset);
-            w64(b, s.sh_size);
+            wword(b, arch, s.sh_flags);
+            wword(b, arch, s.sh_addr);
+            wword(b, arch, s.sh_offset);
+            wword(b, arch, s.sh_size);
             w32(b, s.sh_link);
             w32(b, s.sh_info);
-            w64(b, s.sh_addralign);
-            w64(b, s.sh_entsize);
+            wword(b, arch, s.sh_addralign);
+            wword(b, arch, s.sh_entsize);
         }
 
-        void serialize_sym(std::vector<std::uint8_t>& b, Elf64_Sym const& s)
+        void serialize_sym(std::vector<std::uint8_t>& b, Elf64_Sym const& s, ElfWriterPolicy const& arch)
         {
             w32(b, s.st_name);
+            if (arch.class32)
+            {
+                w32(b, static_cast<std::uint32_t>(s.st_value));
+                w32(b, static_cast<std::uint32_t>(s.st_size));
+                w8(b, s.st_info);
+                w8(b, s.st_other);
+                w16(b, s.st_shndx);
+                return;
+            }
             w8(b, s.st_info);
             w8(b, s.st_other);
             w16(b, s.st_shndx);
             w64(b, s.st_value);
             w64(b, s.st_size);
+        }
+
+        void serialize_rel(std::vector<std::uint8_t>& b, Elf64_Rela const& rel, ElfWriterPolicy const& arch)
+        {
+            if (arch.class32)
+            {
+                auto const sym = static_cast<std::uint32_t>(rel.r_info >> 32);
+                auto const type = static_cast<std::uint32_t>(rel.r_info & 0xff);
+                w32(b, static_cast<std::uint32_t>(rel.r_offset));
+                w32(b, (sym << 8) | type);
+                if (arch.rela)
+                    w32(b, static_cast<std::uint32_t>(rel.r_addend));
+                return;
+            }
+            w64(b, rel.r_offset);
+            w64(b, rel.r_info);
+            if (arch.rela)
+                w64(b, static_cast<std::uint64_t>(rel.r_addend));
         }
 
         [[noreturn]] void unsupported_relocation(std::string_view what)
@@ -361,13 +456,14 @@ export namespace dcc::backend::object
 
         add_str(shstrtab, "");
         std::uint32_t sh_name_text = add_str(shstrtab, ".text");
-        std::uint32_t sh_name_rela_text = add_str(shstrtab, ".rela.text");
+        std::string const rel_prefix = arch.rela ? ".rela" : ".rel";
+        std::uint32_t sh_name_rela_text = add_str(shstrtab, rel_prefix + ".text");
         std::uint32_t sh_name_rodata = add_str(shstrtab, ".rodata");
-        std::uint32_t sh_name_rela_rodata = add_str(shstrtab, ".rela.rodata");
+        std::uint32_t sh_name_rela_rodata = add_str(shstrtab, rel_prefix + ".rodata");
         std::uint32_t sh_name_data_rel_ro = add_str(shstrtab, ".data.rel.ro");
-        std::uint32_t sh_name_rela_data_rel_ro = add_str(shstrtab, ".rela.data.rel.ro");
+        std::uint32_t sh_name_rela_data_rel_ro = add_str(shstrtab, rel_prefix + ".data.rel.ro");
         std::uint32_t sh_name_data = add_str(shstrtab, ".data");
-        std::uint32_t sh_name_rela_data = add_str(shstrtab, ".rela.data");
+        std::uint32_t sh_name_rela_data = add_str(shstrtab, rel_prefix + ".data");
         std::uint32_t sh_name_bss = add_str(shstrtab, ".bss");
         std::uint32_t sh_name_symtab = add_str(shstrtab, ".symtab");
         std::uint32_t sh_name_strtab = add_str(shstrtab, ".strtab");
@@ -455,7 +551,7 @@ export namespace dcc::backend::object
         for (auto& cs : custom_sections)
         {
             cs.sh_name = add_str(shstrtab, cs.name);
-            cs.rela_sh_name = add_str(shstrtab, ".rela" + cs.name);
+            cs.rela_sh_name = add_str(shstrtab, rel_prefix + cs.name);
         }
 
         std::vector<std::uint8_t> rodata_data;
@@ -992,6 +1088,8 @@ export namespace dcc::backend::object
                         rela.r_offset = entry_offset;
                         rela.r_addend = arch.jump_table_addend;
                         rela.r_info = elf_r_info(blk_sym_it->second, arch.jump_table_reloc);
+                        if (!arch.rela)
+                            store_implicit_addend(rodata_data, entry_offset, arch.jump_table_entry_size, arch.jump_table_addend);
                         rodata_relas.push_back(rela);
                     }
                 }
@@ -1054,12 +1152,14 @@ export namespace dcc::backend::object
 
                 std::uint32_t rtype = elf_reloc_type(arch, r.kind);
                 rela.r_info = elf_r_info(it->second, rtype);
+                if (!arch.rela)
+                    store_implicit_addend(text_data, rela.r_offset, reloc_field_size(r.kind), r.addend);
                 final_text_relas.push_back(rela);
             }
         }
 
-        std::uint64_t shoff = 64;
-        std::uint64_t sec_hdr_size = static_cast<std::uint64_t>(total_sec) * sizeof(Elf64_Shdr);
+        std::uint64_t shoff = ehdr_size(arch);
+        std::uint64_t sec_hdr_size = static_cast<std::uint64_t>(total_sec) * shdr_size(arch);
         std::uint64_t cur_offset = shoff + sec_hdr_size;
 
         auto text_off = cur_offset;
@@ -1067,7 +1167,7 @@ export namespace dcc::backend::object
         cur_offset = align_up(text_off + text_size, 16);
 
         auto rela_text_off = cur_offset;
-        auto rela_text_size = final_text_relas.size() * sizeof(Elf64_Rela);
+        auto rela_text_size = final_text_relas.size() * rel_size(arch);
         cur_offset = rela_text_off + rela_text_size;
 
         auto rodata_off = cur_offset;
@@ -1075,7 +1175,7 @@ export namespace dcc::backend::object
         cur_offset = rodata_off + rodata_size;
 
         auto rela_rodata_off = cur_offset;
-        auto rela_rodata_size = rodata_relas.size() * sizeof(Elf64_Rela);
+        auto rela_rodata_size = rodata_relas.size() * rel_size(arch);
         cur_offset = rela_rodata_off + rela_rodata_size;
 
         auto data_rel_ro_off = cur_offset;
@@ -1083,7 +1183,7 @@ export namespace dcc::backend::object
         cur_offset = data_rel_ro_off + data_rel_ro_size;
 
         auto rela_data_rel_ro_off = cur_offset;
-        auto rela_data_rel_ro_size = data_rel_ro_relas.size() * sizeof(Elf64_Rela);
+        auto rela_data_rel_ro_size = data_rel_ro_relas.size() * rel_size(arch);
         cur_offset = rela_data_rel_ro_off + rela_data_rel_ro_size;
 
         auto data_off = cur_offset;
@@ -1091,7 +1191,7 @@ export namespace dcc::backend::object
         cur_offset = data_off + data_size;
 
         auto rela_data_off = cur_offset;
-        auto rela_data_size = data_relas.size() * sizeof(Elf64_Rela);
+        auto rela_data_size = data_relas.size() * rel_size(arch);
         cur_offset = rela_data_off + rela_data_size;
 
         for (auto& cs : custom_sections)
@@ -1106,11 +1206,11 @@ export namespace dcc::backend::object
             if (cs.rela_section_index == 0)
                 continue;
             cs.rela_file_offset = cur_offset;
-            cur_offset += cs.relas.size() * sizeof(Elf64_Rela);
+            cur_offset += cs.relas.size() * rel_size(arch);
         }
 
         auto symtab_off = cur_offset;
-        auto symtab_size = static_cast<std::uint64_t>(syms.size()) * sizeof(Elf64_Sym);
+        auto symtab_size = static_cast<std::uint64_t>(syms.size()) * sym_size(arch);
         cur_offset = symtab_off + symtab_size;
 
         auto strtab_off = cur_offset;
@@ -1136,13 +1236,13 @@ export namespace dcc::backend::object
         {
             shdrs[sec_rela_text] = {};
             shdrs[sec_rela_text].sh_name = sh_name_rela_text;
-            shdrs[sec_rela_text].sh_type = SHT_RELA;
+            shdrs[sec_rela_text].sh_type = rel_section_type(arch);
             shdrs[sec_rela_text].sh_offset = rela_text_off;
             shdrs[sec_rela_text].sh_size = rela_text_size;
             shdrs[sec_rela_text].sh_link = sec_symtab;
             shdrs[sec_rela_text].sh_info = sec_text;
-            shdrs[sec_rela_text].sh_addralign = 8;
-            shdrs[sec_rela_text].sh_entsize = sizeof(Elf64_Rela);
+            shdrs[sec_rela_text].sh_addralign = table_alignment(arch);
+            shdrs[sec_rela_text].sh_entsize = rel_size(arch);
         }
 
         if (has_rodata)
@@ -1160,13 +1260,13 @@ export namespace dcc::backend::object
         {
             shdrs[sec_rela_rodata] = {};
             shdrs[sec_rela_rodata].sh_name = sh_name_rela_rodata;
-            shdrs[sec_rela_rodata].sh_type = SHT_RELA;
+            shdrs[sec_rela_rodata].sh_type = rel_section_type(arch);
             shdrs[sec_rela_rodata].sh_offset = rela_rodata_off;
             shdrs[sec_rela_rodata].sh_size = rela_rodata_size;
             shdrs[sec_rela_rodata].sh_link = sec_symtab;
             shdrs[sec_rela_rodata].sh_info = sec_rodata;
-            shdrs[sec_rela_rodata].sh_addralign = 8;
-            shdrs[sec_rela_rodata].sh_entsize = sizeof(Elf64_Rela);
+            shdrs[sec_rela_rodata].sh_addralign = table_alignment(arch);
+            shdrs[sec_rela_rodata].sh_entsize = rel_size(arch);
         }
 
         if (has_rodata_relro)
@@ -1184,13 +1284,13 @@ export namespace dcc::backend::object
         {
             shdrs[sec_rela_data_rel_ro] = {};
             shdrs[sec_rela_data_rel_ro].sh_name = sh_name_rela_data_rel_ro;
-            shdrs[sec_rela_data_rel_ro].sh_type = SHT_RELA;
+            shdrs[sec_rela_data_rel_ro].sh_type = rel_section_type(arch);
             shdrs[sec_rela_data_rel_ro].sh_offset = rela_data_rel_ro_off;
             shdrs[sec_rela_data_rel_ro].sh_size = rela_data_rel_ro_size;
             shdrs[sec_rela_data_rel_ro].sh_link = sec_symtab;
             shdrs[sec_rela_data_rel_ro].sh_info = sec_data_rel_ro;
-            shdrs[sec_rela_data_rel_ro].sh_addralign = 8;
-            shdrs[sec_rela_data_rel_ro].sh_entsize = sizeof(Elf64_Rela);
+            shdrs[sec_rela_data_rel_ro].sh_addralign = table_alignment(arch);
+            shdrs[sec_rela_data_rel_ro].sh_entsize = rel_size(arch);
         }
 
         if (has_data)
@@ -1208,13 +1308,13 @@ export namespace dcc::backend::object
         {
             shdrs[sec_rela_data] = {};
             shdrs[sec_rela_data].sh_name = sh_name_rela_data;
-            shdrs[sec_rela_data].sh_type = SHT_RELA;
+            shdrs[sec_rela_data].sh_type = rel_section_type(arch);
             shdrs[sec_rela_data].sh_offset = rela_data_off;
             shdrs[sec_rela_data].sh_size = rela_data_size;
             shdrs[sec_rela_data].sh_link = sec_symtab;
             shdrs[sec_rela_data].sh_info = sec_data;
-            shdrs[sec_rela_data].sh_addralign = 8;
-            shdrs[sec_rela_data].sh_entsize = sizeof(Elf64_Rela);
+            shdrs[sec_rela_data].sh_addralign = table_alignment(arch);
+            shdrs[sec_rela_data].sh_entsize = rel_size(arch);
         }
 
         if (has_bss)
@@ -1241,13 +1341,13 @@ export namespace dcc::backend::object
             {
                 shdrs[cs.rela_section_index] = {};
                 shdrs[cs.rela_section_index].sh_name = cs.rela_sh_name;
-                shdrs[cs.rela_section_index].sh_type = SHT_RELA;
+                shdrs[cs.rela_section_index].sh_type = rel_section_type(arch);
                 shdrs[cs.rela_section_index].sh_offset = cs.rela_file_offset;
-                shdrs[cs.rela_section_index].sh_size = cs.relas.size() * sizeof(Elf64_Rela);
+                shdrs[cs.rela_section_index].sh_size = cs.relas.size() * rel_size(arch);
                 shdrs[cs.rela_section_index].sh_link = sec_symtab;
                 shdrs[cs.rela_section_index].sh_info = cs.section_index;
-                shdrs[cs.rela_section_index].sh_addralign = 8;
-                shdrs[cs.rela_section_index].sh_entsize = sizeof(Elf64_Rela);
+                shdrs[cs.rela_section_index].sh_addralign = table_alignment(arch);
+                shdrs[cs.rela_section_index].sh_entsize = rel_size(arch);
             }
         }
 
@@ -1265,8 +1365,8 @@ export namespace dcc::backend::object
 
             shdrs[sec_symtab].sh_info = last_local + 1;
         }
-        shdrs[sec_symtab].sh_addralign = 8;
-        shdrs[sec_symtab].sh_entsize = sizeof(Elf64_Sym);
+        shdrs[sec_symtab].sh_addralign = table_alignment(arch);
+        shdrs[sec_symtab].sh_entsize = sym_size(arch);
 
         shdrs[sec_strtab] = {};
         shdrs[sec_strtab].sh_name = sh_name_strtab;
@@ -1283,19 +1383,19 @@ export namespace dcc::backend::object
         shdrs[sec_shstrtab].sh_addralign = 1;
 
         Elf64_Ehdr ehdr{};
-        ehdr.e_ident = {0x7F, 'E', 'L', 'F', 2, 1, 1, 0};
+        ehdr.e_ident = {0x7F, 'E', 'L', 'F', static_cast<std::uint8_t>(arch.class32 ? 1 : 2), 1, 1, 0};
         ehdr.e_type = ET_REL;
         ehdr.e_machine = arch.machine;
         ehdr.e_version = EV_CURRENT;
         ehdr.e_shoff = shoff;
-        ehdr.e_ehsize = 64;
-        ehdr.e_shentsize = sizeof(Elf64_Shdr);
+        ehdr.e_ehsize = static_cast<std::uint16_t>(ehdr_size(arch));
+        ehdr.e_shentsize = static_cast<std::uint16_t>(shdr_size(arch));
         ehdr.e_shnum = static_cast<std::uint16_t>(total_sec);
         ehdr.e_shstrndx = static_cast<std::uint16_t>(sec_shstrtab);
-        serialize_ehdr(out, ehdr);
+        serialize_ehdr(out, ehdr, arch);
 
         for (auto const& sh : shdrs)
-            serialize_shdr(out, sh);
+            serialize_shdr(out, sh, arch);
 
         out.insert(out.end(), text_data.begin(), text_data.end());
 
@@ -1304,36 +1404,28 @@ export namespace dcc::backend::object
 
         for (auto const& rel : final_text_relas)
         {
-            w64(out, rel.r_offset);
-            w64(out, rel.r_info);
-            w64(out, static_cast<std::uint64_t>(rel.r_addend));
+            serialize_rel(out, rel, arch);
         }
 
         out.insert(out.end(), rodata_data.begin(), rodata_data.end());
 
         for (auto const& rel : rodata_relas)
         {
-            w64(out, rel.r_offset);
-            w64(out, rel.r_info);
-            w64(out, static_cast<std::uint64_t>(rel.r_addend));
+            serialize_rel(out, rel, arch);
         }
 
         out.insert(out.end(), data_rel_ro_data.begin(), data_rel_ro_data.end());
 
         for (auto const& rel : data_rel_ro_relas)
         {
-            w64(out, rel.r_offset);
-            w64(out, rel.r_info);
-            w64(out, static_cast<std::uint64_t>(rel.r_addend));
+            serialize_rel(out, rel, arch);
         }
 
         out.insert(out.end(), data_data.begin(), data_data.end());
 
         for (auto const& rel : data_relas)
         {
-            w64(out, rel.r_offset);
-            w64(out, rel.r_info);
-            w64(out, static_cast<std::uint64_t>(rel.r_addend));
+            serialize_rel(out, rel, arch);
         }
 
         for (auto& cs : custom_sections)
@@ -1352,14 +1444,12 @@ export namespace dcc::backend::object
                 out.push_back(0);
             for (auto const& rel : cs.relas)
             {
-                w64(out, rel.r_offset);
-                w64(out, rel.r_info);
-                w64(out, static_cast<std::uint64_t>(rel.r_addend));
+                serialize_rel(out, rel, arch);
             }
         }
 
         for (auto const& sym : syms)
-            serialize_sym(out, sym);
+            serialize_sym(out, sym, arch);
 
         out.insert(out.end(), strtab.begin(), strtab.end());
 

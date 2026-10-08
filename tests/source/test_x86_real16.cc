@@ -1,7 +1,12 @@
+#include <sys/wait.h>
+
 import std;
+import dcc.ir;
+import dcc.target;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
 import dcc.backend.x86.prefix;
+import dcc.backend.object.elf32;
 
 #include "harness.hh"
 
@@ -510,4 +515,193 @@ TEST_CASE("16-bit branches patch rel16 displacements like nasm")
     if (result.bytes != *expected)
         std::println(std::cerr, "      dcc [{}] nasm [{}]", hex(result.bytes), hex(*expected));
     CHECK(result.bytes == *expected);
+}
+
+namespace
+{
+    std::uint16_t le16(std::vector<std::uint8_t> const& b, std::size_t off)
+    {
+        return static_cast<std::uint16_t>(b[off] | (b[off + 1] << 8));
+    }
+
+    std::uint32_t le32(std::vector<std::uint8_t> const& b, std::size_t off)
+    {
+        return static_cast<std::uint32_t>(b[off]) | (static_cast<std::uint32_t>(b[off + 1]) << 8) | (static_cast<std::uint32_t>(b[off + 2]) << 16) |
+               (static_cast<std::uint32_t>(b[off + 3]) << 24);
+    }
+
+    struct Elf32Section
+    {
+        std::string name;
+        std::uint32_t type;
+        std::uint32_t offset;
+        std::uint32_t size;
+        std::uint32_t link;
+        std::uint32_t info;
+        std::uint32_t entsize;
+    };
+
+    std::vector<Elf32Section> elf32_sections(std::vector<std::uint8_t> const& obj)
+    {
+        std::vector<Elf32Section> sections;
+        auto shoff = le32(obj, 32);
+        auto shnum = le16(obj, 48);
+        auto shstrndx = le16(obj, 50);
+        auto strings = le32(obj, shoff + shstrndx * 40u + 16);
+        for (std::uint32_t i = 0; i < shnum; ++i)
+        {
+            auto h = shoff + i * 40u;
+            std::string name{reinterpret_cast<char const*>(obj.data() + strings + le32(obj, h))};
+            sections.push_back({name, le32(obj, h + 4), le32(obj, h + 16), le32(obj, h + 20), le32(obj, h + 24), le32(obj, h + 28), le32(obj, h + 36)});
+        }
+        return sections;
+    }
+
+    std::optional<Elf32Section> section_named(std::vector<Elf32Section> const& sections, std::string_view name)
+    {
+        for (auto const& s : sections)
+            if (s.name == name)
+                return s;
+        return std::nullopt;
+    }
+
+    std::vector<std::uint8_t> build_i8086_object()
+    {
+        using namespace dcc::ir;
+        using P = PhysReg;
+        auto target = *dcc::target::TargetConfig::parse_triple("i8086-binary");
+        static IrContext ctx{256 * 1024, &target};
+        auto* mod = ctx.module("objtest");
+        auto* u16 = ctx.int_t(16, false);
+        auto* u32 = ctx.int_t(32, false);
+        auto* table_type = ctx.array_t(u16, 3);
+
+        auto* counter = ctx.global("counter", u16, ctx.int_const(u16, 40));
+        counter->linkage = Linkage::External;
+        auto* table_init = ctx.aggregate(table_type);
+        for (int v : {1, 2, 3})
+            table_init->values.push_back(ctx.int_const(u16, v));
+        auto* table = ctx.global("table", table_type, table_init, true);
+        auto* table_ptr = ctx.global("table_ptr", ctx.pointer_to(u16), ctx.global_ref(table, ctx.pointer_to(u16), 2));
+        auto* table_far = ctx.global("table_far", u32, ctx.global_ref(table, u32, 4));
+        auto* scratch = ctx.global("scratch", u16);
+        for (auto* g : {counter, table, table_ptr, table_far, scratch})
+            mod->globals.push_back(g);
+
+        MModule mmod;
+        MFunction main;
+        main.owned_name = "dcc_main";
+        auto& body = main.create_block("entry");
+        auto sym = [](std::string_view name, std::int32_t disp = 0) { return MMem::make_sym_reloc(name, disp); };
+        auto based_sym = [&](PhysReg base, std::string_view name) {
+            auto m = sym(name);
+            m.base = VReg::phys(base);
+            return m;
+        };
+        body.instrs.push_back(X(MOpc::MOV16rm, {R(P::RAX), M(sym("counter"))}, 1));
+        body.instrs.push_back(X(MOpc::MOV16rm, {R(P::RBX), M(sym("table_ptr"))}, 1));
+        body.instrs.push_back(X(MOpc::ADD16rm, {R(P::RAX), M(B(P::RBX))}, 1));
+        body.instrs.push_back(X(MOpc::MOV16mr, {M(sym("scratch")), R(P::RAX)}));
+        body.instrs.push_back(X(MOpc::MOV16rm, {R(P::RSI), M(sym("table_far"))}, 1));
+        body.instrs.push_back(X(MOpc::ADD16rm, {R(P::RAX), M(B(P::RSI))}, 1));
+        body.instrs.push_back(X(MOpc::CALL, {MOp::from_symbol("add_five")}));
+        body.instrs.push_back(X(MOpc::XOR16rr, {R(P::RDI), R(P::RDI), R(P::RDI)}, 1));
+        body.instrs.push_back(X(MOpc::MOV16rm, {R(P::RCX), M(based_sym(P::RDI, "table"))}, 1));
+        body.instrs.push_back(X(MOpc::ADD16rr, {R(P::RAX), R(P::RAX), R(P::RCX)}, 1));
+        body.instrs.push_back(X(MOpc::SUB16rm, {R(P::RAX), M(sym("scratch"))}, 1));
+        body.instrs.push_back(X(MOpc::RET));
+        MFunction helper;
+        helper.owned_name = "add_five";
+        helper.create_block("entry").instrs.push_back(X(MOpc::ADD16ri, {R(P::RAX), I(5)}, 1));
+        helper.blocks.front().instrs.push_back(X(MOpc::RET));
+
+        std::vector<EncodeResult> encoded;
+        encoded.push_back(encode_function(main, EncodeMode::Real16));
+        encoded.push_back(encode_function(helper, EncodeMode::Real16));
+        mmod.functions.push_back(std::move(main));
+        mmod.functions.push_back(std::move(helper));
+        for (auto const& e : encoded)
+            CHECK(e.warnings.empty());
+        return dcc::backend::object::write_elf32(*mod, mmod, encoded, target, dcc::backend::object::elf32_i8086_policy);
+    }
+
+    int run_command(std::string const& command)
+    {
+        auto status = std::system(command.c_str());
+        if (status == -1 || !WIFEXITED(status))
+            return -1;
+        return WEXITSTATUS(status);
+    }
+}
+
+SECTION("x86: 16-bit elf32 objects");
+
+TEST_CASE("i8086 objects are elf32 i386 relocatable files with rel relocations")
+{
+    auto obj = build_i8086_object();
+    REQUIRE(obj.size() > 52u);
+    CHECK(obj[4] == 1);
+    CHECK(obj[5] == 1);
+    CHECK(le16(obj, 16) == 1);
+    CHECK(le16(obj, 18) == 3);
+    CHECK(le16(obj, 40) == 52);
+    CHECK(le16(obj, 46) == 40);
+    auto sections = elf32_sections(obj);
+    for (auto name : {".text", ".rel.text", ".rodata", ".data", ".rel.data", ".bss", ".symtab", ".strtab"})
+        CHECK(section_named(sections, name).has_value());
+    for (auto const& s : sections)
+        CHECK(s.type != 4u);
+    auto symtab = section_named(sections, ".symtab");
+    REQUIRE(symtab.has_value());
+    CHECK(symtab->entsize == 16u);
+    auto rel_text = section_named(sections, ".rel.text");
+    REQUIRE(rel_text.has_value());
+    CHECK(rel_text->type == 9u);
+    CHECK(rel_text->entsize == 8u);
+    std::map<std::uint32_t, int> types;
+    for (std::uint32_t off = rel_text->offset; off < rel_text->offset + rel_text->size; off += 8)
+        ++types[le32(obj, off + 4) & 0xff];
+    CHECK(types[20] == 6);
+    CHECK(types[21] == 1);
+    auto rel_data = section_named(sections, ".rel.data");
+    auto data = section_named(sections, ".data");
+    REQUIRE(rel_data.has_value());
+    REQUIRE(data.has_value());
+    bool has_implicit_two = false, has_implicit_four = false;
+    for (std::uint32_t off = rel_data->offset; off < rel_data->offset + rel_data->size; off += 8)
+    {
+        auto where = data->offset + le32(obj, off);
+        if ((le32(obj, off + 4) & 0xff) == 20)
+            has_implicit_two = le16(obj, where) == 2;
+        else if ((le32(obj, off + 4) & 0xff) == 1)
+            has_implicit_four = le32(obj, where) == 4;
+    }
+    CHECK(has_implicit_two);
+    CHECK(has_implicit_four);
+}
+
+TEST_CASE("i8086 elf32 objects link with ld.lld into a flat binary that runs under qemu")
+{
+    auto obj = build_i8086_object();
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-elf32-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    {
+        std::ofstream out{dir / "main.o", std::ios::binary};
+        out.write(reinterpret_cast<char const*>(obj.data()), static_cast<std::streamsize>(obj.size()));
+    }
+    {
+        std::ofstream crt{dir / "crt0.asm"};
+        crt << "bits 16\nsection .start progbits alloc exec\nglobal _start\nextern dcc_main\n_start:\n\tcall dcc_main\n\tmov dx, 0xf4\n\tout dx, al\n.hang:\n\tjmp .hang\n";
+    }
+    {
+        std::ofstream script{dir / "link.ld"};
+        script << "OUTPUT_FORMAT(binary)\nSECTIONS {\n  . = 0;\n  .start : { KEEP(*(.start)) }\n  .text : { *(.text .text.*) }\n  .rodata : { *(.rodata .rodata.*) }\n"
+                  "  .data : { *(.data .data.*) }\n  .bss (NOLOAD) : { *(.bss .bss.*) *(COMMON) }\n  /DISCARD/ : { *(.note*) *(.comment) }\n}\n";
+    }
+    auto d = dir.string();
+    REQUIRE(run_command(std::format("nasm -f elf32 -o '{0}/crt0.o' '{0}/crt0.asm'", d)) == 0);
+    REQUIRE(run_command(std::format("ld.lld -m elf_i386 --fatal-warnings -T '{0}/link.ld' -o '{0}/prog.bin' '{0}/crt0.o' '{0}/main.o' > '{0}/link.log' 2>&1", d)) == 0);
+    CHECK(run_command(std::format("python3 '{}' --load 1000:0000 --mode real '{}/prog.bin' > '{}/serial.out' 2>&1", DCC_I8086_RUNNER, d, d)) == 9);
+    std::error_code ec;
+    std::filesystem::remove_all(dir, ec);
 }
