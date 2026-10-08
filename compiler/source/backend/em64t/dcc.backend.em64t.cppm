@@ -21,8 +21,12 @@ import dcc.backend.x86.regalloc;
 import dcc.backend.em64t.registers;
 import dcc.backend.em64t.framelay;
 import dcc.backend.x86.encode;
-import dcc.backend.em64t.objwriter;
+import dcc.backend.object.elf64;
+import dcc.backend.object.coff;
+import dcc.backend.object.archive;
 import dcc.backend.em64t.assembler;
+
+using namespace dcc::backend::x86;
 
 export namespace dcc::backend
 {
@@ -150,7 +154,7 @@ namespace dcc::backend
                     return artifact;
                 }
 
-                std::vector<em64t::MFunction> mfuncs;
+                std::vector<x86::MFunction> mfuncs;
                 mfuncs.reserve(input_module->functions.size());
 
                 for (auto* func : input_module->functions)
@@ -171,8 +175,8 @@ namespace dcc::backend
                         for (auto const& block : mfunc.blocks)
                             for (auto const& inst : block.instrs)
                                 for (unsigned i = 0; i < inst.num_ops; ++i)
-                                    if (inst.ops[i].kind == em64t::MOpKind::Reg && inst.ops[i].reg.is_physical() &&
-                                        em64t::reg_class(inst.ops[i].reg.phys_reg()) == em64t::RegClass::XMM)
+                                    if (inst.ops[i].kind == x86::MOpKind::Reg && inst.ops[i].reg.is_physical() &&
+                                        x86::reg_class(inst.ops[i].reg.phys_reg()) == x86::RegClass::XMM)
                                     {
                                         artifact.diagnostics.push_back(
                                             BackendDiagnostic{.where = {}, .message = "custom backend: floating-point or SIMD operation requires SIMD"});
@@ -200,8 +204,8 @@ namespace dcc::backend
 
                 if (need_encode)
                 {
-                    em64t::MModule mmod;
-                    std::vector<em64t::EncodeResult> encoded;
+                    x86::MModule mmod;
+                    std::vector<x86::EncodeResult> encoded;
 
                     mmod.functions.reserve(mfuncs.size());
                     encoded.reserve(mfuncs.size());
@@ -221,9 +225,9 @@ namespace dcc::backend
                     std::vector<std::uint8_t> object_data;
 
                     if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
-                        object_data = em64t::write_coff(*input_module, mmod, encoded, opts.target);
+                        object_data = object::write_coff(*input_module, mmod, encoded, opts.target);
                     else
-                        object_data = em64t::write_elf64(*input_module, mmod, encoded, opts.target);
+                        object_data = object::write_elf64(*input_module, mmod, encoded, opts.target);
 
                     std::vector<std::byte> obj_bytes;
                     obj_bytes.reserve(object_data.size());
@@ -287,7 +291,7 @@ namespace dcc::backend
 
                             std::vector<std::pair<std::string, std::vector<std::uint8_t>>> archive_members;
                             archive_members.emplace_back(std::move(member_name), std::move(object_data));
-                            auto archive_data = em64t::write_archive_elf(archive_members);
+                            auto archive_data = object::write_archive_elf(archive_members);
 
                             std::vector<std::byte> archive_bytes;
                             archive_bytes.reserve(archive_data.size());
@@ -361,7 +365,7 @@ namespace dcc::backend
                 return std::nullopt;
             }
 
-            [[nodiscard]] static std::string print_function(em64t::MFunction const& mfunc)
+            [[nodiscard]] static std::string print_function(x86::MFunction const& mfunc)
             {
                 std::string out;
                 out += "func ";
@@ -402,7 +406,7 @@ namespace dcc::backend
 
                     for (auto const& mi : bb.instrs)
                     {
-                        out += em64t::format_instr(mi);
+                        out += x86::format_instr(mi);
                         out += '\n';
                     }
                 }

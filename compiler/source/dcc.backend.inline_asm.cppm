@@ -18,7 +18,7 @@ export namespace dcc::backend
     {
         std::vector<std::string> registers;
         std::vector<std::string> clobbers;
-        std::vector<em64t::MInstr> instructions;
+        std::vector<x86::MInstr> instructions;
         std::vector<std::string> literal_registers;
         bool has_memory_operands = false;
         std::string error;
@@ -38,7 +38,7 @@ export namespace dcc::backend
 
     [[nodiscard]] InlineAsmLlvm prepare_llvm_asm(ir::IrInlineAsmInst const& assembly, target::Arch arch = target::Arch::X86_64);
 
-    [[nodiscard]] em64t::PhysReg inline_asm_family_phys(std::string_view family) noexcept;
+    [[nodiscard]] x86::PhysReg inline_asm_family_phys(std::string_view family) noexcept;
 
 } // namespace dcc::backend
 
@@ -48,9 +48,9 @@ namespace dcc::backend
     {
         using namespace ir;
 
-        [[nodiscard]] em64t::PhysReg family_to_phys(std::string_view family) noexcept
+        [[nodiscard]] x86::PhysReg family_to_phys(std::string_view family) noexcept
         {
-            using em64t::PhysReg;
+            using x86::PhysReg;
             if (family == "rax")
                 return PhysReg::RAX;
             if (family == "rcx")
@@ -524,10 +524,10 @@ namespace dcc::backend
                 Mem,
             };
             Kind kind = Kind::Reg;
-            em64t::PhysReg reg = em64t::PhysReg::None;
+            x86::PhysReg reg = x86::PhysReg::None;
             unsigned width = 0;
             std::int64_t imm = 0;
-            em64t::MMem mem{};
+            x86::MMem mem{};
         };
 
         struct AsmParser
@@ -563,7 +563,7 @@ namespace dcc::backend
                 return tokens[pos++].text;
             }
 
-            [[nodiscard]] std::optional<em64t::PhysReg> resolve_register(std::string_view name)
+            [[nodiscard]] std::optional<x86::PhysReg> resolve_register(std::string_view name)
             {
                 auto const* entry = target::lookup_register(target::Arch::X86_64, name);
                 if (!entry)
@@ -576,7 +576,7 @@ namespace dcc::backend
                 }
 
                 auto phys = family_to_phys(target::register_family(name));
-                if (phys == em64t::PhysReg::None)
+                if (phys == x86::PhysReg::None)
                 {
                     error = std::format("register '{}' cannot be used in native inline assembly", name);
                     return std::nullopt;
@@ -681,8 +681,8 @@ namespace dcc::backend
 
             [[nodiscard]] std::optional<ParsedOperand> parse_intel_memory()
             {
-                em64t::VReg base;
-                em64t::VReg index;
+                x86::VReg base;
+                x86::VReg index;
                 std::uint8_t scale = 1;
                 std::int32_t disp = 0;
                 bool have_base_or_index = false;
@@ -718,7 +718,7 @@ namespace dcc::backend
                     }
                 }
 
-                auto parse_reg = [&]() -> std::optional<em64t::VReg> {
+                auto parse_reg = [&]() -> std::optional<x86::VReg> {
                     if (peek().kind != AsmToken::Kind::Ident)
                     {
                         error = "expected a register in the memory operand";
@@ -741,7 +741,7 @@ namespace dcc::backend
                         return std::nullopt;
                     }
 
-                    return em64t::VReg::phys(*phys);
+                    return x86::VReg::phys(*phys);
                 };
 
                 auto first = parse_reg();
@@ -847,7 +847,7 @@ namespace dcc::backend
                 }
                 ParsedOperand op;
                 op.kind = ParsedOperand::Kind::Mem;
-                op.mem = em64t::MMem{base, index, scale, disp};
+                op.mem = x86::MMem{base, index, scale, disp};
                 return op;
             }
 
@@ -924,7 +924,7 @@ namespace dcc::backend
                         op.imm = disp;
                         return op;
                     }
-                    auto parse_base_or_index = [&](bool required) -> std::optional<em64t::VReg> {
+                    auto parse_base_or_index = [&](bool required) -> std::optional<x86::VReg> {
                         if (!accept(AsmToken::Kind::Percent))
                         {
                             if (required)
@@ -932,7 +932,7 @@ namespace dcc::backend
                                 error = "expected '%' before the register in the memory operand";
                                 return std::nullopt;
                             }
-                            return em64t::VReg{};
+                            return x86::VReg{};
                         }
 
                         auto name = expect_ident("a register in the memory operand");
@@ -953,13 +953,13 @@ namespace dcc::backend
                             error = std::format("address registers must be 32- or 64-bit, not '{}'", *name);
                             return std::nullopt;
                         }
-                        return em64t::VReg::phys(*phys);
+                        return x86::VReg::phys(*phys);
                     };
                     auto base = parse_base_or_index(true);
                     if (!base)
                         return std::nullopt;
 
-                    em64t::VReg index;
+                    x86::VReg index;
                     std::uint8_t scale = 1;
                     if (accept(AsmToken::Kind::Comma))
                     {
@@ -998,7 +998,7 @@ namespace dcc::backend
 
                     ParsedOperand op;
                     op.kind = ParsedOperand::Kind::Mem;
-                    op.mem = em64t::MMem{*base, index, scale, disp};
+                    op.mem = x86::MMem{*base, index, scale, disp};
                     return op;
                 }
                 if (peek().kind == AsmToken::Kind::Ident)
@@ -1131,12 +1131,12 @@ namespace dcc::backend
             return value >= lo && static_cast<std::uint64_t>(value) <= hi;
         }
 
-        [[nodiscard]] std::optional<em64t::MInstr> build_native_instruction(std::string_view mnemonic, unsigned width,
+        [[nodiscard]] std::optional<x86::MInstr> build_native_instruction(std::string_view mnemonic, unsigned width,
                                                                             std::vector<ParsedOperand> const& operands, std::string& error)
         {
-            using em64t::MOpc;
+            using x86::MOpc;
             using Kind = ParsedOperand::Kind;
-            auto fail = [&](std::string message) -> std::optional<em64t::MInstr> {
+            auto fail = [&](std::string message) -> std::optional<x86::MInstr> {
                 error = std::move(message);
                 return std::nullopt;
             };
@@ -1146,9 +1146,9 @@ namespace dcc::backend
                     result += op.kind == Kind::Reg ? 'r' : op.kind == Kind::Imm ? 'i' : 'm';
                 return result;
             };
-            auto reg_op = [](ParsedOperand const& op) { return em64t::MOp::from_reg(em64t::VReg::phys(op.reg)); };
-            auto imm_op = [](ParsedOperand const& op) { return em64t::MOp::from_imm(op.imm); };
-            auto mem_op = [](ParsedOperand const& op) { return em64t::MOp::from_mem(op.mem); };
+            auto reg_op = [](ParsedOperand const& op) { return x86::MOp::from_reg(x86::VReg::phys(op.reg)); };
+            auto imm_op = [](ParsedOperand const& op) { return x86::MOp::from_imm(op.imm); };
+            auto mem_op = [](ParsedOperand const& op) { return x86::MOp::from_mem(op.mem); };
 
             std::string owned_mnemonic;
             if (mnemonic == "movq")
@@ -1181,7 +1181,7 @@ namespace dcc::backend
                 if (!operands.empty())
                     return fail("'nop' expects 0 operands");
 
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.opc = MOpc::NOP;
                 return mi;
             }
@@ -1194,7 +1194,7 @@ namespace dcc::backend
                 if (w != 64 || operands[0].width != 64 || operands[1].width != 64)
                     return fail("'xchg' supports 64-bit registers in native inline assembly");
 
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.opc = MOpc::XCHG64rr;
                 mi.num_ops = 2;
                 mi.num_defs = 1;
@@ -1208,7 +1208,7 @@ namespace dcc::backend
                 if (operands[0].kind != Kind::Reg || operands[1].kind != Kind::Reg)
                     return fail("'movq' expects 2 register operands");
 
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_ops = 2;
                 mi.num_defs = 1;
                 if (operands[0].width == 128)
@@ -1230,7 +1230,7 @@ namespace dcc::backend
                 if (operands[0].kind != Kind::Reg || operands[1].kind != Kind::Reg || operands[0].width != 128 || operands[1].width != 128)
                     return fail(std::format("'{}' expects 2 XMM register operands in native inline assembly", mnemonic));
 
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.opc = mnemonic == "movsd" ? MOpc::MOVSDrr : MOpc::MOVSSrr;
                 mi.num_ops = 2;
                 mi.num_defs = 1;
@@ -1281,7 +1281,7 @@ namespace dcc::backend
                     }
                     if (src.kind != Kind::Reg && src.kind != Kind::Imm)
                         return fail("'mov' between two memory operands is not supported; use a register");
-                    em64t::MInstr store;
+                    x86::MInstr store;
                     store.num_ops = 2;
                     store.num_defs = 0;
                     store.ops[0] = mem_op(dst);
@@ -1375,7 +1375,7 @@ namespace dcc::backend
                         else
                             return fail(std::format("unsupported operand combination for 'movsx' ({}-bit destination, {}-bit source)", dst_width, src_w));
                     }
-                    em64t::MInstr mi;
+                    x86::MInstr mi;
                     mi.opc = opc;
                     mi.num_ops = 2;
                     mi.num_defs = 1;
@@ -1487,7 +1487,7 @@ namespace dcc::backend
                 }
                 else
                     return fail("'mov' supports 8-, 16-, 32-, and 64-bit operands");
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.opc = opc;
                 mi.num_ops = 2;
                 mi.num_defs = dst.kind == Kind::Reg ? 1 : 0;
@@ -1503,7 +1503,7 @@ namespace dcc::backend
                     return fail(std::format("'{}' with a memory destination supports only 64-bit operands in native inline assembly", mnemonic));
                 if (operands[0].width != 0 && operands[0].width != 64)
                     return fail(std::format("memory operand width ({} bits) does not match the 64-bit '{}'", operands[0].width, mnemonic));
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_ops = 2;
                 mi.num_defs = 0;
                 mi.ops[0] = mem_op(operands[0]);
@@ -1531,7 +1531,7 @@ namespace dcc::backend
                     return fail(std::format("memory operand width ({} bits) does not match the {}-bit '{}'", src.width, w, mnemonic));
 
                 bool is64 = w == 64;
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_defs = 1;
                 if (src.kind == Kind::Reg)
                 {
@@ -1611,7 +1611,7 @@ namespace dcc::backend
                     return fail(std::format("cannot use {}-bit register as a {}-bit operand", rhs.width, w));
                 if (rhs.kind == Kind::Mem && rhs.width != 0 && rhs.width != w)
                     return fail(std::format("memory operand width ({} bits) does not match the {}-bit 'cmp'", rhs.width, w));
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_defs = 0;
                 if (rhs.kind == Kind::Reg)
                 {
@@ -1679,7 +1679,7 @@ namespace dcc::backend
                 if (lhs.width != w)
                     return fail(std::format("cannot use {}-bit register as a {}-bit operand", lhs.width, w));
 
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_defs = 0;
                 if (rhs.kind == Kind::Reg)
                 {
@@ -1714,7 +1714,7 @@ namespace dcc::backend
                 if (w != 64 || operands[0].width != 64)
                     return fail("'lea' supports 64-bit destination registers in native inline assembly");
 
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.opc = MOpc::LEA64rm;
                 mi.num_ops = 2;
                 mi.num_defs = 1;
@@ -1742,12 +1742,12 @@ namespace dcc::backend
                     opc = pick(is64 ? MOpc::SHR64rCL : MOpc::SHR32rCL, is64 ? MOpc::SHR64ri8 : MOpc::SHR32ri8);
                 else
                     opc = pick(is64 ? MOpc::SAR64rCL : MOpc::SAR32rCL, is64 ? MOpc::SAR64ri8 : MOpc::SAR32ri8);
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.opc = opc;
                 mi.num_defs = 1;
                 if (count.kind == Kind::Reg)
                 {
-                    if (count.reg != em64t::PhysReg::RCX || count.width != 8)
+                    if (count.reg != x86::PhysReg::RCX || count.width != 8)
                         return fail(std::format("the shift count register must be 'cl' for '{}'", mnemonic));
                     mi.num_ops = 2;
                     mi.ops[0] = reg_op(operands[0]);
@@ -1779,7 +1779,7 @@ namespace dcc::backend
                 if (dst.width != w)
                     return fail(std::format("cannot use {}-bit register as a {}-bit operand", dst.width, w));
                 bool is64 = w == 64;
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_defs = 1;
                 if (operands.size() == 3)
                 {
@@ -1837,7 +1837,7 @@ namespace dcc::backend
                     return fail(std::format("'{}' supports 32- and 64-bit operands in native inline assembly", mnemonic));
                 if (operands[0].width != w)
                     return fail(std::format("cannot use {}-bit register as a {}-bit operand", operands[0].width, w));
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_ops = 1;
                 mi.num_defs = 1;
                 mi.ops[0] = reg_op(operands[0]);
@@ -1861,23 +1861,23 @@ namespace dcc::backend
                     unsigned w = width != 0 ? width : operands[0].width;
                     if (w != 64 || operands[0].width != 64)
                         return fail("'pop' supports 64-bit registers in native inline assembly");
-                    em64t::MInstr mi;
+                    x86::MInstr mi;
                     mi.opc = MOpc::POP64r;
                     mi.num_ops = 1;
                     mi.num_defs = 1;
                     mi.ops[0] = reg_op(operands[0]);
-                    mi.implicit_uses |= (1ULL << static_cast<std::uint8_t>(em64t::PhysReg::RSP));
-                    mi.implicit_defs |= (1ULL << static_cast<std::uint8_t>(em64t::PhysReg::RSP));
+                    mi.implicit_uses |= (1ULL << static_cast<std::uint8_t>(x86::PhysReg::RSP));
+                    mi.implicit_defs |= (1ULL << static_cast<std::uint8_t>(x86::PhysReg::RSP));
                     return mi;
                 }
                 if (operands.size() != 1)
                     return fail("'push' expects 1 operand");
                 auto const& src = operands[0];
-                em64t::MInstr mi;
+                x86::MInstr mi;
                 mi.num_ops = 1;
                 mi.num_defs = 0;
-                mi.implicit_uses |= (1ULL << static_cast<std::uint8_t>(em64t::PhysReg::RSP));
-                mi.implicit_defs |= (1ULL << static_cast<std::uint8_t>(em64t::PhysReg::RSP));
+                mi.implicit_uses |= (1ULL << static_cast<std::uint8_t>(x86::PhysReg::RSP));
+                mi.implicit_defs |= (1ULL << static_cast<std::uint8_t>(x86::PhysReg::RSP));
                 if (src.kind == Kind::Reg)
                 {
                     unsigned w = width != 0 ? width : src.width;
@@ -1914,9 +1914,9 @@ namespace dcc::backend
             return fail(std::format("unknown inline assembly instruction '{}'", mnemonic));
         }
 
-        [[nodiscard]] std::optional<std::vector<em64t::MInstr>> parse_native_line(std::string_view line, bool att, std::string& error)
+        [[nodiscard]] std::optional<std::vector<x86::MInstr>> parse_native_line(std::string_view line, bool att, std::string& error)
         {
-            std::vector<em64t::MInstr> instructions;
+            std::vector<x86::MInstr> instructions;
             std::size_t first = line.find_first_not_of(" \t\r");
             if (first == std::string_view::npos)
                 return instructions;
@@ -2002,8 +2002,8 @@ namespace dcc::backend
 
             for (auto const& op : operands)
             {
-                auto touch = [&](em64t::PhysReg reg) {
-                    if (reg != em64t::PhysReg::None)
+                auto touch = [&](x86::PhysReg reg) {
+                    if (reg != x86::PhysReg::None)
                     {
                         instruction->implicit_uses |= (1ULL << static_cast<std::uint8_t>(reg));
                         instruction->implicit_defs |= (1ULL << static_cast<std::uint8_t>(reg));
@@ -2026,7 +2026,7 @@ namespace dcc::backend
 
     } // namespace
 
-    em64t::PhysReg inline_asm_family_phys(std::string_view family) noexcept
+    x86::PhysReg inline_asm_family_phys(std::string_view family) noexcept
     {
         return family_to_phys(family);
     }
@@ -2096,8 +2096,8 @@ namespace dcc::backend
 
         if (plan.instructions.empty())
         {
-            em64t::MInstr nop;
-            nop.opc = em64t::MOpc::NOP;
+            x86::MInstr nop;
+            nop.opc = x86::MOpc::NOP;
             plan.instructions.push_back(nop);
         }
 

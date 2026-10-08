@@ -20,7 +20,7 @@ import dcc.session;
 import dcc.backend.llvm;
 #endif
 import dcc.backend.em64t;
-import dcc.backend.em64t.objwriter;
+import dcc.backend.object.archive;
 
 #ifndef _WIN32
 #include <cerrno>
@@ -2419,7 +2419,7 @@ auto main(int argc, char** argv) -> int
 
                         std::vector<std::pair<std::string, std::vector<std::uint8_t>>> archive_members;
                         archive_members.emplace_back(std::move(member_name), std::move(obj_data));
-                        auto archive_data = dcc::backend::em64t::write_archive_elf(archive_members);
+                        auto archive_data = dcc::backend::object::write_archive_elf(archive_members);
 
                         std::vector<std::byte> archive_bytes;
                         archive_bytes.reserve(archive_data.size());

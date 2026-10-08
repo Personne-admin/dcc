@@ -45,7 +45,7 @@ export namespace dcc::backend::x86
 
     enum class RegClass : std::uint8_t
     {
-        GPR64,
+        GPR,
         XMM,
     };
 
@@ -53,12 +53,12 @@ export namespace dcc::backend::x86
     {
         auto v = static_cast<std::uint8_t>(r);
         if (v <= static_cast<std::uint8_t>(PhysReg::R15))
-            return RegClass::GPR64;
+            return RegClass::GPR;
 
         if (v >= static_cast<std::uint8_t>(PhysReg::XMM0) && v <= static_cast<std::uint8_t>(PhysReg::XMM15))
             return RegClass::XMM;
 
-        return RegClass::GPR64;
+        return RegClass::GPR;
     }
 
     struct VReg
@@ -1433,7 +1433,7 @@ export namespace dcc::backend::x86
         using namespace std::literals;
         switch (rc)
         {
-            case RegClass::GPR64:
+            case RegClass::GPR:
                 return "GPR64"sv;
             case RegClass::XMM:
                 return "XMM"sv;
@@ -1556,11 +1556,6 @@ export namespace dcc::backend::x86
         return r;
     }
 
-}
-
-export namespace dcc::backend::em64t
-{
-    using namespace dcc::backend::x86;
 }
 
 template <> struct std::hash<dcc::backend::x86::VReg>

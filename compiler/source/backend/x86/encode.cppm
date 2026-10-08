@@ -3480,8 +3480,3 @@ export namespace dcc::backend::x86
     }
 
 }
-
-export namespace dcc::backend::em64t
-{
-    using namespace dcc::backend::x86;
-}

@@ -115,7 +115,7 @@ namespace
         }
     };
 
-    std::vector<std::uint8_t> try_encode(em64t::MInstr const& instr)
+    std::vector<std::uint8_t> try_encode(x86::MInstr const& instr)
     {
         auto result = x86::encode_single_instruction(instr, x86::EncodeMode::Long64);
         if (!result.has_value())
@@ -148,7 +148,7 @@ TEST_CASE("intel mov with named operands selects registers and encodes")
     REQUIRE(plan.registers[0] == "rax");
     REQUIRE(plan.registers[1] == "rbx");
     REQUIRE(plan.instructions.size() == 1);
-    REQUIRE(plan.instructions[0].opc == em64t::MOpc::MOV64rr);
+    REQUIRE(plan.instructions[0].opc == x86::MOpc::MOV64rr);
     std::vector<std::uint8_t> bytes = try_encode(plan.instructions[0]);
     require_bytes(bytes, {0x48, 0x89, 0xD8});
 }
@@ -165,7 +165,7 @@ TEST_CASE("att add with immediate encodes through the shared encoder")
     auto plan = prepare_inline_asm(*inst, fx.target);
     REQUIRE(plan.error.empty());
     REQUIRE(plan.instructions.size() == 1);
-    REQUIRE(plan.instructions[0].opc == em64t::MOpc::ADD64ri32);
+    REQUIRE(plan.instructions[0].opc == x86::MOpc::ADD64ri32);
     std::vector<std::uint8_t> bytes = try_encode(plan.instructions[0]);
     require_bytes(bytes, {0x48, 0x83, 0xC0, 0x05});
 }
@@ -183,7 +183,7 @@ TEST_CASE("explicit registers are honored without consuming the pool")
     REQUIRE(plan.error.empty());
     REQUIRE(plan.registers[0] == "eax");
     REQUIRE(plan.registers[1] == "ecx");
-    REQUIRE(plan.instructions[0].opc == em64t::MOpc::XOR32rr);
+    REQUIRE(plan.instructions[0].opc == x86::MOpc::XOR32rr);
     std::vector<std::uint8_t> bytes = try_encode(plan.instructions[0]);
     require_bytes(bytes, {0x31, 0xC0});
 }
@@ -205,7 +205,7 @@ TEST_CASE("memory addressing forms parse to memory operands")
         auto plan = prepare_inline_asm(*inst, fx.target);
         REQUIRE(plan.error.empty());
         REQUIRE(plan.instructions.size() == 1);
-        REQUIRE(plan.instructions[0].opc == em64t::MOpc::MOV64rm);
+        REQUIRE(plan.instructions[0].opc == x86::MOpc::MOV64rm);
         std::vector<std::uint8_t> bytes = try_encode(plan.instructions[0]);
         REQUIRE(!bytes.empty());
     }
@@ -223,7 +223,7 @@ TEST_CASE("att memory and suffix forms normalize to the same instructions")
     auto plan = prepare_inline_asm(*inst, fx.target);
     REQUIRE(plan.error.empty());
     REQUIRE(plan.instructions.size() == 1);
-    REQUIRE(plan.instructions[0].opc == em64t::MOpc::MOV64rm);
+    REQUIRE(plan.instructions[0].opc == x86::MOpc::MOV64rm);
     try_encode(plan.instructions[0]);
 }
 

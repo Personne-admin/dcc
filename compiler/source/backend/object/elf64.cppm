@@ -9,9 +9,9 @@ import dcc.backend.object.layout;
 
 #define into_u8 static_cast<std::uint8_t>
 
-namespace dcc::backend::em64t
+namespace dcc::backend::object
 {
-    using namespace dcc::backend::object;
+    using namespace dcc::backend::x86;
 
     namespace
     {
@@ -246,7 +246,7 @@ namespace dcc::backend::em64t
     }
 }
 
-export namespace dcc::backend::em64t
+export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_elf64(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
                                                         target::TargetConfig const& target)

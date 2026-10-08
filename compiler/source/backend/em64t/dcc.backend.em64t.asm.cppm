@@ -5,6 +5,8 @@ import dcc.ir;
 import dcc.backend.x86.mir;
 import dcc.target;
 
+using namespace dcc::backend::x86;
+
 using namespace std::literals;
 
 export namespace dcc::backend::em64t
