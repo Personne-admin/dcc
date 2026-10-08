@@ -688,6 +688,11 @@ export namespace dcc::backend::object
                     case Reloc::Kind::Abs64:
                         rtype = arch.reloc_abs;
                         break;
+                    case Reloc::Kind::Abs16:
+                    case Reloc::Kind::Abs32:
+                    case Reloc::Kind::Rel16:
+                        std::println(std::cerr, "coff objwriter: 16/32-bit x86 relocation in a 64-bit object; refusing to emit malformed object");
+                        std::abort();
                     default:
                         rtype = arch.reloc_rel32;
                         break;

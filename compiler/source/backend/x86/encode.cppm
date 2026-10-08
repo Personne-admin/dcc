@@ -16,6 +16,9 @@ export namespace dcc::backend::x86
             Rel32,
             Rel32_Got,
             Rel32_Call,
+            Abs16,
+            Abs32,
+            Rel16,
         } kind;
         std::int64_t addend{0};
     };
@@ -582,6 +585,7 @@ namespace
     {
         std::size_t patch_offset;
         std::uint32_t target_label;
+        std::uint8_t width{4};
     };
 
     [[nodiscard]] static bool encode_instr_body(MInstr const& instr, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
@@ -3420,9 +3424,1215 @@ namespace
         return false;
     }
 
+    struct Real16Alu
+    {
+        std::uint8_t ext;
+        char form;
+        bool commutative;
+        bool writes;
+    };
+
+    [[nodiscard]] static std::optional<Real16Alu> real16_alu(MOpc o) noexcept
+    {
+        switch (o)
+        {
+            case MOpc::ADD8rr:
+            case MOpc::ADD16rr:
+            case MOpc::ADD32rr:
+                return Real16Alu{0, 'r', true, true};
+            case MOpc::ADD8ri:
+            case MOpc::ADD16ri:
+            case MOpc::ADD32ri:
+                return Real16Alu{0, 'i', true, true};
+            case MOpc::ADD16rm:
+            case MOpc::ADD32rm:
+                return Real16Alu{0, 'm', true, true};
+            case MOpc::OR8rr:
+            case MOpc::OR16rr:
+            case MOpc::OR32rr:
+                return Real16Alu{1, 'r', true, true};
+            case MOpc::OR8ri:
+            case MOpc::OR16ri:
+            case MOpc::OR32ri:
+                return Real16Alu{1, 'i', true, true};
+            case MOpc::OR16rm:
+            case MOpc::OR32rm:
+                return Real16Alu{1, 'm', true, true};
+            case MOpc::ADC16rr:
+            case MOpc::ADC32rr:
+                return Real16Alu{2, 'r', true, true};
+            case MOpc::ADC16ri:
+            case MOpc::ADC32ri:
+                return Real16Alu{2, 'i', true, true};
+            case MOpc::SBB16rr:
+            case MOpc::SBB32rr:
+                return Real16Alu{3, 'r', false, true};
+            case MOpc::SBB16ri:
+            case MOpc::SBB32ri:
+                return Real16Alu{3, 'i', false, true};
+            case MOpc::AND8rr:
+            case MOpc::AND16rr:
+            case MOpc::AND32rr:
+                return Real16Alu{4, 'r', true, true};
+            case MOpc::AND8ri:
+            case MOpc::AND16ri:
+            case MOpc::AND32ri:
+                return Real16Alu{4, 'i', true, true};
+            case MOpc::AND16rm:
+            case MOpc::AND32rm:
+                return Real16Alu{4, 'm', true, true};
+            case MOpc::SUB8rr:
+            case MOpc::SUB16rr:
+            case MOpc::SUB32rr:
+                return Real16Alu{5, 'r', false, true};
+            case MOpc::SUB8ri:
+            case MOpc::SUB16ri:
+            case MOpc::SUB32ri:
+                return Real16Alu{5, 'i', false, true};
+            case MOpc::SUB16rm:
+            case MOpc::SUB32rm:
+                return Real16Alu{5, 'm', false, true};
+            case MOpc::XOR8rr:
+            case MOpc::XOR16rr:
+            case MOpc::XOR32rr:
+                return Real16Alu{6, 'r', true, true};
+            case MOpc::XOR8ri:
+            case MOpc::XOR16ri:
+            case MOpc::XOR32ri:
+                return Real16Alu{6, 'i', true, true};
+            case MOpc::XOR16rm:
+            case MOpc::XOR32rm:
+                return Real16Alu{6, 'm', true, true};
+            case MOpc::CMP8rr:
+            case MOpc::CMP16rr:
+            case MOpc::CMP32rr:
+                return Real16Alu{7, 'r', false, false};
+            case MOpc::CMP8ri:
+            case MOpc::CMP16ri:
+            case MOpc::CMP32ri:
+                return Real16Alu{7, 'i', false, false};
+            case MOpc::CMP8rm:
+            case MOpc::CMP16rm:
+            case MOpc::CMP32rm:
+                return Real16Alu{7, 'm', false, false};
+            default:
+                return std::nullopt;
+        }
+    }
+
+    class Real16Encoder
+    {
+    public:
+        Real16Encoder(MInstr const& instr, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
+                      std::vector<std::string>& wrn)
+            : m_instr(instr), m_buf(buf), m_branches(branches), m_relocs(relocs), m_wrn(wrn)
+        {
+        }
+
+        [[nodiscard]] bool encode()
+        {
+            encode_instruction();
+            return m_ok;
+        }
+
+    private:
+        MInstr const& m_instr;
+        std::vector<std::uint8_t>& m_buf;
+        std::vector<BranchPatch>& m_branches;
+        std::vector<Reloc>& m_relocs;
+        std::vector<std::string>& m_wrn;
+        bool m_ok{true};
+
+        void fail(std::string_view why)
+        {
+            if (m_ok)
+                m_wrn.push_back(std::format("cannot encode {} in 16-bit mode: {}", opc_name(m_instr.opc), why));
+            m_ok = false;
+        }
+
+        [[nodiscard]] unsigned width() const noexcept { return operand_bits(m_instr.opc); }
+
+        [[nodiscard]] MOp const& op(unsigned i) const noexcept { return m_instr.ops[i]; }
+
+        [[nodiscard]] bool has(unsigned count) const noexcept { return m_instr.num_ops >= count; }
+
+        [[nodiscard]] bool is_reg(unsigned i) const noexcept { return has(i + 1) && op(i).kind == MOpKind::Reg; }
+
+        [[nodiscard]] bool is_imm(unsigned i) const noexcept { return has(i + 1) && op(i).kind == MOpKind::Imm64; }
+
+        [[nodiscard]] bool is_mem(unsigned i) const noexcept { return has(i + 1) && op(i).kind == MOpKind::Mem; }
+
+        [[nodiscard]] std::uint8_t gpr(unsigned i, unsigned bits)
+        {
+            if (!is_reg(i) || !op(i).reg.is_physical())
+            {
+                fail("expected a physical register operand");
+                return 0;
+            }
+            auto const reg = op(i).reg.phys_reg();
+            auto const number = static_cast<std::uint8_t>(reg);
+            if (reg_class(reg) != RegClass::GPR || number > static_cast<std::uint8_t>(PhysReg::RDI))
+            {
+                fail(std::format("register {} is not available", phys_reg_name(reg)));
+                return 0;
+            }
+            if (bits == 8 && number > static_cast<std::uint8_t>(PhysReg::RBX))
+            {
+                fail(std::format("register {} has no low byte register", phys_reg_name(reg)));
+                return 0;
+            }
+            return number;
+        }
+
+        [[nodiscard]] std::uint8_t sreg(unsigned i)
+        {
+            if (!is_reg(i) || !op(i).reg.is_physical() || reg_class(op(i).reg.phys_reg()) != RegClass::Segment)
+            {
+                fail("expected a segment register operand");
+                return 0;
+            }
+            return reg_x86_num(op(i).reg.phys_reg());
+        }
+
+        [[nodiscard]] static std::int64_t truncate(std::int64_t value, unsigned bits) noexcept
+        {
+            if (bits >= 64)
+                return value;
+            auto const mask = (std::uint64_t{1} << bits) - 1;
+            auto const raw = static_cast<std::uint64_t>(value) & mask;
+            auto const sign = std::uint64_t{1} << (bits - 1);
+            return static_cast<std::int64_t>((raw ^ sign) - sign);
+        }
+
+        [[nodiscard]] static bool fits8(std::int64_t value, unsigned bits) noexcept
+        {
+            auto const v = truncate(value, bits);
+            return v >= -128 && v <= 127;
+        }
+
+        void imm(std::int64_t value, unsigned bits)
+        {
+            if (bits == 8)
+                emit_u8(m_buf, static_cast<std::uint8_t>(value));
+            else if (bits == 16)
+                emit_u16_le(m_buf, static_cast<std::uint16_t>(value));
+            else
+                emit_u32_le(m_buf, static_cast<std::uint32_t>(value));
+        }
+
+        void prefixes(unsigned operand, MMem const* memory)
+        {
+            unsigned address = 0;
+            auto segment = SegmentOverride::None;
+            if (memory)
+            {
+                address = memory->address_bits == 32 ? 32 : 0;
+                segment = memory->segment;
+            }
+            append_legacy_prefixes(m_buf, EncodeMode::Real16, operand == 8 ? 0 : operand, address, segment);
+        }
+
+        void reloc_here(std::string_view symbol, Reloc::Kind kind, std::int64_t addend)
+        {
+            Reloc r;
+            r.offset = static_cast<std::uint32_t>(m_buf.size());
+            r.symbol = symbol;
+            r.kind = kind;
+            r.addend = addend;
+            m_relocs.push_back(r);
+        }
+
+        [[nodiscard]] static bool is_direct(MMem const& m) noexcept { return m.absolute || (!m.base.is_valid() && !m.index.is_valid()); }
+
+        void displacement(MMem const& m, unsigned bits)
+        {
+            if (!m.symbol.empty())
+                reloc_here(m.symbol, bits == 32 ? Reloc::Kind::Abs32 : Reloc::Kind::Abs16, m.disp);
+            if (bits == 32)
+                emit_u32_le(m_buf, m.symbol.empty() ? static_cast<std::uint32_t>(m.disp) : 0);
+            else
+                emit_u16_le(m_buf, m.symbol.empty() ? static_cast<std::uint16_t>(m.disp) : 0);
+        }
+
+        [[nodiscard]] std::optional<std::uint8_t> mem_reg(VReg reg)
+        {
+            if (!reg.is_physical())
+            {
+                fail("memory operand uses a virtual register");
+                return std::nullopt;
+            }
+            auto const r = reg.phys_reg();
+            if (reg_class(r) != RegClass::GPR || static_cast<std::uint8_t>(r) > static_cast<std::uint8_t>(PhysReg::RDI))
+            {
+                fail(std::format("register {} cannot address memory", phys_reg_name(r)));
+                return std::nullopt;
+            }
+            return static_cast<std::uint8_t>(r);
+        }
+
+        void mem16(MMem const& m, std::uint8_t reg_field)
+        {
+            if (m.disp < -32768 || m.disp > 65535)
+            {
+                fail("displacement does not fit 16 bits");
+                return;
+            }
+            if (is_direct(m))
+            {
+                emit_modrm(m_buf, 0, reg_field, 6);
+                displacement(m, 16);
+                return;
+            }
+            std::optional<std::uint8_t> base;
+            std::optional<std::uint8_t> index;
+            if (m.base.is_valid())
+                base = mem_reg(m.base);
+            if (m.index.is_valid())
+            {
+                if (m.scale != 1)
+                {
+                    fail("16-bit addressing has no scaled index");
+                    return;
+                }
+                index = mem_reg(m.index);
+            }
+            if (!m_ok)
+                return;
+            constexpr std::uint8_t bx = 3, bp = 5, si = 6, di = 7;
+            auto is_base = [&](std::uint8_t r) { return r == bx || r == bp; };
+            auto is_index = [&](std::uint8_t r) { return r == si || r == di; };
+            std::optional<std::uint8_t> b, x;
+            for (auto r : {base, index})
+            {
+                if (!r)
+                    continue;
+                if (is_base(*r) && !b)
+                    b = r;
+                else if (is_index(*r) && !x)
+                    x = r;
+                else
+                {
+                    fail("16-bit addressing accepts one of BX/BP and one of SI/DI");
+                    return;
+                }
+            }
+            std::uint8_t rm = 0;
+            if (b && x)
+                rm = static_cast<std::uint8_t>((*b == bp ? 2 : 0) + (*x == di ? 1 : 0));
+            else if (x)
+                rm = *x == si ? 4 : 5;
+            else
+                rm = *b == bp ? 6 : 7;
+            auto const disp = static_cast<std::int16_t>(static_cast<std::uint16_t>(m.disp));
+            if (!m.symbol.empty())
+            {
+                emit_modrm(m_buf, 2, reg_field, rm);
+                displacement(m, 16);
+            }
+            else if (disp == 0 && rm != 6)
+                emit_modrm(m_buf, 0, reg_field, rm);
+            else if (disp >= -128 && disp <= 127)
+            {
+                emit_modrm(m_buf, 1, reg_field, rm);
+                emit_u8(m_buf, static_cast<std::uint8_t>(disp));
+            }
+            else
+            {
+                emit_modrm(m_buf, 2, reg_field, rm);
+                emit_u16_le(m_buf, static_cast<std::uint16_t>(disp));
+            }
+        }
+
+        void mem32(MMem const& m, std::uint8_t reg_field)
+        {
+            if (is_direct(m))
+            {
+                emit_modrm(m_buf, 0, reg_field, 5);
+                displacement(m, 32);
+                return;
+            }
+            std::optional<std::uint8_t> base;
+            std::optional<std::uint8_t> index;
+            if (m.base.is_valid())
+                base = mem_reg(m.base);
+            if (m.index.is_valid())
+            {
+                index = mem_reg(m.index);
+                if (index && *index == 4)
+                    fail("ESP cannot be an index register");
+                if (m.scale != 1 && m.scale != 2 && m.scale != 4 && m.scale != 8)
+                    fail("invalid index scale");
+            }
+            if (!m_ok)
+                return;
+            bool const symbol = !m.symbol.empty();
+            bool const need_sib = index || (base && *base == 4);
+            if (!base)
+            {
+                emit_modrm(m_buf, 0, reg_field, 4);
+                emit_sib(m_buf, m.scale, *index, 5);
+                displacement(m, 32);
+                return;
+            }
+            std::uint8_t mod = 2;
+            if (!symbol && m.disp == 0 && *base != 5)
+                mod = 0;
+            else if (!symbol && m.disp >= -128 && m.disp <= 127)
+                mod = 1;
+            emit_modrm(m_buf, mod, reg_field, need_sib ? 4 : *base);
+            if (need_sib)
+                emit_sib(m_buf, index ? m.scale : 1, index ? *index : 4, *base);
+            if (mod == 1)
+                emit_u8(m_buf, static_cast<std::uint8_t>(static_cast<std::int8_t>(m.disp)));
+            else if (mod == 2)
+                displacement(m, 32);
+        }
+
+        void mem(MMem const& m, std::uint8_t reg_field)
+        {
+            if (m.address_bits != 0 && m.address_bits != 16 && m.address_bits != 32)
+            {
+                fail("invalid address size");
+                return;
+            }
+            if (m.address_bits == 32)
+                mem32(m, reg_field);
+            else
+                mem16(m, reg_field);
+        }
+
+        void modrm_reg(std::uint8_t reg_field, std::uint8_t rm) { emit_modrm(m_buf, 3, reg_field, rm); }
+
+        void mov_rr(unsigned bits, std::uint8_t dst, std::uint8_t src)
+        {
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, bits == 8 ? 0x88 : 0x89);
+            modrm_reg(src, dst);
+        }
+
+        [[nodiscard]] std::optional<std::uint8_t> tie(unsigned bits, unsigned other_index)
+        {
+            auto const d = gpr(0, bits);
+            auto const l = gpr(1, bits);
+            if (!m_ok)
+                return std::nullopt;
+            if (d == l)
+                return d;
+            if (is_reg(other_index) && op(other_index).reg.is_physical() && op(other_index).reg.phys_reg() == op(0).reg.phys_reg())
+            {
+                fail("destination register is also the right operand");
+                return std::nullopt;
+            }
+            mov_rr(bits, d, l);
+            return d;
+        }
+
+        void alu(Real16Alu info)
+        {
+            auto const bits = width();
+            unsigned const source = has(3) ? 2 : 1;
+            std::uint8_t d = 0;
+            if (info.writes && has(3))
+            {
+                if (info.form == 'r' && info.commutative && is_reg(2) && gpr(2, bits) == gpr(0, bits) && gpr(1, bits) != gpr(0, bits))
+                    return alu_with(info, bits, gpr(0, bits), 1);
+                auto const tied = tie(bits, 2);
+                if (!tied)
+                    return;
+                d = *tied;
+            }
+            else
+                d = gpr(0, bits);
+            if (!m_ok)
+                return;
+            alu_with(info, bits, d, source);
+        }
+
+        void alu_with(Real16Alu info, unsigned bits, std::uint8_t d, unsigned source)
+        {
+            auto const base = static_cast<std::uint8_t>(info.ext * 8);
+            if (info.form == 'r')
+            {
+                auto const r = gpr(source, bits);
+                if (!m_ok)
+                    return;
+                prefixes(bits, nullptr);
+                emit_u8(m_buf, static_cast<std::uint8_t>(base + (bits == 8 ? 0 : 1)));
+                modrm_reg(r, d);
+            }
+            else if (info.form == 'm')
+            {
+                if (!is_mem(source))
+                    return fail("expected a memory operand");
+                auto const& m = op(source).mem;
+                prefixes(bits, &m);
+                emit_u8(m_buf, static_cast<std::uint8_t>(base + (bits == 8 ? 2 : 3)));
+                mem(m, d);
+            }
+            else
+            {
+                if (!is_imm(source))
+                    return fail("expected an immediate operand");
+                auto const value = op(source).imm;
+                prefixes(bits, nullptr);
+                if (bits == 8)
+                {
+                    if (d == 0)
+                        emit_u8(m_buf, static_cast<std::uint8_t>(base + 4));
+                    else
+                    {
+                        emit_u8(m_buf, 0x80);
+                        modrm_reg(info.ext, d);
+                    }
+                    imm(value, 8);
+                }
+                else if (fits8(value, bits))
+                {
+                    emit_u8(m_buf, 0x83);
+                    modrm_reg(info.ext, d);
+                    imm(value, 8);
+                }
+                else
+                {
+                    if (d == 0)
+                        emit_u8(m_buf, static_cast<std::uint8_t>(base + 5));
+                    else
+                    {
+                        emit_u8(m_buf, 0x81);
+                        modrm_reg(info.ext, d);
+                    }
+                    imm(value, bits);
+                }
+            }
+        }
+
+        void mov()
+        {
+            auto const bits = width();
+            auto const narrow = bits == 8;
+            switch (m_instr.opc)
+            {
+                case MOpc::MOV8rr:
+                case MOpc::MOV16rr:
+                case MOpc::MOV32rr: {
+                    auto const d = gpr(0, bits);
+                    auto const s = gpr(1, bits);
+                    if (m_ok)
+                        mov_rr(bits, d, s);
+                    return;
+                }
+                case MOpc::MOV8ri:
+                case MOpc::MOV16ri:
+                case MOpc::MOV32ri: {
+                    auto const d = gpr(0, bits);
+                    if (!is_imm(1))
+                        return fail("expected an immediate operand");
+                    if (!m_ok)
+                        return;
+                    prefixes(bits, nullptr);
+                    emit_u8(m_buf, static_cast<std::uint8_t>((narrow ? 0xB0 : 0xB8) + d));
+                    imm(op(1).imm, bits);
+                    return;
+                }
+                case MOpc::MOV8rm:
+                case MOpc::MOV16rm:
+                case MOpc::MOV32rm: {
+                    auto const d = gpr(0, bits);
+                    if (!is_mem(1))
+                        return fail("expected a memory operand");
+                    if (!m_ok)
+                        return;
+                    auto const& m = op(1).mem;
+                    prefixes(bits, &m);
+                    if (d == 0 && is_direct(m))
+                    {
+                        emit_u8(m_buf, narrow ? 0xA0 : 0xA1);
+                        displacement(m, m.address_bits == 32 ? 32 : 16);
+                        return;
+                    }
+                    emit_u8(m_buf, narrow ? 0x8A : 0x8B);
+                    mem(m, d);
+                    return;
+                }
+                case MOpc::MOV8mr:
+                case MOpc::MOV16mr:
+                case MOpc::MOV32mr: {
+                    auto const s = gpr(1, bits);
+                    if (!is_mem(0))
+                        return fail("expected a memory operand");
+                    if (!m_ok)
+                        return;
+                    auto const& m = op(0).mem;
+                    prefixes(bits, &m);
+                    if (s == 0 && is_direct(m))
+                    {
+                        emit_u8(m_buf, narrow ? 0xA2 : 0xA3);
+                        displacement(m, m.address_bits == 32 ? 32 : 16);
+                        return;
+                    }
+                    emit_u8(m_buf, narrow ? 0x88 : 0x89);
+                    mem(m, s);
+                    return;
+                }
+                case MOpc::MOV8mi:
+                case MOpc::MOV16mi:
+                case MOpc::MOV32mi: {
+                    if (!is_mem(0) || !is_imm(1))
+                        return fail("expected memory and immediate operands");
+                    auto const& m = op(0).mem;
+                    prefixes(bits, &m);
+                    emit_u8(m_buf, narrow ? 0xC6 : 0xC7);
+                    mem(m, 0);
+                    imm(op(1).imm, bits);
+                    return;
+                }
+                default:
+                    return fail("unsupported move form");
+            }
+        }
+
+        void extend(std::uint8_t opcode, unsigned source_bits, bool memory)
+        {
+            auto const bits = width();
+            auto const d = gpr(0, bits);
+            if (memory)
+            {
+                if (!is_mem(1))
+                    return fail("expected a memory operand");
+                if (!m_ok)
+                    return;
+                auto const& m = op(1).mem;
+                prefixes(bits, &m);
+                emit_u8(m_buf, 0x0F);
+                emit_u8(m_buf, opcode);
+                mem(m, d);
+                return;
+            }
+            auto const s = gpr(1, source_bits);
+            if (!m_ok)
+                return;
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, 0x0F);
+            emit_u8(m_buf, opcode);
+            modrm_reg(d, s);
+        }
+
+        void unary(std::uint8_t ext, bool tied)
+        {
+            auto const bits = width();
+            std::uint8_t d = 0;
+            if (tied && has(2))
+            {
+                auto const t = tie(bits, m_instr.num_ops);
+                if (!t)
+                    return;
+                d = *t;
+            }
+            else
+                d = gpr(0, bits);
+            if (!m_ok)
+                return;
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, bits == 8 ? 0xF6 : 0xF7);
+            modrm_reg(ext, d);
+        }
+
+        void incdec(bool decrement)
+        {
+            auto const bits = width();
+            auto const d = gpr(0, bits);
+            if (!m_ok)
+                return;
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, static_cast<std::uint8_t>((decrement ? 0x48 : 0x40) + d));
+        }
+
+        void shift(std::uint8_t ext, bool by_cl)
+        {
+            auto const bits = width();
+            auto const amount = has(3) ? 2u : 1u;
+            std::uint8_t d = 0;
+            if (has(3))
+            {
+                auto const t = tie(bits, 2);
+                if (!t)
+                    return;
+                d = *t;
+            }
+            else
+                d = gpr(0, bits);
+            if (!m_ok)
+                return;
+            if (by_cl)
+            {
+                if (!is_reg(amount) || !op(amount).reg.is_physical() || op(amount).reg.phys_reg() != PhysReg::RCX)
+                    return fail("shift count must be CL");
+                prefixes(bits, nullptr);
+                emit_u8(m_buf, 0xD3);
+                modrm_reg(ext, d);
+                return;
+            }
+            if (!is_imm(amount))
+                return fail("expected an immediate shift count");
+            auto const count = static_cast<std::uint8_t>(op(amount).imm);
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, count == 1 ? 0xD1 : 0xC1);
+            modrm_reg(ext, d);
+            if (count != 1)
+                emit_u8(m_buf, count);
+        }
+
+        void double_shift(std::uint8_t opcode, bool by_cl)
+        {
+            auto const d = gpr(0, 32);
+            auto const s = gpr(1, 32);
+            if (!m_ok)
+                return;
+            if (by_cl && (!is_reg(2) || !op(2).reg.is_physical() || op(2).reg.phys_reg() != PhysReg::RCX))
+                return fail("shift count must be CL");
+            if (!by_cl && !is_imm(2))
+                return fail("expected an immediate shift count");
+            prefixes(32, nullptr);
+            emit_u8(m_buf, 0x0F);
+            emit_u8(m_buf, static_cast<std::uint8_t>(by_cl ? opcode + 1 : opcode));
+            modrm_reg(s, d);
+            if (!by_cl)
+                emit_u8(m_buf, static_cast<std::uint8_t>(op(2).imm));
+        }
+
+        void imul()
+        {
+            auto const bits = width();
+            if (m_instr.opc == MOpc::IMUL16rri || m_instr.opc == MOpc::IMUL32rri)
+            {
+                auto const d = gpr(0, bits);
+                auto const s = gpr(1, bits);
+                if (!is_imm(2))
+                    return fail("expected an immediate operand");
+                if (!m_ok)
+                    return;
+                auto const value = op(2).imm;
+                prefixes(bits, nullptr);
+                emit_u8(m_buf, fits8(value, bits) ? 0x6B : 0x69);
+                modrm_reg(d, s);
+                imm(value, fits8(value, bits) ? 8 : bits);
+                return;
+            }
+            std::uint8_t d = 0;
+            unsigned source = 1;
+            if (has(3))
+            {
+                d = gpr(0, bits);
+                auto l = gpr(1, bits);
+                auto r = gpr(2, bits);
+                if (!m_ok)
+                    return;
+                if (d == r)
+                    std::swap(l, r);
+                if (d != l)
+                    mov_rr(bits, d, l);
+                prefixes(bits, nullptr);
+                emit_u8(m_buf, 0x0F);
+                emit_u8(m_buf, 0xAF);
+                modrm_reg(d, r);
+                return;
+            }
+            d = gpr(0, bits);
+            auto const r = gpr(source, bits);
+            if (!m_ok)
+                return;
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, 0x0F);
+            emit_u8(m_buf, 0xAF);
+            modrm_reg(d, r);
+        }
+
+        void test()
+        {
+            auto const bits = width();
+            auto const l = gpr(0, bits);
+            if (!m_ok)
+                return;
+            if (is_imm(1))
+            {
+                prefixes(bits, nullptr);
+                if (l == 0)
+                    emit_u8(m_buf, bits == 8 ? 0xA8 : 0xA9);
+                else
+                {
+                    emit_u8(m_buf, bits == 8 ? 0xF6 : 0xF7);
+                    modrm_reg(0, l);
+                }
+                imm(op(1).imm, bits);
+                return;
+            }
+            auto const r = gpr(1, bits);
+            if (!m_ok)
+                return;
+            prefixes(bits, nullptr);
+            emit_u8(m_buf, bits == 8 ? 0x84 : 0x85);
+            modrm_reg(r, l);
+        }
+
+        void branch(std::uint8_t opcode, bool conditional)
+        {
+            if (!has(1))
+                return fail("expected a branch target");
+            if (conditional)
+                emit_u8(m_buf, 0x0F);
+            emit_u8(m_buf, opcode);
+            if (op(0).kind == MOpKind::Label)
+                m_branches.push_back({m_buf.size(), op(0).label, 2});
+            else if (op(0).kind == MOpKind::Symbol)
+                reloc_here(op(0).symbol, Reloc::Kind::Rel16, -2);
+            else
+                return fail("expected a label or symbol target");
+            emit_u16_le(m_buf, 0);
+        }
+
+        void indirect(std::uint8_t ext)
+        {
+            if (is_reg(0))
+            {
+                auto const r = gpr(0, 16);
+                if (!m_ok)
+                    return;
+                emit_u8(m_buf, 0xFF);
+                modrm_reg(ext, r);
+                return;
+            }
+            if (!is_mem(0))
+                return fail("expected a register or memory target");
+            auto const& m = op(0).mem;
+            prefixes(16, &m);
+            emit_u8(m_buf, 0xFF);
+            mem(m, ext);
+        }
+
+        void push_pop_segment(bool push)
+        {
+            if (!is_reg(0) || !op(0).reg.is_physical() || reg_class(op(0).reg.phys_reg()) != RegClass::Segment)
+                return fail("expected a segment register operand");
+            switch (op(0).reg.phys_reg())
+            {
+                case PhysReg::ES:
+                    emit_u8(m_buf, push ? 0x06 : 0x07);
+                    return;
+                case PhysReg::CS:
+                    if (!push)
+                        return fail("CS cannot be popped");
+                    emit_u8(m_buf, 0x0E);
+                    return;
+                case PhysReg::SS:
+                    emit_u8(m_buf, push ? 0x16 : 0x17);
+                    return;
+                case PhysReg::DS:
+                    emit_u8(m_buf, push ? 0x1E : 0x1F);
+                    return;
+                case PhysReg::FS:
+                    emit_u8(m_buf, 0x0F);
+                    emit_u8(m_buf, push ? 0xA0 : 0xA1);
+                    return;
+                case PhysReg::GS:
+                    emit_u8(m_buf, 0x0F);
+                    emit_u8(m_buf, push ? 0xA8 : 0xA9);
+                    return;
+                default:
+                    return fail("invalid segment register");
+            }
+        }
+
+        void segment_move()
+        {
+            switch (m_instr.opc)
+            {
+                case MOpc::MOV16sr: {
+                    auto const s = sreg(0);
+                    auto const r = gpr(1, 16);
+                    if (!m_ok)
+                        return;
+                    if (s == 1)
+                        return fail("CS cannot be loaded with mov");
+                    emit_u8(m_buf, 0x8E);
+                    modrm_reg(s, r);
+                    return;
+                }
+                case MOpc::MOV16rs: {
+                    auto const r = gpr(0, 16);
+                    auto const s = sreg(1);
+                    if (!m_ok)
+                        return;
+                    emit_u8(m_buf, 0x8C);
+                    modrm_reg(s, r);
+                    return;
+                }
+                case MOpc::MOV16sm: {
+                    auto const s = sreg(0);
+                    if (!is_mem(1))
+                        return fail("expected a memory operand");
+                    if (!m_ok)
+                        return;
+                    if (s == 1)
+                        return fail("CS cannot be loaded with mov");
+                    auto const& m = op(1).mem;
+                    prefixes(16, &m);
+                    emit_u8(m_buf, 0x8E);
+                    mem(m, s);
+                    return;
+                }
+                case MOpc::MOV16ms: {
+                    auto const s = sreg(1);
+                    if (!is_mem(0))
+                        return fail("expected a memory operand");
+                    if (!m_ok)
+                        return;
+                    auto const& m = op(0).mem;
+                    prefixes(16, &m);
+                    emit_u8(m_buf, 0x8C);
+                    mem(m, s);
+                    return;
+                }
+                default:
+                    return fail("unsupported segment move");
+            }
+        }
+
+        void far_load(std::uint8_t opcode, bool two_byte)
+        {
+            auto const bits = width();
+            auto const d = gpr(0, bits);
+            if (!is_mem(1))
+                return fail("expected a memory operand");
+            if (!m_ok)
+                return;
+            auto const& m = op(1).mem;
+            prefixes(bits, &m);
+            if (two_byte)
+                emit_u8(m_buf, 0x0F);
+            emit_u8(m_buf, opcode);
+            mem(m, d);
+        }
+
+        void string_op(std::uint8_t opcode, bool address32)
+        {
+            if (address32)
+                emit_u8(m_buf, 0x67);
+            emit_u8(m_buf, 0xF3);
+            emit_u8(m_buf, opcode);
+        }
+
+        void lea()
+        {
+            auto const bits = width();
+            auto const d = gpr(0, bits);
+            if (!is_mem(1))
+                return fail("expected a memory operand");
+            if (!m_ok)
+                return;
+            auto const& m = op(1).mem;
+            if (m.segment != SegmentOverride::None)
+                return fail("lea takes no segment override");
+            prefixes(bits, &m);
+            emit_u8(m_buf, 0x8D);
+            mem(m, d);
+        }
+
+        void xchg_memory()
+        {
+            auto const bits = width();
+            auto const r = gpr(1, bits);
+            if (!is_mem(0))
+                return fail("expected a memory operand");
+            if (!m_ok)
+                return;
+            auto const& m = op(0).mem;
+            prefixes(bits, &m);
+            emit_u8(m_buf, bits == 8 ? 0x86 : 0x87);
+            mem(m, r);
+        }
+
+        void encode_instruction()
+        {
+            auto const opc = m_instr.opc;
+            if (operand_bits(opc) == 64)
+                return fail("64-bit operations do not exist in 16-bit mode");
+            if (auto info = real16_alu(opc))
+                return alu(*info);
+            switch (opc)
+            {
+                case MOpc::COPY: {
+                    auto const d = gpr(0, 32);
+                    auto const s = gpr(1, 32);
+                    if (m_ok && d != s)
+                        mov_rr(32, d, s);
+                    return;
+                }
+                case MOpc::NOP:
+                    emit_u8(m_buf, 0x90);
+                    return;
+                case MOpc::UD2:
+                    emit_u8(m_buf, 0x0F);
+                    emit_u8(m_buf, 0x0B);
+                    return;
+                case MOpc::RET:
+                    emit_u8(m_buf, 0xC3);
+                    return;
+                case MOpc::CLI:
+                    emit_u8(m_buf, 0xFA);
+                    return;
+                case MOpc::STI:
+                    emit_u8(m_buf, 0xFB);
+                    return;
+                case MOpc::PUSHF16:
+                    emit_u8(m_buf, 0x9C);
+                    return;
+                case MOpc::POPF16:
+                    emit_u8(m_buf, 0x9D);
+                    return;
+                case MOpc::CBW:
+                case MOpc::CWDE:
+                    prefixes(width(), nullptr);
+                    emit_u8(m_buf, 0x98);
+                    return;
+                case MOpc::CWD:
+                case MOpc::CDQ:
+                    prefixes(width(), nullptr);
+                    emit_u8(m_buf, 0x99);
+                    return;
+                case MOpc::MOV8rr:
+                case MOpc::MOV16rr:
+                case MOpc::MOV32rr:
+                case MOpc::MOV8ri:
+                case MOpc::MOV16ri:
+                case MOpc::MOV32ri:
+                case MOpc::MOV8rm:
+                case MOpc::MOV16rm:
+                case MOpc::MOV32rm:
+                case MOpc::MOV8mr:
+                case MOpc::MOV16mr:
+                case MOpc::MOV32mr:
+                case MOpc::MOV8mi:
+                case MOpc::MOV16mi:
+                case MOpc::MOV32mi:
+                    return mov();
+                case MOpc::MOV16sr:
+                case MOpc::MOV16rs:
+                case MOpc::MOV16sm:
+                case MOpc::MOV16ms:
+                    return segment_move();
+                case MOpc::MOVZX16_8rr:
+                case MOpc::MOVZX32_8rr:
+                case MOpc::MOVZX32rr8:
+                    return extend(0xB6, 8, false);
+                case MOpc::MOVZX32_16rr:
+                    return extend(0xB7, 16, false);
+                case MOpc::MOVSX16_8rr:
+                case MOpc::MOVSX32_8rr:
+                    return extend(0xBE, 8, false);
+                case MOpc::MOVSX32_16rr:
+                    return extend(0xBF, 16, false);
+                case MOpc::MOVZX16rm8:
+                case MOpc::MOVZX32rm8:
+                    return extend(0xB6, 8, true);
+                case MOpc::MOVZX32rm16:
+                    return extend(0xB7, 16, true);
+                case MOpc::MOVSX16rm8:
+                case MOpc::MOVSX32rm8:
+                    return extend(0xBE, 8, true);
+                case MOpc::MOVSX32rm16:
+                    return extend(0xBF, 16, true);
+                case MOpc::TEST8rr:
+                case MOpc::TEST16rr:
+                case MOpc::TEST32rr:
+                case MOpc::TEST8ri:
+                case MOpc::TEST16ri:
+                case MOpc::TEST32ri:
+                    return test();
+                case MOpc::NOT8r:
+                case MOpc::NOT16r:
+                case MOpc::NOT32r:
+                    return unary(2, true);
+                case MOpc::NEG8r:
+                case MOpc::NEG16r:
+                case MOpc::NEG32r:
+                    return unary(3, true);
+                case MOpc::MUL16r:
+                case MOpc::MUL32r:
+                    return unary(4, false);
+                case MOpc::DIV16r:
+                case MOpc::DIV32r:
+                    return unary(6, false);
+                case MOpc::IDIV16r:
+                case MOpc::IDIV32r:
+                    return unary(7, false);
+                case MOpc::INC16r:
+                case MOpc::INC32r:
+                    return incdec(false);
+                case MOpc::DEC16r:
+                case MOpc::DEC32r:
+                    return incdec(true);
+                case MOpc::IMUL16rr:
+                case MOpc::IMUL32rr:
+                case MOpc::IMUL16rri:
+                case MOpc::IMUL32rri:
+                    return imul();
+                case MOpc::SHL16rCL:
+                case MOpc::SHL32rCL:
+                    return shift(4, true);
+                case MOpc::SHR16rCL:
+                case MOpc::SHR32rCL:
+                    return shift(5, true);
+                case MOpc::SAR16rCL:
+                case MOpc::SAR32rCL:
+                    return shift(7, true);
+                case MOpc::SHL16ri8:
+                case MOpc::SHL32ri8:
+                    return shift(4, false);
+                case MOpc::SHR16ri8:
+                case MOpc::SHR32ri8:
+                    return shift(5, false);
+                case MOpc::SAR16ri8:
+                case MOpc::SAR32ri8:
+                    return shift(7, false);
+                case MOpc::SHLD32rri8:
+                    return double_shift(0xA4, false);
+                case MOpc::SHLD32rrCL:
+                    return double_shift(0xA4, true);
+                case MOpc::SHRD32rri8:
+                    return double_shift(0xAC, false);
+                case MOpc::SHRD32rrCL:
+                    return double_shift(0xAC, true);
+                case MOpc::SETEr:
+                case MOpc::SETNEr:
+                case MOpc::SETLr:
+                case MOpc::SETGEr:
+                case MOpc::SETLEr:
+                case MOpc::SETGr:
+                case MOpc::SETBr:
+                case MOpc::SETAEr:
+                case MOpc::SETBEr:
+                case MOpc::SETAr: {
+                    auto const d = gpr(0, 8);
+                    if (!m_ok)
+                        return;
+                    emit_u8(m_buf, 0x0F);
+                    emit_u8(m_buf, setcc_byte(opc));
+                    modrm_reg(0, d);
+                    return;
+                }
+                case MOpc::LEA16rm:
+                case MOpc::LEA32rm:
+                    return lea();
+                case MOpc::PUSH16r:
+                case MOpc::PUSH32r:
+                case MOpc::POP16r:
+                case MOpc::POP32r: {
+                    auto const r = gpr(0, width());
+                    if (!m_ok)
+                        return;
+                    prefixes(width(), nullptr);
+                    bool const push = opc == MOpc::PUSH16r || opc == MOpc::PUSH32r;
+                    emit_u8(m_buf, static_cast<std::uint8_t>((push ? 0x50 : 0x58) + r));
+                    return;
+                }
+                case MOpc::PUSH16i: {
+                    if (!is_imm(0))
+                        return fail("expected an immediate operand");
+                    auto const value = op(0).imm;
+                    emit_u8(m_buf, fits8(value, 16) ? 0x6A : 0x68);
+                    imm(value, fits8(value, 16) ? 8 : 16);
+                    return;
+                }
+                case MOpc::PUSHSEG:
+                    return push_pop_segment(true);
+                case MOpc::POPSEG:
+                    return push_pop_segment(false);
+                case MOpc::LES16rm:
+                case MOpc::LES32rm:
+                    return far_load(0xC4, false);
+                case MOpc::LFS16rm:
+                case MOpc::LFS32rm:
+                    return far_load(0xB4, true);
+                case MOpc::LGS16rm:
+                case MOpc::LGS32rm:
+                    return far_load(0xB5, true);
+                case MOpc::JMP:
+                case MOpc::JMP_rel32:
+                    return branch(0xE9, false);
+                case MOpc::JE:
+                case MOpc::JNE:
+                case MOpc::JL:
+                case MOpc::JGE:
+                case MOpc::JLE:
+                case MOpc::JG:
+                case MOpc::JB:
+                case MOpc::JAE:
+                case MOpc::JBE:
+                case MOpc::JA:
+                case MOpc::JP:
+                case MOpc::JNP:
+                case MOpc::JS:
+                case MOpc::JNS:
+                    return branch(jcc_byte(opc), true);
+                case MOpc::CALL:
+                case MOpc::CALL_rel16:
+                    if (is_reg(0))
+                        return indirect(2);
+                    return branch(0xE8, false);
+                case MOpc::JMP16r:
+                case MOpc::JMP16m:
+                    return indirect(4);
+                case MOpc::REPMOVS:
+                case MOpc::REPMOVSW:
+                    return string_op(opc == MOpc::REPMOVS ? 0xA4 : 0xA5, false);
+                case MOpc::REPSTOS:
+                case MOpc::REPSTOSW:
+                    return string_op(opc == MOpc::REPSTOS ? 0xAA : 0xAB, false);
+                case MOpc::REPMOVS_A32:
+                case MOpc::REPMOVSW_A32:
+                    return string_op(opc == MOpc::REPMOVS_A32 ? 0xA4 : 0xA5, true);
+                case MOpc::REPSTOS_A32:
+                case MOpc::REPSTOSW_A32:
+                    return string_op(opc == MOpc::REPSTOS_A32 ? 0xAA : 0xAB, true);
+                case MOpc::XCHG8mr:
+                case MOpc::XCHG16mr:
+                case MOpc::XCHG32mr:
+                    return xchg_memory();
+                default:
+                    return fail("instruction has no 16-bit encoding");
+            }
+        }
+    };
+
     static void encode_instr(MInstr const& instr, EncodeMode mode, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
                              std::vector<std::string>& wrn)
     {
+        if (mode == EncodeMode::Real16)
+        {
+            std::vector<std::uint8_t> body;
+            std::vector<BranchPatch> body_branches;
+            std::vector<Reloc> body_relocs;
+            Real16Encoder encoder{instr, body, body_branches, body_relocs, wrn};
+            if (!encoder.encode())
+            {
+                emit_u8(buf, 0x0F);
+                emit_u8(buf, 0x0B);
+                return;
+            }
+            auto const base = buf.size();
+            buf.insert(buf.end(), body.begin(), body.end());
+            for (auto branch : body_branches)
+            {
+                branch.patch_offset += base;
+                branches.push_back(branch);
+            }
+            for (auto reloc : body_relocs)
+            {
+                reloc.offset += static_cast<std::uint32_t>(base);
+                relocs.push_back(reloc);
+            }
+            return;
+        }
         MInstr rewritten = instr;
         SegmentOverride segment = SegmentOverride::None;
         unsigned address_bits = 0;
@@ -3468,7 +4678,7 @@ export namespace dcc::backend::x86
 {
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr, EncodeMode mode)
     {
-        if (mode != EncodeMode::Long64)
+        if (mode == EncodeMode::Protected32)
             return std::unexpected("instruction encoding is not implemented for this x86 mode");
         for (std::uint8_t i = 0; i < instr.num_ops; ++i)
         {
@@ -3498,7 +4708,7 @@ export namespace dcc::backend::x86
     [[nodiscard]] EncodeResult encode_function(MFunction const& func, EncodeMode mode)
     {
         EncodeResult r;
-        if (mode != EncodeMode::Long64)
+        if (mode == EncodeMode::Protected32)
         {
             r.warnings.push_back("instruction encoding is not implemented for this x86 mode");
             return r;
@@ -3527,6 +4737,18 @@ export namespace dcc::backend::x86
             }
             std::size_t to = it->second;
             std::size_t po = bp.patch_offset;
+            if (bp.width == 2)
+            {
+                auto const relative = static_cast<std::uint16_t>(to - (po + 2));
+                if (po + 2 <= r.bytes.size())
+                {
+                    r.bytes[po] = static_cast<std::uint8_t>(relative);
+                    r.bytes[po + 1] = static_cast<std::uint8_t>(relative >> 8);
+                }
+                else
+                    r.warnings.push_back("branch patch OOB");
+                continue;
+            }
             std::int32_t disp = static_cast<std::int32_t>(to - (po + 4));
             if (po + 4 <= r.bytes.size())
             {

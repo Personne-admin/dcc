@@ -514,6 +514,119 @@ export namespace dcc::backend::x86
         XCHG64rr,
         REPMOVS,
         REPSTOS,
+        ADD16rr,
+        ADD16ri,
+        ADD16rm,
+        SUB16rr,
+        SUB16ri,
+        SUB16rm,
+        AND16rr,
+        AND16ri,
+        AND16rm,
+        OR16rr,
+        OR16ri,
+        OR16rm,
+        XOR16rr,
+        XOR16ri,
+        XOR16rm,
+        CMP16rr,
+        CMP16ri,
+        CMP16rm,
+        ADC16rr,
+        ADC16ri,
+        SBB16rr,
+        SBB16ri,
+        ADC32rr,
+        ADC32ri,
+        SBB32rr,
+        SBB32ri,
+        AND32rm,
+        OR32rm,
+        XOR32rm,
+        ADD8rr,
+        ADD8ri,
+        SUB8rr,
+        SUB8ri,
+        AND8rr,
+        AND8ri,
+        OR8rr,
+        OR8ri,
+        XOR8rr,
+        XOR8ri,
+        CMP8rm,
+        TEST16rr,
+        TEST16ri,
+        TEST32ri,
+        TEST8ri,
+        NEG16r,
+        NOT16r,
+        NEG8r,
+        NOT8r,
+        INC16r,
+        DEC16r,
+        INC32r,
+        DEC32r,
+        MUL16r,
+        MUL32r,
+        DIV16r,
+        IDIV16r,
+        IMUL16rr,
+        IMUL16rri,
+        SHL16rCL,
+        SHR16rCL,
+        SAR16rCL,
+        SHL16ri8,
+        SHR16ri8,
+        SAR16ri8,
+        SHLD32rrCL,
+        SHRD32rrCL,
+        SHLD32rri8,
+        SHRD32rri8,
+        MOVZX16_8rr,
+        MOVSX16_8rr,
+        MOVZX16rm8,
+        MOVSX16rm8,
+        MOVZX32rm16,
+        MOVSX32rm16,
+        MOVSX32rm8,
+        CBW,
+        CWD,
+        CWDE,
+        LEA16rm,
+        LEA32rm,
+        PUSH16r,
+        POP16r,
+        PUSH32r,
+        POP32r,
+        PUSH16i,
+        PUSHSEG,
+        POPSEG,
+        PUSHF16,
+        POPF16,
+        CLI,
+        STI,
+        MOV16sr,
+        MOV16rs,
+        MOV16sm,
+        MOV16ms,
+        LES16rm,
+        LES32rm,
+        LFS16rm,
+        LFS32rm,
+        LGS16rm,
+        LGS32rm,
+        CALL_rel16,
+        JMP16r,
+        JMP16m,
+        REPMOVSW,
+        REPSTOSW,
+        REPMOVS_A32,
+        REPSTOS_A32,
+        REPMOVSW_A32,
+        REPSTOSW_A32,
+        XCHG8mr,
+        XCHG16mr,
+        XCHG32mr,
     };
 
     [[nodiscard]] std::uint8_t operand_bits(MOpc opc) noexcept
@@ -666,6 +779,32 @@ export namespace dcc::backend::x86
             case MOpc::LOCK_AND32mr:
             case MOpc::LOCK_OR32mr:
             case MOpc::LOCK_XOR32mr:
+            case MOpc::ADC32rr:
+            case MOpc::ADC32ri:
+            case MOpc::SBB32rr:
+            case MOpc::SBB32ri:
+            case MOpc::AND32rm:
+            case MOpc::OR32rm:
+            case MOpc::XOR32rm:
+            case MOpc::TEST32ri:
+            case MOpc::INC32r:
+            case MOpc::DEC32r:
+            case MOpc::MUL32r:
+            case MOpc::SHLD32rrCL:
+            case MOpc::SHRD32rrCL:
+            case MOpc::SHLD32rri8:
+            case MOpc::SHRD32rri8:
+            case MOpc::MOVZX32rm16:
+            case MOpc::MOVSX32rm16:
+            case MOpc::MOVSX32rm8:
+            case MOpc::CWDE:
+            case MOpc::LEA32rm:
+            case MOpc::PUSH32r:
+            case MOpc::POP32r:
+            case MOpc::LES32rm:
+            case MOpc::LFS32rm:
+            case MOpc::LGS32rm:
+            case MOpc::XCHG32mr:
                 return 32;
             case MOpc::MOV16rr:
             case MOpc::MOV16ri:
@@ -678,6 +817,67 @@ export namespace dcc::backend::x86
             case MOpc::LOCK_AND16mr:
             case MOpc::LOCK_OR16mr:
             case MOpc::LOCK_XOR16mr:
+            case MOpc::ADD16rr:
+            case MOpc::ADD16ri:
+            case MOpc::ADD16rm:
+            case MOpc::SUB16rr:
+            case MOpc::SUB16ri:
+            case MOpc::SUB16rm:
+            case MOpc::AND16rr:
+            case MOpc::AND16ri:
+            case MOpc::AND16rm:
+            case MOpc::OR16rr:
+            case MOpc::OR16ri:
+            case MOpc::OR16rm:
+            case MOpc::XOR16rr:
+            case MOpc::XOR16ri:
+            case MOpc::XOR16rm:
+            case MOpc::CMP16rr:
+            case MOpc::CMP16ri:
+            case MOpc::CMP16rm:
+            case MOpc::ADC16rr:
+            case MOpc::ADC16ri:
+            case MOpc::SBB16rr:
+            case MOpc::SBB16ri:
+            case MOpc::TEST16rr:
+            case MOpc::TEST16ri:
+            case MOpc::NEG16r:
+            case MOpc::NOT16r:
+            case MOpc::INC16r:
+            case MOpc::DEC16r:
+            case MOpc::MUL16r:
+            case MOpc::DIV16r:
+            case MOpc::IDIV16r:
+            case MOpc::IMUL16rr:
+            case MOpc::IMUL16rri:
+            case MOpc::SHL16rCL:
+            case MOpc::SHR16rCL:
+            case MOpc::SAR16rCL:
+            case MOpc::SHL16ri8:
+            case MOpc::SHR16ri8:
+            case MOpc::SAR16ri8:
+            case MOpc::MOVZX16_8rr:
+            case MOpc::MOVSX16_8rr:
+            case MOpc::MOVZX16rm8:
+            case MOpc::MOVSX16rm8:
+            case MOpc::CBW:
+            case MOpc::CWD:
+            case MOpc::LEA16rm:
+            case MOpc::PUSH16r:
+            case MOpc::POP16r:
+            case MOpc::PUSH16i:
+            case MOpc::MOV16sr:
+            case MOpc::MOV16rs:
+            case MOpc::MOV16sm:
+            case MOpc::MOV16ms:
+            case MOpc::LES16rm:
+            case MOpc::LFS16rm:
+            case MOpc::LGS16rm:
+            case MOpc::REPMOVSW:
+            case MOpc::REPSTOSW:
+            case MOpc::REPMOVSW_A32:
+            case MOpc::REPSTOSW_A32:
+            case MOpc::XCHG16mr:
                 return 16;
             case MOpc::MOV8rr:
             case MOpc::MOV8ri:
@@ -705,6 +905,23 @@ export namespace dcc::backend::x86
             case MOpc::LOCK_XOR8mr:
             case MOpc::REPMOVS:
             case MOpc::REPSTOS:
+            case MOpc::ADD8rr:
+            case MOpc::ADD8ri:
+            case MOpc::SUB8rr:
+            case MOpc::SUB8ri:
+            case MOpc::AND8rr:
+            case MOpc::AND8ri:
+            case MOpc::OR8rr:
+            case MOpc::OR8ri:
+            case MOpc::XOR8rr:
+            case MOpc::XOR8ri:
+            case MOpc::CMP8rm:
+            case MOpc::TEST8ri:
+            case MOpc::NEG8r:
+            case MOpc::NOT8r:
+            case MOpc::REPMOVS_A32:
+            case MOpc::REPSTOS_A32:
+            case MOpc::XCHG8mr:
                 return 8;
             default:
                 return 0;
@@ -808,6 +1025,38 @@ export namespace dcc::backend::x86
                 case MOpc::XCHG64rr:
                 case MOpc::REPMOVS:
                 case MOpc::REPSTOS:
+                case MOpc::PUSH16r:
+                case MOpc::POP16r:
+                case MOpc::PUSH32r:
+                case MOpc::POP32r:
+                case MOpc::PUSH16i:
+                case MOpc::PUSHSEG:
+                case MOpc::POPSEG:
+                case MOpc::PUSHF16:
+                case MOpc::POPF16:
+                case MOpc::CLI:
+                case MOpc::STI:
+                case MOpc::MOV16sr:
+                case MOpc::MOV16sm:
+                case MOpc::MOV16ms:
+                case MOpc::LES16rm:
+                case MOpc::LES32rm:
+                case MOpc::LFS16rm:
+                case MOpc::LFS32rm:
+                case MOpc::LGS16rm:
+                case MOpc::LGS32rm:
+                case MOpc::CALL_rel16:
+                case MOpc::JMP16r:
+                case MOpc::JMP16m:
+                case MOpc::REPMOVSW:
+                case MOpc::REPSTOSW:
+                case MOpc::REPMOVS_A32:
+                case MOpc::REPSTOS_A32:
+                case MOpc::REPMOVSW_A32:
+                case MOpc::REPSTOSW_A32:
+                case MOpc::XCHG8mr:
+                case MOpc::XCHG16mr:
+                case MOpc::XCHG32mr:
                     return true;
                 default:
                     return false;
@@ -1572,6 +1821,232 @@ export namespace dcc::backend::x86
                 return "REPMOVS"sv;
             case MOpc::REPSTOS:
                 return "REPSTOS"sv;
+            case MOpc::ADD16rr:
+                return "ADD16rr"sv;
+            case MOpc::ADD16ri:
+                return "ADD16ri"sv;
+            case MOpc::ADD16rm:
+                return "ADD16rm"sv;
+            case MOpc::SUB16rr:
+                return "SUB16rr"sv;
+            case MOpc::SUB16ri:
+                return "SUB16ri"sv;
+            case MOpc::SUB16rm:
+                return "SUB16rm"sv;
+            case MOpc::AND16rr:
+                return "AND16rr"sv;
+            case MOpc::AND16ri:
+                return "AND16ri"sv;
+            case MOpc::AND16rm:
+                return "AND16rm"sv;
+            case MOpc::OR16rr:
+                return "OR16rr"sv;
+            case MOpc::OR16ri:
+                return "OR16ri"sv;
+            case MOpc::OR16rm:
+                return "OR16rm"sv;
+            case MOpc::XOR16rr:
+                return "XOR16rr"sv;
+            case MOpc::XOR16ri:
+                return "XOR16ri"sv;
+            case MOpc::XOR16rm:
+                return "XOR16rm"sv;
+            case MOpc::CMP16rr:
+                return "CMP16rr"sv;
+            case MOpc::CMP16ri:
+                return "CMP16ri"sv;
+            case MOpc::CMP16rm:
+                return "CMP16rm"sv;
+            case MOpc::ADC16rr:
+                return "ADC16rr"sv;
+            case MOpc::ADC16ri:
+                return "ADC16ri"sv;
+            case MOpc::SBB16rr:
+                return "SBB16rr"sv;
+            case MOpc::SBB16ri:
+                return "SBB16ri"sv;
+            case MOpc::ADC32rr:
+                return "ADC32rr"sv;
+            case MOpc::ADC32ri:
+                return "ADC32ri"sv;
+            case MOpc::SBB32rr:
+                return "SBB32rr"sv;
+            case MOpc::SBB32ri:
+                return "SBB32ri"sv;
+            case MOpc::AND32rm:
+                return "AND32rm"sv;
+            case MOpc::OR32rm:
+                return "OR32rm"sv;
+            case MOpc::XOR32rm:
+                return "XOR32rm"sv;
+            case MOpc::ADD8rr:
+                return "ADD8rr"sv;
+            case MOpc::ADD8ri:
+                return "ADD8ri"sv;
+            case MOpc::SUB8rr:
+                return "SUB8rr"sv;
+            case MOpc::SUB8ri:
+                return "SUB8ri"sv;
+            case MOpc::AND8rr:
+                return "AND8rr"sv;
+            case MOpc::AND8ri:
+                return "AND8ri"sv;
+            case MOpc::OR8rr:
+                return "OR8rr"sv;
+            case MOpc::OR8ri:
+                return "OR8ri"sv;
+            case MOpc::XOR8rr:
+                return "XOR8rr"sv;
+            case MOpc::XOR8ri:
+                return "XOR8ri"sv;
+            case MOpc::CMP8rm:
+                return "CMP8rm"sv;
+            case MOpc::TEST16rr:
+                return "TEST16rr"sv;
+            case MOpc::TEST16ri:
+                return "TEST16ri"sv;
+            case MOpc::TEST32ri:
+                return "TEST32ri"sv;
+            case MOpc::TEST8ri:
+                return "TEST8ri"sv;
+            case MOpc::NEG16r:
+                return "NEG16r"sv;
+            case MOpc::NOT16r:
+                return "NOT16r"sv;
+            case MOpc::NEG8r:
+                return "NEG8r"sv;
+            case MOpc::NOT8r:
+                return "NOT8r"sv;
+            case MOpc::INC16r:
+                return "INC16r"sv;
+            case MOpc::DEC16r:
+                return "DEC16r"sv;
+            case MOpc::INC32r:
+                return "INC32r"sv;
+            case MOpc::DEC32r:
+                return "DEC32r"sv;
+            case MOpc::MUL16r:
+                return "MUL16r"sv;
+            case MOpc::MUL32r:
+                return "MUL32r"sv;
+            case MOpc::DIV16r:
+                return "DIV16r"sv;
+            case MOpc::IDIV16r:
+                return "IDIV16r"sv;
+            case MOpc::IMUL16rr:
+                return "IMUL16rr"sv;
+            case MOpc::IMUL16rri:
+                return "IMUL16rri"sv;
+            case MOpc::SHL16rCL:
+                return "SHL16rCL"sv;
+            case MOpc::SHR16rCL:
+                return "SHR16rCL"sv;
+            case MOpc::SAR16rCL:
+                return "SAR16rCL"sv;
+            case MOpc::SHL16ri8:
+                return "SHL16ri8"sv;
+            case MOpc::SHR16ri8:
+                return "SHR16ri8"sv;
+            case MOpc::SAR16ri8:
+                return "SAR16ri8"sv;
+            case MOpc::SHLD32rrCL:
+                return "SHLD32rrCL"sv;
+            case MOpc::SHRD32rrCL:
+                return "SHRD32rrCL"sv;
+            case MOpc::SHLD32rri8:
+                return "SHLD32rri8"sv;
+            case MOpc::SHRD32rri8:
+                return "SHRD32rri8"sv;
+            case MOpc::MOVZX16_8rr:
+                return "MOVZX16_8rr"sv;
+            case MOpc::MOVSX16_8rr:
+                return "MOVSX16_8rr"sv;
+            case MOpc::MOVZX16rm8:
+                return "MOVZX16rm8"sv;
+            case MOpc::MOVSX16rm8:
+                return "MOVSX16rm8"sv;
+            case MOpc::MOVZX32rm16:
+                return "MOVZX32rm16"sv;
+            case MOpc::MOVSX32rm16:
+                return "MOVSX32rm16"sv;
+            case MOpc::MOVSX32rm8:
+                return "MOVSX32rm8"sv;
+            case MOpc::CBW:
+                return "CBW"sv;
+            case MOpc::CWD:
+                return "CWD"sv;
+            case MOpc::CWDE:
+                return "CWDE"sv;
+            case MOpc::LEA16rm:
+                return "LEA16rm"sv;
+            case MOpc::LEA32rm:
+                return "LEA32rm"sv;
+            case MOpc::PUSH16r:
+                return "PUSH16r"sv;
+            case MOpc::POP16r:
+                return "POP16r"sv;
+            case MOpc::PUSH32r:
+                return "PUSH32r"sv;
+            case MOpc::POP32r:
+                return "POP32r"sv;
+            case MOpc::PUSH16i:
+                return "PUSH16i"sv;
+            case MOpc::PUSHSEG:
+                return "PUSHSEG"sv;
+            case MOpc::POPSEG:
+                return "POPSEG"sv;
+            case MOpc::PUSHF16:
+                return "PUSHF16"sv;
+            case MOpc::POPF16:
+                return "POPF16"sv;
+            case MOpc::CLI:
+                return "CLI"sv;
+            case MOpc::STI:
+                return "STI"sv;
+            case MOpc::MOV16sr:
+                return "MOV16sr"sv;
+            case MOpc::MOV16rs:
+                return "MOV16rs"sv;
+            case MOpc::MOV16sm:
+                return "MOV16sm"sv;
+            case MOpc::MOV16ms:
+                return "MOV16ms"sv;
+            case MOpc::LES16rm:
+                return "LES16rm"sv;
+            case MOpc::LES32rm:
+                return "LES32rm"sv;
+            case MOpc::LFS16rm:
+                return "LFS16rm"sv;
+            case MOpc::LFS32rm:
+                return "LFS32rm"sv;
+            case MOpc::LGS16rm:
+                return "LGS16rm"sv;
+            case MOpc::LGS32rm:
+                return "LGS32rm"sv;
+            case MOpc::CALL_rel16:
+                return "CALL_rel16"sv;
+            case MOpc::JMP16r:
+                return "JMP16r"sv;
+            case MOpc::JMP16m:
+                return "JMP16m"sv;
+            case MOpc::REPMOVSW:
+                return "REPMOVSW"sv;
+            case MOpc::REPSTOSW:
+                return "REPSTOSW"sv;
+            case MOpc::REPMOVS_A32:
+                return "REPMOVS_A32"sv;
+            case MOpc::REPSTOS_A32:
+                return "REPSTOS_A32"sv;
+            case MOpc::REPMOVSW_A32:
+                return "REPMOVSW_A32"sv;
+            case MOpc::REPSTOSW_A32:
+                return "REPSTOSW_A32"sv;
+            case MOpc::XCHG8mr:
+                return "XCHG8mr"sv;
+            case MOpc::XCHG16mr:
+                return "XCHG16mr"sv;
+            case MOpc::XCHG32mr:
+                return "XCHG32mr"sv;
         }
         return "?OPC?"sv;
     }

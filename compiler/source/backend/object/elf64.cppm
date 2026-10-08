@@ -167,6 +167,11 @@ namespace dcc::backend::object
                     return arch.reloc_plt32;
                 case Reloc::Kind::Abs64:
                     return arch.reloc_abs;
+                case Reloc::Kind::Abs16:
+                case Reloc::Kind::Abs32:
+                case Reloc::Kind::Rel16:
+                    std::println(std::cerr, "elf64 objwriter: 16/32-bit x86 relocation in a 64-bit object; refusing to emit malformed object");
+                    std::abort();
             }
             return arch.reloc_abs;
         }
