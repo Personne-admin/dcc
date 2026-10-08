@@ -84,6 +84,56 @@ TEST_CASE("segment-overridden memory operands encode absolute and register forms
     CHECK(*stored == (std::vector<std::uint8_t>{0x64, 0x48, 0x89, 0x01}));
 }
 
+TEST_CASE("instruction prefixes come from operand width and memory address size")
+{
+    using namespace dcc::backend::x86;
+    CHECK_EQ(operand_bits(MOpc::MOV8rr), 8u);
+    CHECK_EQ(operand_bits(MOpc::MOV16rm), 16u);
+    CHECK_EQ(operand_bits(MOpc::LOCK_XOR16mr), 16u);
+    CHECK_EQ(operand_bits(MOpc::MOV32rr), 32u);
+    CHECK_EQ(operand_bits(MOpc::MOVZX32_16rr), 32u);
+    CHECK_EQ(operand_bits(MOpc::CDQ), 32u);
+    CHECK_EQ(operand_bits(MOpc::MOV64rm), 64u);
+    CHECK_EQ(operand_bits(MOpc::REPSTOS), 8u);
+    CHECK_EQ(operand_bits(MOpc::MOVQ64rr), 0u);
+    CHECK_EQ(operand_bits(MOpc::RET), 0u);
+
+    auto encode = [](MOpc opc, MOp dst, MOp src) {
+        MInstr instr;
+        instr.opc = opc;
+        instr.num_ops = 2;
+        instr.ops[0] = dst;
+        instr.ops[1] = src;
+        return encode_single_instruction(instr, EncodeMode::Long64);
+    };
+    auto reg = [](PhysReg r) { return MOp::from_reg(VReg::phys(r)); };
+    auto mem32 = [](PhysReg base, std::int32_t disp) {
+        auto mem = MMem::make_base_disp(VReg::phys(base), disp);
+        mem.address_bits = 32;
+        return mem;
+    };
+
+    auto segmented16 =
+        encode(MOpc::MOV16rm, reg(PhysReg::RAX), MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::RCX)).with_segment(SegmentOverride::FS)));
+    REQUIRE(segmented16.has_value());
+    CHECK(*segmented16 == (std::vector<std::uint8_t>{0x64, 0x66, 0x8b, 0x01}));
+
+    auto address32 = encode(MOpc::MOV32rm, reg(PhysReg::RAX), MOp::from_mem(mem32(PhysReg::RCX, 0)));
+    REQUIRE(address32.has_value());
+    CHECK(*address32 == (std::vector<std::uint8_t>{0x67, 0x40, 0x8b, 0x01}));
+
+    auto all_prefixes = encode(MOpc::MOV16rm, reg(PhysReg::RAX), MOp::from_mem(mem32(PhysReg::RCX, 4).with_segment(SegmentOverride::GS)));
+    REQUIRE(all_prefixes.has_value());
+    CHECK(*all_prefixes == (std::vector<std::uint8_t>{0x65, 0x66, 0x67, 0x8b, 0x41, 0x04}));
+
+    auto locked16 = encode(MOpc::LOCK_CMPXCHG16mr, MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::RCX))), reg(PhysReg::RDX));
+    REQUIRE(locked16.has_value());
+    CHECK(*locked16 == (std::vector<std::uint8_t>{0x66, 0xf0, 0x0f, 0xb1, 0x11}));
+
+    CHECK(!encode(MOpc::MOV16rm, reg(PhysReg::RAX), reg(PhysReg::RCX)).has_value());
+    CHECK(!encode(MOpc::MOV16mr, reg(PhysReg::RAX), reg(PhysReg::RCX)).has_value());
+}
+
 TEST_CASE("instruction encoding requires an implemented x86 mode")
 {
     using namespace dcc::backend::x86;
