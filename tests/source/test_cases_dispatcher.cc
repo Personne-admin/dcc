@@ -1701,6 +1701,9 @@ namespace
                 }
             }
         }
+        if (std::getenv("DCC_BYTE_CAPTURE_ONLY"))
+            return ok;
+
         if (fx.expected_error_count && emitted_error_count != *fx.expected_error_count)
         {
             ok = false;
@@ -3897,6 +3900,49 @@ int main()
         std::println(std::cerr, "    FAIL  no .dcc-test files");
         return 1;
     }
+
+#ifndef _WIN32
+    if (std::getenv("DCC_BYTE_CAPTURE_ONLY"))
+    {
+        std::size_t jobs = std::max(1u, std::thread::hardware_concurrency());
+        if (auto* requested = std::getenv("DCC_BYTE_JOBS"))
+            jobs = std::max<std::size_t>(1, std::strtoul(requested, nullptr, 10));
+        std::vector<pid_t> workers;
+        for (std::size_t worker = 0; worker < jobs; ++worker)
+        {
+            std::cout.flush();
+            std::cerr.flush();
+            pid_t pid = fork();
+            if (pid == 0)
+            {
+                int failures = 0;
+                for (std::size_t index = worker; index < files.size(); index += jobs)
+                {
+                    Stats local;
+                    if (!run_fixture_isolated(files[index], local))
+                        ++failures;
+                }
+                std::cout.flush();
+                std::cerr.flush();
+                _exit(failures ? 1 : 0);
+            }
+            if (pid > 0)
+                workers.push_back(pid);
+        }
+        std::size_t failed_workers = jobs - workers.size();
+        for (auto pid : workers)
+        {
+            int status = 0;
+            while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+            {
+            }
+            if (!WIFEXITED(status) || WEXITSTATUS(status) != 0)
+                ++failed_workers;
+        }
+        std::println("  RESULT  captured {} fixtures with {} workers", files.size(), jobs);
+        return failed_workers ? 1 : 0;
+    }
+#endif
 
     for (auto const& f : files)
     {

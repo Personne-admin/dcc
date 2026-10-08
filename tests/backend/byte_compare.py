@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import importlib.util
 import json
@@ -48,7 +49,13 @@ def compiler(tree, args, artifact, log):
         artifact.unlink(missing_ok=True)
 
 
-def capture_abi(tree, output, log):
+def run_tasks(tree, tasks, log, jobs):
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        for future in [pool.submit(compiler, tree, args, artifact, log) for args, artifact in tasks]:
+            future.result()
+
+
+def capture_abi(tree, output, log, jobs):
     spec = importlib.util.spec_from_file_location("cross_backend", tree / "tests/abi/cross_backend.py")
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
@@ -58,6 +65,7 @@ def capture_abi(tree, output, log):
     source.mkdir()
     (source / "abi_caller.dc").write_text(module.gen_dc_caller(cases))
     (source / "abi_callee.dc").write_text(module.gen_dc_callee(cases))
+    tasks = []
     for target in ("x86_64-elf", "x86_64-coff"):
         for opt in ("O0", "O2"):
             for side in ("caller", "callee"):
@@ -65,12 +73,14 @@ def capture_abi(tree, output, log):
                 for kind, flag, suffix in (("object", "-c", ".o"), ("asm", "-S", ".s")):
                     artifact = output / "abi" / kind / (stem + suffix)
                     artifact.parent.mkdir(parents=True, exist_ok=True)
-                    compiler(tree, ["-target", target, "-fbackend", "custom", "-" + opt, "-I", str(source), "-ffile-prefix-map=" + str(source) + "=dcc-abi", flag, "-o", str(artifact), str(source / ("abi_%s.dc" % side))], artifact, log)
+                    tasks.append((["-target", target, "-fbackend", "custom", "-" + opt, "-I", str(source), "-ffile-prefix-map=" + str(source) + "=dcc-abi", flag, "-o", str(artifact), str(source / ("abi_%s.dc" % side))], artifact))
+    run_tasks(tree, tasks, log, jobs)
     shutil.rmtree(source)
 
 
-def capture_libdcext(tree, output, log):
+def capture_libdcext(tree, output, log, jobs):
     sources = sorted((tree / "libdcext/std").rglob("*.dc")) + [tree / "libdcext/assert.dc"]
+    tasks = []
     for target, os_name in (("x86_64-elf", "linux"), ("x86_64-coff", "windows")):
         for opt in ("O0", "O2"):
             for source in sources:
@@ -78,7 +88,8 @@ def capture_libdcext(tree, output, log):
                 for kind, flag, suffix in (("object", "-c", ".o"), ("asm", "-S", ".s")):
                     artifact = output / "libdcext" / target / opt / kind / (str(relative) + suffix)
                     artifact.parent.mkdir(parents=True, exist_ok=True)
-                    compiler(tree, ["-flibdcext", os_name, "-target", target, "-fbackend", "custom", "-" + opt, "-I", str(tree / "libdcext"), flag, "-o", str(artifact), str(source)], artifact, log)
+                    tasks.append((["-flibdcext", os_name, "-target", target, "-fbackend", "custom", "-" + opt, "-I", str(tree / "libdcext"), flag, "-o", str(artifact), str(source)], artifact))
+    run_tasks(tree, tasks, log, jobs)
 
 
 def make_manifest(output, revision):
@@ -92,15 +103,18 @@ def make_manifest(output, revision):
     return manifest
 
 
-def capture(tree, output):
+def capture(tree, output, jobs):
     if output.exists():
         raise RuntimeError("capture directory already exists: %s" % output)
     output.mkdir(parents=True)
     log = output / "capture.log"
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=tree, text=True).strip()
-    run(["make", "-j4", "test", "DCC_WRAPPER=timeout 60"], tree, {"DCC_BYTE_CAPTURE_ROOT": str(output), "DCC_BYTE_SOURCE_ROOT": str(tree)}, log)
-    capture_libdcext(tree, output, log)
-    capture_abi(tree, output, log)
+    run(["make", "-j%d" % jobs, "all", "DCC_WRAPPER=timeout 60"], tree, log=log)
+    dispatcher = tree / "build/bin/tests/test_cases_dispatcher"
+    run(["make", "-j%d" % jobs, "byte-capture-dispatcher", "DCC_WRAPPER=timeout 60"], tree, log=log)
+    run([dispatcher], tree / "tests", {"DCC_BYTE_CAPTURE_ROOT": str(output), "DCC_BYTE_CAPTURE_ONLY": "1", "DCC_BYTE_JOBS": str(jobs), "DCC_BYTE_SOURCE_ROOT": str(tree), "DCC_TEST_LIBDCEXT_SRC": str(tree / "libdcext"), "DCC_TEST_LIBDCEXT_A": str(tree / "build/lib/libdcext-linux-custom.a")}, log)
+    capture_libdcext(tree, output, log, jobs)
+    capture_abi(tree, output, log, jobs)
     manifest = make_manifest(output, revision)
     files = manifest["files"]
     counts = {name: sum(path.startswith(name + "/") for path in files) for name in ("fixtures", "libdcext", "abi")}
@@ -125,16 +139,18 @@ def main():
     compare_parser = commands.add_parser("compare")
     compare_parser.add_argument("--tree", type=Path, required=True)
     compare_parser.add_argument("--baseline", type=Path, required=True)
+    for sub in (capture_parser, compare_parser):
+        sub.add_argument("--jobs", type=int, default=os.cpu_count() or 1)
     args = parser.parse_args()
     try:
         tree = args.tree.resolve()
         if args.command == "capture":
-            capture(tree, args.out.resolve())
+            capture(tree, args.out.resolve(), args.jobs)
         else:
             baseline = args.baseline.resolve()
             with tempfile.TemporaryDirectory(prefix="dcc-byte-compare-", dir=baseline.parent) as temporary:
                 candidate = Path(temporary) / "capture"
-                capture(tree, candidate)
+                capture(tree, candidate, args.jobs)
                 compare(baseline, candidate)
     except RuntimeError as error:
         print(error, file=sys.stderr)

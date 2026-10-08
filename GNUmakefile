@@ -103,6 +103,10 @@ test: compiler driver libdcext dccd dcdoc
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=custom
 	@$(MAKE) -C tests
 
+.PHONY: byte-capture-dispatcher
+byte-capture-dispatcher: compiler driver
+	@$(MAKE) -C tests $(BUILD_DIR)/bin/tests/test_cases_dispatcher
+
 .PHONY: test-linux test-win
 test-linux: compiler driver dccd
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=llvm
