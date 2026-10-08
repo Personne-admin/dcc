@@ -468,12 +468,15 @@ export namespace dcc::types
             {
                 m_pointer_bits = target->pointer_bits;
                 m_pointer_align = target->pointer_align;
+                m_far_offset_bits = target->far_offset_bits();
+                m_i386_segments = target->has_i386_segments();
                 m_arch = target->arch;
                 m_target_triple = target->triple;
             }
         }
 
         [[nodiscard]] std::uint8_t pointer_bits() const noexcept { return m_pointer_bits; }
+        [[nodiscard]] std::uint8_t far_offset_bits() const noexcept { return m_far_offset_bits; }
         [[nodiscard]] std::uint8_t pointer_align() const noexcept { return m_pointer_align; }
         [[nodiscard]] target::Arch arch() const noexcept { return m_arch; }
         [[nodiscard]] std::string_view target_triple() const noexcept { return m_target_triple; }
@@ -580,6 +583,11 @@ export namespace dcc::types
 
             std::uint8_t bits = m_pointer_bits;
             std::uint8_t align = m_pointer_align;
+            if (flavor == PointerFlavor::Based)
+            {
+                bits = m_far_offset_bits;
+                align = bits / 8;
+            }
             if (flavor == PointerFlavor::Far)
                 far_layout(bits, align);
 
@@ -595,12 +603,12 @@ export namespace dcc::types
 
         void far_layout(std::uint8_t& bits, std::uint8_t& align) const noexcept
         {
-            if (m_pointer_bits <= 16)
+            if (m_far_offset_bits <= 16)
             {
                 bits = 32;
                 align = 2;
             }
-            else if (m_pointer_bits <= 32)
+            else if (m_far_offset_bits <= 32)
             {
                 bits = 64;
                 align = 4;
@@ -617,7 +625,7 @@ export namespace dcc::types
             return arch == target::Arch::I8086 || arch == target::Arch::X86;
         }
 
-        [[nodiscard]] static bool based_register_allowed(target::Arch arch, SegReg seg) noexcept
+        [[nodiscard]] static bool based_register_allowed(target::Arch arch, SegReg seg, bool i386_segments = true) noexcept
         {
             if (seg == SegReg::None)
                 return false;
@@ -626,7 +634,7 @@ export namespace dcc::types
                 case target::Arch::X86_64:
                     return seg == SegReg::FS || seg == SegReg::GS;
                 case target::Arch::I8086:
-                    return seg == SegReg::CS || seg == SegReg::DS || seg == SegReg::ES || seg == SegReg::SS;
+                    return i386_segments || seg == SegReg::CS || seg == SegReg::DS || seg == SegReg::ES || seg == SegReg::SS;
                 case target::Arch::X86:
                     return true;
             }
@@ -660,7 +668,7 @@ export namespace dcc::types
                     return std::nullopt;
                 return std::format("dynamic far {} are not available on target '{}'", noun, m_target_triple);
             }
-            if (based_register_allowed(m_arch, seg))
+            if (based_register_allowed(m_arch, seg, m_i386_segments))
                 return std::nullopt;
             if (m_arch == target::Arch::X86_64)
                 return std::format("segment register '{}' is not available on target '{}'; x86-64 based {} allow only FS and GS", seg_reg_name(seg),
@@ -721,6 +729,11 @@ export namespace dcc::types
 
             std::uint8_t bits = m_pointer_bits;
             std::uint8_t align = m_pointer_align;
+            if (flavor == PointerFlavor::Based)
+            {
+                bits = m_far_offset_bits;
+                align = bits / 8;
+            }
             if (flavor == PointerFlavor::Far)
                 far_layout(bits, align);
 
@@ -913,6 +926,8 @@ export namespace dcc::types
         NullTType const* m_null{};
         ErrorType const* m_error{};
 
+        std::uint8_t m_far_offset_bits{64};
+        bool m_i386_segments{true};
         std::uint8_t m_pointer_bits{64};
         std::uint8_t m_pointer_align{8};
         target::Arch m_arch{target::Arch::X86_64};

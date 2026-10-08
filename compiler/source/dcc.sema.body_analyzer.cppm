@@ -12272,7 +12272,7 @@ export namespace dcc::sema
             if (e.segment && e.segment->kind == ast::ExprKind::Ident)
                 reg = types::TypeContext::seg_reg_from_name(static_cast<ast::IdentExpr const*>(e.segment)->name);
 
-            std::uint8_t const offset_bits = m_types.pointer_bits();
+            std::uint8_t const offset_bits = m_types.far_offset_bits();
             std::uint64_t const offset_max = offset_bits >= 64 ? ~std::uint64_t{} : ((std::uint64_t{1} << offset_bits) - 1);
             bool operand_failed = false;
             auto check_operand = [&](ast::Expr* operand, std::uint8_t max_bits, std::uint64_t max_value,

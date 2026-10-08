@@ -37,6 +37,8 @@ export namespace dcc::target
         Kernel,
         Medium,
         Large,
+        Unreal,
+        Unreal32,
     };
 
     struct Layout
@@ -78,6 +80,10 @@ export namespace dcc::target
                 return CodeModel::Medium;
             if (s == "large")
                 return CodeModel::Large;
+            if (s == "unreal")
+                return CodeModel::Unreal;
+            if (s == "unreal32")
+                return CodeModel::Unreal32;
             return std::nullopt;
         }
 
@@ -94,6 +100,55 @@ export namespace dcc::target
                     return true;
 
             return false;
+        }
+
+        [[nodiscard]] static std::string_view code_model_name(CodeModel model) noexcept
+        {
+            switch (model)
+            {
+                case CodeModel::Default: return "default";
+                case CodeModel::Small: return "small";
+                case CodeModel::Kernel: return "kernel";
+                case CodeModel::Medium: return "medium";
+                case CodeModel::Large: return "large";
+                case CodeModel::Unreal: return "unreal";
+                case CodeModel::Unreal32: return "unreal32";
+            }
+            return "default";
+        }
+
+        [[nodiscard]] bool has_i386_segments() const noexcept { return arch != Arch::I8086 || (cpu != "8086" && cpu != "i186" && cpu != "i286"); }
+
+        [[nodiscard]] std::uint8_t far_offset_bits() const noexcept
+        {
+            return arch == Arch::I8086 && (code_model == CodeModel::Unreal || code_model == CodeModel::Unreal32) ? 32 : pointer_bits;
+        }
+
+        [[nodiscard]] std::optional<std::string> configure(CodeModel model, std::string_view instruction_set)
+        {
+            code_model = model;
+            cpu = instruction_set;
+            if (arch == Arch::I8086)
+            {
+                if (model != CodeModel::Default && model != CodeModel::Small && model != CodeModel::Unreal && model != CodeModel::Unreal32)
+                    return std::format("-mcmodel={} is not supported for target '{}'", code_model_name(model), triple);
+                if (cpu.empty())
+                    cpu = "i386";
+                if (!is_x86_cpu_allowed(cpu) && cpu != "8086" && cpu != "i186" && cpu != "i286")
+                    return std::format("unknown CPU '{}' for target arch", cpu);
+                if ((model == CodeModel::Unreal || model == CodeModel::Unreal32) && !has_i386_segments())
+                    return std::format("-mcmodel={} requires -farch i386 or newer; got -farch {}", model == CodeModel::Unreal ? "unreal" : "unreal32", cpu);
+                pointer_bits = model == CodeModel::Unreal32 ? 32 : 16;
+                pointer_align = pointer_bits / 8;
+            }
+            else
+            {
+                if (model == CodeModel::Unreal || model == CodeModel::Unreal32)
+                    return std::format("-mcmodel={} is not supported for target '{}'", model == CodeModel::Unreal ? "unreal" : "unreal32", triple);
+                if (!cpu.empty() && !is_x86_cpu_allowed(cpu))
+                    return std::format("unknown CPU '{}' for target arch", cpu);
+            }
+            return std::nullopt;
         }
 
         [[nodiscard]] static bool cpu_is_pre_i686(std::string_view cpu)

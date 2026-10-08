@@ -338,12 +338,20 @@ public enum Arch {{
     I8086,
 }}
 
+public enum CodeModel {{
+    Default, Small, Kernel, Medium, Large, Unreal, Unreal32,
+}}
+
+public const CodeModel CODE_MODEL = CodeModel::{};
 public const Os OS = Os::{};
 public const Arch ARCH = Arch::{};
 public const bool IS_64_BIT = {};
 public const bool FLOAT_AVAILABLE = {};
 
 )dc",
+                           target.code_model == dcc::target::CodeModel::Unreal ? "Unreal" : target.code_model == dcc::target::CodeModel::Unreal32 ? "Unreal32" :
+                           target.code_model == dcc::target::CodeModel::Small ? "Small" : target.code_model == dcc::target::CodeModel::Kernel ? "Kernel" :
+                           target.code_model == dcc::target::CodeModel::Medium ? "Medium" : target.code_model == dcc::target::CodeModel::Large ? "Large" : "Default",
                            os, arch, target.pointer_bits == 64, float_available);
     }
 
@@ -370,7 +378,7 @@ public const bool FLOAT_AVAILABLE = {};
         };
         for (auto reg : regs)
         {
-            if (!dcc::types::TypeContext::based_register_allowed(target.arch, reg))
+            if (!dcc::types::TypeContext::based_register_allowed(target.arch, reg, target.has_i386_segments()))
                 continue;
             auto name = dcc::types::TypeContext::seg_reg_name(reg);
             out += std::format("@intrinsic\npublic usize offset(T)(T^{0} ptr);\n\n", name);
@@ -383,6 +391,13 @@ public const bool FLOAT_AVAILABLE = {};
             out += std::format("public [^{0}] const T from_raw_const(T)(const T^{0} ptr, usize len) {{\n    [^{0}] const T slice;\n    slice.ptr = ptr;\n    "
                                "slice.len = len;\n    return slice;\n}}\n\n",
                                name);
+        }
+        if (target.far_offset_bits() != target.pointer_bits)
+        {
+            for (std::size_t pos = 0; (pos = out.find("usize offset", pos)) != std::string::npos;)
+                out.replace(pos, 5, "u32");
+            for (std::size_t pos = 0; (pos = out.find("usize off", pos)) != std::string::npos;)
+                out.replace(pos, 5, "u32");
         }
         return out;
     }

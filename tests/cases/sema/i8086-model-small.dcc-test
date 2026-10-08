@@ -1,0 +1,60 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small -farch=i386 ===
+=== FILE: main.dc ===
+module m;
+struct Layout {
+    u8 lead;
+    u8* near;
+    u8^DS based;
+    u8^ far;
+    []u8 ns;
+    [^DS]u8 bs;
+    [^]u8 fs;
+}
+void sizes() {
+    sizeof(u8*);
+    alignof(u8*);
+    sizeof(usize);
+    sizeof(isize);
+    sizeof(u8^DS);
+    alignof(u8^DS);
+    sizeof(u8^);
+    alignof(u8^);
+    sizeof([]u8);
+    alignof([]u8);
+    sizeof([^DS]u8);
+    alignof([^DS]u8);
+    sizeof([^]u8);
+    alignof([^]u8);
+    sizeof(i32(^)(i32));
+    offsetof(Layout, near);
+    offsetof(Layout, based);
+    offsetof(Layout, far);
+    offsetof(Layout, ns);
+    offsetof(Layout, bs);
+    offsetof(Layout, fs);
+}
+=== EXPECT-BODY ===
+Module m
+  Func sizes diverging=false
+    Body
+      Sizeof [type=usize const=2 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=2 constant]
+      Sizeof [type=usize const=2 constant]
+      Sizeof [type=usize const=2 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=4 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=4 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=4 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=6 constant]
+      Alignof [type=usize const=2 constant]
+      Sizeof [type=usize const=4 constant]
+      Offsetof [type=usize const=2 constant]
+      Offsetof [type=usize const=4 constant]
+      Offsetof [type=usize const=6 constant]
+      Offsetof [type=usize const=10 constant]
+      Offsetof [type=usize const=14 constant]
+      Offsetof [type=usize const=18 constant]
