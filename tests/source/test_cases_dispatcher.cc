@@ -561,6 +561,8 @@ namespace
                     auto flags_str = trim(std::string_view{h}.substr(flags_start + 6));
                     if (flags_str.find("-O1") != std::string::npos)
                         e.opt_level = 1;
+                    else if (flags_str.find("-O2") != std::string::npos)
+                        e.opt_level = 2;
                 }
 
                 if (!sec.body.empty())

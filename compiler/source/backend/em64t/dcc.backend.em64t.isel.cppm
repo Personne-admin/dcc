@@ -104,7 +104,7 @@ namespace dcc::backend::em64t
 
                 if (auto* ic = dcc::ir::ir_cast<dcc::ir::IrIntConstant>(ir_val))
                 {
-                    unsigned const cbits = ir_val->type ? static_cast<dcc::ir::IrIntType const*>(ir_val->type)->bits : 64;
+                    unsigned const cbits = ir_val->type && ir_val->type->kind == dcc::ir::IrTypeKind::Int ? static_cast<dcc::ir::IrIntType const*>(ir_val->type)->bits : 64;
                     std::int64_t cval = ic->value;
                     if (cbits == 8)
                         cval &= 0xFF;
@@ -122,6 +122,11 @@ namespace dcc::backend::em64t
                 else if (dcc::ir::ir_cast<dcc::ir::IrNullConstant>(ir_val))
                 {
                     auto mi = make_mov_ri(v, 0, 64);
+                    append_instr(mi);
+                }
+                else if (auto* pc = dcc::ir::ir_cast<dcc::ir::IrPointerConstant>(ir_val))
+                {
+                    auto mi = make_mov_ri(v, static_cast<std::int64_t>(pc->offset), 64);
                     append_instr(mi);
                 }
                 else if (dcc::ir::ir_cast<dcc::ir::IrFloatConstant>(ir_val))
@@ -297,7 +302,8 @@ namespace dcc::backend::em64t
                 {
                     dcc::ir::IrNodeKind const k = it->first->kind;
                     if (k == dcc::ir::IrNodeKind::IntConstant || k == dcc::ir::IrNodeKind::FloatConstant || k == dcc::ir::IrNodeKind::BoolConstant ||
-                        k == dcc::ir::IrNodeKind::NullConstant || k == dcc::ir::IrNodeKind::StringConstant || k == dcc::ir::IrNodeKind::GlobalRef)
+                        k == dcc::ir::IrNodeKind::NullConstant || k == dcc::ir::IrNodeKind::PointerConstant || k == dcc::ir::IrNodeKind::StringConstant ||
+                        k == dcc::ir::IrNodeKind::GlobalRef)
                         it = value_map.erase(it);
                     else
                         ++it;
@@ -479,6 +485,7 @@ namespace dcc::backend::em64t
                             continue;
                         Match match;
                         match.mem.disp = op.mem.disp;
+                        match.mem.segment = op.mem.segment;
                         if (match_reg(match_reg, match, op.mem.base, 1, 0) && match_reg(match_reg, match, op.mem.index, op.mem.scale, 0) &&
                             (match.mem.base.is_valid() || match.mem.index.is_valid()))
                         {
@@ -696,14 +703,66 @@ namespace dcc::backend::em64t
             ctx.append_instr(mi);
         }
 
-        [[nodiscard]] VReg emit_load(IselCtx& ctx, dcc::ir::IrType const* load_type, VReg addr)
+        [[nodiscard]] SegmentOverride based_segment_of_type(dcc::ir::IrType const* type) noexcept
+        {
+            if (!type || type->kind != dcc::ir::IrTypeKind::Pointer)
+                return SegmentOverride::None;
+            auto const* pointer = static_cast<dcc::ir::IrPointerType const*>(type);
+            if (pointer->flavor != dcc::ir::PointerFlavor::Based)
+                return SegmentOverride::None;
+            switch (pointer->seg)
+            {
+                case dcc::ir::Segment::Fs:
+                    return SegmentOverride::FS;
+                case dcc::ir::Segment::Gs:
+                    return SegmentOverride::GS;
+                default:
+                    return SegmentOverride::None;
+            }
+        }
+
+        [[nodiscard]] SegmentOverride based_segment_of(dcc::ir::IrValue const* pointer) noexcept
+        {
+            return pointer ? based_segment_of_type(pointer->type) : SegmentOverride::None;
+        }
+
+        [[nodiscard]] std::optional<MMem> absolute_based_mem(dcc::ir::IrValue const* pointer) noexcept
+        {
+            auto segment = based_segment_of(pointer);
+            if (!pointer || segment == SegmentOverride::None)
+                return std::nullopt;
+            std::int64_t value = 0;
+            if (pointer->kind == dcc::ir::IrNodeKind::IntConstant)
+                value = static_cast<dcc::ir::IrIntConstant const*>(pointer)->value;
+            else if (pointer->kind == dcc::ir::IrNodeKind::PointerConstant)
+            {
+                auto const* constant = static_cast<dcc::ir::IrPointerConstant const*>(pointer);
+                if (constant->offset > static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max()))
+                    return std::nullopt;
+                value = static_cast<std::int64_t>(constant->offset);
+            }
+            else if (pointer->kind == dcc::ir::IrNodeKind::MakePointer)
+            {
+                auto const* make = static_cast<dcc::ir::IrMakePointerInst const*>(pointer);
+                if (make->segment || !make->offset || make->offset->kind != dcc::ir::IrNodeKind::IntConstant)
+                    return std::nullopt;
+                value = static_cast<dcc::ir::IrIntConstant const*>(make->offset)->value;
+            }
+            else
+                return std::nullopt;
+            if (value < 0 || value > std::numeric_limits<std::int32_t>::max())
+                return std::nullopt;
+            return MMem::make_segment_absolute(segment, static_cast<std::int32_t>(value));
+        }
+
+        [[nodiscard]] VReg emit_load_mem(IselCtx& ctx, dcc::ir::IrType const* load_type, MMem mem)
         {
             VReg dst = ctx.mfunc.new_vreg();
             MInstr mi;
             mi.num_ops = 2;
             mi.num_defs = 1;
             mi.ops[0] = MOp::from_reg(dst);
-            mi.ops[1] = MOp::from_mem(MMem::make_base_disp(addr));
+            mi.ops[1] = MOp::from_mem(mem);
 
             if (ctx.is_float_type(load_type))
             {
@@ -727,6 +786,11 @@ namespace dcc::backend::em64t
 
             ctx.append_instr(mi);
             return dst;
+        }
+
+        [[nodiscard]] VReg emit_load(IselCtx& ctx, dcc::ir::IrType const* load_type, VReg addr, SegmentOverride segment = SegmentOverride::None)
+        {
+            return emit_load_mem(ctx, load_type, MMem::make_base_disp(addr).with_segment(segment));
         }
 
         [[nodiscard]] bool is_memory_type(dcc::ir::IrType const* t) noexcept
@@ -843,9 +907,10 @@ namespace dcc::backend::em64t
             }
         }
 
-        void emit_mem_copy(IselCtx& ctx, VReg dst_addr, VReg src_addr, std::uint64_t size)
+        void emit_mem_copy(IselCtx& ctx, VReg dst_addr, VReg src_addr, std::uint64_t size, SegmentOverride dst_segment = SegmentOverride::None,
+                           SegmentOverride src_segment = SegmentOverride::None)
         {
-            if (size >= kRepStringThreshold)
+            if (size >= kRepStringThreshold && dst_segment == SegmentOverride::None && src_segment == SegmentOverride::None)
             {
                 emit_rep_movs(ctx, dst_addr, src_addr, size);
                 return;
@@ -880,14 +945,14 @@ namespace dcc::backend::em64t
                 ld.num_ops = 2;
                 ld.num_defs = 1;
                 ld.ops[0] = MOp::from_reg(tmp);
-                ld.ops[1] = MOp::from_mem(MMem::make_base_disp(src_addr, static_cast<std::int32_t>(off)));
+                ld.ops[1] = MOp::from_mem(MMem::make_base_disp(src_addr, static_cast<std::int32_t>(off)).with_segment(src_segment));
                 ctx.append_instr(ld);
 
                 MInstr st;
                 st.opc = store_opc;
                 st.num_ops = 2;
                 st.num_defs = 0;
-                st.ops[0] = MOp::from_mem(MMem::make_base_disp(dst_addr, static_cast<std::int32_t>(off)));
+                st.ops[0] = MOp::from_mem(MMem::make_base_disp(dst_addr, static_cast<std::int32_t>(off)).with_segment(dst_segment));
                 st.ops[1] = MOp::from_reg(tmp);
                 ctx.append_instr(st);
 
@@ -908,6 +973,7 @@ namespace dcc::backend::em64t
                 case dcc::ir::IrNodeKind::FloatConstant:
                 case dcc::ir::IrNodeKind::BoolConstant:
                 case dcc::ir::IrNodeKind::NullConstant:
+                case dcc::ir::IrNodeKind::PointerConstant:
                 case dcc::ir::IrNodeKind::StringConstant:
                 case dcc::ir::IrNodeKind::GlobalRef:
                     return true;
@@ -1086,7 +1152,7 @@ namespace dcc::backend::em64t
             return tmp;
         }
 
-        void emit_reg_held_memory_store(IselCtx& ctx, dcc::ir::IrType const* ty, VReg dst_addr, VReg val)
+        void emit_reg_held_memory_store(IselCtx& ctx, dcc::ir::IrType const* ty, VReg dst_addr, VReg val, SegmentOverride dst_segment = SegmentOverride::None)
         {
             auto size = ty ? ty->byte_size : 8;
             auto slot = ctx.mfunc.new_frame_slot(8, 8);
@@ -1100,15 +1166,15 @@ namespace dcc::backend::em64t
             st.ops[1] = MOp::from_reg(val);
             ctx.append_instr(st);
 
-            emit_mem_copy(ctx, dst_addr, tmp, size);
+            emit_mem_copy(ctx, dst_addr, tmp, size, dst_segment);
         }
 
-        void emit_store(IselCtx& ctx, dcc::ir::IrType const* store_type, VReg addr, VReg val)
+        void emit_store_mem(IselCtx& ctx, dcc::ir::IrType const* store_type, MMem mem, VReg val)
         {
             MInstr mi;
             mi.num_ops = 2;
             mi.num_defs = 0;
-            mi.ops[0] = MOp::from_mem(MMem::make_base_disp(addr));
+            mi.ops[0] = MOp::from_mem(mem);
             mi.ops[1] = MOp::from_reg(val);
 
             if (ctx.is_float_type(store_type))
@@ -1122,6 +1188,11 @@ namespace dcc::backend::em64t
                 mi.opc = store_opc_for_bits(ctx.type_bits(store_type));
 
             ctx.append_instr(mi);
+        }
+
+        void emit_store(IselCtx& ctx, dcc::ir::IrType const* store_type, VReg addr, VReg val, SegmentOverride segment = SegmentOverride::None)
+        {
+            emit_store_mem(ctx, store_type, MMem::make_base_disp(addr).with_segment(segment), val);
         }
 
         [[nodiscard]] std::pair<VReg, VReg> emit_idiv(IselCtx& ctx, VReg dividend, VReg divisor, bool is_signed, unsigned bits = 8)
@@ -2185,6 +2256,7 @@ namespace dcc::backend::em64t
                 case IrNodeKind::FloatConstant:
                 case IrNodeKind::BoolConstant:
                 case IrNodeKind::NullConstant:
+                case IrNodeKind::PointerConstant:
                 case IrNodeKind::StringConstant:
                 case IrNodeKind::Local:
                     break;
@@ -2297,7 +2369,17 @@ namespace dcc::backend::em64t
                         else
                         {
                             VReg addr = ctx.try_materialize(ptr_val);
-                            if (addr.is_valid())
+                            auto const segment = based_segment_of(ptr_val);
+                            if (addr.is_valid() && segment != SegmentOverride::None)
+                            {
+                                auto slot = ctx.mfunc.new_frame_slot(static_cast<std::uint32_t>(load_type->byte_size),
+                                                                     static_cast<std::uint32_t>(std::max<std::uint64_t>(load_type->byte_align, 1)));
+                                VReg copy = emit_slot_addr(ctx, slot);
+                                emit_mem_copy(ctx, copy, addr, load_type->byte_size, SegmentOverride::None, segment);
+                                ctx.aggregate_to_slot[inst] = slot;
+                                ctx.set_vreg(inst, copy);
+                            }
+                            else if (addr.is_valid())
                                 ctx.set_vreg(inst, addr);
                         }
                         break;
@@ -2402,12 +2484,14 @@ namespace dcc::backend::em64t
                             ctx.append_instr(mi);
                             ctx.set_vreg(inst, dst);
                         }
+                        else if (auto absolute = absolute_based_mem(ptr_val))
+                            ctx.set_vreg(inst, emit_load_mem(ctx, load_type, *absolute));
                         else
                         {
                             VReg addr = ctx.try_materialize(ptr_val);
                             if (addr.is_valid())
                             {
-                                VReg result = emit_load(ctx, load_type, addr);
+                                VReg result = emit_load(ctx, load_type, addr, based_segment_of(ptr_val));
                                 ctx.set_vreg(inst, result);
                             }
                         }
@@ -2531,25 +2615,29 @@ namespace dcc::backend::em64t
                         else
                         {
                             auto store_type = val_val ? val_val->type : nullptr;
-                            VReg addr = ctx.try_materialize(ptr_val);
+                            auto const segment = based_segment_of(ptr_val);
+                            auto absolute = is_memory_type(store_type) ? std::optional<MMem>{} : absolute_based_mem(ptr_val);
+                            VReg addr = absolute ? VReg{} : ctx.try_materialize(ptr_val);
 
                             VReg mem_src = is_memory_type(store_type) ? memory_value_addr(ctx, val_val) : VReg{};
                             if (mem_src.is_valid())
                             {
                                 if (addr.is_valid())
-                                    emit_mem_copy(ctx, addr, mem_src, store_type->byte_size);
+                                    emit_mem_copy(ctx, addr, mem_src, store_type->byte_size, segment);
                             }
                             else if (is_memory_type(store_type) && store_type->byte_size < 8)
                             {
                                 VReg val = ctx.try_materialize(val_val);
                                 if (addr.is_valid() && val.is_valid())
-                                    emit_reg_held_memory_store(ctx, store_type, addr, val);
+                                    emit_reg_held_memory_store(ctx, store_type, addr, val, segment);
                             }
                             else
                             {
                                 VReg val = ctx.try_materialize(val_val);
-                                if (addr.is_valid() && val.is_valid())
-                                    emit_store(ctx, store_type, addr, val);
+                                if (absolute && val.is_valid())
+                                    emit_store_mem(ctx, store_type, *absolute, val);
+                                else if (addr.is_valid() && val.is_valid())
+                                    emit_store(ctx, store_type, addr, val, segment);
                             }
                         }
                     }
@@ -3285,6 +3373,22 @@ namespace dcc::backend::em64t
                         default:
                             break;
                     }
+                    break;
+                }
+
+                case IrNodeKind::MakePointer: {
+                    auto* make = static_cast<IrMakePointerInst const*>(inst);
+                    VReg offset = ctx.try_materialize(make->offset);
+                    if (offset.is_valid())
+                        ctx.set_vreg(inst, offset);
+                    break;
+                }
+
+                case IrNodeKind::PointerOffset: {
+                    auto* extract = static_cast<IrPointerOffsetInst const*>(inst);
+                    VReg pointer = ctx.try_materialize(extract->pointer);
+                    if (pointer.is_valid())
+                        ctx.set_vreg(inst, pointer);
                     break;
                 }
 
@@ -4441,7 +4545,7 @@ namespace dcc::backend::em64t
             {
                 IrNodeKind const k = it->first->kind;
                 if (k == IrNodeKind::IntConstant || k == IrNodeKind::FloatConstant || k == IrNodeKind::BoolConstant || k == IrNodeKind::NullConstant ||
-                    k == IrNodeKind::StringConstant || k == IrNodeKind::GlobalRef)
+                    k == IrNodeKind::PointerConstant || k == IrNodeKind::StringConstant || k == IrNodeKind::GlobalRef)
                     it = ctx.value_map.erase(it);
                 else
                     ++it;

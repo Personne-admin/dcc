@@ -915,73 +915,57 @@ def main():
     )
 
     cases = build_cases()
-    legacy_cases = [
-        c for c in cases if not is_based(c.ret) and not any(is_based(t) for t in c.args)
-    ]
-    based_case_count = len(cases) - len(legacy_cases)
     work = Path(args.work) if args.work else Path(tempfile.mkdtemp(prefix="dcc-abi-"))
     work.mkdir(parents=True, exist_ok=True)
-    legacy_work = work / "legacy"
-    legacy_work.mkdir(parents=True, exist_ok=True)
     (work / "abi_callee.dc").write_text(gen_dc_callee(cases))
     (work / "abi_caller.dc").write_text(gen_dc_caller(cases))
     (work / "callee.c").write_text(gen_c_callee(cases))
     (work / "caller.c").write_text(gen_c_caller(cases))
-    (work / "main-full.dc").write_text(gen_main(cases))
-    (work / "main-legacy.dc").write_text(gen_main(legacy_cases))
-    (legacy_work / "abi_callee.dc").write_text(gen_dc_callee(legacy_cases))
-    (legacy_work / "abi_caller.dc").write_text(gen_dc_caller(legacy_cases))
-    (legacy_work / "caller.c").write_text(gen_c_caller(legacy_cases))
+    (work / "main.dc").write_text(gen_main(cases))
 
     variants = ["llvm-O0", "llvm-O2", "custom-O0", "custom-O2", "c"]
     c_flags = ["-O2", "-ffreestanding", "-fno-builtin", "-fno-stack-protector", "-c"]
     objs = {}
     for side in ("caller", "callee"):
         for v in variants:
-            subsets = ("legacy",) if v.startswith("custom") else ("full", "legacy") if side == "caller" else ("full",)
-            for subset in subsets:
-                source_dir = legacy_work if subset == "legacy" else work
-                obj = work / ("%s-%s-%s.o" % (side, v, subset))
-                if v == "c":
-                    run(cc + c_flags + ["-o", str(obj), str(source_dir / ("%s.c" % side))])
-                else:
-                    backend, opt = v.split("-")
-                    run(
-                        timeout
-                        + [
-                            str(dcc),
-                            "-target",
-                            triple,
-                            "-fbackend",
-                            backend,
-                            "-" + opt,
-                            "-I",
-                            str(source_dir),
-                            "-c",
-                            "-o",
-                            str(obj),
-                            str(source_dir / ("abi_%s.dc" % side)),
-                        ]
-                    )
-                objs[(side, v, subset)] = obj
-    main_objs = {}
-    for subset in ("full", "legacy"):
-        obj = work / ("main-%s.o" % subset)
-        run(
-            timeout
-            + [
-                str(dcc),
-                "-flibdcext",
-                os_name,
-                "-target",
-                triple,
-                "-c",
-                "-o",
-                str(obj),
-                str(work / ("main-%s.dc" % subset)),
-            ]
-        )
-        main_objs[subset] = obj
+            obj = work / ("%s-%s.o" % (side, v))
+            if v == "c":
+                run(cc + c_flags + ["-o", str(obj), str(work / ("%s.c" % side))])
+            else:
+                backend, opt = v.split("-")
+                run(
+                    timeout
+                    + [
+                        str(dcc),
+                        "-target",
+                        triple,
+                        "-fbackend",
+                        backend,
+                        "-" + opt,
+                        "-I",
+                        str(work),
+                        "-c",
+                        "-o",
+                        str(obj),
+                        str(work / ("abi_%s.dc" % side)),
+                    ]
+                )
+            objs[(side, v)] = obj
+    main_obj = work / "main.o"
+    run(
+        timeout
+        + [
+            str(dcc),
+            "-flibdcext",
+            os_name,
+            "-target",
+            triple,
+            "-c",
+            "-o",
+            str(main_obj),
+            str(work / "main.dc"),
+        ]
+    )
 
     names = {c.index: c.describe() for c in cases}
     names[len(cases) + 1] = (
@@ -998,12 +982,11 @@ def main():
     )
     results = {}
     for caller, callee in pairs:
-        subset = "legacy" if caller.startswith("custom") or callee.startswith("custom") else "full"
         exe = work / ("abi-%s-%s.exe" % (caller, callee))
         objects = [
-            str(main_objs[subset]),
-            str(objs[("caller", caller, subset)]),
-            str(objs[("callee", callee, "legacy" if callee.startswith("custom") else "full")]),
+            str(main_obj),
+            str(objs[("caller", caller)]),
+            str(objs[("callee", callee)]),
         ]
         if windows:
             link = (
@@ -1064,11 +1047,6 @@ def main():
             print(error, file=sys.stderr)
             failed = ["build failure"]
         results[(caller, callee)] = failed
-        if subset == "legacy":
-            print(
-                "EXCLUDED %s -> %s: %d based-pointer ABI cases (custom far/based lowering is deferred)"
-                % (caller, callee, based_case_count)
-            )
         if failed:
             failures += 1
     width = max(len(v) for v in variants) + 2

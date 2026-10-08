@@ -1795,6 +1795,19 @@ namespace
                 zero_asm_init_bytes(data, relocs, offset, expected_type->byte_size);
                 break;
             }
+            case IrNodeKind::PointerConstant: {
+                auto* pc = static_cast<IrPointerConstant const*>(val);
+                auto size = expected_type->byte_size;
+                std::uint64_t raw = pc->offset;
+                std::vector<std::uint8_t> bytes(size);
+                for (std::uint64_t i = 0; i < size && i < 8; ++i)
+                {
+                    bytes[i] = static_cast<std::uint8_t>(raw & 0xFF);
+                    raw >>= 8;
+                }
+                write_asm_init_bytes(data, relocs, offset, bytes);
+                break;
+            }
             case IrNodeKind::StringConstant: {
                 auto* sc = static_cast<IrStringConstant const*>(val);
                 zero_asm_init_bytes(data, relocs, offset, expected_type->byte_size);

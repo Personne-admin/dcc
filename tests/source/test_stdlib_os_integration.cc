@@ -99,24 +99,26 @@ TEST_CASE("Win64 stack probes preserve large frames on a fresh thread")
             CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, true, backend).status, 42);
 }
 
-TEST_CASE("LLVM based pointers access per-thread FS storage")
+TEST_CASE("based pointers access per-thread FS storage on both backends")
 {
     if (windows())
         return;
     auto const source = os_test::fixture("based-fs-linux.dc");
     REQUIRE(!source.empty());
-    for (auto optimization : {"-O0", "-O2"})
-        CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, false, "llvm").status, 42);
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, false, backend).status, 42);
 }
 
-TEST_CASE("LLVM based pointers access Win64 TEB through GS")
+TEST_CASE("based pointers access Win64 TEB through GS on both backends")
 {
     if (!windows())
         return;
     auto const source = os_test::fixture("based-gs-windows.dc");
     REQUIRE(!source.empty());
-    for (auto optimization : {"-O0", "-O2"})
-        CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, true, "llvm").status, 42);
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, true, backend).status, 42);
 }
 
 TEST_CASE("custom backend jump tables link and run on the execution target")
