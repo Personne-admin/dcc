@@ -46,6 +46,44 @@ TEST_CASE("operand address and segment overrides follow x86 prefix groups")
     CHECK(bytes == (std::vector<std::uint8_t>{0x3e}));
 }
 
+TEST_CASE("segment-overridden memory operands encode absolute and register forms")
+{
+    using namespace dcc::backend::x86;
+    auto load = [](MMem mem) {
+        MInstr instr;
+        instr.opc = MOpc::MOV64rm;
+        instr.num_ops = 2;
+        instr.num_defs = 1;
+        instr.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+        instr.ops[1] = MOp::from_mem(mem);
+        return encode_single_instruction(instr, EncodeMode::Long64);
+    };
+    auto fs_zero = load(MMem::make_segment_absolute(SegmentOverride::FS, 0));
+    REQUIRE(fs_zero.has_value());
+    CHECK(*fs_zero == (std::vector<std::uint8_t>{0x64, 0x48, 0x8b, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00}));
+    auto gs_teb = load(MMem::make_segment_absolute(SegmentOverride::GS, 0x30));
+    REQUIRE(gs_teb.has_value());
+    CHECK(*gs_teb == (std::vector<std::uint8_t>{0x65, 0x48, 0x8b, 0x04, 0x25, 0x30, 0x00, 0x00, 0x00}));
+    auto fs_reg = load(MMem::make_base_disp(VReg::phys(PhysReg::RCX)).with_segment(SegmentOverride::FS));
+    REQUIRE(fs_reg.has_value());
+    CHECK(*fs_reg == (std::vector<std::uint8_t>{0x64, 0x48, 0x8b, 0x01}));
+    auto gs_indexed = load(MMem::make_indexed(VReg::phys(PhysReg::RCX), VReg::phys(PhysReg::RDX), 8, 0x10).with_segment(SegmentOverride::GS));
+    REQUIRE(gs_indexed.has_value());
+    CHECK(*gs_indexed == (std::vector<std::uint8_t>{0x65, 0x48, 0x8b, 0x44, 0xd1, 0x10}));
+    auto gs_extended = load(MMem::make_base_disp(VReg::phys(PhysReg::R9), 8).with_segment(SegmentOverride::GS));
+    REQUIRE(gs_extended.has_value());
+    CHECK(*gs_extended == (std::vector<std::uint8_t>{0x65, 0x49, 0x8b, 0x41, 0x08}));
+
+    MInstr store;
+    store.opc = MOpc::MOV64mr;
+    store.num_ops = 2;
+    store.ops[0] = MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::RCX)).with_segment(SegmentOverride::FS));
+    store.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+    auto stored = encode_single_instruction(store, EncodeMode::Long64);
+    REQUIRE(stored.has_value());
+    CHECK(*stored == (std::vector<std::uint8_t>{0x64, 0x48, 0x89, 0x01}));
+}
+
 TEST_CASE("instruction encoding requires an implemented x86 mode")
 {
     using namespace dcc::backend::x86;
