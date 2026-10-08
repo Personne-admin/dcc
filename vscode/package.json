@@ -3,7 +3,7 @@
     "displayName": "DC Language Support",
     "description": "Syntax highlighting and language server support for the DC programming language, .dcc-test harness fixtures and DC IR (DIR) dumps",
     "publisher": "dcc",
-    "version": "0.4.0",
+    "version": "0.4.1",
     "license": "GPL-3.0-only",
     "repository": {
         "type": "git",
