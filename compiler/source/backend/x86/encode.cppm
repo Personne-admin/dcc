@@ -4604,9 +4604,48 @@ namespace
         }
     };
 
+    [[nodiscard]] static bool needs_memory_alu_move(MInstr const& instr) noexcept
+    {
+        switch (instr.opc)
+        {
+            case MOpc::ADD64rm:
+            case MOpc::ADD32rm:
+            case MOpc::SUB64rm:
+            case MOpc::SUB32rm:
+            case MOpc::AND64rm:
+            case MOpc::OR64rm:
+            case MOpc::XOR64rm:
+            case MOpc::CMP64rm:
+            case MOpc::CMP32rm:
+                break;
+            default:
+                return false;
+        }
+        auto const& ops = instr.ops;
+        if (instr.num_ops < 3 || ops[0].kind != MOpKind::Reg || ops[1].kind != MOpKind::Reg || ops[2].kind != MOpKind::Mem)
+            return false;
+        if (!ops[0].reg.is_physical() || !ops[1].reg.is_physical())
+            return false;
+        return ops[0].reg.phys_reg() != ops[1].reg.phys_reg();
+    }
+
     static void encode_instr(MInstr const& instr, EncodeMode mode, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
                              std::vector<std::string>& wrn)
     {
+        if (mode == EncodeMode::Long64 && needs_memory_alu_move(instr))
+        {
+            MInstr move;
+            move.opc = MOpc::MOV64rr;
+            move.num_ops = 2;
+            move.num_defs = 1;
+            move.ops[0] = instr.ops[0];
+            move.ops[1] = instr.ops[1];
+            encode_instr(move, mode, buf, branches, relocs, wrn);
+            MInstr tied = instr;
+            tied.ops[1] = instr.ops[0];
+            encode_instr(tied, mode, buf, branches, relocs, wrn);
+            return;
+        }
         if (mode == EncodeMode::Real16)
         {
             std::vector<std::uint8_t> body;
