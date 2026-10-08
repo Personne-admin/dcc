@@ -134,6 +134,31 @@ TEST_CASE("instruction prefixes come from operand width and memory address size"
     CHECK(!encode(MOpc::MOV16mr, reg(PhysReg::RAX), reg(PhysReg::RCX)).has_value());
 }
 
+TEST_CASE("register destination alu operations with memory sources load from memory")
+{
+    using namespace dcc::backend::x86;
+    auto encode = [](MOpc opc, PhysReg reg) {
+        MInstr instr;
+        instr.opc = opc;
+        instr.num_ops = 3;
+        instr.num_defs = 1;
+        instr.ops[0] = MOp::from_reg(VReg::phys(reg));
+        instr.ops[1] = MOp::from_reg(VReg::phys(reg));
+        instr.ops[2] = MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::RCX)));
+        auto bytes = encode_single_instruction(instr, EncodeMode::Long64);
+        return bytes.value_or(std::vector<std::uint8_t>{});
+    };
+    CHECK(encode(MOpc::ADD64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x03, 0x01}));
+    CHECK(encode(MOpc::SUB64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x2b, 0x01}));
+    CHECK(encode(MOpc::AND64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x23, 0x01}));
+    CHECK(encode(MOpc::OR64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x0b, 0x01}));
+    CHECK(encode(MOpc::XOR64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x33, 0x01}));
+    CHECK(encode(MOpc::CMP64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x3b, 0x01}));
+    CHECK(encode(MOpc::ADD32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x03, 0x11}));
+    CHECK(encode(MOpc::SUB32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x2b, 0x11}));
+    CHECK(encode(MOpc::CMP32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x3b, 0x11}));
+}
+
 TEST_CASE("instruction encoding requires an implemented x86 mode")
 {
     using namespace dcc::backend::x86;
