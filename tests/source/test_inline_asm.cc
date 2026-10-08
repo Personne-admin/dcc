@@ -1,3 +1,10 @@
+#if defined(__linux__) && defined(__x86_64__)
+#include <asm/prctl.h>
+#include <sys/mman.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+#endif
+
 import std;
 import dcc.ir;
 import dcc.sm;
@@ -157,6 +164,68 @@ TEST_CASE("register destination alu operations with memory sources load from mem
     CHECK(encode(MOpc::ADD32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x03, 0x11}));
     CHECK(encode(MOpc::SUB32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x2b, 0x11}));
     CHECK(encode(MOpc::CMP32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x3b, 0x11}));
+}
+
+TEST_CASE("three-address memory alu operations keep the segment override on the memory instruction")
+{
+    using namespace dcc::backend::x86;
+    auto encode = [](MOpc opc, PhysReg dst, PhysReg left, MMem mem) {
+        MInstr instr;
+        instr.opc = opc;
+        instr.num_ops = 3;
+        instr.num_defs = 1;
+        instr.ops[0] = MOp::from_reg(VReg::phys(dst));
+        instr.ops[1] = MOp::from_reg(VReg::phys(left));
+        instr.ops[2] = MOp::from_mem(mem);
+        return encode_single_instruction(instr, EncodeMode::Long64).value_or(std::vector<std::uint8_t>{});
+    };
+    auto fs = [](PhysReg base, std::int32_t disp = 0) { return MMem::make_base_disp(VReg::phys(base), disp).with_segment(SegmentOverride::FS); };
+    auto gs = [](PhysReg base, std::int32_t disp = 0) { return MMem::make_base_disp(VReg::phys(base), disp).with_segment(SegmentOverride::GS); };
+    CHECK(encode(MOpc::ADD64rm, PhysReg::RAX, PhysReg::RDI, fs(PhysReg::RSI)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xf8, 0x64, 0x48, 0x03, 0x06}));
+    CHECK(encode(MOpc::SUB32rm, PhysReg::RDX, PhysReg::RCX, gs(PhysReg::RBX, 8)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xca, 0x65, 0x40, 0x2b, 0x53, 0x08}));
+    CHECK(encode(MOpc::CMP64rm, PhysReg::RAX, PhysReg::RCX, fs(PhysReg::RDX)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xc8, 0x64, 0x48, 0x3b, 0x02}));
+    CHECK(encode(MOpc::XOR64rm, PhysReg::R9, PhysReg::R10, gs(PhysReg::R11, 0x30)) == (std::vector<std::uint8_t>{0x4d, 0x89, 0xd1, 0x65, 0x4d, 0x33, 0x4b, 0x30}));
+    CHECK(encode(MOpc::ADD64rm, PhysReg::RAX, PhysReg::RAX, fs(PhysReg::RSI)) == (std::vector<std::uint8_t>{0x64, 0x48, 0x03, 0x06}));
+    CHECK(encode(MOpc::ADD64rm, PhysReg::RAX, PhysReg::RDI, MMem::make_base_disp(VReg::phys(PhysReg::RSI))) == (std::vector<std::uint8_t>{0x48, 0x89, 0xf8, 0x48, 0x03, 0x06}));
+
+#if defined(__linux__) && defined(__x86_64__)
+    std::uint64_t fs_base = 0;
+    REQUIRE(syscall(SYS_arch_prctl, ARCH_GET_FS, &fs_base) == 0);
+    auto run = [&](MOpc opc, std::uint64_t value) -> std::uint64_t {
+        MFunction func;
+        auto& block = func.create_block("entry");
+        MInstr alu;
+        alu.opc = opc;
+        alu.num_ops = 3;
+        alu.num_defs = 1;
+        alu.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+        alu.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RDI));
+        alu.ops[2] = MOp::from_mem(fs(PhysReg::RSI));
+        block.instrs.push_back(alu);
+        MInstr ret;
+        ret.opc = MOpc::RET;
+        block.instrs.push_back(ret);
+        auto encoded = encode_function(func, EncodeMode::Long64);
+        if (!encoded.warnings.empty() || encoded.bytes.empty())
+            return 0;
+        auto size = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
+        void* page = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (page == MAP_FAILED)
+            return 0;
+        std::memcpy(page, encoded.bytes.data(), encoded.bytes.size());
+        std::uint64_t result = 0;
+        if (mprotect(page, size, PROT_READ | PROT_EXEC) == 0)
+        {
+            auto* code = reinterpret_cast<std::uint64_t (*)(std::uint64_t, std::uint64_t)>(page);
+            result = code(value, 0);
+        }
+        munmap(page, size);
+        return result;
+    };
+    CHECK(run(MOpc::ADD64rm, 0x1234) == 0x1234 + fs_base);
+    CHECK(run(MOpc::SUB64rm, 0x1234) == 0x1234 - fs_base);
+    CHECK(run(MOpc::ADD32rm, 0x1234) == static_cast<std::uint32_t>(0x1234 + fs_base));
+#endif
 }
 
 TEST_CASE("instruction encoding requires an implemented x86 mode")
