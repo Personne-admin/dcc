@@ -1208,6 +1208,11 @@ namespace
                     }
                     else if (d == r)
                     {
+                        if (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr)
+                        {
+                            wrn.push_back(std::format("internal error: {} destination is the right operand", opc_name(instr.opc)));
+                            goto ud2_lbl;
+                        }
                         emit_rex_if_extended(buf, w64, l, d);
                         emit_u8(buf, alu_rm_r(instr.opc));
                         emit_modrm(buf, 3, reg_low3(l), reg_low3(d));

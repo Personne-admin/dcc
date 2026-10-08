@@ -228,6 +228,57 @@ TEST_CASE("three-address memory alu operations keep the segment override on the 
 #endif
 }
 
+TEST_CASE("three-address register operations whose destination is the right operand stay correct")
+{
+    using namespace dcc::backend::x86;
+    auto encode = [](MOpc opc, PhysReg dst, PhysReg left) {
+        MInstr instr;
+        instr.opc = opc;
+        instr.num_ops = 3;
+        instr.num_defs = 1;
+        instr.ops[0] = MOp::from_reg(VReg::phys(dst));
+        instr.ops[1] = MOp::from_reg(VReg::phys(left));
+        instr.ops[2] = MOp::from_reg(VReg::phys(dst));
+        return encode_single_instruction(instr, EncodeMode::Long64);
+    };
+    auto bytes = [&](MOpc opc, PhysReg dst, PhysReg left) { return encode(opc, dst, left).value_or(std::vector<std::uint8_t>{}); };
+    CHECK(bytes(MOpc::ADD64rr, PhysReg::RAX, PhysReg::RBX) == (std::vector<std::uint8_t>{0x48, 0x01, 0xd8}));
+    CHECK(bytes(MOpc::ADD32rr, PhysReg::RAX, PhysReg::RBX) == (std::vector<std::uint8_t>{0x01, 0xd8}));
+    CHECK(bytes(MOpc::AND64rr, PhysReg::RCX, PhysReg::RDX) == (std::vector<std::uint8_t>{0x48, 0x21, 0xd1}));
+    CHECK(bytes(MOpc::AND32rr, PhysReg::RCX, PhysReg::RDX) == (std::vector<std::uint8_t>{0x21, 0xd1}));
+    CHECK(bytes(MOpc::OR64rr, PhysReg::R8, PhysReg::RSI) == (std::vector<std::uint8_t>{0x49, 0x09, 0xf0}));
+    CHECK(bytes(MOpc::OR32rr, PhysReg::RSI, PhysReg::RDI) == (std::vector<std::uint8_t>{0x09, 0xfe}));
+    CHECK(bytes(MOpc::XOR64rr, PhysReg::RDX, PhysReg::R11) == (std::vector<std::uint8_t>{0x4c, 0x31, 0xda}));
+    CHECK(bytes(MOpc::XOR32rr, PhysReg::RDX, PhysReg::RAX) == (std::vector<std::uint8_t>{0x31, 0xc2}));
+    CHECK(bytes(MOpc::IMUL32rr, PhysReg::RAX, PhysReg::RCX) == (std::vector<std::uint8_t>{0x0f, 0xaf, 0xc1}));
+    for (auto opc : {MOpc::SUB64rr, MOpc::SUB32rr})
+    {
+        auto result = encode(opc, PhysReg::RAX, PhysReg::RBX);
+        REQUIRE(!result.has_value());
+        CHECK(result.error().find("destination is the right operand") != std::string::npos);
+        MFunction func;
+        auto& block = func.create_block("entry");
+        MInstr instr;
+        instr.opc = opc;
+        instr.num_ops = 3;
+        instr.num_defs = 1;
+        instr.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+        instr.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RBX));
+        instr.ops[2] = MOp::from_reg(VReg::phys(PhysReg::RAX));
+        block.instrs.push_back(instr);
+        auto encoded = encode_function(func, EncodeMode::Long64);
+        CHECK(encoded.warnings.size() == 1u);
+        CHECK(encoded.bytes == (std::vector<std::uint8_t>{0x0f, 0x0b}));
+    }
+    CHECK(bytes(MOpc::SUB64rr, PhysReg::RAX, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x29, 0xc0}));
+    CHECK(bytes(MOpc::ADDSDrr, PhysReg::XMM1, PhysReg::XMM2) == (std::vector<std::uint8_t>{0xf2, 0x0f, 0x58, 0xca}));
+    CHECK(bytes(MOpc::MULSSrr, PhysReg::XMM1, PhysReg::XMM2) == (std::vector<std::uint8_t>{0xf3, 0x0f, 0x59, 0xca}));
+    auto subsd = bytes(MOpc::SUBSDrr, PhysReg::XMM1, PhysReg::XMM2);
+    CHECK(subsd == (std::vector<std::uint8_t>{0xf2, 0x44, 0x0f, 0x10, 0xf9, 0xf2, 0x0f, 0x10, 0xca, 0xf2, 0x41, 0x0f, 0x5c, 0xcf}));
+    auto divss = bytes(MOpc::DIVSSrr, PhysReg::XMM1, PhysReg::XMM2);
+    CHECK(divss == (std::vector<std::uint8_t>{0xf3, 0x44, 0x0f, 0x10, 0xf9, 0xf3, 0x0f, 0x10, 0xca, 0xf3, 0x41, 0x0f, 0x5e, 0xcf}));
+}
+
 TEST_CASE("instruction encoding requires an implemented x86 mode")
 {
     using namespace dcc::backend::x86;
