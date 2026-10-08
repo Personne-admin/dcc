@@ -894,6 +894,46 @@ TEST_CASE("ir-verifier-rejects-segmented-pointer-mismatches")
     CHECK(has("return"));
 }
 
+TEST_CASE("ir-verifier-allows-fs-gs-based-pointers-only-on-i386-class-i8086")
+{
+    auto verify_for = [](std::string_view cpu) -> std::vector<std::string> {
+        auto target = *TargetConfig::parse_triple("i8086-binary");
+        if (auto error = target.configure(dcc::target::CodeModel::Default, cpu))
+            return {*error};
+        IrContext ctx{256 * 1024, &target};
+        auto* mod = ctx.module("i8086_segments");
+        auto* u16 = ctx.int_t(16, false);
+        auto* fs = ctx.pointer_to(u16, Segment::Fs, PointerFlavor::Based);
+        auto* gs = ctx.pointer_to(u16, Segment::Gs, PointerFlavor::Based);
+        IrType const* params[] = {fs, gs};
+        auto* signature = ir_type_cast<IrFuncType>(ctx.func_t(u16, params));
+        auto* function = ctx.function("segments", signature);
+        auto* block = ctx.basic_block("entry", 0);
+        auto* f = ctx.local("f", 0, fs);
+        auto* g = ctx.local("g", 1, gs);
+        block->params.push_back(f);
+        block->params.push_back(g);
+        auto* value = ctx.load(u16, f);
+        block->instructions.push_back(value);
+        block->instructions.push_back(ctx.store(value, g));
+        auto* segment = ctx.read_segment(Segment::Gs);
+        block->instructions.push_back(segment);
+        block->terminator = ctx.ret(segment);
+        function->blocks.push_back(block);
+        function->entry_block = block;
+        mod->functions.push_back(function);
+        dcc::ir::pass::IrVerifier verifier{target};
+        return verifier.verify(*mod);
+    };
+
+    CHECK(verify_for("i386").empty());
+    CHECK(verify_for("i486").empty());
+    auto errors = verify_for("8086");
+    CHECK(std::ranges::any_of(errors, [](std::string const& error) { return error.find("register unavailable") != std::string::npos; }));
+    CHECK(std::ranges::any_of(errors, [](std::string const& error) { return error.find("read_segment") != std::string::npos; }));
+    CHECK(!verify_for("i286").empty());
+}
+
 TEST_CASE("custom-backend-rejects-far-and-unavailable-based-ir")
 {
     auto target = TargetConfig::host_default();
