@@ -9,13 +9,26 @@ import dcc.backend.object.layout;
 
 #define into_u8 static_cast<std::uint8_t>
 
+export namespace dcc::backend::object
+{
+    struct CoffArchPolicy
+    {
+        std::uint16_t machine;
+        std::uint16_t reloc_rel32;
+        std::uint16_t reloc_abs;
+        std::uint64_t address_width;
+    };
+
+    inline constexpr CoffArchPolicy coff_x86_64_policy{0x8664, 0x0004, 0x0001, 8};
+
+} // namespace dcc::backend::object
+
 namespace dcc::backend::object
 {
     using namespace dcc::backend::x86;
 
     namespace
     {
-        constexpr std::uint16_t IMAGE_FILE_MACHINE_AMD64 = 0x8664;
         constexpr std::uint16_t IMAGE_FILE_LINE_NUMS_STRIPPED = 0x0004;
         constexpr std::uint16_t IMAGE_FILE_DEBUG_STRIPPED = 0x0200;
 
@@ -51,9 +64,6 @@ namespace dcc::backend::object
             return crc;
         }
 
-        constexpr std::uint16_t IMAGE_REL_AMD64_REL32 = 0x0004;
-        constexpr std::uint16_t IMAGE_REL_AMD64_ADDR64 = 0x0001;
-
         [[nodiscard]] std::uint32_t coff_align_bits(std::uint64_t align)
         {
             if (align > 8192)
@@ -64,14 +74,14 @@ namespace dcc::backend::object
             return static_cast<std::uint32_t>((log2_align + 1) << 20);
         }
 
-    }
+    } // namespace
 
-}
+} // namespace dcc::backend::object
 
 export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_coff(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
-                                                       target::TargetConfig const& target)
+                                                       target::TargetConfig const& target, CoffArchPolicy const& arch)
     {
         (void)target;
 
@@ -522,7 +532,7 @@ export namespace dcc::backend::object
                         size = init_type_size(glp->g->init->type);
                     std::vector<std::uint8_t> image(size, 0);
                     std::vector<InitReloc> init_relocs;
-                    serialize_init_memory(image, init_relocs, glp->g->init, glp->g->type, 0);
+                    serialize_init_memory(image, init_relocs, glp->g->init, glp->g->type, 0, arch.address_width);
                     sec_data.insert(sec_data.end(), image.begin(), image.end());
                     for (auto const& init_reloc : init_relocs)
                     {
@@ -532,7 +542,7 @@ export namespace dcc::backend::object
                         CoffReloc rel{};
                         rel.virt_addr = static_cast<std::uint32_t>(glp->offset + init_reloc.offset);
                         rel.sym_idx = it->second;
-                        rel.type = IMAGE_REL_AMD64_ADDR64;
+                        rel.type = arch.reloc_abs;
                         rel.addend = static_cast<std::uint32_t>(static_cast<std::int32_t>(init_reloc.addend));
                         rels.push_back(rel);
                     }
@@ -567,7 +577,7 @@ export namespace dcc::backend::object
                         CoffReloc rel{};
                         rel.virt_addr = static_cast<std::uint32_t>(entry_va_offset);
                         rel.sym_idx = blk_sym_it->second;
-                        rel.type = IMAGE_REL_AMD64_REL32;
+                        rel.type = arch.reloc_rel32;
                         rels.push_back(rel);
                     }
                 }
@@ -611,7 +621,7 @@ export namespace dcc::backend::object
                         size = init_type_size(glp->g->init->type);
                     std::vector<std::uint8_t> image(size, 0);
                     std::vector<InitReloc> init_relocs;
-                    serialize_init_memory(image, init_relocs, glp->g->init, glp->g->type, 0);
+                    serialize_init_memory(image, init_relocs, glp->g->init, glp->g->type, 0, arch.address_width);
                     cs.data.insert(cs.data.end(), image.begin(), image.end());
                     for (auto const& init_reloc : init_relocs)
                     {
@@ -621,7 +631,7 @@ export namespace dcc::backend::object
                         CoffReloc rel{};
                         rel.virt_addr = static_cast<std::uint32_t>(glp->offset + init_reloc.offset);
                         rel.sym_idx = it->second;
-                        rel.type = IMAGE_REL_AMD64_ADDR64;
+                        rel.type = arch.reloc_abs;
                         rel.addend = static_cast<std::uint32_t>(static_cast<std::int32_t>(init_reloc.addend));
                         cs.rels.push_back(rel);
                     }
@@ -673,13 +683,13 @@ export namespace dcc::backend::object
                     case Reloc::Kind::Rel32:
                     case Reloc::Kind::Rel32_Got:
                     case Reloc::Kind::Rel32_Call:
-                        rtype = IMAGE_REL_AMD64_REL32;
+                        rtype = arch.reloc_rel32;
                         break;
                     case Reloc::Kind::Abs64:
-                        rtype = IMAGE_REL_AMD64_ADDR64;
+                        rtype = arch.reloc_abs;
                         break;
                     default:
-                        rtype = IMAGE_REL_AMD64_REL32;
+                        rtype = arch.reloc_rel32;
                         break;
                 }
                 if (func_comdat[fi] != no_coff_comdat)
@@ -801,7 +811,7 @@ export namespace dcc::backend::object
 
         std::vector<std::uint8_t> out;
 
-        w16(out, IMAGE_FILE_MACHINE_AMD64);
+        w16(out, arch.machine);
         w16(out, static_cast<std::uint16_t>(num_sec));
         w32(out, 0);
         w32(out, sym_start);
@@ -1018,4 +1028,4 @@ export namespace dcc::backend::object
         return out;
     }
 
-}
+} // namespace dcc::backend::object

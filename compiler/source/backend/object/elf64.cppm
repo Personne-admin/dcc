@@ -9,6 +9,22 @@ import dcc.backend.object.layout;
 
 #define into_u8 static_cast<std::uint8_t>
 
+export namespace dcc::backend::object
+{
+    struct Elf64ArchPolicy
+    {
+        std::uint16_t machine;
+        std::uint32_t reloc_abs;
+        std::uint32_t reloc_pc32;
+        std::uint32_t reloc_got_pc32;
+        std::uint32_t reloc_plt32;
+        std::uint64_t address_width;
+    };
+
+    inline constexpr Elf64ArchPolicy elf64_x86_64_policy{62, 1, 2, 42, 4, 8};
+
+} // namespace dcc::backend::object
+
 namespace dcc::backend::object
 {
     using namespace dcc::backend::x86;
@@ -16,7 +32,6 @@ namespace dcc::backend::object
     namespace
     {
         constexpr std::uint16_t ET_REL = 1;
-        constexpr std::uint16_t EM_X86_64 = 62;
         constexpr std::uint32_t EV_CURRENT = 1;
 
         constexpr std::uint32_t SHT_PROGBITS = 1;
@@ -36,11 +51,6 @@ namespace dcc::backend::object
         constexpr std::uint32_t STT_NOTYPE = 0;
         constexpr std::uint32_t STT_OBJECT = 1;
         constexpr std::uint32_t STT_FUNC = 2;
-
-        constexpr std::uint32_t R_X86_64_64 = 1;
-        constexpr std::uint32_t R_X86_64_PC32 = 2;
-        constexpr std::uint32_t R_X86_64_PLT32 = 4;
-        constexpr std::uint32_t R_X86_64_REX_GOTPCRELX = 42;
 
         struct Elf64_Ehdr
         {
@@ -145,20 +155,20 @@ namespace dcc::backend::object
             w64(b, s.st_size);
         }
 
-        [[nodiscard]] std::uint32_t elf_reloc_type(Reloc::Kind kind)
+        [[nodiscard]] std::uint32_t elf_reloc_type(Elf64ArchPolicy const& arch, Reloc::Kind kind)
         {
             switch (kind)
             {
                 case Reloc::Kind::Rel32:
-                    return R_X86_64_PC32;
+                    return arch.reloc_pc32;
                 case Reloc::Kind::Rel32_Got:
-                    return R_X86_64_REX_GOTPCRELX;
+                    return arch.reloc_got_pc32;
                 case Reloc::Kind::Rel32_Call:
-                    return R_X86_64_PLT32;
+                    return arch.reloc_plt32;
                 case Reloc::Kind::Abs64:
-                    return R_X86_64_64;
+                    return arch.reloc_abs;
             }
-            return R_X86_64_64;
+            return arch.reloc_abs;
         }
 
         struct ElfCustomSection
@@ -196,15 +206,15 @@ namespace dcc::backend::object
             return {0, 0};
         }
 
-        void serialize_init_value(std::vector<std::uint8_t>& data, ir::IrValue const* val, ir::IrType const* expected_type, std::vector<Elf64_Rela>& relas,
-                                  std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, std::uint64_t base_offset)
+        void serialize_init_value(Elf64ArchPolicy const& arch, std::vector<std::uint8_t>& data, ir::IrValue const* val, ir::IrType const* expected_type,
+                                  std::vector<Elf64_Rela>& relas, std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, std::uint64_t base_offset)
         {
             auto size = init_type_size(expected_type);
             if (size == 0 && val && val->type)
                 size = init_type_size(val->type);
             std::vector<std::uint8_t> image(size, 0);
             std::vector<InitReloc> init_relocs;
-            serialize_init_memory(image, init_relocs, val, expected_type, 0);
+            serialize_init_memory(image, init_relocs, val, expected_type, 0, arch.address_width);
             if (data.size() < base_offset)
                 data.resize(base_offset, 0);
             data.resize(base_offset + size, 0);
@@ -217,12 +227,13 @@ namespace dcc::backend::object
                 Elf64_Rela rela{};
                 rela.r_offset = base_offset + init_reloc.offset;
                 rela.r_addend = init_reloc.addend;
-                rela.r_info = elf_r_info(it->second, R_X86_64_64);
+                rela.r_info = elf_r_info(it->second, arch.reloc_abs);
                 relas.push_back(rela);
             }
         }
 
-        void serialize_custom_section_global(ElfCustomSection& section, GlobalLayout& gl, std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx)
+        void serialize_custom_section_global(Elf64ArchPolicy const& arch, ElfCustomSection& section, GlobalLayout& gl,
+                                             std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx)
         {
             if (section.type == SHT_NOBITS)
             {
@@ -238,18 +249,18 @@ namespace dcc::backend::object
 
             gl.offset = section.data.size();
             if (gl.g->init)
-                serialize_init_value(section.data, gl.g->init, gl.g->type, section.relas, sym_name_to_idx, section.data.size());
+                serialize_init_value(arch, section.data, gl.g->init, gl.g->type, section.relas, sym_name_to_idx, section.data.size());
             else
                 section.data.resize(section.data.size() + (gl.g->type ? gl.g->type->byte_size : 0), 0);
         }
 
-    }
-}
+    } // namespace
+} // namespace dcc::backend::object
 
 export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_elf64(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
-                                                        target::TargetConfig const& target)
+                                                        target::TargetConfig const& target, Elf64ArchPolicy const& arch)
     {
         (void)target;
 
@@ -422,7 +433,7 @@ export namespace dcc::backend::object
 
             glp->offset = rodata_data.size();
             if (glp->g->init)
-                serialize_init_value(rodata_data, glp->g->init, glp->g->type, rodata_relas, empty_sym_map, rodata_data.size());
+                serialize_init_value(arch, rodata_data, glp->g->init, glp->g->type, rodata_relas, empty_sym_map, rodata_data.size());
         }
 
         for (auto const& mf : mod.functions)
@@ -450,7 +461,7 @@ export namespace dcc::backend::object
 
             glp->offset = data_rel_ro_data.size();
             if (glp->g->init)
-                serialize_init_value(data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, empty_sym_map, data_rel_ro_data.size());
+                serialize_init_value(arch, data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, empty_sym_map, data_rel_ro_data.size());
         }
 
         std::vector<std::uint8_t> data_data;
@@ -464,7 +475,7 @@ export namespace dcc::backend::object
             glp->offset = data_data.size();
             if (glp->g->init)
             {
-                serialize_init_value(data_data, glp->g->init, glp->g->type, data_relas, empty_sym_map, data_data.size());
+                serialize_init_value(arch, data_data, glp->g->init, glp->g->type, data_relas, empty_sym_map, data_data.size());
             }
         }
 
@@ -478,7 +489,7 @@ export namespace dcc::backend::object
 
         for (auto& cs : custom_sections)
             for (auto* glp : cs.globals)
-                serialize_custom_section_global(cs, *glp, empty_sym_map);
+                serialize_custom_section_global(arch, cs, *glp, empty_sym_map);
 
         struct BlockSymInfo
         {
@@ -808,8 +819,7 @@ export namespace dcc::backend::object
             if (name_to_sym_idx.contains(fn))
                 continue;
             std::uint8_t bind = STB_GLOBAL;
-            if (i < func_linkages.size() &&
-                (func_linkages[i] == ir::Linkage::LinkOnceODR || func_linkages[i] == ir::Linkage::WeakODR))
+            if (i < func_linkages.size() && (func_linkages[i] == ir::Linkage::LinkOnceODR || func_linkages[i] == ir::Linkage::WeakODR))
                 bind = STB_WEAK;
             Elf64_Sym s{};
             s.st_name = add_str(strtab, fn);
@@ -915,7 +925,7 @@ export namespace dcc::backend::object
 
             glp->offset = rodata_data.size();
             if (glp->g->init)
-                serialize_init_value(rodata_data, glp->g->init, glp->g->type, rodata_relas, name_to_sym_idx, rodata_data.size());
+                serialize_init_value(arch, rodata_data, glp->g->init, glp->g->type, rodata_relas, name_to_sym_idx, rodata_data.size());
         }
 
         for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
@@ -945,7 +955,7 @@ export namespace dcc::backend::object
                         Elf64_Rela rela{};
                         rela.r_offset = entry_offset;
                         rela.r_addend = -4;
-                        rela.r_info = elf_r_info(blk_sym_it->second, R_X86_64_PC32);
+                        rela.r_info = elf_r_info(blk_sym_it->second, arch.reloc_pc32);
                         rodata_relas.push_back(rela);
                     }
                 }
@@ -965,7 +975,7 @@ export namespace dcc::backend::object
 
             glp->offset = data_rel_ro_data.size();
             if (glp->g->init)
-                serialize_init_value(data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, name_to_sym_idx, data_rel_ro_data.size());
+                serialize_init_value(arch, data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, name_to_sym_idx, data_rel_ro_data.size());
         }
 
         data_data.clear();
@@ -979,7 +989,7 @@ export namespace dcc::backend::object
             glp->offset = data_data.size();
             if (glp->g->init)
             {
-                serialize_init_value(data_data, glp->g->init, glp->g->type, data_relas, name_to_sym_idx, data_data.size());
+                serialize_init_value(arch, data_data, glp->g->init, glp->g->type, data_relas, name_to_sym_idx, data_data.size());
             }
         }
 
@@ -989,7 +999,7 @@ export namespace dcc::backend::object
             cs.relas.clear();
             cs.bss_size = 0;
             for (auto* glp : cs.globals)
-                serialize_custom_section_global(cs, *glp, name_to_sym_idx);
+                serialize_custom_section_global(arch, cs, *glp, name_to_sym_idx);
         }
 
         std::vector<Elf64_Rela> final_text_relas;
@@ -1006,7 +1016,7 @@ export namespace dcc::backend::object
                 if (it == name_to_sym_idx.end())
                     continue;
 
-                std::uint32_t rtype = elf_reloc_type(r.kind);
+                std::uint32_t rtype = elf_reloc_type(arch, r.kind);
                 rela.r_info = elf_r_info(it->second, rtype);
                 final_text_relas.push_back(rela);
             }
@@ -1239,7 +1249,7 @@ export namespace dcc::backend::object
         Elf64_Ehdr ehdr{};
         ehdr.e_ident = {0x7F, 'E', 'L', 'F', 2, 1, 1, 0};
         ehdr.e_type = ET_REL;
-        ehdr.e_machine = EM_X86_64;
+        ehdr.e_machine = arch.machine;
         ehdr.e_version = EV_CURRENT;
         ehdr.e_shoff = shoff;
         ehdr.e_ehsize = 64;
@@ -1322,4 +1332,4 @@ export namespace dcc::backend::object
         return out;
     }
 
-}
+} // namespace dcc::backend::object

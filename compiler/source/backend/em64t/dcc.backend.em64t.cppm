@@ -133,8 +133,8 @@ namespace dcc::backend
                         if (!block)
                             continue;
                         for (auto* inst : block->instructions)
-                            if (inst && (has_segmented_type(inst->type) || inst->kind == ir::IrNodeKind::ReadSegment ||
-                                         inst->kind == ir::IrNodeKind::PointerSegment))
+                            if (inst &&
+                                (has_segmented_type(inst->type) || inst->kind == ir::IrNodeKind::ReadSegment || inst->kind == ir::IrNodeKind::PointerSegment))
                             {
                                 artifact.diagnostics.push_back(BackendDiagnostic{{}, "far and based pointers are not supported by this backend yet"});
                                 return artifact;
@@ -150,7 +150,8 @@ namespace dcc::backend
                 if (!input_module->module_asms.empty())
                 {
                     auto* ma = input_module->module_asms.front();
-                    artifact.diagnostics.push_back(BackendDiagnostic{ma ? ma->range : decltype(ma->range){}, "custom backend: module asm is not supported on the native backend"});
+                    artifact.diagnostics.push_back(
+                        BackendDiagnostic{ma ? ma->range : decltype(ma->range){}, "custom backend: module asm is not supported on the native backend"});
                     return artifact;
                 }
 
@@ -225,9 +226,9 @@ namespace dcc::backend
                     std::vector<std::uint8_t> object_data;
 
                     if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
-                        object_data = object::write_coff(*input_module, mmod, encoded, opts.target);
+                        object_data = object::write_coff(*input_module, mmod, encoded, opts.target, object::coff_x86_64_policy);
                     else
-                        object_data = object::write_elf64(*input_module, mmod, encoded, opts.target);
+                        object_data = object::write_elf64(*input_module, mmod, encoded, opts.target, object::elf64_x86_64_policy);
 
                     std::vector<std::byte> obj_bytes;
                     obj_bytes.reserve(object_data.size());
@@ -331,8 +332,7 @@ namespace dcc::backend
                             auto* at = static_cast<ir::IrArrayType const*>(storage);
                             auto n = std::min<std::uint64_t>(agg->values.size(), at->count);
                             for (std::uint64_t i = 0; i < n; ++i)
-                                if (agg->values[static_cast<std::size_t>(i)] &&
-                                    !ir_init_compatible(agg->values[static_cast<std::size_t>(i)], at->element))
+                                if (agg->values[static_cast<std::size_t>(i)] && !ir_init_compatible(agg->values[static_cast<std::size_t>(i)], at->element))
                                     return false;
                             return true;
                         }
@@ -687,8 +687,7 @@ namespace dcc::backend
 
                     if (storage_class == 2 && sec_num > 0)
                     {
-                        if (name != ".text" && name != ".data" && name != ".bss" && name != ".rdata" &&
-                            !name.starts_with("__imp_"))
+                        if (name != ".text" && name != ".data" && name != ".bss" && name != ".rdata" && !name.starts_with("__imp_"))
                         {
                             exports.push_back(name);
                         }
