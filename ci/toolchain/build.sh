@@ -4,13 +4,16 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$here/../lib/toolchain.sh"
 
+export BUILDX_NO_DEFAULT_ATTESTATIONS=1
+attestations=(--provenance=false --sbom=false)
+
 push=0
 for arg in "$@"; do
     case "$arg" in
         --push) push=1 ;;
         --push-job)
             job_ref="$(job_image_ref)"
-            docker build --build-arg "TOOLCHAIN_IMAGE=$TOOLCHAIN_REF${TOOLCHAIN_DIGEST:+@$TOOLCHAIN_DIGEST}" --tag "$job_ref" "$here/../job"
+            docker build "${attestations[@]}" --build-arg "TOOLCHAIN_IMAGE=$TOOLCHAIN_REF${TOOLCHAIN_DIGEST:+@$TOOLCHAIN_DIGEST}" --tag "$job_ref" "$here/../job"
             docker push "$job_ref"
             exit 0 ;;
         --print-ref) echo "$TOOLCHAIN_REF"; exit 0 ;;
@@ -25,7 +28,7 @@ while IFS='=' read -r key value; do
 done < "$here/pins.env"
 
 start=$(date +%s)
-docker build "${args[@]}" --target toolchain --tag "$TOOLCHAIN_REF" "$here"
+docker build "${attestations[@]}" "${args[@]}" --target toolchain --tag "$TOOLCHAIN_REF" "$here"
 end=$(date +%s)
 echo "built $TOOLCHAIN_REF in $((end - start))s"
 docker image inspect "$TOOLCHAIN_REF" --format 'size {{.Size}} bytes'
@@ -37,7 +40,7 @@ if [[ $push -eq 1 ]]; then
     echo "${digest#*@}" > "$here/DIGEST"
     TOOLCHAIN_DIGEST="${digest#*@}"
     job_ref="$(job_image_ref)"
-    docker build --build-arg "TOOLCHAIN_IMAGE=$TOOLCHAIN_REF@$TOOLCHAIN_DIGEST" --tag "$job_ref" "$here/../job"
+    docker build "${attestations[@]}" --build-arg "TOOLCHAIN_IMAGE=$TOOLCHAIN_REF@$TOOLCHAIN_DIGEST" --tag "$job_ref" "$here/../job"
     docker push "$job_ref"
     echo "pushed $TOOLCHAIN_REF@$TOOLCHAIN_DIGEST and $job_ref; commit ci/toolchain/DIGEST"
 fi
