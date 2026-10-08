@@ -322,9 +322,7 @@ public SourceLocation source_location();
         auto const* os = target.os == dcc::target::Os::Linux ? "Linux" : target.os == dcc::target::Os::Windows ? "Windows" : "Freestanding";
         auto const* arch = target.arch == dcc::target::Arch::X86_64 ? "X86_64" : target.arch == dcc::target::Arch::I8086 ? "I8086" : "X86";
 
-        bool const float_available = target.arch == dcc::target::Arch::X86_64 ? !target.no_simd
-                                     : target.arch == dcc::target::Arch::X86  ? !target.no_x87
-                                                                              : false;
+        bool const float_available = target.float_available();
 
         return std::format(R"dc(module core::target;
 

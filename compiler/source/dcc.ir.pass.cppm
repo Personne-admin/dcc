@@ -854,6 +854,7 @@ namespace dcc::ir::pass
             {
                 auto* new_g = dst.global(g->name, cloner_detail::clone_type_impl(g->type, dst, cctx), nullptr, g->is_constant);
                 new_g->is_declaration = g->is_declaration;
+                new_g->retain = g->retain;
                 new_g->is_dll_import = g->is_dll_import;
                 new_g->is_dll_export = g->is_dll_export;
                 new_g->linkage = g->linkage;

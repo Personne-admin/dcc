@@ -1807,12 +1807,58 @@ namespace
 #endif
     }
 
+    constexpr std::string_view float_enabled_marker = "__dcc_libdcext_abi_requires_float_enabled";
+    constexpr std::string_view float_disabled_marker = "__dcc_libdcext_abi_requires_float_disabled";
+
+    void add_libdcext_abi_guard(dcc::ir::IrContext& ctx, dcc::ir::IrModule& module, dcc::target::TargetConfig const& target)
+    {
+        auto name = target.float_available() ? float_enabled_marker : float_disabled_marker;
+        auto* byte = ctx.int_t(8, false);
+        if (target.object_format == dcc::target::ObjectFormat::Coff)
+        {
+            auto text = std::format(" /include:{} ", name);
+            auto* type = ctx.array_t(byte, text.size());
+            auto* init = ctx.aggregate(type);
+            for (unsigned char c : std::span(reinterpret_cast<unsigned char const*>(text.data()), text.size()))
+                init->values.push_back(ctx.int_const(byte, c));
+            auto* directive = ctx.global("__dcc_libdcext_abi_directive", type, init, true);
+            directive->section = ".drectve";
+            directive->retain = true;
+            module.globals.push_back(directive);
+            return;
+        }
+        dcc::ir::IrGlobal* marker = nullptr;
+        for (auto* global : module.globals)
+            if (global->name == name)
+                marker = global;
+        if (!marker)
+        {
+            marker = ctx.global(name, byte);
+            marker->is_declaration = true;
+            marker->linkage = dcc::ir::Linkage::External;
+            module.globals.push_back(marker);
+        }
+        auto* pointer = ctx.pointer_to(byte);
+        auto* reference = ctx.global("__dcc_libdcext_abi_reference", pointer, ctx.global_ref(marker, pointer), true);
+        reference->section = ".data.rel.ro.dcc.libdcext.abi";
+        reference->retain = true;
+        module.globals.push_back(reference);
+    }
+
+    std::pair<bool, bool> libdcext_markers(std::filesystem::path const& path)
+    {
+        std::ifstream input(path, std::ios::binary);
+        std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+        return {bytes.find(float_enabled_marker) != std::string::npos, bytes.find(float_disabled_marker) != std::string::npos};
+    }
+
     [[nodiscard]] std::string libdcext_library_name(dcc::target::TargetConfig const& target, std::string_view backend_name)
     {
         return std::format("dcext-{}-{}", dcc::target::os_name(target.os), backend_name);
     }
 
-    [[nodiscard]] bool require_libdcext_archive(Options const& opts, dcc::target::TargetConfig const& target, std::filesystem::path const& prefix)
+    [[nodiscard]] bool require_libdcext_archive(Options const& opts, dcc::target::TargetConfig const& target, std::filesystem::path const& prefix,
+                                                std::optional<bool> source_float = std::nullopt)
     {
         auto filename = std::format("lib{}.a", libdcext_library_name(target, opts.backend_name));
         std::vector<std::filesystem::path> paths;
@@ -1825,7 +1871,28 @@ namespace
         {
             std::error_code ec;
             if (std::filesystem::is_regular_file(path / filename, ec) && !ec)
+            {
+                auto [enabled, disabled] = libdcext_markers(path / filename);
+                bool need_enabled = source_float == true;
+                bool need_disabled = source_float == false;
+                if (!source_float)
+                    for (auto const& object : opts.input_files)
+                    {
+                        auto [object_enabled, object_disabled] = libdcext_markers(object);
+                        need_enabled |= object_enabled;
+                        need_disabled |= object_disabled;
+                    }
+                if ((need_enabled && disabled && !enabled) || (need_disabled && enabled && !disabled))
+                {
+                    auto missing = need_enabled && !enabled ? float_enabled_marker : float_disabled_marker;
+                    std::println(std::cerr,
+                                 "dcc: error: libdcext floating-point ABI mismatch: '{}' lacks {}; input mode is selected by -fsimd/-fno-simd on x86_64 or "
+                                 "-fx87/-fno-x87 on x86; match those compilation flags to the archive selected by -flibdcext {}",
+                                 (path / filename).string(), missing, dcc::target::os_name(target.os));
+                    return false;
+                }
                 return true;
+            }
 
             if (!searched.empty())
                 searched += ", ";
@@ -2202,6 +2269,9 @@ auto main(int argc, char** argv) -> int
             return 1;
         }
 
+        if (opts.libdcext && need_backend)
+            add_libdcext_abi_guard(ir_ctx, *ir_mod, compile_opts.target);
+
         phase("lowering");
         if (measure)
             dcc::ir::pass::benchmark_stats(*ir_mod, "before");
@@ -2273,7 +2343,7 @@ auto main(int argc, char** argv) -> int
             if (opts.libdcext &&
                 (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
             {
-                if (!require_libdcext_archive(opts, target, prefix))
+                if (!require_libdcext_archive(opts, target, prefix, target.float_available()))
                     return 1;
                 backend_opts.library_paths.push_back((prefix / "lib").string());
                 backend_opts.libraries.push_back(libdcext_library_name(target, opts.backend_name));

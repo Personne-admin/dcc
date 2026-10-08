@@ -1738,15 +1738,31 @@ namespace dcc::backend
                     }
                 }
 
+                std::vector<LLVMValueRef> retained;
+                for (auto* g : input_module->globals)
+                    if (g && g->retain && val_map.contains(g))
+                        retained.push_back(val_map.at(g));
+                if (!retained.empty() && opts.target.object_format == target::ObjectFormat::Elf)
+                {
+                    auto* ptr_ty = LLVMPointerTypeInContext(ctx, 0);
+                    auto* arr_ty = LLVMArrayType2(ptr_ty, static_cast<unsigned long long>(retained.size()));
+                    auto* gv = LLVMAddGlobal(llvm_mod, arr_ty, "llvm.used");
+                    LLVMSetLinkage(gv, LLVMAppendingLinkage);
+                    LLVMSetSection(gv, "llvm.metadata");
+                    LLVMSetInitializer(gv, LLVMConstArray2(ptr_ty, retained.data(), static_cast<unsigned>(retained.size())));
+                }
+
                 for (auto* ma : input_module->module_asms)
                 {
                     if (!ma)
                         continue;
                     LLVMAppendModuleInlineAsm(llvm_mod, ma->template_str.data(), ma->template_str.size());
                 }
-                if (!input_module->module_asms.empty())
+                if (!input_module->module_asms.empty() || (!retained.empty() && opts.target.object_format == target::ObjectFormat::Coff))
                 {
                     std::vector<LLVMValueRef> used_vals;
+                    if (opts.target.object_format == target::ObjectFormat::Coff)
+                        used_vals = retained;
                     for (auto* ma : input_module->module_asms)
                     {
                         if (!ma)
