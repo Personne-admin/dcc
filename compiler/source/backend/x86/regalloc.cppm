@@ -6,13 +6,38 @@ import dcc.backend.x86.mir;
 
 export namespace dcc::backend::x86
 {
+    struct SpillAccess
+    {
+        std::uint32_t size;
+        std::uint32_t align;
+        MOpc store;
+        MOpc load;
+    };
+
+    struct RegisterClassPolicy
+    {
+        RegClass cls;
+        std::uint8_t bits;
+        std::span<PhysReg const> allocatable;
+        std::span<PhysReg const> callee_saved;
+        std::span<PhysReg const> scratch_order;
+        SpillAccess spill;
+        SpillAccess cycle_temp;
+        MOpc move;
+    };
+
     struct RegisterPolicy
     {
-        std::span<PhysReg const> gprs;
-        std::span<PhysReg const> xmms;
-        std::span<PhysReg const> callee_saved_gprs;
-        std::span<PhysReg const> callee_saved_xmms;
+        RegisterClassPolicy gpr;
+        RegisterClassPolicy xmm;
+        PhysReg jump_table_scratch;
+        MOpc gpr_save;
+        MOpc gpr_restore;
+        SpillAccess xmm_save;
         bool is_win64;
+
+        [[nodiscard]] RegisterClassPolicy const& of(RegClass cls) const noexcept { return cls == RegClass::XMM ? xmm : gpr; }
+        [[nodiscard]] VReg scratch(RegClass cls) const noexcept { return VReg::phys(of(cls).scratch_order.front()); }
     };
 }
 
@@ -661,8 +686,8 @@ namespace dcc::backend::x86
 
         void linear_scan(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange>& ranges)
         {
-            auto gprs = regs.gprs;
-            auto xmms = regs.xmms;
+            auto gprs = regs.gpr.allocatable;
+            auto xmms = regs.xmm.allocatable;
 
             std::unordered_set<VReg> setcc_defs;
             std::unordered_set<VReg> shift_dsts;
@@ -743,7 +768,7 @@ namespace dcc::backend::x86
 
                 PhysReg free_reg = PhysReg::None;
 
-                auto const callee_gpr_span = regs.callee_saved_gprs;
+                auto const callee_gpr_span = regs.gpr.callee_saved;
 
                 if (range.crosses_call && range.reg_class == RegClass::XMM)
                     free_reg = PhysReg::None;
@@ -789,7 +814,7 @@ namespace dcc::backend::x86
                                 continue;
                             if (range.reg_class == RegClass::XMM)
                                 continue;
-                            if (std::ranges::find(regs.callee_saved_gprs, a->assigned) == regs.callee_saved_gprs.end())
+                            if (std::ranges::find(regs.gpr.callee_saved, a->assigned) == regs.gpr.callee_saved.end())
                                 continue;
                         }
 
@@ -800,7 +825,7 @@ namespace dcc::backend::x86
                     if (spill_candidate && spill_candidate->end > range.end)
                     {
                         if (spill_candidate->spill_slot == (std::numeric_limits<std::uint32_t>::max)())
-                            spill_candidate->spill_slot = func.new_frame_slot(8, 8, true);
+                            spill_candidate->spill_slot = func.new_frame_slot(regs.of(spill_candidate->reg_class).spill.size, regs.of(spill_candidate->reg_class).spill.align, true);
 
                         spill_candidate->spilled = true;
                         PhysReg freed_reg = spill_candidate->assigned;
@@ -818,7 +843,7 @@ namespace dcc::backend::x86
                     else
                     {
                         if (range.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
-                            range.spill_slot = func.new_frame_slot(8, 8, true);
+                            range.spill_slot = func.new_frame_slot(regs.of(range.reg_class).spill.size, regs.of(range.reg_class).spill.align, true);
 
                         range.spilled = true;
                         range.assigned = PhysReg::None;
@@ -829,14 +854,16 @@ namespace dcc::backend::x86
             }
         }
 
-        void rewrite_function(MFunction& func, std::vector<LiveRange> const& ranges)
+        void rewrite_function(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange> const& ranges)
         {
             std::unordered_map<VReg, LiveRange const*> range_map;
             for (auto const& r : ranges)
                 range_map[r.vreg] = &r;
 
-            VReg scratch_gpr = VReg::phys(PhysReg::R11);
-            VReg scratch_xmm = VReg::phys(PhysReg::XMM15);
+            VReg scratch_gpr = regs.scratch(RegClass::GPR);
+            VReg scratch_xmm = regs.scratch(RegClass::XMM);
+            auto const gpr_scratch_order = regs.gpr.scratch_order;
+            auto const xmm_scratch_order = regs.xmm.scratch_order;
 
             std::unordered_map<PhysReg, std::uint32_t> scratch_slots;
             std::unordered_map<PhysReg, std::uint32_t> xmm_scratch_slots;
@@ -913,7 +940,7 @@ namespace dcc::backend::x86
                     };
 
                     bool is_jump_table = (instr.opc == MOpc::JUMP_TABLE);
-                    PhysReg use_scratch = is_jump_table ? PhysReg::R10 : PhysReg::R11;
+                    PhysReg use_scratch = is_jump_table ? regs.jump_table_scratch : scratch_gpr.phys_reg();
 
                     std::vector<ReloadInfo> reloads_needed;
                     std::vector<unsigned> spilled_def_indices;
@@ -988,21 +1015,20 @@ namespace dcc::backend::x86
                         auto found = xmm_scratch.find(vreg);
                         if (found != xmm_scratch.end())
                             return found->second;
-                        PhysReg chosen = PhysReg::XMM15;
-                        for (auto candidate :
-                             {PhysReg::XMM15, PhysReg::XMM14, PhysReg::XMM13, PhysReg::XMM12, PhysReg::XMM11, PhysReg::XMM10, PhysReg::XMM9, PhysReg::XMM8})
+                        PhysReg chosen = scratch_xmm.phys_reg();
+                        for (auto candidate : xmm_scratch_order)
                             if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
                             {
                                 chosen = candidate;
                                 break;
                             }
-                        if (chosen != PhysReg::XMM15)
+                        if (chosen != scratch_xmm.phys_reg())
                         {
                             auto [slot, inserted] = xmm_scratch_slots.try_emplace(chosen, 0);
                             if (inserted)
-                                slot->second = func.new_frame_slot(8, 8, true);
+                                slot->second = func.new_frame_slot(regs.xmm.spill.size, regs.xmm.spill.align, true);
                             MInstr save;
-                            save.opc = MOpc::MOVSD_mr;
+                            save.opc = regs.xmm.spill.store;
                             save.num_ops = 2;
                             save.ops[0] = MOp::from_frame_slot(slot->second);
                             save.ops[1] = MOp::from_reg(VReg::phys(chosen));
@@ -1018,21 +1044,20 @@ namespace dcc::backend::x86
                         auto found = memory_scratch.find(vreg);
                         if (found != memory_scratch.end())
                             return found->second;
-                        PhysReg chosen = PhysReg::R11;
-                        for (auto candidate : {PhysReg::R11, PhysReg::R10, PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9, PhysReg::RSI,
-                                               PhysReg::RDI, PhysReg::RBX, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15})
+                        PhysReg chosen = scratch_gpr.phys_reg();
+                        for (auto candidate : gpr_scratch_order)
                             if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
                             {
                                 chosen = candidate;
                                 break;
                             }
-                        if (chosen != PhysReg::R11)
+                        if (chosen != scratch_gpr.phys_reg())
                         {
                             auto [slot, inserted] = scratch_slots.try_emplace(chosen, 0);
                             if (inserted)
-                                slot->second = func.new_frame_slot(8, 8, true);
+                                slot->second = func.new_frame_slot(regs.gpr.spill.size, regs.gpr.spill.align, true);
                             MInstr save;
-                            save.opc = MOpc::MOV64mr;
+                            save.opc = regs.gpr.spill.store;
                             save.num_ops = 2;
                             save.ops[0] = MOp::from_frame_slot(slot->second);
                             save.ops[1] = MOp::from_reg(VReg::phys(chosen));
@@ -1051,11 +1076,10 @@ namespace dcc::backend::x86
                             auto const* range = range_map.at(rl.spilled_vreg);
                             if (range->reg_class != RegClass::GPR || memory_scratch.contains(rl.spilled_vreg))
                                 continue;
-                            PhysReg chosen = PhysReg::R11;
+                            PhysReg chosen = scratch_gpr.phys_reg();
                             if (!memory_scratch.empty())
                             {
-                                for (auto candidate : {PhysReg::R10, PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9, PhysReg::RSI,
-                                                       PhysReg::RDI, PhysReg::RBX, PhysReg::R12, PhysReg::R13, PhysReg::R14, PhysReg::R15})
+                                for (auto candidate : gpr_scratch_order.subspan(1))
                                     if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
                                     {
                                         chosen = candidate;
@@ -1063,9 +1087,9 @@ namespace dcc::backend::x86
                                     }
                                 auto [slot, inserted] = scratch_slots.try_emplace(chosen, 0);
                                 if (inserted)
-                                    slot->second = func.new_frame_slot(8, 8, true);
+                                    slot->second = func.new_frame_slot(regs.gpr.spill.size, regs.gpr.spill.align, true);
                                 MInstr save;
-                                save.opc = MOpc::MOV64mr;
+                                save.opc = regs.gpr.spill.store;
                                 save.num_ops = 2;
                                 save.ops[0] = MOp::from_frame_slot(slot->second);
                                 save.ops[1] = MOp::from_reg(VReg::phys(chosen));
@@ -1095,7 +1119,7 @@ namespace dcc::backend::x86
                         MInstr reload;
                         if (lr.reg_class == RegClass::XMM)
                         {
-                            reload.opc = MOpc::MOVSD_rm;
+                            reload.opc = regs.xmm.spill.load;
                             reload.num_ops = 2;
                             reload.num_defs = 1;
                             reload.ops[0] = MOp::from_reg(scratch);
@@ -1103,7 +1127,7 @@ namespace dcc::backend::x86
                         }
                         else
                         {
-                            reload.opc = MOpc::MOV64rm;
+                            reload.opc = regs.gpr.spill.load;
                             reload.num_ops = 2;
                             reload.num_defs = 1;
                             reload.ops[0] = MOp::from_reg(scratch);
@@ -1126,7 +1150,7 @@ namespace dcc::backend::x86
                     }
 
                     {
-                        VReg jt_scratch_gpr = is_jump_table ? VReg::phys(PhysReg::R10) : scratch_gpr;
+                        VReg jt_scratch_gpr = is_jump_table ? VReg::phys(regs.jump_table_scratch) : scratch_gpr;
                         for (std::uint8_t oi = instr.num_defs; oi < new_instr.num_ops; ++oi)
                         {
                             auto& op = new_instr.ops[oi];
@@ -1224,7 +1248,7 @@ namespace dcc::backend::x86
                         MInstr spill;
                         if (lr.reg_class == RegClass::XMM)
                         {
-                            spill.opc = MOpc::MOVSD_mr;
+                            spill.opc = regs.xmm.spill.store;
                             spill.num_ops = 2;
                             spill.num_defs = 0;
                             spill.ops[0] = MOp::from_frame_slot(lr.spill_slot);
@@ -1232,7 +1256,7 @@ namespace dcc::backend::x86
                         }
                         else
                         {
-                            spill.opc = MOpc::MOV64mr;
+                            spill.opc = regs.gpr.spill.store;
                             spill.num_ops = 2;
                             spill.num_defs = 0;
                             spill.ops[0] = MOp::from_frame_slot(lr.spill_slot);
@@ -1243,7 +1267,7 @@ namespace dcc::backend::x86
                     for (auto const& [reg, slot] : saved_scratch)
                     {
                         MInstr restore;
-                        restore.opc = MOpc::MOV64rm;
+                        restore.opc = regs.gpr.spill.load;
                         restore.num_ops = 2;
                         restore.num_defs = 1;
                         restore.ops[0] = MOp::from_reg(VReg::phys(reg));
@@ -1253,7 +1277,7 @@ namespace dcc::backend::x86
                     for (auto const& [reg, slot] : saved_xmm_scratch)
                     {
                         MInstr restore;
-                        restore.opc = MOpc::MOVSD_rm;
+                        restore.opc = regs.xmm.spill.load;
                         restore.num_ops = 2;
                         restore.num_defs = 1;
                         restore.ops[0] = MOp::from_reg(VReg::phys(reg));
@@ -1279,10 +1303,10 @@ namespace dcc::backend::x86
             auto note = [&](PhysReg pr) {
                 if (reg_class(pr) == RegClass::XMM)
                 {
-                    if (std::ranges::find(regs.callee_saved_xmms, pr) != regs.callee_saved_xmms.end() && std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
+                    if (std::ranges::find(regs.xmm.callee_saved, pr) != regs.xmm.callee_saved.end() && std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
                         used_xmm_saves.push_back(pr);
                 }
-                else if (std::ranges::find(regs.callee_saved_gprs, pr) != regs.callee_saved_gprs.end() && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
+                else if (std::ranges::find(regs.gpr.callee_saved, pr) != regs.gpr.callee_saved.end() && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
                     used_callee_saves.push_back(pr);
             };
 
@@ -1318,12 +1342,12 @@ namespace dcc::backend::x86
 
             std::vector<std::pair<PhysReg, std::uint32_t>> xmm_slots;
             for (auto pr : used_xmm_saves)
-                xmm_slots.emplace_back(pr, func.new_frame_slot(16, 16));
+                xmm_slots.emplace_back(pr, func.new_frame_slot(regs.xmm_save.size, regs.xmm_save.align));
 
             for (auto const& [pr, slot] : std::views::reverse(xmm_slots))
             {
                 MInstr save;
-                save.opc = MOpc::MOVAPSmr;
+                save.opc = regs.xmm_save.store;
                 save.num_ops = 2;
                 save.num_defs = 0;
                 save.ops[0] = MOp::from_frame_slot(slot);
@@ -1334,7 +1358,7 @@ namespace dcc::backend::x86
             for (auto pr : used_callee_saves)
             {
                 MInstr push;
-                push.opc = MOpc::PUSH64r;
+                push.opc = regs.gpr_save;
                 push.num_ops = 1;
                 push.num_defs = 0;
                 push.ops[0] = MOp::from_reg(VReg::phys(pr));
@@ -1353,7 +1377,7 @@ namespace dcc::backend::x86
                     for (auto pr : std::views::reverse(used_callee_saves))
                     {
                         MInstr pop;
-                        pop.opc = MOpc::POP64r;
+                        pop.opc = regs.gpr_restore;
                         pop.num_ops = 1;
                         pop.num_defs = 1;
                         pop.ops[0] = MOp::from_reg(VReg::phys(pr));
@@ -1363,7 +1387,7 @@ namespace dcc::backend::x86
                     for (auto const& [pr, slot] : xmm_slots)
                     {
                         MInstr restore;
-                        restore.opc = MOpc::MOVAPSrm;
+                        restore.opc = regs.xmm_save.load;
                         restore.num_ops = 2;
                         restore.num_defs = 1;
                         restore.ops[0] = MOp::from_reg(VReg::phys(pr));
@@ -1381,12 +1405,12 @@ namespace dcc::backend::x86
             return opc == MOpc::COPY || opc == MOpc::MOVSDrr || opc == MOpc::MOVSSrr || opc == MOpc::MOVAPSrr;
         }
 
-        [[nodiscard]] MInstr make_reg_move(VReg dst, VReg src)
+        [[nodiscard]] MInstr make_reg_move(RegisterPolicy const& regs, VReg dst, VReg src)
         {
             if (dst.is_physical() && reg_class(dst.phys_reg()) == RegClass::XMM)
             {
                 MInstr mi;
-                mi.opc = MOpc::MOVSDrr;
+                mi.opc = regs.xmm.move;
                 mi.num_ops = 2;
                 mi.num_defs = 1;
                 mi.ops[0] = MOp::from_reg(dst);
@@ -1403,10 +1427,10 @@ namespace dcc::backend::x86
                    !c.ops[1].reg.is_virtual();
         }
 
-        void resolve_parallel_copies(MFunction& func)
+        void resolve_parallel_copies(MFunction& func, RegisterPolicy const& regs)
         {
-            VReg scratch_gpr = VReg::phys(PhysReg::R11);
-            VReg scratch_xmm = VReg::phys(PhysReg::XMM15);
+            VReg scratch_gpr = regs.scratch(RegClass::GPR);
+            VReg scratch_xmm = regs.scratch(RegClass::XMM);
 
             for (auto& blk : func.blocks)
             {
@@ -1488,7 +1512,7 @@ namespace dcc::backend::x86
                         continue;
                     }
 
-                    auto resolve_group = [&func](std::vector<Move> group, VReg group_scratch, bool& ok, bool& changed, std::uint32_t& out_temp_slot) {
+                    auto resolve_group = [&func](std::vector<Move> group, VReg group_scratch, SpillAccess const& temp, bool& ok, bool& changed, std::uint32_t& out_temp_slot) {
                         ok = true;
                         changed = false;
                         if (group.size() < 2)
@@ -1584,7 +1608,7 @@ namespace dcc::backend::x86
 
                         if (need_temp)
                         {
-                            out_temp_slot = func.new_frame_slot(8, 8, false);
+                            out_temp_slot = func.new_frame_slot(temp.size, temp.align, false);
 
                             std::vector<Move> result;
                             for (auto const& sm : scratch_dst)
@@ -1747,8 +1771,8 @@ namespace dcc::backend::x86
                         bool seg_xmm_ok = true;
                         bool seg_gpr_changed = false;
                         bool seg_xmm_changed = false;
-                        auto res_gpr = resolve_group(seg_gpr, scratch_gpr, seg_gpr_ok, seg_gpr_changed, gpr_temp_slot);
-                        auto res_xmm = resolve_group(seg_xmm, scratch_xmm, seg_xmm_ok, seg_xmm_changed, xmm_temp_slot);
+                        auto res_gpr = resolve_group(seg_gpr, scratch_gpr, regs.gpr.cycle_temp, seg_gpr_ok, seg_gpr_changed, gpr_temp_slot);
+                        auto res_xmm = resolve_group(seg_xmm, scratch_xmm, regs.xmm.cycle_temp, seg_xmm_ok, seg_xmm_changed, xmm_temp_slot);
 
                         if (!seg_gpr_ok || !seg_xmm_ok)
                         {
@@ -1778,7 +1802,7 @@ namespace dcc::backend::x86
                             bool is_gpr = result[ri].is_gpr;
                             std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
                             MInstr store;
-                            store.opc = is_gpr ? MOpc::MOV64mr : MOpc::MOVSDmr;
+                            store.opc = is_gpr ? regs.gpr.cycle_temp.store : regs.xmm.cycle_temp.store;
                             store.num_ops = 2;
                             store.num_defs = 0;
                             store.ops[0] = MOp::from_frame_slot(slot);
@@ -1790,7 +1814,7 @@ namespace dcc::backend::x86
                             bool is_gpr = result[ri].is_gpr;
                             std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
                             MInstr load;
-                            load.opc = is_gpr ? MOpc::MOV64rm : MOpc::MOVSD_rm;
+                            load.opc = is_gpr ? regs.gpr.cycle_temp.load : regs.xmm.cycle_temp.load;
                             load.num_ops = 2;
                             load.num_defs = 1;
                             load.ops[0] = MOp::from_reg(mv.dst);
@@ -1798,7 +1822,7 @@ namespace dcc::backend::x86
                             blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), load);
                         }
                         else
-                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), make_reg_move(mv.dst, mv.src));
+                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), make_reg_move(regs, mv.dst, mv.src));
                     }
 
                     ii = run_start + result.size() + (is_call ? 1 : 0);
@@ -1806,10 +1830,10 @@ namespace dcc::backend::x86
             }
         }
 
-        void post_check_and_fix(MFunction& func)
+        void post_check_and_fix(MFunction& func, RegisterPolicy const& regs)
         {
-            VReg scratch_gpr = VReg::phys(PhysReg::R11);
-            VReg scratch_xmm = VReg::phys(PhysReg::XMM15);
+            VReg scratch_gpr = regs.scratch(RegClass::GPR);
+            VReg scratch_xmm = regs.scratch(RegClass::XMM);
             auto xmm_vregs = infer_reg_classes(func);
 
             for (auto& blk : func.blocks)
@@ -1902,13 +1926,13 @@ export namespace dcc::backend::x86
 
         linear_scan(func, regs, ranges);
 
-        rewrite_function(func, ranges);
+        rewrite_function(func, regs, ranges);
 
-        resolve_parallel_copies(func);
+        resolve_parallel_copies(func, regs);
 
         insert_callee_saves(func, regs, ranges);
 
-        post_check_and_fix(func);
+        post_check_and_fix(func, regs);
 
         remove_redundant_moves(func);
     }
