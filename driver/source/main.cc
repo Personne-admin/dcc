@@ -111,6 +111,7 @@ namespace
         bool gc_sections{false};
         std::optional<std::string> link_base;
         std::optional<std::string> stack_reserve;
+        bool print_linker_script{false};
     };
 
     struct OptionSpec
@@ -521,6 +522,17 @@ namespace
          "i8086 small model: stack bytes kept free above the image",
          "4096",
          [](Options& o, bool, std::string_view v, char**) { o.stack_reserve = std::string{v}; }},
+
+        {"--print-linker-script",
+         "",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Both,
+         "print the generated i8086 linker script for the selected -mcmodel and -fbase",
+         "",
+         [](Options& o, bool on, std::string_view, char**) { o.print_linker_script = on; }},
 
         {"--gc-sections",
          "--no-gc-sections",
@@ -2212,6 +2224,21 @@ auto main(int argc, char** argv) -> int
 
     if (opts.merge_compdb && !opts.help)
         return merge_compdb(opts);
+
+    if (opts.print_linker_script && !opts.help)
+    {
+        auto target = resolve_target_or_exit(opts);
+        if (target.arch != dcc::target::Arch::I8086)
+        {
+            std::println(std::cerr, "dcc: error: --print-linker-script applies only to target 'i8086-binary' (target: '{}')", target.triple);
+            return 1;
+        }
+        auto link = i8086_link_options(opts, target);
+        if (!link)
+            return 1;
+        std::print("{}", dcc::backend::i8086::linker_script(*link));
+        return 0;
+    }
 
     if (opts.help || opts.input_files.empty())
     {

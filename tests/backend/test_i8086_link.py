@@ -43,6 +43,30 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
 
     obj = directory / "main.o"
     run(*i8086, "-c", source, "-o", obj)
+    objects = {}
+    for model in ("small", "unreal", "unreal32"):
+        objects[model] = directory / f"model-{model}.o"
+        run(*i8086, f"-mcmodel={model}", "-c", source, "-o", objects[model])
+
+    for link_model in ("small", "unreal", "unreal32"):
+        script = directory / f"{link_model}.ld"
+        script.write_text(run(*i8086, f"-mcmodel={link_model}", "--print-linker-script").stdout)
+        for object_model, object_path in objects.items():
+            marker = f"__dcc_i8086_model_{object_model}"
+            if object_model == link_model:
+                run(*i8086, f"-mcmodel={link_model}", crt0, object_path, "-o", directory / "x.bin")
+                run("ld.lld", "-m", "elf_i386", "-T", script, "-o", directory / "raw.bin", crt0, object_path)
+                continue
+            run(*i8086, f"-mcmodel={link_model}", crt0, object_path, "-o", directory / "x.bin", expect=1,
+                contains=f"i8086 code model mismatch: an object needs {marker} (compiled with -mcmodel={object_model}), but this link is for "
+                         f"-mcmodel={link_model} and provides __dcc_i8086_model_{link_model}")
+            raw = run("ld.lld", "-m", "elf_i386", "-T", script, "-o", directory / "raw.bin", crt0, object_path, expect=1)
+            assert f"undefined symbol: {marker}" in raw.stderr, raw.stderr
+    run(*i8086, "-mcmodel=default", crt0, objects["small"], "-o", directory / "x.bin")
+    run(*i8086, "-mcmodel=unreal", crt0, obj, "-o", directory / "x.bin", expect=1, contains="needs __dcc_i8086_model_small")
+    run(compiler, "--print-linker-script", expect=1, contains="--print-linker-script applies only to target 'i8086-binary'")
+    script_text = run(*i8086, "-mcmodel=unreal", "-fbase=0800:0100", "--print-linker-script").stdout
+    assert "__dcc_i8086_model_unreal = 0;" in script_text and "__dcc_dgroup_segment = 0x800;" in script_text and ". = 0x100;" in script_text, script_text
     data = nasm(directory, "data", "bits 16\nsection .data\nglobal pointer\npointer:\n\tdw pointer\n")
     linked = directory / "offset.bin"
     run(*i8086, "-fbase=0050:0100", crt0, data, obj, "-o", linked)
@@ -65,7 +89,7 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
 
     big_code = nasm(directory, "big", "bits 16\nsection .text\ntimes 0x10001 db 0x90\n")
     for model in ("small", "unreal", "unreal32"):
-        run(*i8086, f"-mcmodel={model}", crt0, obj, big_code, "-o", directory / "x.bin", expect=1,
+        run(*i8086, f"-mcmodel={model}", crt0, objects[model], big_code, "-o", directory / "x.bin", expect=1,
             contains="i8086 code (.start and .text) does not fit below offset 0x10000 of its 64 KiB code segment")
 
     stack_bss = nasm(directory, "stack", "bits 16\nsection .bss\nresb 0xF000\n")
@@ -74,9 +98,9 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
     run(*i8086, "-fstack-reserve=0", crt0, obj, stack_bss, "-o", directory / "x.bin")
 
     huge_bss = nasm(directory, "huge", "bits 16\nsection .bss\nresb 0x30000\n")
-    run(*i8086, "-mcmodel=small", crt0, obj, huge_bss, "-o", directory / "x.bin", expect=1, contains="i8086 small model")
+    run(*i8086, "-mcmodel=small", crt0, objects["small"], huge_bss, "-o", directory / "x.bin", expect=1, contains="i8086 small model")
     for model in ("unreal", "unreal32"):
-        run(*i8086, f"-mcmodel={model}", crt0, obj, huge_bss, "-o", directory / "x.bin")
+        run(*i8086, f"-mcmodel={model}", crt0, objects[model], huge_bss, "-o", directory / "x.bin")
 
     run(compiler, "-fbase=0:0", "-c", source, "-o", directory / "x.o", expect=1, contains="-fbase applies only to target 'i8086-binary' (target: 'x86_64-elf')")
     run(compiler, "-fstack-reserve=8", "-c", source, "-o", directory / "x.o", expect=1, contains="-fstack-reserve applies only to target 'i8086-binary'")

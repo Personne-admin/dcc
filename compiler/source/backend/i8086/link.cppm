@@ -27,6 +27,10 @@ export namespace dcc::backend::i8086
         target::CodeModel model{target::CodeModel::Default};
     };
 
+    [[nodiscard]] std::string_view model_marker(target::CodeModel model) noexcept;
+
+    inline constexpr std::string_view model_marker_section = ".dcc.i8086.model";
+
     [[nodiscard]] std::expected<LinkBase, std::string> parse_link_base(std::string_view text);
 
     [[nodiscard]] std::expected<std::uint32_t, std::string> parse_stack_reserve(std::string_view text);
@@ -73,21 +77,61 @@ namespace dcc::backend::i8086
             return model != target::CodeModel::Unreal && model != target::CodeModel::Unreal32;
         }
 
-        [[nodiscard]] std::string rewrite_link_errors(std::string const& output, LinkOptions const& options)
+        [[nodiscard]] std::string_view model_name(target::CodeModel model)
         {
-            if (output.find("undefined symbol: __dcc_dgroup_segment") == std::string::npos)
-                return output;
+            return small_model(model) ? "small" : target::TargetConfig::code_model_name(model);
+        }
+
+        [[nodiscard]] std::string references_to(std::string const& output, std::string_view symbol)
+        {
             std::string references;
             std::istringstream lines{output};
             std::string line;
+            bool inside = false;
             while (std::getline(lines, line))
-                if (line.find(">>> referenced by") != std::string::npos)
+            {
+                if (line.find("undefined symbol: ") != std::string::npos)
+                    inside = line.ends_with(symbol);
+                else if (inside && line.starts_with(">>>"))
                     references += line + "\n";
+            }
+            return references;
+        }
+
+        [[nodiscard]] std::string rewrite_link_errors(std::string const& output, LinkOptions const& options)
+        {
+            for (auto model : {target::CodeModel::Small, target::CodeModel::Unreal, target::CodeModel::Unreal32})
+            {
+                auto marker = model_marker(model);
+                if (output.find(std::format("undefined symbol: {}\n", marker)) == std::string::npos || marker == model_marker(options.model))
+                    continue;
+
+                return std::format("i8086 code model mismatch: an object needs {}, but this link is for -mcmodel={} and provides {}", marker,
+                                   model_name(options.model), model_marker(options.model));
+            }
+            if (output.find("undefined symbol: __dcc_dgroup_segment") == std::string::npos)
+                return output;
+
+            auto references = references_to(output, "__dcc_dgroup_segment");
             return std::format(
                 "the image segment is unknown (-fbase=?:{:04X}), but a static far pointer needs it; pass -fbase=SEG:OFF with a known segment\n{}",
                 options.base.offset, references);
         }
+
     } // namespace
+
+    std::string_view model_marker(target::CodeModel model) noexcept
+    {
+        switch (model)
+        {
+            case target::CodeModel::Unreal:
+                return "__dcc_i8086_model_unreal";
+            case target::CodeModel::Unreal32:
+                return "__dcc_i8086_model_unreal32";
+            default:
+                return "__dcc_i8086_model_small";
+        }
+    }
 
     std::expected<LinkBase, std::string> parse_link_base(std::string_view text)
     {
@@ -127,7 +171,7 @@ namespace dcc::backend::i8086
         std::string script = std::format("OUTPUT_FORMAT(binary)\n"
                                          "SECTIONS\n"
                                          "{{\n"
-                                         "  . = 0x{:X};\n"
+                                         "  . = 0x{2:X};\n"
                                          "  .start : {{ KEEP(*(.start .start.*)) }}\n"
                                          "  .text : {{ *(.text .text.*) }}\n"
                                          "  __dcc_code_end = .;\n"
@@ -136,8 +180,10 @@ namespace dcc::backend::i8086
                                          "  .bss (NOLOAD) : {{ __bss_start = .; *(.bss .bss.*) *(COMMON) __bss_end = .; }}\n"
                                          "  __image_end = .;\n"
                                          "  /DISCARD/ : {{ *(.note .note.* .comment .eh_frame .eh_frame.*) }}\n"
-                                         "}}\n",
-                                         options.base.offset);
+                                         "  {0} 0 (INFO) : {{ KEEP(*({0})) }}\n"
+                                         "}}\n"
+                                         "{1} = 0;\n",
+                                         model_marker_section, model_marker(options.model), options.base.offset);
         if (options.base.segment)
             script += std::format("__dcc_dgroup_segment = 0x{:X};\n", *options.base.segment);
         script += "ASSERT(__dcc_code_end <= 0x10000, \"i8086 code (.start and .text) does not fit below offset 0x10000 of its 64 KiB code segment\")\n";
