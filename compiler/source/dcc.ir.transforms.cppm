@@ -596,6 +596,7 @@ namespace dcc::ir::pass
             if (!idf.contains(dfb))
                 continue;
             auto* phi = ctx.ctx->phi(val_type);
+            phi->debug_loc = alloca->debug_loc;
             dfb->instructions.insert(dfb->instructions.begin(), phi);
             block_phi[dfb] = phi;
         }
@@ -3340,6 +3341,25 @@ namespace dcc::ir::pass
             }
             if (!call_void)
                 replace_value_uses(*site.caller, site.inst, ret_val);
+
+            auto const call_loc = site.inst->debug_loc;
+            for (auto* nb : ic.new_blocks)
+            {
+                for (auto* inst : nb->instructions)
+                    inst->debug_loc = call_loc;
+                if (nb->terminator)
+                    nb->terminator->debug_loc = call_loc;
+            }
+            for (auto* a : ic.new_allocas)
+                a->debug_loc = call_loc;
+            site.block->terminator->debug_loc = call_loc;
+            if (rets.size() > 1)
+            {
+                auto* join = site.caller->blocks.back();
+                for (auto* inst : join->instructions)
+                    inst->debug_loc = call_loc;
+                join->terminator->debug_loc = call_loc;
+            }
 
             auto& own = site.block->instructions;
             if (!own.empty() && own.back() == site.inst)

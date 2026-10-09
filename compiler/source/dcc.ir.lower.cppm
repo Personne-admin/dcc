@@ -1191,46 +1191,19 @@ export namespace dcc::ir::lower
             if (!block)
                 block = m_current_block;
 
-            auto const scope = current_scope_id();
-            IrDebugLocation rec{};
-            rec.block_id = block->id;
-            rec.instruction_index = static_cast<std::uint32_t>(block->instructions.size());
-            rec.is_terminator = false;
-            rec.loc = make_source_loc(m_active_range, scope);
+            inst->debug_loc = make_source_loc(m_active_range, current_scope_id());
             block->instructions.push_back(inst);
-            m_current_func->debug_locations.push_back(rec);
         }
 
         void insert_inst(std::pmr::vector<IrValue*>::iterator it, IrValue* inst)
         {
-            auto const idx = static_cast<std::uint32_t>(it - m_current_block->instructions.begin());
-            auto const block_id = m_current_block->id;
-
-            for (auto& dl : m_current_func->debug_locations)
-            {
-                if (dl.block_id == block_id && !dl.is_terminator && dl.instruction_index >= idx)
-                    ++dl.instruction_index;
-            }
-
-            auto const scope = current_scope_id();
-            IrDebugLocation rec{};
-            rec.block_id = block_id;
-            rec.instruction_index = idx;
-            rec.is_terminator = false;
-            rec.loc = make_source_loc(m_active_range, scope);
+            inst->debug_loc = make_source_loc(m_active_range, current_scope_id());
             m_current_block->instructions.insert(it, inst);
-            m_current_func->debug_locations.push_back(rec);
         }
 
         void record_terminator_source_loc()
         {
-            auto const scope = current_scope_id();
-            IrDebugLocation rec{};
-            rec.block_id = m_current_block->id;
-            rec.instruction_index = static_cast<std::uint32_t>(m_current_block->instructions.size());
-            rec.is_terminator = true;
-            rec.loc = make_source_loc(m_active_range, scope);
-            m_current_func->debug_locations.push_back(rec);
+            m_current_block->terminator->debug_loc = make_source_loc(m_active_range, current_scope_id());
         }
 
         void register_defer(ast::Stmt const* body)

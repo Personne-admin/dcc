@@ -74,6 +74,7 @@ namespace dcc::backend
             sm::SourceManager const* sm = nullptr;
             std::string comp_dir;
             bool finalized = false;
+            bool strict_locations = false;
 
             [[nodiscard]] LLVMMetadataRef get_or_create_file(std::uint32_t file_id)
             {
@@ -1614,6 +1615,7 @@ namespace dcc::backend
                 {
                     debug.dibuilder = LLVMCreateDIBuilder(llvm_mod);
                     debug.sm = opts.source_manager;
+                    debug.strict_locations = std::getenv("DCC_STRICT_DEBUG_LOCATIONS") != nullptr;
 
                     {
                         std::error_code ec;
@@ -2707,48 +2709,28 @@ namespace dcc::backend
                 if (!llvm_func)
                     return false;
 
-                struct LocKey
-                {
-                    std::uint32_t block_id;
-                    std::uint32_t instruction_index;
-                    bool is_terminator;
-
-                    bool operator==(LocKey const& o) const noexcept
-                    {
-                        return block_id == o.block_id && instruction_index == o.instruction_index && is_terminator == o.is_terminator;
-                    }
-                };
-
-                struct LocKeyHash
-                {
-                    std::size_t operator()(LocKey const& k) const noexcept
-                    {
-                        std::size_t h = std::hash<std::uint32_t>{}(k.block_id);
-                        h ^= std::hash<std::uint32_t>{}(k.instruction_index) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                        h ^= std::hash<bool>{}(k.is_terminator) + 0x9e3779b9 + (h << 6) + (h >> 2);
-                        return h;
-                    }
-                };
-
-                std::unordered_map<LocKey, IrDebugLocation const*, LocKeyHash> loc_index;
                 std::unordered_map<std::uint32_t, LLVMMetadataRef> scope_map;
                 std::unordered_map<std::uint32_t, std::tuple<std::uint32_t, unsigned, unsigned>> scope_first_loc;
 
                 if (debug)
                 {
-                    for (auto const& dl : func->debug_locations)
-                    {
-                        LocKey key{.block_id = dl.block_id, .instruction_index = dl.instruction_index, .is_terminator = dl.is_terminator};
-                        loc_index[key] = &dl;
-                    }
+                    auto note_scope = [&](IrNode const* node) {
+                        if (!node || node->debug_loc.scope_id == 0 || node->debug_loc.line == 0)
+                            return;
 
-                    for (auto const& dl : func->debug_locations)
+                        auto const& loc = node->debug_loc;
+                        if (!scope_first_loc.contains(loc.scope_id))
+                            scope_first_loc[loc.scope_id] = {loc.file_id, loc.line, loc.column};
+                    };
+
+                    for (auto* bb : func->blocks)
                     {
-                        if (dl.loc.scope_id == 0)
+                        if (!bb)
                             continue;
 
-                        if (!scope_first_loc.contains(dl.loc.scope_id))
-                            scope_first_loc[dl.loc.scope_id] = {dl.loc.file_id, dl.loc.line, dl.loc.column};
+                        for (auto* inst : bb->instructions)
+                            note_scope(inst);
+                        note_scope(bb->terminator);
                     }
                 }
 
@@ -2793,33 +2775,46 @@ namespace dcc::backend
                     return lb;
                 };
 
-                auto apply_debug_loc = [&](LLVMBuilderRef builder, LocKey key) {
+                auto make_debug_loc = [&](IrNode const* node) -> LLVMMetadataRef {
+                    if (!node || node->debug_loc.line == 0)
+                        return nullptr;
+
+                    auto* scope = get_scope(func, node->debug_loc.scope_id);
+                    if (!scope)
+                        return nullptr;
+
+                    return LLVMDIBuilderCreateDebugLocation(ctx, node->debug_loc.line, node->debug_loc.column, scope, nullptr);
+                };
+
+                LLVMMetadataRef function_debug_loc = nullptr;
+                if (auto* sp = get_subprogram(func))
+                    function_debug_loc = LLVMDIBuilderCreateDebugLocation(ctx, func->decl_line == 0 ? 1 : func->decl_line, 0, sp, nullptr);
+
+                LLVMMetadataRef block_debug_loc = nullptr;
+
+                auto apply_debug_loc = [&](LLVMBuilderRef builder, IrNode const* node) {
                     if (!debug)
                         return;
 
-                    auto it = loc_index.find(key);
-                    if (it == loc_index.end() || it->second == nullptr)
+                    if (auto* loc = make_debug_loc(node))
                     {
-                        LLVMSetCurrentDebugLocation2(builder, nullptr);
+                        block_debug_loc = loc;
+                        LLVMSetCurrentDebugLocation2(builder, loc);
                         return;
                     }
 
-                    auto const& loc = it->second->loc;
-                    if (loc.line == 0)
-                    {
-                        LLVMSetCurrentDebugLocation2(builder, nullptr);
-                        return;
-                    }
+                    if (debug->strict_locations && node)
+                        add_diag(diags, node->range,
+                                 std::format("LLVM backend: IR node kind {} in function '{}' has no source location", static_cast<int>(node->kind), func->name));
 
-                    auto* scope = get_scope(func, loc.scope_id);
-                    if (!scope)
-                    {
-                        LLVMSetCurrentDebugLocation2(builder, nullptr);
-                        return;
-                    }
+                    LLVMSetCurrentDebugLocation2(builder, block_debug_loc ? block_debug_loc : function_debug_loc);
+                };
 
-                    auto* diloc = LLVMDIBuilderCreateDebugLocation(ctx, loc.line, loc.column, scope, nullptr);
-                    LLVMSetCurrentDebugLocation2(builder, diloc);
+                auto first_block_debug_loc = [&](IrBasicBlock const* bb) -> LLVMMetadataRef {
+                    for (auto* inst : bb->instructions)
+                        if (auto* loc = make_debug_loc(inst))
+                            return loc;
+                    return make_debug_loc(bb->terminator);
                 };
 
                 std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef> bb_map;
@@ -2840,6 +2835,8 @@ namespace dcc::backend
 
                 auto* builder = LLVMCreateBuilderInContext(ctx);
                 LlvmBuilderGuard bld_guard{builder};
+                if (function_debug_loc)
+                    LLVMSetCurrentDebugLocation2(builder, function_debug_loc);
 
                 if (func->entry_block && func->func_type)
                 {
@@ -2948,9 +2945,11 @@ namespace dcc::backend
                     LLVMPositionBuilderAtEnd(builder, llvm_bb);
 
                     instruction_index = 0;
+                    if (debug)
+                        block_debug_loc = first_block_debug_loc(bb);
                     for (auto* inst : bb->instructions)
                     {
-                        apply_debug_loc(builder, LocKey{bb->id, instruction_index, false});
+                        apply_debug_loc(builder, inst);
                         auto const diag_count = diags.size();
                         if (!emit_instruction(inst, builder, ctx, tc, val_map, bb_map, target, diags))
                         {
@@ -2966,7 +2965,7 @@ namespace dcc::backend
 
                     if (bb->terminator)
                     {
-                        apply_debug_loc(builder, LocKey{bb->id, instruction_index, true});
+                        apply_debug_loc(builder, bb->terminator);
                         auto const diag_count = diags.size();
                         if (!emit_terminator(bb->terminator, builder, ctx, tc, val_map, bb_map, diags, llvm_func, func))
                         {
@@ -2979,7 +2978,7 @@ namespace dcc::backend
                     }
                     else
                     {
-                        LLVMSetCurrentDebugLocation2(builder, nullptr);
+                        LLVMSetCurrentDebugLocation2(builder, debug ? (block_debug_loc ? block_debug_loc : function_debug_loc) : nullptr);
                         LLVMBuildUnreachable(builder);
                     }
 
@@ -3045,6 +3044,32 @@ namespace dcc::backend
                             LLVMValueRef vals[] = {val};
                             LLVMBasicBlockRef blocks[] = {bb_it->second};
                             LLVMAddIncoming(phi, vals, blocks, 1);
+                        }
+                    }
+                }
+
+                if (function_debug_loc)
+                {
+                    for (auto* llvm_bb = LLVMGetFirstBasicBlock(llvm_func); llvm_bb; llvm_bb = LLVMGetNextBasicBlock(llvm_bb))
+                    {
+                        LLVMMetadataRef previous = nullptr;
+                        for (auto* llvm_inst = LLVMGetFirstInstruction(llvm_bb); llvm_inst; llvm_inst = LLVMGetNextInstruction(llvm_inst))
+                        {
+                            if (auto* loc = LLVMInstructionGetDebugLoc(llvm_inst))
+                            {
+                                previous = loc;
+                                continue;
+                            }
+
+                            if (debug->strict_locations)
+                            {
+                                char* text = LLVMPrintValueToString(llvm_inst);
+                                add_diag(diags, func->range,
+                                         std::format("LLVM backend: emitted an instruction without a source location in function '{}': {}", func->name, text));
+                                LLVMDisposeMessage(text);
+                            }
+
+                            LLVMInstructionSetDebugLoc(llvm_inst, previous ? previous : function_debug_loc);
                         }
                     }
                 }
