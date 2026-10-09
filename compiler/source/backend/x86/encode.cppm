@@ -3557,6 +3557,13 @@ namespace
 
         [[nodiscard]] unsigned width() const noexcept { return operand_bits(m_instr.opc); }
 
+        [[nodiscard]] bool accumulator_widening() const noexcept
+        {
+            if (m_instr.opc == MOpc::MOVSX32_8rr || m_instr.num_ops != 2 || op(0).kind != MOpKind::Reg || op(1).kind != MOpKind::Reg)
+                return false;
+            return op(0).reg == VReg::phys(PhysReg::RAX) && op(1).reg == VReg::phys(PhysReg::RAX);
+        }
+
         [[nodiscard]] MOp const& op(unsigned i) const noexcept { return m_instr.ops[i]; }
 
         [[nodiscard]] bool has(unsigned count) const noexcept { return m_instr.num_ops >= count; }
@@ -4433,9 +4440,14 @@ namespace
                     return extend(0xB7, 16, false);
                 case MOpc::MOVSX16_8rr:
                 case MOpc::MOVSX32_8rr:
-                    return extend(0xBE, 8, false);
                 case MOpc::MOVSX32_16rr:
-                    return extend(0xBF, 16, false);
+                    if (accumulator_widening())
+                    {
+                        prefixes(width(), nullptr);
+                        emit_u8(m_buf, 0x98);
+                        return;
+                    }
+                    return m_instr.opc == MOpc::MOVSX32_16rr ? extend(0xBF, 16, false) : extend(0xBE, 8, false);
                 case MOpc::MOVZX16rm8:
                 case MOpc::MOVZX32rm8:
                     return extend(0xB6, 8, true);
