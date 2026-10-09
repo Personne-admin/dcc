@@ -280,8 +280,7 @@ export namespace dcc::ctfe
 
         std::optional<std::size_t> append_emit(ast::Expr const& node, std::vector<std::size_t> children)
         {
-            for (auto child : children)
-            {
+            for (auto child : children) {
                 assert(child < m_trace.nodes.size());
                 std::ignore = child;
             }
@@ -1519,11 +1518,13 @@ export namespace dcc::ctfe
                 return emitted;
             }
 
-            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) && (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
+            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) &&
+                (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
                 return abandoned(AbandonReason::UnsupportedEffect);
 
             Result r{};
-            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far || rhs.value->kind() == Kind::Far)
+            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far ||
+                rhs.value->kind() == Kind::Far)
                 r = pointer_binary(op, *lhs.value, *rhs.value, out_type);
             else
             {
@@ -2411,7 +2412,8 @@ export namespace dcc::ctfe
             return const_eval::fold_cast(std::move(value), target);
         }
 
-        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args, std::vector<ast::Expr const*> const& arg_sources = {})
+        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args,
+                          std::vector<ast::Expr const*> const& arg_sources = {})
         {
             m_steps = 0;
             m_cells = 0;

@@ -34,31 +34,31 @@ export namespace dcc::ir::lower
             m_failure_kind.clear();
             try
             {
-                m_entry_module = &mod;
+            m_entry_module = &mod;
 
-                auto segs = mod.canonical_path.segments();
-                m_module_path.clear();
-                m_module_path.reserve(segs.size());
-                for (auto const& s : segs)
-                    m_module_path.push_back(std::string_view{s});
+            auto segs = mod.canonical_path.segments();
+            m_module_path.clear();
+            m_module_path.reserve(segs.size());
+            for (auto const& s : segs)
+                m_module_path.push_back(std::string_view{s});
 
-                {
-                    auto mod_name_str = mod.canonical_path.str();
-                    auto* mem = static_cast<char*>(m_ctx.allocator().allocate_bytes(mod_name_str.size(), alignof(char)));
-                    std::memcpy(mem, mod_name_str.data(), mod_name_str.size());
-                    m_module = m_ctx.module(std::string_view{mem, mod_name_str.size()});
-                    if (mod.file_id != sm::FileId::Invalid)
-                        m_module->source_file_id = static_cast<std::uint32_t>(mod.file_id);
-                }
+            {
+                auto mod_name_str = mod.canonical_path.str();
+                auto* mem = static_cast<char*>(m_ctx.allocator().allocate_bytes(mod_name_str.size(), alignof(char)));
+                std::memcpy(mem, mod_name_str.data(), mod_name_str.size());
+                m_module = m_ctx.module(std::string_view{mem, mod_name_str.size()});
+                if (mod.file_id != sm::FileId::Invalid)
+                    m_module->source_file_id = static_cast<std::uint32_t>(mod.file_id);
+            }
 
-                build_nominal_resolver();
-                lower_globals(mod);
-                build_all_function_shells(mod);
-                lower_all_function_bodies();
-                lower_module_asms(mod);
+            build_nominal_resolver();
+            lower_globals(mod);
+            build_all_function_shells(mod);
+            lower_all_function_bodies();
+            lower_module_asms(mod);
 
-                if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
-                    emit_specialize_stats();
+            if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
+                emit_specialize_stats();
             }
             catch (std::exception const& error)
             {
@@ -501,9 +501,9 @@ export namespace dcc::ir::lower
                     for (auto const& arg : spec.canonical_args)
                         args.push_back(canonical_to_template_arg(arg));
                     auto name = spec.template_decl ? spec.template_decl->name : std::string_view{};
-                    ordered_specs.emplace_back(
-                        dcc::ir::mangle::mangle_specialization(module_path, name, param_types, get_canonical_type(fd->return_type), args, m_nominal_resolver),
-                        &spec);
+                    ordered_specs.emplace_back(dcc::ir::mangle::mangle_specialization(module_path, name, param_types,
+                                                                                     get_canonical_type(fd->return_type), args, m_nominal_resolver),
+                                               &spec);
                 }
                 std::ranges::sort(ordered_specs, [](auto const& a, auto const& b) { return a.first < b.first; });
                 for (auto const& entry : ordered_specs)
@@ -1121,7 +1121,8 @@ export namespace dcc::ir::lower
             sm::SourceRange prev;
             std::string prev_kind;
 
-            explicit SourceRangeGuard(Lowerer& l, sm::SourceRange r, std::string kind = {}) : lowerer(l), prev(l.m_active_range), prev_kind(l.m_active_kind)
+            explicit SourceRangeGuard(Lowerer& l, sm::SourceRange r, std::string kind = {})
+                : lowerer(l), prev(l.m_active_range), prev_kind(l.m_active_kind)
             {
                 lowerer.m_active_range = r;
                 if (!kind.empty())
@@ -1200,7 +1201,10 @@ export namespace dcc::ir::lower
             m_current_block->instructions.insert(it, inst);
         }
 
-        void record_terminator_source_loc() { m_current_block->terminator->debug_loc = make_source_loc(m_active_range, current_scope_id()); }
+        void record_terminator_source_loc()
+        {
+            m_current_block->terminator->debug_loc = make_source_loc(m_active_range, current_scope_id());
+        }
 
         void register_defer(ast::Stmt const* body)
         {
@@ -1315,11 +1319,20 @@ export namespace dcc::ir::lower
             throw std::runtime_error(std::format("{} {}{}", msg, m_active_kind, fmt_loc(m_active_range)));
         }
 
-        [[noreturn]] static void lower_panic(ast::Decl const* decl, std::string_view msg) { throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(decl))); }
+        [[noreturn]] static void lower_panic(ast::Decl const* decl, std::string_view msg)
+        {
+            throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(decl)));
+        }
 
-        [[noreturn]] static void lower_panic(ast::Expr const* expr, std::string_view msg) { throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(expr))); }
+        [[noreturn]] static void lower_panic(ast::Expr const* expr, std::string_view msg)
+        {
+            throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(expr)));
+        }
 
-        [[noreturn]] static void lower_panic(ast::Stmt const* stmt, std::string_view msg) { throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(stmt))); }
+        [[noreturn]] static void lower_panic(ast::Stmt const* stmt, std::string_view msg)
+        {
+            throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(stmt)));
+        }
 
         [[noreturn]] static void lower_unimplemented(ast::Decl const* decl, std::string_view feature)
         {
@@ -1376,20 +1389,13 @@ export namespace dcc::ir::lower
         {
             switch (segment)
             {
-                case dcc::types::SegReg::None:
-                    return ir::Segment::None;
-                case dcc::types::SegReg::CS:
-                    return ir::Segment::Cs;
-                case dcc::types::SegReg::DS:
-                    return ir::Segment::Ds;
-                case dcc::types::SegReg::ES:
-                    return ir::Segment::Es;
-                case dcc::types::SegReg::SS:
-                    return ir::Segment::Ss;
-                case dcc::types::SegReg::FS:
-                    return ir::Segment::Fs;
-                case dcc::types::SegReg::GS:
-                    return ir::Segment::Gs;
+                case dcc::types::SegReg::None: return ir::Segment::None;
+                case dcc::types::SegReg::CS: return ir::Segment::Cs;
+                case dcc::types::SegReg::DS: return ir::Segment::Ds;
+                case dcc::types::SegReg::ES: return ir::Segment::Es;
+                case dcc::types::SegReg::SS: return ir::Segment::Ss;
+                case dcc::types::SegReg::FS: return ir::Segment::Fs;
+                case dcc::types::SegReg::GS: return ir::Segment::Gs;
             }
             throw std::runtime_error("invalid segment register in IR lowering");
         }
@@ -1398,12 +1404,9 @@ export namespace dcc::ir::lower
         {
             switch (flavor)
             {
-                case dcc::types::PointerFlavor::Near:
-                    return ir::PointerFlavor::Near;
-                case dcc::types::PointerFlavor::Based:
-                    return ir::PointerFlavor::Based;
-                case dcc::types::PointerFlavor::Far:
-                    return ir::PointerFlavor::Far;
+                case dcc::types::PointerFlavor::Near: return ir::PointerFlavor::Near;
+                case dcc::types::PointerFlavor::Based: return ir::PointerFlavor::Based;
+                case dcc::types::PointerFlavor::Far: return ir::PointerFlavor::Far;
             }
             throw std::runtime_error("invalid pointer flavor in IR lowering");
         }
@@ -3959,8 +3962,7 @@ export namespace dcc::ir::lower
                     auto* receiver = access->object;
                     auto* receiver_value = lower_expr(receiver);
                     if (!func->params.empty())
-                        receiver_value =
-                            coerce_array_decay(receiver, receiver_value, get_sema_resolved_type(receiver), get_canonical_type(func->params[0].type));
+                        receiver_value = coerce_array_decay(receiver, receiver_value, get_sema_resolved_type(receiver), get_canonical_type(func->params[0].type));
                     seg_args.push_back(receiver_value);
                 }
                 for (std::size_t i = 0; i < call->args.size(); ++i)
