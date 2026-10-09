@@ -1,0 +1,45 @@
+=== FILE: main.dc ===
+module main;
+
+volatile i32 first = 3;
+volatile i32 second = 12;
+
+@nomangle
+public i32 dcc_main() {
+    i32 a = first;
+    i32 b = second;
+    i32 x = match a {
+        0 => 1,
+        1 => 2,
+        2 => 3,
+        3 => 4,
+        4 => 5,
+        5 => 6,
+        _ => 0,
+    };
+    i32 y = match b {
+        10 => 10,
+        11 => 20,
+        12 => 30,
+        13 => 40,
+        14 => 50,
+        15 => 60,
+        _ => 0,
+    };
+    i32 z = match a + b {
+        13 => 50,
+        14 => 60,
+        15 => 100,
+        16 => 110,
+        17 => 120,
+        18 => 130,
+        _ => 0,
+    };
+    return x + y + z;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 134
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 134
