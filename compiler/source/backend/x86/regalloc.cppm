@@ -941,6 +941,28 @@ namespace dcc::backend::x86
                         continue;
                     }
 
+                    if (instr.num_defs == 1 && instr.num_ops == 2 && instr.ops[0].kind == MOpKind::Reg && instr.ops[1].kind == MOpKind::Reg &&
+                        instr.ops[0].reg.is_virtual() && instr.ops[1].reg.is_virtual() && instr.implicit_defs == 0 && instr.implicit_uses == 0)
+                    {
+                        auto dst = range_map.find(instr.ops[0].reg);
+                        auto src = range_map.find(instr.ops[1].reg);
+                        if (dst != range_map.end() && src != range_map.end() && dst->second->spilled && src->second->spilled &&
+                            dst->second->reg_class == src->second->reg_class && instr.opc == regs.of(dst->second->reg_class).move &&
+                            dst->second->spill_slot != (std::numeric_limits<std::uint32_t>::max)() &&
+                            src->second->spill_slot != (std::numeric_limits<std::uint32_t>::max)())
+                        {
+                            if (dst->second->spill_slot != src->second->spill_slot)
+                            {
+                                auto const& policy = regs.of(dst->second->reg_class);
+                                VReg scratch = regs.scratch(dst->second->reg_class);
+                                new_instrs.push_back(make_instr(policy.spill.load, {MOp::from_reg(scratch), MOp::from_frame_slot(src->second->spill_slot)}, 1));
+                                new_instrs.push_back(
+                                    make_instr(policy.spill.store, {MOp::from_frame_slot(dst->second->spill_slot), MOp::from_reg(scratch)}, 0));
+                            }
+                            continue;
+                        }
+                    }
+
                     struct ReloadInfo
                     {
                         VReg spilled_vreg;
