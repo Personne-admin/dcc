@@ -190,6 +190,8 @@ export namespace dccd
 
         void set_prefix_override(std::filesystem::path prefix) { m_prefix_override = std::move(prefix); }
 
+        void set_resolved_prefix(dcc::config::ResolvedPrefix prefix) { m_resolved_prefix = std::move(prefix); }
+
     private:
         std::optional<dcc::session::CompilerSession> m_session;
         std::ostream& m_log{std::cerr};
@@ -211,8 +213,12 @@ export namespace dccd
             std::filesystem::path workspace_root;
             std::filesystem::path database_path;
             dccd::CompilationDatabase database;
+            bool explicitly_configured{false};
         };
         std::vector<WorkspaceCompilationDatabase> m_workspace_databases;
+        std::map<std::filesystem::path, std::unique_ptr<dccd::CompilationDatabase>> m_discovered_databases;
+        std::set<std::filesystem::path> m_reported_missing_libdcext;
+        std::optional<dcc::config::ResolvedPrefix> m_resolved_prefix;
 
         std::string m_active_entry_uri;
         dccd::workspace_index::WorkspaceIndex m_workspace_index;
@@ -2349,7 +2355,7 @@ export namespace dccd
             std::vector<std::filesystem::path> roots;
             bool want_libdcext = false;
 
-            if (auto const* command = find_compile_command(*path))
+            if (auto const* command = find_compile_command(*path, dcc::sm::SourceManager::parse_file_uri(uri).has_value()))
             {
                 std::println(m_log, "[dccd] compile command found for: {}", path->string());
                 if (auto analysis = project_analysis_command(*command, m_log))
@@ -2385,10 +2391,10 @@ export namespace dccd
             {
                 auto libdcext_include = active_prefix() / "include";
                 std::error_code include_ec;
-                if (std::filesystem::is_directory(libdcext_include, include_ec) && !include_ec)
+                if (std::filesystem::is_directory(libdcext_include / "std", include_ec) && !include_ec)
                     roots.push_back(std::move(libdcext_include));
                 else
-                    std::println(m_log, "[dccd] libdcext include not found, skipping: {}", libdcext_include.string());
+                    report_missing_libdcext(libdcext_include);
             }
 
             std::vector<std::filesystem::path> deduped;
@@ -2737,6 +2743,7 @@ export namespace dccd
         void load_compilation_databases()
         {
             m_workspace_databases.clear();
+            m_discovered_databases.clear();
 
             for (auto const& root : m_workspace_roots)
             {
@@ -2768,6 +2775,12 @@ export namespace dccd
                 if (have_path)
                 {
                     wcd.database_path = database_path;
+                    wcd.explicitly_configured = explicitly_configured;
+                    if (!explicitly_configured)
+                    {
+                        m_workspace_databases.push_back(std::move(wcd));
+                        continue;
+                    }
 
                     std::error_code ec;
                     bool exists = std::filesystem::is_regular_file(database_path, ec) && !ec;
@@ -2820,20 +2833,90 @@ export namespace dccd
             return best;
         }
 
-        [[nodiscard]] dccd::CompileCommand const* find_compile_command(std::filesystem::path const& file) const
+        [[nodiscard]] dccd::CompilationDatabase const* discover_compilation_database(std::filesystem::path const& file)
         {
-            auto const* wcd = find_workspace_database_for(file);
-            if (!wcd || wcd->database.empty())
-                return nullptr;
-            return wcd->database.command_for(file);
+            for (auto directory = file.parent_path(); !directory.empty(); directory = directory.parent_path())
+            {
+                auto candidate = directory / "compile_commands.json";
+                auto it = m_discovered_databases.find(candidate);
+                if (it == m_discovered_databases.end())
+                {
+                    std::unique_ptr<dccd::CompilationDatabase> database;
+                    std::error_code ec;
+                    if (std::filesystem::is_regular_file(candidate, ec) && !ec)
+                    {
+                        database = std::make_unique<dccd::CompilationDatabase>();
+                        std::println(m_log, "[dccd] loading compilation database: {}", candidate.string());
+                        if (!database->load(candidate, m_log) || database->source_command_count() == 0)
+                        {
+                            std::println(m_log, "[dccd] compilation database has no dc entries, continuing upward: {}", candidate.string());
+                            database.reset();
+                        }
+                    }
+                    it = m_discovered_databases.emplace(candidate, std::move(database)).first;
+                }
+
+                if (it->second)
+                    return it->second.get();
+
+                if (directory == directory.root_path())
+                    break;
+            }
+
+            return nullptr;
         }
 
-        [[nodiscard]] std::filesystem::path active_prefix() const
+        [[nodiscard]] dccd::CompileCommand const* find_compile_command(std::filesystem::path const& file, bool on_disk)
+        {
+            auto const norm = normalize_path(file);
+            dccd::CompilationDatabase const* database = nullptr;
+            if (auto const* wcd = find_workspace_database_for(norm); wcd && wcd->explicitly_configured)
+                database = &wcd->database;
+            else if (on_disk)
+                database = discover_compilation_database(norm);
+
+            if (!database || database->empty())
+            {
+                std::println(m_log, "[dccd] no compilation database with dc entries in \"{}\" or its parent directories", norm.parent_path().string());
+                return nullptr;
+            }
+
+            if (auto const* command = database->command_for(norm))
+                return command;
+
+            auto const* nearest = database->nearest_command_for(norm);
+            if (nearest)
+                std::println(m_log, "[dccd] \"{}\" is not listed in {}; using the command for \"{}\"", norm.string(), database->path().string(),
+                             nearest->file.string());
+            return nearest;
+        }
+
+        [[nodiscard]] dcc::config::ResolvedPrefix resolved_prefix() const
         {
             if (m_prefix_override)
-                return *m_prefix_override;
+                return {.path = *m_prefix_override, .source = dcc::config::PrefixSource::Baked};
 
-            return dcc::config::current_prefix(nullptr).path;
+            if (m_resolved_prefix)
+                return *m_resolved_prefix;
+
+            return dcc::config::current_prefix(nullptr);
+        }
+
+        [[nodiscard]] std::filesystem::path active_prefix() const { return resolved_prefix().path; }
+
+        void report_missing_libdcext(std::filesystem::path const& include)
+        {
+            auto const prefix = resolved_prefix();
+            auto message = std::format("dccd: libdcext not found: {} does not exist (prefix {}, {}); std modules cannot be resolved",
+                                       (include / "std").string(), prefix.path.string(), dcc::config::to_string(prefix.source));
+            std::println(m_log, "[dccd] {}", message);
+            if (!m_reported_missing_libdcext.insert(include).second)
+                return;
+
+            auto params = protocol::JsonValue::empty_object();
+            params.set("type", protocol::JsonValue::integer(2));
+            params.set("message", protocol::JsonValue::string_val(message));
+            send_message(protocol::build_notification("window/showMessage", params));
         }
 
         [[nodiscard]] std::vector<std::filesystem::path> compute_import_roots() const
@@ -2946,6 +3029,13 @@ export namespace dccd
                 }
                 if (project_cfg)
                 {
+                    reload = true;
+                    break;
+                }
+
+                if (canonical.filename() == "compile_commands.json")
+                {
+                    std::println(m_log, "[dccd] compilation database changed, reloading: {}", canonical.string());
                     reload = true;
                     break;
                 }
