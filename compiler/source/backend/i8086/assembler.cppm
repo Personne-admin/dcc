@@ -111,9 +111,10 @@ namespace dcc::backend::i8086
             void shift(std::string_view mnemonic, MInstr const& mi)
             {
                 auto const& count = mi.ops[mi.num_ops - 1];
+                auto bits = operand_bits(mi.opc);
                 if (mi.num_ops == 3 && !same_register(mi.ops[0], mi.ops[1]))
-                    line(std::format("mov {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
-                line(std::format("{} {}, {}", mnemonic, operand(mi.ops[0], 32), operand(count, 8)));
+                    line(std::format("mov {}, {}", operand(mi.ops[0], bits), operand(mi.ops[1], bits)));
+                line(std::format("{} {}, {}", mnemonic, operand(mi.ops[0], bits), operand(count, 8)));
             }
 
             void unary(std::string_view mnemonic, MInstr const& mi, unsigned bits)
@@ -171,6 +172,8 @@ namespace dcc::backend::i8086
                         return line("ret");
                     case MOpc::CDQ:
                         return line("cdq");
+                    case MOpc::CWD:
+                        return line("cwd");
                     case MOpc::COPY:
                         if (mi.ops[0].reg != mi.ops[1].reg)
                             line(std::format("mov {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
@@ -195,46 +198,72 @@ namespace dcc::backend::i8086
                     case MOpc::POP32r:
                         return line(std::format("pop {}", operand(mi.ops[0], operand_bits(mi.opc))));
                     case MOpc::ADD16ri:
+                    case MOpc::ADD16rr:
                     case MOpc::ADD32ri:
                     case MOpc::ADD32rr:
                         return tied("add", mi, operand_bits(mi.opc), true);
                     case MOpc::SUB16ri:
+                    case MOpc::SUB16rr:
                     case MOpc::SUB32ri:
                     case MOpc::SUB32rr:
                         return tied("sub", mi, operand_bits(mi.opc));
+                    case MOpc::AND16ri:
+                    case MOpc::AND16rr:
                     case MOpc::AND32ri:
                     case MOpc::AND32rr:
-                        return tied("and", mi, 32, true);
+                        return tied("and", mi, operand_bits(mi.opc), true);
+                    case MOpc::OR16ri:
+                    case MOpc::OR16rr:
                     case MOpc::OR32ri:
                     case MOpc::OR32rr:
-                        return tied("or", mi, 32, true);
+                        return tied("or", mi, operand_bits(mi.opc), true);
+                    case MOpc::XOR16ri:
+                    case MOpc::XOR16rr:
                     case MOpc::XOR32ri:
                     case MOpc::XOR32rr:
-                        return tied("xor", mi, 32, true);
+                        return tied("xor", mi, operand_bits(mi.opc), true);
+                    case MOpc::IMUL16rr:
                     case MOpc::IMUL32rr:
-                        return tied("imul", mi, 32, true);
-                    case MOpc::IMUL32rri:
-                        return line(std::format("imul {}, {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32), operand(mi.ops[2], 32)));
+                        return tied("imul", mi, operand_bits(mi.opc), true);
+                    case MOpc::IMUL16rri:
+                    case MOpc::IMUL32rri: {
+                        auto bits = operand_bits(mi.opc);
+                        return line(std::format("imul {}, {}, {}", operand(mi.ops[0], bits), operand(mi.ops[1], bits), operand(mi.ops[2], bits)));
+                    }
+                    case MOpc::SHL16ri8:
+                    case MOpc::SHL16rCL:
                     case MOpc::SHL32ri8:
                     case MOpc::SHL32rCL:
                         return shift("shl", mi);
+                    case MOpc::SHR16ri8:
+                    case MOpc::SHR16rCL:
                     case MOpc::SHR32ri8:
                     case MOpc::SHR32rCL:
                         return shift("shr", mi);
+                    case MOpc::SAR16ri8:
+                    case MOpc::SAR16rCL:
                     case MOpc::SAR32ri8:
                     case MOpc::SAR32rCL:
                         return shift("sar", mi);
+                    case MOpc::CMP16rr:
+                    case MOpc::CMP16ri:
                     case MOpc::CMP32rr:
                     case MOpc::CMP32ri:
-                        return line(std::format("cmp {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
+                        return line(std::format("cmp {}, {}", operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], operand_bits(mi.opc))));
+                    case MOpc::NEG16r:
                     case MOpc::NEG32r:
-                        return unary("neg", mi, 32);
+                        return unary("neg", mi, operand_bits(mi.opc));
+                    case MOpc::NOT16r:
                     case MOpc::NOT32r:
-                        return unary("not", mi, 32);
+                        return unary("not", mi, operand_bits(mi.opc));
+                    case MOpc::DIV16r:
                     case MOpc::DIV32r:
-                        return line(std::format("div {}", operand(mi.ops[0], 32)));
+                        return line(std::format("div {}", operand(mi.ops[0], operand_bits(mi.opc))));
+                    case MOpc::IDIV16r:
                     case MOpc::IDIV32r:
-                        return line(std::format("idiv {}", operand(mi.ops[0], 32)));
+                        return line(std::format("idiv {}", operand(mi.ops[0], operand_bits(mi.opc))));
+                    case MOpc::MOVZX16_8rr:
+                    case MOpc::MOVZX16rm8:
                     case MOpc::MOVZX32_8rr:
                     case MOpc::MOVZX32rm8:
                         return extend("movzx", mi, 8);
