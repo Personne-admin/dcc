@@ -273,15 +273,33 @@ namespace dcc::backend
                 while (cursor > 0 && (view[cursor - 1] == ' ' || view[cursor - 1] == '\t'))
                     --cursor;
                 bool composed = cursor > 0 && ((intel && view[cursor - 1] == '[') || (!intel && view[cursor - 1] == '('));
-                if (composed)
-                    return (intel ? "" : "%") + name;
                 unsigned pointee_bits = 0;
+                std::string segment;
                 if (auto* pointer = ir_type_cast<IrPointerType>(op.type))
+                {
                     if (pointer->pointee)
                         pointee_bits = static_cast<unsigned>(pointer->pointee->byte_size * 8);
+                    if (pointer->flavor != PointerFlavor::Near)
+                    {
+                        if (pointer->flavor != PointerFlavor::Based || (pointer->seg != Segment::Fs && pointer->seg != Segment::Gs))
+                        {
+                            error = "inline assembly memory operands through far pointers are not supported by this backend";
+                            return std::nullopt;
+                        }
+                        segment = pointer->seg == Segment::Fs ? "fs:" : "gs:";
+                        if (composed && !intel)
+                        {
+                            error = std::format("inline assembly memory operand through a based {} pointer must be a complete operand in AT&T syntax",
+                                                pointer->seg == Segment::Fs ? "FS" : "GS");
+                            return std::nullopt;
+                        }
+                    }
+                }
+                if (composed)
+                    return (intel ? segment : "%") + name;
 
                 if (!intel)
-                    return "(%" + name + ")";
+                    return (segment.empty() ? "" : "%" + segment) + "(%" + name + ")";
                 std::string prefix;
                 if (pointee_bits == 8)
                     prefix = "byte ";
@@ -291,7 +309,7 @@ namespace dcc::backend
                     prefix = "dword ";
                 else if (pointee_bits == 64)
                     prefix = "qword ";
-                return prefix + "[" + name + "]";
+                return prefix + segment + "[" + name + "]";
             }
 
             return (intel ? "" : "%") + name;
@@ -593,6 +611,23 @@ namespace dcc::backend
                 return entry->width;
             }
 
+            [[nodiscard]] std::optional<x86::SegmentOverride> parse_segment_prefix()
+            {
+                auto name = tokens[pos].text;
+                x86::SegmentOverride segment = x86::SegmentOverride::None;
+                if (name == "fs")
+                    segment = x86::SegmentOverride::FS;
+                else if (name == "gs")
+                    segment = x86::SegmentOverride::GS;
+                else
+                {
+                    error = std::format("segment override '{}' is not supported in native inline assembly; only fs and gs are", name);
+                    return std::nullopt;
+                }
+                pos += 2;
+                return segment;
+            }
+
             [[nodiscard]] std::optional<ParsedOperand> parse_intel_operand()
             {
                 unsigned size_prefix = 0;
@@ -609,17 +644,42 @@ namespace dcc::backend
                     else if (word == "qword")
                         width = 64;
 
-                    if (width != 0 && pos + 1 < tokens.size() && tokens[pos + 1].kind == AsmToken::Kind::LBracket)
+                    bool segmented = pos + 3 < tokens.size() && tokens[pos + 1].kind == AsmToken::Kind::Ident &&
+                                     tokens[pos + 2].kind == AsmToken::Kind::Colon && tokens[pos + 3].kind == AsmToken::Kind::LBracket;
+                    if (width != 0 && pos + 1 < tokens.size() && (tokens[pos + 1].kind == AsmToken::Kind::LBracket || segmented))
                     {
                         size_prefix = width;
                         ++pos;
                     }
                 }
+                auto outer_segment = x86::SegmentOverride::None;
+                if (peek().kind == AsmToken::Kind::Ident && pos + 2 < tokens.size() && tokens[pos + 1].kind == AsmToken::Kind::Colon &&
+                    tokens[pos + 2].kind == AsmToken::Kind::LBracket)
+                {
+                    auto segment = parse_segment_prefix();
+                    if (!segment)
+                        return std::nullopt;
+                    outer_segment = *segment;
+                }
                 if (accept(AsmToken::Kind::LBracket))
                 {
+                    auto inner_segment = x86::SegmentOverride::None;
+                    if (peek().kind == AsmToken::Kind::Ident && pos + 1 < tokens.size() && tokens[pos + 1].kind == AsmToken::Kind::Colon)
+                    {
+                        auto segment = parse_segment_prefix();
+                        if (!segment)
+                            return std::nullopt;
+                        inner_segment = *segment;
+                    }
+                    if (outer_segment != x86::SegmentOverride::None && inner_segment != x86::SegmentOverride::None)
+                    {
+                        error = "memory operand has more than one segment override in inline assembly";
+                        return std::nullopt;
+                    }
                     auto mem = parse_intel_memory();
                     if (!mem)
                         return std::nullopt;
+                    mem->mem.segment = outer_segment != x86::SegmentOverride::None ? outer_segment : inner_segment;
 
                     if (!accept(AsmToken::Kind::RBracket))
                     {
@@ -853,6 +913,24 @@ namespace dcc::backend
 
             [[nodiscard]] std::optional<ParsedOperand> parse_att_operand()
             {
+                if (peek().kind == AsmToken::Kind::Percent && pos + 2 < tokens.size() && tokens[pos + 1].kind == AsmToken::Kind::Ident &&
+                    tokens[pos + 2].kind == AsmToken::Kind::Colon)
+                {
+                    ++pos;
+                    auto segment = parse_segment_prefix();
+                    if (!segment)
+                        return std::nullopt;
+                    auto operand = parse_att_operand();
+                    if (!operand)
+                        return std::nullopt;
+                    if (operand->kind != ParsedOperand::Kind::Mem || operand->mem.segment != x86::SegmentOverride::None)
+                    {
+                        error = "expected a memory operand after the segment override in inline assembly";
+                        return std::nullopt;
+                    }
+                    operand->mem.segment = *segment;
+                    return operand;
+                }
                 if (accept(AsmToken::Kind::Percent))
                 {
                     auto name = expect_ident("a register after '%'");
