@@ -47,6 +47,7 @@ $(OBJ_DIR)/tests/source/test_driver_prefix.cc.o: LOCAL_CXXFLAGS += -DDCC_EXPECTE
 $(OBJ_DIR)/tests/source/test_driver_prefix.cc.o: $(VERSION_STAMP)
 
 $(OBJ_DIR)/tests/source/test_x86_real16.cc.o: LOCAL_CXXFLAGS += -DDCC_I8086_RUNNER='"$(TOPLEVEL)/tests/i8086/run.py"'
+$(OBJ_DIR)/tests/source/test_cases_dispatcher.cc.o: LOCAL_CXXFLAGS += -DDCC_I8086_RUNNER='"$(TOPLEVEL)/tests/i8086/run.py"' -DDCC_I8086_CRT0='"$(TOPLEVEL)/tests/i8086/crt0.asm"'
 
 DCCD_FORMAT_OBJ := $(OBJ_DIR)/dccd.format.pcm.o
 DCCD_PROTOCOL_OBJ := $(OBJ_DIR)/dccd.protocol.pcm.o

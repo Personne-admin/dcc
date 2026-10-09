@@ -1,0 +1,11 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module main;
+
+@nomangle
+public i32 dcc_main() {
+    return 0x7FFF0011;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 17
