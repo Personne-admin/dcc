@@ -1,0 +1,17 @@
+=== FILE: test.dc ===
+module protocol_ctfe;
+struct Box(T) { bool ok; T value; }
+bool is_ok(T)(const Box(T)* self, i32 stamp = 1) { return self.ok && stamp == 1; }
+T unwrap(T)(const Box(T)* self, i32 first = 3, i32 second = 5) { return self.value + (first + second) as T; }
+T unwrap_err(T)(const Box(T)* self, i32 first = 4, i32 second = 6) { return self.value + (first + second) as T; }
+i32 forward(Box(i32) box) { return box?; }
+const i32 OK = forward({ok = true, value = 7});
+const i32 ERR = forward({ok = false, value = 9});
+@nomangle public i32 dcc_main() {
+    if OK != 15 { return 1; }
+    if ERR != 19 { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

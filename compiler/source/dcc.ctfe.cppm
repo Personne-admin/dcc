@@ -280,7 +280,8 @@ export namespace dcc::ctfe
 
         std::optional<std::size_t> append_emit(ast::Expr const& node, std::vector<std::size_t> children)
         {
-            for (auto child : children) {
+            for (auto child : children)
+            {
                 assert(child < m_trace.nodes.size());
                 std::ignore = child;
             }
@@ -1518,13 +1519,11 @@ export namespace dcc::ctfe
                 return emitted;
             }
 
-            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) &&
-                (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
+            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) && (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
                 return abandoned(AbandonReason::UnsupportedEffect);
 
             Result r{};
-            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far ||
-                rhs.value->kind() == Kind::Far)
+            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far || rhs.value->kind() == Kind::Far)
                 r = pointer_binary(op, *lhs.value, *rhs.value, out_type);
             else
             {
@@ -1809,7 +1808,8 @@ export namespace dcc::ctfe
             return result;
         }
 
-        Result invoke_unwrap_callee(ast::FuncDecl const* fn, ast::UfcsReceiverAdjust adjust, comptime::ValuePtr slot, sm::SourceRange site)
+        Result invoke_unwrap_callee(ast::FuncDecl const* fn, ast::UfcsReceiverAdjust adjust, comptime::ValuePtr slot, sm::SourceRange site,
+                                    ast::CallExpr const* call)
         {
             if (!fn || fn->params.empty())
                 return failure("unwrap-propagate target is unresolved");
@@ -1858,6 +1858,23 @@ export namespace dcc::ctfe
                 }
                 default:
                     return failure("unsupported unwrap-propagate receiver");
+            }
+            if (call)
+            {
+                for (std::size_t i = call->sema.call_argument_offset; i < call->args.size(); ++i)
+                {
+                    auto const index = args.size();
+                    auto target = index < fn->params.size() ? type_of(fn->params[index].type) : nullptr;
+                    std::optional<DefaultArgumentCallSiteGuard> default_guard;
+                    if (call->sema.default_argument_start && i >= *call->sema.default_argument_start)
+                        default_guard.emplace(*this, call->range);
+
+                    auto r = convert(*call->args[i], target);
+                    if (r.flow != Flow::Normal || !r.value)
+                        return r;
+
+                    args.push_back(std::move(*r.value));
+                }
             }
             if (args.size() != fn->params.size())
                 return failure("call requires a resolved function and materialized arguments");
@@ -1913,7 +1930,7 @@ export namespace dcc::ctfe
                 return limited(AbandonReason::CellExhausted, "memory limit exceeded", true);
             auto slot = m_heap.allocate(std::move(*r.value), true);
             m_frames.back().allocations.push_back(slot.allocation);
-            auto ok = invoke_unwrap_callee(is_ok_fn, e.unwrap_is_ok_receiver_adjust, slot, e.range);
+            auto ok = invoke_unwrap_callee(is_ok_fn, e.unwrap_is_ok_receiver_adjust, slot, e.range, e.unwrap_is_ok_call);
             if (ok.flow != Flow::Normal || !ok.value)
                 return ok;
             auto truth = ok.value->const_to_bool();
@@ -1921,12 +1938,12 @@ export namespace dcc::ctfe
                 return require_truth(ok.value ? &*ok.value : nullptr, "unwrap-propagate condition has no compile-time value");
             if (*truth)
             {
-                auto v = invoke_unwrap_callee(unwrap_fn, e.unwrap_unwrap_receiver_adjust, slot, e.range);
+                auto v = invoke_unwrap_callee(unwrap_fn, e.unwrap_unwrap_receiver_adjust, slot, e.range, e.unwrap_unwrap_call);
                 if (v.flow != Flow::Normal || !v.value)
                     return v;
                 return folded(std::move(*v.value));
             }
-            auto err = invoke_unwrap_callee(unwrap_err_fn, e.unwrap_unwrap_err_receiver_adjust, slot, e.range);
+            auto err = invoke_unwrap_callee(unwrap_err_fn, e.unwrap_unwrap_err_receiver_adjust, slot, e.range, e.unwrap_unwrap_err_call);
             if (err.flow != Flow::Normal || !err.value)
                 return err;
             std::optional<comptime::Value> out = std::move(*err.value);
@@ -2394,8 +2411,7 @@ export namespace dcc::ctfe
             return const_eval::fold_cast(std::move(value), target);
         }
 
-        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args,
-                          std::vector<ast::Expr const*> const& arg_sources = {})
+        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args, std::vector<ast::Expr const*> const& arg_sources = {})
         {
             m_steps = 0;
             m_cells = 0;

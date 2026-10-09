@@ -17,6 +17,7 @@ export namespace dcc::ast
     struct Stmt;
     struct Decl;
     struct FuncDecl;
+    struct CallExpr;
     struct VarDecl;
     struct Pattern;
     struct EnumVariant;
@@ -681,6 +682,9 @@ export namespace dcc::ast
         lex::TokenKind op;
         sm::SourceRange op_range;
 
+        CallExpr* unwrap_is_ok_call{};
+        CallExpr* unwrap_unwrap_call{};
+        CallExpr* unwrap_unwrap_err_call{};
         FuncDecl const* unwrap_is_ok_callee{};
         FuncDecl const* unwrap_unwrap_callee{};
         FuncDecl const* unwrap_unwrap_err_callee{};

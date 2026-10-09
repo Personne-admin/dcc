@@ -1,0 +1,21 @@
+=== FILE: test.dc ===
+module protocol_runtime;
+i32 count;
+@runtime i32 next() { count += 1; return count; }
+struct Box(T) { bool ok; T value; }
+bool is_ok(T)(const Box(T)* self, i32 stamp = next()) { return self.ok && stamp == 1; }
+T unwrap(T)(const Box(T)* self, i32 first = next(), i32 second = next()) { return self.value + (first + second) as T; }
+T unwrap_err(T)(const Box(T)* self, i32 first = next(), i32 second = next()) { return self.value + (first + second) as T; }
+i32 forward(Box(i32) box) { return box?; }
+@nomangle public i32 dcc_main() {
+    Box(i32) ok = {ok = true, value = 7};
+    Box(i32) err = {ok = false, value = 9};
+    count = 0;
+    if forward(ok) != 12 || count != 3 { return 1; }
+    count = 0;
+    if forward(err) != 14 || count != 3 { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
