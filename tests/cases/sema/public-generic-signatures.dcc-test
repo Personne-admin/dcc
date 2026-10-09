@@ -1,0 +1,20 @@
+=== FILE: lib.dc ===
+module lib;
+public import std::result;
+using std::result::*;
+public Result(i32, i32) result(Result(i32, i32) value) { return value; }
+public Status(i32) status(Status(i32) value) { return value; }
+public Optional(i32) optional(Optional(i32) value) { return value; }
+public Result(Optional(Status(i32)), Result(i32, i32)) nested(Result(Optional(Status(i32)), Result(i32, i32)) value) { return value; }
+
+=== FILE: main.dc ===
+module main;
+public import lib;
+public import std::result;
+using std::result::*;
+public Result(i32, i32) result(Result(i32, i32) value) { return lib::result(value); }
+public Status(i32) status(Status(i32) value) { return lib::status(value); }
+public Optional(i32) optional(Optional(i32) value) { return lib::optional(value); }
+public Result(Optional(Status(i32)), Result(i32, i32)) nested(Result(Optional(Status(i32)), Result(i32, i32)) value) { return lib::nested(value); }
+
+=== ENTRY: main.dc ===
