@@ -1007,6 +1007,19 @@ All three methods must be visible in the scope where `?` appears. Template
 instantiation re-resolves the methods for each instantiated type; generic
 `is_ok` / `unwrap` / `unwrap_err` functions work.
 
+Each synthesized call fills omitted defaulted parameters using the same rules
+as an explicit call. An additional required parameter makes the protocol
+method inapplicable and produces a diagnostic naming the missing parameter.
+Defaults are evaluated when their call executes: `is_ok` always runs,
+`unwrap` runs only on success, and `unwrap_err` runs only on failure.
+
+Default argument expressions are resolved in the declaring function's scope
+and evaluated at the caller. `core::source_location::source_location()` in a
+default captures the caller's file and line. Explicit calls, including UFCS
+calls with auto-referenced receivers, capture the call expression's location.
+Synthesized protocol calls capture the `?` token's location, including when
+it appears on a separate line or inside an instantiated generic function.
+
 **Conceptual expansion.** For a function returning `Ret`, the expression
 `value?` behaves as if the compiler inlined:
 
