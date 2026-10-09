@@ -170,12 +170,12 @@ TEST_CASE("the i8086 backend rejects code it cannot select yet")
     auto src = std::filesystem::temp_directory_path() / "dcc_i8086_unsupported.dc";
     {
         std::ofstream file{src};
-        file << "module test;\npublic i32 f(i32 a) { return a; }\n";
+        file << "module test;\npublic u8 f(u8* p) { return *p; }\n";
     }
 
     auto [code, output] = run_dcc("-target i8086-binary -fbackend custom -c -o /dev/null " + shell_quote(src));
     CHECK(code == 1);
-    CHECK(output.find("i8086 backend: a function with parameters in function `") != std::string::npos);
+    CHECK(output.find("i8086 backend: a 2-byte non-integer value in function `") != std::string::npos);
     CHECK(output.find("is not supported yet") != std::string::npos);
 
     std::filesystem::remove(src);

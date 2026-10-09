@@ -199,6 +199,12 @@ namespace dcc::backend::i8086
                         return line("nop");
                     case MOpc::JMP:
                         return line(std::format("jmp near .bb{}", mi.ops[0].label));
+                    case MOpc::CALL:
+                        if (mi.ops[0].kind != MOpKind::Symbol)
+                            return fail("i8086 assembly printer: indirect calls are not supported yet");
+                        return line(std::format("call {}", mi.ops[0].symbol));
+                    case MOpc::PUSH16i:
+                        return line(std::format("push word {}", mi.ops[0].imm));
                     case MOpc::JUMP_TABLE: {
                         if (mi.ops[2].imm == 32)
                             return line(std::format("jmp word [nosplit {}*2 + {}]", operand(mi.ops[0], 32), mi.ops[1].symbol));
@@ -463,6 +469,16 @@ namespace dcc::backend::i8086
                                 kind == DataSection::Rodata ? "nowrite" : "write", section_printer.out);
         }
 
+        for (auto const& f : functions)
+            for (auto const& block : f.blocks)
+                for (auto const& mi : block.instrs)
+                    for (std::uint8_t i = 0; i < mi.num_ops; ++i)
+                    {
+                        if (mi.ops[i].kind == MOpKind::Symbol && mi.opc == MOpc::CALL)
+                            referenced.emplace(mi.ops[i].symbol);
+                        else if (mi.ops[i].kind == MOpKind::Mem && !mi.ops[i].mem.symbol.empty())
+                            referenced.emplace(mi.ops[i].mem.symbol);
+                    }
         for (auto const& name : referenced)
             if (!defined.contains(name))
                 p.out += std::format("extern {}\n", name);

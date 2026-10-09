@@ -579,6 +579,104 @@ namespace dcc::backend::i8086
                     values[inst] = extend(*v, from, inst->kind == IrNodeKind::Sext, op_width(to));
             }
 
+            static constexpr std::array<PhysReg, 4> register_arguments{PhysReg::RAX, PhysReg::RDX, PhysReg::RBX, PhysReg::RCX};
+
+            [[nodiscard]] static std::uint64_t bit(PhysReg reg) noexcept { return 1ULL << static_cast<unsigned>(reg); }
+
+            void push_argument(IrValue const* arg, unsigned bits)
+            {
+                if (auto imm = constant(arg); imm && bits <= 16)
+                {
+                    append(make_instr(MOpc::PUSH16i, {MOp::from_imm(fit(*imm, bits, false, 16))}, 0));
+                    return;
+                }
+                auto v = value(arg);
+                if (!v)
+                    return;
+                append(make_instr(bits <= 16 ? MOpc::PUSH16r : MOpc::PUSH32r, {MOp::from_reg(*v)}, 0));
+            }
+
+            void lower_call(IrValue const* inst, IrValue const* callee, std::span<IrValue* const> args)
+            {
+                auto const* ref = ir_cast<IrGlobalRef>(callee);
+                if (!ref || !ref->function)
+                    return unsupported("an indirect call");
+                bool const c_convention = uses_c_abi(*ref->function);
+                std::vector<unsigned> widths;
+                for (auto* arg : args)
+                {
+                    auto bits = value_bits(arg ? arg->type : nullptr);
+                    if (!bits)
+                        return;
+                    widths.push_back(bits);
+                }
+                std::size_t const in_registers = c_convention ? 0 : std::min(args.size(), register_arguments.size());
+                std::int64_t pushed = 0;
+                for (auto i = args.size(); i > in_registers; --i)
+                {
+                    push_argument(args[i - 1], widths[i - 1]);
+                    pushed += widths[i - 1] <= 16 ? 2 : 4;
+                }
+                std::uint64_t uses = bit(PhysReg::RSP);
+                for (std::size_t i = 0; i < in_registers; ++i)
+                {
+                    auto reg = register_arguments[i];
+                    auto width = op_width(widths[i]);
+                    if (auto imm = constant(args[i]))
+                        append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(reg), MOp::from_imm(fit(*imm, widths[i], false, width))}, 1));
+                    else if (auto v = value(args[i]))
+                        copy_to(reg, *v, width);
+                    else
+                        return;
+                    uses |= bit(reg);
+                }
+                MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->function->name)}, 0);
+                call.implicit_uses = uses;
+                call.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX);
+                append(call);
+                if (pushed > 0)
+                    append(make_instr(MOpc::ADD16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(pushed)}, 1));
+                if (!inst->type || inst->type->kind == IrTypeKind::Void)
+                    return;
+                auto bits = value_bits(inst->type);
+                if (!bits)
+                    return;
+                if (bits == 32 && c_convention)
+                {
+                    auto low = copy_from(PhysReg::RAX);
+                    auto high = copy_from(PhysReg::RDX);
+                    auto shifted = emit(MOpc::SHL32ri8, {MOp::from_reg(high), MOp::from_imm(16)});
+                    auto widened = emit(MOpc::MOVZX32_16rr, {MOp::from_reg(low)});
+                    values[inst] = emit(MOpc::OR32rr, {MOp::from_reg(shifted), MOp::from_reg(widened)});
+                    return;
+                }
+                values[inst] = copy_from(PhysReg::RAX);
+            }
+
+            void lower_parameters()
+            {
+                auto const& params = func.entry_block->params;
+                std::size_t const in_registers = c_abi ? 0 : std::min(params.size(), register_arguments.size());
+                std::int32_t offset = 4;
+                for (std::size_t i = 0; i < params.size(); ++i)
+                {
+                    auto const* param = params[i];
+                    auto bits = value_bits(param ? param->type : nullptr);
+                    if (!bits)
+                        return;
+                    if (i < in_registers)
+                    {
+                        values[param] = copy_from(register_arguments[i]);
+                        continue;
+                    }
+                    MMem slot{};
+                    slot.base = VReg::phys(PhysReg::RBP);
+                    slot.disp = offset;
+                    values[param] = emit(bits <= 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_mem(slot)});
+                    offset += bits <= 16 ? 2 : 4;
+                }
+            }
+
             void lower_instruction(IrNode const* inst)
             {
                 auto const* v = static_cast<IrValue const*>(inst);
@@ -629,6 +727,14 @@ namespace dcc::backend::i8086
                         if (scalar_bits(v->type) != scalar_bits(operand ? operand->type : nullptr))
                             return unsupported("a bitcast between differently sized values");
                         return lower_cast(v, operand);
+                    }
+                    case IrNodeKind::Call: {
+                        auto const* call = static_cast<IrCallInst const*>(inst);
+                        return lower_call(v, call->callee, call->args);
+                    }
+                    case IrNodeKind::CallTail: {
+                        auto const* call = static_cast<IrCallTailInst const*>(inst);
+                        return lower_call(v, call->callee, call->args);
                     }
                     default:
                         if (auto setcc = setcc_for(inst->kind))
@@ -937,8 +1043,6 @@ namespace dcc::backend::i8086
                 mfunc.conv = func.conv;
                 c_abi = uses_c_abi(func);
 
-                if (func.entry_block && !func.entry_block->params.empty())
-                    return unsupported("a function with parameters");
 
                 auto order = reverse_post_order();
                 for (auto* ir_block : order)
@@ -975,6 +1079,12 @@ namespace dcc::backend::i8086
                 for (auto* ir_block : order)
                 {
                     block = mfunc.block_by_id(block_ids.at(ir_block));
+                    if (ir_block == func.entry_block)
+                    {
+                        lower_parameters();
+                        if (!diags.empty())
+                            return;
+                    }
                     for (auto* inst : ir_block->instructions)
                     {
                         if (!inst || fused.contains(static_cast<IrValue const*>(inst)))
