@@ -628,6 +628,52 @@ TEST_CASE("llvm lowering ties inout and passes memory addresses twice")
     REQUIRE(lowered.output_address_indices[0] == 1);
 }
 
+TEST_CASE("llvm lowering prefixes memory operands through based pointers with their segment")
+{
+    AsmFixture fx;
+    auto* u64 = fx.ctx.int_t(64, false);
+    auto lower = [&](Segment segment, PointerFlavor flavor, IrAsmDialect dialect, std::string tmpl, dcc::target::Arch arch) {
+        IrAsmOperand mem;
+        mem.direction = IrAsmOperand::Direction::InOut;
+        mem.placement_kind = IrAsmOperand::PlacementKind::Mem;
+        mem.type = fx.ctx.pointer_to(u64, segment, flavor);
+        mem.value = fx.ctx.int_const(u64, 0);
+        std::vector<IrAsmOperand> operands;
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::InOut, "rax", u64, fx.ctx.int_const(u64, 1)));
+        operands.push_back(mem);
+        auto* inst = fx.build(tmpl, std::move(operands), dialect, {{"%[slot]", 1}, {"%[a]", 0}});
+        return prepare_llvm_asm(*inst, arch);
+    };
+    auto x64 = dcc::target::Arch::X86_64;
+    auto x86 = dcc::target::Arch::X86;
+
+    auto intel = lower(Segment::Fs, PointerFlavor::Based, IrAsmDialect::Intel, "add %[a], %[slot]", x64);
+    REQUIRE(intel.error.empty());
+    REQUIRE(intel.template_str == "add $0, fs:$1");
+    REQUIRE(intel.constraints == "={rax},=*m,0,*m");
+
+    auto att = lower(Segment::Gs, PointerFlavor::Based, IrAsmDialect::Att, "add %[slot], %[a]", x64);
+    REQUIRE(att.error.empty());
+    REQUIRE(att.template_str == "add %gs:$1, $0");
+
+    auto stack = lower(Segment::Ss, PointerFlavor::Based, IrAsmDialect::Att, "add %[slot], %[a]", x86);
+    REQUIRE(stack.error.empty());
+    REQUIRE(stack.template_str == "add %ss:$1, $0");
+
+    auto near = lower(Segment::None, PointerFlavor::Near, IrAsmDialect::Intel, "add %[a], %[slot]", x64);
+    REQUIRE(near.error.empty());
+    REQUIRE(near.template_str == "add $0, $1");
+
+    REQUIRE(lower(Segment::Ds, PointerFlavor::Based, IrAsmDialect::Intel, "add %[a], %[slot]", x86).error ==
+            "inline assembly memory operand through a based DS pointer is not supported by this backend");
+    REQUIRE(lower(Segment::Fs, PointerFlavor::Based, IrAsmDialect::Intel, "add %[a], [%[slot]]", x64).error ==
+            "inline assembly memory operand through a based FS pointer must be a complete operand");
+    REQUIRE(lower(Segment::Gs, PointerFlavor::Based, IrAsmDialect::Att, "add 8(%[slot]), %[a]", x64).error ==
+            "inline assembly memory operand through a based GS pointer must be a complete operand");
+    REQUIRE(lower(Segment::None, PointerFlavor::Far, IrAsmDialect::Intel, "add %[a], %[slot]", x86).error ==
+            "inline assembly memory operands through far pointers are not supported by this backend");
+}
+
 TEST_CASE("llvm lowering braces every flag output constraint")
 {
     struct FlagCase

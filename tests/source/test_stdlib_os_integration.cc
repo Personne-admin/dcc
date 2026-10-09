@@ -116,7 +116,7 @@ TEST_CASE("inline assembly memory operands through FS based pointers keep the ov
         return;
     auto const source = os_test::fixture("based-fs-asm-linux.dc");
     REQUIRE(!source.empty());
-    for (auto backend : {"custom"})
+    for (auto backend : {"llvm", "custom"})
         for (auto optimization : {"-O0", "-O2"})
             CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, false, backend).status, 42);
 }
