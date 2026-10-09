@@ -12,6 +12,7 @@ import dcc.backend.i8086.registers;
 import dcc.backend.i8086.framelay;
 import dcc.backend.i8086.assembler;
 import dcc.backend.object.elf32;
+import dcc.backend.i8086.link;
 
 using namespace dcc::backend::x86;
 
@@ -80,6 +81,23 @@ namespace dcc::backend
                 ir::IrContext opt_ctx{256 * 1024, &opts.target};
                 if (opts.opt_level > ir::pass::OptLevel::O0 && !std::getenv("DCC_BENCH_SKIP_IR_PASSES"))
                     input = ir::pass::global_pass_manager().run(module, opt_ctx, opts.opt_level);
+
+                auto* marked = opt_ctx.module(input->name);
+                marked->source_file_id = input->source_file_id;
+                marked->functions.assign(input->functions.begin(), input->functions.end());
+                marked->globals.assign(input->globals.begin(), input->globals.end());
+                marked->module_asms.assign(input->module_asms.begin(), input->module_asms.end());
+                auto* byte = opt_ctx.int_t(8, false);
+                auto* marker = opt_ctx.global(i8086::model_marker(opts.target.code_model), byte);
+                marker->is_declaration = true;
+                marker->linkage = ir::Linkage::External;
+                auto* pointer = opt_ctx.pointer_to(byte);
+                auto* reference = opt_ctx.global("__dcc_i8086_model_reference", pointer, opt_ctx.global_ref(marker, pointer), true);
+                reference->section = i8086::model_marker_section;
+                reference->retain = true;
+                marked->globals.push_back(marker);
+                marked->globals.push_back(reference);
+                input = marked;
 
                 if (!input->module_asms.empty())
                     return fail("i8086 backend: module asm is not supported yet");

@@ -48,7 +48,7 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
                 assert result.returncode == 0, result.stderr
             result = subprocess.run(["nasm", "-f", "elf32", str(listing), "-o", str(reassembled)], capture_output=True, text=True)
             assert result.returncode == 0, result.stderr
-            for name in (".text", ".data"):
+            for name in (".text", ".data", ".dcc.i8086.model"):
                 assert section(obj, name) is not None and section(obj, name) == section(reassembled, name), (model, level, name)
             checks += 1
     print("  RESULT  i8086 model diagnostics and assembly round trips: %d/%d passed" % (checks, checks))

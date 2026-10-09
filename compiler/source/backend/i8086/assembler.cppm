@@ -11,7 +11,8 @@ using namespace dcc::backend::x86;
 
 export namespace dcc::backend::i8086
 {
-    [[nodiscard]] std::expected<std::string, std::string> emit_intel_asm(dcc::ir::IrModule const& module, std::vector<MFunction> const& functions, dcc::target::TargetConfig const& target);
+    [[nodiscard]] std::expected<std::string, std::string> emit_intel_asm(dcc::ir::IrModule const& module, std::vector<MFunction> const& functions,
+                                                                         dcc::target::TargetConfig const& target);
 }
 
 namespace dcc::backend::i8086
@@ -238,13 +239,35 @@ namespace dcc::backend::i8086
             for (auto* g : module.globals)
                 if (g && g->section.empty() && object::classify_global(g) == section)
                     section_printer.global(g, section, referenced);
-            for (auto* g : module.globals)
-                if (g && !g->section.empty())
-                    section_printer.fail(std::format("i8086 assembly printer: global `{}` in section `{}` is not supported yet", g->name, g->section));
             if (!section_printer.error.empty())
                 return std::unexpected(section_printer.error);
             if (!section_printer.out.empty())
                 data += std::format("\n{}\n{}", section_directive(section), section_printer.out);
+        }
+
+        std::vector<std::string_view> custom_sections;
+        for (auto* g : module.globals)
+            if (g && !g->section.empty() && object::classify_global(g) != DataSection::None &&
+                std::ranges::find(custom_sections, g->section) == custom_sections.end())
+                custom_sections.push_back(g->section);
+
+        for (auto name : custom_sections)
+        {
+            Printer section_printer;
+            DataSection kind = DataSection::None;
+            for (auto* g : module.globals)
+                if (g && g->section == name && object::classify_global(g) != DataSection::None)
+                {
+                    if (kind == DataSection::None)
+                        kind = object::classify_global(g);
+                    section_printer.global(g, kind == DataSection::Bss ? DataSection::Bss : DataSection::Data, referenced);
+                }
+
+            if (!section_printer.error.empty())
+                return std::unexpected(section_printer.error);
+
+            data += std::format("\nsection {} {} alloc noexec {} align=1\n{}", name, kind == DataSection::Bss ? "nobits" : "progbits",
+                                kind == DataSection::Rodata ? "nowrite" : "write", section_printer.out);
         }
 
         for (auto const& name : referenced)
