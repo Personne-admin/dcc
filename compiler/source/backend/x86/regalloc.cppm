@@ -37,9 +37,14 @@ export namespace dcc::backend::x86
         bool is_win64;
 
         [[nodiscard]] RegisterClassPolicy const& of(RegClass cls) const noexcept { return cls == RegClass::XMM ? xmm : gpr; }
-        [[nodiscard]] VReg scratch(RegClass cls) const noexcept { return VReg::phys(of(cls).scratch_order.front()); }
+        [[nodiscard]] VReg scratch(RegClass cls) const noexcept
+        {
+            auto const& order = of(cls).scratch_order;
+            return order.empty() ? VReg{} : VReg::phys(order.front());
+        }
     };
-}
+
+} // namespace dcc::backend::x86
 
 namespace dcc::backend::x86
 {
@@ -825,7 +830,8 @@ namespace dcc::backend::x86
                     if (spill_candidate && spill_candidate->end > range.end)
                     {
                         if (spill_candidate->spill_slot == (std::numeric_limits<std::uint32_t>::max)())
-                            spill_candidate->spill_slot = func.new_frame_slot(regs.of(spill_candidate->reg_class).spill.size, regs.of(spill_candidate->reg_class).spill.align, true);
+                            spill_candidate->spill_slot =
+                                func.new_frame_slot(regs.of(spill_candidate->reg_class).spill.size, regs.of(spill_candidate->reg_class).spill.align, true);
 
                         spill_candidate->spilled = true;
                         PhysReg freed_reg = spill_candidate->assigned;
@@ -1303,10 +1309,12 @@ namespace dcc::backend::x86
             auto note = [&](PhysReg pr) {
                 if (reg_class(pr) == RegClass::XMM)
                 {
-                    if (std::ranges::find(regs.xmm.callee_saved, pr) != regs.xmm.callee_saved.end() && std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
+                    if (std::ranges::find(regs.xmm.callee_saved, pr) != regs.xmm.callee_saved.end() &&
+                        std::ranges::find(used_xmm_saves, pr) == used_xmm_saves.end())
                         used_xmm_saves.push_back(pr);
                 }
-                else if (std::ranges::find(regs.gpr.callee_saved, pr) != regs.gpr.callee_saved.end() && std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
+                else if (std::ranges::find(regs.gpr.callee_saved, pr) != regs.gpr.callee_saved.end() &&
+                         std::ranges::find(used_callee_saves, pr) == used_callee_saves.end())
                     used_callee_saves.push_back(pr);
             };
 
@@ -1512,7 +1520,8 @@ namespace dcc::backend::x86
                         continue;
                     }
 
-                    auto resolve_group = [&func](std::vector<Move> group, VReg group_scratch, SpillAccess const& temp, bool& ok, bool& changed, std::uint32_t& out_temp_slot) {
+                    auto resolve_group = [&func](std::vector<Move> group, VReg group_scratch, SpillAccess const& temp, bool& ok, bool& changed,
+                                                 std::uint32_t& out_temp_slot) {
                         ok = true;
                         changed = false;
                         if (group.size() < 2)
@@ -1913,7 +1922,7 @@ namespace dcc::backend::x86
 
     } // anonymous namespace
 
-}
+} // namespace dcc::backend::x86
 
 export namespace dcc::backend::x86
 {
@@ -1937,4 +1946,4 @@ export namespace dcc::backend::x86
         remove_redundant_moves(func);
     }
 
-}
+} // namespace dcc::backend::x86
