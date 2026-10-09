@@ -7,6 +7,7 @@ T unwrap_err(T)(const Box(T)* self, i32 first = 4) { return self.value; }
 i32 test() {
     static if compiles(Box(i32) val) { val?; } {
         return 1;
+    } else {
+        return 0;
     }
-    return 0;
 }

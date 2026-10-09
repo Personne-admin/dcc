@@ -5717,7 +5717,13 @@ export namespace dcc::sema
                         *had_non_constraint_failure = true;
 
                     if (rejection_reason)
-                        *rejection_reason = std::format("argument count mismatch: expected {}, got {}", params.size() + num_value_tparams, actual_count);
+                    {
+                        if (actual_count < min_required + num_value_tparams && arg_exprs.size() >= num_value_tparams &&
+                            actual_count - num_value_tparams < f.params.size())
+                            *rejection_reason = std::format("missing argument for parameter `{}` in call to `{}`", f.params[actual_count - num_value_tparams].name, f.name);
+                        else
+                            *rejection_reason = std::format("argument count mismatch: expected {}, got {}", params.size() + num_value_tparams, actual_count);
+                    }
 
                     record_rejection(rejection_info,
                                      actual_count > params.size() + num_value_tparams ? CallRejectionKind::TooManyArgs : CallRejectionKind::TooFewArgs,
@@ -11433,14 +11439,19 @@ export namespace dcc::sema
                     struct MethodInfo
                     {
                         ast::FuncDecl const* callee{};
+                        ast::CallExpr* call{};
                         types::TypePtr result_type{};
                         ast::UfcsReceiverAdjust receiver_adjust{ast::UfcsReceiverAdjust::None};
                     };
 
+                    std::string protocol_failure;
                     auto resolve_method = [&](std::string_view name) -> std::optional<MethodInfo> {
+                        protocol_failure.clear();
                         ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
-                        auto* fa = m_ast_ctx.make<ast::FieldAccessExpr>(p.range, p.operand, name, p.range);
-                        auto call_result = resolve_ufcs(mod, fn, scope, *fa, {}, loop_depth, next_off, const_env, nullptr, &op, true);
+                        auto site = p.op_range.valid() ? p.op_range : p.range;
+                        auto* fa = m_ast_ctx.make<ast::FieldAccessExpr>(site, p.operand, name, site);
+                        auto* call = m_ast_ctx.make<ast::CallExpr>(site, fa, m_alloc);
+                        auto call_result = resolve_ufcs(mod, fn, scope, *fa, {}, loop_depth, next_off, const_env, nullptr, &op, true, &call->args, nullptr, &protocol_failure);
                         if (has_error(call_result.type))
                             return std::nullopt;
 
@@ -11448,14 +11459,23 @@ export namespace dcc::sema
                         if (!callee)
                             return std::nullopt;
 
-                        return MethodInfo{callee, call_result.type, fa->sema.ufcs_receiver_adjust};
+                        set_resolved_type(call->sema, call_result.type);
+                        call->sema.resolved_decl = call_result.resolved_decl;
+                        record_resolved_specialization(call->sema, call_result.spec_commit ? &call_result.spec_commit : nullptr);
+                        call->sema.ufcs_callee = call_result.ufcs_callee;
+                        call->sema.call_argument_offset = call_result.call_argument_offset;
+                        call->sema.default_argument_start = call_result.default_argument_start;
+                        return MethodInfo{callee, call, call_result.type, fa->sema.ufcs_receiver_adjust};
                     };
 
                     auto is_ok_info = resolve_method("is_ok");
                     if (!is_ok_info)
                     {
                         out.type = m_types.m_errort();
-                        error(p.range, "type `{}` is not Unwrappable: no visible `.is_ok()` method", format_type_str(op.type));
+                        if (!protocol_failure.empty())
+                            error(p.range, "? operator: {}", protocol_failure);
+                        else
+                            error(p.range, "type `{}` is not Unwrappable: no visible `.is_ok()` method", format_type_str(op.type));
                         return out;
                     }
 
@@ -11470,7 +11490,10 @@ export namespace dcc::sema
                     if (!unwrap_info)
                     {
                         out.type = m_types.m_errort();
-                        error(p.range, "type `{}` is not Unwrappable: no visible `.unwrap()` method", format_type_str(op.type));
+                        if (!protocol_failure.empty())
+                            error(p.range, "? operator: {}", protocol_failure);
+                        else
+                            error(p.range, "type `{}` is not Unwrappable: no visible `.unwrap()` method", format_type_str(op.type));
                         return out;
                     }
                     auto* success_type = unwrap_info->result_type;
@@ -11479,7 +11502,10 @@ export namespace dcc::sema
                     if (!unwrap_err_info)
                     {
                         out.type = m_types.m_errort();
-                        error(p.range, "type `{}` is not Unwrappable: no visible `.unwrap_err()` method", format_type_str(op.type));
+                        if (!protocol_failure.empty())
+                            error(p.range, "? operator: {}", protocol_failure);
+                        else
+                            error(p.range, "type `{}` is not Unwrappable: no visible `.unwrap_err()` method", format_type_str(op.type));
                         return out;
                     }
                     auto* error_type = unwrap_err_info->result_type;
@@ -11502,6 +11528,9 @@ export namespace dcc::sema
                         return out;
                     }
 
+                    p.unwrap_is_ok_call = is_ok_info->call;
+                    p.unwrap_unwrap_call = unwrap_info->call;
+                    p.unwrap_unwrap_err_call = unwrap_err_info->call;
                     p.unwrap_is_ok_callee = is_ok_info->callee;
                     p.unwrap_is_ok_receiver_adjust = is_ok_info->receiver_adjust;
                     p.unwrap_unwrap_callee = unwrap_info->callee;
@@ -14632,7 +14661,8 @@ export namespace dcc::sema
         detail::ExprResult resolve_ufcs(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::FieldAccessExpr& f, std::span<ast::Expr* const> args,
                                         int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env, types::TypePtr expected_type = nullptr,
                                         detail::ExprResult const* preanalyzed_receiver = nullptr, bool protocol_lookup = false,
-                                        std::pmr::vector<ast::Expr*>* materialized_args = nullptr, types::TypePtr* inferred_receiver = nullptr)
+                                        std::pmr::vector<ast::Expr*>* materialized_args = nullptr, types::TypePtr* inferred_receiver = nullptr,
+                                        std::string* failure_detail = nullptr)
         {
             bool saw_probe_error = false;
             bool saw_constraint_failure = false;
@@ -14819,6 +14849,8 @@ export namespace dcc::sema
 
                 if (saw_non_constraint_failure)
                 {
+                    if (failure_detail && rejected.size() == 1 && rejected.front().reason.starts_with("missing argument"))
+                        *failure_detail = rejected.front().reason;
                     if (!rejected.empty())
                     {
                         auto const lambda_mark = pending_lambda_mark();

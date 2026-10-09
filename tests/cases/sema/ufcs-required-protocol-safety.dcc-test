@@ -7,4 +7,4 @@ T unwrap_err(T)(const Box(T)* self, i32 first) { return self.value; }
 i32 test(Box(i32) val) { return val?; }
 
 === EXPECT-ERRORS ===
-main.dc:6: type `Box(i32)` is not Unwrappable: no visible `.unwrap()` method
+main.dc:6: ? operator: missing argument for parameter `first` in call to `unwrap`
