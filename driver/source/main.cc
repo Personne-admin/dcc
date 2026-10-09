@@ -2598,6 +2598,9 @@ auto main(int argc, char** argv) -> int
             }
             else if (opts.backend_name == "custom")
             {
+                if (opts.emit_debug_info)
+                    std::println(std::cerr, "dcc: warning: debug information is not supported by the custom backend");
+
                 if (kinds.contains(dcc::backend::ArtifactKind::LlvmIrText))
                 {
                     std::println(std::cerr, "dcc: error: custom backend does not support LLVM IR output");
