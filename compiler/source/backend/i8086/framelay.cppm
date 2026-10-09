@@ -1,6 +1,7 @@
 export module dcc.backend.i8086.framelay;
 
 import std;
+import dcc.target;
 import dcc.backend.x86.mir;
 
 using namespace dcc::backend::x86;
@@ -30,7 +31,7 @@ namespace dcc::backend::i8086
 
 export namespace dcc::backend::i8086
 {
-    void frame_layout(MFunction& func)
+    void frame_layout(MFunction& func, target::TargetConfig const&)
     {
         if (func.frame_size >= 0)
             return;

@@ -11,7 +11,7 @@ using namespace dcc::backend::x86;
 
 export namespace dcc::backend::i8086
 {
-    [[nodiscard]] std::expected<std::string, std::string> emit_nasm(dcc::ir::IrModule const& module, std::vector<MFunction> const& functions);
+    [[nodiscard]] std::expected<std::string, std::string> emit_intel_asm(dcc::ir::IrModule const& module, std::vector<MFunction> const& functions, dcc::target::TargetConfig const& target);
 }
 
 namespace dcc::backend::i8086
@@ -272,7 +272,7 @@ namespace dcc::backend::i8086
 
     } // namespace
 
-    std::expected<std::string, std::string> emit_nasm(IrModule const& module, std::vector<MFunction> const& functions)
+    std::expected<std::string, std::string> emit_intel_asm(IrModule const& module, std::vector<MFunction> const& functions, target::TargetConfig const&)
     {
         Printer p;
         p.out = "bits 16\n";

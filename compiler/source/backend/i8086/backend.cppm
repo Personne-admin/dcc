@@ -100,8 +100,8 @@ namespace dcc::backend
                             artifact.diagnostics.push_back(BackendDiagnostic{{}, std::move(message)});
                         return artifact;
                     }
-                    i8086::regalloc(mfunc);
-                    i8086::frame_layout(mfunc);
+                    i8086::regalloc(mfunc, opts.target);
+                    i8086::frame_layout(mfunc, opts.target);
                     functions.push_back(std::move(mfunc));
                 }
 
@@ -124,7 +124,7 @@ namespace dcc::backend
 
                 if (opts.requested_artifacts.contains(ArtifactKind::AsmText))
                 {
-                    auto text = i8086::emit_nasm(*input, functions);
+                    auto text = i8086::emit_intel_asm(*input, functions, opts.target);
                     if (!text)
                         return fail(text.error());
                     artifact.asm_text = std::move(*text);
