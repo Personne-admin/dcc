@@ -1,0 +1,99 @@
+=== FILE: main.dc ===
+module main;
+
+volatile i32 a0 = ((-2000000000) as i32);
+volatile i32 b0 = 12345;
+volatile i32 c0 = 7;
+volatile i32 a1 = 2147483647;
+volatile i32 b1 = ((-2) as i32);
+volatile i32 c1 = 31;
+volatile i32 a2 = ((-2147483648) as i32);
+volatile i32 b2 = 3;
+volatile i32 c2 = 1;
+
+@nomangle
+public i32 dcc_main() {
+    i32 ok = 0;
+    i32 a = a0;
+    i32 b = b0;
+    i32 c = c0;
+    ok = ok + (((a + b) == ((-1999987655) as i32)) as i32) - (((a + b) == ((-1999987654) as i32)) as i32);
+    ok = ok + (((a - b) == ((-2000012345) as i32)) as i32) - (((a - b) == ((-2000012344) as i32)) as i32);
+    ok = ok + (((a * b) == 1766984704) as i32) - (((a * b) == 1766984705) as i32);
+    ok = ok + (((a / b) == ((-162008) as i32)) as i32) - (((a / b) == ((-162007) as i32)) as i32);
+    ok = ok + (((a % b) == ((-11240) as i32)) as i32) - (((a % b) == ((-11239) as i32)) as i32);
+    ok = ok + (((a & b) == 8192) as i32) - (((a & b) == 8193) as i32);
+    ok = ok + (((a | b) == ((-1999995847) as i32)) as i32) - (((a | b) == ((-1999995846) as i32)) as i32);
+    ok = ok + (((a ^ b) == ((-2000004039) as i32)) as i32) - (((a ^ b) == ((-2000004038) as i32)) as i32);
+    ok = ok + (((a << c) == 1698037760) as i32) - (((a << c) == 1698037761) as i32);
+    ok = ok + (((a >> c) == ((-15625000) as i32)) as i32) - (((a >> c) == ((-15624999) as i32)) as i32);
+    ok = ok + (((~a) == 1999999999) as i32) - (((~a) == 2000000000) as i32);
+    ok = ok + (((-a) == 2000000000) as i32) - (((-a) == 2000000001) as i32);
+    ok = ok + ((a < b) as i32 == 1) as i32 - ((a < b) as i32 == 0) as i32;
+    ok = ok + ((a <= b) as i32 == 1) as i32 - ((a <= b) as i32 == 0) as i32;
+    ok = ok + ((a > b) as i32 == 0) as i32 - ((a > b) as i32 == 1) as i32;
+    ok = ok + ((a >= b) as i32 == 0) as i32 - ((a >= b) as i32 == 1) as i32;
+    ok = ok + ((a == b) as i32 == 0) as i32 - ((a == b) as i32 == 1) as i32;
+    ok = ok + ((a != b) as i32 == 1) as i32 - ((a != b) as i32 == 0) as i32;
+    ok = ok + (((a as i8) == 0) as i32) - (((a as i8) == 1) as i32);
+    ok = ok + (((a as u8) == 0) as i32) - (((a as u8) == 1) as i32);
+    ok = ok + (((a as i16) == 27648) as i32) - (((a as i16) == 27649) as i32);
+    ok = ok + (((a as u16) == 27648) as i32) - (((a as u16) == 27649) as i32);
+    ok = ok + (((a as u32) == 2294967296) as i32) - (((a as u32) == 2294967297) as i32);
+    a = a1;
+    b = b1;
+    c = c1;
+    ok = ok + (((a + b) == 2147483645) as i32) - (((a + b) == 2147483646) as i32);
+    ok = ok + (((a - b) == ((-2147483647) as i32)) as i32) - (((a - b) == ((-2147483646) as i32)) as i32);
+    ok = ok + (((a * b) == 2) as i32) - (((a * b) == 3) as i32);
+    ok = ok + (((a / b) == ((-1073741823) as i32)) as i32) - (((a / b) == ((-1073741822) as i32)) as i32);
+    ok = ok + (((a % b) == 1) as i32) - (((a % b) == 2) as i32);
+    ok = ok + (((a & b) == 2147483646) as i32) - (((a & b) == 2147483647) as i32);
+    ok = ok + (((a | b) == ((-1) as i32)) as i32) - (((a | b) == 0) as i32);
+    ok = ok + (((a ^ b) == ((-2147483647) as i32)) as i32) - (((a ^ b) == ((-2147483646) as i32)) as i32);
+    ok = ok + (((a << c) == ((-2147483648) as i32)) as i32) - (((a << c) == ((-2147483647) as i32)) as i32);
+    ok = ok + (((a >> c) == 0) as i32) - (((a >> c) == 1) as i32);
+    ok = ok + (((~a) == ((-2147483648) as i32)) as i32) - (((~a) == ((-2147483647) as i32)) as i32);
+    ok = ok + (((-a) == ((-2147483647) as i32)) as i32) - (((-a) == ((-2147483646) as i32)) as i32);
+    ok = ok + ((a < b) as i32 == 0) as i32 - ((a < b) as i32 == 1) as i32;
+    ok = ok + ((a <= b) as i32 == 0) as i32 - ((a <= b) as i32 == 1) as i32;
+    ok = ok + ((a > b) as i32 == 1) as i32 - ((a > b) as i32 == 0) as i32;
+    ok = ok + ((a >= b) as i32 == 1) as i32 - ((a >= b) as i32 == 0) as i32;
+    ok = ok + ((a == b) as i32 == 0) as i32 - ((a == b) as i32 == 1) as i32;
+    ok = ok + ((a != b) as i32 == 1) as i32 - ((a != b) as i32 == 0) as i32;
+    ok = ok + (((a as i8) == ((-1) as i8)) as i32) - (((a as i8) == 0) as i32);
+    ok = ok + (((a as u8) == 255) as i32) - (((a as u8) == 0) as i32);
+    ok = ok + (((a as i16) == ((-1) as i16)) as i32) - (((a as i16) == 0) as i32);
+    ok = ok + (((a as u16) == 65535) as i32) - (((a as u16) == 0) as i32);
+    ok = ok + (((a as u32) == 2147483647) as i32) - (((a as u32) == 2147483648) as i32);
+    a = a2;
+    b = b2;
+    c = c2;
+    ok = ok + (((a + b) == ((-2147483645) as i32)) as i32) - (((a + b) == ((-2147483644) as i32)) as i32);
+    ok = ok + (((a - b) == 2147483645) as i32) - (((a - b) == 2147483646) as i32);
+    ok = ok + (((a * b) == ((-2147483648) as i32)) as i32) - (((a * b) == ((-2147483647) as i32)) as i32);
+    ok = ok + (((a / b) == ((-715827882) as i32)) as i32) - (((a / b) == ((-715827881) as i32)) as i32);
+    ok = ok + (((a % b) == ((-2) as i32)) as i32) - (((a % b) == ((-1) as i32)) as i32);
+    ok = ok + (((a & b) == 0) as i32) - (((a & b) == 1) as i32);
+    ok = ok + (((a | b) == ((-2147483645) as i32)) as i32) - (((a | b) == ((-2147483644) as i32)) as i32);
+    ok = ok + (((a ^ b) == ((-2147483645) as i32)) as i32) - (((a ^ b) == ((-2147483644) as i32)) as i32);
+    ok = ok + (((a << c) == 0) as i32) - (((a << c) == 1) as i32);
+    ok = ok + (((a >> c) == ((-1073741824) as i32)) as i32) - (((a >> c) == ((-1073741823) as i32)) as i32);
+    ok = ok + (((~a) == 2147483647) as i32) - (((~a) == ((-2147483648) as i32)) as i32);
+    ok = ok + (((-a) == ((-2147483648) as i32)) as i32) - (((-a) == ((-2147483647) as i32)) as i32);
+    ok = ok + ((a < b) as i32 == 1) as i32 - ((a < b) as i32 == 0) as i32;
+    ok = ok + ((a <= b) as i32 == 1) as i32 - ((a <= b) as i32 == 0) as i32;
+    ok = ok + ((a > b) as i32 == 0) as i32 - ((a > b) as i32 == 1) as i32;
+    ok = ok + ((a >= b) as i32 == 0) as i32 - ((a >= b) as i32 == 1) as i32;
+    ok = ok + ((a == b) as i32 == 0) as i32 - ((a == b) as i32 == 1) as i32;
+    ok = ok + ((a != b) as i32 == 1) as i32 - ((a != b) as i32 == 0) as i32;
+    ok = ok + (((a as i8) == 0) as i32) - (((a as i8) == 1) as i32);
+    ok = ok + (((a as u8) == 0) as i32) - (((a as u8) == 1) as i32);
+    ok = ok + (((a as i16) == 0) as i32) - (((a as i16) == 1) as i32);
+    ok = ok + (((a as u16) == 0) as i32) - (((a as u16) == 1) as i32);
+    ok = ok + (((a as u32) == 2147483648) as i32) - (((a as u32) == 2147483649) as i32);
+    return ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 69

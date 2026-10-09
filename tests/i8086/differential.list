@@ -1,0 +1,21 @@
+# em64t execution fixtures whose entry module is also compiled for i8086 (small, unreal, unreal32) at -O0 and -O2
+# and run under qemu; the i8086 exit code must equal the fixture's EXPECT-EM64T-OBJECT RUN-EXIT.
+em64t/arithmetic.dcc-test
+em64t/const-value-exec.dcc-test
+em64t/global-align.dcc-test
+em64t/global-const-read.dcc-test
+em64t/global-mut-var.dcc-test
+em64t/global-section.dcc-test
+em64t/multiple-bss-globals.dcc-test
+em64t/opt-pipeline.dcc-test
+em64t/pic-global-shared.dcc-test
+em64t/pic-got-access.dcc-test
+em64t/wa-value-alias-nested-agg.dcc-test
+em64t/wa-value-alias-scalar-chain.dcc-test
+em64t/wa-value-alias-struct-agg.dcc-test
+em64t/int-ops-matrix-i8.dcc-test
+em64t/int-ops-matrix-u8.dcc-test
+em64t/int-ops-matrix-i16.dcc-test
+em64t/int-ops-matrix-u16.dcc-test
+em64t/int-ops-matrix-i32.dcc-test
+em64t/int-ops-matrix-u32.dcc-test
