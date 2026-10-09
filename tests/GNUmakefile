@@ -94,6 +94,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_linker_arguments.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_abi.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_compdb_output.py $(BUILD_DIR)/bin/dcc $(BUILD_DIR)/bin/dccd
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_dccd_project_layout.py $(BUILD_DIR)/bin/dcc $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_os_gating.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_freestanding.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_float_gating.py $(BUILD_DIR)/bin/dcc

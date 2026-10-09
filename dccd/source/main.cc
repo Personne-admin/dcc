@@ -52,7 +52,11 @@ auto main(int argc, char** argv) -> int
     dccd::LanguageServer server{nullptr, registry};
     dccd::transport::Transport transport{std::cin, *registry};
 
+    auto const prefix = dcc::config::current_prefix(argv);
+    server.set_resolved_prefix(prefix);
+
     std::println(std::cerr, "[dccd] dcc language server started");
+    std::println(std::cerr, "[dccd] prefix: {} ({})", prefix.path.string(), dcc::config::to_string(prefix.source));
 
     transport.start();
 

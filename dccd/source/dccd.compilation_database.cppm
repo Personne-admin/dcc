@@ -34,6 +34,10 @@ export namespace dccd
 
         [[nodiscard]] CompileCommand const* command_for(std::filesystem::path const& file) const;
 
+        [[nodiscard]] CompileCommand const* nearest_command_for(std::filesystem::path const& file) const;
+
+        [[nodiscard]] std::size_t source_command_count() const;
+
         [[nodiscard]] std::filesystem::path const& path() const noexcept { return m_path; }
 
         [[nodiscard]] bool empty() const noexcept { return m_commands.empty(); }
@@ -291,6 +295,35 @@ namespace dccd
         if (it == m_first_index.end())
             return nullptr;
         return &m_commands[it->second];
+    }
+
+    CompileCommand const* CompilationDatabase::nearest_command_for(std::filesystem::path const& file) const
+    {
+        auto const directory = detail::normalize_path(file, {}).parent_path();
+        CompileCommand const* best = nullptr;
+        std::size_t best_shared = 0;
+        for (auto const& command : m_commands)
+        {
+            if (command.file.extension() != ".dc")
+                continue;
+
+            std::size_t shared = 0;
+            auto const command_directory = command.file.parent_path();
+            for (auto a = directory.begin(), b = command_directory.begin(); a != directory.end() && b != command_directory.end() && *a == *b; ++a, ++b)
+                ++shared;
+
+            if (!best || shared > best_shared)
+            {
+                best = &command;
+                best_shared = shared;
+            }
+        }
+        return best;
+    }
+
+    std::size_t CompilationDatabase::source_command_count() const
+    {
+        return static_cast<std::size_t>(std::ranges::count_if(m_commands, [](CompileCommand const& command) { return command.file.extension() == ".dc"; }));
     }
 
     std::optional<AnalysisCommand> project_analysis_command(CompileCommand const& command, std::ostream& log)

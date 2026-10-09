@@ -6239,6 +6239,119 @@ TEST_CASE("two tus with different flags get different include paths")
     }
 }
 
+namespace
+{
+    void write_nested_libdcext_compdb(std::filesystem::path const& project)
+    {
+        std::filesystem::create_directories(project / "src");
+        std::ofstream out{project / "compile_commands.json"};
+        out << "[{\"directory\":\"" << project.string() << "\",\"file\":\"src/a.dc\",\"arguments\":[\"dcc\",\"-target\",\"x86_64-elf\",\"-flibdcext\","
+               "\"freestanding\",\"-c\",\"src/a.dc\",\"-o\",\"obj/a.o\",\"--compdb-entry\",\"obj/a.compdb.json\"],\"output\":\"obj/a.o\"}]";
+    }
+
+    [[nodiscard]] std::vector<JsonValue> send_and_collect_frames(dccd::LanguageServer& server, Sink& sink, JsonValue rpc)
+    {
+        auto parsed = dccd::protocol::parse_rpc(rpc);
+        if (!parsed)
+            return {};
+
+        std::ignore = server.handle_message(*parsed);
+        return parse_lsp_stream(sink.drain());
+    }
+
+} // namespace
+
+TEST_CASE("a compilation database below the workspace root is found by walking up from the source")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    write_nested_libdcext_compdb(workspace.path / "kernel");
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "kernel" / "src" / "a.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+    CHECK(publishes.empty());
+}
+
+TEST_CASE("a source the database does not list uses the command of the nearest listed source")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    write_nested_libdcext_compdb(workspace.path / "kernel");
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "kernel" / "src" / "drivers" / "b.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+    CHECK(publishes.empty());
+}
+
+TEST_CASE("a database without dc entries does not stop the upward search")
+{
+    TempDir workspace;
+    TempDir prefix;
+    make_stub_libdcext_prefix(prefix.path);
+    write_nested_libdcext_compdb(workspace.path / "kernel");
+    std::filesystem::create_directories(workspace.path / "kernel" / "src");
+    {
+        std::ofstream out{workspace.path / "kernel" / "src" / "compile_commands.json"};
+        out << "[{\"directory\":\"" << (workspace.path / "kernel" / "src").string() << "\",\"file\":\"boot.c\",\"arguments\":[\"cc\",\"-c\",\"boot.c\"]}]";
+    }
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "kernel" / "src" / "a.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+    CHECK(publishes.empty());
+}
+
+TEST_CASE("a prefix without libdcext headers is reported to the client")
+{
+    TempDir workspace;
+    TempDir prefix;
+    std::filesystem::create_directories(prefix.path / "include");
+    write_nested_libdcext_compdb(workspace.path / "kernel");
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    server.set_prefix_override(prefix.path);
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "kernel" / "src" / "a.dc");
+    auto frames = send_and_collect_frames(server, sink, make_did_open(uri, 1, std::string{kLibdcextMain}));
+
+    std::size_t messages = 0;
+    for (auto const& frame : frames)
+    {
+        if (frame.get_string("method") != "window/showMessage")
+            continue;
+        ++messages;
+        auto const* params = frame.find_member("params");
+        REQUIRE(params != nullptr);
+        auto message = params->get_string("message");
+        REQUIRE(message.has_value());
+        CHECK(message->find("libdcext not found") != std::string::npos);
+        CHECK(message->find((prefix.path / "include" / "std").string()) != std::string::npos);
+    }
+    CHECK_EQ(messages, std::size_t{1});
+
+    auto again = send_and_collect_frames(server, sink, make_did_open(uri, 2, std::string{kLibdcextMain}));
+    for (auto const& frame : again)
+        CHECK(frame.get_string("method") != "window/showMessage");
+}
+
 TEST_CASE("compile_commands.json rewrite flips libdcext resolution")
 {
     TempDir workspace;
