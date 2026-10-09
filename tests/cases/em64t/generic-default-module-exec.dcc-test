@@ -7,13 +7,14 @@ public u32 capture(T)(T value, SourceLocation sl = core::source_location::source
 === FILE: wrapper.dc ===
 module wrapper;
 import origin;
-public u32 wrapped(T)(T value) { return origin::capture(value); }
+public u32 accept(T)(T value) { return value as u32; }
+public u32 wrapped(T)(T value) { return accept(value.capture()); }
 
 === FILE: main.dc ===
 module main;
 import wrapper;
 @nomangle public i32 dcc_main() {
-    if wrapper::wrapped(7) != 3 { return 1; }
+    if wrapper::wrapped(7) != 4 { return 1; }
     return 0;
 }
 
