@@ -1,30 +1,21 @@
 from pathlib import Path
-import struct
 import subprocess
 import sys
 import tempfile
-
-
-def section(path, name):
-    data = path.read_bytes()
-    assert data[:4] == b"\x7fELF" and data[4] == 1 and struct.unpack_from("<H", data, 18)[0] == 3, path
-    shoff = struct.unpack_from("<I", data, 32)[0]
-    shentsize, shnum, shstrndx = struct.unpack_from("<HHH", data, 46)
-    headers = [struct.unpack_from("<IIIIIIIIII", data, shoff + i * shentsize) for i in range(shnum)]
-    strtab = headers[shstrndx]
-    for header in headers:
-        end = data.index(b"\0", strtab[4] + header[0])
-        if data[strtab[4] + header[0]:end].decode() == name:
-            return data[header[4]:header[4] + header[5]]
-    return None
 
 
 compiler = Path(sys.argv[1]).resolve()
 with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
     directory = Path(directory)
     source = directory / "main.dc"
-    source.write_text("module m;\n@nomangle public i32 dcc_main() { return 0x12345; }\npublic u16 value() { return 7; }\npublic bool flag() { return true; }\n"
-                      "public void nothing() {}\npublic i16 counter = 3;\n")
+    source.write_text("module m;\nvolatile i8 a = -100;\nvolatile u16 b = 60000;\nvolatile i32 c = -7;\nvolatile bool f;\n"
+                      "@nomangle public i32 dcc_main() {\n    i8 x = a;\n    u16 y = b;\n    i32 z = c;\n    f = x < 3;\n"
+                      "    i32 r = (x / 3) as i32 + (y % 1000) as i32 + z * z + (y >> 4) as i32 - (x >> 2) as i32 + (~y) as i32;\n"
+                      "    return r + (x as u8 == 156) as i32 + (f as i32) - (z << (y & 7) as i32);\n}\n"
+                      "public u16 value() { return 7; }\npublic bool flag() { return true; }\npublic void nothing() {}\npublic i16 counter = 3;\n")
+    crt0 = directory / "crt0.o"
+    result = subprocess.run(["nasm", "-f", "elf32", str(Path(__file__).resolve().parent.parent / "i8086" / "crt0.asm"), "-o", str(crt0)], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
     checks = 0
     for target, model, arch, message in (
         ("i8086-binary", "unreal", "8086", "-mcmodel=unreal requires -farch i386 or newer; got -farch 8086"),
@@ -48,7 +39,13 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
                 assert result.returncode == 0, result.stderr
             result = subprocess.run(["nasm", "-f", "elf32", str(listing), "-o", str(reassembled)], capture_output=True, text=True)
             assert result.returncode == 0, result.stderr
-            for name in (".text", ".data", ".dcc.i8086.model"):
-                assert section(obj, name) is not None and section(obj, name) == section(reassembled, name), (model, level, name)
+            images = []
+            for linked in (obj, reassembled):
+                image = linked.with_suffix(".bin")
+                result = subprocess.run(["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbase=1000:0", str(crt0), str(linked),
+                                         "-o", str(image)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+                images.append(image.read_bytes())
+            assert images[0] == images[1], (model, level)
             checks += 1
     print("  RESULT  i8086 model diagnostics and assembly round trips: %d/%d passed" % (checks, checks))

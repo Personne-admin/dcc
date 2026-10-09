@@ -83,21 +83,84 @@ namespace dcc::backend::i8086
                 out += '\n';
             }
 
-            void tied(std::string_view mnemonic, MInstr const& mi, unsigned bits)
+            [[nodiscard]] static bool same_register(MOp const& a, MOp const& b) { return a.kind == MOpKind::Reg && b.kind == MOpKind::Reg && a.reg == b.reg; }
+
+            void tied(std::string_view mnemonic, MInstr const& mi, unsigned bits, bool commutative = false)
             {
                 auto const& d = mi.ops[0];
                 if (mi.num_ops == 3)
                 {
-                    if (!(mi.ops[1].kind == MOpKind::Reg && d.kind == MOpKind::Reg && mi.ops[1].reg == d.reg))
+                    auto const* source = &mi.ops[2];
+                    if (same_register(d, mi.ops[2]) && !same_register(d, mi.ops[1]))
+                    {
+                        if (!commutative)
+                        {
+                            fail(std::format("i8086 assembly printer: {} destination is the right operand", opc_name(mi.opc)));
+                            return;
+                        }
+                        source = &mi.ops[1];
+                    }
+                    else if (!same_register(d, mi.ops[1]))
                         line(std::format("mov {}, {}", operand(d, bits), operand(mi.ops[1], bits)));
-                    line(std::format("{} {}, {}", mnemonic, operand(d, bits), operand(mi.ops[2], bits)));
+                    line(std::format("{} {}, {}", mnemonic, operand(d, bits), operand(*source, bits)));
                     return;
                 }
                 line(std::format("{} {}, {}", mnemonic, operand(d, bits), operand(mi.ops[1], bits)));
             }
 
+            void shift(std::string_view mnemonic, MInstr const& mi)
+            {
+                auto const& count = mi.ops[mi.num_ops - 1];
+                if (mi.num_ops == 3 && !same_register(mi.ops[0], mi.ops[1]))
+                    line(std::format("mov {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
+                line(std::format("{} {}, {}", mnemonic, operand(mi.ops[0], 32), operand(count, 8)));
+            }
+
+            void unary(std::string_view mnemonic, MInstr const& mi, unsigned bits)
+            {
+                if (mi.num_ops == 2 && !same_register(mi.ops[0], mi.ops[1]))
+                    line(std::format("mov {}, {}", operand(mi.ops[0], bits), operand(mi.ops[1], bits)));
+                line(std::format("{} {}", mnemonic, operand(mi.ops[0], bits)));
+            }
+
+            void extend(std::string_view mnemonic, MInstr const& mi, unsigned source_bits)
+            {
+                line(std::format("{} {}, {}", mnemonic, operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], source_bits)));
+            }
+
+            [[nodiscard]] static std::optional<std::string_view> setcc_mnemonic(MOpc opc)
+            {
+                switch (opc)
+                {
+                    case MOpc::SETEr:
+                        return "sete";
+                    case MOpc::SETNEr:
+                        return "setne";
+                    case MOpc::SETLr:
+                        return "setl";
+                    case MOpc::SETLEr:
+                        return "setle";
+                    case MOpc::SETGr:
+                        return "setg";
+                    case MOpc::SETGEr:
+                        return "setge";
+                    case MOpc::SETBr:
+                        return "setb";
+                    case MOpc::SETBEr:
+                        return "setbe";
+                    case MOpc::SETAr:
+                        return "seta";
+                    case MOpc::SETAEr:
+                        return "setae";
+                    default:
+                        return std::nullopt;
+                }
+            }
+
             void instruction(MInstr const& mi)
             {
+                if (auto setcc = setcc_mnemonic(mi.opc))
+                    return line(std::format("{} {}", *setcc, operand(mi.ops[0], 8)));
                 switch (mi.opc)
                 {
                     case MOpc::NOP:
@@ -106,10 +169,13 @@ namespace dcc::backend::i8086
                         return line("ud2");
                     case MOpc::RET:
                         return line("ret");
+                    case MOpc::CDQ:
+                        return line("cdq");
                     case MOpc::COPY:
                         if (mi.ops[0].reg != mi.ops[1].reg)
                             line(std::format("mov {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
                         return;
+                    case MOpc::MOV8mr:
                     case MOpc::MOV16rr:
                     case MOpc::MOV32rr:
                     case MOpc::MOV16ri:
@@ -118,6 +184,9 @@ namespace dcc::backend::i8086
                     case MOpc::MOV32rm:
                     case MOpc::MOV16mr:
                     case MOpc::MOV32mr:
+                    case MOpc::MOV8mi:
+                    case MOpc::MOV16mi:
+                    case MOpc::MOV32mi:
                         return line(std::format("mov {}, {}", operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], operand_bits(mi.opc))));
                     case MOpc::PUSH16r:
                     case MOpc::PUSH32r:
@@ -126,11 +195,54 @@ namespace dcc::backend::i8086
                     case MOpc::POP32r:
                         return line(std::format("pop {}", operand(mi.ops[0], operand_bits(mi.opc))));
                     case MOpc::ADD16ri:
-                        return tied("add", mi, 16);
+                    case MOpc::ADD32ri:
+                    case MOpc::ADD32rr:
+                        return tied("add", mi, operand_bits(mi.opc), true);
                     case MOpc::SUB16ri:
-                        return tied("sub", mi, 16);
+                    case MOpc::SUB32ri:
+                    case MOpc::SUB32rr:
+                        return tied("sub", mi, operand_bits(mi.opc));
+                    case MOpc::AND32ri:
+                    case MOpc::AND32rr:
+                        return tied("and", mi, 32, true);
+                    case MOpc::OR32ri:
+                    case MOpc::OR32rr:
+                        return tied("or", mi, 32, true);
+                    case MOpc::XOR32ri:
+                    case MOpc::XOR32rr:
+                        return tied("xor", mi, 32, true);
+                    case MOpc::IMUL32rr:
+                        return tied("imul", mi, 32, true);
+                    case MOpc::IMUL32rri:
+                        return line(std::format("imul {}, {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32), operand(mi.ops[2], 32)));
+                    case MOpc::SHL32ri8:
+                    case MOpc::SHL32rCL:
+                        return shift("shl", mi);
                     case MOpc::SHR32ri8:
-                        return tied("shr", mi, 32);
+                    case MOpc::SHR32rCL:
+                        return shift("shr", mi);
+                    case MOpc::SAR32ri8:
+                    case MOpc::SAR32rCL:
+                        return shift("sar", mi);
+                    case MOpc::CMP32rr:
+                    case MOpc::CMP32ri:
+                        return line(std::format("cmp {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
+                    case MOpc::NEG32r:
+                        return unary("neg", mi, 32);
+                    case MOpc::NOT32r:
+                        return unary("not", mi, 32);
+                    case MOpc::DIV32r:
+                        return line(std::format("div {}", operand(mi.ops[0], 32)));
+                    case MOpc::IDIV32r:
+                        return line(std::format("idiv {}", operand(mi.ops[0], 32)));
+                    case MOpc::MOVZX32_8rr:
+                    case MOpc::MOVZX32rm8:
+                        return extend("movzx", mi, 8);
+                    case MOpc::MOVZX32_16rr:
+                    case MOpc::MOVZX32rm16:
+                        return extend("movzx", mi, 16);
+                    case MOpc::MOVSX32_16rr:
+                        return extend("movsx", mi, 16);
                     default:
                         fail(std::format("i8086 assembly printer: unsupported instruction {}", opc_name(mi.opc)));
                 }
