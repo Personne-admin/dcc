@@ -2389,8 +2389,18 @@ namespace
             }
         }
 
+        bool const sema_failed = diag.has_errors();
+        if (sema_failed && (!fx.ir_blocks.empty() || !fx.llvm_blocks.empty() || !fx.executable_blocks.empty() || !fx.em64t_object_blocks.empty() ||
+                            !fx.i8086_run_blocks.empty() || !fx.em64t_asm_blocks.empty()))
+        {
+            ok = false;
+            std::println(std::cerr, "    FAIL  sema reported errors; lowering blocks were not run  ({}:1)", path.string());
+        }
+
         for (auto const& exp : fx.ir_blocks)
         {
+            if (sema_failed)
+                break;
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!mod)
             {
@@ -2456,6 +2466,8 @@ namespace
 
         for ([[maybe_unused]] auto const& exp : fx.llvm_blocks)
         {
+            if (sema_failed)
+                break;
 #if DCC_ENABLE_LLVM
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!mod)
@@ -2615,6 +2627,8 @@ namespace
 
         for ([[maybe_unused]] auto const& exp : fx.executable_blocks)
         {
+            if (sema_failed)
+                break;
 #if DCC_ENABLE_LLVM
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!mod)
@@ -2776,6 +2790,8 @@ namespace
 
         for (auto const& exp : fx.em64t_object_blocks)
         {
+            if (sema_failed)
+                break;
             ScopedTestEnv test_env{exp.env};
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!mod)
@@ -3695,6 +3711,8 @@ namespace
 
         for (auto const& exp : fx.i8086_run_blocks)
         {
+            if (sema_failed)
+                break;
             auto fail = [&](std::string const& message) {
                 ok = false;
                 std::println(std::cerr, "    FAIL  EXPECT-I8086-RUN: {}  ({}:{})", message, path.string(), exp.base_line);
@@ -3812,6 +3830,8 @@ namespace
 
         for (auto const& exp : fx.em64t_asm_blocks)
         {
+            if (sema_failed)
+                break;
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!mod)
             {

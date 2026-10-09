@@ -14085,7 +14085,19 @@ export namespace dcc::sema
                     if (ranked.empty())
                     {
                         if (saw_probe_error)
+                        {
+                            auto const errors_before = m_diag.error_count();
+                            if (scan.viable.size() == 1 && scan.viable.front().fp)
+                            {
+                                auto const& params = scan.viable.front().fp->params;
+                                for (std::size_t i = 0; i < c.args.size() && i < params.size(); ++i)
+                                    if (c.args[i])
+                                        std::ignore = analyze_expr(mod, fn, scope, *c.args[i], loop_depth, next_off, params[i], const_env);
+                            }
+                            if (m_diag.error_count() == errors_before)
+                                error(c.range, "no matching call for `{}`", display_name);
                             return detail::ExprResult{m_types.m_errort()};
+                        }
 
                         if (saw_constraint_failure && !saw_non_constraint_failure)
                         {
