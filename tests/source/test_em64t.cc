@@ -158,6 +158,43 @@ TEST_CASE("spilled memory base index and value use distinct scratch registers")
     CHECK(found);
 }
 
+TEST_CASE("a copy between two spilled values is a load into the scratch register and a store")
+{
+    MFunction func;
+    auto& block = func.create_block("entry");
+    func.entry_block_id = block.id;
+    auto source = func.new_vreg();
+    auto destination = func.new_vreg();
+    block.instrs.push_back(make_mov_ri(source, 73, 64));
+    MInstr clobber;
+    clobber.opc = MOpc::NOP;
+    clobber.implicit_defs = 0xffff;
+    block.instrs.push_back(clobber);
+    block.instrs.push_back(make_copy(destination, source));
+    block.instrs.push_back(clobber);
+    block.instrs.push_back(make_instr(MOpc::MOV64rr, {MOp::from_reg(VReg::phys(PhysReg::RAX)), MOp::from_reg(destination)}, 1));
+    MInstr ret;
+    ret.opc = MOpc::RET;
+    block.instrs.push_back(ret);
+    regalloc(func, dcc::target::TargetConfig::host_default());
+    auto const& instrs = func.blocks.front().instrs;
+    std::size_t pairs = 0;
+    for (std::size_t i = 0; i + 1 < instrs.size(); ++i)
+    {
+        auto const& load = instrs[i];
+        auto const& store = instrs[i + 1];
+        if (load.opc == MOpc::MOV64rm && load.ops[1].kind == MOpKind::FrameSlot && store.opc == MOpc::MOV64mr && store.ops[0].kind == MOpKind::FrameSlot &&
+            store.ops[1].reg == load.ops[0].reg && load.ops[1].frame_slot != store.ops[0].frame_slot)
+        {
+            ++pairs;
+            CHECK(load.ops[0].reg == VReg::phys(PhysReg::R11));
+            CHECK(i == 0 || instrs[i - 1].opc != MOpc::MOV64mr || instrs[i - 1].ops[1].reg != VReg::phys(PhysReg::R10));
+        }
+    }
+    CHECK(pairs == 1u);
+    CHECK(std::ranges::none_of(instrs, [](MInstr const& mi) { return mi.opc == MOpc::COPY; }));
+}
+
 SECTION("em64t: peepholes");
 
 TEST_CASE("redundant self moves are removed after allocation")
