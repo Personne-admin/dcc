@@ -11,7 +11,9 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
     source.write_text("module m;\nvolatile i8 a = -100;\nvolatile u16 b = 60000;\nvolatile i32 c = -7;\nvolatile bool f;\n"
                       "@nomangle public i32 dcc_main() {\n    i8 x = a;\n    u16 y = b;\n    i32 z = c;\n    f = x < 3;\n"
                       "    i32 r = (x / 3) as i32 + (y % 1000) as i32 + z * z + (y >> 4) as i32 - (x >> 2) as i32 + (~y) as i32;\n"
-                      "    return r + (x as u8 == 156) as i32 + (f as i32) - (z << (y & 7) as i32);\n}\n"
+                      "    return r + (x as u8 == 156) as i32 + (f as i32) - (z << (y & 7) as i32) + c_side(-4, r) + twice(r, 1, 2, 3, false);\n}\n"
+                      "i32 twice(i32 v, u8 w, i16 x, u16 y, bool z) { return v * 2 + w as i32 - x as i32 + y as i32 + z as i32; }\n"
+                      "@nomangle public i32 c_side(i16 a, i32 b) { return twice(b, 3, a, 9, true); }\n"
                       "public u16 value() { return 7; }\npublic bool flag() { return true; }\npublic void nothing() {}\npublic i16 counter = 3;\n")
     crt0 = directory / "crt0.o"
     result = subprocess.run(["nasm", "-f", "elf32", str(Path(__file__).resolve().parent.parent / "i8086" / "crt0.asm"), "-o", str(crt0)], capture_output=True, text=True)

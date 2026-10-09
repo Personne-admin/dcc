@@ -1,0 +1,85 @@
+=== FILE: main.dc ===
+module main;
+
+volatile i32 seed = 5;
+
+i32 factorial(i32 n) {
+    if n <= 1 {
+        return 1;
+    }
+    return n * factorial(n - 1);
+}
+
+u16 fibonacci(u16 n) {
+    if n < 2 {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+
+bool is_even(i32 n) {
+    if n == 0 {
+        return true;
+    }
+    return is_odd(n - 1);
+}
+
+bool is_odd(i32 n) {
+    if n == 0 {
+        return false;
+    }
+    return is_even(n - 1);
+}
+
+i32 six(i8 a, u8 b, i16 c, u16 d, i32 e, u32 f) {
+    return a as i32 * 100000 + b as i32 * 10000 + c as i32 * 1000 + d as i32 * 100 + e * 10 + f as i32;
+}
+
+i32 seven(i32 a, i32 b, i32 c, i32 d, i32 e, i32 f, i32 g) {
+    return a - b + c - d + e - f + g;
+}
+
+@nomangle
+public i32 c_side(i16 a, i32 b, u8 c) {
+    return a as i32 * 3 + b - c as i32;
+}
+
+i32 pressure(i32 x) {
+    i32 a = x + 1;
+    i32 b = x + 2;
+    i32 c = x + 3;
+    i32 d = x + 4;
+    i32 e = x + 5;
+    i32 f = x + 6;
+    i32 g = x + 7;
+    i32 h = x + 8;
+    i32 called = factorial(4) + seven(a, b, c, d, e, f, g);
+    return a + b + c + d + e + f + g + h + called;
+}
+
+u8 narrow(u8 v) {
+    return v + 200;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 s = seed;
+    i32 ok = 0;
+    ok = ok + (factorial(s) == 120) as i32;
+    ok = ok + (fibonacci((s + 5) as u16) == 55) as i32;
+    ok = ok + is_even(s + 5) as i32 + is_odd(s) as i32 + (!is_even(s)) as i32;
+    ok = ok + (six((s - 6) as i8, (s + 2) as u8, (s - 8) as i16, (s + 4) as u16, s, (s + 1) as u32) == -100000 + 70000 - 3000 + 900 + 50 + 6) as i32;
+    ok = ok + (seven(s, 1, 2, 3, 4, 5, s + 1) == s - 1 + 2 - 3 + 4 - 5 + s + 1) as i32;
+    ok = ok + (c_side((s - 10) as i16, 100000, 250) == -15 + 100000 - 250) as i32;
+    ok = ok + (pressure(s) == 6 + 7 + 8 + 9 + 10 + 11 + 12 + 13 + 24 + 6 - 7 + 8 - 9 + 10 - 11 + 12) as i32;
+    ok = ok + (factorial(factorial(3)) + six(1, 2, 3, 4, fibonacci(6) as i32, 6) == 720 + 100000 + 20000 + 3000 + 400 + 80 + 6) as i32;
+    ok = ok + (narrow((s + 51) as u8) == 0) as i32;
+    ok = ok + (s == 5) as i32;
+    return ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 12
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 12
