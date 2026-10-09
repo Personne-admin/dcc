@@ -20,6 +20,7 @@ import dcc.session;
 import dcc.backend.llvm;
 #endif
 import dcc.backend.em64t;
+import dcc.backend.i8086;
 import dcc.backend.object.archive;
 
 #ifndef _WIN32
@@ -2256,12 +2257,9 @@ auto main(int argc, char** argv) -> int
     bool need_backend = backend_needed(opts);
     if (opts.dump_ir || need_backend)
     {
-        if (compile_opts.target.arch == dcc::target::Arch::I8086 && need_backend)
+        if (compile_opts.target.arch == dcc::target::Arch::I8086 && need_backend && opts.backend_name == "llvm")
         {
-            if (need_backend && opts.backend_name == "llvm")
-                std::println(std::cerr, "dcc: error: LLVM backend does not support target '{}'; use -fbackend custom", compile_opts.target.triple);
-            else
-                std::println(std::cerr, "dcc: error: no backend for target '{}'", compile_opts.target.triple);
+            std::println(std::cerr, "dcc: error: LLVM backend does not support target '{}'; use -fbackend custom", compile_opts.target.triple);
             return 1;
         }
 
@@ -2453,7 +2451,7 @@ auto main(int argc, char** argv) -> int
                     return 1;
                 }
 
-                auto backend = dcc::backend::make_em64t_backend();
+                auto backend = target.arch == dcc::target::Arch::I8086 ? dcc::backend::make_i8086_backend() : dcc::backend::make_em64t_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
                 phase("backend");
                 std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);

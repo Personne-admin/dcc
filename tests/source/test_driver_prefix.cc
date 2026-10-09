@@ -131,20 +131,52 @@ TEST_CASE("--version exits 0 and reports the release version")
     CHECK(version.starts_with("dcc " DCC_EXPECTED_VERSION " ("));
 }
 
-TEST_CASE("the i8086 target has no code generator yet")
+TEST_CASE("the i8086 backend emits elf32 objects, assembly and mir")
 {
-    auto src = std::filesystem::temp_directory_path() / "dcc_no_backend_target.dc";
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_i8086_backend_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    auto src = dir / "main.dc";
     {
         std::ofstream file{src};
-        file << "module test;\nvoid f() {}\n";
+        file << "module test;\n@nomangle public i32 dcc_main() { return 42; }\n";
     }
 
-    for (auto flags : {"-fbackend custom -c -o /dev/null", "-fbackend custom -fdump-ir -c -o /dev/null", "-fbackend custom -S -o /dev/null"})
+    auto obj = dir / "main.o";
+    auto [code, output] = run_dcc("-target i8086-binary -fbackend custom -c -o " + shell_quote(obj) + " " + shell_quote(src));
+    CHECK(code == 0);
+    std::ifstream in{obj, std::ios::binary};
+    std::vector<unsigned char> bytes{std::istreambuf_iterator<char>(in), {}};
+    REQUIRE(bytes.size() > 20);
+    CHECK(bytes[4] == 1);
+    CHECK(bytes[18] == 3);
+
+    auto asm_path = dir / "main.s";
+    auto [asm_code, asm_log] = run_dcc("-target i8086-binary -fbackend custom -S -o " + shell_quote(asm_path) + " " + shell_quote(src));
+    CHECK(asm_code == 0);
+    std::ifstream asm_in{asm_path};
+    std::string asm_output{std::istreambuf_iterator<char>(asm_in), {}};
+    CHECK(asm_output.find("bits 16") != std::string::npos);
+    CHECK(asm_output.find("global dcc_main:function") != std::string::npos);
+
+    auto [mir_code, mir_output] = run_dcc("-target i8086-binary -fbackend custom -fdump-mir " + shell_quote(src));
+    CHECK(mir_code == 0);
+    CHECK(mir_output.find("func dcc_main") != std::string::npos);
+
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("the i8086 backend rejects code it cannot select yet")
+{
+    auto src = std::filesystem::temp_directory_path() / "dcc_i8086_unsupported.dc";
     {
-        auto [code, output] = run_dcc("-target i8086-binary " + std::string{flags} + " " + shell_quote(src));
-        CHECK(code != 0);
-        CHECK(output.find("no backend for target 'i8086-binary'") != std::string::npos);
+        std::ofstream file{src};
+        file << "module test;\npublic i32 f(i32 a) { return a; }\n";
     }
+
+    auto [code, output] = run_dcc("-target i8086-binary -fbackend custom -c -o /dev/null " + shell_quote(src));
+    CHECK(code == 1);
+    CHECK(output.find("i8086 backend: a function with parameters in function `") != std::string::npos);
+    CHECK(output.find("is not supported yet") != std::string::npos);
 
     std::filesystem::remove(src);
 }
