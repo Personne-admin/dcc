@@ -877,10 +877,20 @@ export namespace dcc::parser
                 std::uint32_t item_start_line = 0;
                 if (m_enable_doc)
                     item_start_line = m_lexer.line_number(item_start.offset);
+                auto const item_pos = m_pos;
+                if (check(TK::KwModule))
+                {
+                    error_at(single_range(), "module declaration must be the first declaration in the file");
+                    advance();
+                    synchronize_to_decl();
+                    continue;
+                }
                 auto* item = parse_top_level_item();
                 if (!item)
                 {
                     synchronize_to_decl();
+                    if (m_pos == item_pos)
+                        advance();
                     continue;
                 }
 
@@ -3659,10 +3669,20 @@ export namespace dcc::parser
             {
                 auto item_start = loc();
                 std::uint32_t item_line = m_enable_doc ? m_lexer.line_number(item_start.offset) : 0;
+                auto const item_pos = m_pos;
+                if (check(TK::KwModule))
+                {
+                    error_at(single_range(), "module declaration must be the first declaration in the file");
+                    advance();
+                    synchronize_to_decl();
+                    continue;
+                }
                 auto* item = parse_top_level_item();
                 if (!item)
                 {
                     synchronize_to_decl();
+                    if (m_pos == item_pos)
+                        advance();
                     continue;
                 }
 

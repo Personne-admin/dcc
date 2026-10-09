@@ -131,6 +131,28 @@ TEST_CASE("--version exits 0 and reports the release version")
     CHECK(version.starts_with("dcc " DCC_EXPECTED_VERSION " ("));
 }
 
+TEST_CASE("a misplaced module declaration is a parse error, not an endless recovery loop")
+{
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_module_recovery_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    struct Case
+    {
+        std::string_view name;
+        std::string_view source;
+    };
+    for (auto const& c : {Case{"after_error.dc", "+\nmodule m;\n"}, Case{"second.dc", "module m;\nmodule n;\nvoid f() {}\n"},
+                          Case{"static_if.dc", "module m;\nstatic if true {\n    module n;\n}\n"},
+                          Case{"fixture_text.dc", "=== FILE: main.dc ===\nmodule m;\n"}})
+    {
+        auto src = dir / c.name;
+        std::ofstream{src} << c.source;
+        auto [code, output] = run_dcc("-fdump-ir " + shell_quote(src));
+        CHECK(code == 1);
+        CHECK(output.find("module declaration must be the first declaration in the file") != std::string::npos);
+    }
+    std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("the i8086 backend emits elf32 objects, assembly and mir")
 {
     auto dir = std::filesystem::temp_directory_path() / std::format("dcc_i8086_backend_{}", std::chrono::steady_clock::now().time_since_epoch().count());
