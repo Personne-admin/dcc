@@ -14100,6 +14100,11 @@ export namespace dcc::sema
         detail::ExprResult analyze_call(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::CallExpr& c, int loop_depth, std::uint32_t& next_off,
                                         types::TypePtr expected_type, ConstEnv const* const_env)
         {
+            if (c.sema.default_argument_start)
+            {
+                c.args.resize(*c.sema.default_argument_start);
+                c.sema.default_argument_start.reset();
+            }
             std::ignore = expand_struct_pack_call_args(mod, fn, scope, c, loop_depth, next_off, const_env);
             auto* generic_callee = c.callee;
             auto* template_callee = ast::node_cast<ast::TemplateInstExpr>(c.callee);
