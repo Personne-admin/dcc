@@ -120,6 +120,7 @@ namespace dcc::backend
                     }
                     i8086::regalloc(mfunc, opts.target);
                     i8086::frame_layout(mfunc, opts.target);
+                    i8086::remove_fallthrough_jumps(mfunc);
                     functions.push_back(std::move(mfunc));
                 }
 

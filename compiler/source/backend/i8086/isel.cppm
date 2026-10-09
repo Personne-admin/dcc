@@ -2,6 +2,7 @@ export module dcc.backend.i8086.isel;
 
 import std;
 import dcc.ir;
+import dcc.ir.analysis;
 import dcc.target;
 import dcc.backend.x86.mir;
 
@@ -12,6 +13,8 @@ export namespace dcc::backend::i8086
     [[nodiscard]] bool uses_c_abi(dcc::ir::IrFunction const& func);
 
     [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target, std::vector<std::string>& diags);
+
+    void remove_fallthrough_jumps(MFunction& func);
 
 } // namespace dcc::backend::i8086
 
@@ -88,6 +91,62 @@ namespace dcc::backend::i8086
             }
         }
 
+        [[nodiscard]] MOpc jcc_for(MOpc setcc)
+        {
+            switch (setcc)
+            {
+                case MOpc::SETEr:
+                    return MOpc::JE;
+                case MOpc::SETNEr:
+                    return MOpc::JNE;
+                case MOpc::SETLr:
+                    return MOpc::JL;
+                case MOpc::SETLEr:
+                    return MOpc::JLE;
+                case MOpc::SETGr:
+                    return MOpc::JG;
+                case MOpc::SETGEr:
+                    return MOpc::JGE;
+                case MOpc::SETBr:
+                    return MOpc::JB;
+                case MOpc::SETBEr:
+                    return MOpc::JBE;
+                case MOpc::SETAr:
+                    return MOpc::JA;
+                default:
+                    return MOpc::JAE;
+            }
+        }
+
+        [[nodiscard]] std::optional<MOpc> inverse_jcc(MOpc opc)
+        {
+            switch (opc)
+            {
+                case MOpc::JE:
+                    return MOpc::JNE;
+                case MOpc::JNE:
+                    return MOpc::JE;
+                case MOpc::JL:
+                    return MOpc::JGE;
+                case MOpc::JGE:
+                    return MOpc::JL;
+                case MOpc::JLE:
+                    return MOpc::JG;
+                case MOpc::JG:
+                    return MOpc::JLE;
+                case MOpc::JB:
+                    return MOpc::JAE;
+                case MOpc::JAE:
+                    return MOpc::JB;
+                case MOpc::JBE:
+                    return MOpc::JA;
+                case MOpc::JA:
+                    return MOpc::JBE;
+                default:
+                    return std::nullopt;
+            }
+        }
+
         template <typename T> [[nodiscard]] std::pair<IrValue*, IrValue*> operands(IrNode const* inst)
         {
             auto const* typed = static_cast<T const*>(inst);
@@ -159,6 +218,18 @@ namespace dcc::backend::i8086
             bool c_abi{};
             std::unordered_map<IrValue const*, VReg> values;
             std::unordered_map<IrValue const*, std::uint32_t> slots;
+            std::unordered_map<IrBasicBlock const*, std::uint32_t> block_ids;
+            std::unordered_set<IrValue const*> fused;
+            std::unordered_map<std::uint32_t, std::size_t> jump_table_blocks;
+            std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> split_edges;
+
+            struct PendingPhi
+            {
+                IrPhiInst const* phi;
+                IrBasicBlock const* block;
+                VReg result;
+            };
+            std::vector<PendingPhi> pending_phis;
 
             Isel(IrFunction const& f, target::TargetConfig const& t, std::vector<std::string>& d) : func(f), target(t), diags(d) {}
 
@@ -449,13 +520,13 @@ namespace dcc::backend::i8086
                 values[static_cast<IrValue const*>(inst)] = copy_from(remainder ? PhysReg::RDX : PhysReg::RAX);
             }
 
-            void lower_compare(IrNode const* inst, MOpc setcc)
+            [[nodiscard]] bool emit_compare(IrNode const* inst, MOpc setcc)
             {
                 auto [lhs, rhs] = binary_operands(inst);
                 auto bits = value_bits(lhs ? lhs->type : nullptr);
                 auto l = bits ? value(lhs) : std::nullopt;
                 if (!l)
-                    return;
+                    return false;
                 auto width = op_width(bits);
                 bool signed_compare = setcc == MOpc::SETLr || setcc == MOpc::SETLEr || setcc == MOpc::SETGr || setcc == MOpc::SETGEr;
                 auto left = extend(*l, bits, signed_compare, width);
@@ -465,10 +536,17 @@ namespace dcc::backend::i8086
                 {
                     auto r = value(rhs);
                     if (!r)
-                        return;
+                        return false;
                     auto right = extend(*r, bits, signed_compare, width);
                     append(make_instr(width == 16 ? MOpc::CMP16rr : MOpc::CMP32rr, {MOp::from_reg(left), MOp::from_reg(right)}, 0));
                 }
+                return true;
+            }
+
+            void lower_compare(IrNode const* inst, MOpc setcc)
+            {
+                if (!emit_compare(inst, setcc))
+                    return;
                 append(make_instr(setcc, {phys_operand(PhysReg::RAX)}, 1));
                 values[static_cast<IrValue const*>(inst)] = emit(MOpc::MOVZX16_8rr, {phys_operand(PhysReg::RAX)});
             }
@@ -582,19 +660,273 @@ namespace dcc::backend::i8086
                 append(mi);
             }
 
+            void jump(MOpc opc, IrBasicBlock const* destination) { append(make_instr(opc, {MOp::from_label(block_ids.at(destination))}, 0)); }
+
+            void lower_branch(IrBrCondInst const& branch)
+            {
+                if (fused.contains(branch.condition))
+                {
+                    auto setcc = *setcc_for(branch.condition->kind);
+                    if (!emit_compare(branch.condition, setcc))
+                        return;
+                    jump(jcc_for(setcc), branch.true_target);
+                }
+                else
+                {
+                    auto condition = value(branch.condition);
+                    if (!condition)
+                        return;
+                    append(make_instr(MOpc::TEST16ri, {MOp::from_reg(*condition), MOp::from_imm(0xFF)}, 0));
+                    jump(MOpc::JNE, branch.true_target);
+                }
+                jump(MOpc::JMP, branch.false_target);
+            }
+
+            void lower_switch(IrSwitchInst const& sw)
+            {
+                auto bits = value_bits(sw.value ? sw.value->type : nullptr);
+                auto v = bits ? value(sw.value) : std::nullopt;
+                if (!v)
+                    return;
+                bool const signed_value = sw.value->type->kind == IrTypeKind::Int && static_cast<IrIntType const*>(sw.value->type)->is_signed;
+                auto width = op_width(bits);
+                bool const narrow = width == 16;
+                auto selector = extend(*v, bits, signed_value, width);
+                auto normalized = [&](std::int64_t case_value) { return fit(case_value, bits, signed_value, width); };
+
+                std::int64_t low = std::numeric_limits<std::int64_t>::max();
+                std::int64_t high = std::numeric_limits<std::int64_t>::min();
+                std::uint64_t count = 0;
+                for (auto const& c : sw.cases)
+                {
+                    if (c.start > c.end)
+                        return unsupported("a switch case with an empty range");
+                    low = std::min(low, c.start);
+                    high = std::max(high, c.end);
+                    count += static_cast<std::uint64_t>(c.end - c.start) + 1;
+                }
+                std::uint64_t span = sw.cases.empty() ? 0 : static_cast<std::uint64_t>(high - low) + 1;
+                if (count >= 6 && span <= count * 4 && span <= 4096)
+                {
+                    VReg index = selector;
+                    if (low != 0)
+                        index = emit(narrow ? MOpc::SUB16ri : MOpc::SUB32ri, {MOp::from_reg(selector), MOp::from_imm(normalized(low))});
+                    append(make_instr(narrow ? MOpc::CMP16ri : MOpc::CMP32ri, {MOp::from_reg(index), MOp::from_imm(fit(static_cast<std::int64_t>(span - 1), 32, false, width))}, 0));
+                    jump(MOpc::JA, sw.default_target);
+
+                    MJumpTable table;
+                    table.id = mfunc.next_jump_table_id++;
+                    table.min_value = low;
+                    table.max_value = high;
+                    table.default_target = block_ids.at(sw.default_target);
+                    table.targets.assign(span, table.default_target);
+                    for (auto const& c : sw.cases)
+                        for (auto entry = c.start; entry <= c.end; ++entry)
+                            table.targets[static_cast<std::size_t>(entry - low)] = block_ids.at(c.target);
+                    table.symbol = std::format("{}.jt{}", mfunc.owned_name, table.id);
+                    auto const& symbol = *mfunc.owned_strings.emplace_back(std::make_unique<std::string>(table.symbol));
+                    mfunc.jump_tables.push_back(std::move(table));
+                    bool const wide_addresses = target.pointer_bits == 32;
+                    MInstr dispatch = make_instr(MOpc::JUMP_TABLE, {MOp::from_reg(index), MOp::from_symbol(symbol), MOp::from_imm(wide_addresses ? 32 : 16)}, 0);
+                    if (!wide_addresses)
+                        dispatch.implicit_defs = 1ULL << static_cast<unsigned>(PhysReg::RDI);
+                    append(dispatch);
+                    jump_table_blocks[block->id] = mfunc.jump_tables.size() - 1;
+                    return;
+                }
+                for (auto const& c : sw.cases)
+                {
+                    if (c.start == c.end)
+                    {
+                        append(make_instr(narrow ? MOpc::CMP16ri : MOpc::CMP32ri, {MOp::from_reg(selector), MOp::from_imm(normalized(c.start))}, 0));
+                        jump(MOpc::JE, c.target);
+                        continue;
+                    }
+                    auto offset = emit(narrow ? MOpc::SUB16ri : MOpc::SUB32ri, {MOp::from_reg(selector), MOp::from_imm(normalized(c.start))});
+                    append(make_instr(narrow ? MOpc::CMP16ri : MOpc::CMP32ri,
+                                      {MOp::from_reg(offset), MOp::from_imm(fit(c.end - c.start, 32, false, width))}, 0));
+                    jump(MOpc::JBE, c.target);
+                }
+                jump(MOpc::JMP, sw.default_target);
+            }
+
             void lower_terminator(IrNode const* term)
             {
                 if (!term)
+                    return unsupported("a block without a terminator");
+                switch (term->kind)
                 {
-                    unsupported("a block without a terminator");
-                    return;
+                    case IrNodeKind::Ret:
+                        return lower_ret(*static_cast<IrRetInst const*>(term));
+                    case IrNodeKind::Br:
+                        return jump(MOpc::JMP, static_cast<IrBrInst const*>(term)->target);
+                    case IrNodeKind::BrCond:
+                        return lower_branch(*static_cast<IrBrCondInst const*>(term));
+                    case IrNodeKind::Switch:
+                        return lower_switch(*static_cast<IrSwitchInst const*>(term));
+                    case IrNodeKind::Unreachable:
+                        return append(make_instr(MOpc::UD2, {}, 0));
+                    default:
+                        return unsupported(std::format("IR terminator {}", kind_name(term->kind)));
                 }
-                if (term->kind == IrNodeKind::Ret)
+            }
+
+            [[nodiscard]] static std::vector<IrBasicBlock const*> successors(IrNode const* term)
+            {
+                std::vector<IrBasicBlock const*> out;
+                if (!term)
+                    return out;
+                switch (term->kind)
                 {
-                    lower_ret(*static_cast<IrRetInst const*>(term));
-                    return;
+                    case IrNodeKind::Br:
+                        out.push_back(static_cast<IrBrInst const*>(term)->target);
+                        break;
+                    case IrNodeKind::BrCond:
+                        out.push_back(static_cast<IrBrCondInst const*>(term)->true_target);
+                        out.push_back(static_cast<IrBrCondInst const*>(term)->false_target);
+                        break;
+                    case IrNodeKind::Switch: {
+                        auto const* sw = static_cast<IrSwitchInst const*>(term);
+                        for (auto const& c : sw->cases)
+                            out.push_back(c.target);
+                        out.push_back(sw->default_target);
+                        break;
+                    }
+                    default:
+                        break;
                 }
-                unsupported(std::format("IR terminator {}", kind_name(term->kind)));
+                std::vector<IrBasicBlock const*> unique;
+                for (auto* b : out)
+                    if (b && std::ranges::find(unique, b) == unique.end())
+                        unique.push_back(b);
+                return unique;
+            }
+
+            [[nodiscard]] std::vector<IrBasicBlock const*> reverse_post_order()
+            {
+                std::vector<IrBasicBlock const*> order;
+                std::unordered_set<IrBasicBlock const*> visited;
+                std::vector<std::pair<IrBasicBlock const*, std::size_t>> stack;
+                if (!func.entry_block)
+                    return order;
+                stack.emplace_back(func.entry_block, 0);
+                visited.insert(func.entry_block);
+                while (!stack.empty())
+                {
+                    auto& [current, next] = stack.back();
+                    auto succs = successors(current->terminator);
+                    if (next < succs.size())
+                    {
+                        auto* succ = succs[next++];
+                        if (visited.insert(succ).second)
+                            stack.emplace_back(succ, 0);
+                        continue;
+                    }
+                    order.push_back(current);
+                    stack.pop_back();
+                }
+                std::ranges::reverse(order);
+                return order;
+            }
+
+            [[nodiscard]] static bool is_branch(MOpc opc) noexcept { return opc == MOpc::JMP || opc == MOpc::JUMP_TABLE || opc == MOpc::RET || opc == MOpc::UD2 || inverse_jcc(opc); }
+
+            [[nodiscard]] std::uint32_t edge_block(IrBasicBlock const* pred, IrBasicBlock const* succ, std::size_t succ_preds)
+            {
+                auto pred_id = block_ids.at(pred);
+                auto succ_id = block_ids.at(succ);
+                if (successors(pred->terminator).size() < 2 || succ_preds < 2)
+                    return pred_id;
+                auto key = std::pair{pred_id, succ_id};
+                if (auto found = split_edges.find(key); found != split_edges.end())
+                    return found->second;
+                auto& edge = mfunc.create_block({});
+                auto edge_id = edge.id;
+                edge.instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(succ_id)}, 0));
+                for (auto& mi : mfunc.block_by_id(pred_id)->instrs)
+                    if (is_branch(mi.opc) && mi.num_ops > 0 && mi.ops[0].kind == MOpKind::Label && mi.ops[0].label == succ_id)
+                        mi.ops[0].label = edge_id;
+                if (auto table = jump_table_blocks.find(pred_id); table != jump_table_blocks.end())
+                    for (auto& t : mfunc.jump_tables[table->second].targets)
+                        if (t == succ_id)
+                            t = edge_id;
+                split_edges[key] = edge_id;
+                return edge_id;
+            }
+
+            void insert_before_branches(std::uint32_t block_id, MInstr const& mi)
+            {
+                auto& instrs = mfunc.block_by_id(block_id)->instrs;
+                auto at = instrs.size();
+                while (at > 0 && (is_branch(instrs[at - 1].opc) || instrs[at - 1].opc == MOpc::CMP16ri || instrs[at - 1].opc == MOpc::CMP32ri ||
+                                  instrs[at - 1].opc == MOpc::CMP16rr || instrs[at - 1].opc == MOpc::CMP32rr || instrs[at - 1].opc == MOpc::TEST16ri))
+                    --at;
+                instrs.insert(instrs.begin() + static_cast<std::ptrdiff_t>(at), mi);
+            }
+
+            void lower_phis(std::vector<IrBasicBlock const*> const& order)
+            {
+                std::unordered_map<IrBasicBlock const*, std::size_t> pred_counts;
+                for (auto* b : order)
+                    for (auto* succ : successors(b->terminator))
+                        ++pred_counts[succ];
+                for (auto const& [phi, owner, result] : pending_phis)
+                {
+                    auto bits = value_bits(phi->type);
+                    if (!bits)
+                        return;
+                    std::vector<MOp> inputs;
+                    for (auto const& incoming : phi->incoming)
+                    {
+                        if (!block_ids.contains(incoming.block))
+                            continue;
+                        auto via = edge_block(incoming.block, owner, pred_counts[owner]);
+                        VReg input;
+                        if (auto imm = constant(incoming.value))
+                        {
+                            input = mfunc.new_vreg();
+                            auto width = op_width(bits);
+                            insert_before_branches(via, make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri,
+                                                                   {MOp::from_reg(input), MOp::from_imm(fit(*imm, bits, false, width))}, 1));
+                        }
+                        else if (auto found = values.find(incoming.value); found != values.end())
+                            input = found->second;
+                        else
+                            return unsupported(std::format("a phi input of IR {}", kind_name(incoming.value ? incoming.value->kind : IrNodeKind::Local)));
+                        inputs.push_back(MOp::from_reg(input));
+                        inputs.push_back(MOp::from_label(via));
+                    }
+                    auto& instrs = mfunc.block_by_id(block_ids.at(owner))->instrs;
+                    std::size_t at = 0;
+                    while (at < instrs.size() && instrs[at].opc == MOpc::PHI)
+                        ++at;
+                    for (std::size_t first = 0; first < inputs.size() || first == 0; first += 30)
+                    {
+                        MInstr mi = make_instr(MOpc::PHI, {MOp::from_reg(result)}, 1);
+                        for (std::size_t k = first; k < std::min(first + 30, inputs.size()); ++k)
+                            mi.ops[mi.num_ops++] = inputs[k];
+                        instrs.insert(instrs.begin() + static_cast<std::ptrdiff_t>(at++), mi);
+                        if (inputs.empty())
+                            break;
+                    }
+                }
+            }
+
+            void finish_layout()
+            {
+                for (auto& b : mfunc.blocks)
+                {
+                    for (auto const& mi : b.instrs)
+                        if (is_branch(mi.opc) && mi.num_ops > 0 && mi.ops[0].kind == MOpKind::Label && std::ranges::find(b.succs, mi.ops[0].label) == b.succs.end())
+                            b.succs.push_back(mi.ops[0].label);
+                    if (auto table = jump_table_blocks.find(b.id); table != jump_table_blocks.end())
+                        for (auto t : mfunc.jump_tables[table->second].targets)
+                            if (std::ranges::find(b.succs, t) == b.succs.end())
+                                b.succs.push_back(t);
+                }
+                for (auto& b : mfunc.blocks)
+                    for (auto succ : b.succs)
+                        mfunc.block_by_id(succ)->preds.push_back(b.id);
             }
 
             void run()
@@ -606,28 +938,56 @@ namespace dcc::backend::i8086
                 c_abi = uses_c_abi(func);
 
                 if (func.entry_block && !func.entry_block->params.empty())
-                {
-                    unsupported("a function with parameters");
-                    return;
-                }
+                    return unsupported("a function with parameters");
 
-                std::vector<std::pair<IrBasicBlock const*, std::uint32_t>> blocks;
-                for (auto* ir_block : func.blocks)
+                auto order = reverse_post_order();
+                for (auto* ir_block : order)
                 {
-                    if (!ir_block)
-                        continue;
                     auto& mblock = mfunc.create_block(ir_block->has_name() ? ir_block->name : std::string_view{});
                     if (ir_block == func.entry_block)
                         mfunc.entry_block_id = mblock.id;
-                    blocks.emplace_back(ir_block, mblock.id);
+                    block_ids[ir_block] = mblock.id;
                 }
-                for (auto const& [ir_block, id] : blocks)
+
+                auto use_def = analysis::UseDef::build(func);
+                std::unordered_map<IrValue const*, std::size_t> terminator_uses;
+                for (auto* ir_block : order)
                 {
-                    block = mfunc.block_by_id(id);
+                    auto const* term = ir_block->terminator;
+                    if (term && term->kind == IrNodeKind::BrCond)
+                        ++terminator_uses[static_cast<IrBrCondInst const*>(term)->condition];
+                    else if (term && term->kind == IrNodeKind::Ret)
+                        ++terminator_uses[static_cast<IrRetInst const*>(term)->value];
+                    else if (term && term->kind == IrNodeKind::Switch)
+                        ++terminator_uses[static_cast<IrSwitchInst const*>(term)->value];
+                }
+                for (auto* ir_block : order)
+                {
+                    auto const* term = ir_block->terminator;
+                    if (!term || term->kind != IrNodeKind::BrCond)
+                        continue;
+                    auto* condition = static_cast<IrBrCondInst const*>(term)->condition;
+                    if (condition && setcc_for(condition->kind) && use_def.use_count(condition) == 0 && terminator_uses[condition] == 1 &&
+                        std::ranges::find(ir_block->instructions, condition) != ir_block->instructions.end())
+                        fused.insert(condition);
+                }
+
+                for (auto* ir_block : order)
+                {
+                    block = mfunc.block_by_id(block_ids.at(ir_block));
                     for (auto* inst : ir_block->instructions)
                     {
-                        if (inst)
-                            lower_instruction(inst);
+                        if (!inst || fused.contains(static_cast<IrValue const*>(inst)))
+                            continue;
+                        if (inst->kind == IrNodeKind::Phi)
+                        {
+                            auto const* phi = static_cast<IrPhiInst const*>(inst);
+                            VReg result = mfunc.new_vreg();
+                            values[phi] = result;
+                            pending_phis.push_back({phi, ir_block, result});
+                            continue;
+                        }
+                        lower_instruction(inst);
                         if (!diags.empty())
                             return;
                     }
@@ -635,6 +995,10 @@ namespace dcc::backend::i8086
                     if (!diags.empty())
                         return;
                 }
+                lower_phis(order);
+                if (!diags.empty())
+                    return;
+                finish_layout();
             }
         };
     } // namespace
@@ -643,6 +1007,34 @@ namespace dcc::backend::i8086
     {
         return std::ranges::any_of(func.attrs,
                                    [](IrFuncAttribute const& attr) { return attr.kind == IrFuncAttr::NoMangle || attr.kind == IrFuncAttr::CallingConv; });
+    }
+
+    void remove_fallthrough_jumps(MFunction& func)
+    {
+        for (std::size_t i = 0; i + 1 < func.blocks.size(); ++i)
+        {
+            auto& instrs = func.blocks[i].instrs;
+            auto next = func.blocks[i + 1].id;
+            if (instrs.empty() || instrs.back().opc != MOpc::JMP || instrs.back().ops[0].label != next)
+                continue;
+            instrs.pop_back();
+            if (!instrs.empty() && inverse_jcc(instrs.back().opc) && instrs.back().ops[0].label == next)
+                instrs.pop_back();
+        }
+        for (std::size_t i = 0; i + 1 < func.blocks.size(); ++i)
+        {
+            auto& instrs = func.blocks[i].instrs;
+            auto next = func.blocks[i + 1].id;
+            if (instrs.size() < 2 || instrs.back().opc != MOpc::JMP)
+                continue;
+            auto& conditional = instrs[instrs.size() - 2];
+            auto inverse = inverse_jcc(conditional.opc);
+            if (!inverse || conditional.ops[0].label != next)
+                continue;
+            conditional.opc = *inverse;
+            conditional.ops[0].label = instrs.back().ops[0].label;
+            instrs.pop_back();
+        }
     }
 
     MFunction isel_function(IrFunction const& func, target::TargetConfig const& target, std::vector<std::string>& diags)

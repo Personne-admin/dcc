@@ -1,0 +1,76 @@
+=== FILE: main.dc ===
+module main;
+
+volatile i32 start = -2;
+
+@nomangle
+public i32 dcc_main() {
+    i32 ok = 0;
+    i32 total = 0;
+    for i32 v = start; v < 12; v++ {
+        total = total + match v {
+            0 => 10,
+            1 => 20,
+            2 => 30,
+            3 => 41,
+            4 => 50,
+            5 => 60,
+            6 => 70,
+            7 => 42,
+            _ => 1,
+        };
+    }
+    ok = ok + (total == 329) as i32;
+    i32 sparse = 0;
+    for i32 v = start - 58; v < 1100; v++ {
+        sparse = sparse + match v {
+            1 => 5,
+            100 => 7,
+            1000 => 9,
+            -50 => 11,
+            _ => 0,
+        };
+    }
+    ok = ok + (sparse == 32) as i32;
+    i32 bands = 0;
+    for u16 i = 0; i < 256; i++ {
+        u8 c = i as u8;
+        bands = bands + match c {
+            0..10 => 1,
+            10..20 => 2,
+            200..=255 => 3,
+            _ => 0,
+        };
+    }
+    ok = ok + (bands == 198) as i32;
+    i32 negative = 0;
+    for i16 w = -10; w < 0; w++ {
+        negative = negative + match w {
+            -8 => 1,
+            -7 => 2,
+            -6 => 3,
+            -5 => 4,
+            -4 => 5,
+            -3 => 6,
+            _ => 0,
+        };
+    }
+    ok = ok + (negative == 21) as i32;
+    i32 grouped = 0;
+    for i32 v = 0; v < 20; v++ {
+        grouped = grouped + match v {
+            1 | 3 | 5 | 7 | 9 => 1,
+            2 | 4 | 6 | 8 => 10,
+            10..15 => 100,
+            _ => 0,
+        };
+    }
+    ok = ok + (grouped == 545) as i32;
+    return ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 5
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 5
