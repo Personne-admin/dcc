@@ -60,57 +60,57 @@ void report(i32 code) {
 public i32 main() {
     volatile i8 v1 = ((-45) as i8);
     i8 o1 = core::atomic::atomic_fetch_sub(&v1 as volatile i8*, ((-91) as i8), core::atomic::MemoryOrder::SeqCst);
-    if o1 != ((-45) as i8) { report(1); }
-    if v1 != ((46) as i8) { report(2); }
+    if o1 != -45 { report(1); }
+    if v1 != 46 { report(2); }
     core::atomic::Atomic(i8) v3;
     v3.value = ((-45) as i8);
     i8 o3 = core::atomic::atomic_fetch_sub(&v3, ((-91) as i8), core::atomic::MemoryOrder::SeqCst);
-    if o3 != ((-45) as i8) { report(3); }
-    if core::atomic::atomic_load(&v3, core::atomic::MemoryOrder::SeqCst) != ((46) as i8) { report(4); }
+    if o3 != -45 { report(3); }
+    if core::atomic::atomic_load(&v3, core::atomic::MemoryOrder::SeqCst) != 46 { report(4); }
     volatile u8 v5 = ((45) as u8);
     u8 o5 = core::atomic::atomic_fetch_sub(&v5 as volatile u8*, ((165) as u8), core::atomic::MemoryOrder::SeqCst);
-    if o5 != ((45) as u8) { report(5); }
-    if v5 != ((136) as u8) { report(6); }
+    if o5 != 45 { report(5); }
+    if v5 != 136 { report(6); }
     core::atomic::Atomic(u8) v7;
     v7.value = ((45) as u8);
     u8 o7 = core::atomic::atomic_fetch_sub(&v7, ((165) as u8), core::atomic::MemoryOrder::SeqCst);
-    if o7 != ((45) as u8) { report(7); }
-    if core::atomic::atomic_load(&v7, core::atomic::MemoryOrder::SeqCst) != ((136) as u8) { report(8); }
+    if o7 != 45 { report(7); }
+    if core::atomic::atomic_load(&v7, core::atomic::MemoryOrder::SeqCst) != 136 { report(8); }
     volatile i16 v9 = ((-31533) as i16);
     i16 o9 = core::atomic::atomic_fetch_sub(&v9 as volatile i16*, ((23205) as i16), core::atomic::MemoryOrder::SeqCst);
-    if o9 != ((-31533) as i16) { report(9); }
-    if v9 != ((10798) as i16) { report(10); }
+    if o9 != -31533 { report(9); }
+    if v9 != 10798 { report(10); }
     core::atomic::Atomic(i16) v11;
     v11.value = ((-31533) as i16);
     i16 o11 = core::atomic::atomic_fetch_sub(&v11, ((23205) as i16), core::atomic::MemoryOrder::SeqCst);
-    if o11 != ((-31533) as i16) { report(11); }
-    if core::atomic::atomic_load(&v11, core::atomic::MemoryOrder::SeqCst) != ((10798) as i16) { report(12); }
+    if o11 != -31533 { report(11); }
+    if core::atomic::atomic_load(&v11, core::atomic::MemoryOrder::SeqCst) != 10798 { report(12); }
     volatile u16 v13 = ((31533) as u16);
     u16 o13 = core::atomic::atomic_fetch_sub(&v13 as volatile u16*, ((23205) as u16), core::atomic::MemoryOrder::SeqCst);
-    if o13 != ((31533) as u16) { report(13); }
-    if v13 != ((8328) as u16) { report(14); }
+    if o13 != 31533 { report(13); }
+    if v13 != 8328 { report(14); }
     core::atomic::Atomic(u16) v15;
     v15.value = ((31533) as u16);
     u16 o15 = core::atomic::atomic_fetch_sub(&v15, ((23205) as u16), core::atomic::MemoryOrder::SeqCst);
-    if o15 != ((31533) as u16) { report(15); }
-    if core::atomic::atomic_load(&v15, core::atomic::MemoryOrder::SeqCst) != ((8328) as u16) { report(16); }
+    if o15 != 31533 { report(15); }
+    if core::atomic::atomic_load(&v15, core::atomic::MemoryOrder::SeqCst) != 8328 { report(16); }
     volatile i32 v17 = ((-267420883) as i32);
     i32 o17 = core::atomic::atomic_fetch_sub(&v17 as volatile i32*, ((-1520805211) as i32), core::atomic::MemoryOrder::SeqCst);
-    if o17 != ((-267420883) as i32) { report(17); }
-    if v17 != ((1253384328) as i32) { report(18); }
+    if o17 != -267420883 { report(17); }
+    if v17 != 1253384328 { report(18); }
     core::atomic::Atomic(i32) v19;
     v19.value = ((-267420883) as i32);
     i32 o19 = core::atomic::atomic_fetch_sub(&v19, ((-1520805211) as i32), core::atomic::MemoryOrder::SeqCst);
-    if o19 != ((-267420883) as i32) { report(19); }
-    if core::atomic::atomic_load(&v19, core::atomic::MemoryOrder::SeqCst) != ((1253384328) as i32) { report(20); }
+    if o19 != -267420883 { report(19); }
+    if core::atomic::atomic_load(&v19, core::atomic::MemoryOrder::SeqCst) != 1253384328 { report(20); }
     volatile u32 v21 = ((4027546413) as u32);
     u32 o21 = core::atomic::atomic_fetch_sub(&v21 as volatile u32*, ((2774162085) as u32), core::atomic::MemoryOrder::SeqCst);
-    if o21 != ((4027546413) as u32) { report(21); }
-    if v21 != ((1253384328) as u32) { report(22); }
+    if o21 != 4027546413 { report(21); }
+    if v21 != 1253384328 { report(22); }
     core::atomic::Atomic(u32) v23;
     v23.value = ((4027546413) as u32);
     u32 o23 = core::atomic::atomic_fetch_sub(&v23, ((2774162085) as u32), core::atomic::MemoryOrder::SeqCst);
-    if o23 != ((4027546413) as u32) { report(23); }
-    if core::atomic::atomic_load(&v23, core::atomic::MemoryOrder::SeqCst) != ((1253384328) as u32) { report(24); }
+    if o23 != 4027546413 { report(23); }
+    if core::atomic::atomic_load(&v23, core::atomic::MemoryOrder::SeqCst) != 1253384328 { report(24); }
     return failures;
 }
