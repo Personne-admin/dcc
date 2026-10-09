@@ -21,6 +21,7 @@ import dcc.backend.llvm;
 #endif
 import dcc.backend.em64t;
 import dcc.backend.i8086;
+import dcc.backend.i8086.link;
 import dcc.backend.object.archive;
 
 #ifndef _WIN32
@@ -108,6 +109,8 @@ namespace
         std::string linker_script;
         std::string entry_symbol;
         bool gc_sections{false};
+        std::optional<std::string> link_base;
+        std::optional<std::string> stack_reserve;
     };
 
     struct OptionSpec
@@ -496,6 +499,28 @@ namespace
          "entry symbol",
          "",
          [](Options& o, bool, std::string_view v, char**) { o.entry_symbol = v; }},
+
+        {"-fbase",
+         "",
+         {},
+         Arg::Required,
+         "<seg>:<off>",
+         {},
+         Phase::Both,
+         "i8086 load address in hexadecimal; '?' for an unknown segment",
+         "?:0",
+         [](Options& o, bool, std::string_view v, char**) { o.link_base = std::string{v}; }},
+
+        {"-fstack-reserve",
+         "",
+         {},
+         Arg::Required,
+         "<bytes>",
+         {},
+         Phase::Both,
+         "i8086 small model: stack bytes kept free above the image",
+         "4096",
+         [](Options& o, bool, std::string_view v, char**) { o.stack_reserve = std::string{v}; }},
 
         {"--gc-sections",
          "--no-gc-sections",
@@ -1937,6 +1962,93 @@ namespace
         return args;
     }
 
+    [[nodiscard]] std::optional<dcc::backend::i8086::LinkOptions> i8086_link_options(Options const& opts, dcc::target::TargetConfig const& target)
+    {
+        if (target.arch != dcc::target::Arch::I8086)
+        {
+            if (opts.link_base || opts.stack_reserve)
+            {
+                std::println(std::cerr, "dcc: error: {} applies only to target 'i8086-binary' (target: '{}')", opts.link_base ? "-fbase" : "-fstack-reserve",
+                             target.triple);
+                return std::nullopt;
+            }
+            return dcc::backend::i8086::LinkOptions{};
+        }
+        dcc::backend::i8086::LinkOptions link;
+        link.model = target.code_model;
+        if (opts.link_base)
+        {
+            auto base = dcc::backend::i8086::parse_link_base(*opts.link_base);
+            if (!base)
+            {
+                std::println(std::cerr, "dcc: error: {}", base.error());
+                return std::nullopt;
+            }
+            link.base = *base;
+        }
+        if (opts.stack_reserve)
+        {
+            auto reserve = dcc::backend::i8086::parse_stack_reserve(*opts.stack_reserve);
+            if (!reserve)
+            {
+                std::println(std::cerr, "dcc: error: {}", reserve.error());
+                return std::nullopt;
+            }
+            link.stack_reserve = *reserve;
+        }
+        return link;
+    }
+
+    [[nodiscard]] std::vector<std::string> i8086_link_args(Options const& opts)
+    {
+        std::vector<std::string> args;
+        for (auto const& dir : opts.library_paths)
+            args.push_back(std::format("-L{}", dir));
+        for (auto const& lib : opts.libraries)
+            args.push_back(std::format("-l{}", lib));
+        for (auto const& extra : explicit_linker_args(opts))
+            args.push_back(extra);
+        return args;
+    }
+
+    int run_i8086_link_mode(Options const& opts, dcc::target::TargetConfig const& target)
+    {
+        if (opts.libdcext)
+        {
+            std::println(std::cerr, "dcc: error: -flibdcext is not available for target 'i8086-binary'");
+            return 1;
+        }
+        auto link = i8086_link_options(opts, target);
+        if (!link)
+            return 1;
+        std::error_code ec;
+        std::vector<std::string> objects;
+        for (auto const& in : opts.input_files)
+        {
+            auto canon = std::filesystem::canonical(in, ec);
+            if (ec)
+            {
+                std::println(std::cerr, "dcc: error: cannot find input file '{}'", in.string());
+                return 1;
+            }
+            objects.push_back(canon.string());
+        }
+        std::filesystem::path output = opts.output_file.empty() ? std::filesystem::path{objects.front()}.replace_extension(".bin").filename() : opts.output_file;
+        for (auto const& in : opts.input_files)
+            if (same_file_path(output, in))
+            {
+                std::println(std::cerr, "dcc: error: output file '{}' is the same as an input object file", output.string());
+                return 1;
+            }
+        auto linked = dcc::backend::i8086::link_flat_binary(objects, output.string(), *link, i8086_link_args(opts));
+        if (!linked)
+        {
+            std::println(std::cerr, "dcc: error: linking failed:\n{}", linked.error());
+            return 1;
+        }
+        return 0;
+    }
+
     int run_link_mode(Options const& opts, char** argv)
     {
         if (opts.compile_only)
@@ -1957,20 +2069,31 @@ namespace
             return 1;
         }
 
-        if (!opts.compile_only_flags.empty())
+        dcc::target::TargetConfig target = resolve_target_or_exit(opts);
+        bool const i8086 = target.arch == dcc::target::Arch::I8086;
+
+        std::vector<std::string> compile_only;
+        for (auto const& flag : opts.compile_only_flags)
+            if (!i8086 || !flag.starts_with("-mcmodel"))
+                compile_only.push_back(flag);
+        if (!compile_only.empty())
         {
             std::string list;
-            for (std::size_t k = 0; k < opts.compile_only_flags.size(); ++k)
+            for (std::size_t k = 0; k < compile_only.size(); ++k)
             {
                 if (k)
                     list += ", ";
-                list += opts.compile_only_flags[k];
+                list += compile_only[k];
             }
             std::println(std::cerr, "dcc: error: option(s) {} only apply when compiling sources and cannot be used in link mode", list);
             return 1;
         }
 
-        dcc::target::TargetConfig target = resolve_target_or_exit(opts);
+        if (i8086)
+            return run_i8086_link_mode(opts, target);
+
+        if (!i8086_link_options(opts, target))
+            return 1;
 
         if (target.object_format == dcc::target::ObjectFormat::Coff)
         {
@@ -2327,6 +2450,9 @@ auto main(int argc, char** argv) -> int
                 }
             }
 
+            if (!i8086_link_options(opts, target))
+                return 1;
+
             auto kinds = desired_artifacts(opts);
             if (kinds.empty())
             {
@@ -2451,10 +2577,47 @@ auto main(int argc, char** argv) -> int
                     return 1;
                 }
 
+                auto link = i8086_link_options(opts, target);
+                if (!link)
+                    return 1;
+                bool const link_i8086 =
+                    target.arch == dcc::target::Arch::I8086 && backend_opts.requested_artifacts.contains(dcc::backend::ArtifactKind::ExecutableBytes);
+                if (link_i8086)
+                {
+                    backend_opts.requested_artifacts.erase(dcc::backend::ArtifactKind::ExecutableBytes);
+                    backend_opts.requested_artifacts.insert(dcc::backend::ArtifactKind::ObjectBytes);
+                }
+
                 auto backend = target.arch == dcc::target::Arch::I8086 ? dcc::backend::make_i8086_backend() : dcc::backend::make_em64t_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
                 phase("backend");
                 std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);
+
+                if (link_i8086 && artifact.diagnostics.empty() && artifact.object_bytes)
+                {
+                    auto dir = std::filesystem::temp_directory_path(ec) /
+                               std::format("dcc-i8086-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                    std::filesystem::create_directories(dir, ec);
+                    auto object_path = dir / "module.o";
+                    auto binary_path = dir / "module.bin";
+                    {
+                        std::ofstream out{object_path, std::ios::binary};
+                        out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
+                    }
+                    auto linked = dcc::backend::i8086::link_flat_binary({object_path.string()}, binary_path.string(), *link, i8086_link_args(opts));
+                    if (!linked)
+                        artifact.diagnostics.push_back(dcc::backend::BackendDiagnostic{{}, std::format("linking failed:\n{}", linked.error())});
+                    else
+                    {
+                        std::ifstream in{binary_path, std::ios::binary};
+                        std::vector<char> bytes{std::istreambuf_iterator<char>(in), {}};
+                        std::vector<std::byte> binary(bytes.size());
+                        std::ranges::transform(bytes, binary.begin(), [](char c) { return static_cast<std::byte>(c); });
+                        artifact.executable_bytes = std::move(binary);
+                        artifact.object_bytes.reset();
+                    }
+                    std::filesystem::remove_all(dir, ec);
+                }
 
                 if (!artifact.diagnostics.empty())
                 {
