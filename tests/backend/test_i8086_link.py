@@ -58,8 +58,8 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
                 run("ld.lld", "-m", "elf_i386", "-T", script, "-o", directory / "raw.bin", crt0, object_path)
                 continue
             run(*i8086, f"-mcmodel={link_model}", crt0, object_path, "-o", directory / "x.bin", expect=1,
-                contains=f"i8086 code model mismatch: an object needs {marker} (compiled with -mcmodel={object_model}), but this link is for "
-                         f"-mcmodel={link_model} and provides __dcc_i8086_model_{link_model}")
+                contains=f"i8086 code model mismatch: an object needs {marker}, but this link is for -mcmodel={link_model} and provides "
+                         f"__dcc_i8086_model_{link_model}")
             raw = run("ld.lld", "-m", "elf_i386", "-T", script, "-o", directory / "raw.bin", crt0, object_path, expect=1)
             assert f"undefined symbol: {marker}" in raw.stderr, raw.stderr
     run(*i8086, "-mcmodel=default", crt0, objects["small"], "-o", directory / "x.bin")
