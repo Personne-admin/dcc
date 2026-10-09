@@ -98,6 +98,122 @@ namespace dcc::backend::i8086
             return references;
         }
 
+        [[nodiscard]] std::expected<void, std::string> run_linker(std::string command)
+        {
+            command += " 2>&1";
+            auto* pipe = popen(command.c_str(), "r");
+            if (!pipe)
+                return std::unexpected("cannot run ld.lld");
+            std::string captured;
+            std::array<char, 4096> buffer{};
+            while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe))
+                captured += buffer.data();
+            if (pclose(pipe) != 0)
+                return std::unexpected(captured);
+            return {};
+        }
+
+        struct OutputSection
+        {
+            std::string name;
+            std::uint32_t flags{};
+            std::uint32_t type{};
+            std::uint32_t address{};
+            std::uint32_t size{};
+        };
+
+        [[nodiscard]] std::optional<std::vector<OutputSection>> read_sections(std::filesystem::path const& path)
+        {
+            std::ifstream in{path, std::ios::binary};
+            std::vector<unsigned char> data{std::istreambuf_iterator<char>(in), {}};
+            auto u16 = [&](std::size_t at) { return static_cast<std::uint32_t>(data[at] | (data[at + 1] << 8)); };
+            auto u32 = [&](std::size_t at) { return u16(at) | (u16(at + 2) << 16); };
+            if (data.size() < 52 || data[0] != 0x7F || data[4] != 1)
+                return std::nullopt;
+            std::size_t shoff = u32(32);
+            std::size_t entsize = u16(46);
+            std::size_t count = u16(48);
+            std::size_t strndx = u16(50);
+            if (entsize < 40 || strndx >= count || shoff + count * entsize > data.size())
+                return std::nullopt;
+            std::size_t strtab = u32(shoff + strndx * entsize + 16);
+            std::vector<OutputSection> sections;
+            for (std::size_t i = 1; i < count; ++i)
+            {
+                auto header = shoff + i * entsize;
+                OutputSection section;
+                for (auto at = strtab + u32(header); at < data.size() && data[at] != 0; ++at)
+                    section.name += static_cast<char>(data[at]);
+                section.type = u32(header + 4);
+                section.flags = u32(header + 8);
+                section.address = u32(header + 12);
+                section.size = u32(header + 20);
+                sections.push_back(std::move(section));
+            }
+            return sections;
+        }
+
+        [[nodiscard]] std::map<std::string, std::vector<std::string>> map_inputs(std::filesystem::path const& path)
+        {
+            std::map<std::string, std::vector<std::string>> inputs;
+            std::ifstream in{path};
+            std::string line;
+            std::string current;
+            while (std::getline(in, line))
+            {
+                std::size_t at = 0;
+                for (int field = 0; field < 4; ++field)
+                {
+                    while (at < line.size() && line[at] == ' ')
+                        ++at;
+                    while (at < line.size() && line[at] != ' ')
+                        ++at;
+                }
+                auto text = line.substr(std::min(at, line.size()));
+                auto indent = text.find_first_not_of(' ');
+                if (indent == std::string::npos)
+                    continue;
+                if (indent == 1)
+                    current = text.substr(1);
+                else if (indent == 9 && !current.empty())
+                    inputs[current].push_back(text.substr(9));
+            }
+            return inputs;
+        }
+
+        [[nodiscard]] std::expected<void, std::string> check_placement(std::filesystem::path const& image, std::filesystem::path const& map, LinkOptions const& options)
+        {
+            constexpr std::uint32_t alloc = 2;
+            static constexpr std::array<std::string_view, 5> expected{".start", ".text", ".rodata", ".data", ".bss"};
+            auto sections = read_sections(image);
+            if (!sections)
+                return std::unexpected("cannot read the intermediate i8086 image");
+            auto inputs = map_inputs(map);
+            std::string errors;
+            for (auto const& section : *sections)
+            {
+                if (!(section.flags & alloc) || section.size == 0)
+                    continue;
+                if (std::ranges::find(expected, section.name) == expected.end())
+                {
+                    std::string from;
+                    for (auto const& input : inputs[section.name])
+                        from += (from.empty() ? "" : ", ") + input;
+                    errors += std::format("allocated section {} ({}) is not placed by the i8086 linker script, which accepts only .start*, .text*, "
+                                          ".rodata*, .data*, .bss* and COMMON input sections\n",
+                                          section.name, from.empty() ? std::string{"unknown input"} : from);
+                    continue;
+                }
+                if (section.address < options.base.offset)
+                    errors += std::format("section {} starts at offset 0x{:X}, below the -fbase offset 0x{:X}\n", section.name, section.address, options.base.offset);
+                if ((section.name == ".start" || section.name == ".text") && std::uint64_t{section.address} + section.size > 0x10000)
+                    errors += std::format("section {} ends above offset 0x10000 of the 64 KiB code segment\n", section.name);
+            }
+            if (!errors.empty())
+                return std::unexpected(errors);
+            return {};
+        }
+
         [[nodiscard]] std::string rewrite_link_errors(std::string const& output, LinkOptions const& options)
         {
             for (auto model : {target::CodeModel::Small, target::CodeModel::Unreal, target::CodeModel::Unreal32})
@@ -213,6 +329,27 @@ namespace dcc::backend::i8086
         } cleanup{dir};
 
         bool user_script = std::ranges::any_of(extra_args, [](std::string const& arg) { return arg.starts_with("--script=") || arg == "-T"; });
+        std::string arguments;
+        for (auto const& input : inputs)
+            arguments += " " + quote(input);
+        for (auto const& arg : extra_args)
+            arguments += " " + quote(arg);
+
+        if (!user_script)
+        {
+            auto script = linker_script(options);
+            auto elf_script = dir / "i8086-elf.ld";
+            std::ofstream{elf_script} << "OUTPUT_FORMAT(elf32-i386)" << script.substr(script.find('\n'));
+            auto intermediate = dir / "image.elf";
+            auto map = dir / "image.map";
+            auto linked = run_linker(std::format("ld.lld -m elf_i386 --fatal-warnings -e 0 -T {} -o {}{} -Map={}", quote(elf_script.string()),
+                                                 quote(intermediate.string()), arguments, quote(map.string())));
+            if (!linked)
+                return std::unexpected(rewrite_link_errors(linked.error(), options));
+            if (auto placement = check_placement(intermediate, map, options); !placement)
+                return placement;
+        }
+
         std::string command = "ld.lld -m elf_i386 --fatal-warnings";
         if (!user_script)
         {
@@ -220,22 +357,9 @@ namespace dcc::backend::i8086
             std::ofstream{script} << linker_script(options);
             command += " -T " + quote(script.string());
         }
-        command += " -o " + quote(output);
-        for (auto const& input : inputs)
-            command += " " + quote(input);
-        for (auto const& arg : extra_args)
-            command += " " + quote(arg);
-        command += " 2>&1";
-
-        auto* pipe = popen(command.c_str(), "r");
-        if (!pipe)
-            return std::unexpected("cannot run ld.lld");
-        std::string captured;
-        std::array<char, 4096> buffer{};
-        while (std::fgets(buffer.data(), static_cast<int>(buffer.size()), pipe))
-            captured += buffer.data();
-        if (pclose(pipe) != 0)
-            return std::unexpected(rewrite_link_errors(captured, options));
+        auto linked = run_linker(command + " -o " + quote(output) + arguments);
+        if (!linked)
+            return std::unexpected(rewrite_link_errors(linked.error(), options));
         return {};
     }
 } // namespace dcc::backend::i8086

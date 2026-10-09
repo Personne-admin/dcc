@@ -102,6 +102,36 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
     for model in ("unreal", "unreal32"):
         run(*i8086, f"-mcmodel={model}", crt0, objects[model], huge_bss, "-o", directory / "x.bin")
 
+    sections = directory / "sections.dc"
+    sections.write_text("module s;\n@section(\".rodata.table\")\npublic const u16 table = 0x1234;\n@section(\".data.extra\")\npublic u16 extra = 0x5678;\n"
+                        "@nomangle public i32 dcc_main() { return 7; }\n")
+    run(*i8086, "-c", sections, "-o", directory / "sections.o")
+    placed = directory / "sections.bin"
+    run(*i8086, "-fbase=1000:0", crt0, directory / "sections.o", "-o", placed)
+    assert bytes([0x34, 0x12]) in placed.read_bytes() and bytes([0x78, 0x56]) in placed.read_bytes(), placed.read_bytes().hex()
+    run(sys.executable, runner, "--load", "1000:0000", "--mode", "real", placed, expect=7)
+
+    custom = directory / "custom.dc"
+    custom.write_text("module c;\n@section(\".vectors\")\npublic u16 vector = 1;\n@nomangle public i32 dcc_main() { return 7; }\n")
+    run(*i8086, "-c", custom, "-o", directory / "custom.o")
+    run(*i8086, crt0, directory / "custom.o", "-o", directory / "x.bin", expect=1,
+        contains="allocated section .vectors (" + str(directory / "custom.o") + ":(.vectors)) is not placed by the i8086 linker script")
+
+    orphans = nasm(directory, "orphans", "bits 16\nsection .init progbits alloc exec\n\tret\nsection .mysec progbits alloc write\n\tdb 2\n"
+                   "section .myinfo progbits noalloc\n\tdb 3\nsection .text.hot progbits alloc exec\n\tret\nsection .rodata.str progbits alloc\n\tdb 1\n")
+    result = run(*i8086, crt0, obj, orphans, "-o", directory / "y.bin", expect=1)
+    for name in (".init", ".mysec"):
+        assert f"allocated section {name} ({orphans}:({name})) is not placed by the i8086 linker script" in result.stderr, result.stderr
+    for name in (".myinfo", ".text.hot", ".rodata.str"):
+        assert f"section {name} " not in result.stderr, result.stderr
+    assert not (directory / "y.bin").exists(), "a rejected link must not produce an image"
+    fine = nasm(directory, "fine", "bits 16\nsection .myinfo progbits noalloc\n\tdb 3\nsection .text.hot progbits alloc exec\n\tret\nsection .rodata.str progbits alloc\n\tdb 1\n")
+    run(*i8086, "-fbase=1000:0", crt0, obj, fine, "-o", directory / "fine.bin")
+    run(sys.executable, runner, "--load", "1000:0000", "--mode", "real", directory / "fine.bin", expect=42)
+    custom_script = directory / "custom.ld"
+    custom_script.write_text(run(*i8086, "--print-linker-script").stdout.replace(".data : {", ".data : { *(.mysec .init) "))
+    run(*i8086, "-Wl,-T," + str(custom_script), crt0, obj, orphans, "-o", directory / "z.bin")
+
     run(compiler, "-fbase=0:0", "-c", source, "-o", directory / "x.o", expect=1, contains="-fbase applies only to target 'i8086-binary' (target: 'x86_64-elf')")
     run(compiler, "-fstack-reserve=8", "-c", source, "-o", directory / "x.o", expect=1, contains="-fstack-reserve applies only to target 'i8086-binary'")
     run(*i8086, "-fbase=10000:0", crt0, obj, "-o", directory / "x.bin", expect=1,
