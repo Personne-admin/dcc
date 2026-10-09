@@ -1,0 +1,34 @@
+module main;
+
+import std::sys::linux::syscall;
+
+@noinline usize asm_add_intel(usize^FS slot_pointer, usize addend) {
+    return asm @[intel, output(usize in rax), inputs(a = addend), inout(slot = *slot_pointer)] { "mov rax, %[a]; add rax, %[slot]; mov %[slot], rax" };
+}
+
+@noinline usize asm_load_att(usize^FS slot_pointer) {
+    return asm @[output(usize in rax), inputs(slot = *slot_pointer)] { "movq %[slot], %0" };
+}
+
+@noinline void asm_store_att(usize^FS slot_pointer, usize value) {
+    asm @[inputs(v = value), inout(slot = *slot_pointer)] { "movq %[v], %[slot]" };
+}
+
+public i32 main() {
+    usize[4] tls;
+    tls[0] = 5;
+    tls[1] = 7;
+    tls[2] = 9;
+    usize old_base = 0;
+    if std::sys::linux::syscall::raw2(158, 0x1003, &old_base as usize) != 0 { return 1; }
+    if std::sys::linux::syscall::raw2(158, 0x1002, &tls[0] as usize) != 0 { return 2; }
+    i32 result = 42;
+    usize^FS second = FS:8;
+    usize^FS third = FS:16;
+    if asm_load_att(second) != 7 { result = 3; }
+    if asm_add_intel(second, 100) != 107 || tls[1] != 107 { result = 4; }
+    asm_store_att(third, 33);
+    if tls[2] != 33 || tls[0] != 5 { result = 5; }
+    if std::sys::linux::syscall::raw2(158, 0x1002, old_base) != 0 { return 6; }
+    return result;
+}

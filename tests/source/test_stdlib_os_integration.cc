@@ -110,6 +110,17 @@ TEST_CASE("based pointers access per-thread FS storage on both backends")
             CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, false, backend).status, 42);
 }
 
+TEST_CASE("inline assembly memory operands through FS based pointers keep the override")
+{
+    if (windows())
+        return;
+    auto const source = os_test::fixture("based-fs-asm-linux.dc");
+    REQUIRE(!source.empty());
+    for (auto backend : {"custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            CHECK_EQ(os_test::run_modules({{"main.dc", source, {}, optimization}}, false, backend).status, 42);
+}
+
 TEST_CASE("based pointers access Win64 TEB through GS on both backends")
 {
     if (!windows())

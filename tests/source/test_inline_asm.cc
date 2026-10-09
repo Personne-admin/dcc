@@ -482,6 +482,99 @@ TEST_CASE("unsupported native forms produce diagnostics, not crashes")
     }
 }
 
+TEST_CASE("memory operands through based pointers keep their segment override")
+{
+    AsmFixture fx;
+    auto* u64 = fx.ctx.int_t(64, false);
+    struct BasedCase
+    {
+        Segment segment;
+        IrAsmDialect dialect;
+        std::string tmpl;
+        std::vector<std::uint8_t> bytes;
+    };
+    std::vector<BasedCase> cases = {
+        {Segment::Fs, IrAsmDialect::Intel, "add %0, %[slot]", {0x64, 0x48, 0x03, 0x18}},
+        {Segment::Gs, IrAsmDialect::Intel, "mov %[slot], %0", {0x65, 0x48, 0x89, 0x18}},
+        {Segment::Fs, IrAsmDialect::Intel, "mov %0, [%[slot] + 8]", {0x64, 0x48, 0x8B, 0x58, 0x08}},
+        {Segment::Fs, IrAsmDialect::Att, "addq %[slot], %0", {0x64, 0x48, 0x03, 0x18}},
+        {Segment::Gs, IrAsmDialect::Att, "movq %0, %[slot]", {0x65, 0x48, 0x89, 0x18}},
+    };
+    for (auto const& c : cases)
+    {
+        IrAsmOperand mem;
+        mem.direction = IrAsmOperand::Direction::InOut;
+        mem.placement_kind = IrAsmOperand::PlacementKind::Mem;
+        mem.type = fx.ctx.pointer_to(u64, c.segment, PointerFlavor::Based);
+        mem.value = fx.ctx.int_const(u64, 0);
+        std::vector<IrAsmOperand> operands;
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::InOut, "rbx", u64, fx.ctx.int_const(u64, 1)));
+        operands.push_back(mem);
+        auto* inst = fx.build(c.tmpl, std::move(operands), c.dialect, {{"%[slot]", 1}, {"%0", 0}});
+        auto plan = prepare_inline_asm(*inst, fx.target);
+        REQUIRE(plan.error.empty());
+        REQUIRE(plan.instructions.size() == 1);
+        require_bytes(try_encode(plan.instructions[0]), c.bytes);
+    }
+
+    IrAsmOperand composed;
+    composed.direction = IrAsmOperand::Direction::In;
+    composed.placement_kind = IrAsmOperand::PlacementKind::Mem;
+    composed.type = fx.ctx.pointer_to(u64, Segment::Fs, PointerFlavor::Based);
+    composed.value = fx.ctx.int_const(u64, 0);
+    std::vector<IrAsmOperand> operands;
+    operands.push_back(fx.reg_operand(IrAsmOperand::Direction::Out, "rbx", u64));
+    operands.push_back(composed);
+    auto* inst = fx.build("movq 8(%[slot]), %0", std::move(operands), IrAsmDialect::Att, {{"%[slot]", 1}, {"%0", 0}});
+    auto plan = prepare_inline_asm(*inst, fx.target);
+    REQUIRE(plan.error == "inline assembly memory operand through a based FS pointer must be a complete operand in AT&T syntax");
+}
+
+TEST_CASE("native inline assembly parses fs and gs segment overrides")
+{
+    AsmFixture fx;
+    auto* u64 = fx.ctx.int_t(64, false);
+    auto* value = fx.ctx.int_const(u64, 0);
+    struct SegmentCase
+    {
+        IrAsmDialect dialect;
+        std::string tmpl;
+        std::vector<std::uint8_t> bytes;
+    };
+    std::vector<SegmentCase> accepted = {
+        {IrAsmDialect::Intel, "mov %0, fs:[%[p]]", {0x64, 0x48, 0x8B, 0x03}},
+        {IrAsmDialect::Intel, "mov %0, qword gs:[%[p] + 16]", {0x65, 0x48, 0x8B, 0x43, 0x10}},
+        {IrAsmDialect::Intel, "mov %0, [fs:%[p] + 8]", {0x64, 0x48, 0x8B, 0x43, 0x08}},
+        {IrAsmDialect::Att, "movq %%fs:8(%[p]), %0", {0x64, 0x48, 0x8B, 0x43, 0x08}},
+        {IrAsmDialect::Att, "movq %0, %%gs:(%[p])", {0x65, 0x48, 0x89, 0x03}},
+    };
+    for (auto const& c : accepted)
+    {
+        std::vector<IrAsmOperand> operands;
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::InOut, "rax", u64, value));
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rbx", u64, value));
+        auto* inst = fx.build(c.tmpl, std::move(operands), c.dialect, {{"%0", 0}, {"%[p]", 1}});
+        auto plan = prepare_inline_asm(*inst, fx.target);
+        REQUIRE(plan.error.empty());
+        REQUIRE(plan.instructions.size() == 1);
+        require_bytes(try_encode(plan.instructions[0]), c.bytes);
+    }
+    std::vector<std::pair<IrAsmDialect, std::string>> rejected = {
+        {IrAsmDialect::Intel, "mov %0, ds:[%[p]]"},
+        {IrAsmDialect::Intel, "mov %0, fs:[gs:%[p]]"},
+        {IrAsmDialect::Att, "movq %%fs:%0, %0"},
+    };
+    for (auto const& [dialect, tmpl] : rejected)
+    {
+        std::vector<IrAsmOperand> operands;
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::InOut, "rax", u64, value));
+        operands.push_back(fx.reg_operand(IrAsmOperand::Direction::In, "rbx", u64, value));
+        auto* inst = fx.build(tmpl, std::move(operands), dialect, {{"%0", 0}, {"%[p]", 1}});
+        auto plan = prepare_inline_asm(*inst, fx.target);
+        REQUIRE(!plan.error.empty());
+    }
+}
+
 TEST_CASE("llvm lowering rewrites numbering and constraints")
 {
     AsmFixture fx;
