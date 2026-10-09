@@ -13,7 +13,7 @@ GROUPS = [
     ("docs", "Documentation"),
     ("chore", "Chores"),
 ]
-SUBJECT_RE = re.compile(r"^(?P<kind>[a-z]+)(?:\((?P<scope>[^)]*)\))?: (?P<message>.+)$")
+SUBJECT_RE = re.compile(r"^(?P<kind>[a-z]+)(?:\((?P<scope>[^)]*)\))?(?P<breaking>!)?: (?P<message>.+)$")
 
 
 def git(*args):
@@ -39,16 +39,20 @@ def main():
 
     grouped = {kind: [] for kind, _ in GROUPS}
     other = []
+    breaking = []
     for subject in subjects:
         m = SUBJECT_RE.match(subject)
         if m and m.group("kind") in grouped:
             scope = m.group("scope")
-            grouped[m.group("kind")].append(("**%s:** " % scope if scope else "") + m.group("message"))
+            entry = ("**%s:** " % scope if scope else "") + m.group("message")
+            (breaking if m.group("breaking") else grouped[m.group("kind")]).append(entry)
         else:
             other.append(subject)
 
     lines = ["# dcc %s" % args.version, ""]
     lines.append("Changes since %s (%d commits)." % (prev, len(subjects)) if prev else "All changes (%d commits)." % len(subjects))
+    if breaking:
+        lines += ["", "## Breaking changes", ""] + ["- " + entry for entry in breaking]
     for kind, title in GROUPS:
         if grouped[kind]:
             lines += ["", "## " + title, ""] + ["- " + entry for entry in grouped[kind]]
