@@ -3280,6 +3280,8 @@ namespace dcc::backend::em64t
                             else
                                 sext_opc = MOpc::MOV64rr;
                             VReg dst = emit_unary_op(ctx, sext_opc, op_vreg);
+                            if (dst_bits == 16 && src_bits < 16)
+                                dst = trunc_to_narrow(ctx, dst, 16);
                             ctx.set_vreg(inst, dst);
                             break;
                         }
