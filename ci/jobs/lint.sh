@@ -10,3 +10,4 @@ ci_section python
 python3 -m py_compile ci/release/*.py
 ci_section release-tools
 python3 ci/release/version.py selftest
+python3 ci/release/test_notes.py
