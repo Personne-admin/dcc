@@ -1488,7 +1488,7 @@ namespace
         int skipped = 0;
     };
 
-    bool run_fixture(fs::path const& path, Stats& stats)
+    bool run_fixture(fs::path const& path, Stats& stats, std::optional<dcc::target::CodeModel> i8086_model = std::nullopt)
     {
         ++stats.checks;
 
@@ -1511,6 +1511,31 @@ namespace
             return false;
         }
         auto& fx = *fx_opt;
+        if (i8086_model)
+        {
+            Fixture differential;
+            differential.files = fx.files;
+            differential.entry = fx.entry;
+            differential.injected_decls = fx.injected_decls;
+            differential.target_name = "i8086-binary";
+            differential.target_model = *i8086_model;
+            differential.target_line = 1;
+            for (auto const& block : fx.em64t_object_blocks)
+                if (block.run_exit_code)
+                {
+                    ExpectI8086Run run;
+                    run.base_line = block.base_line;
+                    run.exit_code = block.run_exit_code;
+                    differential.i8086_run_blocks.push_back(std::move(run));
+                }
+            if (differential.i8086_run_blocks.empty())
+            {
+                ++stats.failed;
+                std::println(std::cerr, "    FAIL  differential fixture has no EXPECT-EM64T-OBJECT RUN-EXIT  ({}:1)", path.string());
+                return false;
+            }
+            fx = std::move(differential);
+        }
 
         std::optional<dcc::target::TargetConfig> fixture_target;
         if (fx.target_line != 0)
@@ -3973,10 +3998,10 @@ namespace
         return s;
     }
 
-    bool run_fixture_isolated(fs::path const& f, Stats& stats)
+    bool run_fixture_isolated(fs::path const& f, Stats& stats, std::optional<dcc::target::CodeModel> i8086_model = std::nullopt)
     {
 #ifdef _WIN32
-        return run_fixture(f, stats);
+        return run_fixture(f, stats, i8086_model);
 #else
         std::cout.flush();
         std::cerr.flush();
@@ -3984,17 +4009,17 @@ namespace
         std::fflush(stderr);
         auto* shared = static_cast<Stats*>(mmap(nullptr, sizeof(Stats), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS, -1, 0));
         if (shared == MAP_FAILED)
-            return run_fixture(f, stats);
+            return run_fixture(f, stats, i8086_model);
         *shared = stats;
         pid_t pid = fork();
         if (pid < 0)
         {
             munmap(shared, sizeof(Stats));
-            return run_fixture(f, stats);
+            return run_fixture(f, stats, i8086_model);
         }
         if (pid == 0)
         {
-            bool ok = run_fixture(f, *shared);
+            bool ok = run_fixture(f, *shared, i8086_model);
             std::cout.flush();
             std::cerr.flush();
             std::fflush(stdout);
@@ -4100,6 +4125,30 @@ int main()
 
         if (!run_fixture_isolated(f, stats))
             ++cases_failed;
+    }
+
+    {
+        std::ifstream list{DCC_I8086_DIFFERENTIAL};
+        if (!list)
+        {
+            std::println(std::cerr, "    FAIL  cannot read the i8086 differential list {}", DCC_I8086_DIFFERENTIAL);
+            ++stats.failed;
+            ++cases_failed;
+        }
+        std::string line;
+        while (std::getline(list, line))
+        {
+            auto entry = trim(line);
+            if (entry.empty() || entry.starts_with('#'))
+                continue;
+            auto name = entry.substr(0, entry.find_first_of(" \t"));
+            for (auto model : {dcc::target::CodeModel::Small, dcc::target::CodeModel::Unreal, dcc::target::CodeModel::Unreal32})
+            {
+                std::println(" --- i8086 differential: {} -mcmodel={} ---", name, dcc::target::TargetConfig::code_model_name(model));
+                if (!run_fixture_isolated(dir / name, stats, model))
+                    ++cases_failed;
+            }
+        }
     }
 
     if (cases_failed > 0)
