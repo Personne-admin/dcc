@@ -2422,7 +2422,30 @@ namespace dcc::backend
                 else if (assembly.operands[part.operand].placement_kind == IrAsmOperand::PlacementKind::Sym)
                     rewritten += "${" + std::to_string(number) + ":c}";
                 else
+                {
+                    auto const& op = assembly.operands[part.operand];
+                    auto* pointer = op.placement_kind == IrAsmOperand::PlacementKind::Mem ? ir_type_cast<IrPointerType>(op.type) : nullptr;
+                    if (pointer && pointer->flavor == PointerFlavor::Far)
+                        return fail("inline assembly memory operands through far pointers are not supported by this backend");
+                    if (pointer && pointer->flavor == PointerFlavor::Based)
+                    {
+                        std::string_view segment = pointer->seg == Segment::Fs ? "fs" : pointer->seg == Segment::Gs ? "gs" : pointer->seg == Segment::Ss ? "ss" : "";
+                        auto upper = pointer->seg == Segment::Cs ? "CS" : pointer->seg == Segment::Ds ? "DS" : pointer->seg == Segment::Es ? "ES" : "";
+                        if (segment.empty())
+                            return fail(std::format("inline assembly memory operand through a based {} pointer is not supported by this backend", upper));
+                        auto before = std::string_view(rewritten);
+                        while (!before.empty() && (before.back() == ' ' || before.back() == '\t'))
+                            before.remove_suffix(1);
+                        if (!before.empty() && (before.back() == '[' || before.back() == '(' || before.back() == ':'))
+                            return fail(std::format("inline assembly memory operand through a based {} pointer must be a complete operand",
+                                                    pointer->seg == Segment::Fs ? "FS" : pointer->seg == Segment::Gs ? "GS" : "SS"));
+                        if (assembly.dialect == IrAsmDialect::Att)
+                            rewritten += '%';
+                        rewritten += segment;
+                        rewritten += ':';
+                    }
                     rewritten += "$" + std::to_string(number);
+                }
                 }
             }
             cursor = part.offset + part.length;
