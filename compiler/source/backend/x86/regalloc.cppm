@@ -508,7 +508,7 @@ namespace dcc::backend::x86
                                     if (!bldef.contains(op.reg))
                                         bluse.insert(op.reg);
                                     std::uint32_t use_pp = pp;
-                                    if (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr)
+                                    if (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr || instr.opc == MOpc::SUB16rr)
                                         ++use_pp;
                                     auto it = last_use.find(op.reg);
                                     if (it == last_use.end() || use_pp > it->second)
@@ -722,6 +722,9 @@ namespace dcc::backend::x86
                         case MOpc::SHL32rCL:
                         case MOpc::SHR32rCL:
                         case MOpc::SAR32rCL:
+                        case MOpc::SHL16rCL:
+                        case MOpc::SHR16rCL:
+                        case MOpc::SAR16rCL:
                             if (instr.num_defs > 0 && instr.num_ops > 0 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_virtual())
                                 shift_dsts.insert(instr.ops[0].reg);
                             break;

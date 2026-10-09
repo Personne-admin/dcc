@@ -197,6 +197,8 @@ namespace dcc::backend::i8086
                 return bits;
             }
 
+            [[nodiscard]] static unsigned op_width(unsigned bits) noexcept { return bits <= 16 ? 16 : 32; }
+
             [[nodiscard]] static std::optional<std::int64_t> constant(IrValue const* value)
             {
                 if (auto* integer = ir_cast<IrIntConstant>(value))
@@ -204,6 +206,14 @@ namespace dcc::backend::i8086
                 if (auto* boolean = ir_cast<IrBoolConstant>(value))
                     return boolean->value ? 1 : 0;
                 return std::nullopt;
+            }
+
+            [[nodiscard]] static std::int64_t fit(std::int64_t value, unsigned bits, bool signed_value, unsigned width)
+            {
+                std::uint64_t mask = (std::uint64_t{1} << bits) - 1;
+                auto raw = static_cast<std::uint64_t>(value) & mask;
+                std::int64_t extended = signed_value && bits < 64 && (raw >> (bits - 1)) != 0 ? static_cast<std::int64_t>(raw | ~mask) : static_cast<std::int64_t>(raw);
+                return width == 16 ? static_cast<std::int16_t>(extended) : static_cast<std::int32_t>(extended);
             }
 
             [[nodiscard]] std::optional<VReg> value(IrValue const* v)
@@ -217,24 +227,16 @@ namespace dcc::backend::i8086
                     return found->second;
                 if (auto imm = constant(v))
                 {
-                    if (!value_bits(v->type))
+                    auto bits = value_bits(v->type);
+                    if (!bits)
                         return std::nullopt;
                     VReg r = mfunc.new_vreg();
-                    append(make_instr(MOpc::MOV32ri, {MOp::from_reg(r), MOp::from_imm(*imm)}, 1));
+                    auto width = op_width(bits);
+                    append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {MOp::from_reg(r), MOp::from_imm(fit(*imm, bits, false, width))}, 1));
                     return r;
                 }
                 unsupported(std::format("an operand of IR {}", kind_name(v->kind)));
                 return std::nullopt;
-            }
-
-            [[nodiscard]] std::optional<MOp> source(IrValue const* v)
-            {
-                if (auto imm = constant(v))
-                    return MOp::from_imm(*imm);
-                auto r = value(v);
-                if (!r)
-                    return std::nullopt;
-                return MOp::from_reg(*r);
             }
 
             [[nodiscard]] std::optional<MOp> address(IrValue const* pointer)
@@ -263,28 +265,23 @@ namespace dcc::backend::i8086
                 return d;
             }
 
-            [[nodiscard]] VReg zero_extend(VReg v, unsigned bits)
+            [[nodiscard]] VReg extend(VReg v, unsigned bits, bool signed_value, unsigned width)
             {
-                if (bits >= 32)
+                if (bits >= width)
                     return v;
                 if (bits == 16)
-                    return emit(MOpc::MOVZX32_16rr, {MOp::from_reg(v)});
-                return emit(MOpc::AND32ri, {MOp::from_reg(v), MOp::from_imm(0xFF)});
+                    return emit(signed_value ? MOpc::MOVSX32_16rr : MOpc::MOVZX32_16rr, {MOp::from_reg(v)});
+                if (!signed_value)
+                    return emit(width == 16 ? MOpc::AND16ri : MOpc::AND32ri, {MOp::from_reg(v), MOp::from_imm(0xFF)});
+                auto shift = static_cast<std::int64_t>(width - 8);
+                auto shifted = emit(width == 16 ? MOpc::SHL16ri8 : MOpc::SHL32ri8, {MOp::from_reg(v), MOp::from_imm(shift)});
+                return emit(width == 16 ? MOpc::SAR16ri8 : MOpc::SAR32ri8, {MOp::from_reg(shifted), MOp::from_imm(shift)});
             }
 
-            [[nodiscard]] VReg sign_extend(VReg v, unsigned bits)
+            void copy_to(PhysReg reg, VReg v, unsigned width)
             {
-                if (bits >= 32)
-                    return v;
-                if (bits == 16)
-                    return emit(MOpc::MOVSX32_16rr, {MOp::from_reg(v)});
-                auto shifted = emit(MOpc::SHL32ri8, {MOp::from_reg(v), MOp::from_imm(24)});
-                return emit(MOpc::SAR32ri8, {MOp::from_reg(shifted), MOp::from_imm(24)});
+                append(make_instr(width == 16 ? MOpc::MOV16rr : MOpc::COPY, {phys_operand(reg), MOp::from_reg(v)}, 1));
             }
-
-            [[nodiscard]] VReg extend(VReg v, unsigned bits, bool signed_value) { return signed_value ? sign_extend(v, bits) : zero_extend(v, bits); }
-
-            void copy_to(PhysReg reg, VReg v) { append(make_instr(MOpc::COPY, {phys_operand(reg), MOp::from_reg(v)}, 1)); }
 
             [[nodiscard]] VReg copy_from(PhysReg reg)
             {
@@ -311,7 +308,7 @@ namespace dcc::backend::i8086
                 auto mem = bits ? address(pointer) : std::nullopt;
                 if (!mem)
                     return;
-                auto opc = bits == 8 ? MOpc::MOVZX32rm8 : bits == 16 ? MOpc::MOVZX32rm16 : MOpc::MOV32rm;
+                auto opc = bits == 8 ? MOpc::MOVZX16rm8 : bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm;
                 values[inst] = emit(opc, {*mem});
             }
 
@@ -324,8 +321,7 @@ namespace dcc::backend::i8086
                 if (auto imm = constant(stored))
                 {
                     auto opc = bits == 8 ? MOpc::MOV8mi : bits == 16 ? MOpc::MOV16mi : MOpc::MOV32mi;
-                    auto masked = bits == 32 ? *imm : *imm & ((std::int64_t{1} << bits) - 1);
-                    append(make_instr(opc, {*mem, MOp::from_imm(masked)}, 0));
+                    append(make_instr(opc, {*mem, MOp::from_imm(fit(*imm, bits, false, op_width(bits)))}, 0));
                     return;
                 }
                 auto v = value(stored);
@@ -333,7 +329,7 @@ namespace dcc::backend::i8086
                     return;
                 if (bits == 8)
                 {
-                    copy_to(PhysReg::RAX, *v);
+                    copy_to(PhysReg::RAX, *v, 16);
                     append(make_instr(MOpc::MOV8mr, {*mem, phys_operand(PhysReg::RAX)}, 0));
                     return;
                 }
@@ -347,33 +343,39 @@ namespace dcc::backend::i8086
                 auto l = bits ? value(lhs) : std::nullopt;
                 if (!l)
                     return;
+                bool const narrow = op_width(bits) == 16;
                 MOpc rr{};
                 MOpc ri{};
                 switch (inst->kind)
                 {
                     case IrNodeKind::Add:
-                        rr = MOpc::ADD32rr, ri = MOpc::ADD32ri;
+                        rr = narrow ? MOpc::ADD16rr : MOpc::ADD32rr, ri = narrow ? MOpc::ADD16ri : MOpc::ADD32ri;
                         break;
                     case IrNodeKind::Sub:
-                        rr = MOpc::SUB32rr, ri = MOpc::SUB32ri;
+                        rr = narrow ? MOpc::SUB16rr : MOpc::SUB32rr, ri = narrow ? MOpc::SUB16ri : MOpc::SUB32ri;
                         break;
                     case IrNodeKind::And:
-                        rr = MOpc::AND32rr, ri = MOpc::AND32ri;
+                        rr = narrow ? MOpc::AND16rr : MOpc::AND32rr, ri = narrow ? MOpc::AND16ri : MOpc::AND32ri;
                         break;
                     case IrNodeKind::Or:
-                        rr = MOpc::OR32rr, ri = MOpc::OR32ri;
+                        rr = narrow ? MOpc::OR16rr : MOpc::OR32rr, ri = narrow ? MOpc::OR16ri : MOpc::OR32ri;
                         break;
                     case IrNodeKind::Xor:
-                        rr = MOpc::XOR32rr, ri = MOpc::XOR32ri;
+                        rr = narrow ? MOpc::XOR16rr : MOpc::XOR32rr, ri = narrow ? MOpc::XOR16ri : MOpc::XOR32ri;
                         break;
                     default:
-                        rr = MOpc::IMUL32rr, ri = MOpc::IMUL32rri;
+                        rr = narrow ? MOpc::IMUL16rr : MOpc::IMUL32rr, ri = narrow ? MOpc::IMUL16rri : MOpc::IMUL32rri;
                         break;
                 }
-                auto r = source(rhs);
+                if (auto imm = constant(rhs))
+                {
+                    values[static_cast<IrValue const*>(inst)] = emit(ri, {MOp::from_reg(*l), MOp::from_imm(fit(*imm, bits, false, op_width(bits)))});
+                    return;
+                }
+                auto r = value(rhs);
                 if (!r)
                     return;
-                values[static_cast<IrValue const*>(inst)] = emit(r->kind == MOpKind::Imm64 ? ri : rr, {MOp::from_reg(*l), *r});
+                values[static_cast<IrValue const*>(inst)] = emit(rr, {MOp::from_reg(*l), MOp::from_reg(*r)});
             }
 
             void lower_shift(IrNode const* inst, IrType const* type)
@@ -383,13 +385,25 @@ namespace dcc::backend::i8086
                 auto l = bits ? value(lhs) : std::nullopt;
                 if (!l)
                     return;
+                auto width = op_width(bits);
+                bool const narrow = width == 16;
                 VReg base = *l;
-                if (inst->kind == IrNodeKind::LShr)
-                    base = zero_extend(base, bits);
-                else if (inst->kind == IrNodeKind::AShr)
-                    base = sign_extend(base, bits);
-                auto by_imm = inst->kind == IrNodeKind::Shl ? MOpc::SHL32ri8 : inst->kind == IrNodeKind::LShr ? MOpc::SHR32ri8 : MOpc::SAR32ri8;
-                auto by_cl = inst->kind == IrNodeKind::Shl ? MOpc::SHL32rCL : inst->kind == IrNodeKind::LShr ? MOpc::SHR32rCL : MOpc::SAR32rCL;
+                if (inst->kind != IrNodeKind::Shl)
+                    base = extend(base, bits, inst->kind == IrNodeKind::AShr, width);
+                MOpc by_imm{};
+                MOpc by_cl{};
+                switch (inst->kind)
+                {
+                    case IrNodeKind::Shl:
+                        by_imm = narrow ? MOpc::SHL16ri8 : MOpc::SHL32ri8, by_cl = narrow ? MOpc::SHL16rCL : MOpc::SHL32rCL;
+                        break;
+                    case IrNodeKind::LShr:
+                        by_imm = narrow ? MOpc::SHR16ri8 : MOpc::SHR32ri8, by_cl = narrow ? MOpc::SHR16rCL : MOpc::SHR32rCL;
+                        break;
+                    default:
+                        by_imm = narrow ? MOpc::SAR16ri8 : MOpc::SAR32ri8, by_cl = narrow ? MOpc::SAR16rCL : MOpc::SAR32rCL;
+                        break;
+                }
                 if (auto imm = constant(rhs))
                 {
                     values[static_cast<IrValue const*>(inst)] = emit(by_imm, {MOp::from_reg(base), MOp::from_imm(*imm & 31)});
@@ -398,7 +412,7 @@ namespace dcc::backend::i8086
                 auto count = value(rhs);
                 if (!count)
                     return;
-                copy_to(PhysReg::RCX, *count);
+                copy_to(PhysReg::RCX, *count, op_width(scalar_bits(rhs->type)));
                 values[static_cast<IrValue const*>(inst)] = emit(by_cl, {MOp::from_reg(base), phys_operand(PhysReg::RCX)});
             }
 
@@ -411,21 +425,23 @@ namespace dcc::backend::i8086
                 auto r = l ? value(rhs) : std::nullopt;
                 if (!r)
                     return;
-                auto dividend = extend(*l, bits, signed_op);
-                auto divisor = extend(*r, bits, signed_op);
-                copy_to(PhysReg::RAX, dividend);
+                auto width = bits == 16 && signed_op ? 32u : op_width(bits);
+                auto dividend = extend(*l, bits, signed_op, width);
+                auto divisor = extend(*r, bits, signed_op, width);
+                copy_to(PhysReg::RAX, dividend, width);
                 std::uint64_t const ax = 1ULL << static_cast<unsigned>(PhysReg::RAX);
                 std::uint64_t const dx = 1ULL << static_cast<unsigned>(PhysReg::RDX);
                 if (signed_op)
                 {
-                    MInstr cdq = make_instr(MOpc::CDQ, {}, 0);
-                    cdq.implicit_defs = dx;
-                    cdq.implicit_uses = ax;
-                    append(cdq);
+                    MInstr widen = make_instr(width == 16 ? MOpc::CWD : MOpc::CDQ, {}, 0);
+                    widen.implicit_defs = dx;
+                    widen.implicit_uses = ax;
+                    append(widen);
                 }
                 else
-                    append(make_instr(MOpc::MOV32ri, {phys_operand(PhysReg::RDX), MOp::from_imm(0)}, 1));
-                MInstr divide = make_instr(signed_op ? MOpc::IDIV32r : MOpc::DIV32r, {MOp::from_reg(divisor)}, 0);
+                    append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RDX), MOp::from_imm(0)}, 1));
+                auto opc = width == 16 ? (signed_op ? MOpc::IDIV16r : MOpc::DIV16r) : (signed_op ? MOpc::IDIV32r : MOpc::DIV32r);
+                MInstr divide = make_instr(opc, {MOp::from_reg(divisor)}, 0);
                 divide.implicit_defs = ax | dx;
                 divide.implicit_uses = ax | dx;
                 append(divide);
@@ -440,21 +456,21 @@ namespace dcc::backend::i8086
                 auto l = bits ? value(lhs) : std::nullopt;
                 if (!l)
                     return;
+                auto width = op_width(bits);
                 bool signed_compare = setcc == MOpc::SETLr || setcc == MOpc::SETLEr || setcc == MOpc::SETGr || setcc == MOpc::SETGEr;
-                auto left = extend(*l, bits, signed_compare);
-                std::optional<MOp> right;
-                if (auto imm = constant(rhs); imm && bits == 32)
-                    right = MOp::from_imm(*imm);
+                auto left = extend(*l, bits, signed_compare, width);
+                if (auto imm = constant(rhs))
+                    append(make_instr(width == 16 ? MOpc::CMP16ri : MOpc::CMP32ri, {MOp::from_reg(left), MOp::from_imm(fit(*imm, bits, signed_compare, width))}, 0));
                 else
                 {
                     auto r = value(rhs);
                     if (!r)
                         return;
-                    right = MOp::from_reg(extend(*r, bits, signed_compare));
+                    auto right = extend(*r, bits, signed_compare, width);
+                    append(make_instr(width == 16 ? MOpc::CMP16rr : MOpc::CMP32rr, {MOp::from_reg(left), MOp::from_reg(right)}, 0));
                 }
-                append(make_instr(right->kind == MOpKind::Imm64 ? MOpc::CMP32ri : MOpc::CMP32rr, {MOp::from_reg(left), *right}, 0));
                 append(make_instr(setcc, {phys_operand(PhysReg::RAX)}, 1));
-                values[static_cast<IrValue const*>(inst)] = emit(MOpc::MOVZX32_8rr, {phys_operand(PhysReg::RAX)});
+                values[static_cast<IrValue const*>(inst)] = emit(MOpc::MOVZX16_8rr, {phys_operand(PhysReg::RAX)});
             }
 
             void lower_unary(IrValue const* inst, IrValue const* operand)
@@ -463,12 +479,13 @@ namespace dcc::backend::i8086
                 auto v = bits ? value(operand) : std::nullopt;
                 if (!v)
                     return;
+                bool const narrow = op_width(bits) == 16;
                 if (inst->kind == IrNodeKind::Neg)
-                    values[inst] = emit(MOpc::NEG32r, {MOp::from_reg(*v)});
+                    values[inst] = emit(narrow ? MOpc::NEG16r : MOpc::NEG32r, {MOp::from_reg(*v)});
                 else if (inst->type->kind == IrTypeKind::Bool)
-                    values[inst] = emit(MOpc::XOR32ri, {MOp::from_reg(*v), MOp::from_imm(1)});
+                    values[inst] = emit(MOpc::XOR16ri, {MOp::from_reg(*v), MOp::from_imm(1)});
                 else
-                    values[inst] = emit(MOpc::NOT32r, {MOp::from_reg(*v)});
+                    values[inst] = emit(narrow ? MOpc::NOT16r : MOpc::NOT32r, {MOp::from_reg(*v)});
             }
 
             void lower_cast(IrValue const* inst, IrValue const* operand)
@@ -478,12 +495,10 @@ namespace dcc::backend::i8086
                 auto v = from ? value(operand) : std::nullopt;
                 if (!v)
                     return;
-                if (inst->kind == IrNodeKind::Trunc || from >= to)
+                if (inst->kind == IrNodeKind::Trunc || inst->kind == IrNodeKind::Bitcast || from >= to)
                     values[inst] = *v;
-                else if (inst->kind == IrNodeKind::Zext)
-                    values[inst] = zero_extend(*v, from);
                 else
-                    values[inst] = sign_extend(*v, from);
+                    values[inst] = extend(*v, from, inst->kind == IrNodeKind::Sext, op_width(to));
             }
 
             void lower_instruction(IrNode const* inst)
@@ -553,11 +568,11 @@ namespace dcc::backend::i8086
                     auto v = bits ? value(ret.value) : std::nullopt;
                     if (!v)
                         return;
-                    copy_to(PhysReg::RAX, *v);
+                    copy_to(PhysReg::RAX, *v, op_width(bits));
                     uses |= 1ULL << static_cast<unsigned>(PhysReg::RAX);
                     if (bits == 32 && c_abi)
                     {
-                        copy_to(PhysReg::RDX, *v);
+                        copy_to(PhysReg::RDX, *v, 32);
                         append(make_instr(MOpc::SHR32ri8, {phys_operand(PhysReg::RDX), phys_operand(PhysReg::RDX), MOp::from_imm(16)}, 1));
                         uses |= 1ULL << static_cast<unsigned>(PhysReg::RDX);
                     }
