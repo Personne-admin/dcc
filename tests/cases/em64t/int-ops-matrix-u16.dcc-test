@@ -36,7 +36,7 @@ public i32 dcc_main() {
     ok = ok + ((a != b) as i32 == 1) as i32 - ((a != b) as i32 == 0) as i32;
     ok = ok + (((a as i8) == 96) as i32) - (((a as i8) == 97) as i32);
     ok = ok + (((a as u8) == 96) as i32) - (((a as u8) == 97) as i32);
-    ok = ok + (((a as i16) == ((-5536) as i16)) as i32) - (((a as i16) == ((-5535) as i16)) as i32);
+    ok = ok + (((a as i16) == -5536) as i32) - (((a as i16) == -5535) as i32);
     ok = ok + (((a as i32) == 60000) as i32) - (((a as i32) == 60001) as i32);
     ok = ok + (((a as u32) == 60000) as i32) - (((a as u32) == 60001) as i32);
     a = a1;
@@ -59,9 +59,9 @@ public i32 dcc_main() {
     ok = ok + ((a >= b) as i32 == 1) as i32 - ((a >= b) as i32 == 0) as i32;
     ok = ok + ((a == b) as i32 == 0) as i32 - ((a == b) as i32 == 1) as i32;
     ok = ok + ((a != b) as i32 == 1) as i32 - ((a != b) as i32 == 0) as i32;
-    ok = ok + (((a as i8) == ((-1) as i8)) as i32) - (((a as i8) == 0) as i32);
+    ok = ok + (((a as i8) == -1) as i32) - (((a as i8) == 0) as i32);
     ok = ok + (((a as u8) == 255) as i32) - (((a as u8) == 0) as i32);
-    ok = ok + (((a as i16) == ((-1) as i16)) as i32) - (((a as i16) == 0) as i32);
+    ok = ok + (((a as i16) == -1) as i32) - (((a as i16) == 0) as i32);
     ok = ok + (((a as i32) == 65535) as i32) - (((a as i32) == 65536) as i32);
     ok = ok + (((a as u32) == 65535) as i32) - (((a as u32) == 65536) as i32);
     a = a2;

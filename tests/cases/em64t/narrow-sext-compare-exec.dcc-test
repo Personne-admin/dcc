@@ -11,12 +11,12 @@ public i32 dcc_main() {
     i16 wide = a as i16;
     u16 unsigned_wide = a as u16;
     i32 ok = 0;
-    ok = ok + (wide == ((-100) as i16)) as i32;
+    ok = ok + (wide == -100) as i32;
     ok = ok + (unsigned_wide == 65436) as i32;
     ok = ok + (unsigned_wide > 65000) as i32;
-    ok = ok + ((b as i16) != ((-128) as i16)) as i32 * 10;
+    ok = ok + ((b as i16) != -128) as i32 * 10;
     ok = ok + ((b as u16) == 65408) as i32;
-    ok = ok + ((b as i16) < ((-127) as i16)) as i32;
+    ok = ok + ((b as i16) < -127) as i32;
     return ok;
 }
 

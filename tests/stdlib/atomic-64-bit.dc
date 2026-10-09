@@ -92,125 +92,125 @@ void report(i32 code) {
 public i32 main() {
     volatile i64 v1 = ((-6502237859155508013) as i64);
     i64 o1 = core::atomic::atomic_fetch_add(&v1 as volatile i64*, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if o1 != ((-6502237859155508013) as i64) { report(1); }
-    if v1 != ((1428339626988986232) as i64) { report(2); }
+    if o1 != -6502237859155508013 { report(1); }
+    if v1 != 1428339626988986232 { report(2); }
     volatile i64 v3 = ((-6502237859155508013) as i64);
     i64 o3 = core::atomic::atomic_fetch_sub(&v3 as volatile i64*, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if o3 != ((-6502237859155508013) as i64) { report(3); }
-    if v3 != ((4013928728409549358) as i64) { report(4); }
+    if o3 != -6502237859155508013 { report(3); }
+    if v3 != 4013928728409549358 { report(4); }
     volatile i64 v5 = ((-6502237859155508013) as i64);
     i64 o5 = core::atomic::atomic_exchange(&v5 as volatile i64*, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if o5 != ((-6502237859155508013) as i64) { report(5); }
-    if v5 != ((7930577486144494245) as i64) { report(6); }
+    if o5 != -6502237859155508013 { report(5); }
+    if v5 != 7930577486144494245 { report(6); }
     volatile i64 v7 = ((-6502237859155508013) as i64);
     core::atomic::atomic_store(&v7 as volatile i64*, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if v7 != ((7930577486144494245) as i64) { report(7); }
-    if v7 != ((7930577486144494245) as i64) { report(8); }
+    if v7 != 7930577486144494245 { report(7); }
+    if v7 != 7930577486144494245 { report(8); }
     volatile i64 v9 = ((-6502237859155508013) as i64);
-    if core::atomic::atomic_load(&v9 as volatile i64*, core::atomic::MemoryOrder::SeqCst) != ((-6502237859155508013) as i64) { report(9); }
-    if v9 != ((-6502237859155508013) as i64) { report(10); }
+    if core::atomic::atomic_load(&v9 as volatile i64*, core::atomic::MemoryOrder::SeqCst) != -6502237859155508013 { report(9); }
+    if v9 != -6502237859155508013 { report(10); }
     volatile i64 v11 = ((-6502237859155508013) as i64);
     i64 r11 = core::atomic::atomic_compare_exchange(&v11 as volatile i64*, ((-6502237859155508013) as i64), ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r11 != ((-6502237859155508013) as i64) { report(11); }
-    if v11 != ((7930577486144494245) as i64) { report(12); }
+    if r11 != -6502237859155508013 { report(11); }
+    if v11 != 7930577486144494245 { report(12); }
     volatile i64 v13 = ((-6502237859155508013) as i64);
     i64 r13 = core::atomic::atomic_compare_exchange(&v13 as volatile i64*, ((-6502237859155508012) as i64), ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r13 != ((-6502237859155508013) as i64) { report(13); }
-    if v13 != ((-6502237859155508013) as i64) { report(14); }
+    if r13 != -6502237859155508013 { report(13); }
+    if v13 != -6502237859155508013 { report(14); }
     core::atomic::Atomic(i64) v15;
     v15.value = ((-6502237859155508013) as i64);
     i64 o15 = core::atomic::atomic_fetch_add(&v15, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if o15 != ((-6502237859155508013) as i64) { report(15); }
-    if core::atomic::atomic_load(&v15, core::atomic::MemoryOrder::SeqCst) != ((1428339626988986232) as i64) { report(16); }
+    if o15 != -6502237859155508013 { report(15); }
+    if core::atomic::atomic_load(&v15, core::atomic::MemoryOrder::SeqCst) != 1428339626988986232 { report(16); }
     core::atomic::Atomic(i64) v17;
     v17.value = ((-6502237859155508013) as i64);
     i64 o17 = core::atomic::atomic_fetch_sub(&v17, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if o17 != ((-6502237859155508013) as i64) { report(17); }
-    if core::atomic::atomic_load(&v17, core::atomic::MemoryOrder::SeqCst) != ((4013928728409549358) as i64) { report(18); }
+    if o17 != -6502237859155508013 { report(17); }
+    if core::atomic::atomic_load(&v17, core::atomic::MemoryOrder::SeqCst) != 4013928728409549358 { report(18); }
     core::atomic::Atomic(i64) v19;
     v19.value = ((-6502237859155508013) as i64);
     i64 o19 = core::atomic::atomic_exchange(&v19, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if o19 != ((-6502237859155508013) as i64) { report(19); }
-    if core::atomic::atomic_load(&v19, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as i64) { report(20); }
+    if o19 != -6502237859155508013 { report(19); }
+    if core::atomic::atomic_load(&v19, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(20); }
     core::atomic::Atomic(i64) v21;
     v21.value = ((-6502237859155508013) as i64);
     core::atomic::atomic_store(&v21, ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst);
-    if core::atomic::atomic_load(&v21, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as i64) { report(21); }
-    if core::atomic::atomic_load(&v21, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as i64) { report(22); }
+    if core::atomic::atomic_load(&v21, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(21); }
+    if core::atomic::atomic_load(&v21, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(22); }
     core::atomic::Atomic(i64) v23;
     v23.value = ((-6502237859155508013) as i64);
-    if core::atomic::atomic_load(&v23, core::atomic::MemoryOrder::SeqCst) != ((-6502237859155508013) as i64) { report(23); }
-    if core::atomic::atomic_load(&v23, core::atomic::MemoryOrder::SeqCst) != ((-6502237859155508013) as i64) { report(24); }
+    if core::atomic::atomic_load(&v23, core::atomic::MemoryOrder::SeqCst) != -6502237859155508013 { report(23); }
+    if core::atomic::atomic_load(&v23, core::atomic::MemoryOrder::SeqCst) != -6502237859155508013 { report(24); }
     core::atomic::Atomic(i64) v25;
     v25.value = ((-6502237859155508013) as i64);
     i64 r25 = core::atomic::atomic_compare_exchange(&v25, ((-6502237859155508013) as i64), ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r25 != ((-6502237859155508013) as i64) { report(25); }
-    if core::atomic::atomic_load(&v25, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as i64) { report(26); }
+    if r25 != -6502237859155508013 { report(25); }
+    if core::atomic::atomic_load(&v25, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(26); }
     core::atomic::Atomic(i64) v27;
     v27.value = ((-6502237859155508013) as i64);
     i64 r27 = core::atomic::atomic_compare_exchange(&v27, ((-6502237859155508012) as i64), ((7930577486144494245) as i64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r27 != ((-6502237859155508013) as i64) { report(27); }
-    if core::atomic::atomic_load(&v27, core::atomic::MemoryOrder::SeqCst) != ((-6502237859155508013) as i64) { report(28); }
+    if r27 != -6502237859155508013 { report(27); }
+    if core::atomic::atomic_load(&v27, core::atomic::MemoryOrder::SeqCst) != -6502237859155508013 { report(28); }
     volatile u64 v29 = ((6502237859155508013) as u64);
     u64 o29 = core::atomic::atomic_fetch_add(&v29 as volatile u64*, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if o29 != ((6502237859155508013) as u64) { report(29); }
-    if v29 != ((14432815345300002258) as u64) { report(30); }
+    if o29 != 6502237859155508013 { report(29); }
+    if v29 != 14432815345300002258 { report(30); }
     volatile u64 v31 = ((6502237859155508013) as u64);
     u64 o31 = core::atomic::atomic_fetch_sub(&v31 as volatile u64*, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if o31 != ((6502237859155508013) as u64) { report(31); }
-    if v31 != ((17018404446720565384) as u64) { report(32); }
+    if o31 != 6502237859155508013 { report(31); }
+    if v31 != 17018404446720565384 { report(32); }
     volatile u64 v33 = ((6502237859155508013) as u64);
     u64 o33 = core::atomic::atomic_exchange(&v33 as volatile u64*, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if o33 != ((6502237859155508013) as u64) { report(33); }
-    if v33 != ((7930577486144494245) as u64) { report(34); }
+    if o33 != 6502237859155508013 { report(33); }
+    if v33 != 7930577486144494245 { report(34); }
     volatile u64 v35 = ((6502237859155508013) as u64);
     core::atomic::atomic_store(&v35 as volatile u64*, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if v35 != ((7930577486144494245) as u64) { report(35); }
-    if v35 != ((7930577486144494245) as u64) { report(36); }
+    if v35 != 7930577486144494245 { report(35); }
+    if v35 != 7930577486144494245 { report(36); }
     volatile u64 v37 = ((6502237859155508013) as u64);
-    if core::atomic::atomic_load(&v37 as volatile u64*, core::atomic::MemoryOrder::SeqCst) != ((6502237859155508013) as u64) { report(37); }
-    if v37 != ((6502237859155508013) as u64) { report(38); }
+    if core::atomic::atomic_load(&v37 as volatile u64*, core::atomic::MemoryOrder::SeqCst) != 6502237859155508013 { report(37); }
+    if v37 != 6502237859155508013 { report(38); }
     volatile u64 v39 = ((6502237859155508013) as u64);
     u64 r39 = core::atomic::atomic_compare_exchange(&v39 as volatile u64*, ((6502237859155508013) as u64), ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r39 != ((6502237859155508013) as u64) { report(39); }
-    if v39 != ((7930577486144494245) as u64) { report(40); }
+    if r39 != 6502237859155508013 { report(39); }
+    if v39 != 7930577486144494245 { report(40); }
     volatile u64 v41 = ((6502237859155508013) as u64);
     u64 r41 = core::atomic::atomic_compare_exchange(&v41 as volatile u64*, ((6502237859155508014) as u64), ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r41 != ((6502237859155508013) as u64) { report(41); }
-    if v41 != ((6502237859155508013) as u64) { report(42); }
+    if r41 != 6502237859155508013 { report(41); }
+    if v41 != 6502237859155508013 { report(42); }
     core::atomic::Atomic(u64) v43;
     v43.value = ((6502237859155508013) as u64);
     u64 o43 = core::atomic::atomic_fetch_add(&v43, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if o43 != ((6502237859155508013) as u64) { report(43); }
-    if core::atomic::atomic_load(&v43, core::atomic::MemoryOrder::SeqCst) != ((14432815345300002258) as u64) { report(44); }
+    if o43 != 6502237859155508013 { report(43); }
+    if core::atomic::atomic_load(&v43, core::atomic::MemoryOrder::SeqCst) != 14432815345300002258 { report(44); }
     core::atomic::Atomic(u64) v45;
     v45.value = ((6502237859155508013) as u64);
     u64 o45 = core::atomic::atomic_fetch_sub(&v45, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if o45 != ((6502237859155508013) as u64) { report(45); }
-    if core::atomic::atomic_load(&v45, core::atomic::MemoryOrder::SeqCst) != ((17018404446720565384) as u64) { report(46); }
+    if o45 != 6502237859155508013 { report(45); }
+    if core::atomic::atomic_load(&v45, core::atomic::MemoryOrder::SeqCst) != 17018404446720565384 { report(46); }
     core::atomic::Atomic(u64) v47;
     v47.value = ((6502237859155508013) as u64);
     u64 o47 = core::atomic::atomic_exchange(&v47, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if o47 != ((6502237859155508013) as u64) { report(47); }
-    if core::atomic::atomic_load(&v47, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as u64) { report(48); }
+    if o47 != 6502237859155508013 { report(47); }
+    if core::atomic::atomic_load(&v47, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(48); }
     core::atomic::Atomic(u64) v49;
     v49.value = ((6502237859155508013) as u64);
     core::atomic::atomic_store(&v49, ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst);
-    if core::atomic::atomic_load(&v49, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as u64) { report(49); }
-    if core::atomic::atomic_load(&v49, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as u64) { report(50); }
+    if core::atomic::atomic_load(&v49, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(49); }
+    if core::atomic::atomic_load(&v49, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(50); }
     core::atomic::Atomic(u64) v51;
     v51.value = ((6502237859155508013) as u64);
-    if core::atomic::atomic_load(&v51, core::atomic::MemoryOrder::SeqCst) != ((6502237859155508013) as u64) { report(51); }
-    if core::atomic::atomic_load(&v51, core::atomic::MemoryOrder::SeqCst) != ((6502237859155508013) as u64) { report(52); }
+    if core::atomic::atomic_load(&v51, core::atomic::MemoryOrder::SeqCst) != 6502237859155508013 { report(51); }
+    if core::atomic::atomic_load(&v51, core::atomic::MemoryOrder::SeqCst) != 6502237859155508013 { report(52); }
     core::atomic::Atomic(u64) v53;
     v53.value = ((6502237859155508013) as u64);
     u64 r53 = core::atomic::atomic_compare_exchange(&v53, ((6502237859155508013) as u64), ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r53 != ((6502237859155508013) as u64) { report(53); }
-    if core::atomic::atomic_load(&v53, core::atomic::MemoryOrder::SeqCst) != ((7930577486144494245) as u64) { report(54); }
+    if r53 != 6502237859155508013 { report(53); }
+    if core::atomic::atomic_load(&v53, core::atomic::MemoryOrder::SeqCst) != 7930577486144494245 { report(54); }
     core::atomic::Atomic(u64) v55;
     v55.value = ((6502237859155508013) as u64);
     u64 r55 = core::atomic::atomic_compare_exchange(&v55, ((6502237859155508014) as u64), ((7930577486144494245) as u64), core::atomic::MemoryOrder::SeqCst, core::atomic::MemoryOrder::SeqCst);
-    if r55 != ((6502237859155508013) as u64) { report(55); }
-    if core::atomic::atomic_load(&v55, core::atomic::MemoryOrder::SeqCst) != ((6502237859155508013) as u64) { report(56); }
+    if r55 != 6502237859155508013 { report(55); }
+    if core::atomic::atomic_load(&v55, core::atomic::MemoryOrder::SeqCst) != 6502237859155508013 { report(56); }
     return failures;
 }

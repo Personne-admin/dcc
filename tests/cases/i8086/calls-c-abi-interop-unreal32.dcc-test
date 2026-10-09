@@ -37,9 +37,9 @@ public i32 dcc_main() {
     i32 r = nasm_mix((s - 10) as i8, (s + 247) as u8, (s - 303) as i16, (s + 59997) as u16, s + 99997, (s + 4) as u32, s > 0);
     ok = ok + (r == 160936) as i32;
     ok = ok + (nasm_mix(-7, 250, -300, 60000, 100000, 7, true) == 160936) as i32;
-    ok = ok + (nasm_ret_i8() == ((-5) as i8)) as i32;
+    ok = ok + (nasm_ret_i8() == -5) as i32;
     ok = ok + (nasm_ret_u8() == 250) as i32;
-    ok = ok + (nasm_ret_i16() == ((-3000) as i16)) as i32;
+    ok = ok + (nasm_ret_i16() == -3000) as i32;
     ok = ok + (nasm_ret_u16() == 65000) as i32;
     ok = ok + (nasm_ret_i32() == 0x12345678) as i32;
     ok = ok + (nasm_ret_u32() == 0xFEDCBA98) as i32;
