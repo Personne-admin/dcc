@@ -484,6 +484,30 @@ TEST_CASE("16-bit symbol references produce 16 and 32-bit absolute and pc16 relo
     check(5, 24, "tail", Reloc::Kind::Rel16, -2);
 }
 
+TEST_CASE("16-bit jump tables index a word table through di or a scaled 32-bit index")
+{
+    using P = PhysReg;
+    MFunction func;
+    auto& block = func.create_block("entry");
+    block.instrs.push_back(X(MOpc::JUMP_TABLE, {R(P::RBX), MOp::from_symbol("table16"), I(16)}));
+    block.instrs.push_back(X(MOpc::JUMP_TABLE, {R(P::RDI), MOp::from_symbol("table16"), I(16)}));
+    block.instrs.push_back(X(MOpc::JUMP_TABLE, {R(P::RCX), MOp::from_symbol("table32"), I(32)}));
+    auto result = encode_function(func, EncodeMode::Real16);
+    CHECK(result.warnings.empty());
+    std::vector<std::uint8_t> expected = {0x89, 0xdf, 0xd1, 0xe7, 0xff, 0xa5, 0x00, 0x00, 0xd1, 0xe7, 0xff,
+                                          0xa5, 0x00, 0x00, 0x67, 0xff, 0x24, 0x4d, 0x00, 0x00, 0x00, 0x00};
+    CHECK(result.bytes == expected);
+    REQUIRE(result.relocs.size() == 3u);
+    CHECK(result.relocs[0].offset == 6u);
+    CHECK(result.relocs[0].kind == Reloc::Kind::Abs16);
+    CHECK(result.relocs[0].symbol == "table16");
+    CHECK(result.relocs[1].offset == 12u);
+    CHECK(result.relocs[1].kind == Reloc::Kind::Abs16);
+    CHECK(result.relocs[2].offset == 18u);
+    CHECK(result.relocs[2].kind == Reloc::Kind::Abs32);
+    CHECK(result.relocs[2].symbol == "table32");
+}
+
 TEST_CASE("16-bit branches patch rel16 displacements like nasm")
 {
     using P = PhysReg;

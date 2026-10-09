@@ -4202,6 +4202,35 @@ namespace
             emit_u16_le(m_buf, 0);
         }
 
+        void jump_table()
+        {
+            if (m_instr.num_ops < 3 || !is_reg(0) || op(1).kind != MOpKind::Symbol || op(2).kind != MOpKind::Imm64)
+                return fail("expected an index register, a table symbol and an address width");
+            auto const index = gpr(0, 16);
+            if (!m_ok)
+                return;
+            MMem table{};
+            table.symbol = op(1).symbol;
+            if (op(2).imm == 32)
+            {
+                table.index = VReg::phys(static_cast<PhysReg>(index));
+                table.scale = 2;
+                table.address_bits = 32;
+            }
+            else
+            {
+                auto const di = static_cast<std::uint8_t>(PhysReg::RDI);
+                if (index != di)
+                    mov_rr(16, di, index);
+                emit_u8(m_buf, 0xD1);
+                modrm_reg(4, di);
+                table.base = VReg::phys(PhysReg::RDI);
+            }
+            prefixes(16, &table);
+            emit_u8(m_buf, 0xFF);
+            mem(table, 4);
+        }
+
         void indirect(std::uint8_t ext)
         {
             if (is_reg(0))
@@ -4599,6 +4628,8 @@ namespace
                 case MOpc::JMP16r:
                 case MOpc::JMP16m:
                     return indirect(4);
+                case MOpc::JUMP_TABLE:
+                    return jump_table();
                 case MOpc::REPMOVS:
                 case MOpc::REPMOVSW:
                     return string_op(opc == MOpc::REPMOVS ? 0xA4 : 0xA5, false);
