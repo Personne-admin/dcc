@@ -1,6 +1,7 @@
 export module dcc.backend.i8086.registers;
 
 import std;
+import dcc.target;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.regalloc;
 
@@ -55,7 +56,7 @@ namespace dcc::backend::i8086
 
 export namespace dcc::backend::i8086
 {
-    void regalloc(MFunction& func)
+    void regalloc(MFunction& func, target::TargetConfig const&)
     {
         allocate_registers(func, register_policy());
     }
