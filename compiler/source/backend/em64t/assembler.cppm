@@ -3,6 +3,7 @@ export module dcc.backend.em64t.assembler;
 import std;
 import dcc.ir;
 import dcc.backend.x86.mir;
+import dcc.backend.x86.intel;
 import dcc.target;
 
 using namespace dcc::backend::x86;
@@ -27,128 +28,17 @@ namespace
 
     [[nodiscard]] std::string_view reg32(PhysReg r)
     {
-        switch (r)
-        {
-            case PhysReg::RAX:
-                return "eax"sv;
-            case PhysReg::RCX:
-                return "ecx"sv;
-            case PhysReg::RDX:
-                return "edx"sv;
-            case PhysReg::RBX:
-                return "ebx"sv;
-            case PhysReg::RSP:
-                return "esp"sv;
-            case PhysReg::RBP:
-                return "ebp"sv;
-            case PhysReg::RSI:
-                return "esi"sv;
-            case PhysReg::RDI:
-                return "edi"sv;
-            case PhysReg::R8:
-                return "r8d"sv;
-            case PhysReg::R9:
-                return "r9d"sv;
-            case PhysReg::R10:
-                return "r10d"sv;
-            case PhysReg::R11:
-                return "r11d"sv;
-            case PhysReg::R12:
-                return "r12d"sv;
-            case PhysReg::R13:
-                return "r13d"sv;
-            case PhysReg::R14:
-                return "r14d"sv;
-            case PhysReg::R15:
-                return "r15d"sv;
-            default:
-                break;
-        }
-        return phys_reg_name(r);
+        return intel_register_name(r, 32);
     }
 
     [[nodiscard]] std::string_view reg16(PhysReg r)
     {
-        switch (r)
-        {
-            case PhysReg::RAX:
-                return "ax"sv;
-            case PhysReg::RCX:
-                return "cx"sv;
-            case PhysReg::RDX:
-                return "dx"sv;
-            case PhysReg::RBX:
-                return "bx"sv;
-            case PhysReg::RSP:
-                return "sp"sv;
-            case PhysReg::RBP:
-                return "bp"sv;
-            case PhysReg::RSI:
-                return "si"sv;
-            case PhysReg::RDI:
-                return "di"sv;
-            case PhysReg::R8:
-                return "r8w"sv;
-            case PhysReg::R9:
-                return "r9w"sv;
-            case PhysReg::R10:
-                return "r10w"sv;
-            case PhysReg::R11:
-                return "r11w"sv;
-            case PhysReg::R12:
-                return "r12w"sv;
-            case PhysReg::R13:
-                return "r13w"sv;
-            case PhysReg::R14:
-                return "r14w"sv;
-            case PhysReg::R15:
-                return "r15w"sv;
-            default:
-                break;
-        }
-        return phys_reg_name(r);
+        return intel_register_name(r, 16);
     }
 
     [[nodiscard]] std::string_view reg8(PhysReg r)
     {
-        switch (r)
-        {
-            case PhysReg::RAX:
-                return "al"sv;
-            case PhysReg::RCX:
-                return "cl"sv;
-            case PhysReg::RDX:
-                return "dl"sv;
-            case PhysReg::RBX:
-                return "bl"sv;
-            case PhysReg::RSP:
-                return "spl"sv;
-            case PhysReg::RBP:
-                return "bpl"sv;
-            case PhysReg::RSI:
-                return "sil"sv;
-            case PhysReg::RDI:
-                return "dil"sv;
-            case PhysReg::R8:
-                return "r8b"sv;
-            case PhysReg::R9:
-                return "r9b"sv;
-            case PhysReg::R10:
-                return "r10b"sv;
-            case PhysReg::R11:
-                return "r11b"sv;
-            case PhysReg::R12:
-                return "r12b"sv;
-            case PhysReg::R13:
-                return "r13b"sv;
-            case PhysReg::R14:
-                return "r14b"sv;
-            case PhysReg::R15:
-                return "r15b"sv;
-            default:
-                break;
-        }
-        return phys_reg_name(r);
+        return intel_register_name(r, 8);
     }
 
     enum class RegWidth : std::uint8_t
@@ -389,71 +279,9 @@ namespace
                 r = std::to_string(op.imm);
                 break;
             case MOpKind::Mem: {
-                auto const& m = op.mem;
                 if (with_size)
-                {
-                    switch (w)
-                    {
-                        case RegWidth::Bits8:
-                            r = "byte ";
-                            break;
-                        case RegWidth::Bits16:
-                            r = "word ";
-                            break;
-                        case RegWidth::Bits32:
-                            r = "dword ";
-                            break;
-                        case RegWidth::Bits64:
-                            r = "qword ";
-                            break;
-                        case RegWidth::XMM:
-                            r = "qword ";
-                            break;
-                    }
-                }
-                r += '[';
-                if (m.segment != SegmentOverride::None)
-                {
-                    r += segment_name(m.segment);
-                    r += ':';
-                }
-                if (!m.symbol.empty())
-                {
-                    r += "rel ";
-                    r += m.symbol;
-                    if (m.is_got_indirect)
-                        r += " wrt ..got";
-                }
-                else
-                {
-                    bool has_base = m.base.is_valid() && m.base.is_physical();
-                    bool has_idx = m.index.is_valid() && m.index.is_physical();
-                    if (has_base)
-                        r += reg_name_f(m.base.phys_reg(), RegWidth::Bits64);
-
-                    if (has_idx)
-                    {
-                        if (has_base)
-                            r += " + ";
-                        r += reg_name_f(m.index.phys_reg(), RegWidth::Bits64);
-                        if (m.scale > 1)
-                            r += std::format("*{}", static_cast<unsigned>(m.scale));
-                    }
-
-                    if (m.disp != 0 || (!has_base && !has_idx))
-                    {
-                        if (has_base || has_idx)
-                        {
-                            if (m.disp > 0)
-                                r += std::format(" + {}", m.disp);
-                            else if (m.disp < 0)
-                                r += std::format(" - {}", -m.disp);
-                        }
-                        else
-                            r += std::to_string(m.disp);
-                    }
-                }
-                r += ']';
+                    r = intel_size_keyword(w == RegWidth::Bits8 ? 8 : w == RegWidth::Bits16 ? 16 : w == RegWidth::Bits32 ? 32 : 64);
+                r += intel_memory_operand(op.mem, 64);
                 break;
             }
             case MOpKind::FrameSlot:

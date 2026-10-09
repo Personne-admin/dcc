@@ -4,7 +4,7 @@ import std;
 import dcc.ir;
 import dcc.target;
 import dcc.backend.x86.mir;
-import dcc.backend.x86.prefix;
+import dcc.backend.x86.intel;
 import dcc.backend.object.layout;
 
 using namespace dcc::backend::x86;
@@ -41,75 +41,22 @@ namespace dcc::backend::i8086
                 }
                 auto p = r.phys_reg();
                 if (reg_class(p) == RegClass::Segment)
-                    return std::string{segment_name(p)};
+                    return std::string{phys_reg_name(p)};
                 auto index = static_cast<unsigned>(p);
-                static constexpr std::array<std::string_view, 8> r8{"al", "cl", "dl", "bl", "", "", "", ""};
-                static constexpr std::array<std::string_view, 8> r16{"ax", "cx", "dx", "bx", "sp", "bp", "si", "di"};
-                static constexpr std::array<std::string_view, 8> r32{"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"};
-                if (index >= 8 || (bits == 8 && r8[index].empty()) || (bits != 8 && bits != 16 && bits != 32))
+                if (reg_class(p) != RegClass::GPR || index >= 8 || (bits == 8 && index >= 4) || (bits != 8 && bits != 16 && bits != 32))
                 {
-                    fail(std::format("i8086 assembly printer: register {} cannot be used as a {}-bit operand", index, bits));
+                    fail(std::format("i8086 assembly printer: register {} cannot be used as a {}-bit operand", phys_reg_name(p), bits));
                     return "?";
                 }
-                return std::string{bits == 8 ? r8[index] : bits == 16 ? r16[index] : r32[index]};
-            }
-
-            [[nodiscard]] static std::string_view segment_name(PhysReg p)
-            {
-                switch (p)
-                {
-                    case PhysReg::ES:
-                        return "es";
-                    case PhysReg::CS:
-                        return "cs";
-                    case PhysReg::SS:
-                        return "ss";
-                    case PhysReg::DS:
-                        return "ds";
-                    case PhysReg::FS:
-                        return "fs";
-                    case PhysReg::GS:
-                        return "gs";
-                    default:
-                        return "?";
-                }
+                return std::string{intel_register_name(p, bits)};
             }
 
             [[nodiscard]] std::string mem(MMem const& m, unsigned bits)
             {
-                std::string text = bits == 8 ? "byte [" : bits == 16 ? "word [" : bits == 32 ? "dword [" : "[";
-                if (m.segment != SegmentOverride::None)
-                {
-                    text += x86::segment_name(m.segment);
-                    text += ':';
-                }
-                auto address = m.address_bits == 32 ? 32u : 16u;
-                bool first = true;
-                if (m.base.is_valid())
-                {
-                    text += reg(m.base, address);
-                    first = false;
-                }
-                if (m.index.is_valid())
-                {
-                    if (!first)
-                        text += '+';
-                    text += reg(m.index, address);
-                    if (m.scale != 1)
-                        text += std::format("*{}", m.scale);
-                    first = false;
-                }
-                if (!m.symbol.empty())
-                {
-                    if (!first)
-                        text += '+';
-                    text += m.symbol;
-                    first = false;
-                }
-                if (m.disp != 0 || first)
-                    text += first ? std::format("{}", m.disp) : std::format("{:+}", m.disp);
-                text += ']';
-                return text;
+                for (auto r : {m.base, m.index})
+                    if (r.is_valid())
+                        std::ignore = reg(r, m.address_bits == 32 ? 32 : 16);
+                return std::string{intel_size_keyword(bits)} + intel_memory_operand(m, m.address_bits == 32 ? 32 : 16);
             }
 
             [[nodiscard]] std::string operand(MOp const& op, unsigned bits)
