@@ -1,0 +1,15 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module main;
+
+public i16 counter = 7;
+u8 zeroed;
+
+@nomangle
+public u8 dcc_main() {
+    return 0x7B;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-LOAD: 0800:0100
+RUN-EXIT: 123

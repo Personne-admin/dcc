@@ -37,6 +37,8 @@ import dcc.backend;
 import dcc.backend.llvm;
 #endif
 import dcc.backend.em64t;
+import dcc.backend.i8086;
+import dcc.backend.i8086.link;
 
 namespace
 {
@@ -211,6 +213,15 @@ namespace
         std::vector<std::pair<std::string, std::string>> env;
     };
 
+    struct ExpectI8086Run
+    {
+        std::size_t base_line{};
+        std::optional<int> exit_code;
+        std::optional<std::string> serial;
+        std::string load{"1000:0000"};
+        int timeout{10};
+    };
+
     struct ExpectEm64tAsm
     {
         std::size_t base_line{};
@@ -240,6 +251,7 @@ namespace
         std::vector<ExpectExecutable> executable_blocks;
         std::vector<ExpectEm64tObject> em64t_object_blocks;
         std::vector<ExpectEm64tAsm> em64t_asm_blocks;
+        std::vector<ExpectI8086Run> i8086_run_blocks;
         std::vector<std::string> injected_decls;
         bool errors_block_present{};
         bool exact_errors{};
@@ -931,6 +943,40 @@ namespace
                     }
                 }
                 fx.em64t_object_blocks.push_back(std::move(e));
+            }
+            else if (starts_with(h, "EXPECT-I8086-RUN"))
+            {
+                ExpectI8086Run e;
+                e.base_line = sec.body_start_line;
+                std::istringstream body_ss{sec.body};
+                std::string body_line;
+                while (std::getline(body_ss, body_line))
+                {
+                    auto tl = trim(body_line);
+                    if (starts_with(tl, "RUN-EXIT:"))
+                        e.exit_code = std::stoi(trim(std::string_view{tl}.substr(9)));
+                    else if (starts_with(tl, "RUN-SERIAL:"))
+                    {
+                        auto raw = trim(std::string_view{tl}.substr(11));
+                        std::string text;
+                        for (std::size_t i = 0; i < raw.size(); ++i)
+                        {
+                            if (raw[i] == '\\' && i + 1 < raw.size())
+                            {
+                                ++i;
+                                text += raw[i] == 'n' ? '\n' : raw[i] == 't' ? '\t' : raw[i];
+                            }
+                            else
+                                text += raw[i];
+                        }
+                        e.serial = std::move(text);
+                    }
+                    else if (starts_with(tl, "RUN-LOAD:"))
+                        e.load = trim(std::string_view{tl}.substr(9));
+                    else if (starts_with(tl, "RUN-TIMEOUT:"))
+                        e.timeout = std::stoi(trim(std::string_view{tl}.substr(12)));
+                }
+                fx.i8086_run_blocks.push_back(std::move(e));
             }
             else if (starts_with(h, "EXPECT-EXECUTABLE"))
             {
@@ -3620,6 +3666,98 @@ namespace
 
                 fs::remove_all(run_dir, ec);
             }
+        }
+
+        for (auto const& exp : fx.i8086_run_blocks)
+        {
+            auto fail = [&](std::string const& message) {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-I8086-RUN: {}  ({}:{})", message, path.string(), exp.base_line);
+            };
+            auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
+            if (!fixture_target || fixture_target->arch != dcc::target::Arch::I8086 || !mod)
+            {
+                fail("requires TARGET: i8086-binary and an entry module");
+                continue;
+            }
+            auto base = dcc::backend::i8086::parse_link_base(exp.load);
+            if (!base || !base->segment)
+            {
+                fail(std::format("RUN-LOAD '{}' must be SEG:OFF with a known segment", exp.load));
+                continue;
+            }
+            std::error_code ec;
+            auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+            fs::create_directories(run_dir, ec);
+            auto crt0 = run_dir / "crt0.o";
+            if (std::system(std::format("nasm -f elf32 '{}' -o '{}' > '{}' 2>&1", DCC_I8086_CRT0, crt0.string(), (run_dir / "nasm.log").string()).c_str()) != 0)
+            {
+                fail("cannot assemble tests/i8086/crt0.asm with nasm");
+                fs::remove_all(run_dir, ec);
+                continue;
+            }
+            auto const& target = *fixture_target;
+            bool const unreal = target.code_model == dcc::target::CodeModel::Unreal || target.code_model == dcc::target::CodeModel::Unreal32;
+            for (auto opt : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
+            {
+                auto level = opt == dcc::ir::pass::OptLevel::O0 ? "O0" : "O2";
+                dcc::ir::IrContext ir_ctx{256 * 1024, &target};
+                auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+                auto* ir_mod = lowerer->lower_module(*mod);
+                if (!lowerer->lower_errors().empty())
+                {
+                    fail(std::format("{}: lowering failed: {}", level, lowerer->lower_errors().front()));
+                    continue;
+                }
+                if (!verify_fixture_ir(ir_mod, target, exp.base_line))
+                    continue;
+                dcc::backend::BackendOptions backend_opts;
+                backend_opts.target = target;
+                backend_opts.opt_level = opt;
+                backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
+                auto artifact = dcc::backend::make_i8086_backend()->emit(*ir_mod, backend_opts);
+                if (!artifact.object_bytes)
+                {
+                    fail(std::format("{}: no object: {}", level, artifact.diagnostics.empty() ? std::string{"no diagnostic"} : artifact.diagnostics.front().message));
+                    continue;
+                }
+                auto object = run_dir / std::format("main-{}.o", level);
+                auto binary = run_dir / std::format("main-{}.bin", level);
+                {
+                    std::ofstream out{object, std::ios::binary};
+                    out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
+                }
+                dcc::backend::i8086::LinkOptions link{.base = *base, .stack_reserve = 4096, .model = target.code_model};
+                auto linked = dcc::backend::i8086::link_flat_binary({crt0.string(), object.string()}, binary.string(), link, {});
+                if (!linked)
+                {
+                    fail(std::format("{}: linking failed: {}", level, linked.error()));
+                    continue;
+                }
+                auto serial = run_dir / std::format("serial-{}.out", level);
+                auto log = run_dir / std::format("run-{}.log", level);
+                int rc = std::system(std::format("python3 '{}' --load {} --mode {} --timeout {} '{}' > '{}' 2> '{}'", DCC_I8086_RUNNER, exp.load, unreal ? "unreal" : "real",
+                                                 exp.timeout, binary.string(), serial.string(), log.string())
+                                         .c_str());
+                int code = WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
+                if (code == 254 || code == 255 || code < 0)
+                {
+                    std::ifstream log_in{log};
+                    std::string text{std::istreambuf_iterator<char>(log_in), {}};
+                    fail(std::format("{}: qemu harness failure (status {}): {}", level, code, text));
+                    continue;
+                }
+                if (exp.exit_code && code != *exp.exit_code)
+                    fail(std::format("{}: expected exit code {}, got {}", level, *exp.exit_code, code));
+                if (exp.serial)
+                {
+                    std::ifstream serial_in{serial, std::ios::binary};
+                    std::string text{std::istreambuf_iterator<char>(serial_in), {}};
+                    if (text != *exp.serial)
+                        fail(std::format("{}: expected serial output {:?}, got {:?}", level, *exp.serial, text));
+                }
+            }
+            fs::remove_all(run_dir, ec);
         }
 
         for (auto const& exp : fx.em64t_asm_blocks)
