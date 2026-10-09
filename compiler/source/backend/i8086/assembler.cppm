@@ -158,14 +158,55 @@ namespace dcc::backend::i8086
                 }
             }
 
+            [[nodiscard]] static std::optional<std::string_view> jcc_mnemonic(MOpc opc)
+            {
+                switch (opc)
+                {
+                    case MOpc::JE:
+                        return "je";
+                    case MOpc::JNE:
+                        return "jne";
+                    case MOpc::JL:
+                        return "jl";
+                    case MOpc::JLE:
+                        return "jle";
+                    case MOpc::JG:
+                        return "jg";
+                    case MOpc::JGE:
+                        return "jge";
+                    case MOpc::JB:
+                        return "jb";
+                    case MOpc::JBE:
+                        return "jbe";
+                    case MOpc::JA:
+                        return "ja";
+                    case MOpc::JAE:
+                        return "jae";
+                    default:
+                        return std::nullopt;
+                }
+            }
+
             void instruction(MInstr const& mi)
             {
+                if (auto jcc = jcc_mnemonic(mi.opc))
+                    return line(std::format("{} near .bb{}", *jcc, mi.ops[0].label));
                 if (auto setcc = setcc_mnemonic(mi.opc))
                     return line(std::format("{} {}", *setcc, operand(mi.ops[0], 8)));
                 switch (mi.opc)
                 {
                     case MOpc::NOP:
                         return line("nop");
+                    case MOpc::JMP:
+                        return line(std::format("jmp near .bb{}", mi.ops[0].label));
+                    case MOpc::JUMP_TABLE: {
+                        if (mi.ops[2].imm == 32)
+                            return line(std::format("jmp word [nosplit {}*2 + {}]", operand(mi.ops[0], 32), mi.ops[1].symbol));
+                        if (!(mi.ops[0].kind == MOpKind::Reg && mi.ops[0].reg == VReg::phys(PhysReg::RDI)))
+                            line(std::format("mov di, {}", operand(mi.ops[0], 16)));
+                        line("shl di, 1");
+                        return line(std::format("jmp word [di + {}]", mi.ops[1].symbol));
+                    }
                     case MOpc::UD2:
                         return line("ud2");
                     case MOpc::RET:
@@ -250,6 +291,8 @@ namespace dcc::backend::i8086
                     case MOpc::CMP32rr:
                     case MOpc::CMP32ri:
                         return line(std::format("cmp {}, {}", operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], operand_bits(mi.opc))));
+                    case MOpc::TEST16ri:
+                        return line(std::format("test {}, {}", operand(mi.ops[0], 16), operand(mi.ops[1], 16)));
                     case MOpc::NEG16r:
                     case MOpc::NEG32r:
                         return unary("neg", mi, operand_bits(mi.opc));
@@ -287,10 +330,19 @@ namespace dcc::backend::i8086
                 out += std::format("{}:\n", f.name());
                 for (auto const& block : f.blocks)
                 {
-                    if (block.id != f.entry_block_id)
-                        out += std::format(".bb{}:\n", block.id);
+                    out += std::format(".bb{}:\n", block.id);
                     for (auto const& mi : block.instrs)
                         instruction(mi);
+                }
+            }
+
+            void jump_tables(MFunction const& f)
+            {
+                for (auto const& table : f.jump_tables)
+                {
+                    out += std::format("align 2, db 0\n{}:\n", table.symbol);
+                    for (auto t : table.targets)
+                        line(std::format("dw {}.bb{}", f.name(), t));
                 }
             }
 
@@ -421,6 +473,11 @@ namespace dcc::backend::i8086
         if (!p.error.empty())
             return std::unexpected(p.error);
         p.out += data;
+        Printer tables;
+        for (auto const& f : functions)
+            tables.jump_tables(f);
+        if (!tables.out.empty())
+            p.out += std::format("\n{}\n{}", section_directive(DataSection::Rodata), tables.out);
         return p.out;
     }
 

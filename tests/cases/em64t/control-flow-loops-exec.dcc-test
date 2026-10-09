@@ -1,0 +1,71 @@
+=== FILE: main.dc ===
+module main;
+
+volatile i32 limit = 10;
+volatile u16 limit16 = 7;
+
+@nomangle
+public i32 dcc_main() {
+    i32 n = limit;
+    i32 ok = 0;
+    i32 sum = 0;
+    i32 i = 0;
+    while i < n {
+        sum = sum + i;
+        i = i + 1;
+    }
+    ok = ok + (sum == 45) as i32;
+    i32 a = 0;
+    i32 b = 1;
+    for k in 0..n {
+        i32 t = a + b;
+        a = b;
+        b = t;
+    }
+    ok = ok + (a == 55) as i32 + (b == 89) as i32;
+    i32 count = 0;
+    for x in 0..n {
+        if x % 2 == 0 {
+            continue;
+        }
+        for y in 0..n {
+            if y > x {
+                break;
+            }
+            count = count + 1;
+        }
+    }
+    ok = ok + (count == 30) as i32;
+    i32 x = 0;
+    i32 old = -1;
+    while true {
+        old = x;
+        x = x + 1;
+        if x >= n {
+            break;
+        }
+    }
+    ok = ok + (old == 9) as i32 + (x == 10) as i32;
+    u16 m = limit16;
+    u16 steps = 0;
+    while m > 0 {
+        m = m - 1;
+        steps = steps + 2;
+    }
+    ok = ok + (steps == 14) as i32;
+    i32 p = 3;
+    i32 q = 5;
+    for r in 0..n {
+        i32 t = p;
+        p = q;
+        q = t;
+    }
+    ok = ok + (p == 3) as i32 + (q == 5) as i32;
+    return ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 9
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 9
