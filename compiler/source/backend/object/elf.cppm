@@ -1253,7 +1253,7 @@ export namespace dcc::backend::object
             shdrs[sec_rodata].sh_flags = SHF_ALLOC;
             shdrs[sec_rodata].sh_offset = rodata_off;
             shdrs[sec_rodata].sh_size = rodata_size;
-            shdrs[sec_rodata].sh_addralign = std::max<std::uint64_t>(arch.section_min_alignment, max_rodata_align);
+            shdrs[sec_rodata].sh_addralign = std::max({arch.section_min_alignment, max_rodata_align, has_jump_tables ? arch.jump_table_entry_size : 1});
         }
 
         if (has_rodata_rela)
