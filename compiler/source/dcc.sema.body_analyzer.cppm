@@ -1265,7 +1265,14 @@ export namespace dcc::sema
             {
                 if (auto* defining_mod = find_defining_module(*default_owner))
                 {
-                    auto* default_scope = make_scope(ScopeKind::Function, nullptr);
+                    auto* default_scope = make_scope(ScopeKind::Function, defining_mod->own_scope);
+                    auto* saved_defining_mod = std::exchange(m_specialization_defining_module, defining_mod);
+                    struct DefaultModuleGuard
+                    {
+                        ModuleInfo*& slot;
+                        ModuleInfo* saved;
+                        ~DefaultModuleGuard() { slot = saved; }
+                    } guard{m_specialization_defining_module, saved_defining_mod};
                     return finish(analyze_expr(*defining_mod, nullptr, *default_scope, expr, loop_depth, next_off, expected_type, const_env));
                 }
             }
