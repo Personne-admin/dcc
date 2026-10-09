@@ -153,6 +153,22 @@ TEST_CASE("a misplaced module declaration is a parse error, not an endless recov
     std::filesystem::remove_all(dir);
 }
 
+TEST_CASE("an explicit template call with an argument that does not fit reports a sema error and is never lowered")
+{
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_template_arg_error_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    auto src = dir / "main.dc";
+    std::ofstream{src} << "module m;\nT tid(T)(T v) { return v; }\n@nomangle public i32 dcc_main() {\n    u8 a = tid!u8(-3);\n    return a as i32;\n}\n";
+    for (std::string_view flags : {"-fbackend llvm", "-fbackend custom", "-target i8086-binary -fbackend custom"})
+    {
+        auto [code, output] = run_dcc(std::format("{} -c -o {} {}", flags, shell_quote(dir / "main.o"), shell_quote(src)));
+        CHECK(code == 1);
+        CHECK(output.find("integer literal -3 does not fit in type u8") != std::string::npos);
+        CHECK(output.find("IR lowering") == std::string::npos);
+    }
+    std::filesystem::remove_all(dir);
+}
+
 TEST_CASE("the i8086 backend emits elf32 objects, assembly and mir")
 {
     auto dir = std::filesystem::temp_directory_path() / std::format("dcc_i8086_backend_{}", std::chrono::steady_clock::now().time_since_epoch().count());

@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module m;
+
+T tid(T)(T v) { return v; }
+
+T pair(T)(T a, T b) { return a + b; }
+
+@nomangle public i32 dcc_main() {
+    u8 a = tid!u8(-3);
+    i8 b = tid!i8(300);
+    u16 c = pair!u16(1, -(2 * 8));
+    return a as i32 + b as i32 + c as i32;
+}
+
+=== EXPECT-ERRORS EXACT ===
+main.dc:8:19: integer literal -3 does not fit in type u8
+main.dc:9:19: integer literal 300 does not fit in type i8
+main.dc:10:25: integer literal -16 does not fit in type u16
