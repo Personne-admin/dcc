@@ -334,18 +334,11 @@ export namespace dcc::ir
         std::uint32_t scope_id;
     };
 
-    struct IrDebugLocation
-    {
-        std::uint32_t block_id;
-        std::uint32_t instruction_index;
-        bool is_terminator;
-        SourceLoc loc;
-    };
-
     struct IrNode
     {
         IrNodeKind kind;
         sm::SourceRange range;
+        SourceLoc debug_loc{};
 
     protected:
         explicit IrNode(IrNodeKind k, sm::SourceRange r) : kind(k), range(r) {}
@@ -1253,7 +1246,6 @@ export namespace dcc::ir
         std::pmr::vector<IrBasicBlock*> blocks;
         IrBasicBlock* entry_block{};
 
-        std::pmr::vector<IrDebugLocation> debug_locations;
 
         std::string_view source_name;
         std::uint32_t decl_file_id{static_cast<std::uint32_t>(sm::FileId::Invalid)};
@@ -1266,7 +1258,7 @@ export namespace dcc::ir
         CallingConv conv{CallingConv::Cdecl};
 
         IrFunction(std::string_view n, IrFuncType const* ft, std::pmr::polymorphic_allocator<> a)
-            : IrValue(Kind), func_type(ft), attrs(a), blocks(a), debug_locations(a)
+            : IrValue(Kind), func_type(ft), attrs(a), blocks(a)
         {
             name = n;
             type = ft;

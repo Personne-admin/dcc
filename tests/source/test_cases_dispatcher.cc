@@ -3709,6 +3709,84 @@ namespace
             }
         }
 
+        if (!sema_failed)
+        {
+            struct DebugInput
+            {
+                std::string triple;
+                bool bounds_check{false};
+                bool restricted_check{false};
+                bool partial_eval{false};
+                bool pic{false};
+                std::size_t base_line{};
+            };
+
+            std::vector<DebugInput> debug_inputs;
+            auto add_debug_input = [&](DebugInput input) {
+                if (std::ranges::find_if(debug_inputs, [&](DebugInput const& d) {
+                        return d.triple == input.triple && d.bounds_check == input.bounds_check && d.restricted_check == input.restricted_check &&
+                               d.partial_eval == input.partial_eval && d.pic == input.pic;
+                    }) == debug_inputs.end())
+                    debug_inputs.push_back(std::move(input));
+            };
+            for (auto const& exp : fx.em64t_object_blocks)
+                if (exp.run_exit_code)
+                    add_debug_input({exp.target_triple, exp.bounds_check, exp.restricted_check, exp.partial_eval, exp.pic, exp.base_line});
+            for (auto const& exp : fx.executable_blocks)
+                if (!exp.is_error)
+                    add_debug_input({exp.target_triple, false, false, false, exp.position_independent_code, exp.base_line});
+
+            auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
+            for (auto const& input : debug_inputs)
+            {
+                if (!mod)
+                    break;
+
+                dcc::target::TargetConfig target = fixture_target.value_or(dcc::target::TargetConfig::host_default());
+                if (!input.triple.empty())
+                {
+                    auto parsed = dcc::target::TargetConfig::parse_triple(input.triple);
+                    if (!parsed)
+                        continue;
+                    target = *parsed;
+                }
+                if (target.arch != dcc::target::Arch::X86_64)
+                    continue;
+                target.position_independent_code = input.pic;
+
+                for (bool const llvm : {true, false})
+                {
+                    for (auto const level : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
+                    {
+                        dcc::ir::IrContext ir_ctx{256 * 1024, &target};
+                        auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), input.bounds_check, &sm,
+                                                                                 &sema.types(), input.restricted_check, input.partial_eval);
+                        auto* ir_mod = lowerer->lower_module(*mod);
+                        if (!lowerer->lower_errors().empty())
+                            break;
+
+                        dcc::backend::BackendOptions backend_opts;
+                        backend_opts.target = target;
+                        backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
+                        backend_opts.opt_level = level;
+                        backend_opts.emit_debug_info = true;
+                        backend_opts.source_manager = &sm;
+
+                        auto backend = llvm ? dcc::backend::make_llvm_backend() : dcc::backend::make_em64t_backend();
+                        auto artifact = backend->emit(*ir_mod, backend_opts);
+                        if (artifact.object_bytes && artifact.diagnostics.empty())
+                            continue;
+
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  -g {} {} {} object emission failed  ({}:{})", llvm ? "llvm" : "custom",
+                                     level == dcc::ir::pass::OptLevel::O0 ? "-O0" : "-O2", target.triple, path.string(), input.base_line);
+                        for (auto const& d : artifact.diagnostics)
+                            std::println(std::cerr, "          | {}", d.message);
+                    }
+                }
+            }
+        }
+
         for (auto const& exp : fx.i8086_run_blocks)
         {
             if (sema_failed)
@@ -4104,6 +4182,12 @@ int main()
     }
 
     auto files = collect_case_files(dir);
+
+#ifdef _WIN32
+    _putenv_s("DCC_STRICT_DEBUG_LOCATIONS", "1");
+#else
+    setenv("DCC_STRICT_DEBUG_LOCATIONS", "1", 1);
+#endif
 
     if (files.empty())
     {

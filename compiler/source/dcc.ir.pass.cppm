@@ -877,7 +877,6 @@ namespace dcc::ir::pass
                 new_f->linkage = f->linkage;
                 new_f->alignment = f->alignment;
                 new_f->conv = f->conv;
-                new_f->debug_locations.assign(f->debug_locations.begin(), f->debug_locations.end());
                 cctx.func_map[f] = new_f;
                 mod->functions.push_back(new_f);
 
@@ -927,11 +926,14 @@ namespace dcc::ir::pass
                         if (new_inst)
                         {
                             new_inst->name = inst->name;
+                            new_inst->debug_loc = inst->debug_loc;
                             new_bb->instructions.push_back(new_inst);
                         }
                     }
 
                     new_bb->terminator = cloner_detail::clone_terminator_impl(bb->terminator, dst, cctx);
+                    if (new_bb->terminator && bb->terminator)
+                        new_bb->terminator->debug_loc = bb->terminator->debug_loc;
                 }
             }
 
