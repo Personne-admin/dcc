@@ -3709,7 +3709,7 @@ namespace
             }
         }
 
-        if (!sema_failed)
+        if (!sema_failed && std::getenv("DCC_DEBUG_SWEEP"))
         {
             struct DebugInput
             {

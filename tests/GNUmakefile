@@ -89,6 +89,8 @@ test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_custom_debug_warning.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_result_locations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_i8086_models.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_i8086_link.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_linker_arguments.py $(BUILD_DIR)/bin/dcc
@@ -111,7 +113,6 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_prefix_map.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_codegen_determinism.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_mem2reg.py $(BUILD_DIR)/bin/dcc
-	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_debug_info.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
@@ -185,3 +186,8 @@ clean:
 -include $(ALL_DEPS)
 
 include $(STD_MK)
+
+.PHONY: test-debug-info
+test-debug-info: $(BUILD_DIR)/bin/tests/test_cases_dispatcher
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_debug_info.py $(BUILD_DIR)/bin/dcc
+	$(Q)DCC_DEBUG_SWEEP=1 DCC_TEST_LIBDCEXT_SRC="$(TOPLEVEL)/libdcext" DCC_TEST_LIBDCEXT_A="$(BUILD_DIR)/lib/libdcext-linux-custom.a" $(BUILD_DIR)/bin/tests/test_cases_dispatcher

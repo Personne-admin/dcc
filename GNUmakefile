@@ -212,3 +212,8 @@ differential: driver
 .PHONY: test-benchmark
 test-benchmark:
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/benchmark_runner.py
+
+.PHONY: test-debug-info
+test-debug-info: compiler driver libdcext
+	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=custom
+	@$(MAKE) -C tests test-debug-info
