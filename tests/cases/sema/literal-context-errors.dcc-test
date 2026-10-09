@@ -1,0 +1,62 @@
+=== FILE: main.dc ===
+module m;
+
+volatile u8 g = 3;
+volatile i8 h = 3;
+volatile u64 w = 3;
+
+public bool compare_too_large() {
+    u8 x = g;
+    return x == 300;
+}
+
+public bool compare_negative_unsigned() {
+    u8 x = g;
+    return x == -1;
+}
+
+public bool compare_negative_unsigned_left() {
+    u8 x = g;
+    return -1 == x;
+}
+
+public bool compare_too_large_left() {
+    u8 x = g;
+    return 300 > x;
+}
+
+public bool compare_below_signed_range() {
+    i8 x = h;
+    return x < -(129);
+}
+
+public u64 add_negative_to_u64() {
+    u64 x = w;
+    return x + -(2 * 8);
+}
+
+public i8 multiply_overflowing_expression() {
+    i8 x = h;
+    return x * (100 + 100);
+}
+
+public bool restricted_not_member() {
+    u8{0..10} x = 5;
+    return x == (5 + 6);
+}
+
+public u8 unsigned_double_negation() {
+    u8 x = g;
+    return x & -(-(3));
+}
+
+=== EXPECT-ERRORS ===
+main.dc:9: integer literal 300 does not fit in type u8
+main.dc:14: integer literal -1 does not fit in type u8
+main.dc:19: integer literal -1 does not fit in type u8
+main.dc:24: integer literal 300 does not fit in type u8
+main.dc:29: integer literal -129 does not fit in type i8
+main.dc:34: integer literal -16 does not fit in type u64
+main.dc:39: integer literal expression 200 does not fit in type i8
+main.dc:44: integer literal 11 is not a member of type u8{0..10}
+main.dc:49: integer literal -3 does not fit in type u8

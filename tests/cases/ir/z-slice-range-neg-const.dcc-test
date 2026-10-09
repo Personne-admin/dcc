@@ -5,4 +5,4 @@ public []i64 neg_slice_range([]i64 s) {
     return s[-1 .. 3];
 }
 === EXPECT-ERRORS ===
-test.dc:4: cannot negate unsigned integer
+test.dc:4: integer literal -1 does not fit in type usize

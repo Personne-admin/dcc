@@ -5201,9 +5201,10 @@ export namespace dcc::sema
             if (auto const* receiver_slice = types::type_cast<types::SliceType>(analyzed.type))
             {
                 auto const* param_slice = types::type_cast<types::SliceType>(param);
-                bool const flavor_ok = param_slice && (receiver_slice->flavor == param_slice->flavor
-                                                           ? receiver_slice->flavor != types::PointerFlavor::Based || receiver_slice->segment == param_slice->segment
-                                                           : param_slice->flavor == types::PointerFlavor::Far && receiver_slice->flavor == types::PointerFlavor::Near);
+                bool const flavor_ok =
+                    param_slice && (receiver_slice->flavor == param_slice->flavor
+                                        ? receiver_slice->flavor != types::PointerFlavor::Based || receiver_slice->segment == param_slice->segment
+                                        : param_slice->flavor == types::PointerFlavor::Far && receiver_slice->flavor == types::PointerFlavor::Near);
                 if (param_slice && flavor_ok && receiver_slice->element == param_slice->element &&
                     qualification_conversion_allowed(receiver_slice->element_quals, param_slice->element_quals))
                     return std::pair{UfcsReceiverMatch::Exact, analyzed.type};
@@ -6850,6 +6851,40 @@ export namespace dcc::sema
             if (it->is_signed)
                 return v >= -(std::int64_t{1} << (it->bits - 1)) && v <= (std::int64_t{1} << (it->bits - 1)) - 1;
             return v >= 0 && v <= (std::int64_t{1} << it->bits) - 1;
+        }
+
+        [[nodiscard]] static bool literal_only(ast::Expr const& e) noexcept
+        {
+            if (e.kind == ast::ExprKind::IntLiteral)
+                return true;
+
+            if (e.kind == ast::ExprKind::Unary)
+            {
+                auto const& u = static_cast<ast::UnaryExpr const&>(e);
+                return (u.op == lex::TokenKind::Minus || u.op == lex::TokenKind::Tilde || u.op == lex::TokenKind::Plus) && u.operand &&
+                       literal_only(*u.operand);
+            }
+            if (e.kind == ast::ExprKind::Binary)
+            {
+                auto const& b = static_cast<ast::BinaryExpr const&>(e);
+                switch (b.op)
+                {
+                    case lex::TokenKind::Plus:
+                    case lex::TokenKind::Minus:
+                    case lex::TokenKind::Star:
+                    case lex::TokenKind::Slash:
+                    case lex::TokenKind::Percent:
+                    case lex::TokenKind::Amp:
+                    case lex::TokenKind::Pipe:
+                    case lex::TokenKind::Caret:
+                    case lex::TokenKind::LtLt:
+                    case lex::TokenKind::GtGt:
+                        return b.lhs && b.rhs && literal_only(*b.lhs) && literal_only(*b.rhs);
+                    default:
+                        return false;
+                }
+            }
+            return false;
         }
 
         [[nodiscard]] static bool untyped_literal_operand(ast::Expr const& e) noexcept
@@ -9994,9 +10029,14 @@ export namespace dcc::sema
             if (result && literal_operands && is_arithmetic_fold_op(op) && types::type_cast<types::IntType>(out_type))
             {
                 auto raw = const_eval::fold_binary(op, lhs, rhs, m_types.int_t(64, true));
-                if (!raw || !folded_int_fits(*raw, out_type))
+                if (!raw)
                 {
                     error(range, "integer overflow in constant expression");
+                    return nullptr;
+                }
+                if (!folded_int_fits(*raw, out_type))
+                {
+                    error(range, "integer literal expression {} does not fit in type {}", raw->get_int(), format_type_str(out_type));
                     return nullptr;
                 }
             }
@@ -10302,13 +10342,19 @@ export namespace dcc::sema
                         out = analyze_path_expr(mod, scope, static_cast<ast::PathExpr&>(expr), expected_type, const_env);
                         break;
                     case ast::ExprKind::Unary:
-                        out = analyze_unary(mod, fn, scope, static_cast<ast::UnaryExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        if (auto const* rt = restricted_literal_context(expr, expected_type))
+                            out = analyze_restricted_literal(mod, fn, scope, expr, loop_depth, next_off, expected_type, *rt, const_env);
+                        else
+                            out = analyze_unary(mod, fn, scope, static_cast<ast::UnaryExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::Postfix:
                         out = analyze_postfix(mod, fn, scope, static_cast<ast::PostfixExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::Binary:
-                        out = analyze_binary(mod, fn, scope, static_cast<ast::BinaryExpr&>(expr), loop_depth, next_off, expected_type, const_env);
+                        if (auto const* rt = restricted_literal_context(expr, expected_type))
+                            out = analyze_restricted_literal(mod, fn, scope, expr, loop_depth, next_off, expected_type, *rt, const_env);
+                        else
+                            out = analyze_binary(mod, fn, scope, static_cast<ast::BinaryExpr&>(expr), loop_depth, next_off, expected_type, const_env);
                         break;
                     case ast::ExprKind::Call:
                         out = analyze_call(mod, fn, scope, static_cast<ast::CallExpr&>(expr), loop_depth, next_off, expected_type, const_env);
@@ -11035,6 +11081,33 @@ export namespace dcc::sema
             return out;
         }
 
+        [[nodiscard]] types::RestrictedType const* restricted_literal_context(ast::Expr const& expr, types::TypePtr expected_type) const
+        {
+            if (expr.kind == ast::ExprKind::IntLiteral || !literal_only(expr))
+                return nullptr;
+            return types::type_cast<types::RestrictedType>(unwrap_nominal(expected_type));
+        }
+
+        detail::ExprResult analyze_restricted_literal(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth,
+                                                      std::uint32_t& next_off, types::TypePtr expected_type, types::RestrictedType const& restricted,
+                                                      ConstEnv const* const_env)
+        {
+            auto out = expr.kind == ast::ExprKind::Unary
+                           ? analyze_unary(mod, fn, scope, static_cast<ast::UnaryExpr&>(expr), loop_depth, next_off, restricted.underlying, const_env)
+                           : analyze_binary(mod, fn, scope, static_cast<ast::BinaryExpr&>(expr), loop_depth, next_off, restricted.underlying, const_env);
+            if (has_error(out.type))
+                return out;
+            if (out.constant && out.constant->kind() == comptime::Value::Kind::Int)
+            {
+                auto const value = out.constant->get_int();
+                if (!m_in_explicit_conversion && !int_domain::contains(restricted, value))
+                    error(expr.range, "integer literal {} is not a member of type {}", value, format_type_str(expected_type));
+                out.constant = make_int_const(value, restricted.underlying);
+            }
+            out.type = expected_type;
+            return out;
+        }
+
         detail::ExprResult analyze_unary(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::UnaryExpr& u, int loop_depth, std::uint32_t& next_off,
                                          types::TypePtr expected_type, ConstEnv const* const_env)
         {
@@ -11061,7 +11134,11 @@ export namespace dcc::sema
                         if (auto const* it = types::type_cast<types::IntType>(op.type); it && !it->is_signed)
                         {
                             out.type = m_types.m_errort();
-                            error(u.range, "cannot negate unsigned integer");
+                            if (u.operand && literal_only(*u.operand) && op.constant && op.constant->kind() == comptime::Value::Kind::Int)
+                                error(u.range, "integer literal -{} does not fit in type {}", static_cast<std::uint64_t>(op.constant->get_int()),
+                                      format_type_str(op.type));
+                            else
+                                error(u.range, "cannot negate unsigned integer");
                             break;
                         }
                     }
@@ -11387,9 +11464,59 @@ export namespace dcc::sema
         detail::ExprResult analyze_binary(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::BinaryExpr& b, int loop_depth, std::uint32_t& next_off,
                                           types::TypePtr expected_type, ConstEnv const* const_env)
         {
+            bool adopts_operand_type = false;
+            bool comparison = false;
+            switch (b.op)
+            {
+                case lex::TokenKind::EqEq:
+                case lex::TokenKind::BangEq:
+                case lex::TokenKind::Lt:
+                case lex::TokenKind::LtEq:
+                case lex::TokenKind::Gt:
+                case lex::TokenKind::GtEq:
+                    comparison = true;
+                    adopts_operand_type = true;
+                    break;
+                case lex::TokenKind::Plus:
+                case lex::TokenKind::Minus:
+                case lex::TokenKind::Star:
+                case lex::TokenKind::Slash:
+                case lex::TokenKind::Percent:
+                case lex::TokenKind::Amp:
+                case lex::TokenKind::Pipe:
+                case lex::TokenKind::Caret:
+                case lex::TokenKind::LtLt:
+                case lex::TokenKind::GtGt:
+                    adopts_operand_type = true;
+                    break;
+                default:
+                    break;
+            }
+            bool const lhs_literal = adopts_operand_type && b.lhs && literal_only(*b.lhs);
+            bool const rhs_literal = adopts_operand_type && b.rhs && literal_only(*b.rhs);
+            auto literal_context = [&](types::TypePtr other) -> types::TypePtr {
+                if (!other || has_error(other))
+                    return nullptr;
+                auto const candidate = comparison ? other : erase_refinement(other);
+                if (types::type_cast<types::IntType>(candidate) || (comparison && types::type_cast<types::RestrictedType>(unwrap_nominal(candidate))))
+                    return candidate;
+                return nullptr;
+            };
+
+            if (lhs_literal && !rhs_literal)
+            {
+                auto rhs_first = analyze_expr_or_error(mod, fn, scope, b.rhs, loop_depth, next_off, expected_type, const_env);
+                auto const context = literal_context(rhs_first.type);
+                auto lhs_first = analyze_expr_or_error(mod, fn, scope, b.lhs, loop_depth, next_off, context ? context : expected_type, const_env);
+                return finish_binary(mod, fn, scope, b, loop_depth, next_off, const_env, std::move(lhs_first), std::move(rhs_first));
+            }
+
             auto lhs = analyze_expr_or_error(mod, fn, scope, b.lhs, loop_depth, next_off, expected_type, const_env);
 
             types::TypePtr rhs_expected = expected_type;
+            if (rhs_literal && !lhs_literal)
+                if (auto const context = literal_context(lhs.type))
+                    rhs_expected = context;
             switch (b.op)
             {
                 case lex::TokenKind::Eq:
@@ -11409,6 +11536,12 @@ export namespace dcc::sema
                     break;
             }
             auto rhs = analyze_expr_or_error(mod, fn, scope, b.rhs, loop_depth, next_off, rhs_expected, const_env);
+            return finish_binary(mod, fn, scope, b, loop_depth, next_off, const_env, std::move(lhs), std::move(rhs));
+        }
+
+        detail::ExprResult finish_binary(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::BinaryExpr& b, int loop_depth, std::uint32_t& next_off,
+                                         ConstEnv const* const_env, detail::ExprResult lhs, detail::ExprResult rhs)
+        {
             detail::ExprResult out{};
             if (has_error(lhs.type) || has_error(rhs.type))
             {
@@ -11587,7 +11720,8 @@ export namespace dcc::sema
                         }
                         out.type = lhs.type;
                         if (lhs.constant && rhs.constant)
-                            out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range, untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
+                            out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range,
+                                                                untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
                         break;
                     }
                     if (lhs.type != rhs.type || (!types::type_cast<types::IntType>(lhs.type) && !types::type_cast<types::FloatType>(lhs.type)))
@@ -11599,7 +11733,8 @@ export namespace dcc::sema
                     }
                     out.type = lhs.type;
                     if (lhs.constant && rhs.constant)
-                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range, untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
+                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range,
+                                                            untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
                     break;
                 case lex::TokenKind::EqEq:
                 case lex::TokenKind::BangEq:
@@ -11633,7 +11768,8 @@ export namespace dcc::sema
                     }
                     out.type = m_types.m_boolt();
                     if (lhs.constant && rhs.constant)
-                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range, untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
+                        out.constant = fold_binary_constant(b.op, *lhs.constant, *rhs.constant, out.type, b.range,
+                                                            untyped_literal_operand(*b.lhs) && untyped_literal_operand(*b.rhs));
                     break;
                 case lex::TokenKind::AmpAmp:
                 case lex::TokenKind::PipePipe:
@@ -13116,7 +13252,8 @@ export namespace dcc::sema
             auto analyze_slice = [&](types::SliceType const* slice) -> std::optional<detail::ExprResult> {
                 if (slice->flavor != types::PointerFlavor::Near)
                 {
-                    error(s.range, "a slice literal cannot construct the far or based slice `{}`; build a near slice and convert it, or assign `.ptr` and `.len`",
+                    error(s.range,
+                          "a slice literal cannot construct the far or based slice `{}`; build a near slice and convert it, or assign `.ptr` and `.len`",
                           format_type_str(target));
                     return std::nullopt;
                 }
