@@ -1,0 +1,173 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+
+@nomangle
+extern i32 nasm_mix(i8 a, u8 b, i16 c, u16 d, i32 e, u32 f, bool g);
+@nomangle
+extern i8 nasm_ret_i8();
+@nomangle
+extern u8 nasm_ret_u8();
+@nomangle
+extern i16 nasm_ret_i16();
+@nomangle
+extern u16 nasm_ret_u16();
+@nomangle
+extern i32 nasm_ret_i32();
+@nomangle
+extern u32 nasm_ret_u32();
+@nomangle
+extern bool nasm_ret_bool();
+@nomangle
+extern i32 nasm_call_dc();
+@nomangle
+extern void dcc_putc(u8 c);
+
+volatile i32 seed = 3;
+
+@nomangle
+public i32 dc_mix(i8 a, u8 b, i16 c, u16 d, i32 e, u32 f, bool g) {
+    return a as i32 + b as i32 + c as i32 + d as i32 + e - f as i32 + g as i32 * 1000;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 s = seed;
+    i32 ok = 0;
+    i32 r = nasm_mix((s - 10) as i8, (s + 247) as u8, (s - 303) as i16, (s + 59997) as u16, s + 99997, (s + 4) as u32, s > 0);
+    ok = ok + (r == 160936) as i32;
+    ok = ok + (nasm_mix(-7, 250, -300, 60000, 100000, 7, true) == 160936) as i32;
+    ok = ok + (nasm_ret_i8() == ((-5) as i8)) as i32;
+    ok = ok + (nasm_ret_u8() == 250) as i32;
+    ok = ok + (nasm_ret_i16() == ((-3000) as i16)) as i32;
+    ok = ok + (nasm_ret_u16() == 65000) as i32;
+    ok = ok + (nasm_ret_i32() == 0x12345678) as i32;
+    ok = ok + (nasm_ret_u32() == 0xFEDCBA98) as i32;
+    ok = ok + nasm_ret_bool() as i32;
+    ok = ok + (nasm_call_dc() == 160936) as i32;
+    ok = ok + (s == 3) as i32;
+    dcc_putc(79);
+    dcc_putc(75);
+    dcc_putc(10);
+    return ok;
+}
+
+=== FILE: helpers.asm ===
+bits 16
+
+section .text
+
+global nasm_mix
+global nasm_ret_i8
+global nasm_ret_u8
+global nasm_ret_i16
+global nasm_ret_u16
+global nasm_ret_i32
+global nasm_ret_u32
+global nasm_ret_bool
+global nasm_call_dc
+extern dc_mix
+
+clobber:
+	mov ebx, 0xdeadbeef
+	mov ecx, 0xcafebabe
+	push 0x1234
+	pop es
+	ret
+
+nasm_mix:
+	push bp
+	mov bp, sp
+	call clobber
+	movsx eax, byte [bp + 4]
+	movzx ecx, byte [bp + 6]
+	add eax, ecx
+	movsx ecx, word [bp + 8]
+	add eax, ecx
+	movzx ecx, word [bp + 10]
+	add eax, ecx
+	add eax, [bp + 12]
+	sub eax, [bp + 16]
+	movzx ecx, byte [bp + 20]
+	imul ecx, ecx, 1000
+	add eax, ecx
+	mov edx, eax
+	shr edx, 16
+	mov ebx, 0x11111111
+	pop bp
+	ret
+
+nasm_ret_i8:
+	call clobber
+	mov ax, 0x77fb
+	mov edx, 0x99999999
+	ret
+
+nasm_ret_u8:
+	call clobber
+	mov ax, 0x55fa
+	ret
+
+nasm_ret_i16:
+	call clobber
+	mov eax, 0x7777f448
+	ret
+
+nasm_ret_u16:
+	call clobber
+	mov eax, 0x1234fde8
+	mov dx, 0x4321
+	ret
+
+nasm_ret_i32:
+	call clobber
+	mov eax, 0x99995678
+	mov edx, 0x88881234
+	ret
+
+nasm_ret_u32:
+	call clobber
+	mov ax, 0xba98
+	mov dx, 0xfedc
+	ret
+
+nasm_ret_bool:
+	call clobber
+	mov ax, 0x6601
+	ret
+
+nasm_call_dc:
+	push bp
+	mov bp, sp
+	push esi
+	push edi
+	mov esi, 0x13579bdf
+	mov edi, 0x2468ace0
+	push word 1
+	push dword 7
+	push dword 100000
+	push word 60000
+	push word -300
+	push word 250
+	push word -7
+	call dc_mix
+	add sp, 18
+	cmp esi, 0x13579bdf
+	jne .bad
+	cmp edi, 0x2468ace0
+	jne .bad
+	lea bx, [bp - 8]
+	cmp sp, bx
+	je .done
+.bad:
+	xor ax, ax
+	xor dx, dx
+.done:
+	pop edi
+	pop esi
+	pop bp
+	ret
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 11
+RUN-SERIAL: OK\n
