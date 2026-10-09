@@ -1528,7 +1528,7 @@ export namespace dcc::ctfe
                 r = pointer_binary(op, *lhs.value, *rhs.value, out_type);
             else
             {
-                r = folded(const_eval::fold_binary(op, *lhs.value, *rhs.value, out_type));
+                r = folded(const_eval::fold_binary(op, *lhs.value, *rhs.value, arithmetic_type(out_type)));
                 if (specializing() && r.value)
                     inherit_taint(*r.value, *lhs.value, *rhs.value);
             }
@@ -2080,6 +2080,13 @@ export namespace dcc::ctfe
             return body.tail ? expression(*body.tail) : Result{};
         }
 
+        [[nodiscard]] static types::TypePtr arithmetic_type(types::TypePtr type) noexcept
+        {
+            if (auto const* restricted = types::type_cast<types::RestrictedType>(type))
+                return restricted->underlying;
+            return type;
+        }
+
         Result expression(ast::Expr const& expr)
         {
             if (!step())
@@ -2161,7 +2168,7 @@ export namespace dcc::ctfe
                             return abandoned(AbandonReason::TraceExhausted);
                         return emit_residual(e, {*operand}, type_of(expr));
                     }
-                    auto folded_unary = folded(const_eval::fold_unary(e.op, *r.value, type_of(expr)));
+                    auto folded_unary = folded(const_eval::fold_unary(e.op, *r.value, arithmetic_type(type_of(expr))));
                     if (specializing() && folded_unary.value)
                         inherit_taint(*folded_unary.value, *r.value);
                     return folded_unary;

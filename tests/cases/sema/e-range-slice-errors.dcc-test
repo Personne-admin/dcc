@@ -68,10 +68,10 @@ void test_normal_index_works(i32[10] arr, i32 idx) {
 === EXPECT-ERRORS ===
 main.dc:4: cannot range-slice a pointer
 main.dc:8: cannot range-slice non-indexable type
-main.dc:12: cannot negate unsigned integer
-main.dc:16: cannot negate unsigned integer
-main.dc:20: cannot negate unsigned integer
-main.dc:24: cannot negate unsigned integer
+main.dc:12: integer literal -1 does not fit in type usize
+main.dc:16: integer literal -3 does not fit in type usize
+main.dc:20: integer literal -1 does not fit in type usize
+main.dc:24: integer literal -1 does not fit in type usize
 main.dc:28: range start index exceeds array length
 main.dc:28: range end index exceeds array length
 main.dc:32: range end index exceeds array length

@@ -1,0 +1,3834 @@
+=== FILE: main.dc ===
+module main;
+
+i32 case_0() {
+    isize x = (0x9 as isize);
+    bool r = x == 5;
+    return (r == false) as i32;
+}
+
+i32 case_1() {
+    isize x = (0x9 as isize);
+    bool r = 5 == x;
+    return (r == false) as i32;
+}
+
+i32 case_2() {
+    isize x = (0x9 as isize);
+    bool r = x != 5;
+    return (r == true) as i32;
+}
+
+i32 case_3() {
+    isize x = (0x9 as isize);
+    bool r = 5 != x;
+    return (r == true) as i32;
+}
+
+i32 case_4() {
+    isize x = (0x9 as isize);
+    bool r = x < 5;
+    return (r == false) as i32;
+}
+
+i32 case_5() {
+    isize x = (0x9 as isize);
+    bool r = 5 < x;
+    return (r == true) as i32;
+}
+
+i32 case_6() {
+    isize x = (0x9 as isize);
+    bool r = x <= 5;
+    return (r == false) as i32;
+}
+
+i32 case_7() {
+    isize x = (0x9 as isize);
+    bool r = 5 <= x;
+    return (r == true) as i32;
+}
+
+i32 case_8() {
+    isize x = (0x9 as isize);
+    bool r = x > 5;
+    return (r == true) as i32;
+}
+
+i32 case_9() {
+    isize x = (0x9 as isize);
+    bool r = 5 > x;
+    return (r == false) as i32;
+}
+
+i32 case_10() {
+    isize x = (0x9 as isize);
+    bool r = x >= 5;
+    return (r == true) as i32;
+}
+
+i32 case_11() {
+    isize x = (0x9 as isize);
+    bool r = 5 >= x;
+    return (r == false) as i32;
+}
+
+i32 case_12() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return ((x + 5) == e) as i32;
+}
+
+i32 case_13() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return ((5 + x) == e) as i32;
+}
+
+i32 case_14() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x - 5) == e) as i32;
+}
+
+i32 case_15() {
+    isize x = (0x9 as isize);
+    isize e = ((-4) as isize);
+    return ((5 - x) == e) as i32;
+}
+
+i32 case_16() {
+    isize x = (0x9 as isize);
+    isize e = (0x2d as isize);
+    return ((x * 5) == e) as i32;
+}
+
+i32 case_17() {
+    isize x = (0x9 as isize);
+    isize e = (0x2d as isize);
+    return ((5 * x) == e) as i32;
+}
+
+i32 case_18() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x / 5) == e) as i32;
+}
+
+i32 case_19() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((5 / x) == e) as i32;
+}
+
+i32 case_20() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x % 5) == e) as i32;
+}
+
+i32 case_21() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return ((5 % x) == e) as i32;
+}
+
+i32 case_22() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x & 5) == e) as i32;
+}
+
+i32 case_23() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((5 & x) == e) as i32;
+}
+
+i32 case_24() {
+    isize x = (0x9 as isize);
+    isize e = (0xd as isize);
+    return ((x | 5) == e) as i32;
+}
+
+i32 case_25() {
+    isize x = (0x9 as isize);
+    isize e = (0xd as isize);
+    return ((5 | x) == e) as i32;
+}
+
+i32 case_26() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return ((x ^ 5) == e) as i32;
+}
+
+i32 case_27() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return ((5 ^ x) == e) as i32;
+}
+
+i32 case_28() {
+    isize x = (0x9 as isize);
+    isize e = (0x120 as isize);
+    return ((x << 5) == e) as i32;
+}
+
+i32 case_29() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x >> 5) == e) as i32;
+}
+
+i32 case_30() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = 5;
+    return (y == e) as i32;
+}
+
+i32 case_31() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = x;
+    y = 5;
+    return (y == e) as i32;
+}
+
+i32 case_32() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    isize y = x;
+    y += 5;
+    return (y == e) as i32;
+}
+
+i32 case_33() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    isize y = x;
+    y -= 5;
+    return (y == e) as i32;
+}
+
+i32 case_34() {
+    isize x = (0x9 as isize);
+    isize e = (0x2d as isize);
+    isize y = x;
+    y *= 5;
+    return (y == e) as i32;
+}
+
+i32 case_35() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    isize y = x;
+    y &= 5;
+    return (y == e) as i32;
+}
+
+i32 case_36() {
+    isize x = (0x9 as isize);
+    isize e = (0xd as isize);
+    isize y = x;
+    y |= 5;
+    return (y == e) as i32;
+}
+
+i32 case_37() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    isize y = x;
+    y ^= 5;
+    return (y == e) as i32;
+}
+
+isize h_38() {
+    return 5;
+}
+
+i32 case_38() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (h_38() == e) as i32;
+}
+
+isize id__39(isize unused, isize a) {
+    return a;
+}
+
+i32 case_39() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (id__39(x, 5) == e) as i32;
+}
+
+isize add__40(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_40() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return (x.add__40(5) == e) as i32;
+}
+
+struct S_41 {
+    isize f;
+}
+
+i32 case_41() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    S_41 s = S_41 { f = 5 };
+    return (s.f == e) as i32;
+}
+
+i32 case_42() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize[2] a = { x, 5 };
+    return (a[1] == e) as i32;
+}
+
+i32 case_43() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    bool c = x == x;
+    isize y = if c { 5 } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_44() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = match x {
+        _ => 5,
+    };
+    return (y == e) as i32;
+}
+
+i32 case_45() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    i32 r = match e {
+        5 => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_46() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    i32 r = match e {
+        5..=5 => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_47() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize{-20..20} y = 5;
+    return (y as isize == e) as i32;
+}
+
+i32 case_48() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == 5) as i32;
+}
+
+T tid_49(T)(T a) {
+    return a;
+}
+
+i32 case_49() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = tid_49(5);
+    return (y == e) as i32;
+}
+
+T tid_50(T)(T a) {
+    return a;
+}
+
+i32 case_50() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (tid_50!isize(5) == e) as i32;
+}
+
+isize tv_51(isize N)() {
+    return N;
+}
+
+i32 case_51() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (tv_51!(5)() == e) as i32;
+}
+
+isize id__52(isize unused, isize a) {
+    return a;
+}
+
+i32 case_52() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return (id__52(x, x - 5) == e) as i32;
+}
+
+i32 case_53() {
+    isize x = (0x9 as isize);
+    return ((x + 5) - 5 == x) as i32;
+}
+
+i32 case_54() {
+    isize x = (0x9 as isize);
+    bool r = x == -5;
+    return (r == false) as i32;
+}
+
+i32 case_55() {
+    isize x = (0x9 as isize);
+    bool r = -5 == x;
+    return (r == false) as i32;
+}
+
+i32 case_56() {
+    isize x = (0x9 as isize);
+    bool r = x != -5;
+    return (r == true) as i32;
+}
+
+i32 case_57() {
+    isize x = (0x9 as isize);
+    bool r = -5 != x;
+    return (r == true) as i32;
+}
+
+i32 case_58() {
+    isize x = (0x9 as isize);
+    bool r = x < -5;
+    return (r == false) as i32;
+}
+
+i32 case_59() {
+    isize x = (0x9 as isize);
+    bool r = -5 < x;
+    return (r == true) as i32;
+}
+
+i32 case_60() {
+    isize x = (0x9 as isize);
+    bool r = x <= -5;
+    return (r == false) as i32;
+}
+
+i32 case_61() {
+    isize x = (0x9 as isize);
+    bool r = -5 <= x;
+    return (r == true) as i32;
+}
+
+i32 case_62() {
+    isize x = (0x9 as isize);
+    bool r = x > -5;
+    return (r == true) as i32;
+}
+
+i32 case_63() {
+    isize x = (0x9 as isize);
+    bool r = -5 > x;
+    return (r == false) as i32;
+}
+
+i32 case_64() {
+    isize x = (0x9 as isize);
+    bool r = x >= -5;
+    return (r == true) as i32;
+}
+
+i32 case_65() {
+    isize x = (0x9 as isize);
+    bool r = -5 >= x;
+    return (r == false) as i32;
+}
+
+i32 case_66() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x + -5) == e) as i32;
+}
+
+i32 case_67() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((-5 + x) == e) as i32;
+}
+
+i32 case_68() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return ((x - -5) == e) as i32;
+}
+
+i32 case_69() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    return ((-5 - x) == e) as i32;
+}
+
+i32 case_70() {
+    isize x = (0x9 as isize);
+    isize e = ((-45) as isize);
+    return ((x * -5) == e) as i32;
+}
+
+i32 case_71() {
+    isize x = (0x9 as isize);
+    isize e = ((-45) as isize);
+    return ((-5 * x) == e) as i32;
+}
+
+i32 case_72() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((x / -5) == e) as i32;
+}
+
+i32 case_73() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((-5 / x) == e) as i32;
+}
+
+i32 case_74() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x % -5) == e) as i32;
+}
+
+i32 case_75() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return ((-5 % x) == e) as i32;
+}
+
+i32 case_76() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((x & -5) == e) as i32;
+}
+
+i32 case_77() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((-5 & x) == e) as i32;
+}
+
+i32 case_78() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return ((x | -5) == e) as i32;
+}
+
+i32 case_79() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return ((-5 | x) == e) as i32;
+}
+
+i32 case_80() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    return ((x ^ -5) == e) as i32;
+}
+
+i32 case_81() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    return ((-5 ^ x) == e) as i32;
+}
+
+i32 case_82() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = -5;
+    return (y == e) as i32;
+}
+
+i32 case_83() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = x;
+    y = -5;
+    return (y == e) as i32;
+}
+
+i32 case_84() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    isize y = x;
+    y += -5;
+    return (y == e) as i32;
+}
+
+i32 case_85() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    isize y = x;
+    y -= -5;
+    return (y == e) as i32;
+}
+
+i32 case_86() {
+    isize x = (0x9 as isize);
+    isize e = ((-45) as isize);
+    isize y = x;
+    y *= -5;
+    return (y == e) as i32;
+}
+
+i32 case_87() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    isize y = x;
+    y &= -5;
+    return (y == e) as i32;
+}
+
+i32 case_88() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = x;
+    y |= -5;
+    return (y == e) as i32;
+}
+
+i32 case_89() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    isize y = x;
+    y ^= -5;
+    return (y == e) as i32;
+}
+
+isize h_90() {
+    return -5;
+}
+
+i32 case_90() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (h_90() == e) as i32;
+}
+
+isize id__91(isize unused, isize a) {
+    return a;
+}
+
+i32 case_91() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (id__91(x, -5) == e) as i32;
+}
+
+isize add__92(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_92() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return (x.add__92(-5) == e) as i32;
+}
+
+struct S_93 {
+    isize f;
+}
+
+i32 case_93() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    S_93 s = S_93 { f = -5 };
+    return (s.f == e) as i32;
+}
+
+i32 case_94() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize[2] a = { x, -5 };
+    return (a[1] == e) as i32;
+}
+
+i32 case_95() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    bool c = x == x;
+    isize y = if c { -5 } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_96() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = match x {
+        _ => -5,
+    };
+    return (y == e) as i32;
+}
+
+i32 case_97() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    i32 r = match e {
+        -5 => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_98() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    i32 r = match e {
+        -5..=-5 => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_99() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize{-20..20} y = -5;
+    return (y as isize == e) as i32;
+}
+
+i32 case_100() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == -5) as i32;
+}
+
+T tid_101(T)(T a) {
+    return a;
+}
+
+i32 case_101() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = tid_101(-5);
+    return (y == e) as i32;
+}
+
+T tid_102(T)(T a) {
+    return a;
+}
+
+i32 case_102() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (tid_102!isize(-5) == e) as i32;
+}
+
+isize tv_103(isize N)() {
+    return N;
+}
+
+i32 case_103() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (tv_103!(-5)() == e) as i32;
+}
+
+isize id__104(isize unused, isize a) {
+    return a;
+}
+
+i32 case_104() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return (id__104(x, x - -5) == e) as i32;
+}
+
+i32 case_105() {
+    isize x = (0x9 as isize);
+    return ((x + -5) - -5 == x) as i32;
+}
+
+i32 case_106() {
+    isize x = (0x9 as isize);
+    bool r = x == ~0;
+    return (r == false) as i32;
+}
+
+i32 case_107() {
+    isize x = (0x9 as isize);
+    bool r = ~0 == x;
+    return (r == false) as i32;
+}
+
+i32 case_108() {
+    isize x = (0x9 as isize);
+    bool r = x != ~0;
+    return (r == true) as i32;
+}
+
+i32 case_109() {
+    isize x = (0x9 as isize);
+    bool r = ~0 != x;
+    return (r == true) as i32;
+}
+
+i32 case_110() {
+    isize x = (0x9 as isize);
+    bool r = x < ~0;
+    return (r == false) as i32;
+}
+
+i32 case_111() {
+    isize x = (0x9 as isize);
+    bool r = ~0 < x;
+    return (r == true) as i32;
+}
+
+i32 case_112() {
+    isize x = (0x9 as isize);
+    bool r = x <= ~0;
+    return (r == false) as i32;
+}
+
+i32 case_113() {
+    isize x = (0x9 as isize);
+    bool r = ~0 <= x;
+    return (r == true) as i32;
+}
+
+i32 case_114() {
+    isize x = (0x9 as isize);
+    bool r = x > ~0;
+    return (r == true) as i32;
+}
+
+i32 case_115() {
+    isize x = (0x9 as isize);
+    bool r = ~0 > x;
+    return (r == false) as i32;
+}
+
+i32 case_116() {
+    isize x = (0x9 as isize);
+    bool r = x >= ~0;
+    return (r == true) as i32;
+}
+
+i32 case_117() {
+    isize x = (0x9 as isize);
+    bool r = ~0 >= x;
+    return (r == false) as i32;
+}
+
+i32 case_118() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    return ((x + ~0) == e) as i32;
+}
+
+i32 case_119() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    return ((~0 + x) == e) as i32;
+}
+
+i32 case_120() {
+    isize x = (0x9 as isize);
+    isize e = (0xa as isize);
+    return ((x - ~0) == e) as i32;
+}
+
+i32 case_121() {
+    isize x = (0x9 as isize);
+    isize e = ((-10) as isize);
+    return ((~0 - x) == e) as i32;
+}
+
+i32 case_122() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    return ((x * ~0) == e) as i32;
+}
+
+i32 case_123() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    return ((~0 * x) == e) as i32;
+}
+
+i32 case_124() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    return ((x / ~0) == e) as i32;
+}
+
+i32 case_125() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((~0 / x) == e) as i32;
+}
+
+i32 case_126() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x % ~0) == e) as i32;
+}
+
+i32 case_127() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((~0 % x) == e) as i32;
+}
+
+i32 case_128() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((x & ~0) == e) as i32;
+}
+
+i32 case_129() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((~0 & x) == e) as i32;
+}
+
+i32 case_130() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((x | ~0) == e) as i32;
+}
+
+i32 case_131() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((~0 | x) == e) as i32;
+}
+
+i32 case_132() {
+    isize x = (0x9 as isize);
+    isize e = ((-10) as isize);
+    return ((x ^ ~0) == e) as i32;
+}
+
+i32 case_133() {
+    isize x = (0x9 as isize);
+    isize e = ((-10) as isize);
+    return ((~0 ^ x) == e) as i32;
+}
+
+i32 case_134() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize y = ~0;
+    return (y == e) as i32;
+}
+
+i32 case_135() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize y = x;
+    y = ~0;
+    return (y == e) as i32;
+}
+
+i32 case_136() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    isize y = x;
+    y += ~0;
+    return (y == e) as i32;
+}
+
+i32 case_137() {
+    isize x = (0x9 as isize);
+    isize e = (0xa as isize);
+    isize y = x;
+    y -= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_138() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    isize y = x;
+    y *= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_139() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    isize y = x;
+    y &= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_140() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize y = x;
+    y |= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_141() {
+    isize x = (0x9 as isize);
+    isize e = ((-10) as isize);
+    isize y = x;
+    y ^= ~0;
+    return (y == e) as i32;
+}
+
+isize h_142() {
+    return ~0;
+}
+
+i32 case_142() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return (h_142() == e) as i32;
+}
+
+isize id__143(isize unused, isize a) {
+    return a;
+}
+
+i32 case_143() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return (id__143(x, ~0) == e) as i32;
+}
+
+isize add__144(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_144() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    return (x.add__144(~0) == e) as i32;
+}
+
+struct S_145 {
+    isize f;
+}
+
+i32 case_145() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    S_145 s = S_145 { f = ~0 };
+    return (s.f == e) as i32;
+}
+
+i32 case_146() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize[2] a = { x, ~0 };
+    return (a[1] == e) as i32;
+}
+
+i32 case_147() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    bool c = x == x;
+    isize y = if c { ~0 } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_148() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize y = match x {
+        _ => ~0,
+    };
+    return (y == e) as i32;
+}
+
+i32 case_149() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize{-20..20} y = ~0;
+    return (y as isize == e) as i32;
+}
+
+i32 case_150() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == ~0) as i32;
+}
+
+T tid_151(T)(T a) {
+    return a;
+}
+
+i32 case_151() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize y = tid_151(~0);
+    return (y == e) as i32;
+}
+
+T tid_152(T)(T a) {
+    return a;
+}
+
+i32 case_152() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return (tid_152!isize(~0) == e) as i32;
+}
+
+isize tv_153(isize N)() {
+    return N;
+}
+
+i32 case_153() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return (tv_153!(~0)() == e) as i32;
+}
+
+isize id__154(isize unused, isize a) {
+    return a;
+}
+
+i32 case_154() {
+    isize x = (0x9 as isize);
+    isize e = (0xa as isize);
+    return (id__154(x, x - ~0) == e) as i32;
+}
+
+i32 case_155() {
+    isize x = (0x9 as isize);
+    return ((x + ~0) - ~0 == x) as i32;
+}
+
+i32 case_156() {
+    isize x = (0x9 as isize);
+    bool r = x == (5);
+    return (r == false) as i32;
+}
+
+i32 case_157() {
+    isize x = (0x9 as isize);
+    bool r = (5) == x;
+    return (r == false) as i32;
+}
+
+i32 case_158() {
+    isize x = (0x9 as isize);
+    bool r = x != (5);
+    return (r == true) as i32;
+}
+
+i32 case_159() {
+    isize x = (0x9 as isize);
+    bool r = (5) != x;
+    return (r == true) as i32;
+}
+
+i32 case_160() {
+    isize x = (0x9 as isize);
+    bool r = x < (5);
+    return (r == false) as i32;
+}
+
+i32 case_161() {
+    isize x = (0x9 as isize);
+    bool r = (5) < x;
+    return (r == true) as i32;
+}
+
+i32 case_162() {
+    isize x = (0x9 as isize);
+    bool r = x <= (5);
+    return (r == false) as i32;
+}
+
+i32 case_163() {
+    isize x = (0x9 as isize);
+    bool r = (5) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_164() {
+    isize x = (0x9 as isize);
+    bool r = x > (5);
+    return (r == true) as i32;
+}
+
+i32 case_165() {
+    isize x = (0x9 as isize);
+    bool r = (5) > x;
+    return (r == false) as i32;
+}
+
+i32 case_166() {
+    isize x = (0x9 as isize);
+    bool r = x >= (5);
+    return (r == true) as i32;
+}
+
+i32 case_167() {
+    isize x = (0x9 as isize);
+    bool r = (5) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_168() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return ((x + (5)) == e) as i32;
+}
+
+i32 case_169() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return (((5) + x) == e) as i32;
+}
+
+i32 case_170() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x - (5)) == e) as i32;
+}
+
+i32 case_171() {
+    isize x = (0x9 as isize);
+    isize e = ((-4) as isize);
+    return (((5) - x) == e) as i32;
+}
+
+i32 case_172() {
+    isize x = (0x9 as isize);
+    isize e = (0x2d as isize);
+    return ((x * (5)) == e) as i32;
+}
+
+i32 case_173() {
+    isize x = (0x9 as isize);
+    isize e = (0x2d as isize);
+    return (((5) * x) == e) as i32;
+}
+
+i32 case_174() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x / (5)) == e) as i32;
+}
+
+i32 case_175() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return (((5) / x) == e) as i32;
+}
+
+i32 case_176() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x % (5)) == e) as i32;
+}
+
+i32 case_177() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (((5) % x) == e) as i32;
+}
+
+i32 case_178() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x & (5)) == e) as i32;
+}
+
+i32 case_179() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return (((5) & x) == e) as i32;
+}
+
+i32 case_180() {
+    isize x = (0x9 as isize);
+    isize e = (0xd as isize);
+    return ((x | (5)) == e) as i32;
+}
+
+i32 case_181() {
+    isize x = (0x9 as isize);
+    isize e = (0xd as isize);
+    return (((5) | x) == e) as i32;
+}
+
+i32 case_182() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return ((x ^ (5)) == e) as i32;
+}
+
+i32 case_183() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return (((5) ^ x) == e) as i32;
+}
+
+i32 case_184() {
+    isize x = (0x9 as isize);
+    isize e = (0x120 as isize);
+    return ((x << (5)) == e) as i32;
+}
+
+i32 case_185() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x >> (5)) == e) as i32;
+}
+
+i32 case_186() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = (5);
+    return (y == e) as i32;
+}
+
+i32 case_187() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = x;
+    y = (5);
+    return (y == e) as i32;
+}
+
+i32 case_188() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    isize y = x;
+    y += (5);
+    return (y == e) as i32;
+}
+
+i32 case_189() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    isize y = x;
+    y -= (5);
+    return (y == e) as i32;
+}
+
+i32 case_190() {
+    isize x = (0x9 as isize);
+    isize e = (0x2d as isize);
+    isize y = x;
+    y *= (5);
+    return (y == e) as i32;
+}
+
+i32 case_191() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    isize y = x;
+    y &= (5);
+    return (y == e) as i32;
+}
+
+i32 case_192() {
+    isize x = (0x9 as isize);
+    isize e = (0xd as isize);
+    isize y = x;
+    y |= (5);
+    return (y == e) as i32;
+}
+
+i32 case_193() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    isize y = x;
+    y ^= (5);
+    return (y == e) as i32;
+}
+
+isize h_194() {
+    return (5);
+}
+
+i32 case_194() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (h_194() == e) as i32;
+}
+
+isize id__195(isize unused, isize a) {
+    return a;
+}
+
+i32 case_195() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (id__195(x, (5)) == e) as i32;
+}
+
+isize add__196(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_196() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return (x.add__196((5)) == e) as i32;
+}
+
+struct S_197 {
+    isize f;
+}
+
+i32 case_197() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    S_197 s = S_197 { f = (5) };
+    return (s.f == e) as i32;
+}
+
+i32 case_198() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize[2] a = { x, (5) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_199() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    bool c = x == x;
+    isize y = if c { (5) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_200() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = match x {
+        _ => (5),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_201() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize{-20..20} y = (5);
+    return (y as isize == e) as i32;
+}
+
+i32 case_202() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == (5)) as i32;
+}
+
+T tid_203(T)(T a) {
+    return a;
+}
+
+i32 case_203() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    isize y = tid_203((5));
+    return (y == e) as i32;
+}
+
+T tid_204(T)(T a) {
+    return a;
+}
+
+i32 case_204() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (tid_204!isize((5)) == e) as i32;
+}
+
+isize tv_205(isize N)() {
+    return N;
+}
+
+i32 case_205() {
+    isize x = (0x9 as isize);
+    isize e = (0x5 as isize);
+    return (tv_205!((5))() == e) as i32;
+}
+
+isize id__206(isize unused, isize a) {
+    return a;
+}
+
+i32 case_206() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return (id__206(x, x - (5)) == e) as i32;
+}
+
+i32 case_207() {
+    isize x = (0x9 as isize);
+    return ((x + (5)) - (5) == x) as i32;
+}
+
+i32 case_208() {
+    isize x = (0x9 as isize);
+    bool r = x == -(5);
+    return (r == false) as i32;
+}
+
+i32 case_209() {
+    isize x = (0x9 as isize);
+    bool r = -(5) == x;
+    return (r == false) as i32;
+}
+
+i32 case_210() {
+    isize x = (0x9 as isize);
+    bool r = x != -(5);
+    return (r == true) as i32;
+}
+
+i32 case_211() {
+    isize x = (0x9 as isize);
+    bool r = -(5) != x;
+    return (r == true) as i32;
+}
+
+i32 case_212() {
+    isize x = (0x9 as isize);
+    bool r = x < -(5);
+    return (r == false) as i32;
+}
+
+i32 case_213() {
+    isize x = (0x9 as isize);
+    bool r = -(5) < x;
+    return (r == true) as i32;
+}
+
+i32 case_214() {
+    isize x = (0x9 as isize);
+    bool r = x <= -(5);
+    return (r == false) as i32;
+}
+
+i32 case_215() {
+    isize x = (0x9 as isize);
+    bool r = -(5) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_216() {
+    isize x = (0x9 as isize);
+    bool r = x > -(5);
+    return (r == true) as i32;
+}
+
+i32 case_217() {
+    isize x = (0x9 as isize);
+    bool r = -(5) > x;
+    return (r == false) as i32;
+}
+
+i32 case_218() {
+    isize x = (0x9 as isize);
+    bool r = x >= -(5);
+    return (r == true) as i32;
+}
+
+i32 case_219() {
+    isize x = (0x9 as isize);
+    bool r = -(5) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_220() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x + -(5)) == e) as i32;
+}
+
+i32 case_221() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((-(5) + x) == e) as i32;
+}
+
+i32 case_222() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return ((x - -(5)) == e) as i32;
+}
+
+i32 case_223() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    return ((-(5) - x) == e) as i32;
+}
+
+i32 case_224() {
+    isize x = (0x9 as isize);
+    isize e = ((-45) as isize);
+    return ((x * -(5)) == e) as i32;
+}
+
+i32 case_225() {
+    isize x = (0x9 as isize);
+    isize e = ((-45) as isize);
+    return ((-(5) * x) == e) as i32;
+}
+
+i32 case_226() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((x / -(5)) == e) as i32;
+}
+
+i32 case_227() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((-(5) / x) == e) as i32;
+}
+
+i32 case_228() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return ((x % -(5)) == e) as i32;
+}
+
+i32 case_229() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return ((-(5) % x) == e) as i32;
+}
+
+i32 case_230() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((x & -(5)) == e) as i32;
+}
+
+i32 case_231() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((-(5) & x) == e) as i32;
+}
+
+i32 case_232() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return ((x | -(5)) == e) as i32;
+}
+
+i32 case_233() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return ((-(5) | x) == e) as i32;
+}
+
+i32 case_234() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    return ((x ^ -(5)) == e) as i32;
+}
+
+i32 case_235() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    return ((-(5) ^ x) == e) as i32;
+}
+
+i32 case_236() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = -(5);
+    return (y == e) as i32;
+}
+
+i32 case_237() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = x;
+    y = -(5);
+    return (y == e) as i32;
+}
+
+i32 case_238() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    isize y = x;
+    y += -(5);
+    return (y == e) as i32;
+}
+
+i32 case_239() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    isize y = x;
+    y -= -(5);
+    return (y == e) as i32;
+}
+
+i32 case_240() {
+    isize x = (0x9 as isize);
+    isize e = ((-45) as isize);
+    isize y = x;
+    y *= -(5);
+    return (y == e) as i32;
+}
+
+i32 case_241() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    isize y = x;
+    y &= -(5);
+    return (y == e) as i32;
+}
+
+i32 case_242() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = x;
+    y |= -(5);
+    return (y == e) as i32;
+}
+
+i32 case_243() {
+    isize x = (0x9 as isize);
+    isize e = ((-14) as isize);
+    isize y = x;
+    y ^= -(5);
+    return (y == e) as i32;
+}
+
+isize h_244() {
+    return -(5);
+}
+
+i32 case_244() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (h_244() == e) as i32;
+}
+
+isize id__245(isize unused, isize a) {
+    return a;
+}
+
+i32 case_245() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (id__245(x, -(5)) == e) as i32;
+}
+
+isize add__246(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_246() {
+    isize x = (0x9 as isize);
+    isize e = (0x4 as isize);
+    return (x.add__246(-(5)) == e) as i32;
+}
+
+struct S_247 {
+    isize f;
+}
+
+i32 case_247() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    S_247 s = S_247 { f = -(5) };
+    return (s.f == e) as i32;
+}
+
+i32 case_248() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize[2] a = { x, -(5) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_249() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    bool c = x == x;
+    isize y = if c { -(5) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_250() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = match x {
+        _ => -(5),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_251() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    i32 r = match e {
+        -(5) => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_252() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    i32 r = match e {
+        -(5)..=-(5) => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_253() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize{-20..20} y = -(5);
+    return (y as isize == e) as i32;
+}
+
+i32 case_254() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == -(5)) as i32;
+}
+
+T tid_255(T)(T a) {
+    return a;
+}
+
+i32 case_255() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    isize y = tid_255(-(5));
+    return (y == e) as i32;
+}
+
+T tid_256(T)(T a) {
+    return a;
+}
+
+i32 case_256() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (tid_256!isize(-(5)) == e) as i32;
+}
+
+isize tv_257(isize N)() {
+    return N;
+}
+
+i32 case_257() {
+    isize x = (0x9 as isize);
+    isize e = ((-5) as isize);
+    return (tv_257!(-(5))() == e) as i32;
+}
+
+isize id__258(isize unused, isize a) {
+    return a;
+}
+
+i32 case_258() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return (id__258(x, x - -(5)) == e) as i32;
+}
+
+i32 case_259() {
+    isize x = (0x9 as isize);
+    return ((x + -(5)) - -(5) == x) as i32;
+}
+
+i32 case_260() {
+    isize x = (0x9 as isize);
+    bool r = x == (3 + 4);
+    return (r == false) as i32;
+}
+
+i32 case_261() {
+    isize x = (0x9 as isize);
+    bool r = (3 + 4) == x;
+    return (r == false) as i32;
+}
+
+i32 case_262() {
+    isize x = (0x9 as isize);
+    bool r = x != (3 + 4);
+    return (r == true) as i32;
+}
+
+i32 case_263() {
+    isize x = (0x9 as isize);
+    bool r = (3 + 4) != x;
+    return (r == true) as i32;
+}
+
+i32 case_264() {
+    isize x = (0x9 as isize);
+    bool r = x < (3 + 4);
+    return (r == false) as i32;
+}
+
+i32 case_265() {
+    isize x = (0x9 as isize);
+    bool r = (3 + 4) < x;
+    return (r == true) as i32;
+}
+
+i32 case_266() {
+    isize x = (0x9 as isize);
+    bool r = x <= (3 + 4);
+    return (r == false) as i32;
+}
+
+i32 case_267() {
+    isize x = (0x9 as isize);
+    bool r = (3 + 4) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_268() {
+    isize x = (0x9 as isize);
+    bool r = x > (3 + 4);
+    return (r == true) as i32;
+}
+
+i32 case_269() {
+    isize x = (0x9 as isize);
+    bool r = (3 + 4) > x;
+    return (r == false) as i32;
+}
+
+i32 case_270() {
+    isize x = (0x9 as isize);
+    bool r = x >= (3 + 4);
+    return (r == true) as i32;
+}
+
+i32 case_271() {
+    isize x = (0x9 as isize);
+    bool r = (3 + 4) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_272() {
+    isize x = (0x9 as isize);
+    isize e = (0x10 as isize);
+    return ((x + (3 + 4)) == e) as i32;
+}
+
+i32 case_273() {
+    isize x = (0x9 as isize);
+    isize e = (0x10 as isize);
+    return (((3 + 4) + x) == e) as i32;
+}
+
+i32 case_274() {
+    isize x = (0x9 as isize);
+    isize e = (0x2 as isize);
+    return ((x - (3 + 4)) == e) as i32;
+}
+
+i32 case_275() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    return (((3 + 4) - x) == e) as i32;
+}
+
+i32 case_276() {
+    isize x = (0x9 as isize);
+    isize e = (0x3f as isize);
+    return ((x * (3 + 4)) == e) as i32;
+}
+
+i32 case_277() {
+    isize x = (0x9 as isize);
+    isize e = (0x3f as isize);
+    return (((3 + 4) * x) == e) as i32;
+}
+
+i32 case_278() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x / (3 + 4)) == e) as i32;
+}
+
+i32 case_279() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return (((3 + 4) / x) == e) as i32;
+}
+
+i32 case_280() {
+    isize x = (0x9 as isize);
+    isize e = (0x2 as isize);
+    return ((x % (3 + 4)) == e) as i32;
+}
+
+i32 case_281() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return (((3 + 4) % x) == e) as i32;
+}
+
+i32 case_282() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x & (3 + 4)) == e) as i32;
+}
+
+i32 case_283() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return (((3 + 4) & x) == e) as i32;
+}
+
+i32 case_284() {
+    isize x = (0x9 as isize);
+    isize e = (0xf as isize);
+    return ((x | (3 + 4)) == e) as i32;
+}
+
+i32 case_285() {
+    isize x = (0x9 as isize);
+    isize e = (0xf as isize);
+    return (((3 + 4) | x) == e) as i32;
+}
+
+i32 case_286() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return ((x ^ (3 + 4)) == e) as i32;
+}
+
+i32 case_287() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    return (((3 + 4) ^ x) == e) as i32;
+}
+
+i32 case_288() {
+    isize x = (0x9 as isize);
+    isize e = (0x480 as isize);
+    return ((x << (3 + 4)) == e) as i32;
+}
+
+i32 case_289() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x >> (3 + 4)) == e) as i32;
+}
+
+i32 case_290() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize y = (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_291() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize y = x;
+    y = (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_292() {
+    isize x = (0x9 as isize);
+    isize e = (0x10 as isize);
+    isize y = x;
+    y += (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_293() {
+    isize x = (0x9 as isize);
+    isize e = (0x2 as isize);
+    isize y = x;
+    y -= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_294() {
+    isize x = (0x9 as isize);
+    isize e = (0x3f as isize);
+    isize y = x;
+    y *= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_295() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    isize y = x;
+    y &= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_296() {
+    isize x = (0x9 as isize);
+    isize e = (0xf as isize);
+    isize y = x;
+    y |= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_297() {
+    isize x = (0x9 as isize);
+    isize e = (0xe as isize);
+    isize y = x;
+    y ^= (3 + 4);
+    return (y == e) as i32;
+}
+
+isize h_298() {
+    return (3 + 4);
+}
+
+i32 case_298() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return (h_298() == e) as i32;
+}
+
+isize id__299(isize unused, isize a) {
+    return a;
+}
+
+i32 case_299() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return (id__299(x, (3 + 4)) == e) as i32;
+}
+
+isize add__300(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_300() {
+    isize x = (0x9 as isize);
+    isize e = (0x10 as isize);
+    return (x.add__300((3 + 4)) == e) as i32;
+}
+
+struct S_301 {
+    isize f;
+}
+
+i32 case_301() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    S_301 s = S_301 { f = (3 + 4) };
+    return (s.f == e) as i32;
+}
+
+i32 case_302() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize[2] a = { x, (3 + 4) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_303() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    bool c = x == x;
+    isize y = if c { (3 + 4) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_304() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize y = match x {
+        _ => (3 + 4),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_305() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize{-20..20} y = (3 + 4);
+    return (y as isize == e) as i32;
+}
+
+i32 case_306() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == (3 + 4)) as i32;
+}
+
+T tid_307(T)(T a) {
+    return a;
+}
+
+i32 case_307() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize y = tid_307((3 + 4));
+    return (y == e) as i32;
+}
+
+T tid_308(T)(T a) {
+    return a;
+}
+
+i32 case_308() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return (tid_308!isize((3 + 4)) == e) as i32;
+}
+
+isize tv_309(isize N)() {
+    return N;
+}
+
+i32 case_309() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return (tv_309!((3 + 4))() == e) as i32;
+}
+
+isize id__310(isize unused, isize a) {
+    return a;
+}
+
+i32 case_310() {
+    isize x = (0x9 as isize);
+    isize e = (0x2 as isize);
+    return (id__310(x, x - (3 + 4)) == e) as i32;
+}
+
+i32 case_311() {
+    isize x = (0x9 as isize);
+    return ((x + (3 + 4)) - (3 + 4) == x) as i32;
+}
+
+i32 case_312() {
+    isize x = (0x9 as isize);
+    bool r = x == -(2 * 8);
+    return (r == false) as i32;
+}
+
+i32 case_313() {
+    isize x = (0x9 as isize);
+    bool r = -(2 * 8) == x;
+    return (r == false) as i32;
+}
+
+i32 case_314() {
+    isize x = (0x9 as isize);
+    bool r = x != -(2 * 8);
+    return (r == true) as i32;
+}
+
+i32 case_315() {
+    isize x = (0x9 as isize);
+    bool r = -(2 * 8) != x;
+    return (r == true) as i32;
+}
+
+i32 case_316() {
+    isize x = (0x9 as isize);
+    bool r = x < -(2 * 8);
+    return (r == false) as i32;
+}
+
+i32 case_317() {
+    isize x = (0x9 as isize);
+    bool r = -(2 * 8) < x;
+    return (r == true) as i32;
+}
+
+i32 case_318() {
+    isize x = (0x9 as isize);
+    bool r = x <= -(2 * 8);
+    return (r == false) as i32;
+}
+
+i32 case_319() {
+    isize x = (0x9 as isize);
+    bool r = -(2 * 8) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_320() {
+    isize x = (0x9 as isize);
+    bool r = x > -(2 * 8);
+    return (r == true) as i32;
+}
+
+i32 case_321() {
+    isize x = (0x9 as isize);
+    bool r = -(2 * 8) > x;
+    return (r == false) as i32;
+}
+
+i32 case_322() {
+    isize x = (0x9 as isize);
+    bool r = x >= -(2 * 8);
+    return (r == true) as i32;
+}
+
+i32 case_323() {
+    isize x = (0x9 as isize);
+    bool r = -(2 * 8) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_324() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((x + -(2 * 8)) == e) as i32;
+}
+
+i32 case_325() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((-(2 * 8) + x) == e) as i32;
+}
+
+i32 case_326() {
+    isize x = (0x9 as isize);
+    isize e = (0x19 as isize);
+    return ((x - -(2 * 8)) == e) as i32;
+}
+
+i32 case_327() {
+    isize x = (0x9 as isize);
+    isize e = ((-25) as isize);
+    return ((-(2 * 8) - x) == e) as i32;
+}
+
+i32 case_328() {
+    isize x = (0x9 as isize);
+    isize e = ((-144) as isize);
+    return ((x * -(2 * 8)) == e) as i32;
+}
+
+i32 case_329() {
+    isize x = (0x9 as isize);
+    isize e = ((-144) as isize);
+    return ((-(2 * 8) * x) == e) as i32;
+}
+
+i32 case_330() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x / -(2 * 8)) == e) as i32;
+}
+
+i32 case_331() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((-(2 * 8) / x) == e) as i32;
+}
+
+i32 case_332() {
+    isize x = (0x9 as isize);
+    isize e = (0x9 as isize);
+    return ((x % -(2 * 8)) == e) as i32;
+}
+
+i32 case_333() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((-(2 * 8) % x) == e) as i32;
+}
+
+i32 case_334() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x & -(2 * 8)) == e) as i32;
+}
+
+i32 case_335() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((-(2 * 8) & x) == e) as i32;
+}
+
+i32 case_336() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((x | -(2 * 8)) == e) as i32;
+}
+
+i32 case_337() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((-(2 * 8) | x) == e) as i32;
+}
+
+i32 case_338() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((x ^ -(2 * 8)) == e) as i32;
+}
+
+i32 case_339() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return ((-(2 * 8) ^ x) == e) as i32;
+}
+
+i32 case_340() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize y = -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_341() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize y = x;
+    y = -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_342() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    isize y = x;
+    y += -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_343() {
+    isize x = (0x9 as isize);
+    isize e = (0x19 as isize);
+    isize y = x;
+    y -= -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_344() {
+    isize x = (0x9 as isize);
+    isize e = ((-144) as isize);
+    isize y = x;
+    y *= -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_345() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    isize y = x;
+    y &= -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_346() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    isize y = x;
+    y |= -(2 * 8);
+    return (y == e) as i32;
+}
+
+i32 case_347() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    isize y = x;
+    y ^= -(2 * 8);
+    return (y == e) as i32;
+}
+
+isize h_348() {
+    return -(2 * 8);
+}
+
+i32 case_348() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    return (h_348() == e) as i32;
+}
+
+isize id__349(isize unused, isize a) {
+    return a;
+}
+
+i32 case_349() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    return (id__349(x, -(2 * 8)) == e) as i32;
+}
+
+isize add__350(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_350() {
+    isize x = (0x9 as isize);
+    isize e = ((-7) as isize);
+    return (x.add__350(-(2 * 8)) == e) as i32;
+}
+
+struct S_351 {
+    isize f;
+}
+
+i32 case_351() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    S_351 s = S_351 { f = -(2 * 8) };
+    return (s.f == e) as i32;
+}
+
+i32 case_352() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize[2] a = { x, -(2 * 8) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_353() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    bool c = x == x;
+    isize y = if c { -(2 * 8) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_354() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize y = match x {
+        _ => -(2 * 8),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_355() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    i32 r = match e {
+        -(2 * 8) => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_356() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    i32 r = match e {
+        -(2 * 8)..=-(2 * 8) => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_357() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize{-20..20} y = -(2 * 8);
+    return (y as isize == e) as i32;
+}
+
+i32 case_358() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == -(2 * 8)) as i32;
+}
+
+T tid_359(T)(T a) {
+    return a;
+}
+
+i32 case_359() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    isize y = tid_359(-(2 * 8));
+    return (y == e) as i32;
+}
+
+T tid_360(T)(T a) {
+    return a;
+}
+
+i32 case_360() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    return (tid_360!isize(-(2 * 8)) == e) as i32;
+}
+
+isize tv_361(isize N)() {
+    return N;
+}
+
+i32 case_361() {
+    isize x = (0x9 as isize);
+    isize e = ((-16) as isize);
+    return (tv_361!(-(2 * 8))() == e) as i32;
+}
+
+isize id__362(isize unused, isize a) {
+    return a;
+}
+
+i32 case_362() {
+    isize x = (0x9 as isize);
+    isize e = (0x19 as isize);
+    return (id__362(x, x - -(2 * 8)) == e) as i32;
+}
+
+i32 case_363() {
+    isize x = (0x9 as isize);
+    return ((x + -(2 * 8)) - -(2 * 8) == x) as i32;
+}
+
+i32 case_364() {
+    isize x = (0x9 as isize);
+    bool r = x == ~(1);
+    return (r == false) as i32;
+}
+
+i32 case_365() {
+    isize x = (0x9 as isize);
+    bool r = ~(1) == x;
+    return (r == false) as i32;
+}
+
+i32 case_366() {
+    isize x = (0x9 as isize);
+    bool r = x != ~(1);
+    return (r == true) as i32;
+}
+
+i32 case_367() {
+    isize x = (0x9 as isize);
+    bool r = ~(1) != x;
+    return (r == true) as i32;
+}
+
+i32 case_368() {
+    isize x = (0x9 as isize);
+    bool r = x < ~(1);
+    return (r == false) as i32;
+}
+
+i32 case_369() {
+    isize x = (0x9 as isize);
+    bool r = ~(1) < x;
+    return (r == true) as i32;
+}
+
+i32 case_370() {
+    isize x = (0x9 as isize);
+    bool r = x <= ~(1);
+    return (r == false) as i32;
+}
+
+i32 case_371() {
+    isize x = (0x9 as isize);
+    bool r = ~(1) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_372() {
+    isize x = (0x9 as isize);
+    bool r = x > ~(1);
+    return (r == true) as i32;
+}
+
+i32 case_373() {
+    isize x = (0x9 as isize);
+    bool r = ~(1) > x;
+    return (r == false) as i32;
+}
+
+i32 case_374() {
+    isize x = (0x9 as isize);
+    bool r = x >= ~(1);
+    return (r == true) as i32;
+}
+
+i32 case_375() {
+    isize x = (0x9 as isize);
+    bool r = ~(1) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_376() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return ((x + ~(1)) == e) as i32;
+}
+
+i32 case_377() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return ((~(1) + x) == e) as i32;
+}
+
+i32 case_378() {
+    isize x = (0x9 as isize);
+    isize e = (0xb as isize);
+    return ((x - ~(1)) == e) as i32;
+}
+
+i32 case_379() {
+    isize x = (0x9 as isize);
+    isize e = ((-11) as isize);
+    return ((~(1) - x) == e) as i32;
+}
+
+i32 case_380() {
+    isize x = (0x9 as isize);
+    isize e = ((-18) as isize);
+    return ((x * ~(1)) == e) as i32;
+}
+
+i32 case_381() {
+    isize x = (0x9 as isize);
+    isize e = ((-18) as isize);
+    return ((~(1) * x) == e) as i32;
+}
+
+i32 case_382() {
+    isize x = (0x9 as isize);
+    isize e = ((-4) as isize);
+    return ((x / ~(1)) == e) as i32;
+}
+
+i32 case_383() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((~(1) / x) == e) as i32;
+}
+
+i32 case_384() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x % ~(1)) == e) as i32;
+}
+
+i32 case_385() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    return ((~(1) % x) == e) as i32;
+}
+
+i32 case_386() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    return ((x & ~(1)) == e) as i32;
+}
+
+i32 case_387() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    return ((~(1) & x) == e) as i32;
+}
+
+i32 case_388() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((x | ~(1)) == e) as i32;
+}
+
+i32 case_389() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    return ((~(1) | x) == e) as i32;
+}
+
+i32 case_390() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    return ((x ^ ~(1)) == e) as i32;
+}
+
+i32 case_391() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    return ((~(1) ^ x) == e) as i32;
+}
+
+i32 case_392() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize y = ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_393() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize y = x;
+    y = ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_394() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    isize y = x;
+    y += ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_395() {
+    isize x = (0x9 as isize);
+    isize e = (0xb as isize);
+    isize y = x;
+    y -= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_396() {
+    isize x = (0x9 as isize);
+    isize e = ((-18) as isize);
+    isize y = x;
+    y *= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_397() {
+    isize x = (0x9 as isize);
+    isize e = (0x8 as isize);
+    isize y = x;
+    y &= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_398() {
+    isize x = (0x9 as isize);
+    isize e = ((-1) as isize);
+    isize y = x;
+    y |= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_399() {
+    isize x = (0x9 as isize);
+    isize e = ((-9) as isize);
+    isize y = x;
+    y ^= ~(1);
+    return (y == e) as i32;
+}
+
+isize h_400() {
+    return ~(1);
+}
+
+i32 case_400() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    return (h_400() == e) as i32;
+}
+
+isize id__401(isize unused, isize a) {
+    return a;
+}
+
+i32 case_401() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    return (id__401(x, ~(1)) == e) as i32;
+}
+
+isize add__402(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_402() {
+    isize x = (0x9 as isize);
+    isize e = (0x7 as isize);
+    return (x.add__402(~(1)) == e) as i32;
+}
+
+struct S_403 {
+    isize f;
+}
+
+i32 case_403() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    S_403 s = S_403 { f = ~(1) };
+    return (s.f == e) as i32;
+}
+
+i32 case_404() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize[2] a = { x, ~(1) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_405() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    bool c = x == x;
+    isize y = if c { ~(1) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_406() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize y = match x {
+        _ => ~(1),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_407() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize{-20..20} y = ~(1);
+    return (y as isize == e) as i32;
+}
+
+i32 case_408() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == ~(1)) as i32;
+}
+
+T tid_409(T)(T a) {
+    return a;
+}
+
+i32 case_409() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    isize y = tid_409(~(1));
+    return (y == e) as i32;
+}
+
+T tid_410(T)(T a) {
+    return a;
+}
+
+i32 case_410() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    return (tid_410!isize(~(1)) == e) as i32;
+}
+
+isize tv_411(isize N)() {
+    return N;
+}
+
+i32 case_411() {
+    isize x = (0x9 as isize);
+    isize e = ((-2) as isize);
+    return (tv_411!(~(1))() == e) as i32;
+}
+
+isize id__412(isize unused, isize a) {
+    return a;
+}
+
+i32 case_412() {
+    isize x = (0x9 as isize);
+    isize e = (0xb as isize);
+    return (id__412(x, x - ~(1)) == e) as i32;
+}
+
+i32 case_413() {
+    isize x = (0x9 as isize);
+    return ((x + ~(1)) - ~(1) == x) as i32;
+}
+
+i32 case_414() {
+    isize x = (0x9 as isize);
+    bool r = x == -(-(3));
+    return (r == false) as i32;
+}
+
+i32 case_415() {
+    isize x = (0x9 as isize);
+    bool r = -(-(3)) == x;
+    return (r == false) as i32;
+}
+
+i32 case_416() {
+    isize x = (0x9 as isize);
+    bool r = x != -(-(3));
+    return (r == true) as i32;
+}
+
+i32 case_417() {
+    isize x = (0x9 as isize);
+    bool r = -(-(3)) != x;
+    return (r == true) as i32;
+}
+
+i32 case_418() {
+    isize x = (0x9 as isize);
+    bool r = x < -(-(3));
+    return (r == false) as i32;
+}
+
+i32 case_419() {
+    isize x = (0x9 as isize);
+    bool r = -(-(3)) < x;
+    return (r == true) as i32;
+}
+
+i32 case_420() {
+    isize x = (0x9 as isize);
+    bool r = x <= -(-(3));
+    return (r == false) as i32;
+}
+
+i32 case_421() {
+    isize x = (0x9 as isize);
+    bool r = -(-(3)) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_422() {
+    isize x = (0x9 as isize);
+    bool r = x > -(-(3));
+    return (r == true) as i32;
+}
+
+i32 case_423() {
+    isize x = (0x9 as isize);
+    bool r = -(-(3)) > x;
+    return (r == false) as i32;
+}
+
+i32 case_424() {
+    isize x = (0x9 as isize);
+    bool r = x >= -(-(3));
+    return (r == true) as i32;
+}
+
+i32 case_425() {
+    isize x = (0x9 as isize);
+    bool r = -(-(3)) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_426() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return ((x + -(-(3))) == e) as i32;
+}
+
+i32 case_427() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return ((-(-(3)) + x) == e) as i32;
+}
+
+i32 case_428() {
+    isize x = (0x9 as isize);
+    isize e = (0x6 as isize);
+    return ((x - -(-(3))) == e) as i32;
+}
+
+i32 case_429() {
+    isize x = (0x9 as isize);
+    isize e = ((-6) as isize);
+    return ((-(-(3)) - x) == e) as i32;
+}
+
+i32 case_430() {
+    isize x = (0x9 as isize);
+    isize e = (0x1b as isize);
+    return ((x * -(-(3))) == e) as i32;
+}
+
+i32 case_431() {
+    isize x = (0x9 as isize);
+    isize e = (0x1b as isize);
+    return ((-(-(3)) * x) == e) as i32;
+}
+
+i32 case_432() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    return ((x / -(-(3))) == e) as i32;
+}
+
+i32 case_433() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((-(-(3)) / x) == e) as i32;
+}
+
+i32 case_434() {
+    isize x = (0x9 as isize);
+    isize e = (0x0 as isize);
+    return ((x % -(-(3))) == e) as i32;
+}
+
+i32 case_435() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    return ((-(-(3)) % x) == e) as i32;
+}
+
+i32 case_436() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x & -(-(3))) == e) as i32;
+}
+
+i32 case_437() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((-(-(3)) & x) == e) as i32;
+}
+
+i32 case_438() {
+    isize x = (0x9 as isize);
+    isize e = (0xb as isize);
+    return ((x | -(-(3))) == e) as i32;
+}
+
+i32 case_439() {
+    isize x = (0x9 as isize);
+    isize e = (0xb as isize);
+    return ((-(-(3)) | x) == e) as i32;
+}
+
+i32 case_440() {
+    isize x = (0x9 as isize);
+    isize e = (0xa as isize);
+    return ((x ^ -(-(3))) == e) as i32;
+}
+
+i32 case_441() {
+    isize x = (0x9 as isize);
+    isize e = (0xa as isize);
+    return ((-(-(3)) ^ x) == e) as i32;
+}
+
+i32 case_442() {
+    isize x = (0x9 as isize);
+    isize e = (0x48 as isize);
+    return ((x << -(-(3))) == e) as i32;
+}
+
+i32 case_443() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    return ((x >> -(-(3))) == e) as i32;
+}
+
+i32 case_444() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize y = -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_445() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize y = x;
+    y = -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_446() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    isize y = x;
+    y += -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_447() {
+    isize x = (0x9 as isize);
+    isize e = (0x6 as isize);
+    isize y = x;
+    y -= -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_448() {
+    isize x = (0x9 as isize);
+    isize e = (0x1b as isize);
+    isize y = x;
+    y *= -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_449() {
+    isize x = (0x9 as isize);
+    isize e = (0x1 as isize);
+    isize y = x;
+    y &= -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_450() {
+    isize x = (0x9 as isize);
+    isize e = (0xb as isize);
+    isize y = x;
+    y |= -(-(3));
+    return (y == e) as i32;
+}
+
+i32 case_451() {
+    isize x = (0x9 as isize);
+    isize e = (0xa as isize);
+    isize y = x;
+    y ^= -(-(3));
+    return (y == e) as i32;
+}
+
+isize h_452() {
+    return -(-(3));
+}
+
+i32 case_452() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    return (h_452() == e) as i32;
+}
+
+isize id__453(isize unused, isize a) {
+    return a;
+}
+
+i32 case_453() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    return (id__453(x, -(-(3))) == e) as i32;
+}
+
+isize add__454(isize self, isize b) {
+    return self + b;
+}
+
+i32 case_454() {
+    isize x = (0x9 as isize);
+    isize e = (0xc as isize);
+    return (x.add__454(-(-(3))) == e) as i32;
+}
+
+struct S_455 {
+    isize f;
+}
+
+i32 case_455() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    S_455 s = S_455 { f = -(-(3)) };
+    return (s.f == e) as i32;
+}
+
+i32 case_456() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize[2] a = { x, -(-(3)) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_457() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    bool c = x == x;
+    isize y = if c { -(-(3)) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_458() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize y = match x {
+        _ => -(-(3)),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_459() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    i32 r = match e {
+        -(-(3)) => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_460() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    i32 r = match e {
+        -(-(3))..=-(-(3)) => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_461() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize{-20..20} y = -(-(3));
+    return (y as isize == e) as i32;
+}
+
+i32 case_462() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize{-20..20} y = e as (isize{-20..20});
+    return (y == -(-(3))) as i32;
+}
+
+T tid_463(T)(T a) {
+    return a;
+}
+
+i32 case_463() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    isize y = tid_463(-(-(3)));
+    return (y == e) as i32;
+}
+
+T tid_464(T)(T a) {
+    return a;
+}
+
+i32 case_464() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    return (tid_464!isize(-(-(3))) == e) as i32;
+}
+
+isize tv_465(isize N)() {
+    return N;
+}
+
+i32 case_465() {
+    isize x = (0x9 as isize);
+    isize e = (0x3 as isize);
+    return (tv_465!(-(-(3)))() == e) as i32;
+}
+
+isize id__466(isize unused, isize a) {
+    return a;
+}
+
+i32 case_466() {
+    isize x = (0x9 as isize);
+    isize e = (0x6 as isize);
+    return (id__466(x, x - -(-(3))) == e) as i32;
+}
+
+i32 case_467() {
+    isize x = (0x9 as isize);
+    return ((x + -(-(3))) - -(-(3)) == x) as i32;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 ok = 0;
+    ok = ok + case_0();
+    ok = ok + case_1();
+    ok = ok + case_2();
+    ok = ok + case_3();
+    ok = ok + case_4();
+    ok = ok + case_5();
+    ok = ok + case_6();
+    ok = ok + case_7();
+    ok = ok + case_8();
+    ok = ok + case_9();
+    ok = ok + case_10();
+    ok = ok + case_11();
+    ok = ok + case_12();
+    ok = ok + case_13();
+    ok = ok + case_14();
+    ok = ok + case_15();
+    ok = ok + case_16();
+    ok = ok + case_17();
+    ok = ok + case_18();
+    ok = ok + case_19();
+    ok = ok + case_20();
+    ok = ok + case_21();
+    ok = ok + case_22();
+    ok = ok + case_23();
+    ok = ok + case_24();
+    ok = ok + case_25();
+    ok = ok + case_26();
+    ok = ok + case_27();
+    ok = ok + case_28();
+    ok = ok + case_29();
+    ok = ok + case_30();
+    ok = ok + case_31();
+    ok = ok + case_32();
+    ok = ok + case_33();
+    ok = ok + case_34();
+    ok = ok + case_35();
+    ok = ok + case_36();
+    ok = ok + case_37();
+    ok = ok + case_38();
+    ok = ok + case_39();
+    ok = ok + case_40();
+    ok = ok + case_41();
+    ok = ok + case_42();
+    ok = ok + case_43();
+    ok = ok + case_44();
+    ok = ok + case_45();
+    ok = ok + case_46();
+    ok = ok + case_47();
+    ok = ok + case_48();
+    ok = ok + case_49();
+    ok = ok + case_50();
+    ok = ok + case_51();
+    ok = ok + case_52();
+    ok = ok + case_53();
+    ok = ok + case_54();
+    ok = ok + case_55();
+    ok = ok + case_56();
+    ok = ok + case_57();
+    ok = ok + case_58();
+    ok = ok + case_59();
+    ok = ok + case_60();
+    ok = ok + case_61();
+    ok = ok + case_62();
+    ok = ok + case_63();
+    ok = ok + case_64();
+    ok = ok + case_65();
+    ok = ok + case_66();
+    ok = ok + case_67();
+    ok = ok + case_68();
+    ok = ok + case_69();
+    ok = ok + case_70();
+    ok = ok + case_71();
+    ok = ok + case_72();
+    ok = ok + case_73();
+    ok = ok + case_74();
+    ok = ok + case_75();
+    ok = ok + case_76();
+    ok = ok + case_77();
+    ok = ok + case_78();
+    ok = ok + case_79();
+    ok = ok + case_80();
+    ok = ok + case_81();
+    ok = ok + case_82();
+    ok = ok + case_83();
+    ok = ok + case_84();
+    ok = ok + case_85();
+    ok = ok + case_86();
+    ok = ok + case_87();
+    ok = ok + case_88();
+    ok = ok + case_89();
+    ok = ok + case_90();
+    ok = ok + case_91();
+    ok = ok + case_92();
+    ok = ok + case_93();
+    ok = ok + case_94();
+    ok = ok + case_95();
+    ok = ok + case_96();
+    ok = ok + case_97();
+    ok = ok + case_98();
+    ok = ok + case_99();
+    ok = ok + case_100();
+    ok = ok + case_101();
+    ok = ok + case_102();
+    ok = ok + case_103();
+    ok = ok + case_104();
+    ok = ok + case_105();
+    ok = ok + case_106();
+    ok = ok + case_107();
+    ok = ok + case_108();
+    ok = ok + case_109();
+    ok = ok + case_110();
+    ok = ok + case_111();
+    ok = ok + case_112();
+    ok = ok + case_113();
+    ok = ok + case_114();
+    ok = ok + case_115();
+    ok = ok + case_116();
+    ok = ok + case_117();
+    ok = ok + case_118();
+    ok = ok + case_119();
+    ok = ok + case_120();
+    ok = ok + case_121();
+    ok = ok + case_122();
+    ok = ok + case_123();
+    ok = ok + case_124();
+    ok = ok + case_125();
+    ok = ok + case_126();
+    ok = ok + case_127();
+    ok = ok + case_128();
+    ok = ok + case_129();
+    ok = ok + case_130();
+    ok = ok + case_131();
+    ok = ok + case_132();
+    ok = ok + case_133();
+    ok = ok + case_134();
+    ok = ok + case_135();
+    ok = ok + case_136();
+    ok = ok + case_137();
+    ok = ok + case_138();
+    ok = ok + case_139();
+    ok = ok + case_140();
+    ok = ok + case_141();
+    ok = ok + case_142();
+    ok = ok + case_143();
+    ok = ok + case_144();
+    ok = ok + case_145();
+    ok = ok + case_146();
+    ok = ok + case_147();
+    ok = ok + case_148();
+    ok = ok + case_149();
+    ok = ok + case_150();
+    ok = ok + case_151();
+    ok = ok + case_152();
+    ok = ok + case_153();
+    ok = ok + case_154();
+    ok = ok + case_155();
+    ok = ok + case_156();
+    ok = ok + case_157();
+    ok = ok + case_158();
+    ok = ok + case_159();
+    ok = ok + case_160();
+    ok = ok + case_161();
+    ok = ok + case_162();
+    ok = ok + case_163();
+    ok = ok + case_164();
+    ok = ok + case_165();
+    ok = ok + case_166();
+    ok = ok + case_167();
+    ok = ok + case_168();
+    ok = ok + case_169();
+    ok = ok + case_170();
+    ok = ok + case_171();
+    ok = ok + case_172();
+    ok = ok + case_173();
+    ok = ok + case_174();
+    ok = ok + case_175();
+    ok = ok + case_176();
+    ok = ok + case_177();
+    ok = ok + case_178();
+    ok = ok + case_179();
+    ok = ok + case_180();
+    ok = ok + case_181();
+    ok = ok + case_182();
+    ok = ok + case_183();
+    ok = ok + case_184();
+    ok = ok + case_185();
+    ok = ok + case_186();
+    ok = ok + case_187();
+    ok = ok + case_188();
+    ok = ok + case_189();
+    ok = ok + case_190();
+    ok = ok + case_191();
+    ok = ok + case_192();
+    ok = ok + case_193();
+    ok = ok + case_194();
+    ok = ok + case_195();
+    ok = ok + case_196();
+    ok = ok + case_197();
+    ok = ok + case_198();
+    ok = ok + case_199();
+    ok = ok + case_200();
+    ok = ok + case_201();
+    ok = ok + case_202();
+    ok = ok + case_203();
+    ok = ok + case_204();
+    ok = ok + case_205();
+    ok = ok + case_206();
+    ok = ok + case_207();
+    ok = ok + case_208();
+    ok = ok + case_209();
+    ok = ok + case_210();
+    ok = ok + case_211();
+    ok = ok + case_212();
+    ok = ok + case_213();
+    ok = ok + case_214();
+    ok = ok + case_215();
+    ok = ok + case_216();
+    ok = ok + case_217();
+    ok = ok + case_218();
+    ok = ok + case_219();
+    ok = ok + case_220();
+    ok = ok + case_221();
+    ok = ok + case_222();
+    ok = ok + case_223();
+    ok = ok + case_224();
+    ok = ok + case_225();
+    ok = ok + case_226();
+    ok = ok + case_227();
+    ok = ok + case_228();
+    ok = ok + case_229();
+    ok = ok + case_230();
+    ok = ok + case_231();
+    ok = ok + case_232();
+    ok = ok + case_233();
+    ok = ok + case_234();
+    ok = ok + case_235();
+    ok = ok + case_236();
+    ok = ok + case_237();
+    ok = ok + case_238();
+    ok = ok + case_239();
+    ok = ok + case_240();
+    ok = ok + case_241();
+    ok = ok + case_242();
+    ok = ok + case_243();
+    ok = ok + case_244();
+    ok = ok + case_245();
+    ok = ok + case_246();
+    ok = ok + case_247();
+    ok = ok + case_248();
+    ok = ok + case_249();
+    ok = ok + case_250();
+    ok = ok + case_251();
+    ok = ok + case_252();
+    ok = ok + case_253();
+    ok = ok + case_254();
+    ok = ok + case_255();
+    ok = ok + case_256();
+    ok = ok + case_257();
+    ok = ok + case_258();
+    ok = ok + case_259();
+    ok = ok + case_260();
+    ok = ok + case_261();
+    ok = ok + case_262();
+    ok = ok + case_263();
+    ok = ok + case_264();
+    ok = ok + case_265();
+    ok = ok + case_266();
+    ok = ok + case_267();
+    ok = ok + case_268();
+    ok = ok + case_269();
+    ok = ok + case_270();
+    ok = ok + case_271();
+    ok = ok + case_272();
+    ok = ok + case_273();
+    ok = ok + case_274();
+    ok = ok + case_275();
+    ok = ok + case_276();
+    ok = ok + case_277();
+    ok = ok + case_278();
+    ok = ok + case_279();
+    ok = ok + case_280();
+    ok = ok + case_281();
+    ok = ok + case_282();
+    ok = ok + case_283();
+    ok = ok + case_284();
+    ok = ok + case_285();
+    ok = ok + case_286();
+    ok = ok + case_287();
+    ok = ok + case_288();
+    ok = ok + case_289();
+    ok = ok + case_290();
+    ok = ok + case_291();
+    ok = ok + case_292();
+    ok = ok + case_293();
+    ok = ok + case_294();
+    ok = ok + case_295();
+    ok = ok + case_296();
+    ok = ok + case_297();
+    ok = ok + case_298();
+    ok = ok + case_299();
+    ok = ok + case_300();
+    ok = ok + case_301();
+    ok = ok + case_302();
+    ok = ok + case_303();
+    ok = ok + case_304();
+    ok = ok + case_305();
+    ok = ok + case_306();
+    ok = ok + case_307();
+    ok = ok + case_308();
+    ok = ok + case_309();
+    ok = ok + case_310();
+    ok = ok + case_311();
+    ok = ok + case_312();
+    ok = ok + case_313();
+    ok = ok + case_314();
+    ok = ok + case_315();
+    ok = ok + case_316();
+    ok = ok + case_317();
+    ok = ok + case_318();
+    ok = ok + case_319();
+    ok = ok + case_320();
+    ok = ok + case_321();
+    ok = ok + case_322();
+    ok = ok + case_323();
+    ok = ok + case_324();
+    ok = ok + case_325();
+    ok = ok + case_326();
+    ok = ok + case_327();
+    ok = ok + case_328();
+    ok = ok + case_329();
+    ok = ok + case_330();
+    ok = ok + case_331();
+    ok = ok + case_332();
+    ok = ok + case_333();
+    ok = ok + case_334();
+    ok = ok + case_335();
+    ok = ok + case_336();
+    ok = ok + case_337();
+    ok = ok + case_338();
+    ok = ok + case_339();
+    ok = ok + case_340();
+    ok = ok + case_341();
+    ok = ok + case_342();
+    ok = ok + case_343();
+    ok = ok + case_344();
+    ok = ok + case_345();
+    ok = ok + case_346();
+    ok = ok + case_347();
+    ok = ok + case_348();
+    ok = ok + case_349();
+    ok = ok + case_350();
+    ok = ok + case_351();
+    ok = ok + case_352();
+    ok = ok + case_353();
+    ok = ok + case_354();
+    ok = ok + case_355();
+    ok = ok + case_356();
+    ok = ok + case_357();
+    ok = ok + case_358();
+    ok = ok + case_359();
+    ok = ok + case_360();
+    ok = ok + case_361();
+    ok = ok + case_362();
+    ok = ok + case_363();
+    ok = ok + case_364();
+    ok = ok + case_365();
+    ok = ok + case_366();
+    ok = ok + case_367();
+    ok = ok + case_368();
+    ok = ok + case_369();
+    ok = ok + case_370();
+    ok = ok + case_371();
+    ok = ok + case_372();
+    ok = ok + case_373();
+    ok = ok + case_374();
+    ok = ok + case_375();
+    ok = ok + case_376();
+    ok = ok + case_377();
+    ok = ok + case_378();
+    ok = ok + case_379();
+    ok = ok + case_380();
+    ok = ok + case_381();
+    ok = ok + case_382();
+    ok = ok + case_383();
+    ok = ok + case_384();
+    ok = ok + case_385();
+    ok = ok + case_386();
+    ok = ok + case_387();
+    ok = ok + case_388();
+    ok = ok + case_389();
+    ok = ok + case_390();
+    ok = ok + case_391();
+    ok = ok + case_392();
+    ok = ok + case_393();
+    ok = ok + case_394();
+    ok = ok + case_395();
+    ok = ok + case_396();
+    ok = ok + case_397();
+    ok = ok + case_398();
+    ok = ok + case_399();
+    ok = ok + case_400();
+    ok = ok + case_401();
+    ok = ok + case_402();
+    ok = ok + case_403();
+    ok = ok + case_404();
+    ok = ok + case_405();
+    ok = ok + case_406();
+    ok = ok + case_407();
+    ok = ok + case_408();
+    ok = ok + case_409();
+    ok = ok + case_410();
+    ok = ok + case_411();
+    ok = ok + case_412();
+    ok = ok + case_413();
+    ok = ok + case_414();
+    ok = ok + case_415();
+    ok = ok + case_416();
+    ok = ok + case_417();
+    ok = ok + case_418();
+    ok = ok + case_419();
+    ok = ok + case_420();
+    ok = ok + case_421();
+    ok = ok + case_422();
+    ok = ok + case_423();
+    ok = ok + case_424();
+    ok = ok + case_425();
+    ok = ok + case_426();
+    ok = ok + case_427();
+    ok = ok + case_428();
+    ok = ok + case_429();
+    ok = ok + case_430();
+    ok = ok + case_431();
+    ok = ok + case_432();
+    ok = ok + case_433();
+    ok = ok + case_434();
+    ok = ok + case_435();
+    ok = ok + case_436();
+    ok = ok + case_437();
+    ok = ok + case_438();
+    ok = ok + case_439();
+    ok = ok + case_440();
+    ok = ok + case_441();
+    ok = ok + case_442();
+    ok = ok + case_443();
+    ok = ok + case_444();
+    ok = ok + case_445();
+    ok = ok + case_446();
+    ok = ok + case_447();
+    ok = ok + case_448();
+    ok = ok + case_449();
+    ok = ok + case_450();
+    ok = ok + case_451();
+    ok = ok + case_452();
+    ok = ok + case_453();
+    ok = ok + case_454();
+    ok = ok + case_455();
+    ok = ok + case_456();
+    ok = ok + case_457();
+    ok = ok + case_458();
+    ok = ok + case_459();
+    ok = ok + case_460();
+    ok = ok + case_461();
+    ok = ok + case_462();
+    ok = ok + case_463();
+    ok = ok + case_464();
+    ok = ok + case_465();
+    ok = ok + case_466();
+    ok = ok + case_467();
+    return 100 - 468 + ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 100
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 100

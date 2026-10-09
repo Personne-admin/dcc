@@ -73,16 +73,16 @@ void test_pos_usize_var() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:4: cannot negate unsigned integer
-main.dc:8: cannot negate unsigned integer
+main.dc:4: integer literal -1 does not fit in type usize
+main.dc:8: integer literal -1 does not fit in type u64
 main.dc:13: cannot negate unsigned integer
 main.dc:18: cannot negate unsigned integer
 main.dc:23: cannot negate unsigned integer
 main.dc:28: cannot negate unsigned integer
-main.dc:32: cannot negate unsigned integer
-main.dc:36: cannot negate unsigned integer
-main.dc:40: cannot negate unsigned integer
-main.dc:44: cannot negate unsigned integer
-main.dc:48: cannot negate unsigned integer
-main.dc:52: cannot negate unsigned integer
-main.dc:56: cannot negate unsigned integer
+main.dc:32: integer literal -1 does not fit in type usize
+main.dc:36: integer literal -1 does not fit in type usize
+main.dc:40: integer literal -1 does not fit in type usize
+main.dc:44: integer literal -1 does not fit in type usize
+main.dc:48: integer literal -1 does not fit in type usize
+main.dc:52: integer literal -1 does not fit in type usize
+main.dc:56: integer literal -1 does not fit in type usize

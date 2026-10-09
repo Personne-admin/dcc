@@ -895,6 +895,49 @@ u8 b = function(32); // inferred to u8
 function(32); // value discarded, guessed to i32.
 ```
 
+**Context typing of literal-only expressions.** An untyped integer literal, or
+a *literal-only expression* built from integer literals with unary `-`, `~`,
+`+`, parentheses and the binary operators `+ - * / % & | ^ << >>`, adopts the
+type its context expects:
+
+- the declared type of a variable, the target of an assignment or compound
+  assignment, the function's return type, a call's parameter type (including
+  UFCS calls and explicit template instantiation), struct field and array
+  element types, the type of an `if`/`match` branch, and the scrutinee type of
+  a `match` pattern;
+- in a binary arithmetic, bitwise, shift or comparison operator, the type of
+  the other operand when that operand is typed. For arithmetic, bitwise and
+  shift operators a restricted operand contributes its underlying integer
+  type; for comparisons the restricted type itself;
+- a restricted type: the expression is evaluated in the underlying type and
+  the result must be a member of the restriction.
+
+When both operands of a binary operator are literal-only, nothing is adopted
+and the existing defaults apply (`i32`, then `i64`/`u64` by magnitude;
+context-free range bounds default to `usize`, section 13).
+
+The expression is evaluated in the adopted type. Every literal must fit it,
+negating a literal-only operand of an unsigned type is an error, and the
+results of `+ - * / %` must fit. Each failure is a compile error that names
+the value and the type. Shifts of literal-only expressions wrap without error
+(`u8 a = 1 << 8;` is `0`), as before this rule was written down.
+
+```dc
+i8 x = ...;
+bool a = x == -5;        // -5 is i8
+bool b = -5 == x;        // either side
+i8 c = x + ~(1);         // ~(1) is i8, -2
+u16 d = ...;
+bool e = d > (3 + 4);    // (3 + 4) is u16
+u8 f = ...;
+bool g = f == 300;       // error: integer literal 300 does not fit in type u8
+bool h = f == -1;        // error: integer literal -1 does not fit in type u8
+i8 i = x * (100 + 100);  // error: integer literal expression 200 does not fit in type i8
+u8{0..10} r = 5;
+bool k = r == (5 + 6);   // error: integer literal 11 is not a member of type u8{0..10}
+bool m = -5 == -5;       // both untyped: i32
+```
+
 Character and string literals come in an 8-bit and a UTF-16 form. A plain
 literal is `char`/`[]const char`; a `u`-prefixed literal is `u16`/`[]const u16`,
 with the same escape sequences (`\n`, `\0`, `\xNN`, `\uNNNN`) available in both:

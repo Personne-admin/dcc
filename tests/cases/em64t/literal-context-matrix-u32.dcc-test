@@ -1,0 +1,2076 @@
+=== FILE: main.dc ===
+module main;
+
+i32 case_0() {
+    u32 x = (0x9 as u32);
+    bool r = x == 5;
+    return (r == false) as i32;
+}
+
+i32 case_1() {
+    u32 x = (0x9 as u32);
+    bool r = 5 == x;
+    return (r == false) as i32;
+}
+
+i32 case_2() {
+    u32 x = (0x9 as u32);
+    bool r = x != 5;
+    return (r == true) as i32;
+}
+
+i32 case_3() {
+    u32 x = (0x9 as u32);
+    bool r = 5 != x;
+    return (r == true) as i32;
+}
+
+i32 case_4() {
+    u32 x = (0x9 as u32);
+    bool r = x < 5;
+    return (r == false) as i32;
+}
+
+i32 case_5() {
+    u32 x = (0x9 as u32);
+    bool r = 5 < x;
+    return (r == true) as i32;
+}
+
+i32 case_6() {
+    u32 x = (0x9 as u32);
+    bool r = x <= 5;
+    return (r == false) as i32;
+}
+
+i32 case_7() {
+    u32 x = (0x9 as u32);
+    bool r = 5 <= x;
+    return (r == true) as i32;
+}
+
+i32 case_8() {
+    u32 x = (0x9 as u32);
+    bool r = x > 5;
+    return (r == true) as i32;
+}
+
+i32 case_9() {
+    u32 x = (0x9 as u32);
+    bool r = 5 > x;
+    return (r == false) as i32;
+}
+
+i32 case_10() {
+    u32 x = (0x9 as u32);
+    bool r = x >= 5;
+    return (r == true) as i32;
+}
+
+i32 case_11() {
+    u32 x = (0x9 as u32);
+    bool r = 5 >= x;
+    return (r == false) as i32;
+}
+
+i32 case_12() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return ((x + 5) == e) as i32;
+}
+
+i32 case_13() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return ((5 + x) == e) as i32;
+}
+
+i32 case_14() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    return ((x - 5) == e) as i32;
+}
+
+i32 case_15() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffc as u32);
+    return ((5 - x) == e) as i32;
+}
+
+i32 case_16() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2d as u32);
+    return ((x * 5) == e) as i32;
+}
+
+i32 case_17() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2d as u32);
+    return ((5 * x) == e) as i32;
+}
+
+i32 case_18() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((x / 5) == e) as i32;
+}
+
+i32 case_19() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return ((5 / x) == e) as i32;
+}
+
+i32 case_20() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    return ((x % 5) == e) as i32;
+}
+
+i32 case_21() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return ((5 % x) == e) as i32;
+}
+
+i32 case_22() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((x & 5) == e) as i32;
+}
+
+i32 case_23() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((5 & x) == e) as i32;
+}
+
+i32 case_24() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xd as u32);
+    return ((x | 5) == e) as i32;
+}
+
+i32 case_25() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xd as u32);
+    return ((5 | x) == e) as i32;
+}
+
+i32 case_26() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xc as u32);
+    return ((x ^ 5) == e) as i32;
+}
+
+i32 case_27() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xc as u32);
+    return ((5 ^ x) == e) as i32;
+}
+
+i32 case_28() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x120 as u32);
+    return ((x << 5) == e) as i32;
+}
+
+i32 case_29() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return ((x >> 5) == e) as i32;
+}
+
+i32 case_30() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = 5;
+    return (y == e) as i32;
+}
+
+i32 case_31() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = x;
+    y = 5;
+    return (y == e) as i32;
+}
+
+i32 case_32() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    u32 y = x;
+    y += 5;
+    return (y == e) as i32;
+}
+
+i32 case_33() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    u32 y = x;
+    y -= 5;
+    return (y == e) as i32;
+}
+
+i32 case_34() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2d as u32);
+    u32 y = x;
+    y *= 5;
+    return (y == e) as i32;
+}
+
+i32 case_35() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    u32 y = x;
+    y &= 5;
+    return (y == e) as i32;
+}
+
+i32 case_36() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xd as u32);
+    u32 y = x;
+    y |= 5;
+    return (y == e) as i32;
+}
+
+i32 case_37() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xc as u32);
+    u32 y = x;
+    y ^= 5;
+    return (y == e) as i32;
+}
+
+u32 h_38() {
+    return 5;
+}
+
+i32 case_38() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (h_38() == e) as i32;
+}
+
+u32 id__39(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_39() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (id__39(x, 5) == e) as i32;
+}
+
+u32 add__40(u32 self, u32 b) {
+    return self + b;
+}
+
+i32 case_40() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return (x.add__40(5) == e) as i32;
+}
+
+struct S_41 {
+    u32 f;
+}
+
+i32 case_41() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    S_41 s = S_41 { f = 5 };
+    return (s.f == e) as i32;
+}
+
+i32 case_42() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32[2] a = { x, 5 };
+    return (a[1] == e) as i32;
+}
+
+i32 case_43() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    bool c = x == x;
+    u32 y = if c { 5 } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_44() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = match x {
+        _ => 5,
+    };
+    return (y == e) as i32;
+}
+
+i32 case_45() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    i32 r = match e {
+        5 => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_46() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    i32 r = match e {
+        5..=5 => 1,
+        _ => 2,
+    };
+    return (r == 1) as i32;
+}
+
+i32 case_47() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32{0..20} y = 5;
+    return (y as u32 == e) as i32;
+}
+
+i32 case_48() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32{0..20} y = e as (u32{0..20});
+    return (y == 5) as i32;
+}
+
+T tid_49(T)(T a) {
+    return a;
+}
+
+i32 case_49() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = tid_49(5);
+    return (y == e) as i32;
+}
+
+T tid_50(T)(T a) {
+    return a;
+}
+
+i32 case_50() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (tid_50!u32(5) == e) as i32;
+}
+
+u32 tv_51(u32 N)() {
+    return N;
+}
+
+i32 case_51() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (tv_51!(5)() == e) as i32;
+}
+
+u32 id__52(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_52() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    return (id__52(x, x - 5) == e) as i32;
+}
+
+i32 case_53() {
+    u32 x = (0x9 as u32);
+    return ((x + 5) - 5 == x) as i32;
+}
+
+i32 case_54() {
+    u32 x = (0x9 as u32);
+    bool r = x == ~0;
+    return (r == false) as i32;
+}
+
+i32 case_55() {
+    u32 x = (0x9 as u32);
+    bool r = ~0 == x;
+    return (r == false) as i32;
+}
+
+i32 case_56() {
+    u32 x = (0x9 as u32);
+    bool r = x != ~0;
+    return (r == true) as i32;
+}
+
+i32 case_57() {
+    u32 x = (0x9 as u32);
+    bool r = ~0 != x;
+    return (r == true) as i32;
+}
+
+i32 case_58() {
+    u32 x = (0x9 as u32);
+    bool r = x < ~0;
+    return (r == true) as i32;
+}
+
+i32 case_59() {
+    u32 x = (0x9 as u32);
+    bool r = ~0 < x;
+    return (r == false) as i32;
+}
+
+i32 case_60() {
+    u32 x = (0x9 as u32);
+    bool r = x <= ~0;
+    return (r == true) as i32;
+}
+
+i32 case_61() {
+    u32 x = (0x9 as u32);
+    bool r = ~0 <= x;
+    return (r == false) as i32;
+}
+
+i32 case_62() {
+    u32 x = (0x9 as u32);
+    bool r = x > ~0;
+    return (r == false) as i32;
+}
+
+i32 case_63() {
+    u32 x = (0x9 as u32);
+    bool r = ~0 > x;
+    return (r == true) as i32;
+}
+
+i32 case_64() {
+    u32 x = (0x9 as u32);
+    bool r = x >= ~0;
+    return (r == false) as i32;
+}
+
+i32 case_65() {
+    u32 x = (0x9 as u32);
+    bool r = ~0 >= x;
+    return (r == true) as i32;
+}
+
+i32 case_66() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    return ((x + ~0) == e) as i32;
+}
+
+i32 case_67() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    return ((~0 + x) == e) as i32;
+}
+
+i32 case_68() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xa as u32);
+    return ((x - ~0) == e) as i32;
+}
+
+i32 case_69() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff6 as u32);
+    return ((~0 - x) == e) as i32;
+}
+
+i32 case_70() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff7 as u32);
+    return ((x * ~0) == e) as i32;
+}
+
+i32 case_71() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff7 as u32);
+    return ((~0 * x) == e) as i32;
+}
+
+i32 case_72() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return ((x / ~0) == e) as i32;
+}
+
+i32 case_73() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1c71c71c as u32);
+    return ((~0 / x) == e) as i32;
+}
+
+i32 case_74() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x9 as u32);
+    return ((x % ~0) == e) as i32;
+}
+
+i32 case_75() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x3 as u32);
+    return ((~0 % x) == e) as i32;
+}
+
+i32 case_76() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x9 as u32);
+    return ((x & ~0) == e) as i32;
+}
+
+i32 case_77() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x9 as u32);
+    return ((~0 & x) == e) as i32;
+}
+
+i32 case_78() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return ((x | ~0) == e) as i32;
+}
+
+i32 case_79() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return ((~0 | x) == e) as i32;
+}
+
+i32 case_80() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff6 as u32);
+    return ((x ^ ~0) == e) as i32;
+}
+
+i32 case_81() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff6 as u32);
+    return ((~0 ^ x) == e) as i32;
+}
+
+i32 case_82() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32 y = ~0;
+    return (y == e) as i32;
+}
+
+i32 case_83() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32 y = x;
+    y = ~0;
+    return (y == e) as i32;
+}
+
+i32 case_84() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    u32 y = x;
+    y += ~0;
+    return (y == e) as i32;
+}
+
+i32 case_85() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xa as u32);
+    u32 y = x;
+    y -= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_86() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff7 as u32);
+    u32 y = x;
+    y *= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_87() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x9 as u32);
+    u32 y = x;
+    y &= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_88() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32 y = x;
+    y |= ~0;
+    return (y == e) as i32;
+}
+
+i32 case_89() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff6 as u32);
+    u32 y = x;
+    y ^= ~0;
+    return (y == e) as i32;
+}
+
+u32 h_90() {
+    return ~0;
+}
+
+i32 case_90() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return (h_90() == e) as i32;
+}
+
+u32 id__91(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_91() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return (id__91(x, ~0) == e) as i32;
+}
+
+u32 add__92(u32 self, u32 b) {
+    return self + b;
+}
+
+i32 case_92() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    return (x.add__92(~0) == e) as i32;
+}
+
+struct S_93 {
+    u32 f;
+}
+
+i32 case_93() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    S_93 s = S_93 { f = ~0 };
+    return (s.f == e) as i32;
+}
+
+i32 case_94() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32[2] a = { x, ~0 };
+    return (a[1] == e) as i32;
+}
+
+i32 case_95() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    bool c = x == x;
+    u32 y = if c { ~0 } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_96() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32 y = match x {
+        _ => ~0,
+    };
+    return (y == e) as i32;
+}
+
+T tid_97(T)(T a) {
+    return a;
+}
+
+i32 case_97() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32 y = tid_97(~0);
+    return (y == e) as i32;
+}
+
+T tid_98(T)(T a) {
+    return a;
+}
+
+i32 case_98() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return (tid_98!u32(~0) == e) as i32;
+}
+
+u32 tv_99(u32 N)() {
+    return N;
+}
+
+i32 case_99() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return (tv_99!(~0)() == e) as i32;
+}
+
+u32 id__100(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_100() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xa as u32);
+    return (id__100(x, x - ~0) == e) as i32;
+}
+
+i32 case_101() {
+    u32 x = (0x9 as u32);
+    return ((x + ~0) - ~0 == x) as i32;
+}
+
+i32 case_102() {
+    u32 x = (0x9 as u32);
+    bool r = x == (5);
+    return (r == false) as i32;
+}
+
+i32 case_103() {
+    u32 x = (0x9 as u32);
+    bool r = (5) == x;
+    return (r == false) as i32;
+}
+
+i32 case_104() {
+    u32 x = (0x9 as u32);
+    bool r = x != (5);
+    return (r == true) as i32;
+}
+
+i32 case_105() {
+    u32 x = (0x9 as u32);
+    bool r = (5) != x;
+    return (r == true) as i32;
+}
+
+i32 case_106() {
+    u32 x = (0x9 as u32);
+    bool r = x < (5);
+    return (r == false) as i32;
+}
+
+i32 case_107() {
+    u32 x = (0x9 as u32);
+    bool r = (5) < x;
+    return (r == true) as i32;
+}
+
+i32 case_108() {
+    u32 x = (0x9 as u32);
+    bool r = x <= (5);
+    return (r == false) as i32;
+}
+
+i32 case_109() {
+    u32 x = (0x9 as u32);
+    bool r = (5) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_110() {
+    u32 x = (0x9 as u32);
+    bool r = x > (5);
+    return (r == true) as i32;
+}
+
+i32 case_111() {
+    u32 x = (0x9 as u32);
+    bool r = (5) > x;
+    return (r == false) as i32;
+}
+
+i32 case_112() {
+    u32 x = (0x9 as u32);
+    bool r = x >= (5);
+    return (r == true) as i32;
+}
+
+i32 case_113() {
+    u32 x = (0x9 as u32);
+    bool r = (5) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_114() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return ((x + (5)) == e) as i32;
+}
+
+i32 case_115() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return (((5) + x) == e) as i32;
+}
+
+i32 case_116() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    return ((x - (5)) == e) as i32;
+}
+
+i32 case_117() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffc as u32);
+    return (((5) - x) == e) as i32;
+}
+
+i32 case_118() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2d as u32);
+    return ((x * (5)) == e) as i32;
+}
+
+i32 case_119() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2d as u32);
+    return (((5) * x) == e) as i32;
+}
+
+i32 case_120() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((x / (5)) == e) as i32;
+}
+
+i32 case_121() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return (((5) / x) == e) as i32;
+}
+
+i32 case_122() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    return ((x % (5)) == e) as i32;
+}
+
+i32 case_123() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (((5) % x) == e) as i32;
+}
+
+i32 case_124() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((x & (5)) == e) as i32;
+}
+
+i32 case_125() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return (((5) & x) == e) as i32;
+}
+
+i32 case_126() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xd as u32);
+    return ((x | (5)) == e) as i32;
+}
+
+i32 case_127() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xd as u32);
+    return (((5) | x) == e) as i32;
+}
+
+i32 case_128() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xc as u32);
+    return ((x ^ (5)) == e) as i32;
+}
+
+i32 case_129() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xc as u32);
+    return (((5) ^ x) == e) as i32;
+}
+
+i32 case_130() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x120 as u32);
+    return ((x << (5)) == e) as i32;
+}
+
+i32 case_131() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return ((x >> (5)) == e) as i32;
+}
+
+i32 case_132() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = (5);
+    return (y == e) as i32;
+}
+
+i32 case_133() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = x;
+    y = (5);
+    return (y == e) as i32;
+}
+
+i32 case_134() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    u32 y = x;
+    y += (5);
+    return (y == e) as i32;
+}
+
+i32 case_135() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    u32 y = x;
+    y -= (5);
+    return (y == e) as i32;
+}
+
+i32 case_136() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2d as u32);
+    u32 y = x;
+    y *= (5);
+    return (y == e) as i32;
+}
+
+i32 case_137() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    u32 y = x;
+    y &= (5);
+    return (y == e) as i32;
+}
+
+i32 case_138() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xd as u32);
+    u32 y = x;
+    y |= (5);
+    return (y == e) as i32;
+}
+
+i32 case_139() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xc as u32);
+    u32 y = x;
+    y ^= (5);
+    return (y == e) as i32;
+}
+
+u32 h_140() {
+    return (5);
+}
+
+i32 case_140() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (h_140() == e) as i32;
+}
+
+u32 id__141(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_141() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (id__141(x, (5)) == e) as i32;
+}
+
+u32 add__142(u32 self, u32 b) {
+    return self + b;
+}
+
+i32 case_142() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return (x.add__142((5)) == e) as i32;
+}
+
+struct S_143 {
+    u32 f;
+}
+
+i32 case_143() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    S_143 s = S_143 { f = (5) };
+    return (s.f == e) as i32;
+}
+
+i32 case_144() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32[2] a = { x, (5) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_145() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    bool c = x == x;
+    u32 y = if c { (5) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_146() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = match x {
+        _ => (5),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_147() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32{0..20} y = (5);
+    return (y as u32 == e) as i32;
+}
+
+i32 case_148() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32{0..20} y = e as (u32{0..20});
+    return (y == (5)) as i32;
+}
+
+T tid_149(T)(T a) {
+    return a;
+}
+
+i32 case_149() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    u32 y = tid_149((5));
+    return (y == e) as i32;
+}
+
+T tid_150(T)(T a) {
+    return a;
+}
+
+i32 case_150() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (tid_150!u32((5)) == e) as i32;
+}
+
+u32 tv_151(u32 N)() {
+    return N;
+}
+
+i32 case_151() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x5 as u32);
+    return (tv_151!((5))() == e) as i32;
+}
+
+u32 id__152(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_152() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x4 as u32);
+    return (id__152(x, x - (5)) == e) as i32;
+}
+
+i32 case_153() {
+    u32 x = (0x9 as u32);
+    return ((x + (5)) - (5) == x) as i32;
+}
+
+i32 case_154() {
+    u32 x = (0x9 as u32);
+    bool r = x == (3 + 4);
+    return (r == false) as i32;
+}
+
+i32 case_155() {
+    u32 x = (0x9 as u32);
+    bool r = (3 + 4) == x;
+    return (r == false) as i32;
+}
+
+i32 case_156() {
+    u32 x = (0x9 as u32);
+    bool r = x != (3 + 4);
+    return (r == true) as i32;
+}
+
+i32 case_157() {
+    u32 x = (0x9 as u32);
+    bool r = (3 + 4) != x;
+    return (r == true) as i32;
+}
+
+i32 case_158() {
+    u32 x = (0x9 as u32);
+    bool r = x < (3 + 4);
+    return (r == false) as i32;
+}
+
+i32 case_159() {
+    u32 x = (0x9 as u32);
+    bool r = (3 + 4) < x;
+    return (r == true) as i32;
+}
+
+i32 case_160() {
+    u32 x = (0x9 as u32);
+    bool r = x <= (3 + 4);
+    return (r == false) as i32;
+}
+
+i32 case_161() {
+    u32 x = (0x9 as u32);
+    bool r = (3 + 4) <= x;
+    return (r == true) as i32;
+}
+
+i32 case_162() {
+    u32 x = (0x9 as u32);
+    bool r = x > (3 + 4);
+    return (r == true) as i32;
+}
+
+i32 case_163() {
+    u32 x = (0x9 as u32);
+    bool r = (3 + 4) > x;
+    return (r == false) as i32;
+}
+
+i32 case_164() {
+    u32 x = (0x9 as u32);
+    bool r = x >= (3 + 4);
+    return (r == true) as i32;
+}
+
+i32 case_165() {
+    u32 x = (0x9 as u32);
+    bool r = (3 + 4) >= x;
+    return (r == false) as i32;
+}
+
+i32 case_166() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x10 as u32);
+    return ((x + (3 + 4)) == e) as i32;
+}
+
+i32 case_167() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x10 as u32);
+    return (((3 + 4) + x) == e) as i32;
+}
+
+i32 case_168() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2 as u32);
+    return ((x - (3 + 4)) == e) as i32;
+}
+
+i32 case_169() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    return (((3 + 4) - x) == e) as i32;
+}
+
+i32 case_170() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x3f as u32);
+    return ((x * (3 + 4)) == e) as i32;
+}
+
+i32 case_171() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x3f as u32);
+    return (((3 + 4) * x) == e) as i32;
+}
+
+i32 case_172() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((x / (3 + 4)) == e) as i32;
+}
+
+i32 case_173() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return (((3 + 4) / x) == e) as i32;
+}
+
+i32 case_174() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2 as u32);
+    return ((x % (3 + 4)) == e) as i32;
+}
+
+i32 case_175() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return (((3 + 4) % x) == e) as i32;
+}
+
+i32 case_176() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return ((x & (3 + 4)) == e) as i32;
+}
+
+i32 case_177() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    return (((3 + 4) & x) == e) as i32;
+}
+
+i32 case_178() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xf as u32);
+    return ((x | (3 + 4)) == e) as i32;
+}
+
+i32 case_179() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xf as u32);
+    return (((3 + 4) | x) == e) as i32;
+}
+
+i32 case_180() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return ((x ^ (3 + 4)) == e) as i32;
+}
+
+i32 case_181() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    return (((3 + 4) ^ x) == e) as i32;
+}
+
+i32 case_182() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x480 as u32);
+    return ((x << (3 + 4)) == e) as i32;
+}
+
+i32 case_183() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return ((x >> (3 + 4)) == e) as i32;
+}
+
+i32 case_184() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32 y = (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_185() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32 y = x;
+    y = (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_186() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x10 as u32);
+    u32 y = x;
+    y += (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_187() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2 as u32);
+    u32 y = x;
+    y -= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_188() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x3f as u32);
+    u32 y = x;
+    y *= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_189() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1 as u32);
+    u32 y = x;
+    y &= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_190() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xf as u32);
+    u32 y = x;
+    y |= (3 + 4);
+    return (y == e) as i32;
+}
+
+i32 case_191() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xe as u32);
+    u32 y = x;
+    y ^= (3 + 4);
+    return (y == e) as i32;
+}
+
+u32 h_192() {
+    return (3 + 4);
+}
+
+i32 case_192() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return (h_192() == e) as i32;
+}
+
+u32 id__193(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_193() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return (id__193(x, (3 + 4)) == e) as i32;
+}
+
+u32 add__194(u32 self, u32 b) {
+    return self + b;
+}
+
+i32 case_194() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x10 as u32);
+    return (x.add__194((3 + 4)) == e) as i32;
+}
+
+struct S_195 {
+    u32 f;
+}
+
+i32 case_195() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    S_195 s = S_195 { f = (3 + 4) };
+    return (s.f == e) as i32;
+}
+
+i32 case_196() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32[2] a = { x, (3 + 4) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_197() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    bool c = x == x;
+    u32 y = if c { (3 + 4) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_198() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32 y = match x {
+        _ => (3 + 4),
+    };
+    return (y == e) as i32;
+}
+
+i32 case_199() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32{0..20} y = (3 + 4);
+    return (y as u32 == e) as i32;
+}
+
+i32 case_200() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32{0..20} y = e as (u32{0..20});
+    return (y == (3 + 4)) as i32;
+}
+
+T tid_201(T)(T a) {
+    return a;
+}
+
+i32 case_201() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32 y = tid_201((3 + 4));
+    return (y == e) as i32;
+}
+
+T tid_202(T)(T a) {
+    return a;
+}
+
+i32 case_202() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return (tid_202!u32((3 + 4)) == e) as i32;
+}
+
+u32 tv_203(u32 N)() {
+    return N;
+}
+
+i32 case_203() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return (tv_203!((3 + 4))() == e) as i32;
+}
+
+u32 id__204(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_204() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2 as u32);
+    return (id__204(x, x - (3 + 4)) == e) as i32;
+}
+
+i32 case_205() {
+    u32 x = (0x9 as u32);
+    return ((x + (3 + 4)) - (3 + 4) == x) as i32;
+}
+
+i32 case_206() {
+    u32 x = (0x9 as u32);
+    bool r = x == ~(1);
+    return (r == false) as i32;
+}
+
+i32 case_207() {
+    u32 x = (0x9 as u32);
+    bool r = ~(1) == x;
+    return (r == false) as i32;
+}
+
+i32 case_208() {
+    u32 x = (0x9 as u32);
+    bool r = x != ~(1);
+    return (r == true) as i32;
+}
+
+i32 case_209() {
+    u32 x = (0x9 as u32);
+    bool r = ~(1) != x;
+    return (r == true) as i32;
+}
+
+i32 case_210() {
+    u32 x = (0x9 as u32);
+    bool r = x < ~(1);
+    return (r == true) as i32;
+}
+
+i32 case_211() {
+    u32 x = (0x9 as u32);
+    bool r = ~(1) < x;
+    return (r == false) as i32;
+}
+
+i32 case_212() {
+    u32 x = (0x9 as u32);
+    bool r = x <= ~(1);
+    return (r == true) as i32;
+}
+
+i32 case_213() {
+    u32 x = (0x9 as u32);
+    bool r = ~(1) <= x;
+    return (r == false) as i32;
+}
+
+i32 case_214() {
+    u32 x = (0x9 as u32);
+    bool r = x > ~(1);
+    return (r == false) as i32;
+}
+
+i32 case_215() {
+    u32 x = (0x9 as u32);
+    bool r = ~(1) > x;
+    return (r == true) as i32;
+}
+
+i32 case_216() {
+    u32 x = (0x9 as u32);
+    bool r = x >= ~(1);
+    return (r == false) as i32;
+}
+
+i32 case_217() {
+    u32 x = (0x9 as u32);
+    bool r = ~(1) >= x;
+    return (r == true) as i32;
+}
+
+i32 case_218() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return ((x + ~(1)) == e) as i32;
+}
+
+i32 case_219() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return ((~(1) + x) == e) as i32;
+}
+
+i32 case_220() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xb as u32);
+    return ((x - ~(1)) == e) as i32;
+}
+
+i32 case_221() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff5 as u32);
+    return ((~(1) - x) == e) as i32;
+}
+
+i32 case_222() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffee as u32);
+    return ((x * ~(1)) == e) as i32;
+}
+
+i32 case_223() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffee as u32);
+    return ((~(1) * x) == e) as i32;
+}
+
+i32 case_224() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x0 as u32);
+    return ((x / ~(1)) == e) as i32;
+}
+
+i32 case_225() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x1c71c71c as u32);
+    return ((~(1) / x) == e) as i32;
+}
+
+i32 case_226() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x9 as u32);
+    return ((x % ~(1)) == e) as i32;
+}
+
+i32 case_227() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x2 as u32);
+    return ((~(1) % x) == e) as i32;
+}
+
+i32 case_228() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    return ((x & ~(1)) == e) as i32;
+}
+
+i32 case_229() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    return ((~(1) & x) == e) as i32;
+}
+
+i32 case_230() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return ((x | ~(1)) == e) as i32;
+}
+
+i32 case_231() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    return ((~(1) | x) == e) as i32;
+}
+
+i32 case_232() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff7 as u32);
+    return ((x ^ ~(1)) == e) as i32;
+}
+
+i32 case_233() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff7 as u32);
+    return ((~(1) ^ x) == e) as i32;
+}
+
+i32 case_234() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    u32 y = ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_235() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    u32 y = x;
+    y = ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_236() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    u32 y = x;
+    y += ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_237() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xb as u32);
+    u32 y = x;
+    y -= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_238() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffee as u32);
+    u32 y = x;
+    y *= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_239() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x8 as u32);
+    u32 y = x;
+    y &= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_240() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xffffffff as u32);
+    u32 y = x;
+    y |= ~(1);
+    return (y == e) as i32;
+}
+
+i32 case_241() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffff7 as u32);
+    u32 y = x;
+    y ^= ~(1);
+    return (y == e) as i32;
+}
+
+u32 h_242() {
+    return ~(1);
+}
+
+i32 case_242() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    return (h_242() == e) as i32;
+}
+
+u32 id__243(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_243() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    return (id__243(x, ~(1)) == e) as i32;
+}
+
+u32 add__244(u32 self, u32 b) {
+    return self + b;
+}
+
+i32 case_244() {
+    u32 x = (0x9 as u32);
+    u32 e = (0x7 as u32);
+    return (x.add__244(~(1)) == e) as i32;
+}
+
+struct S_245 {
+    u32 f;
+}
+
+i32 case_245() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    S_245 s = S_245 { f = ~(1) };
+    return (s.f == e) as i32;
+}
+
+i32 case_246() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    u32[2] a = { x, ~(1) };
+    return (a[1] == e) as i32;
+}
+
+i32 case_247() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    bool c = x == x;
+    u32 y = if c { ~(1) } else { x };
+    return (y == e) as i32;
+}
+
+i32 case_248() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    u32 y = match x {
+        _ => ~(1),
+    };
+    return (y == e) as i32;
+}
+
+T tid_249(T)(T a) {
+    return a;
+}
+
+i32 case_249() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    u32 y = tid_249(~(1));
+    return (y == e) as i32;
+}
+
+T tid_250(T)(T a) {
+    return a;
+}
+
+i32 case_250() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    return (tid_250!u32(~(1)) == e) as i32;
+}
+
+u32 tv_251(u32 N)() {
+    return N;
+}
+
+i32 case_251() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xfffffffe as u32);
+    return (tv_251!(~(1))() == e) as i32;
+}
+
+u32 id__252(u32 unused, u32 a) {
+    return a;
+}
+
+i32 case_252() {
+    u32 x = (0x9 as u32);
+    u32 e = (0xb as u32);
+    return (id__252(x, x - ~(1)) == e) as i32;
+}
+
+i32 case_253() {
+    u32 x = (0x9 as u32);
+    return ((x + ~(1)) - ~(1) == x) as i32;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 ok = 0;
+    ok = ok + case_0();
+    ok = ok + case_1();
+    ok = ok + case_2();
+    ok = ok + case_3();
+    ok = ok + case_4();
+    ok = ok + case_5();
+    ok = ok + case_6();
+    ok = ok + case_7();
+    ok = ok + case_8();
+    ok = ok + case_9();
+    ok = ok + case_10();
+    ok = ok + case_11();
+    ok = ok + case_12();
+    ok = ok + case_13();
+    ok = ok + case_14();
+    ok = ok + case_15();
+    ok = ok + case_16();
+    ok = ok + case_17();
+    ok = ok + case_18();
+    ok = ok + case_19();
+    ok = ok + case_20();
+    ok = ok + case_21();
+    ok = ok + case_22();
+    ok = ok + case_23();
+    ok = ok + case_24();
+    ok = ok + case_25();
+    ok = ok + case_26();
+    ok = ok + case_27();
+    ok = ok + case_28();
+    ok = ok + case_29();
+    ok = ok + case_30();
+    ok = ok + case_31();
+    ok = ok + case_32();
+    ok = ok + case_33();
+    ok = ok + case_34();
+    ok = ok + case_35();
+    ok = ok + case_36();
+    ok = ok + case_37();
+    ok = ok + case_38();
+    ok = ok + case_39();
+    ok = ok + case_40();
+    ok = ok + case_41();
+    ok = ok + case_42();
+    ok = ok + case_43();
+    ok = ok + case_44();
+    ok = ok + case_45();
+    ok = ok + case_46();
+    ok = ok + case_47();
+    ok = ok + case_48();
+    ok = ok + case_49();
+    ok = ok + case_50();
+    ok = ok + case_51();
+    ok = ok + case_52();
+    ok = ok + case_53();
+    ok = ok + case_54();
+    ok = ok + case_55();
+    ok = ok + case_56();
+    ok = ok + case_57();
+    ok = ok + case_58();
+    ok = ok + case_59();
+    ok = ok + case_60();
+    ok = ok + case_61();
+    ok = ok + case_62();
+    ok = ok + case_63();
+    ok = ok + case_64();
+    ok = ok + case_65();
+    ok = ok + case_66();
+    ok = ok + case_67();
+    ok = ok + case_68();
+    ok = ok + case_69();
+    ok = ok + case_70();
+    ok = ok + case_71();
+    ok = ok + case_72();
+    ok = ok + case_73();
+    ok = ok + case_74();
+    ok = ok + case_75();
+    ok = ok + case_76();
+    ok = ok + case_77();
+    ok = ok + case_78();
+    ok = ok + case_79();
+    ok = ok + case_80();
+    ok = ok + case_81();
+    ok = ok + case_82();
+    ok = ok + case_83();
+    ok = ok + case_84();
+    ok = ok + case_85();
+    ok = ok + case_86();
+    ok = ok + case_87();
+    ok = ok + case_88();
+    ok = ok + case_89();
+    ok = ok + case_90();
+    ok = ok + case_91();
+    ok = ok + case_92();
+    ok = ok + case_93();
+    ok = ok + case_94();
+    ok = ok + case_95();
+    ok = ok + case_96();
+    ok = ok + case_97();
+    ok = ok + case_98();
+    ok = ok + case_99();
+    ok = ok + case_100();
+    ok = ok + case_101();
+    ok = ok + case_102();
+    ok = ok + case_103();
+    ok = ok + case_104();
+    ok = ok + case_105();
+    ok = ok + case_106();
+    ok = ok + case_107();
+    ok = ok + case_108();
+    ok = ok + case_109();
+    ok = ok + case_110();
+    ok = ok + case_111();
+    ok = ok + case_112();
+    ok = ok + case_113();
+    ok = ok + case_114();
+    ok = ok + case_115();
+    ok = ok + case_116();
+    ok = ok + case_117();
+    ok = ok + case_118();
+    ok = ok + case_119();
+    ok = ok + case_120();
+    ok = ok + case_121();
+    ok = ok + case_122();
+    ok = ok + case_123();
+    ok = ok + case_124();
+    ok = ok + case_125();
+    ok = ok + case_126();
+    ok = ok + case_127();
+    ok = ok + case_128();
+    ok = ok + case_129();
+    ok = ok + case_130();
+    ok = ok + case_131();
+    ok = ok + case_132();
+    ok = ok + case_133();
+    ok = ok + case_134();
+    ok = ok + case_135();
+    ok = ok + case_136();
+    ok = ok + case_137();
+    ok = ok + case_138();
+    ok = ok + case_139();
+    ok = ok + case_140();
+    ok = ok + case_141();
+    ok = ok + case_142();
+    ok = ok + case_143();
+    ok = ok + case_144();
+    ok = ok + case_145();
+    ok = ok + case_146();
+    ok = ok + case_147();
+    ok = ok + case_148();
+    ok = ok + case_149();
+    ok = ok + case_150();
+    ok = ok + case_151();
+    ok = ok + case_152();
+    ok = ok + case_153();
+    ok = ok + case_154();
+    ok = ok + case_155();
+    ok = ok + case_156();
+    ok = ok + case_157();
+    ok = ok + case_158();
+    ok = ok + case_159();
+    ok = ok + case_160();
+    ok = ok + case_161();
+    ok = ok + case_162();
+    ok = ok + case_163();
+    ok = ok + case_164();
+    ok = ok + case_165();
+    ok = ok + case_166();
+    ok = ok + case_167();
+    ok = ok + case_168();
+    ok = ok + case_169();
+    ok = ok + case_170();
+    ok = ok + case_171();
+    ok = ok + case_172();
+    ok = ok + case_173();
+    ok = ok + case_174();
+    ok = ok + case_175();
+    ok = ok + case_176();
+    ok = ok + case_177();
+    ok = ok + case_178();
+    ok = ok + case_179();
+    ok = ok + case_180();
+    ok = ok + case_181();
+    ok = ok + case_182();
+    ok = ok + case_183();
+    ok = ok + case_184();
+    ok = ok + case_185();
+    ok = ok + case_186();
+    ok = ok + case_187();
+    ok = ok + case_188();
+    ok = ok + case_189();
+    ok = ok + case_190();
+    ok = ok + case_191();
+    ok = ok + case_192();
+    ok = ok + case_193();
+    ok = ok + case_194();
+    ok = ok + case_195();
+    ok = ok + case_196();
+    ok = ok + case_197();
+    ok = ok + case_198();
+    ok = ok + case_199();
+    ok = ok + case_200();
+    ok = ok + case_201();
+    ok = ok + case_202();
+    ok = ok + case_203();
+    ok = ok + case_204();
+    ok = ok + case_205();
+    ok = ok + case_206();
+    ok = ok + case_207();
+    ok = ok + case_208();
+    ok = ok + case_209();
+    ok = ok + case_210();
+    ok = ok + case_211();
+    ok = ok + case_212();
+    ok = ok + case_213();
+    ok = ok + case_214();
+    ok = ok + case_215();
+    ok = ok + case_216();
+    ok = ok + case_217();
+    ok = ok + case_218();
+    ok = ok + case_219();
+    ok = ok + case_220();
+    ok = ok + case_221();
+    ok = ok + case_222();
+    ok = ok + case_223();
+    ok = ok + case_224();
+    ok = ok + case_225();
+    ok = ok + case_226();
+    ok = ok + case_227();
+    ok = ok + case_228();
+    ok = ok + case_229();
+    ok = ok + case_230();
+    ok = ok + case_231();
+    ok = ok + case_232();
+    ok = ok + case_233();
+    ok = ok + case_234();
+    ok = ok + case_235();
+    ok = ok + case_236();
+    ok = ok + case_237();
+    ok = ok + case_238();
+    ok = ok + case_239();
+    ok = ok + case_240();
+    ok = ok + case_241();
+    ok = ok + case_242();
+    ok = ok + case_243();
+    ok = ok + case_244();
+    ok = ok + case_245();
+    ok = ok + case_246();
+    ok = ok + case_247();
+    ok = ok + case_248();
+    ok = ok + case_249();
+    ok = ok + case_250();
+    ok = ok + case_251();
+    ok = ok + case_252();
+    ok = ok + case_253();
+    return 100 - 254 + ok;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 100
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 100

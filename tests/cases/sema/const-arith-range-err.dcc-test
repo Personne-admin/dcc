@@ -22,7 +22,7 @@ public i32 wide() {
 }
 
 === EXPECT-ERRORS ===
-main.dc:4: integer overflow in constant expression
-main.dc:9: integer overflow in constant expression
-main.dc:14: integer overflow in constant expression
-main.dc:19: integer overflow in constant expression
+main.dc:4: integer literal expression 300 does not fit in type u8
+main.dc:9: integer literal expression -1 does not fit in type u8
+main.dc:14: integer literal expression 128 does not fit in type i8
+main.dc:19: integer literal expression 2147483648 does not fit in type i32
