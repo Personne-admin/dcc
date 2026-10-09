@@ -64,6 +64,8 @@ export namespace dcc::backend::x86
         bool has_base = m.base.is_valid() && m.base.is_physical();
         bool has_index = m.index.is_valid() && m.index.is_physical();
         bool has_symbol = !m.symbol.empty();
+        if (address_bits == 32 && !has_base && !has_index)
+            r += "dword ";
         if (has_base)
             r += intel_register_name(m.base.phys_reg(), address_bits);
         if (has_index)

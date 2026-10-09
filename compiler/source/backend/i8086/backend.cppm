@@ -128,7 +128,8 @@ namespace dcc::backend
                     std::string text;
                     for (auto const& f : functions)
                     {
-                        text += std::format("func {} [frame_size={}]\n", f.name(), f.frame_size);
+                        auto spills = std::ranges::count_if(f.frame_slots, [](MFrameSlot const& slot) { return slot.is_spill; });
+                        text += std::format("func {} [frame_size={}, spill_slots={}]\n", f.name(), f.frame_size, spills);
                         for (auto const& block : f.blocks)
                         {
                             text += std::format("{}:\n", block.display_name());
