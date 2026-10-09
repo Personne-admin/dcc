@@ -11374,7 +11374,8 @@ export namespace dcc::sema
                 if (receiver.type && !has_error(receiver.type) && contains_template_param(receiver.type))
                 {
                     auto* access = m_ast_ctx.make<ast::FieldAccessExpr>(p.range, p.operand, "unwrap", p.range);
-                    auto result = resolve_ufcs(mod, fn, *probe_scope, *access, {}, loop_depth, probe_off, const_env, expected_type, &receiver, true, nullptr,
+                    std::pmr::vector<ast::Expr*> probe_args(m_alloc);
+                    auto result = resolve_ufcs(mod, fn, *probe_scope, *access, {}, loop_depth, probe_off, const_env, expected_type, &receiver, true, &probe_args,
                                                &operand_expected);
                     if (has_error(result.type))
                         operand_expected = nullptr;
