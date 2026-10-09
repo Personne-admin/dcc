@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module probe;
+i32 method(u32 N)(i32 self = 0) { return self; }
+i32 test(i32 x) { return x.method(); }
+
+=== EXPECT-ERRORS ===
+main.dc:3: no matching UFCS function for `method` on receiver type `i32`

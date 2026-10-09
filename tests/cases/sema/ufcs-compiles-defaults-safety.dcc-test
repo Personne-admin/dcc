@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module probe;
+struct Box(T) { bool ok; T value; }
+bool is_ok(T)(const Box(T)* self) { return self.ok; }
+T unwrap(T)(const Box(T)* self, i32 first = 3) { return self.value; }
+T unwrap_err(T)(const Box(T)* self, i32 first = 4) { return self.value; }
+i32 test() {
+    static if compiles(Box(i32) val) { val?; } {
+        return 1;
+    }
+    return 0;
+}

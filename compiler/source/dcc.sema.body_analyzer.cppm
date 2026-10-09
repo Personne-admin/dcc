@@ -5756,6 +5756,31 @@ export namespace dcc::sema
                 return std::nullopt;
             }
 
+            if (params.empty())
+            {
+                if (had_non_constraint_failure)
+                    *had_non_constraint_failure = true;
+
+                if (rejection_reason)
+                    *rejection_reason = "function has no receiver parameter";
+
+                record_rejection(rejection_info, CallRejectionKind::ReceiverMismatch);
+
+                return std::nullopt;
+            }
+
+            if (arg_exprs.size() < num_value_tparams)
+            {
+                if (had_non_constraint_failure)
+                    *had_non_constraint_failure = true;
+
+                if (rejection_reason)
+                    *rejection_reason = "missing value template argument";
+
+                record_rejection(rejection_info, CallRejectionKind::TooFewArgs);
+                return std::nullopt;
+            }
+
             auto* probe_scope = make_probe_scope(scope);
             std::uint32_t probe_off = next_off;
             ErrorSuppressionGuard suppress{m_suppress_errors, m_suppressed_error_count, &m_pending_lambdas};
@@ -6157,7 +6182,7 @@ export namespace dcc::sema
 
             std::size_t num_value_tparams = 0;
             for (auto const& tp : f.template_params)
-                if (tp.value_type && !tp.default_value)
+                if (tp.value_type && !tp.is_pack && !tp.default_value)
                     ++num_value_tparams;
 
             auto pack_arity = compute_pack_arity(&f, params.size());
@@ -6195,6 +6220,18 @@ export namespace dcc::sema
                 }
             }
 
+            if (params.empty())
+            {
+                auto diag_obj =
+                    diag::Diagnostic{diag::Severity::Error, std::format("UFCS call to `{}` needs a function with a receiver parameter", f.name)}.primary(range);
+                std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                m_diag.emit(std::move(diag_obj));
+                return std::nullopt;
+            }
+
+            if (report_missing_arguments(f, arg_exprs, num_value_tparams, 1, non_pack_func_params, range, false))
+                return std::nullopt;
+
             infer::TemplateBindings b{m_types};
 
             auto param0 = b.substitute(params[0]);
@@ -6226,7 +6263,7 @@ export namespace dcc::sema
                 {
                     std::size_t idx = 0;
                     for (auto const& tp : f.template_params)
-                        if (tp.value_type && !tp.default_value)
+                        if (tp.value_type && !tp.is_pack && !tp.default_value)
                         {
                             if (idx == vi)
                             {
@@ -6570,6 +6607,31 @@ export namespace dcc::sema
                 ++index;
             }
             return first_default;
+        }
+
+        bool report_missing_arguments(ast::FuncDecl const& f, std::span<ast::Expr* const> arg_exprs, std::size_t num_value_tparams, std::size_t receiver_params,
+                                      std::size_t non_pack_func_params, sm::SourceRange range, bool quiet)
+        {
+            std::size_t const supplied = arg_exprs.size() >= num_value_tparams ? arg_exprs.size() - num_value_tparams + receiver_params : 0;
+            if (arg_exprs.size() >= num_value_tparams && supplied >= non_pack_func_params)
+                return false;
+
+            if (!quiet && m_suppress_errors)
+                ++m_suppressed_error_count;
+            else if (!quiet)
+            {
+                std::string message;
+                if (arg_exprs.size() < num_value_tparams)
+                    message = std::format("missing value template argument in call to `{}`", f.name);
+                else if (supplied < f.params.size())
+                    message = std::format("missing argument for parameter `{}` in call to `{}`", f.params[supplied].name, f.name);
+                else
+                    message = std::format("missing argument in call to `{}`", f.name);
+                auto diag_obj = diag::Diagnostic{diag::Severity::Error, std::move(message)}.primary(range);
+                std::move(diag_obj).secondary(func_decl_range(f), "declared here");
+                m_diag.emit(std::move(diag_obj));
+            }
+            return true;
         }
 
         std::optional<std::size_t> materialize_ufcs_default_arguments(ast::FuncDecl const& f, std::pmr::vector<ast::Expr*>& args)
@@ -14808,7 +14870,7 @@ export namespace dcc::sema
 
             std::size_t num_value_tparams = 0;
             for (auto const& tp : f.template_params)
-                if (tp.value_type && !tp.default_value)
+                if (tp.value_type && !tp.is_pack && !tp.default_value)
                     ++num_value_tparams;
 
             auto pack_arity = compute_pack_arity(&f, params.size());
@@ -14851,6 +14913,9 @@ export namespace dcc::sema
                 }
             }
 
+            if (report_missing_arguments(f, arg_exprs, num_value_tparams, 0, non_pack_func_params, range, quiet))
+                return {m_types.m_errort()};
+
             infer::TemplateBindings b{m_types};
             if (expected_type && !f.template_params.empty() && f.return_type)
             {
@@ -14865,7 +14930,7 @@ export namespace dcc::sema
                 {
                     std::size_t idx = 0;
                     for (auto const& tp : f.template_params)
-                        if (tp.value_type && !tp.default_value)
+                        if (tp.value_type && !tp.is_pack && !tp.default_value)
                         {
                             if (idx == vi)
                             {
