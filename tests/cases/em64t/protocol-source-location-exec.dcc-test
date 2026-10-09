@@ -1,0 +1,31 @@
+=== FILE: test.dc ===
+module locations;
+import core::source_location;
+using core::source_location::*;
+struct Box(T) { bool ok; T value; }
+u32 ok_line;
+[]const u8 filename;
+@runtime bool is_ok(T)(const Box(T)* self, SourceLocation sl = source_location()) { ok_line = sl.line; return self.ok; }
+@runtime u32 unwrap(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; return sl.line; }
+@runtime u32 unwrap_err(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; return sl.line; }
+u32 propagate(T)(Box(T) box) {
+    return box
+        ?;
+}
+@nomangle public i32 dcc_main() {
+    Box(i32) ok = {ok = true, value = 7};
+    Box(i32) err = {ok = false, value = 9};
+    u32 explicit = unwrap(&ok);
+    u32 ufcs = ok.unwrap();
+    u32 generic = propagate(ok);
+    if explicit != 17 { return 1; }
+    if ufcs != 18 { return 2; }
+    if generic != 12 || ok_line != 12 { return 3; }
+    if propagate(err) != 12 || ok_line != 12 { return 4; }
+    if filename.len < 7 { return 5; }
+    if filename[filename.len - 7] != 116 || filename[filename.len - 6] != 101 || filename[filename.len - 5] != 115 || filename[filename.len - 4] != 116 || filename[filename.len - 3] != 46 || filename[filename.len - 2] != 100 || filename[filename.len - 1] != 99 { return 6; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

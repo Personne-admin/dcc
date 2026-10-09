@@ -2515,7 +2515,7 @@ namespace dcc::backend::em64t
                         ptr_val = sv->pointer;
                     }
 
-                    if (auto* gr = ir_cast<IrGlobalRef>(ptr_val))
+                    if (auto* gr = ir_cast<IrGlobalRef>(ptr_val); gr && !is_memory_type(val_val ? val_val->type : nullptr))
                     {
                         VReg val = ctx.try_materialize(val_val);
                         if (val.is_valid())
