@@ -37,16 +37,6 @@ namespace dcc::backend::i8086
 
             void append(MInstr const& mi) { block->instrs.push_back(mi); }
 
-            [[nodiscard]] static MInstr make(MOpc opc, std::initializer_list<MOp> ops, std::uint8_t defs)
-            {
-                MInstr mi;
-                mi.opc = opc;
-                mi.num_defs = defs;
-                for (auto const& op : ops)
-                    mi.ops[mi.num_ops++] = op;
-                return mi;
-            }
-
             [[nodiscard]] static unsigned scalar_bits(IrType const* type)
             {
                 if (!type)
@@ -81,7 +71,7 @@ namespace dcc::backend::i8086
                     return std::nullopt;
                 }
                 VReg v = mfunc.new_vreg();
-                append(make(MOpc::MOV32ri, {MOp::from_reg(v), MOp::from_imm(static_cast<std::int64_t>(static_cast<std::uint32_t>(*constant)))}, 1));
+                append(make_instr(MOpc::MOV32ri, {MOp::from_reg(v), MOp::from_imm(static_cast<std::int64_t>(static_cast<std::uint32_t>(*constant)))}, 1));
                 return v;
             }
 
@@ -99,16 +89,16 @@ namespace dcc::backend::i8086
                     auto v = materialize(ret.value);
                     if (!v)
                         return;
-                    append(make(MOpc::COPY, {MOp::from_reg(VReg::phys(PhysReg::RAX)), MOp::from_reg(*v)}, 1));
+                    append(make_instr(MOpc::COPY, {phys_operand(PhysReg::RAX), MOp::from_reg(*v)}, 1));
                     uses |= 1ULL << static_cast<unsigned>(PhysReg::RAX);
                     if (bits == 32 && c_abi)
                     {
-                        append(make(MOpc::COPY, {MOp::from_reg(VReg::phys(PhysReg::RDX)), MOp::from_reg(*v)}, 1));
-                        append(make(MOpc::SHR32ri8, {MOp::from_reg(VReg::phys(PhysReg::RDX)), MOp::from_reg(VReg::phys(PhysReg::RDX)), MOp::from_imm(16)}, 1));
+                        append(make_instr(MOpc::COPY, {phys_operand(PhysReg::RDX), MOp::from_reg(*v)}, 1));
+                        append(make_instr(MOpc::SHR32ri8, {phys_operand(PhysReg::RDX), phys_operand(PhysReg::RDX), MOp::from_imm(16)}, 1));
                         uses |= 1ULL << static_cast<unsigned>(PhysReg::RDX);
                     }
                 }
-                MInstr mi = make(MOpc::RET, {}, 0);
+                MInstr mi = make_instr(MOpc::RET, {}, 0);
                 mi.implicit_uses = uses;
                 append(mi);
             }

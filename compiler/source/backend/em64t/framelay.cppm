@@ -83,30 +83,14 @@ export namespace dcc::backend::em64t
 
         func.frame_size = frame_size;
 
-        MInstr push_rbp;
-        push_rbp.opc = MOpc::PUSH64r;
-        push_rbp.num_ops = 1;
-        push_rbp.num_defs = 0;
-        push_rbp.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RBP));
-
-        MInstr mov_rbp_rsp;
-        mov_rbp_rsp.opc = MOpc::MOV64rr;
-        mov_rbp_rsp.num_ops = 2;
-        mov_rbp_rsp.num_defs = 1;
-        mov_rbp_rsp.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RBP));
-        mov_rbp_rsp.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RSP));
+        MInstr push_rbp = make_instr(MOpc::PUSH64r, {phys_operand(PhysReg::RBP)}, 0);
+        MInstr mov_rbp_rsp = make_instr(MOpc::MOV64rr, {phys_operand(PhysReg::RBP), phys_operand(PhysReg::RSP)}, 1);
 
         entry.instrs.insert(entry.instrs.begin(), {push_rbp, mov_rbp_rsp});
 
         if (frame_size > 0)
         {
-            MInstr sub_rsp;
-            sub_rsp.opc = MOpc::SUB64ri32;
-            sub_rsp.num_ops = 3;
-            sub_rsp.num_defs = 1;
-            sub_rsp.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RSP));
-            sub_rsp.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RSP));
-            sub_rsp.ops[2] = MOp::from_imm(frame_size);
+            MInstr sub_rsp = make_instr(MOpc::SUB64ri32, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(frame_size)}, 1);
 
             std::size_t insert_pos = 0;
             for (std::size_t i = 0; i < entry.instrs.size(); ++i)
@@ -119,17 +103,8 @@ export namespace dcc::backend::em64t
 
             if (w64 && frame_size >= 4096)
             {
-                MInstr probe_size;
-                probe_size.opc = MOpc::MOV64ri32;
-                probe_size.num_ops = 2;
-                probe_size.num_defs = 1;
-                probe_size.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RAX));
-                probe_size.ops[1] = MOp::from_imm(frame_size);
-
-                MInstr probe;
-                probe.opc = MOpc::CALL_rel32;
-                probe.num_ops = 1;
-                probe.ops[0] = MOp::from_symbol("__chkstk");
+                MInstr probe_size = make_instr(MOpc::MOV64ri32, {phys_operand(PhysReg::RAX), MOp::from_imm(frame_size)}, 1);
+                MInstr probe = make_instr(MOpc::CALL_rel32, {MOp::from_symbol("__chkstk")}, 0);
 
                 entry.instrs.insert(entry.instrs.begin() + static_cast<std::ptrdiff_t>(insert_pos), {probe_size, probe, sub_rsp});
             }
@@ -173,31 +148,16 @@ export namespace dcc::backend::em64t
 
                 if (func.frame_size > 0)
                 {
-                    MInstr add_rsp;
-                    add_rsp.opc = MOpc::ADD64ri32;
-                    add_rsp.num_ops = 3;
-                    add_rsp.num_defs = 1;
-                    add_rsp.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RSP));
-                    add_rsp.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RSP));
-                    add_rsp.ops[2] = MOp::from_imm(func.frame_size);
+                    MInstr add_rsp =
+                        make_instr(MOpc::ADD64ri32, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(func.frame_size)}, 1);
                     blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(pop_run_start), add_rsp);
                     ++i;
                 }
 
                 if (!has_mov_pop)
                 {
-                    MInstr mov_rsp_rbp;
-                    mov_rsp_rbp.opc = MOpc::MOV64rr;
-                    mov_rsp_rbp.num_ops = 2;
-                    mov_rsp_rbp.num_defs = 1;
-                    mov_rsp_rbp.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RSP));
-                    mov_rsp_rbp.ops[1] = MOp::from_reg(VReg::phys(PhysReg::RBP));
-
-                    MInstr pop_rbp;
-                    pop_rbp.opc = MOpc::POP64r;
-                    pop_rbp.num_ops = 1;
-                    pop_rbp.num_defs = 1;
-                    pop_rbp.ops[0] = MOp::from_reg(VReg::phys(PhysReg::RBP));
+                    MInstr mov_rsp_rbp = make_instr(MOpc::MOV64rr, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RBP)}, 1);
+                    MInstr pop_rbp = make_instr(MOpc::POP64r, {phys_operand(PhysReg::RBP)}, 1);
 
                     blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(i), pop_rbp);
                     blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(i), mov_rsp_rbp);
