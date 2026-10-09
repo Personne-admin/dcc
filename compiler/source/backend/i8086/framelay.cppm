@@ -6,29 +6,6 @@ import dcc.backend.x86.mir;
 
 using namespace dcc::backend::x86;
 
-namespace dcc::backend::i8086
-{
-    namespace
-    {
-        [[nodiscard]] MInstr make_instr(MOpc opc, std::initializer_list<MOp> ops, std::uint8_t defs)
-        {
-            MInstr mi;
-            mi.opc = opc;
-            mi.num_defs = defs;
-            for (auto const& op : ops)
-                mi.ops[mi.num_ops++] = op;
-            return mi;
-        }
-
-        [[nodiscard]] MOp phys(PhysReg reg)
-        {
-            return MOp::from_reg(VReg::phys(reg));
-        }
-
-    } // namespace
-
-} // namespace dcc::backend::i8086
-
 export namespace dcc::backend::i8086
 {
     void frame_layout(MFunction& func, target::TargetConfig const&)
@@ -65,8 +42,8 @@ export namespace dcc::backend::i8086
         frame_size = (frame_size + 1) & ~1;
         func.frame_size = frame_size;
 
-        std::vector<MInstr> prologue = {make_instr(MOpc::PUSH16r, {phys(PhysReg::RBP)}, 0),
-                                        make_instr(MOpc::MOV16rr, {phys(PhysReg::RBP), phys(PhysReg::RSP)}, 1)};
+        std::vector<MInstr> prologue = {make_instr(MOpc::PUSH16r, {phys_operand(PhysReg::RBP)}, 0),
+                                        make_instr(MOpc::MOV16rr, {phys_operand(PhysReg::RBP), phys_operand(PhysReg::RSP)}, 1)};
         entry.instrs.insert(entry.instrs.begin(), prologue.begin(), prologue.end());
         if (frame_size > 0)
         {
@@ -74,7 +51,7 @@ export namespace dcc::backend::i8086
             while (at < entry.instrs.size() && (entry.instrs[at].opc == MOpc::PUSH32r || entry.instrs[at].opc == MOpc::PUSH16r))
                 ++at;
             entry.instrs.insert(entry.instrs.begin() + static_cast<std::ptrdiff_t>(at),
-                                make_instr(MOpc::SUB16ri, {phys(PhysReg::RSP), phys(PhysReg::RSP), MOp::from_imm(frame_size)}, 1));
+                                make_instr(MOpc::SUB16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(frame_size)}, 1));
         }
 
         for (auto& block : func.blocks)
@@ -88,11 +65,11 @@ export namespace dcc::backend::i8086
                     --pops;
                 std::vector<MInstr> epilogue;
                 if (frame_size > 0)
-                    epilogue.push_back(make_instr(MOpc::ADD16ri, {phys(PhysReg::RSP), phys(PhysReg::RSP), MOp::from_imm(frame_size)}, 1));
+                    epilogue.push_back(make_instr(MOpc::ADD16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(frame_size)}, 1));
                 block.instrs.insert(block.instrs.begin() + static_cast<std::ptrdiff_t>(pops), epilogue.begin(), epilogue.end());
                 i += epilogue.size();
-                std::vector<MInstr> leave = {make_instr(MOpc::MOV16rr, {phys(PhysReg::RSP), phys(PhysReg::RBP)}, 1),
-                                             make_instr(MOpc::POP16r, {phys(PhysReg::RBP)}, 1)};
+                std::vector<MInstr> leave = {make_instr(MOpc::MOV16rr, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RBP)}, 1),
+                                             make_instr(MOpc::POP16r, {phys_operand(PhysReg::RBP)}, 1)};
                 block.instrs.insert(block.instrs.begin() + static_cast<std::ptrdiff_t>(i), leave.begin(), leave.end());
                 i += leave.size();
             }

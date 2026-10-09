@@ -1075,6 +1075,21 @@ export namespace dcc::backend::x86
         return mi;
     }
 
+    [[nodiscard]] MInstr make_instr(MOpc opc, std::initializer_list<MOp> ops, std::uint8_t defs)
+    {
+        MInstr mi;
+        mi.opc = opc;
+        mi.num_defs = defs;
+        for (auto const& op : ops)
+            mi.ops[mi.num_ops++] = op;
+        return mi;
+    }
+
+    [[nodiscard]] MOp phys_operand(PhysReg reg) noexcept
+    {
+        return MOp::from_reg(VReg::phys(reg));
+    }
+
     [[nodiscard]] MInstr make_mov_ri(VReg dst, std::int64_t value, unsigned bits)
     {
         MInstr mi;
