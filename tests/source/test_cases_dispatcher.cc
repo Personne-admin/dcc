@@ -3721,6 +3721,29 @@ namespace
                 fs::remove_all(run_dir, ec);
                 continue;
             }
+            std::vector<std::string> extra_objects;
+            bool assembled = true;
+            for (auto const& file : fx.files)
+            {
+                if (!file.path.ends_with(".asm"))
+                    continue;
+                auto source = run_dir / fs::path{file.path}.filename();
+                auto object = fs::path{source}.replace_extension(".o");
+                std::ofstream{source} << file.contents;
+                if (std::system(std::format("nasm -f elf32 '{}' -o '{}' > '{}' 2>&1", source.string(), object.string(), (run_dir / "nasm.log").string()).c_str()) != 0)
+                {
+                    std::ifstream log_in{run_dir / "nasm.log"};
+                    fail(std::format("cannot assemble {}: {}", file.path, std::string{std::istreambuf_iterator<char>(log_in), {}}));
+                    assembled = false;
+                    break;
+                }
+                extra_objects.push_back(object.string());
+            }
+            if (!assembled)
+            {
+                fs::remove_all(run_dir, ec);
+                continue;
+            }
             auto const& target = *fixture_target;
             bool const unreal = target.code_model == dcc::target::CodeModel::Unreal || target.code_model == dcc::target::CodeModel::Unreal32;
             for (auto opt : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
@@ -3753,7 +3776,9 @@ namespace
                     out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
                 }
                 dcc::backend::i8086::LinkOptions link{.base = *base, .stack_reserve = 4096, .model = target.code_model};
-                auto linked = dcc::backend::i8086::link_flat_binary({crt0.string(), object.string()}, binary.string(), link, {});
+                std::vector<std::string> inputs{crt0.string(), object.string()};
+                inputs.insert(inputs.end(), extra_objects.begin(), extra_objects.end());
+                auto linked = dcc::backend::i8086::link_flat_binary(inputs, binary.string(), link, {});
                 if (!linked)
                 {
                     fail(std::format("{}: linking failed: {}", level, linked.error()));
