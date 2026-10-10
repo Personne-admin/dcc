@@ -1,0 +1,15 @@
+=== FILE: test.dc ===
+module slice_hash;
+import std::hash;
+import core;
+@runtime i32 run() {
+    static if compiles([]const char value) { value as u64; } { core::compile_error("invalid slice cast accepted"); }
+    const[]const char text = "ASCII";
+    const[]const u8 bytes = text as []const u8;
+    if std::hash::hash_of(&text) != std::hash::hash_of(&bytes) { return 1; }
+    return 0;
+}
+@nomangle public i32 dcc_main() { return run(); }
+=== EXPECT-EM64T-OBJECT ===
+LINK-STD: true
+RUN-EXIT: 0
