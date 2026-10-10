@@ -477,8 +477,8 @@ public Status(FmtError) format_value(T)(
         } else {
             core::compile_error("floating-point formatting is unavailable without floating-point support");
         }
-    } else static if T == [] const u8 {
-        write_padded(w, value, opts) ?;
+    } else static if T == [] const u8 || T == [] const char {
+        write_padded(w, value as [] const u8, opts) ?;
     } else static if compiles (T t, const Writer* q, const Options* o) {
         t.format(q, o);
     } {
