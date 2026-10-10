@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+import core::source_location;
+public i32 kind(T)(T value) {
+    static if T == char { return 1; }
+    else static if T == []const char { return 2; }
+    else static if T == u8 { return 3; }
+    else { return 4; }
+}
+@runtime i32 run() {
+    []const char s = "ASCII";
+    []const u8 bytes = s as []const u8;
+    if kind('A') != 1 || kind(s) != 2 || kind(255 as u8) != 3 { return 1; }
+    if sizeof(char) != 1 || alignof(char) != 1 { return 2; }
+    if (255 as char) as u32 != 255 { return 3; }
+    if s.ptr as usize != bytes.ptr as usize || s.len != bytes.len { return 4; }
+    core::source_location::SourceLocation sl = core::source_location::source_location();
+    if kind(sl.file) != 2 || sl.file.len == 0 { return 5; }
+    return 0;
+}
+@nomangle public i32 dcc_main() { return run(); }
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

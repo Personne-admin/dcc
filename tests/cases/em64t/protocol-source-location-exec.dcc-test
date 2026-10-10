@@ -4,7 +4,7 @@ import core::source_location;
 using core::source_location::*;
 struct Box(T) { bool ok; T value; }
 u32 ok_line;
-[]const u8 filename;
+[]const char filename;
 @runtime bool is_ok(T)(const Box(T)* self, SourceLocation sl = source_location()) { ok_line = sl.line; return self.ok; }
 @runtime u32 unwrap(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; return sl.line; }
 @runtime u32 unwrap_err(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; return sl.line; }

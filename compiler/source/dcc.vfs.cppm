@@ -188,7 +188,7 @@ public void atomic_fence(MemoryOrder order);
     constexpr std::string_view kCoreSourceLocationSourceText = R"dc(module core::source_location;
 
 public struct SourceLocation {
-    []const u8 file;
+    []const char file;
     u32 line;
     u32 column;
 }

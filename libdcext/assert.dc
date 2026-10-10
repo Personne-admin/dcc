@@ -18,7 +18,7 @@ public void __assert(
     [] const char expr
 ) {
     SourceLocation sl = {
-        file = file as [] const u8,
+        file = file,
         line = line as u32,
         column = 0
     };
