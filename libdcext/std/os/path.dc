@@ -28,27 +28,27 @@ public using usize MAX_WIDE = 4096;
 
 public struct PathZ {
     // The extent is mirrored in MAX_BYTES; the OS tests check they agree.
-    u8[MAX_BYTES] bytes;
+    char[MAX_BYTES] bytes;
     usize len;
 }
 
 /// NUL-terminates `path` into `out`.
-public Status(Error) to_pathz([] const u8 path, PathZ* out) {
+public Status(Error) to_pathz([] const char path, PathZ* out) {
     if path.len + 1 > MAX_BYTES {
         return Error::NameTooLong;
     }
 
     // Borrow the field explicitly: a T[N] field is a value and passing it
     // bare would copy (spec section 5), so take the address of element 0.
-    [] u8 view = slice::from_raw(&out.bytes[0], MAX_BYTES);
+    [] char view = slice::from_raw(&out.bytes[0], MAX_BYTES);
     mem::copy(view, path);
-    view[path.len] = 0;
+    view[path.len] = '\0';
     out.len = path.len;
 
     return Status::Ok;
 }
 
-public const u8* ptr(const PathZ* self) {
+public const char* ptr(const PathZ* self) {
     return &self.bytes[0];
 }
 
@@ -67,7 +67,7 @@ public struct PathW {
 ///
 /// malformed input is rejected rather than replaced: a path is a name,
 /// and silently renaming it is worse than failing.
-public Result(usize, Error) to_wide([] const u8 text, [] u16 out) {
+public Result(usize, Error) to_wide([] const char text, [] u16 out) {
     usize i = 0;
     usize n = 0;
 
@@ -114,7 +114,7 @@ public Result(usize, Error) to_wide([] const u8 text, [] u16 out) {
 ///
 /// unpaired surrogates are rejected for the same reason malformed UTF-8
 /// is rejected going the other way.
-public Result(usize, Error) from_wide([] const u16 units, [] u8 out) {
+public Result(usize, Error) from_wide([] const u16 units, [] char out) {
     usize i = 0;
     usize n = 0;
 
@@ -154,7 +154,7 @@ public Result(usize, Error) from_wide([] const u16 units, [] u8 out) {
 }
 
 /// NUL-terminates `path` into `out` as UTF-16.
-public Status(Error) to_pathw([] const u8 path, PathW* out) {
+public Status(Error) to_pathw([] const char path, PathW* out) {
     // Borrow the field explicitly; see `to_pathz`.
     [] u16 view = slice::from_raw(&out.units[0], MAX_WIDE);
     out.len = to_wide(path, view) ?;
@@ -171,24 +171,24 @@ public const u16* wide_ptr(const PathW* self) {
 //! Separator handling only; nothing here touches the filesystem.
 //!
 
-public u8 separator() {
+public char separator() {
     static if core::target::OS == core::target::Os::Windows {
-        return '\\' as u8;
+        return '\\' as char;
     } else {
-        return '/' as u8;
+        return '/' as char;
     }
 }
 
-public bool is_separator(u8 c) {
+public bool is_separator(char c) {
     static if core::target::OS == core::target::Os::Windows {
-        return c == ('\\' as u8) || c == ('/' as u8);
+        return c == ('\\' as char) || c == ('/' as char);
     } else {
-        return c == ('/' as u8);
+        return c == ('/' as char);
     }
 }
 
 /// the final component of `path`, without any trailing separator.
-public [] const u8 basename([] const u8 path) {
+public [] const char basename([] const char path) {
     usize end = path.len;
     while end > 0 && is_separator(path[end - 1]) {
         end--;
@@ -203,7 +203,7 @@ public [] const u8 basename([] const u8 path) {
 }
 
 /// everything before the final component, or an empty slice.
-public [] const u8 dirname([] const u8 path) {
+public [] const char dirname([] const char path) {
     usize end = path.len;
     while end > 0 && is_separator(path[end - 1]) {
         end--;
@@ -221,13 +221,13 @@ public [] const u8 dirname([] const u8 path) {
 }
 
 /// the extension including its dot, or an empty slice.
-public [] const u8 extension([] const u8 path) {
-    [] const u8 base = basename(path);
+public [] const char extension([] const char path) {
+    [] const char base = basename(path);
 
     usize i = base.len;
     while i > 0 {
         i--;
-        if base[i] == ('.' as u8) {
+        if base[i] == ('.' as char) {
             return if i == 0 {
                 base[base.len..base.len]
             } else {
@@ -240,28 +240,28 @@ public [] const u8 extension([] const u8 path) {
 }
 
 /// the final component with its extension removed.
-public [] const u8 stem([] const u8 path) {
-    [] const u8 base = basename(path);
-    [] const u8 ext = extension(path);
+public [] const char stem([] const char path) {
+    [] const char base = basename(path);
+    [] const char ext = extension(path);
     return base[0..base.len - ext.len];
 }
 
-bool is_drive_letter(u8 c) {
-    return (c >= ('a' as u8) && c <= ('z' as u8))
-    || (c >= ('A' as u8) && c <= ('Z' as u8));
+bool is_drive_letter(char c) {
+    return (c >= ('a' as char) && c <= ('z' as char))
+    || (c >= ('A' as char) && c <= ('Z' as char));
 }
 
 /// length of the leading root, or 0 for a relative path. on Windows a
 /// UNC prefix counts as 2 and the share name is an ordinary component;
 /// a drive-relative path like `\src` reports 1, which is enough to stop
 /// `..` from escaping but is not a complete location.
-public usize root_len([] const u8 path) {
+public usize root_len([] const char path) {
     static if core::target::OS == core::target::Os::Windows {
         if path.len >= 2 && is_separator(path[0]) && is_separator(path[1]) {
             return 2;
         }
 
-        if path.len >= 3 && is_drive_letter(path[0]) && path[1] == (':' as u8) && is_separator(path[2]) {
+        if path.len >= 3 && is_drive_letter(path[0]) && path[1] == (':' as char) && is_separator(path[2]) {
             return 3;
         }
 
@@ -279,7 +279,7 @@ public usize root_len([] const u8 path) {
     }
 }
 
-public bool is_absolute([] const u8 path) {
+public bool is_absolute([] const char path) {
     return root_len(path) != 0;
 }
 
@@ -293,10 +293,10 @@ public bool is_absolute([] const u8 path) {
 
 /// joins `base` and `tail`. an absolute `tail` replaces `base` entirely,
 /// which is what every caller means by joining a user-supplied path.
-public Result([] u8, Error) join(
-    [] const u8 base,
-    [] const u8 tail,
-    [] u8 out
+public Result([] char, Error) join(
+    [] const char base,
+    [] const char tail,
+    [] char out
 ) {
     if is_absolute(tail) || base.len == 0 {
         if tail.len > out.len {
@@ -347,7 +347,7 @@ public using usize MAX_COMPONENTS = 128;
 ///
 /// a leading `..` in a relative path is kept, since there is nothing to
 /// cancel it against. in an absolute path it is dropped at the root.
-public Result([] u8, Error) normalize([] const u8 path, [] u8 out) {
+public Result([] char, Error) normalize([] const char path, [] char out) {
     usize root = root_len(path);
     if root > out.len {
         return Error::NameTooLong;
@@ -380,16 +380,16 @@ public Result([] u8, Error) normalize([] const u8 path, [] u8 out) {
             i++;
         }
 
-        [] const u8 part = path[start..i];
+        [] const char part = path[start..i];
         if part.len == 0 {
             continue;
         }
 
-        if part.len == 1 && part[0] == ('.' as u8) {
+        if part.len == 1 && part[0] == ('.' as char) {
             continue;
         }
 
-        bool up = part.len == 2 && part[0] == ('.' as u8) && part[1] == ('.' as u8);
+        bool up = part.len == 2 && part[0] == ('.' as char) && part[1] == ('.' as char);
 
         if up && depth > 0 && !dotdot_only {
             depth--;
@@ -442,14 +442,14 @@ public Result([] u8, Error) normalize([] const u8 path, [] u8 out) {
             return Error::NameTooLong;
         }
 
-        out[0] = '.' as u8;
+        out[0] = '.' as char;
         return Result::Ok(out[0..1]);
     }
 
     return Result::Ok(out[0..n]);
 }
 
-usize component_count([] const u8 path, usize from) {
+usize component_count([] const char path, usize from) {
     usize n = 0;
     usize i = from;
 
@@ -472,7 +472,7 @@ usize component_count([] const u8 path, usize from) {
 }
 
 /// the `nth` component of `path` after its root, or an empty slice.
-[] const u8 component_at([] const u8 path, usize from, usize nth) {
+[] const char component_at([] const char path, usize from, usize nth) {
     usize seen = 0;
     usize i = from;
 
@@ -503,16 +503,16 @@ usize component_count([] const u8 path, usize from) {
 /// expresses `target` relative to `base`. both are normalized first, so
 /// the inputs may contain `.` and `..`. fails when one is absolute and
 /// the other is not, or when their roots differ.
-public Result([] u8, Error) relative(
-    [] const u8 base,
-    [] const u8 target,
-    [] u8 out
+public Result([] char, Error) relative(
+    [] const char base,
+    [] const char target,
+    [] char out
 ) {
-    u8[4096] base_store;
-    u8[4096] target_store;
+    char[4096] base_store;
+    char[4096] target_store;
 
-    [] u8 nb = normalize(base, base_store[0..4096]) ?;
-    [] u8 nt = normalize(target, target_store[0..4096]) ?;
+    [] char nb = normalize(base, base_store[0..4096]) ?;
+    [] char nt = normalize(target, target_store[0..4096]) ?;
 
     usize rb = root_len(nb);
     usize rt = root_len(nt);
@@ -555,13 +555,13 @@ public Result([] u8, Error) relative(
             return Error::NameTooLong;
         }
 
-        out[n] = '.' as u8;
-        out[n + 1] = '.' as u8;
+        out[n] = '.' as char;
+        out[n + 1] = '.' as char;
         n = n + 2;
     }
 
     for usize i = shared; i < nt_count; i++ {
-        [] const u8 part = component_at(nt, rt, i);
+        [] const char part = component_at(nt, rt, i);
 
         if n != 0 {
             if n + 1 > out.len {
@@ -585,7 +585,7 @@ public Result([] u8, Error) relative(
             return Error::NameTooLong;
         }
 
-        out[0] = '.' as u8;
+        out[0] = '.' as char;
         return Result::Ok(out[0..1]);
     }
 

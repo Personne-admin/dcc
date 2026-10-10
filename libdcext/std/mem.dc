@@ -205,6 +205,14 @@ public bool equal([] const u8 a, [] const u8 b) {
     return compare(a, b) == 0;
 }
 
+public i32 compare([] const char a, [] const char b) {
+    return compare(a as [] const u8, b as [] const u8);
+}
+
+public bool equal([] const char a, [] const char b) {
+    return equal(a as [] const u8, b as [] const u8);
+}
+
 public void swap(T)(T* a, T* b) {
     T tmp = *a;
     *a = *b;

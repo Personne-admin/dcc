@@ -16,22 +16,22 @@ using std::sys::{ linux, win };
 using std::{ mem, slice, result };
 using error::Error;
 
-bool same([] const u8 a, [] const u8 b) {
+bool same([] const char a, [] const char b) {
     return mem::equal(a, b);
 }
 
-u8[256] host_store;
+char[256] host_store;
 
-[] const u8 host([] const u8 want) {
+[] const char host([] const char want) {
     for usize i = 0; i < want.len; i++ {
-        host_store[i] = if want[i] == ('/' as u8) { path::separator() } else { want[i] };
+        host_store[i] = if want[i] == ('/' as char) { path::separator() } else { want[i] };
     }
     return slice::from_raw_const(&host_store[0], want.len);
 }
 
-i32 check_normalize([] const u8 input, [] const u8 want, u8* buf, usize cap) {
-    [] u8 out = slice::from_raw(buf, cap);
-    Result([] u8, Error) r = path::normalize(input, out);
+i32 check_normalize([] const char input, [] const char want, char* buf, usize cap) {
+    [] char out = slice::from_raw(buf, cap);
+    Result([] char, Error) r = path::normalize(input, out);
     if r.is_err() {
         return 1;
     }
@@ -42,9 +42,9 @@ i32 check_normalize([] const u8 input, [] const u8 want, u8* buf, usize cap) {
 }
 
 i32 test_normalize_cases() {
-    u8[128] store;
-    [] u8 out = slice::from_raw(&store[0], 128);
-    Result([] u8, Error) r;
+    char[128] store;
+    [] char out = slice::from_raw(&store[0], 128);
+    Result([] char, Error) r;
     r = path::normalize("a/./b", out);
     if r.is_err() || !same(r.unwrap(), host("a/b")) { return 10; }
     r = path::normalize("a/b/../c", out);
@@ -89,20 +89,20 @@ i32 test_normalize_limits() {
         return 30;
     }
     // more than MAX_COMPONENTS must fail rather than corrupt
-    u8[1024] big;
+    char[1024] big;
     usize at = 0;
     for usize i = 0; i < 129; i++ {
         if i != 0 {
-            big[at] = '/' as u8;
+            big[at] = '/' as char;
             at++;
         }
-        big[at] = 'a' as u8;
+        big[at] = 'a' as char;
         at++;
     }
-    [] u8 input = slice::from_raw(&big[0], at);
-    u8[1024] outb;
-    [] u8 out = slice::from_raw(&outb[0], 1024);
-    Result([] u8, Error) r = path::normalize(input, out);
+    [] char input = slice::from_raw(&big[0], at);
+    char[1024] outb;
+    [] char out = slice::from_raw(&outb[0], 1024);
+    Result([] char, Error) r = path::normalize(input, out);
     if r.is_ok() {
         return 31;
     }
@@ -113,10 +113,10 @@ i32 test_normalize_limits() {
     at = 0;
     for usize i = 0; i < 128; i++ {
         if i != 0 {
-            big[at] = '/' as u8;
+            big[at] = '/' as char;
             at++;
         }
-        big[at] = 'a' as u8;
+        big[at] = 'a' as char;
         at++;
     }
     input = slice::from_raw(&big[0], at);
@@ -125,11 +125,11 @@ i32 test_normalize_limits() {
         return 33;
     }
     // result too long for out must not write past the buffer
-    u8[32] backing;
+    char[32] backing;
     for usize i = 0; i < 32; i++ {
-        backing[i] = 170 as u8;
+        backing[i] = 170 as char;
     }
-    [] u8 small = slice::from_raw(&backing[0], 4);
+    [] char small = slice::from_raw(&backing[0], 4);
     r = path::normalize("a/b/c/d", small);
     if r.is_ok() {
         return 34;
@@ -138,7 +138,7 @@ i32 test_normalize_limits() {
         return 35;
     }
     for usize i = 4; i < 32; i++ {
-        if backing[i] != 170 as u8 {
+        if backing[i] != 170 as char {
             return 36;
         }
     }
@@ -146,9 +146,9 @@ i32 test_normalize_limits() {
 }
 
 i32 test_join() {
-    u8[64] store;
-    [] u8 out = slice::from_raw(&store[0], 64);
-    Result([] u8, Error) r;
+    char[64] store;
+    [] char out = slice::from_raw(&store[0], 64);
+    Result([] char, Error) r;
     r = path::join("a", "b", out);
     if r.is_err() || !same(r.unwrap(), host("a/b")) { return 40; }
     r = path::join("a", "/b", out);
@@ -162,8 +162,8 @@ i32 test_join() {
     r = path::join("", "", out);
     if r.is_err() || !same(r.unwrap(), "") { return 45; }
     // result too long for out
-    u8[4] tiny;
-    [] u8 tout = slice::from_raw(&tiny[0], 4);
+    char[4] tiny;
+    [] char tout = slice::from_raw(&tiny[0], 4);
     r = path::join("aaa", "bbb", tout);
     if r.is_ok() {
         return 46;
@@ -175,9 +175,9 @@ i32 test_join() {
 }
 
 i32 test_relative() {
-    u8[64] store;
-    [] u8 out = slice::from_raw(&store[0], 64);
-    Result([] u8, Error) r;
+    char[64] store;
+    [] char out = slice::from_raw(&store[0], 64);
+    Result([] char, Error) r;
     r = path::relative("a/b", "a/b", out);
     if r.is_err() || !same(r.unwrap(), ".") { return 50; }
     r = path::relative("a/b", "a/b/c", out);
@@ -195,17 +195,17 @@ i32 test_relative() {
     r = path::relative("/a/b", "/a/b/c/d", out);
     if r.is_err() || !same(r.unwrap(), host("c/d")) { return 57; }
     // small out
-    u8[1] tiny;
-    [] u8 tout = slice::from_raw(&tiny[0], 1);
+    char[1] tiny;
+    [] char tout = slice::from_raw(&tiny[0], 1);
     r = path::relative("a", "a/b/c/d", tout);
     if r.is_ok() || r.unwrap_err() != Error::NameTooLong { return 58; }
     return 0;
 }
 
 i32 test_separator_forms() {
-    u8[64] store;
-    [] u8 out = slice::from_raw(&store[0], 64);
-    Result([] u8, Error) r;
+    char[64] store;
+    [] char out = slice::from_raw(&store[0], 64);
+    Result([] char, Error) r;
     r = path::normalize("a/b//", out);
     if r.is_err() || !same(r.unwrap(), host("a/b")) { return 110; }
     static if core::target::OS == core::target::Os::Windows {
@@ -269,10 +269,10 @@ i32 test_root_and_absolute() {
             return 71;
         }
     } else {
-        if path::separator() != '/' as u8 {
+        if path::separator() != '/' as char {
             return 72;
         }
-        if path::is_separator('\\' as u8) {
+        if path::is_separator('\\' as char) {
             return 73;
         }
     }

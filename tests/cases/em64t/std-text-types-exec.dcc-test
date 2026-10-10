@@ -1,0 +1,25 @@
+=== FILE: test.dc ===
+module test;
+import std::fmt;
+import std::parse;
+import std::utf8;
+import std::mem;
+import std::hash;
+import std::prelude;
+@runtime i32 run() {
+    char[64] storage;
+    []char output = std::fmt::format_buf(storage, "{} {:x}", "ASCII", 255 as u8).unwrap();
+    if !std::mem::equal(output, "ASCII ff") { return 1; }
+    if !std::mem::equal(output[0..0], "") { return 2; }
+    if std::mem::compare(output[0..5], "ASCII") != 0 { return 3; }
+    char[4] encoded;
+    usize n = std::utf8::encode(0x1f600, encoded).unwrap();
+    if n != 4 || std::utf8::decode(encoded[0..n]).unwrap().codepoint != 0x1f600 { return 4; }
+    const[]const u8 binary = output as []const u8;
+    if binary.ptr as usize != output.ptr as usize || binary.len != output.len { return 5; }
+    return 0;
+}
+@nomangle public i32 dcc_main() { return run(); }
+=== EXPECT-EM64T-OBJECT ===
+LINK-STD: true
+RUN-EXIT: 0

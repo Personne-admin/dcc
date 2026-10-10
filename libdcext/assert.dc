@@ -23,17 +23,17 @@ public void __assert(
         column = 0
     };
 
-    u8[512] scratch;
+    char[512] scratch;
 
     match std::fmt::format_buf(
         scratch,
         "assertion failed: {} in {} at {}:{}",
-        expr as [] const u8,
-        function as [] const u8,
-        file as [] const u8,
+        expr,
+        function,
+        file,
         line
     ) {
         std::result::Result::Ok(rendered) => std::debug::panic(rendered, sl),
-        std::result::Result::Err(_) => std::debug::panic(expr as [] const u8, sl),
+        std::result::Result::Err(_) => std::debug::panic(expr, sl),
     }
 }

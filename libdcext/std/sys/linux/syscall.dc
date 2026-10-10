@@ -222,7 +222,7 @@ public isize fcntl(abi::Fd fd, i32 command, usize argument) {
 //! `path` is a nul-terminated byte string; `std::os::path` builds them.
 //!
 
-public isize openat(abi::Fd dir_fd, const u8* path, i32 flags, abi::Mode mode) {
+public isize openat(abi::Fd dir_fd, const char* path, i32 flags, abi::Mode mode) {
     return raw4(
         NR_OPENAT,
         arg_fd(dir_fd),
@@ -232,23 +232,23 @@ public isize openat(abi::Fd dir_fd, const u8* path, i32 flags, abi::Mode mode) {
     );
 }
 
-public isize open(const u8* path, i32 flags, abi::Mode mode) {
+public isize open(const char* path, i32 flags, abi::Mode mode) {
     return openat(abi::AT_FDCWD, path, flags, mode);
 }
 
-public isize mkdirat(abi::Fd dir_fd, const u8* path, abi::Mode mode) {
+public isize mkdirat(abi::Fd dir_fd, const char* path, abi::Mode mode) {
     return raw3(NR_MKDIRAT, arg_fd(dir_fd), path as usize, mode as usize);
 }
 
-public isize unlinkat(abi::Fd dir_fd, const u8* path, i32 flags) {
+public isize unlinkat(abi::Fd dir_fd, const char* path, i32 flags) {
     return raw3(NR_UNLINKAT, arg_fd(dir_fd), path as usize, arg_i32(flags));
 }
 
 public isize renameat(
     abi::Fd old_dir,
-    const u8* old_path,
+    const char* old_path,
     abi::Fd new_dir,
-    const u8* new_path
+    const char* new_path
 ) {
     return raw4(
         NR_RENAMEAT,
@@ -259,15 +259,15 @@ public isize renameat(
     );
 }
 
-public isize readlink(const u8* path, [] u8 buf) {
+public isize readlink(const char* path, [] char buf) {
     return raw3(NR_READLINK, path as usize, buf.ptr as usize, buf.len);
 }
 
-public isize getcwd([] u8 buf) {
+public isize getcwd([] char buf) {
     return raw2(NR_GETCWD, buf.ptr as usize, buf.len);
 }
 
-public isize chdir(const u8* path) {
+public isize chdir(const char* path) {
     return raw1(NR_CHDIR, path as usize);
 }
 
@@ -283,7 +283,7 @@ public isize getdents64(abi::Fd fd, [] u8 buf) {
     return raw3(NR_GETDENTS64, arg_fd(fd), buf.ptr as usize, buf.len);
 }
 
-public isize fstatat(abi::Fd dir_fd, const u8* path, abi::Stat* out, i32 flags) {
+public isize fstatat(abi::Fd dir_fd, const char* path, abi::Stat* out, i32 flags) {
     return raw4(
         NR_NEWFSTATAT,
         arg_fd(dir_fd),
@@ -446,7 +446,7 @@ public isize wait4(abi::Pid pid, i32* status, i32 options) {
     );
 }
 
-public isize execve(const u8* path, const u8** argv, const u8** envp) {
+public isize execve(const char* path, const char** argv, const char** envp) {
     return raw3(NR_EXECVE, path as usize, argv as usize, envp as usize);
 }
 

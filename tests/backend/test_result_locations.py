@@ -11,10 +11,10 @@ import std::debug;
 import core::source_location;
 using std::result::Result;
 @nomangle extern void finish(i32 code);
-void handler([]const u8 message, core::source_location::SourceLocation sl) {
+void handler([]const char message, core::source_location::SourceLocation sl) {
     if sl.line != EXPECTED { finish(1); }
     if sl.file.len < 8 { finish(2); }
-    if sl.file[sl.file.len - 8] != 112 || sl.file[sl.file.len - 7] != 97 || sl.file[sl.file.len - 6] != 110 || sl.file[sl.file.len - 5] != 105 || sl.file[sl.file.len - 4] != 99 || sl.file[sl.file.len - 3] != 46 || sl.file[sl.file.len - 2] != 100 || sl.file[sl.file.len - 1] != 99 { finish(3); }
+    if sl.file[sl.file.len - 8] != 'p' || sl.file[sl.file.len - 7] != 'a' || sl.file[sl.file.len - 6] != 'n' || sl.file[sl.file.len - 5] != 'i' || sl.file[sl.file.len - 4] != 'c' || sl.file[sl.file.len - 3] != '.' || sl.file[sl.file.len - 2] != 'd' || sl.file[sl.file.len - 1] != 'c' { finish(3); }
     if message.len == 0 { finish(4); }
     finish(0);
 }

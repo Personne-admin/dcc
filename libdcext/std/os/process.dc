@@ -107,12 +107,12 @@ static if core::target::OS != core::target::Os::Freestanding {
 //!
 
 static if core::target::OS != core::target::Os::Freestanding {
-    void report_panic([] const u8 message, SourceLocation sl) {
-        u8[512] scratch;
+    void report_panic([] const char message, SourceLocation sl) {
+        char[512] scratch;
         file::File err = file::stderr();
 
         file::write_all(&err, "panic: ");
-        file::write_all(&err, message);
+        file::write_all(&err, message as [] const u8);
         file::write_all(&err, "\n  at ");
 
         match fmt::format_buf(
@@ -122,7 +122,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             sl.line,
             sl.column
         ) {
-            Result::Ok(rendered) => file::write_all(&err, rendered),
+            Result::Ok(rendered) => file::write_all(&err, rendered as [] const u8),
             Result::Err(_) => file::write_all(&err, "<unknown location>\n"),
         }
 
@@ -149,15 +149,15 @@ static if core::target::OS != core::target::Os::Freestanding {
         install_panic_handler();
 
         saved_argc = argc;
-        saved_argv = argv as const u8**;
+        saved_argv = argv as const char**;
 
         static if core::target::OS == core::target::Os::Linux {
             // envp sits right after the argv NULL: argv[argc + 1].
             saved_envp = (
                 argv as usize + (argc as usize + 1) * 8
-            ) as const u8**;
+            ) as const char**;
         } else {
-            saved_envp = &empty_env as const u8**;
+            saved_envp = &empty_env as const char**;
         }
     }
 }
@@ -174,13 +174,13 @@ static if core::target::OS != core::target::Os::Freestanding {
 //!
 
 i32 saved_argc;
-const u8** saved_argv;
+const char** saved_argv;
 
 public using usize MAX_ENV_ENTRY = 4096;
 
-usize cstr_len(const u8* s, usize bound) {
+usize cstr_len(const char* s, usize bound) {
     usize n = 0;
-    while n < bound && s[n] != 0 {
+    while n < bound && s[n] != '\0' {
         n++;
     }
 
@@ -198,31 +198,31 @@ public usize arg_count() {
     return saved_argc as usize;
 }
 
-public Optional([] const u8) arg(usize index) {
+public Optional([] const char) arg(usize index) {
     if index >= arg_count() || (saved_argv as usize) == 0 {
         return Optional::None;
     }
 
-    const u8* raw = saved_argv[index];
+    const char* raw = saved_argv[index];
     if (raw as usize) == 0 {
         return Optional::None;
     }
 
     return Optional::Some(
-        slice::from_raw_const!u8(raw, cstr_len(raw, MAX_ENV_ENTRY))
+        slice::from_raw_const!char(raw, cstr_len(raw, MAX_ENV_ENTRY))
     );
 }
 
 public struct Var {
-    [] const u8 name;
-    [] const u8 value;
+    [] const char name;
+    [] const char value;
 }
 
 public struct Vars {
-    const u8** cursor;
+    const char** cursor;
     void* block;
     usize offset;
-    u8[4096] buffer;
+    char[4096] buffer;
     bool done;
 }
 
@@ -235,7 +235,7 @@ static if core::target::OS != core::target::Os::Freestanding {
         self.done = false;
 
         static if core::target::OS == core::target::Os::Windows {
-            self.cursor = null as const u8**;
+            self.cursor = null as const char**;
             self.block = win::imports::GetEnvironmentStringsW() as void*;
             if self.block == null {
                 self.done = true;
@@ -252,9 +252,9 @@ static if core::target::OS != core::target::Os::Freestanding {
     }
 }
 
-Optional(Var) split_entry([] const u8 text) {
+Optional(Var) split_entry([] const char text) {
     for usize i = 0; i < text.len; i++ {
-        if text[i] == ('=' as u8) {
+        if text[i] == ('=' as char) {
             // a leading `=` starts a Windows drive-cwd entry, not a name
             if i == 0 {
                 return Optional::None;
@@ -275,7 +275,7 @@ public Optional(Var) next(Vars* self) {
     }
 
     static if core::target::OS == core::target::Os::Windows {
-        [] u8 view = slice::from_raw(&self.buffer[0], 4096);
+        [] char view = slice::from_raw(&self.buffer[0], 4096);
         const u16* units = self.block as const u16*;
 
         while true {
@@ -307,7 +307,7 @@ public Optional(Var) next(Vars* self) {
         }
     } else {
         while true {
-            const u8* raw = self.cursor[self.offset];
+            const char* raw = self.cursor[self.offset];
             if (raw as usize) == 0 {
                 self.done = true;
                 return Optional::None;
@@ -316,7 +316,7 @@ public Optional(Var) next(Vars* self) {
             self.offset++;
 
             Optional(Var) split = split_entry(
-                slice::from_raw_const!u8(raw, cstr_len(raw, MAX_ENV_ENTRY))
+                slice::from_raw_const!char(raw, cstr_len(raw, MAX_ENV_ENTRY))
             );
 
             if split.is_some() {
@@ -348,7 +348,7 @@ static if core::target::OS != core::target::Os::Freestanding {
     /// copies the value of `name` into `out` and returns the written
     /// subslice. reports `NotFound` when the variable is unset. the copy is
     /// deliberate: it gives one lifetime rule on both targets.
-    public Result([] const u8, Error) get_var([] const u8 name, [] u8 out) {
+    public Result([] const char, Error) get_var([] const char name, [] char out) {
         Vars it = vars();
         defer close(&it);
 
@@ -368,7 +368,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             }
 
             mem::copy(out[0..entry.value.len], entry.value);
-            return Result::Ok(out[0..entry.value.len] as [] const u8);
+            return Result::Ok(out[0..entry.value.len] as [] const char);
         }
 
         return Error::NotFound;
@@ -376,9 +376,9 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public bool has_var([] const u8 name) {
-        u8[1] scratch;
-        Result([] const u8, Error) got = get_var(name, scratch[0..1]);
+    public bool has_var([] const char name) {
+        char[1] scratch;
+        Result([] const char, Error) got = get_var(name, scratch[0..1]);
 
         if got.is_ok() {
             return true;
@@ -398,7 +398,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 //!
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Result([] const u8, Error) current_dir([] u8 out) {
+    public Result([] const char, Error) current_dir([] char out) {
         static if core::target::OS == core::target::Os::Windows {
             u16[4096] units;
             win::abi::Dword got = win::imports::GetCurrentDirectoryW(
@@ -416,7 +416,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 
             [] const u16 wide = slice::from_raw_const!u16(&units[0], got as usize);
             usize n = path::from_wide(wide, out) ?;
-            return Result::Ok(out[0..n] as [] const u8);
+            return Result::Ok(out[0..n] as [] const char);
         } else {
             isize ret = linux::syscall::getcwd(out);
             if linux::abi::is_error(ret) {
@@ -429,13 +429,13 @@ static if core::target::OS != core::target::Os::Freestanding {
                 return Error::Unexpected;
             }
 
-            return Result::Ok(out[0..n - 1] as [] const u8);
+            return Result::Ok(out[0..n - 1] as [] const char);
         }
     }
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Status(Error) set_current_dir([] const u8 name) {
+    public Status(Error) set_current_dir([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW p;
             path::to_pathw(name, &p) ?;
@@ -486,16 +486,16 @@ public Stdio inherit_stdio() {
     };
 }
 
-public using Arg = [] const u8;
+public using Arg = [] const char;
 
 public struct Command {
-    [] const u8 program;
+    [] const char program;
     /// arguments after argv[0], which `spawn` fills in from `program`
     [] const Arg args;
     Stdio stdio;
 }
 
-public Command new_command([] const u8 program) {
+public Command new_command([] const char program) {
     return {
         program = program,
         args = slice::from_raw_const(null as const Arg*, 0),
@@ -522,11 +522,11 @@ public struct Child {
 }
 
 void* empty_env;
-const u8** saved_envp;
+const char** saved_envp;
 
-bool has_nul([] const u8 text) {
+bool has_nul([] const char text) {
     for usize i = 0; i < text.len; i++ {
-        if text[i] == 0 {
+        if text[i] == '\0' {
             return true;
         }
     }
@@ -543,30 +543,30 @@ bool has_nul([] const u8 text) {
 //! double; elsewhere they are literal.
 //!
 
-usize quote_bound([] const u8 arg) {
+usize quote_bound([] const char arg) {
     return arg.len * 2 + 3;
 }
 
-usize push_quoted([] u8 out, usize at, [] const u8 arg) {
+usize push_quoted([] char out, usize at, [] const char arg) {
     usize n = at;
     bool quote = arg.len == 0;
 
     for usize i = 0; i < arg.len; i++ {
-        u8 b = arg[i];
-        if b == (' ' as u8) || b == ('\t' as u8) || b == ('"' as u8) {
+        char b = arg[i];
+        if b == (' ' as char) || b == ('\t' as char) || b == ('"' as char) {
             quote = true;
         }
     }
 
     if quote {
-        out[n] = '"' as u8;
+        out[n] = '"' as char;
         n++;
     }
 
     usize i = 0;
     while i < arg.len {
         usize slashes = 0;
-        while i < arg.len && arg[i] == ('\\' as u8) {
+        while i < arg.len && arg[i] == ('\\' as char) {
             slashes++;
             i++;
         }
@@ -579,21 +579,21 @@ usize push_quoted([] u8 out, usize at, [] const u8 arg) {
                 slashes
             };
             for usize k = 0; k < repeat; k++ {
-                out[n] = '\\' as u8;
+                out[n] = '\\' as char;
                 n++;
             }
-        } else if arg[i] == ('"' as u8) {
+        } else if arg[i] == ('"' as char) {
             for usize k = 0; k < slashes * 2 + 1; k++ {
-                out[n] = '\\' as u8;
+                out[n] = '\\' as char;
                 n++;
             }
 
-            out[n] = '"' as u8;
+            out[n] = '"' as char;
             n++;
             i++;
         } else {
             for usize k = 0; k < slashes; k++ {
-                out[n] = '\\' as u8;
+                out[n] = '\\' as char;
                 n++;
             }
 
@@ -604,7 +604,7 @@ usize push_quoted([] u8 out, usize at, [] const u8 arg) {
     }
 
     if quote {
-        out[n] = '"' as u8;
+        out[n] = '"' as char;
         n++;
     }
 
@@ -663,12 +663,12 @@ static if core::target::OS != core::target::Os::Freestanding {
                 return Error::OutOfMemory;
             }
 
-            [] u8 narrow = narrow_slot.unwrap();
-            defer alloc.raw_free(narrow, 1);
+            [] char narrow = narrow_slot.unwrap() as [] char;
+            defer alloc.raw_free(narrow as [] u8, 1);
 
             usize n = push_quoted(narrow, 0, cmd.program);
             for usize i = 0; i < cmd.args.len; i++ {
-                narrow[n] = ' ' as u8;
+                narrow[n] = ' ' as char;
                 n++;
                 n = push_quoted(narrow, n, cmd.args[i]);
             }
@@ -767,8 +767,8 @@ static if core::target::OS != core::target::Os::Freestanding {
                 return Error::OutOfMemory;
             }
 
-            [] u8 blob = blob_slot.unwrap();
-            defer alloc.raw_free(blob, 1);
+            [] char blob = blob_slot.unwrap() as [] char;
+            defer alloc.raw_free(blob as [] u8, 1);
 
             Result([] u8, mem::AllocError) vec_slot = alloc.raw_alloc(
                 (cmd.args.len + 2) * sizeof (void*),
@@ -781,27 +781,27 @@ static if core::target::OS != core::target::Os::Freestanding {
             [] u8 vec_bytes = vec_slot.unwrap();
             defer alloc.raw_free(vec_bytes, alignof (void*));
 
-            const u8** vec = vec_bytes.ptr as const u8**;
+            const char** vec = vec_bytes.ptr as const char**;
 
             usize at = 0;
             mem::copy(blob[at..at + cmd.program.len], cmd.program);
-            blob[at + cmd.program.len] = 0;
-            vec[0] = &blob[at] as const u8*;
+            blob[at + cmd.program.len] = '\0';
+            vec[0] = &blob[at] as const char*;
             at = at + cmd.program.len + 1;
 
             for usize i = 0; i < cmd.args.len; i++ {
-                [] const u8 arg = cmd.args[i];
+                [] const char arg = cmd.args[i];
                 mem::copy(blob[at..at + arg.len], arg);
-                blob[at + arg.len] = 0;
-                vec[i + 1] = &blob[at] as const u8*;
+                blob[at + arg.len] = '\0';
+                vec[i + 1] = &blob[at] as const char*;
                 at = at + arg.len + 1;
             }
 
-            vec[cmd.args.len + 1] = null as const u8*;
+            vec[cmd.args.len + 1] = null as const char*;
 
-            const u8** envp = saved_envp;
+            const char** envp = saved_envp;
             if (envp as usize) == 0 {
-                envp = &empty_env as const u8**;
+                envp = &empty_env as const char**;
             }
 
             isize r = linux::syscall::clone(linux::abi::SIGCHLD, 0, 0, 0, 0);

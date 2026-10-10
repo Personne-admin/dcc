@@ -14,6 +14,10 @@ using std::os::{ process, pipe, file, heap, error };
 using std::{ mem, slice, result };
 using error::Error;
 
+bool same([]const char a, []const char b) {
+    return std::mem::equal(a, b);
+}
+
 bool same([] const u8 a, [] const u8 b) {
     return mem::equal(a, b);
 }
@@ -55,12 +59,12 @@ i32 child_echo() {
     usize n = process::arg_count();
     file::File out = file::stdout();
     for usize i = 2; i < n; i++ {
-        result::Optional([] const u8) o = process::arg(i);
+        result::Optional([] const char) o = process::arg(i);
         if o.is_none() {
             return 90;
         }
-        [] const u8 a = o.unwrap_some();
-        if !out.write_all(a).is_ok() {
+        [] const char a = o.unwrap_some();
+        if !out.write_all(a as []const u8).is_ok() {
             return 91;
         }
         u8[1] nul = {0};
@@ -98,11 +102,11 @@ i32 test_echo_64() {
         // binary convention the suite does not have. error cases below still run.
         return 0;
     } else {
-        result::Optional([] const u8) self = process::arg(0);
+        result::Optional([] const char) self = process::arg(0);
         if self.is_none() {
             return 100;
         }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         mem::Allocator ha = heap::allocator();
         pipe::Pipe p = pipe::create_inheritable().unwrap();
         process::Command cmd = process::new_command(prog);
@@ -119,7 +123,7 @@ i32 test_echo_64() {
             stores[i][5] = ('0' as u8 + ((i % 10) as u8));
             stores[i][6] = 0;
             stores[i][7] = 0;
-            argv[i + 1] = stores[i][0..6];
+            argv[i + 1] = stores[i][0..6] as []const char;
         }
         cmd.args = argv[0..65];
         cmd.stdio.output = p.writer.handle;
@@ -178,9 +182,9 @@ i32 test_echo_spaces() {
     static if core::target::OS == core::target::Os::Windows {
         return 0;
     } else {
-        result::Optional([] const u8) self = process::arg(0);
+        result::Optional([] const char) self = process::arg(0);
         if self.is_none() { return 110; }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         mem::Allocator ha = heap::allocator();
         pipe::Pipe p = pipe::create_inheritable().unwrap();
         process::Command cmd = process::new_command(prog);
@@ -217,9 +221,9 @@ i32 test_echo_quote_backslash() {
     static if core::target::OS == core::target::Os::Windows {
         return 0;
     } else {
-        result::Optional([] const u8) self = process::arg(0);
+        result::Optional([] const char) self = process::arg(0);
         if self.is_none() { return 120; }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         mem::Allocator ha = heap::allocator();
         pipe::Pipe p = pipe::create_inheritable().unwrap();
         process::Command cmd = process::new_command(prog);
@@ -227,7 +231,7 @@ i32 test_echo_quote_backslash() {
         u8[5] tricky = {97, 34, 98, 92, 99};
         process::Arg[2] argv;
         argv[0] = "--echo-child";
-        argv[1] = tricky[0..5];
+        argv[1] = tricky[0..5] as []const char;
         cmd.args = argv[0..2];
         cmd.stdio.output = p.writer.handle;
         Result(process::Child, Error) cr = process::spawn(&ha, &cmd);
@@ -248,7 +252,7 @@ i32 test_echo_quote_backslash() {
 }
 
 i32 test_zero_arg() {
-    result::Optional([] const u8) self = process::arg(0);
+    result::Optional([] const char) self = process::arg(0);
     static if core::target::OS == core::target::Os::Windows {
         // Windows arg() is empty; use fixed program name that fails fast?
         // An empty-args spawn of a missing program still exercises the
@@ -264,7 +268,7 @@ i32 test_zero_arg() {
         return 0;
     } else {
         if self.is_none() { return 130; }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         file::File s = file::create("spawn_zero_sentinel").unwrap();
         s.close();
         mem::Allocator ha = heap::allocator();
@@ -293,17 +297,17 @@ i32 test_invalid_args() {
     }
     // NUL in program
     u8[3] nul_prog = {97, 0, 98};
-    process::Command with_nul_prog = process::new_command(nul_prog[0..3]);
+    process::Command with_nul_prog = process::new_command(nul_prog[0..3] as []const char);
     if process::spawn(&ha, &with_nul_prog).unwrap_err() != Error::InvalidArgument {
         return 141;
     }
     // NUL in arg: must fail before any process is created
-    result::Optional([] const u8) self = process::arg(0);
+    result::Optional([] const char) self = process::arg(0);
     static if core::target::OS == core::target::Os::Windows {
-        [] const u8 prog = "___dcc_missing_nul_arg___";
+        [] const char prog = "___dcc_missing_nul_arg___";
         u8[3] nul_arg = {120, 0, 121};
         process::Arg[1] argv;
-        argv[0] = nul_arg[0..3];
+        argv[0] = nul_arg[0..3] as []const char;
         process::Command cmd = process::new_command(prog);
         cmd.args = argv[0..1];
         if process::spawn(&ha, &cmd).unwrap_err() != Error::InvalidArgument {
@@ -311,10 +315,10 @@ i32 test_invalid_args() {
         }
     } else {
         if self.is_none() { return 143; }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         u8[3] nul_arg = {120, 0, 121};
         process::Arg[1] argv;
-        argv[0] = nul_arg[0..3];
+        argv[0] = nul_arg[0..3] as []const char;
         process::Command cmd = process::new_command(prog);
         cmd.args = argv[0..1];
         if process::spawn(&ha, &cmd).unwrap_err() != Error::InvalidArgument {
@@ -325,12 +329,12 @@ i32 test_invalid_args() {
 }
 
 i32 test_allocator_oom() {
-    result::Optional([] const u8) self = process::arg(0);
+    result::Optional([] const char) self = process::arg(0);
     static if core::target::OS == core::target::Os::Windows {
         return 0;
     } else {
         if self.is_none() { return 150; }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         u8[32] backing;
         mem::FixedBuffer fb = mem::new_fixed_buffer(backing[0..32]);
         mem::Allocator fa = fb.allocator();
@@ -349,9 +353,9 @@ i32 test_allocator_reuse() {
     static if core::target::OS == core::target::Os::Windows {
         return 0;
     } else {
-        result::Optional([] const u8) self = process::arg(0);
+        result::Optional([] const char) self = process::arg(0);
         if self.is_none() { return 160; }
-        [] const u8 prog = self.unwrap_some();
+        [] const char prog = self.unwrap_some();
         g_count.parent = heap::allocator();
         g_count.live = 0;
         g_count.peak = 0;
@@ -404,7 +408,7 @@ public i32 main() {
     // child dispatches first
     static if core::target::OS == core::target::Os::Linux {
         if process::arg_count() >= 2 {
-            result::Optional([] const u8) m = process::arg(1);
+            result::Optional([] const char) m = process::arg(1);
             if m.is_some() && same(m.unwrap_some(), "--echo-child") {
                 return child_echo();
             }

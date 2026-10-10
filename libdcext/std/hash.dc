@@ -155,3 +155,11 @@ public bool key_eq(K)(const K* a, const K* b) if compiles (K x, K y) {
 public bool key_eq((const[] const u8)* a, (const[] const u8)* b) {
     return mem::equal(*a, *b);
 }
+
+public u64 hash_of((const[] const char)* self) {
+    return hash_bytes(*self as [] const u8);
+}
+
+public bool key_eq((const[] const char)* a, (const[] const char)* b) {
+    return mem::equal(*a, *b);
+}

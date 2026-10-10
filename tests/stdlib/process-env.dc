@@ -13,7 +13,7 @@ using std::os::{ process, file, error, path };
 using std::{ mem, slice, result };
 using error::Error;
 
-bool same([] const u8 a, [] const u8 b) {
+bool same([] const char a, [] const char b) {
     return mem::equal(a, b);
 }
 
@@ -36,7 +36,7 @@ i32 test_vars_iterate() {
         }
         // names must not contain '=' or NUL
         for usize i = 0; i < v.name.len; i++ {
-            if v.name[i] == '=' as u8 || v.name[i] == 0 {
+            if v.name[i] == '=' as char || v.name[i] == '\0' {
                 return 12;
             }
         }
@@ -71,21 +71,21 @@ i32 test_get_var_found() {
     }
     process::Var want = first.unwrap_some();
     // copy name since next() borrows an internal buffer on Windows
-    u8[512] name_store;
+    char[512] name_store;
     if want.name.len > 512 {
         return 21;
     }
     mem::copy(name_store[0..want.name.len], want.name);
-    [] const u8 name = slice::from_raw_const!u8(&name_store[0], want.name.len);
-    u8[512] val_store;
+    [] const char name = slice::from_raw_const!char(&name_store[0], want.name.len);
+    char[512] val_store;
     if want.value.len > 512 {
         return 22;
     }
     mem::copy(val_store[0..want.value.len], want.value);
-    [] const u8 want_val = slice::from_raw_const!u8(&val_store[0], want.value.len);
-    u8[4096] out_store;
-    [] u8 out = slice::from_raw(&out_store[0], 4096);
-    Result([] const u8, Error) g = process::get_var(name, out);
+    [] const char want_val = slice::from_raw_const!char(&val_store[0], want.value.len);
+    char[4096] out_store;
+    [] char out = slice::from_raw(&out_store[0], 4096);
+    Result([] const char, Error) g = process::get_var(name, out);
     if g.is_err() {
         return 23;
     }
@@ -96,9 +96,9 @@ i32 test_get_var_found() {
 }
 
 i32 test_get_var_missing() {
-    u8[64] out_store;
-    [] u8 out = slice::from_raw(&out_store[0], 64);
-    Result([] const u8, Error) g = process::get_var("__DCC_SPAWN_TEST_ABSENT_9Z9Z__", out);
+    char[64] out_store;
+    [] char out = slice::from_raw(&out_store[0], 64);
+    Result([] const char, Error) g = process::get_var("__DCC_SPAWN_TEST_ABSENT_9Z9Z__", out);
     if g.is_ok() {
         return 30;
     }
@@ -119,14 +119,14 @@ i32 test_get_var_small_out() {
         }
         process::Var v = o.unwrap_some();
         if v.value.len > 2 {
-            u8[512] name_store;
+            char[512] name_store;
             if v.name.len > 512 {
                 continue;
             }
             mem::copy(name_store[0..v.name.len], v.name);
-            [] const u8 name = slice::from_raw_const!u8(&name_store[0], v.name.len);
-            u8[1] tiny;
-            Result([] const u8, Error) g = process::get_var(name, tiny[0..1]);
+            [] const char name = slice::from_raw_const!char(&name_store[0], v.name.len);
+            char[1] tiny;
+            Result([] const char, Error) g = process::get_var(name, tiny[0..1]);
             if g.is_ok() {
                 return 41;
             }
@@ -146,12 +146,12 @@ i32 test_has_var() {
         return 50;
     }
     process::Var v = first.unwrap_some();
-    u8[512] name_store;
+    char[512] name_store;
     if v.name.len > 512 {
         return 51;
     }
     mem::copy(name_store[0..v.name.len], v.name);
-    [] const u8 name = slice::from_raw_const!u8(&name_store[0], v.name.len);
+    [] const char name = slice::from_raw_const!char(&name_store[0], v.name.len);
     if !process::has_var(name) {
         return 52;
     }
@@ -168,12 +168,12 @@ i32 test_has_var() {
         }
         process::Var e = o.unwrap_some();
         if e.value.len > 1 {
-            u8[512] n2;
+            char[512] n2;
             if e.name.len > 512 {
                 continue;
             }
             mem::copy(n2[0..e.name.len], e.name);
-            [] const u8 nm = slice::from_raw_const!u8(&n2[0], e.name.len);
+            [] const char nm = slice::from_raw_const!char(&n2[0], e.name.len);
             if !process::has_var(nm) {
                 return 55;
             }
@@ -195,7 +195,7 @@ i32 test_arg() {
         if n == 0 {
             return 62;
         }
-        result::Optional([] const u8) a0 = process::arg(0);
+        result::Optional([] const char) a0 = process::arg(0);
         if a0.is_none() {
             return 63;
         }
@@ -210,13 +210,13 @@ i32 test_arg() {
 }
 
 i32 test_current_dir() {
-    u8[4096] store;
-    [] u8 out = slice::from_raw(&store[0], 4096);
-    Result([] const u8, Error) r = process::current_dir(out);
+    char[4096] store;
+    [] char out = slice::from_raw(&store[0], 4096);
+    Result([] const char, Error) r = process::current_dir(out);
     if r.is_err() {
         return 70;
     }
-    [] const u8 cwd = r.unwrap();
+    [] const char cwd = r.unwrap();
     if cwd.len == 0 {
         return 71;
     }
@@ -225,12 +225,12 @@ i32 test_current_dir() {
         return 72;
     }
     for usize i = 0; i < cwd.len; i++ {
-        if cwd[i] == 0 {
+        if cwd[i] == '\0' {
             return 73;
         }
     }
     // buffer too small must fail
-    u8[1] tiny;
+    char[1] tiny;
     if process::current_dir(tiny[0..1]).is_ok() {
         return 74;
     }
@@ -239,14 +239,14 @@ i32 test_current_dir() {
 
 i32 test_set_current_dir() {
     // process-global: save, chdir to scratch, verify, restore via defer
-    u8[4096] orig_store;
-    [] u8 orig_view = slice::from_raw(&orig_store[0], 4096);
-    Result([] const u8, Error) o = process::current_dir(orig_view);
+    char[4096] orig_store;
+    [] char orig_view = slice::from_raw(&orig_store[0], 4096);
+    Result([] const char, Error) o = process::current_dir(orig_view);
     if o.is_err() {
         return 80;
     }
-    [] const u8 orig = o.unwrap();
-    u8[4096] saved;
+    [] const char orig = o.unwrap();
+    char[4096] saved;
     if orig.len > 4096 {
         return 81;
     }
@@ -265,10 +265,10 @@ i32 test_set_current_dir() {
         file::remove_directory("fops_cwd_scratch");
         return 83;
     }
-    u8[4096] cur_store;
-    Result([] const u8, Error) c = process::current_dir(slice::from_raw(&cur_store[0], 4096));
+    char[4096] cur_store;
+    Result([] const char, Error) c = process::current_dir(slice::from_raw(&cur_store[0], 4096));
     if c.is_err() {
-        [] u8 rview = slice::from_raw(&saved[0], saved_len);
+        [] char rview = slice::from_raw(&saved[0], saved_len);
         process::set_current_dir(rview);
         file::remove_directory("fops_cwd_scratch");
         // need absolute remove? we are inside scratch, so use ..?
@@ -276,20 +276,20 @@ i32 test_set_current_dir() {
     }
     // current dir must reflect the scratch directory
     // check tail component
-    [] const u8 cur = c.unwrap();
+    [] const char cur = c.unwrap();
     if cur.len < 16 {
-        [] u8 rview = slice::from_raw(&saved[0], saved_len);
+        [] char rview = slice::from_raw(&saved[0], saved_len);
         process::set_current_dir(rview);
         return 85;
     }
     // last 16 bytes should be fops_cwd_scratch
     if !same(cur[cur.len - 16..cur.len], "fops_cwd_scratch") {
-        [] u8 rview = slice::from_raw(&saved[0], saved_len);
+        [] char rview = slice::from_raw(&saved[0], saved_len);
         process::set_current_dir(rview);
         return 86;
     }
     // restore
-    [] u8 rview2 = slice::from_raw(&saved[0], saved_len);
+    [] char rview2 = slice::from_raw(&saved[0], saved_len);
     if !process::set_current_dir(rview2).is_ok() {
         return 87;
     }

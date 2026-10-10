@@ -1191,7 +1191,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 
 static if core::target::OS != core::target::Os::Freestanding {
     /// names the calling thread. silently truncates past 15 bytes.
-    public Status(Error) set_name([] const u8 name) {
+    public Status(Error) set_name([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW wide;
             path::to_pathw(name, &wide) ?;
@@ -1207,8 +1207,8 @@ static if core::target::OS != core::target::Os::Freestanding {
 
             return Status::Ok;
         } else static if core::target::OS == core::target::Os::Linux {
-            u8[16] buf;
-            [] u8 view = slice::from_raw(&buf[0], 16);
+            char[16] buf;
+            [] char view = slice::from_raw(&buf[0], 16);
             usize n = name.len;
             if n > 15 {
                 n = 15;
@@ -1218,7 +1218,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                 view[i] = name[i];
             }
 
-            view[n] = 0;
+            view[n] = '\0';
             isize r = linux::syscall::prctl(
                 linux::abi::PR_SET_NAME,
                 view.ptr as usize,

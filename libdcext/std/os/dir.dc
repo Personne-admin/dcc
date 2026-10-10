@@ -44,7 +44,7 @@ public enum EntryKind : u8 {
 
 public struct Entry {
     /// borrows the iterator buffer. invalidated by the next `next`.
-    [] u8 name;
+    [] char name;
     EntryKind kind;
     /// inode on Linux, always 0 on Windows.
     u64 id;
@@ -146,7 +146,7 @@ usize strlen_bounded([] const u8 bytes, usize at, usize bound) {
 
 static if core::target::OS != core::target::Os::Freestanding {
     /// initializes `out` for iterating `path`. dot entries are reported.
-    public Status(Error) open([] const u8 path, Iterator* out) {
+    public Status(Error) open([] const char path, Iterator* out) {
         out.handle = INVALID;
         out.len = 0;
         out.pos = 0;
@@ -213,7 +213,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 //! Iteration
 //!
 
-Result(usize, Error) transcode_name([] const u16 wide, [] u8 out) {
+Result(usize, Error) transcode_name([] const u16 wide, [] char out) {
     return path::from_wide(wide, out);
 }
 
@@ -249,7 +249,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                     260
                 );
 
-                Result(usize, Error) text = transcode_name(wide, view);
+                Result(usize, Error) text = transcode_name(wide, view as [] char);
                 if text.is_err() {
                     continue;
                 }
@@ -257,7 +257,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                 usize n = text.unwrap();
 
                 Entry entry = {
-                    name = view[0..n],
+                    name = view[0..n] as [] char,
                     kind = kind_from_attributes(current.attributes),
                     id = 0,
                 };
@@ -294,7 +294,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             self.pos = at + (reclen as usize);
 
             Entry entry = {
-                name = view[at + 19..at + 19 + name_len],
+                name = view[at + 19..at + 19 + name_len] as [] char,
                 kind = kind,
                 id = id,
             };
@@ -452,26 +452,26 @@ static if core::target::OS != core::target::Os::Freestanding {
     }
 }
 
-Status(Error) to_entry_pathz([] const u8 name, path::PathZ* out) {
+Status(Error) to_entry_pathz([] const char name, path::PathZ* out) {
     if name.len + 1 > path::MAX_BYTES {
         return Error::NameTooLong;
     }
 
-    [] u8 view = slice::from_raw(&out.bytes[0], path::MAX_BYTES);
+    [] char view = slice::from_raw(&out.bytes[0], path::MAX_BYTES);
     for usize i = 0; i < name.len; i++ {
-        if name[i] == 0 {
+        if name[i] == '\0' {
             return Error::InvalidArgument;
         }
 
         view[i] = name[i];
     }
 
-    view[name.len] = 0;
+    view[name.len] = '\0';
     out.len = name.len;
     return Status::Ok;
 }
 
-Result(path::PathW, Error) widen_entry([] const u8 name) {
+Result(path::PathW, Error) widen_entry([] const char name) {
     path::PathW out;
     Status(Error) st = path::to_pathw(name, &out);
     if !st.is_ok() {
