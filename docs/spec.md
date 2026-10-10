@@ -9,7 +9,7 @@
 | `usize`, `isize`          | ptr        | Pointer-sized unsigned/signed integers               |
 | `f32`, `f64`              | 4, 8       | IEEE 754 floating point                              |
 | `bool`                    | 1          | `true` / `false`                                     |
-| `char`                    | 1          | ASCII character                                      |
+| `char`                    | 1          | 8-bit text code unit                                  |
 | `void`                    | 0          | Unit / absence of value                              |
 | `null_t`                  | ptr        | Type of `null`, inhabits all pointer/optional types  |
 
@@ -949,6 +949,29 @@ const char ch       = 'H';
 const u16 wch        = u'Ω'; // Ω, UTF-16 code unit
 []const u16 wgreeting = u"hi";
 ```
+
+`char` is a distinct, unsigned 8-bit text code-unit type (size and alignment
+one), not an alias for `u8`. Plain strings contain UTF-8 code units; a
+`char` need not be a complete Unicode character. Non-ASCII code points may
+occupy several elements. Character arithmetic and bit operations require
+an explicit integer cast; UTF-8 decoding uses `std::utf8`.
+
+Textual core and standard-library APIs use `char`, `[]char`, or
+`[]const char`. File and pipe buffers, raw allocations, network payloads,
+hashes and serialization remain `u8`. An explicit slice cast such as
+`text as []const u8` or `bytes as []const char` makes a view of the same
+storage without allocating, copying, or validating UTF-8. Constness must
+still be respected. C byte buffers retain their byte types; C narrow text
+pointers use `const char*` (and platform UTF-16 APIs retain `u16*`).
+
+The text API migration is a source and symbol compatibility change for the
+next release: formatter callbacks, panic hooks, text buffers, paths,
+arguments, environment strings, JSON, TOML, UTF-8 and parsing APIs now use
+`char`. Callers must update their declarations and explicitly cast at byte
+boundaries. `char` and `u8` have the same physical size and alignment, but
+differ in type identity, template matching and mangled names. Rebuild
+libraries and consumers together; physical representation alone does not
+make old callbacks type-compatible.
 
 ### 9.4 Compile-time size/alignment queries
 
