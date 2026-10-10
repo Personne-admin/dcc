@@ -28,7 +28,7 @@ def main():
             shutil.copyfile(repo / "libdcext/common/abi.dc", root / "libdcext/common/abi.dc")
             shutil.copyfile(repo / "mk/llvm.mk", root / "mk/llvm.mk")
             (root / "libdcext/std.dc").write_text("module std;\n")
-            (root / "libdcext/assert.dc").write_text("module assert; import core::source_location; const core::source_location::SourceLocation LOC = core::source_location::source_location(); @nomangle public []const u8 file() { return LOC.file; }\n")
+            (root / "libdcext/assert.dc").write_text("module assert; import core::source_location; const core::source_location::SourceLocation LOC = core::source_location::source_location(); @nomangle public []const char file() { return LOC.file; }\n")
         for backend in ("custom", "llvm"):
             for target in ("x86_64-elf", "x86_64-coff"):
                 artifacts = []

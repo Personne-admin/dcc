@@ -139,7 +139,7 @@ def win_field_assertions(source, directory):
             c_checks.append(f'_Static_assert(sizeof((({sdk}*)0)->{sdk_field}) == {width}, "{sdk}.{sdk_field} width");')
             dc_check(f'offsetof(abi::{name}, {field}) == {offset}', f'{name}.{field} offset')
             kind, count = declared[field]
-            primitives = {'u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64',
+            primitives = {'char', 'u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64',
                           'usize', 'isize', 'bool', 'f32', 'f64', 'void*'}
             if kind.endswith('*'):
                 dc_check(f'sizeof(usize) == {width}', f'{name}.{field} width')
