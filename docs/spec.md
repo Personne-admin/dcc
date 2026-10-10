@@ -876,6 +876,10 @@ Thus `x as f64 * 0.5` multiplies the cast value, while `p as u8*;`,
 `f(p as u8*)`, `p as u8* const`, `if p as u8* {`, and `p as u8^GS`
 retain their pointer casts.
 
+A slice cannot be cast to an integer. Use its `.len` or explicitly convert
+its `.ptr` when those scalar values are intended. Text/byte slice view casts
+preserve the slice representation.
+
 ### 9.3 Literals & type inference
 
 No implicit conversions, so literals need to be smart:

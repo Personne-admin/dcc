@@ -1,0 +1,10 @@
+=== FILE: test.dc ===
+module casts;
+u64 bytes([]const u8 value) { return value as u64; }
+u64 text([]const char value) { return value as u64; }
+@nominal using Text = []const char;
+u64 nominal(Text value) { return value as u64; }
+=== EXPECT-ERRORS ===
+test.dc:2: invalid cast from `[]const u8` to `u64`: slices cannot be cast to integers
+test.dc:3: invalid cast from `[]const char` to `u64`: slices cannot be cast to integers
+test.dc:5: invalid cast from `Text` to `u64`: slices cannot be cast to integers

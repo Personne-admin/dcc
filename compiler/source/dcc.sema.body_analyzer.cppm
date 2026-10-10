@@ -12786,6 +12786,15 @@ export namespace dcc::sema
             if (!out.type)
                 out.type = m_types.m_errort();
 
+            auto* source_type = unwrap_nominal(op.type);
+            auto* target_type = unwrap_nominal(out.type);
+            if (source_type && target_type && source_type->kind == types::TypeKind::Slice &&
+                (target_type->kind == types::TypeKind::Int || target_type->kind == types::TypeKind::Restricted))
+            {
+                error(c.range, "invalid cast from `{}` to `{}`: slices cannot be cast to integers", format_type_str(op.type), format_type_str(out.type));
+                return {m_types.m_errort()};
+            }
+
             if (auto const* rt = types::type_cast<types::RestrictedType>(unwrap_nominal(out.type)))
             {
                 if (op.constant && op.constant->kind() == comptime::Value::Kind::Int)
