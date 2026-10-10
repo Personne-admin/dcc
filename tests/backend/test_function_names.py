@@ -7,9 +7,14 @@ compiler = Path(sys.argv[1]).resolve()
 source_text = """module symbol_test;
 import core::source_location;
 using core::source_location::{FunctionNameStyle, function_name};
+using Text = []const char;
+using Callback = Text(*)(i32);
 @nomangle extern void capture([]const char name);
+@nomangle extern void capture_callback(Callback callback);
+@runtime void send(T)(T callback) { capture_callback(callback); }
 @nomangle extern i32 text_abi([]const char text);
 @nomangle extern i32 byte_abi([]const u8 bytes);
+@runtime i32 opaque() { return 7; }
 @runtime []const char ordinary(i32 value) { return function_name(FunctionNameStyle::Mangled); }
 @runtime []const char instantiated(T)(T value) { return function_name(FunctionNameStyle::Mangled); }
 @nomangle public i32 dcc_main() {
@@ -20,6 +25,8 @@ using core::source_location::{FunctionNameStyle, function_name};
     capture(instantiated(7));
     capture(ordinary(9));
     capture(instantiated(9));
+    send(|i32 unknown -> function_name(FunctionNameStyle::Mangled));
+    capture((|i32 unknown -> function_name(FunctionNameStyle::Pretty))(opaque()));
     return 0;
 }
 """
@@ -29,6 +36,8 @@ harness_text = r"""#include <stddef.h>
 #include <string.h>
 extern int dcc_main(void);
 void capture(const char *name, size_t len) { fwrite(name, 1, len, stdout); putchar('\n'); }
+struct view { const char *ptr; size_t len; };
+void capture_callback(struct view (*callback)(int)) { struct view value = callback(7); capture(value.ptr, value.len); }
 int text_abi(const char *text, size_t len) { return len != 5 || memcmp(text, "ASCII", 5); }
 int byte_abi(const uint8_t *bytes, size_t len) { return len != 3 || bytes[0] != 0 || bytes[1] != 128 || bytes[2] != 255; }
 int main(void) { return dcc_main(); }
@@ -42,15 +51,19 @@ with tempfile.TemporaryDirectory(prefix="dcc-function-names-") as directory:
     for backend in ("llvm", "custom"):
         for level in ("-O0", "-O2"):
             obj = root / "main.o"
-            subprocess.run([str(compiler), "-fbackend", backend, level, "-c", str(source), "-o", str(obj)], check=True, capture_output=True, timeout=60)
+            compiled = subprocess.run([str(compiler), "-fbackend", backend, level, "-c", str(source), "-o", str(obj)], capture_output=True, text=True, timeout=60)
+            assert compiled.returncode == 0, compiled.stderr
             symbols = subprocess.run(["nm", "--defined-only", str(obj)], check=True, capture_output=True, text=True).stdout
             readonly = subprocess.run(["readelf", "-p", ".rodata", str(obj)], check=True, capture_output=True, text=True).stdout
             executable = root / "program"
             subprocess.run(["clang", "-no-pie", str(harness), str(obj), "-o", str(executable)], check=True, capture_output=True)
             result = subprocess.run([str(executable)], check=True, capture_output=True, text=True, timeout=60)
             names = result.stdout.splitlines()
-            assert len(names) == 4 and names[:2] == names[2:], (backend, level, names)
-            for name in names[:2]:
+            assert len(names) == 6 and names[:2] == names[2:4], (backend, level, names)
+            signature_line = next(i for i, line in enumerate(source_text.splitlines(), 1) if "FunctionNameStyle::Pretty" in line)
+            signature_column = source_text.splitlines()[signature_line - 1].index("|") + 1
+            assert names[5] == f"[]const char symbol_test::dcc_main::<lambda@{signature_line}:{signature_column}>(i32 unknown)", names[5]
+            for name in names[:2] + names[4:5]:
                 assert name in symbols, (backend, level, name, symbols)
                 assert readonly.count(name) == 1, (backend, level, name, readonly)
 print("  PASS    4/4 function symbols, string storage, and text/byte C ABI checks")

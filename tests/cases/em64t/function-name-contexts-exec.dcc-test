@@ -8,7 +8,7 @@ bool same([]const char a, []const char b) {
     for usize i = 0; i < a.len; i++ { if a[i] != b[i] { return false; } }
     return true;
 }
-using []const char empty = function_name();
+using []const char empty = function_name(); []const char initialized = function_name();
 []const char evaluated() { return function_name(); }
 using []const char ctfe_name = evaluated();
 @runtime []const char plain() { return function_name(FunctionNameStyle::Plain); }
@@ -22,7 +22,7 @@ SourceLocation located(SourceLocation sl = source_location()) { return sl; }
 struct Device { i32 value; }
 @runtime []const char method(const Device* self) { return function_name(FunctionNameStyle::Pretty); }
 @runtime i32 run() {
-    if empty.len != 0 || !same(ctfe_name, "names::evaluated") { return 1; }
+    if empty.len != 0 || initialized.len != 0 || !same(ctfe_name, "names::evaluated") { return 1; }
     if !same(plain(), "plain") || !same(qualified(), "names::qualified") { return 2; }
     if !same(pretty(7), "[]const char names::pretty(i32 value)") { return 3; }
     if !same(emitted(), "emitted") { return 4; }
@@ -35,10 +35,13 @@ struct Device { i32 value; }
     if !same(d.method(), "[]const char names::method(const Device* self)") { return 9; }
     Text(*)() lambda = | -> function_name();
     if !same(lambda(), "names::run::<lambda@35:24>") { return 10; }
+    if !same(generic_ctfe, "[]const char names::constant_generic(i32)(i32 value)") { return 12; }
     if offsetof(SourceLocation, file) != 0 || offsetof(SourceLocation, line) != 16 || offsetof(SourceLocation, column) != 20 || offsetof(SourceLocation, function) != 24 { return 11; }
     return 0;
 }
 @nomangle public i32 dcc_main() { return run(); }
+[]const char constant_generic(T)(T value) { return function_name(FunctionNameStyle::Pretty); }
+using []const char generic_ctfe = constant_generic(7);
 === EXPECT-EM64T-OBJECT ===
 RUN-EXIT: 0
 REQUIRE-SECTION-READONLY: .rodata

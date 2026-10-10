@@ -8584,6 +8584,7 @@ export namespace dcc::sema
                     define_local(*root, synthetic);
             }
 
+            auto const body_lambda_mark = pending_lambda_mark();
             auto* saved_capture_scope = m_lambda_capture_scope;
             m_lambda_capture_scope = &scope;
             detail::StmtResult body_res{};
@@ -8631,6 +8632,13 @@ export namespace dcc::sema
                 fd->return_type = synth_type_expr(l.range, ret_ty);
             else
                 set_canonical(fd->return_type->sema, ret_ty);
+
+            if (!enforce_expected_ret && ret_ty != m_types.m_voidt() && !fd->function_names[1].empty() && !body_has_error)
+            {
+                rollback_pending_lambdas(body_lambda_mark);
+                mod.lambda_counter = saved_counter;
+                return finalize_lambda(mod, enclosing_fn, scope, l, loop_depth, next_off, param_types, ret_ty, const_env);
+            }
 
             fd->sema.storage = ast::StorageClass::ModuleGlobal;
 
