@@ -20,7 +20,8 @@ public void __assert(
     SourceLocation sl = {
         file = file,
         line = line as u32,
-        column = 0
+        column = 0,
+        function = function
     };
 
     char[512] scratch;

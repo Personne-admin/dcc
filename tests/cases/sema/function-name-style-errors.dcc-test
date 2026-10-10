@@ -1,0 +1,11 @@
+=== FILE: test.dc ===
+module errors;
+import core::source_location;
+using core::source_location::{FunctionNameStyle, function_name};
+void invalid(FunctionNameStyle style) { function_name(style); }
+void outside() { function_name(9 as FunctionNameStyle); }
+=== EXPECT-ERRORS ===
+test.dc:4: function_name style must be a compile-time constant FunctionNameStyle
+test.dc:4: no matching call for `function_name`
+test.dc:5: function_name style must be a compile-time constant FunctionNameStyle
+test.dc:5: no matching call for `function_name`

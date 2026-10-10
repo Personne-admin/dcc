@@ -1,0 +1,44 @@
+=== FILE: test.dc ===
+module names;
+using Text = []const char;
+import core::source_location;
+using core::source_location::{SourceLocation, FunctionNameStyle, function_name, source_location};
+bool same([]const char a, []const char b) {
+    if a.len != b.len { return false; }
+    for usize i = 0; i < a.len; i++ { if a[i] != b[i] { return false; } }
+    return true;
+}
+using []const char empty = function_name();
+[]const char evaluated() { return function_name(); }
+using []const char ctfe_name = evaluated();
+@runtime []const char plain() { return function_name(FunctionNameStyle::Plain); }
+@runtime []const char qualified() { return function_name(); }
+@runtime []const char pretty(i32 value) { return function_name(FunctionNameStyle::Pretty); }
+@nomangle public []const char emitted() { return function_name(FunctionNameStyle::Mangled); }
+@runtime []const char generic(T)(T value) { return function_name(FunctionNameStyle::Pretty); }
+@runtime []const char pack(T...)(T args) { return function_name(FunctionNameStyle::Pretty); }
+[]const char defaulted([]const char name = function_name()) { return name; }
+SourceLocation located(SourceLocation sl = source_location()) { return sl; }
+struct Device { i32 value; }
+@runtime []const char method(const Device* self) { return function_name(FunctionNameStyle::Pretty); }
+@runtime i32 run() {
+    if empty.len != 0 || !same(ctfe_name, "names::evaluated") { return 1; }
+    if !same(plain(), "plain") || !same(qualified(), "names::qualified") { return 2; }
+    if !same(pretty(7), "[]const char names::pretty(i32 value)") { return 3; }
+    if !same(emitted(), "emitted") { return 4; }
+    if !same(generic(7), "[]const char names::generic(i32)(i32 value)") { return 5; }
+    if !same(pack(7, 'x'), "[]const char names::pack(i32, char)(i32 args_0, char args_1)") { return 6; }
+    if !same(defaulted(), "names::run") { return 7; }
+    SourceLocation sl = located();
+    if !same(sl.function, "names::run") { return 8; }
+    Device d = {value = 0};
+    if !same(d.method(), "[]const char names::method(const Device* self)") { return 9; }
+    Text(*)() lambda = | -> function_name();
+    if !same(lambda(), "names::run::<lambda@35:24>") { return 10; }
+    if offsetof(SourceLocation, file) != 0 || offsetof(SourceLocation, line) != 16 || offsetof(SourceLocation, column) != 20 || offsetof(SourceLocation, function) != 24 { return 11; }
+    return 0;
+}
+@nomangle public i32 dcc_main() { return run(); }
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
+REQUIRE-SECTION-READONLY: .rodata

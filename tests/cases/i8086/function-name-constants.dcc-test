@@ -1,0 +1,15 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module function_names;
+import core::source_location;
+using core::source_location::{FunctionNameStyle, function_name, source_location};
+@nomangle public i32 dcc_main() {
+    if function_name(FunctionNameStyle::Plain).len != 8 { return 1; }
+    if function_name().len != 24 { return 2; }
+    if function_name(FunctionNameStyle::Pretty).len != 30 { return 3; }
+    if function_name(FunctionNameStyle::Mangled).len != 8 { return 4; }
+    if source_location().function.len != 24 { return 5; }
+    return 0;
+}
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 0

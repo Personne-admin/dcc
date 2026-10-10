@@ -16,6 +16,9 @@ void handler([]const char message, core::source_location::SourceLocation sl) {
     if sl.file.len < 8 { finish(2); }
     if sl.file[sl.file.len - 8] != 'p' || sl.file[sl.file.len - 7] != 'a' || sl.file[sl.file.len - 6] != 'n' || sl.file[sl.file.len - 5] != 'i' || sl.file[sl.file.len - 4] != 'c' || sl.file[sl.file.len - 3] != '.' || sl.file[sl.file.len - 2] != 'd' || sl.file[sl.file.len - 1] != 'c' { finish(3); }
     if message.len == 0 { finish(4); }
+    []const char expected_function = "panic_test::dcc_main";
+    if sl.function.len != expected_function.len { finish(6); }
+    for usize i = 0; i < expected_function.len; i++ { if sl.function[i] != expected_function[i] { finish(7); } }
     finish(0);
 }
 @nomangle public i32 dcc_main() {

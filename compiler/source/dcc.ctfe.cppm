@@ -423,7 +423,7 @@ export namespace dcc::ctfe
                 return std::nullopt;
 
             auto fields = record_fields(type);
-            if (fields.size() != 3)
+            if (fields.size() != 4)
                 return std::nullopt;
 
             if (m_default_argument_call_site)
@@ -438,10 +438,12 @@ export namespace dcc::ctfe
                 return std::nullopt;
 
             std::vector<comptime::Value> elements;
-            elements.reserve(3);
+            elements.reserve(4);
             elements.push_back(comptime::Value::make_string(m_context.source_manager->map_output_path(file->path().string()), type_of(fields[0].type)));
             elements.push_back(comptime::Value::make_int(lc->line, type_of(fields[1].type)));
             elements.push_back(comptime::Value::make_int(lc->column, type_of(fields[2].type)));
+            auto const* current = m_frames.empty() ? m_context.function : m_frames.back().call.function;
+            elements.push_back(comptime::Value::make_string(current ? current->function_names[1] : std::string{}, type_of(fields[3].type)));
             return comptime::Value::make_aggregate(std::move(elements), type);
         }
 
@@ -1651,8 +1653,26 @@ export namespace dcc::ctfe
             if (fn)
             {
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation)
+                {
+                    if (m_frames.empty() && !m_context.function && call.sema.const_value)
+                        return folded(*call.sema.const_value);
                     return folded(source_location_value(type_of(call), call.range));
+                }
 
+                if (fn->sema.intrinsic_kind == ast::IntrinsicKind::FunctionName)
+                {
+                    if (m_frames.empty() && !m_context.function && call.sema.const_value)
+                        return folded(*call.sema.const_value);
+                    auto const* current = m_frames.empty() ? m_context.function : m_frames.back().call.function;
+                    auto value = expression(*call.args.back());
+                    if (!value.value)
+                        return failure("function_name style must be constant");
+                    auto style = const_eval::const_to_int(*value.value);
+                    if (!style || *style < 0 || *style > 3)
+                        return failure("invalid function_name style");
+                    return folded(
+                        comptime::Value::make_string(current ? current->function_names[static_cast<std::size_t>(*style)] : std::string{}, type_of(call)));
+                }
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileWarning || fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileNote)
                     return {Flow::Normal, {}, {}, {}};
                 if (fn->sema.intrinsic_kind == ast::IntrinsicKind::CompileError)

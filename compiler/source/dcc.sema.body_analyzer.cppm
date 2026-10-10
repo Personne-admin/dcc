@@ -10,6 +10,7 @@ import dcc.ast.visitor;
 import dcc.comptime;
 import dcc.const_eval;
 import dcc.ctfe;
+import dcc.ir.mangle;
 import dcc.diag;
 import dcc.si;
 import dcc.sm;
@@ -1024,6 +1025,7 @@ export namespace dcc::sema
         ModuleInfo* m_specialization_defining_module{};
         std::vector<ModuleInfo*> m_specialization_modules;
         std::optional<sm::SourceRange> m_default_argument_call_site;
+        ast::FuncDecl* m_default_argument_function{};
 
         struct PendingLambda
         {
@@ -1273,6 +1275,13 @@ export namespace dcc::sema
                         ModuleInfo* saved;
                         ~DefaultModuleGuard() { slot = saved; }
                     } guard{m_specialization_defining_module, saved_defining_mod};
+                    auto* previous_function = std::exchange(m_default_argument_function, fn ? fn : m_default_argument_function);
+                    struct DefaultFunctionGuard
+                    {
+                        ast::FuncDecl*& slot;
+                        ast::FuncDecl* previous;
+                        ~DefaultFunctionGuard() { slot = previous; }
+                    } function_guard{m_default_argument_function, previous_function};
                     return finish(analyze_expr(*defining_mod, nullptr, *default_scope, expr, loop_depth, next_off, expected_type, const_env));
                 }
             }
@@ -8188,11 +8197,12 @@ export namespace dcc::sema
             return m_suppressed_error_count == saved_errors;
         }
 
-        ctfe::Result evaluate_constant(ast::Expr const& expr, ctfe::Mode mode)
+        ctfe::Result evaluate_constant(ast::Expr const& expr, ctfe::Mode mode, ast::FuncDecl const* function = nullptr)
         {
             std::vector<ast::FuncDecl*> speculative;
             ctfe::Context context;
             context.call_site = expr.range;
+            context.function = function;
             context.types = &m_types;
             context.source_manager = &m_diag.source_manager();
             context.prepare_function = [&](ast::FuncDecl const& fn) { return prepare_ctfe_function(fn, speculative); };
@@ -8530,6 +8540,7 @@ export namespace dcc::sema
             auto saved_counter = mod.lambda_counter;
             auto* fd = m_ast_ctx.make<ast::FuncDecl>(l.range, synth_lambda_name(mod), l.range);
             fd->synthesized_lambda = true;
+            fd->enclosing_function = enclosing_fn;
             fd->lambda_source = &l;
             fd->params.reserve(l.params.size());
             for (std::size_t i = 0; i < l.params.size(); ++i)
@@ -10025,14 +10036,149 @@ export namespace dcc::sema
             return make_value(comptime::Value::make_string(std::move(raw), ty));
         }
 
-        comptime::Value const* make_source_location_const(types::TypePtr ty, sm::SourceRange intrinsic_range)
+        std::string function_name_value(comptime::Value const& value)
+        {
+            switch (value.kind())
+            {
+                case comptime::Value::Kind::Bool:
+                    return value.get_bool() ? "true" : "false";
+                case comptime::Value::Kind::Float:
+                    return std::format("{:g}", value.get_float());
+                case comptime::Value::Kind::Char:
+                    return std::format("({} as char)", value.get_char());
+                case comptime::Value::Kind::Null:
+                    return "null";
+                case comptime::Value::Kind::String: {
+                    std::string text = "\"";
+                    for (char raw_byte : value.get_string())
+                    {
+                        auto byte = static_cast<unsigned char>(raw_byte);
+                        if (byte == '\\' || byte == '"')
+                            text += '\\';
+                        if (byte >= 32 && byte < 127)
+                            text += static_cast<char>(byte);
+                        else
+                            text += std::format("\\x{:02x}", byte);
+                    }
+                    return text + "\"";
+                }
+                case comptime::Value::Kind::Aggregate: {
+                    std::string text = format_type_str(value.type) + "{";
+                    for (std::size_t i = 0; i < value.size(); ++i)
+                    {
+                        if (i)
+                            text += ", ";
+                        text += function_name_value(value.at(i));
+                    }
+                    return text + "}";
+                }
+                default: {
+                    auto integer = value.const_to_int();
+                    auto const* type = types::type_cast<types::IntType>(value.type);
+                    if (integer && type && !type->is_signed)
+                        return std::to_string(static_cast<std::uint64_t>(*integer));
+                    return integer ? std::to_string(*integer) : "null";
+                }
+            }
+        }
+
+        std::string function_name(ast::FuncDecl* fn, std::size_t style)
+        {
+            if (!fn && m_default_argument_call_site)
+                fn = m_default_argument_function;
+            if (!fn)
+                return {};
+            if (!fn->function_names[1].empty())
+                return fn->function_names[style];
+            auto* mod = find_defining_module(*fn);
+            if (!mod)
+                return {};
+            std::vector<std::string_view> path;
+            for (auto const& segment : mod->canonical_path.segments())
+                path.push_back(segment);
+            auto bare = std::string{fn->name};
+            if (fn->synthesized_lambda)
+            {
+                auto const* file = m_diag.source_manager().get(fn->range.begin.fileId);
+                if (!file)
+                    return {};
+                auto lc = file->line_col(fn->range.begin.offset);
+                bare = std::format("<lambda@{}:{}>", lc ? lc->line : 0, lc ? lc->column : 0);
+            }
+            auto qualified = fn->enclosing_function ? function_name(const_cast<ast::FuncDecl*>(fn->enclosing_function), 1) + "::" + bare
+                                                    : mod->canonical_path.str() + "::" + bare;
+            std::vector<types::TypePtr> parameters;
+            for (auto const& param : fn->params)
+                parameters.push_back(get_canonical(param.type->sema));
+            auto result = fn->return_type ? get_canonical(fn->return_type->sema) : m_types.m_voidt();
+            std::vector<ir::mangle::TemplateArg> arguments;
+            std::string pretty_arguments;
+            ast::FuncDecl const* original = nullptr;
+            for (auto const& entry : m_spec_registry.entries())
+                if (entry.specialization_decl == fn)
+                {
+                    original = entry.template_decl;
+                    pretty_arguments = "(";
+                    for (auto const& arg : entry.canonical_args)
+                    {
+                        if (pretty_arguments.size() > 1)
+                            pretty_arguments += ", ";
+                        if (arg.tag == CanonicalArg::Tag::Type)
+                        {
+                            arguments.push_back({ir::mangle::TemplateArg::Kind::Type, arg.type_ptr, nullptr});
+                            pretty_arguments += format_type_str(arg.type_ptr);
+                        }
+                        else
+                        {
+                            arguments.push_back({ir::mangle::TemplateArg::Kind::Value, arg.type_ptr, arg.value_data.get()});
+                            pretty_arguments += arg.value_data ? function_name_value(*arg.value_data) : "null";
+                        }
+                    }
+                    pretty_arguments += ")";
+                    break;
+                }
+            auto resolver = [this](void const* pointer) -> std::optional<ir::mangle::NominalInfo> {
+                auto const* decl = static_cast<ast::Decl const*>(pointer);
+                auto* owner = find_defining_module(*decl);
+                if (!owner)
+                    return std::nullopt;
+                ir::mangle::NominalInfo info;
+                for (auto const& segment : owner->canonical_path.segments())
+                    info.module_path.push_back(segment);
+                if (auto const* d = ast::node_cast<ast::StructDecl>(decl))
+                    info.name = d->name;
+                else if (auto const* enum_decl = ast::node_cast<ast::EnumDecl>(decl))
+                    info.name = enum_decl->name;
+                else if (auto const* union_decl = ast::node_cast<ast::UnionDecl>(decl))
+                    info.name = union_decl->name;
+                else if (auto const* using_decl = ast::node_cast<ast::UsingDecl>(decl))
+                    info.name = using_decl->alias_path.tail_name();
+                else
+                    return std::nullopt;
+                return info;
+            };
+            auto pretty = format_type_str(result) + " " + qualified + pretty_arguments + "(";
+            for (std::size_t i = 0; i < parameters.size(); ++i)
+            {
+                if (i)
+                    pretty += ", ";
+                pretty += format_type_str(parameters[i]) + " " + std::string{fn->params[i].name};
+            }
+            pretty += ")";
+            fn->function_names = {bare, qualified, pretty,
+                                  original ? ir::mangle::mangle_specialization(path, original->name, parameters, result, arguments, resolver)
+                                           : ir::mangle::mangle_function(path, *fn, parameters, result, {}, resolver)};
+            return fn->function_names[style];
+        }
+
+        comptime::Value const* make_source_location_const(types::TypePtr ty, sm::SourceRange intrinsic_range, ast::FuncDecl* fn)
         {
             auto range = m_default_argument_call_site.value_or(intrinsic_range);
             if (!ty || !range.begin.valid())
                 return nullptr;
 
             auto fields = record_fields(ty, nullptr);
-            if (fields.size() != 3)
+            if (fields.size() != 4)
                 return nullptr;
 
             auto const* file = m_diag.source_manager().get(range.begin.fileId);
@@ -10044,10 +10190,11 @@ export namespace dcc::sema
                 return nullptr;
 
             std::vector<comptime::Value> elements;
-            elements.reserve(3);
+            elements.reserve(4);
             elements.push_back(comptime::Value::make_string(m_diag.source_manager().map_output_path(file->path().string()), fields[0].type));
             elements.push_back(comptime::Value::make_int(lc->line, fields[1].type));
             elements.push_back(comptime::Value::make_int(lc->column, fields[2].type));
+            elements.push_back(comptime::Value::make_string(function_name(fn, 1), fields[3].type));
             return make_value(comptime::Value::make_aggregate(std::move(elements), ty));
         }
 
@@ -10652,7 +10799,7 @@ export namespace dcc::sema
                 auto const& call = static_cast<ast::CallExpr const&>(expr);
                 if (!fn || call_fold_candidate(call))
                 {
-                    auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic);
+                    auto result = evaluate_constant(expr, ctfe::Mode::Opportunistic, fn ? fn : m_default_argument_function);
                     if (result.flow == ctfe::Flow::Normal && result.value && !fold_value_has_unknown(*result.value))
                     {
                         out.constant = make_value(std::move(*result.value));
@@ -15223,8 +15370,21 @@ export namespace dcc::sema
             out.call_argument_offset = func_arg_start;
             if (f.sema.intrinsic_kind == ast::IntrinsicKind::SourceLocation)
             {
-                out.constant = make_source_location_const(out.type, range);
+                out.constant = make_source_location_const(out.type, range, fn);
                 out.is_constant = out.constant != nullptr;
+            }
+            if (f.sema.intrinsic_kind == ast::IntrinsicKind::FunctionName)
+            {
+                auto const* style_expr = arg_exprs[func_arg_start];
+                auto style = style_expr->sema.const_value ? const_to_int(*style_expr->sema.const_value) : std::nullopt;
+                if (!style || *style < 0 || *style > 3)
+                {
+                    if (!quiet)
+                        error(range, "function_name style must be a compile-time constant FunctionNameStyle");
+                    return {m_types.m_errort()};
+                }
+                out.constant = make_str_const(function_name(fn, static_cast<std::size_t>(*style)), out.type);
+                out.is_constant = true;
             }
             return out;
         }
