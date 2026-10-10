@@ -68,7 +68,7 @@ public enum StrKind : u8 {
 }
 
 public struct Str {
-    [] const u8 raw;
+    [] const char raw;
     StrKind kind;
     bool needs_unescape;
 }
@@ -136,7 +136,7 @@ using u8 FRAME_SEEN = 2;
 using u8 FRAME_AFTER_KEY = 4;
 
 public struct Scanner {
-    [] const u8 input;
+    [] const char input;
     Position at;
     u8[32] frames;
     usize depth;
@@ -144,7 +144,7 @@ public struct Scanner {
     bool need_line_end;
 }
 
-public Scanner scan([] const u8 input) {
+public Scanner scan([] const char input) {
     Scanner self;
     self.input = input;
     self.at = Position::start();
@@ -158,11 +158,11 @@ bool at_end(const Scanner* self) {
     return self.at.offset >= self.input.len;
 }
 
-u8 peek(const Scanner* self) {
+char peek(const Scanner* self) {
     return self.input[self.at.offset];
 }
 
-u8 peek_at(const Scanner* self, usize ahead) {
+char peek_at(const Scanner* self, usize ahead) {
     return self.input[self.at.offset + ahead];
 }
 
@@ -170,14 +170,14 @@ bool has(const Scanner* self, usize count) {
     return self.at.offset + count <= self.input.len;
 }
 
-u8 take(Scanner* self) {
-    u8 b = self.input[self.at.offset];
+char take(Scanner* self) {
+    char b = self.input[self.at.offset];
     parse::advance(&self.at, b);
     return b;
 }
 
-bool is_inline_space(u8 c) {
-    return c == (' ' as u8) || c == ('\t' as u8);
+bool is_inline_space(char c) {
+    return c == (' ' as char) || c == ('\t' as char);
 }
 
 void skip_inline_space(Scanner* self) {
@@ -188,7 +188,7 @@ void skip_inline_space(Scanner* self) {
 
 /// skips to the end of a comment, leaving the newline in place.
 void skip_comment(Scanner* self) {
-    while !at_end(self) && peek(self) != ('\n' as u8) {
+    while !at_end(self) && peek(self) != ('\n' as char) {
         take(self);
     }
 }
@@ -197,14 +197,14 @@ void skip_comment(Scanner* self) {
 /// span lines: between statements and inside arrays.
 void skip_space(Scanner* self) {
     while !at_end(self) {
-        u8 c = peek(self);
+        char c = peek(self);
 
-        if is_inline_space(c) || c == ('\n' as u8) || c == ('\r' as u8) {
+        if is_inline_space(c) || c == ('\n' as char) || c == ('\r' as char) {
             take(self);
             continue;
         }
 
-        if c == ('#' as u8) {
+        if c == ('#' as char) {
             skip_comment(self);
             continue;
         }
@@ -213,7 +213,7 @@ void skip_space(Scanner* self) {
     }
 }
 
-Status(TomlError) expect(Scanner* self, u8 wanted) {
+Status(TomlError) expect(Scanner* self, char wanted) {
     if at_end(self) {
         return TomlError::UnexpectedEnd;
     }
@@ -231,7 +231,7 @@ Status(TomlError) expect(Scanner* self, u8 wanted) {
 Status(TomlError) finish_line(Scanner* self) {
     skip_inline_space(self);
 
-    if !at_end(self) && peek(self) == ('#' as u8) {
+    if !at_end(self) && peek(self) == ('#' as char) {
         skip_comment(self);
     }
 
@@ -239,7 +239,7 @@ Status(TomlError) finish_line(Scanner* self) {
         return Status::Ok;
     }
 
-    if peek(self) == ('\r' as u8) {
+    if peek(self) == ('\r' as char) {
         take(self);
     }
 
@@ -247,7 +247,7 @@ Status(TomlError) finish_line(Scanner* self) {
         return Status::Ok;
     }
 
-    if peek(self) != ('\n' as u8) {
+    if peek(self) != ('\n' as char) {
         return TomlError::ExpectedNewline;
     }
 
@@ -259,20 +259,20 @@ Status(TomlError) finish_line(Scanner* self) {
 //! Keys
 //!
 
-bool is_bare_key_byte(u8 c) {
+bool is_bare_key_byte(char c) {
     if parse::is_digit(c) {
         return true;
     }
 
-    if c >= ('a' as u8) && c <= ('z' as u8) {
+    if c >= ('a' as char) && c <= ('z' as char) {
         return true;
     }
 
-    if c >= ('A' as u8) && c <= ('Z' as u8) {
+    if c >= ('A' as char) && c <= ('Z' as char) {
         return true;
     }
 
-    return c == ('_' as u8) || c == ('-' as u8);
+    return c == ('_' as char) || c == ('-' as char);
 }
 
 Result(Str, TomlError) read_key_segment(Scanner* self) {
@@ -280,9 +280,9 @@ Result(Str, TomlError) read_key_segment(Scanner* self) {
         return TomlError::UnexpectedEnd;
     }
 
-    u8 c = peek(self);
+    char c = peek(self);
 
-    if c == ('"' as u8) || c == ('\'' as u8) {
+    if c == ('"' as char) || c == ('\'' as char) {
         return read_string(self);
     }
 
@@ -318,7 +318,7 @@ Result(KeyPath, TomlError) read_key_path(Scanner* self) {
 
         skip_inline_space(self);
 
-        if at_end(self) || peek(self) != ('.' as u8) {
+        if at_end(self) || peek(self) != ('.' as char) {
             return Result::Ok(path);
         }
 
@@ -363,17 +363,17 @@ Status(TomlError) check_escape(Scanner* self, bool multiline) {
         return TomlError::UnexpectedEnd;
     }
 
-    u8 c = take(self);
+    char c = take(self);
 
-    if c == ('b' as u8) || c == ('t' as u8) || c == ('n' as u8) || c == ('f' as u8) || c == ('r' as u8) || c == ('"' as u8) || c == ('\\' as u8) {
+    if c == ('b' as char) || c == ('t' as char) || c == ('n' as char) || c == ('f' as char) || c == ('r' as char) || c == ('"' as char) || c == ('\\' as char) {
         return Status::Ok;
     }
 
-    if c == ('u' as u8) {
+    if c == ('u' as char) {
         return check_unicode_escape(self, 4);
     }
 
-    if c == ('U' as u8) {
+    if c == ('U' as char) {
         return check_unicode_escape(self, 8);
     }
 
@@ -383,21 +383,21 @@ Status(TomlError) check_escape(Scanner* self, bool multiline) {
 
     // a line-ending backslash swallows the newline and the whitespace
     // that follows it
-    if c != ('\n' as u8) && c != ('\r' as u8) && !is_inline_space(c) {
+    if c != ('\n' as char) && c != ('\r' as char) && !is_inline_space(c) {
         return TomlError::InvalidEscape;
     }
 
-    bool saw_newline = c == ('\n' as u8);
+    bool saw_newline = c == ('\n' as char);
     while !at_end(self) {
-        u8 next_byte = peek(self);
+        char next_byte = peek(self);
 
-        if next_byte == ('\n' as u8) {
+        if next_byte == ('\n' as char) {
             saw_newline = true;
             take(self);
             continue;
         }
 
-        if is_inline_space(next_byte) || next_byte == ('\r' as u8) {
+        if is_inline_space(next_byte) || next_byte == ('\r' as char) {
             take(self);
             continue;
         }
@@ -412,8 +412,8 @@ Status(TomlError) check_escape(Scanner* self, bool multiline) {
     return Status::Ok;
 }
 
-Status(TomlError) check_body_byte(Scanner* self, u8 c, bool multiline) {
-    if c == ('\n' as u8) {
+Status(TomlError) check_body_byte(Scanner* self, char c, bool multiline) {
+    if c == ('\n' as char) {
         if !multiline {
             return TomlError::InvalidString;
         }
@@ -422,11 +422,11 @@ Status(TomlError) check_body_byte(Scanner* self, u8 c, bool multiline) {
         return Status::Ok;
     }
 
-    if c < 0x20 && c != ('\t' as u8) {
+    if (c as u8) < 0x20 && c != ('\t' as char) {
         return TomlError::ControlCharacter;
     }
 
-    if c < 0x80 {
+    if (c as u8) < 0x80 {
         take(self);
         return Status::Ok;
     }
@@ -447,7 +447,7 @@ Status(TomlError) check_body_byte(Scanner* self, u8 c, bool multiline) {
 }
 
 /// true when three copies of `delimiter` sit at the cursor.
-bool at_triple(const Scanner* self, u8 delimiter) {
+bool at_triple(const Scanner* self, char delimiter) {
     if !has(self, 3) {
         return false;
     }
@@ -460,18 +460,18 @@ bool at_triple(const Scanner* self, u8 delimiter) {
     ) == delimiter;
 }
 
-Result(Str, TomlError) read_multiline(Scanner* self, u8 delimiter) {
-    bool basic = delimiter == ('"' as u8);
+Result(Str, TomlError) read_multiline(Scanner* self, char delimiter) {
+    bool basic = delimiter == ('"' as char);
 
     for usize i = 0; i < 3; i++ {
         take(self);
     }
 
     // a newline immediately after the opening delimiter is not content
-    if !at_end(self) && peek(self) == ('\r' as u8) {
+    if !at_end(self) && peek(self) == ('\r' as char) {
         take(self);
     }
-    if !at_end(self) && peek(self) == ('\n' as u8) {
+    if !at_end(self) && peek(self) == ('\n' as char) {
         take(self);
     }
 
@@ -510,9 +510,9 @@ Result(Str, TomlError) read_multiline(Scanner* self, u8 delimiter) {
             );
         }
 
-        u8 c = peek(self);
+        char c = peek(self);
 
-        if basic && c == ('\\' as u8) {
+        if basic && c == ('\\' as char) {
             take(self);
             escaped = true;
             check_escape(self, true) ?;
@@ -523,8 +523,8 @@ Result(Str, TomlError) read_multiline(Scanner* self, u8 delimiter) {
     }
 }
 
-Result(Str, TomlError) read_single_line(Scanner* self, u8 delimiter) {
-    bool basic = delimiter == ('"' as u8);
+Result(Str, TomlError) read_single_line(Scanner* self, char delimiter) {
+    bool basic = delimiter == ('"' as char);
     take(self);
 
     usize start = self.at.offset;
@@ -535,7 +535,7 @@ Result(Str, TomlError) read_single_line(Scanner* self, u8 delimiter) {
             return TomlError::UnexpectedEnd;
         }
 
-        u8 c = peek(self);
+        char c = peek(self);
 
         if c == delimiter {
             usize end = self.at.offset;
@@ -554,7 +554,7 @@ Result(Str, TomlError) read_single_line(Scanner* self, u8 delimiter) {
             );
         }
 
-        if basic && c == ('\\' as u8) {
+        if basic && c == ('\\' as char) {
             take(self);
             escaped = true;
             check_escape(self, false) ?;
@@ -566,7 +566,7 @@ Result(Str, TomlError) read_single_line(Scanner* self, u8 delimiter) {
 }
 
 Result(Str, TomlError) read_string(Scanner* self) {
-    u8 delimiter = peek(self);
+    char delimiter = peek(self);
 
     if at_triple(self, delimiter) {
         return read_multiline(self, delimiter);
@@ -595,7 +595,7 @@ usize take_hex(const Str* self, usize at, usize digits, u32* out) {
 
 /// decodes `self` into `out`, returning the bytes written. a literal
 /// string is copied unchanged.
-public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
+public Result(usize, TomlError) unescape(const Str* self, [] char out) {
     if !self.needs_unescape {
         if self.raw.len > out.len {
             return TomlError::OutOfSpace;
@@ -610,9 +610,9 @@ public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
     usize n = 0;
 
     while i < self.raw.len {
-        u8 c = self.raw[i];
+        char c = self.raw[i];
 
-        if c != ('\\' as u8) {
+        if c != ('\\' as char) {
             if n >= out.len {
                 return TomlError::OutOfSpace;
             }
@@ -628,11 +628,11 @@ public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
             return TomlError::InvalidEscape;
         }
 
-        u8 kind = self.raw[i];
+        char kind = self.raw[i];
         i++;
 
-        if kind == ('u' as u8) || kind == ('U' as u8) {
-            usize digits = if kind == ('u' as u8) {
+        if kind == ('u' as char) || kind == ('U' as char) {
+            usize digits = if kind == ('u' as char) {
                 4 as usize
             } else {
                 8 as usize
@@ -657,18 +657,18 @@ public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
             continue;
         }
 
-        u8 plain = match kind as char {
-            'b' => 8,
-            't' => '\t' as u8,
-            'n' => '\n' as u8,
-            'f' => 12,
-            'r' => '\r' as u8,
-            '"' => '"' as u8,
-            '\\' => '\\' as u8,
-            _ => 0,
+        char plain = match kind as char {
+            'b' => '\x08',
+            't' => '\t' as char,
+            'n' => '\n' as char,
+            'f' => '\x0c',
+            'r' => '\r' as char,
+            '"' => '"' as char,
+            '\\' => '\\' as char,
+            _ => '\0',
         };
 
-        if plain != 0 {
+        if plain != '\0' {
             if n >= out.len {
                 return TomlError::OutOfSpace;
             }
@@ -684,9 +684,9 @@ public Result(usize, TomlError) unescape(const Str* self, [] u8 out) {
 
         // line-ending backslash: drop the newline and the run after it
         while i < self.raw.len {
-            u8 skipped = self.raw[i];
+            char skipped = self.raw[i];
 
-            if skipped == ('\n' as u8) || skipped == ('\r' as u8)
+            if skipped == ('\n' as char) || skipped == ('\r' as char)
             || is_inline_space(
                 skipped
             ) {
@@ -759,15 +759,15 @@ bool starts_special_float(const Scanner* self) {
         return false;
     }
 
-    u8 c = peek(self);
-    return c == ('i' as u8) || c == ('n' as u8);
+    char c = peek(self);
+    return c == ('i' as char) || c == ('n' as char);
 }
 
 static if core::target::FLOAT_AVAILABLE {
     Result(Scalar, TomlError) read_special_float(Scanner* self, bool negative) {
-        u8 c = peek(self);
+        char c = peek(self);
 
-        if c == ('i' as u8) {
+        if c == ('i' as char) {
             for usize i = 0; i < 3; i++ {
                 take(self);
             }
@@ -798,8 +798,8 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
     static if core::target::FLOAT_AVAILABLE {
         bool negative = false;
 
-        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
-            negative = peek(self) == ('-' as u8);
+        if !at_end(self) && (peek(self) == ('+' as char) || peek(self) == ('-' as char)) {
+            negative = peek(self) == ('-' as char);
             take(self);
         }
 
@@ -815,7 +815,7 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
         i32 exponent = 0;
         f64 mantissa = whole as f64;
 
-        if !at_end(self) && peek(self) == ('.' as u8) {
+        if !at_end(self) && peek(self) == ('.' as char) {
             take(self);
             is_float = true;
 
@@ -826,7 +826,7 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
             // count the source digits, since leading zeros matter to the scale
             usize span = 0;
             for usize i = before; i < self.at.offset; i++ {
-                if self.input[i] != ('_' as u8) {
+                if self.input[i] != ('_' as char) {
                     span++;
                 }
             }
@@ -836,13 +836,13 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
             exponent = exponent - span as i32;
         }
 
-        if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+        if !at_end(self) && (peek(self) == ('e' as char) || peek(self) == ('E' as char)) {
             take(self);
             is_float = true;
 
             bool negative_exponent = false;
-            if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
-                negative_exponent = peek(self) == ('-' as u8);
+            if !at_end(self) && (peek(self) == ('+' as char) || peek(self) == ('-' as char)) {
+                negative_exponent = peek(self) == ('-' as char);
                 take(self);
             }
 
@@ -889,8 +889,8 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
         );
     } else {
         bool negative = false;
-        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
-            negative = peek(self) == ('-' as u8);
+        if !at_end(self) && (peek(self) == ('+' as char) || peek(self) == ('-' as char)) {
+            negative = peek(self) == ('-' as char);
             take(self);
         }
         if starts_special_float(self) {
@@ -898,7 +898,7 @@ Result(Scalar, TomlError) read_decimal(Scanner* self) {
         }
         usize digits = 0;
         u64 whole = read_digits(self, 10, &digits) ?;
-        if !at_end(self) && (peek(self) == ('.' as u8) || peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+        if !at_end(self) && (peek(self) == ('.' as char) || peek(self) == ('e' as char) || peek(self) == ('E' as char)) {
             return TomlError::InvalidNumber;
         }
         Result(i64, NumError) value = parse::signed_from_magnitude(whole, negative);
@@ -928,7 +928,7 @@ bool looks_like_date(const Scanner* self) {
         }
     }
 
-    return peek_at(self, 4) == ('-' as u8);
+    return peek_at(self, 4) == ('-' as char);
 }
 
 bool looks_like_time(const Scanner* self) {
@@ -941,7 +941,7 @@ bool looks_like_time(const Scanner* self) {
     && peek_at(
         self,
         2
-    ) == (':' as u8);
+    ) == (':' as char);
 }
 
 Result(u32, TomlError) read_fixed_digits(Scanner* self, usize count) {
@@ -952,7 +952,7 @@ Result(u32, TomlError) read_fixed_digits(Scanner* self, usize count) {
             return TomlError::InvalidDate;
         }
 
-        value = value * 10 + (take(self) - ('0' as u8)) as u32;
+        value = value * 10 + (take(self) as u32 - ('0' as u32)) as u32;
     }
 
     return Result::Ok(value);
@@ -960,9 +960,9 @@ Result(u32, TomlError) read_fixed_digits(Scanner* self, usize count) {
 
 Result(Date, TomlError) read_date(Scanner* self) {
     u32 year = read_fixed_digits(self, 4) ?;
-    expect(self, '-' as u8) ?;
+    expect(self, '-' as char) ?;
     u32 month = read_fixed_digits(self, 2) ?;
-    expect(self, '-' as u8) ?;
+    expect(self, '-' as char) ?;
     u32 day = read_fixed_digits(self, 2) ?;
 
     Date out = {year = year as i32, month = month as u8, day = day as u8};
@@ -976,26 +976,26 @@ Result(Date, TomlError) read_date(Scanner* self) {
 
 Result(Time, TomlError) read_time(Scanner* self) {
     u32 hour = read_fixed_digits(self, 2) ?;
-    expect(self, ':' as u8) ?;
+    expect(self, ':' as char) ?;
     u32 minute = read_fixed_digits(self, 2) ?;
 
     u32 second = 0;
     u32 nanosecond = 0;
 
-    if !at_end(self) && peek(self) == (':' as u8) {
+    if !at_end(self) && peek(self) == (':' as char) {
         take(self);
         second = read_fixed_digits(self, 2) ?;
 
-        if !at_end(self) && peek(self) == ('.' as u8) {
+        if !at_end(self) && peek(self) == ('.' as char) {
             take(self);
 
             usize digits = 0;
             while !at_end(self) && parse::is_digit(peek(self)) {
-                u8 c = take(self);
+                char c = take(self);
 
                 // keep nanosecond precision, discard the rest
                 if digits < 9 {
-                    nanosecond = nanosecond * 10 + (c - ('0' as u8)) as u32;
+                    nanosecond = nanosecond * 10 + (c as u32 - ('0' as u32)) as u32;
                     digits++;
                 }
             }
@@ -1039,7 +1039,7 @@ bool space_joins_time(const Scanner* self) {
     && peek_at(
         self,
         3
-    ) == (':' as u8);
+    ) == (':' as char);
 }
 
 Result(Scalar, TomlError) read_datetime(Scanner* self) {
@@ -1051,12 +1051,12 @@ Result(Scalar, TomlError) read_datetime(Scanner* self) {
 
     bool joined = false;
     if !at_end(self) {
-        u8 c = peek(self);
+        char c = peek(self);
 
-        if c == ('T' as u8) || c == ('t' as u8) {
+        if c == ('T' as char) || c == ('t' as char) {
             take(self);
             joined = true;
-        } else if c == (' ' as u8) && space_joins_time(self) {
+        } else if c == (' ' as char) && space_joins_time(self) {
             take(self);
             joined = true;
         }
@@ -1074,22 +1074,22 @@ Result(Scalar, TomlError) read_datetime(Scanner* self) {
         return Result::Ok(Scalar::LocalDateTime(stamp));
     }
 
-    u8 c = peek(self);
+    char c = peek(self);
 
-    if c == ('Z' as u8) || c == ('z' as u8) {
+    if c == ('Z' as char) || c == ('z' as char) {
         take(self);
         return Result::Ok(Scalar::OffsetDateTime(stamp));
     }
 
-    if c != ('+' as u8) && c != ('-' as u8) {
+    if c != ('+' as char) && c != ('-' as char) {
         return Result::Ok(Scalar::LocalDateTime(stamp));
     }
 
-    bool west = c == ('-' as u8);
+    bool west = c == ('-' as char);
     take(self);
 
     u32 hours = read_fixed_digits(self, 2) ?;
-    expect(self, ':' as u8) ?;
+    expect(self, ':' as char) ?;
     u32 minutes = read_fixed_digits(self, 2) ?;
 
     if hours > 23 || minutes > 59 {
@@ -1120,7 +1120,7 @@ Status(TomlError) push_frame(Scanner* self, u8 flags) {
     return Status::Ok;
 }
 
-bool word_ahead(const Scanner* self, [] const u8 word) {
+bool word_ahead(const Scanner* self, [] const char word) {
     if !has(self, word.len) {
         return false;
     }
@@ -1139,21 +1139,21 @@ Result(Event, TomlError) read_value(Scanner* self) {
         return TomlError::UnexpectedEnd;
     }
 
-    u8 c = peek(self);
+    char c = peek(self);
 
-    if c == ('[' as u8) {
+    if c == ('[' as char) {
         take(self);
         push_frame(self, 0) ?;
         return Result::Ok(Event::ArrayBegin);
     }
 
-    if c == ('{' as u8) {
+    if c == ('{' as char) {
         take(self);
         push_frame(self, FRAME_INLINE) ?;
         return Result::Ok(Event::InlineTableBegin);
     }
 
-    if c == ('"' as u8) || c == ('\'' as u8) {
+    if c == ('"' as char) || c == ('\'' as char) {
         return Result::Ok(Event::Scalar(Scalar::String(read_string(self) ?)));
     }
 
@@ -1177,23 +1177,23 @@ Result(Event, TomlError) read_value(Scanner* self) {
         return Result::Ok(Event::Scalar(read_datetime(self) ?));
     }
 
-    if c == ('0' as u8) && has(self, 2) {
-        u8 marker = peek_at(self, 1);
+    if c == ('0' as char) && has(self, 2) {
+        char marker = peek_at(self, 1);
 
-        if marker == ('x' as u8) {
+        if marker == ('x' as char) {
             return Result::Ok(Event::Scalar(read_radix_number(self, 16) ?));
         }
 
-        if marker == ('o' as u8) {
+        if marker == ('o' as char) {
             return Result::Ok(Event::Scalar(read_radix_number(self, 8) ?));
         }
 
-        if marker == ('b' as u8) {
+        if marker == ('b' as char) {
             return Result::Ok(Event::Scalar(read_radix_number(self, 2) ?));
         }
     }
 
-    if parse::is_digit(c) || c == ('+' as u8) || c == ('-' as u8) || c == ('i' as u8) || c == ('n' as u8) {
+    if parse::is_digit(c) || c == ('+' as char) || c == ('-' as char) || c == ('i' as char) || c == ('n' as char) {
         return Result::Ok(Event::Scalar(read_decimal(self) ?));
     }
 
@@ -1206,7 +1206,7 @@ Result(Located(Event), TomlError) read_table_header(
 ) {
     take(self);
 
-    bool array = !at_end(self) && peek(self) == ('[' as u8);
+    bool array = !at_end(self) && peek(self) == ('[' as char);
     if array {
         take(self);
     }
@@ -1215,9 +1215,9 @@ Result(Located(Event), TomlError) read_table_header(
     KeyPath key = read_key_path(self) ?;
     skip_inline_space(self);
 
-    expect(self, ']' as u8) ?;
+    expect(self, ']' as char) ?;
     if array {
-        expect(self, ']' as u8) ?;
+        expect(self, ']' as char) ?;
     }
 
     finish_line(self) ?;
@@ -1265,7 +1265,7 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
                 return TomlError::UnexpectedEnd;
             }
 
-            if peek(self) == (']' as u8) {
+            if peek(self) == (']' as char) {
                 take(self);
                 self.depth = self.depth - 1;
 
@@ -1277,12 +1277,12 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
             }
 
             if (frame & FRAME_SEEN) != 0 {
-                expect(self, ',' as u8) ?;
+                expect(self, ',' as char) ?;
                 skip_space(self);
                 here = self.at;
 
                 // arrays allow one trailing comma
-                if !at_end(self) && peek(self) == (']' as u8) {
+                if !at_end(self) && peek(self) == (']' as char) {
                     take(self);
                     self.depth = self.depth - 1;
 
@@ -1308,7 +1308,7 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
             return TomlError::UnexpectedEnd;
         }
 
-        if peek(self) == ('}' as u8) {
+        if peek(self) == ('}' as char) {
             take(self);
             self.depth = self.depth - 1;
 
@@ -1322,7 +1322,7 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
         }
 
         if (frame & FRAME_SEEN) != 0 {
-            expect(self, ',' as u8) ?;
+            expect(self, ',' as char) ?;
             skip_inline_space(self);
             here = self.at;
         }
@@ -1331,7 +1331,7 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
 
         KeyPath key = read_key_path(self) ?;
         skip_inline_space(self);
-        expect(self, '=' as u8) ?;
+        expect(self, '=' as char) ?;
 
         self.pending_value = true;
         return Result::Ok({event = Event::Key(key), at = here});
@@ -1349,13 +1349,13 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
         return Result::Ok({event = Event::End, at = here});
     }
 
-    if peek(self) == ('[' as u8) {
+    if peek(self) == ('[' as char) {
         return read_table_header(self, here);
     }
 
     KeyPath key = read_key_path(self) ?;
     skip_inline_space(self);
-    expect(self, '=' as u8) ?;
+    expect(self, '=' as char) ?;
 
     self.pending_value = true;
     return Result::Ok({event = Event::Key(key), at = here});
@@ -1366,7 +1366,7 @@ public Result(Located(Event), TomlError) next(Scanner* self) {
 //!
 
 public struct Entry {
-    [] const u8 key;
+    [] const char key;
     Value value;
 }
 
@@ -1377,7 +1377,7 @@ public struct Table {
 
 static if core::target::FLOAT_AVAILABLE {
     public enum Value {
-        String([] const u8),
+        String([] const char),
         Integer(i64),
         Float(f64),
         Bool(bool),
@@ -1390,7 +1390,7 @@ static if core::target::FLOAT_AVAILABLE {
     }
 } else {
     public enum Value {
-        String([] const u8),
+        String([] const char),
         Integer(i64),
         Bool(bool),
         OffsetDateTime(DateTime),
@@ -1418,7 +1418,7 @@ using u8 KIND_ARRAY = 2;
 using TablePtr = BTable*;
 
 struct BEntry {
-    [] const u8 key;
+    [] const char key;
     u8 kind;
     Value value;
     BTable* table;
@@ -1452,7 +1452,7 @@ Result(BTable*, TomlError) new_table(const mem::Allocator* alloc) {
 Result(BEntry*, TomlError) reserve_entry(
     const mem::Allocator* alloc,
     BTable* self,
-    [] const u8 key
+    [] const char key
 ) {
     if self.len == self.entries.len {
         usize want = if self.entries.len == 0 {
@@ -1488,7 +1488,7 @@ Result(BEntry*, TomlError) reserve_entry(
     return Result::Ok(slot);
 }
 
-BEntry* find_entry(BTable* self, [] const u8 key) {
+BEntry* find_entry(BTable* self, [] const char key) {
     for usize i = 0; i < self.len; i++ {
         if mem::equal(self.entries[i].key, key) {
             return &self.entries[i];
@@ -1533,7 +1533,7 @@ Status(TomlError) push_element(
 }
 
 /// copies a key segment into `alloc`, decoding it when it was quoted.
-Result([] const u8, TomlError) key_text(
+Result([] const char, TomlError) key_text(
     const mem::Allocator* alloc,
     const Str* self
 ) {
@@ -1545,14 +1545,14 @@ Result([] const u8, TomlError) key_text(
         return Result::Ok(self.raw);
     }
 
-    Result([] u8, mem::AllocError) slot = alloc.alloc(self.raw.len);
+    Result([] char, mem::AllocError) slot = alloc.alloc(self.raw.len);
     if slot.is_err() {
         return TomlError::OutOfMemory;
     }
 
-    [] u8 buffer = slot.unwrap();
+    [] char buffer = slot.unwrap();
     usize n = unescape(self, buffer) ?;
-    return Result::Ok(buffer[0..n] as [] const u8);
+    return Result::Ok(buffer[0..n] as [] const char);
 }
 
 /// walks into `key`, creating tables as it goes. `dotted` marks the
@@ -1567,7 +1567,7 @@ Result(BTable*, TomlError) descend(
     BTable* current = from;
 
     for usize i = 0; i < count; i++ {
-        [] const u8 name = key_text(alloc, &key.parts[i]) ?;
+        [] const char name = key_text(alloc, &key.parts[i]) ?;
         BEntry* found = find_entry(current, name);
 
         if found == null {
@@ -1607,7 +1607,7 @@ Result(BTable*, TomlError) open_table(
     const TablePath* path
 ) {
     BTable* parent = descend(alloc, root, &path.key, path.key.count - 1, false) ?;
-    [] const u8 name = key_text(alloc, &path.key.parts[path.key.count - 1]) ?;
+    [] const char name = key_text(alloc, &path.key.parts[path.key.count - 1]) ?;
 
     BEntry* found = find_entry(parent, name);
 
@@ -1663,7 +1663,7 @@ Status(TomlError) set_key(
     Value value
 ) {
     BTable* target = descend(alloc, current, key, key.count - 1, true) ?;
-    [] const u8 name = key_text(alloc, &key.parts[key.count - 1]) ?;
+    [] const char name = key_text(alloc, &key.parts[key.count - 1]) ?;
 
     if find_entry(target, name) != null {
         return TomlError::DuplicateKey;
@@ -1769,7 +1769,7 @@ Result(Value, TomlError) scalar_value(
     static if core::target::FLOAT_AVAILABLE {
         return match item {
             Scalar::String(text) => {
-                Result([] const u8, TomlError) decoded = string_text(alloc, &text);
+                Result([] const char, TomlError) decoded = string_text(alloc, &text);
                 if decoded.is_err() {
                     return decoded.unwrap_err();
                 }
@@ -1786,7 +1786,7 @@ Result(Value, TomlError) scalar_value(
     } else {
         return match item {
             Scalar::String(text) => {
-                Result([] const u8, TomlError) decoded = string_text(alloc, &text);
+                Result([] const char, TomlError) decoded = string_text(alloc, &text);
                 if decoded.is_err() {
                     return decoded.unwrap_err();
                 }
@@ -1804,7 +1804,7 @@ Result(Value, TomlError) scalar_value(
 
 /// borrows the source when the string carried no escape, and decodes
 /// into `alloc` when it did.
-Result([] const u8, TomlError) string_text(
+Result([] const char, TomlError) string_text(
     const mem::Allocator* alloc,
     const Str* self
 ) {
@@ -1812,14 +1812,14 @@ Result([] const u8, TomlError) string_text(
         return Result::Ok(self.raw);
     }
 
-    Result([] u8, mem::AllocError) slot = alloc.alloc(self.raw.len);
+    Result([] char, mem::AllocError) slot = alloc.alloc(self.raw.len);
     if slot.is_err() {
         return TomlError::OutOfMemory;
     }
 
-    [] u8 buffer = slot.unwrap();
+    [] char buffer = slot.unwrap();
     usize n = unescape(self, buffer) ?;
-    return Result::Ok(buffer[0..n] as [] const u8);
+    return Result::Ok(buffer[0..n] as [] const char);
 }
 
 Result(Value, TomlError) build_array(
@@ -1885,7 +1885,7 @@ Result(Value, TomlError) build_value(
 /// escape, so the result outlives neither `alloc` nor `input`.
 public Result(Table, TomlError) parse(
     const mem::Allocator* alloc,
-    [] const u8 input
+    [] const char input
 ) {
     Scanner self = scan(input);
     BTable* root = new_table(alloc) ?;
@@ -1921,7 +1921,7 @@ public Result(Table, TomlError) parse(
 //! Access
 //!
 
-public Optional(Value) get(const Table* self, [] const u8 key) {
+public Optional(Value) get(const Table* self, [] const char key) {
     for usize i = 0; i < self.entries.len; i++ {
         if mem::equal(self.entries[i].key, key) {
             return Optional::Some(self.entries[i].value);
@@ -1933,12 +1933,12 @@ public Optional(Value) get(const Table* self, [] const u8 key) {
 
 /// dotted lookup: `t.get_path("profile.release.opt")`. a segment that
 /// names an array stops the walk, since there is no index syntax here.
-public Optional(Value) get_path(const Table* self, [] const u8 path) {
+public Optional(Value) get_path(const Table* self, [] const char path) {
     Table current = *self;
     usize start = 0;
 
     for usize i = 0; i <= path.len; i++ {
-        if i != path.len && path[i] != ('.' as u8) {
+        if i != path.len && path[i] != ('.' as char) {
             continue;
         }
 
@@ -1964,7 +1964,7 @@ public Optional(Value) get_path(const Table* self, [] const u8 path) {
     return Optional::None;
 }
 
-public Optional([] const u8) as_string(const Value* self) {
+public Optional([] const char) as_string(const Value* self) {
     return match *self {
         Value::String(v) => Optional::Some(v),
         _ => Optional::None,

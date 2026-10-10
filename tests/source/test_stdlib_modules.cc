@@ -24,7 +24,7 @@ namespace
             out << source;
         }
 
-        auto const compile = std::format("{} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, optimization, shell_quote(exe),
+        auto const compile = std::format("timeout 60 {} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, optimization, shell_quote(exe),
                                          shell_quote(src));
         if (std::system(compile.c_str()) != 0)
             return -1;
@@ -58,7 +58,7 @@ import std::mem;
 import std::prelude;
 import std::fmt;
 
-bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+bool same([] const char a, [] const char b) { return std::mem::equal(a, b); }
 
 public i32 main() {
     std::result::Result(i32, u8) ok = std::result::Result::Ok(7);
@@ -88,13 +88,13 @@ public i32 main() {
 
     u8[1] ascii = {65}; u8[2] two = {0xC3, 0xA9}; u8[3] three = {0xE2, 0x82, 0xAC}; u8[4] four = {0xF0, 0x9F, 0x98, 0x80};
     u8[1] bad_start = {0x80}; u8[2] bad_cont = {0xC2, 65}; u8[3] overlong = {0xE0, 0x80, 0x80}; u8[3] surrogate = {0xED, 0xA0, 0x80}; u8[4] out_of_range = {0xF4, 0x90, 0x80, 0x80}; u8[2] truncated = {0xE2, 0x82};
-    if std::utf8::decode(ascii[0..1]).unwrap().codepoint != 65 || std::utf8::decode(two[0..2]).unwrap().codepoint != 233 { return 12; }
-    if std::utf8::decode(three[0..3]).unwrap().codepoint != 8364 || std::utf8::decode(four[0..4]).unwrap().codepoint != 128512 { return 13; }
-    if std::utf8::decode(bad_start[0..1]).is_ok() || std::utf8::decode(bad_cont[0..2]).is_ok() || std::utf8::decode(overlong[0..3]).is_ok() { return 14; }
-    if std::utf8::decode(surrogate[0..3]).is_ok() || std::utf8::decode(out_of_range[0..4]).is_ok() || std::utf8::decode(truncated[0..2]).is_ok() { return 15; }
-    u8[4] encoded;
+    if std::utf8::decode(ascii[0..1] as [] const char).unwrap().codepoint != 65 || std::utf8::decode(two[0..2] as [] const char).unwrap().codepoint != 233 { return 12; }
+    if std::utf8::decode(three[0..3] as [] const char).unwrap().codepoint != 8364 || std::utf8::decode(four[0..4] as [] const char).unwrap().codepoint != 128512 { return 13; }
+    if std::utf8::decode(bad_start[0..1] as [] const char).is_ok() || std::utf8::decode(bad_cont[0..2] as [] const char).is_ok() || std::utf8::decode(overlong[0..3] as [] const char).is_ok() { return 14; }
+    if std::utf8::decode(surrogate[0..3] as [] const char).is_ok() || std::utf8::decode(out_of_range[0..4] as [] const char).is_ok() || std::utf8::decode(truncated[0..2] as [] const char).is_ok() { return 15; }
+    char[4] encoded;
     if std::utf8::encode(0x1F600, encoded[0..4]).unwrap() != 4 || !std::utf8::is_valid(encoded[0..4]) || std::utf8::count_codepoints(encoded[0..4]) != 1 { return 16; }
-    if std::utf8::validate(bad_start[0..1]).is_none() || std::utf8::boundary_before(two[0..2], 1) != 0 { return 17; }
+    if std::utf8::validate(bad_start[0..1] as [] const char).is_none() || std::utf8::boundary_before(two[0..2] as [] const char, 1) != 0 { return 17; }
 
     if std::math::min(3, 4) != 3 || std::math::max(3, 4) != 4 || std::math::clamp(9, 1, 5) != 5 { return 18; }
     if std::math::floor(-1.2) != -2.0 || std::math::ceil(1.2) != 2.0 || std::math::fabs(-3.0) != 3.0 { return 19; }
@@ -109,8 +109,8 @@ public i32 main() {
     if std::sort::binary_search(values[0..6], 4).unwrap_some() != 4 || std::sort::binary_search(values[0..6], 9).is_some() { return 25; }
     std::mem::set(data[0..5], 7 as u8); std::mem::zero(data[1..4]);
     if data[0] != 7 || data[1] != 0 || data[4] != 7 { return 26; }
-    u8[64] formatted;
-    [] u8 rendered = std::fmt::format_buf(formatted[0..64], "{} {:x} {:04}", 7, 48879 as u16, 3).unwrap();
+    char[64] formatted;
+    [] char rendered = std::fmt::format_buf(formatted[0..64], "{} {:x} {:04}", 7, 48879 as u16, 3).unwrap();
     if !same(rendered, "7 beef 0003") || std::fmt::format_len("{}", true).unwrap() != 4 { return 27; }
     std::prelude::Result(i32, u8) prelude_smoke = std::prelude::Result::Ok(1);
     return if prelude_smoke.unwrap() == 1 { 0 } else { 28 };
@@ -125,12 +125,12 @@ TEST_CASE("sha one-shot digests match known-answer vectors on both backends at O
 import std::sha;
 import std::mem;
 
-bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+bool same([] const char a, [] const char b) { return std::mem::equal(a, b); }
 
 bool check_sha1() {
     u8[1] z = {0};
     u8[20] d;
-    u8[40] hx;
+    char[40] hx;
     if !std::sha::sha1(z[0..0], d[0..20]).is_ok() { return false; }
     if !std::sha::hex_encode(d[0..20], hx[0..40]).is_ok() { return false; }
     if !same(hx[0..40], "da39a3ee5e6b4b0d3255bfef95601890afd80709") { return false; }
@@ -151,7 +151,7 @@ bool check_sha1() {
 bool check_sha224() {
     u8[1] z = {0};
     u8[28] d;
-    u8[56] hx;
+    char[56] hx;
     if !std::sha::sha224(z[0..0], d[0..28]).is_ok() { return false; }
     if !std::sha::hex_encode(d[0..28], hx[0..56]).is_ok() { return false; }
     if !same(hx[0..56], "d14a028c2a3a2bc9476102bb288234c415a2b01f828ea62ac5b3e42f") { return false; }
@@ -172,7 +172,7 @@ bool check_sha224() {
 bool check_sha256() {
     u8[1] z = {0};
     u8[32] d;
-    u8[64] hx;
+    char[64] hx;
     if !std::sha::sha256(z[0..0], d[0..32]).is_ok() { return false; }
     if !std::sha::hex_encode(d[0..32], hx[0..64]).is_ok() { return false; }
     if !same(hx[0..64], "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855") { return false; }
@@ -193,7 +193,7 @@ bool check_sha256() {
 bool check_sha384() {
     u8[1] z = {0};
     u8[48] d;
-    u8[96] hx;
+    char[96] hx;
     if !std::sha::sha384(z[0..0], d[0..48]).is_ok() { return false; }
     if !std::sha::hex_encode(d[0..48], hx[0..96]).is_ok() { return false; }
     if !same(hx[0..96], "38b060a751ac96384cd9327eb1b1e36a21fdb71114be07434c0cc7bf63f6e1da274edebfe76f65fbd51ad2f14898b95b") { return false; }
@@ -214,7 +214,7 @@ bool check_sha384() {
 bool check_sha512() {
     u8[1] z = {0};
     u8[64] d;
-    u8[128] hx;
+    char[128] hx;
     if !std::sha::sha512(z[0..0], d[0..64]).is_ok() { return false; }
     if !std::sha::hex_encode(d[0..64], hx[0..128]).is_ok() { return false; }
     if !same(hx[0..128], "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e") { return false; }
@@ -252,7 +252,7 @@ TEST_CASE("sha streaming, reset, lengths, and errors behave correctly on both ba
 import std::sha;
 import std::mem;
 
-bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+bool same([] const char a, [] const char b) { return std::mem::equal(a, b); }
 
 public i32 main() {
     if std::sha::SHA1_DIGEST_LEN != 20 { return 1; }
@@ -393,10 +393,10 @@ public i32 main() {
     e512.update("abc");
     u8[63] s512;
     if e512.finish(s512[0..63]).unwrap_err() != std::sha::ShaError::OutputTooSmall { return 39; }
-    u8[63] hx63;
+    char[63] hx63;
     if std::sha::hex_encode(narrow[0..32], hx63[0..63]).unwrap_err() != std::sha::ShaError::OutputTooSmall { return 40; }
     u8[2] ends = {0x0, 0xFF};
-    u8[4] ends_hex;
+    char[4] ends_hex;
     if !std::sha::hex_encode(ends[0..2], ends_hex[0..4]).is_ok() { return 41; }
     if !same(ends_hex[0..4], "00ff") { return 42; }
     return 0;
@@ -413,7 +413,7 @@ TEST_CASE("sha multi-block streaming matches one-million-a vectors on both backe
 import std::sha;
 import std::mem;
 
-bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+bool same([] const char a, [] const char b) { return std::mem::equal(a, b); }
 
 public i32 main() {
     u8[1000] chunk;
@@ -422,35 +422,35 @@ public i32 main() {
     for usize r = 0; r < 1000; r++ { m1.update(chunk[0..1000]); }
     u8[20] md1;
     if !m1.finish(md1[0..20]).is_ok() { return 1; }
-    u8[40] mh1;
+    char[40] mh1;
     std::sha::hex_encode(md1[0..20], mh1[0..40]).unwrap();
     if !same(mh1[0..40], "34aa973cd4c4daa4f61eeb2bdbad27316534016f") { return 2; }
     std::sha::Sha256 m224 = std::sha::new_sha224();
     for usize r = 0; r < 1000; r++ { m224.update(chunk[0..1000]); }
     u8[28] md224;
     if !m224.finish(md224[0..28]).is_ok() { return 3; }
-    u8[56] mh224;
+    char[56] mh224;
     std::sha::hex_encode(md224[0..28], mh224[0..56]).unwrap();
     if !same(mh224[0..56], "20794655980c91d8bbb4c1ea97618a4bf03f42581948b2ee4ee7ad67") { return 4; }
     std::sha::Sha256 m256 = std::sha::Sha256::new();
     for usize r = 0; r < 1000; r++ { m256.update(chunk[0..1000]); }
     u8[32] md256;
     if !m256.finish(md256[0..32]).is_ok() { return 5; }
-    u8[64] mh256;
+    char[64] mh256;
     std::sha::hex_encode(md256[0..32], mh256[0..64]).unwrap();
     if !same(mh256[0..64], "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0") { return 6; }
     std::sha::Sha512 m384 = std::sha::new_sha384();
     for usize r = 0; r < 1000; r++ { m384.update(chunk[0..1000]); }
     u8[48] md384;
     if !m384.finish(md384[0..48]).is_ok() { return 7; }
-    u8[96] mh384;
+    char[96] mh384;
     std::sha::hex_encode(md384[0..48], mh384[0..96]).unwrap();
     if !same(mh384[0..96], "9d0e1809716474cb086e834e310a4a1ced149e9c00f248527972cec5704c2a5b07b8b3dc38ecc4ebae97ddd87f3d8985") { return 8; }
     std::sha::Sha512 m512 = std::sha::Sha512::new();
     for usize r = 0; r < 1000; r++ { m512.update(chunk[0..1000]); }
     u8[64] md512;
     if !m512.finish(md512[0..64]).is_ok() { return 9; }
-    u8[128] mh512;
+    char[128] mh512;
     std::sha::hex_encode(md512[0..64], mh512[0..128]).unwrap();
     if !same(mh512[0..128], "e718483d0ce769644e2e42c7bc15b4638e1f98b13b2044285632a803afa973ebde0ff244877ea60a4cb0432ce577c31beb009c5c2c49aa2e4eadb217ad8cc09b") { return 10; }
     return 0;
@@ -467,12 +467,12 @@ TEST_CASE("sha padding at block boundaries matches NIST vectors on both backends
 import std::sha;
 import std::mem;
 
-bool same([] const u8 a, [] const u8 b) { return std::mem::equal(a, b); }
+bool same([] const char a, [] const char b) { return std::mem::equal(a, b); }
 
-bool check1([] u8 buf, usize n, [] const u8 want) {
+bool check1([] u8 buf, usize n, [] const char want) {
     u8[20] d;
     if !std::sha::sha1(buf[0..n], d[0..20]).is_ok() { return false; }
-    u8[40] hx;
+    char[40] hx;
     if !std::sha::hex_encode(d[0..20], hx[0..40]).is_ok() { return false; }
     if !same(hx[0..40], want) { return false; }
     std::sha::Sha1 h = std::sha::Sha1::new();
@@ -483,10 +483,10 @@ bool check1([] u8 buf, usize n, [] const u8 want) {
     return true;
 }
 
-bool check224([] u8 buf, usize n, [] const u8 want) {
+bool check224([] u8 buf, usize n, [] const char want) {
     u8[28] d;
     if !std::sha::sha224(buf[0..n], d[0..28]).is_ok() { return false; }
-    u8[56] hx;
+    char[56] hx;
     if !std::sha::hex_encode(d[0..28], hx[0..56]).is_ok() { return false; }
     if !same(hx[0..56], want) { return false; }
     std::sha::Sha256 h = std::sha::new_sha224();
@@ -497,10 +497,10 @@ bool check224([] u8 buf, usize n, [] const u8 want) {
     return true;
 }
 
-bool check256([] u8 buf, usize n, [] const u8 want) {
+bool check256([] u8 buf, usize n, [] const char want) {
     u8[32] d;
     if !std::sha::sha256(buf[0..n], d[0..32]).is_ok() { return false; }
-    u8[64] hx;
+    char[64] hx;
     if !std::sha::hex_encode(d[0..32], hx[0..64]).is_ok() { return false; }
     if !same(hx[0..64], want) { return false; }
     std::sha::Sha256 h = std::sha::Sha256::new();
@@ -511,10 +511,10 @@ bool check256([] u8 buf, usize n, [] const u8 want) {
     return true;
 }
 
-bool check384([] u8 buf, usize n, [] const u8 want) {
+bool check384([] u8 buf, usize n, [] const char want) {
     u8[48] d;
     if !std::sha::sha384(buf[0..n], d[0..48]).is_ok() { return false; }
-    u8[96] hx;
+    char[96] hx;
     if !std::sha::hex_encode(d[0..48], hx[0..96]).is_ok() { return false; }
     if !same(hx[0..96], want) { return false; }
     std::sha::Sha512 h = std::sha::new_sha384();
@@ -525,10 +525,10 @@ bool check384([] u8 buf, usize n, [] const u8 want) {
     return true;
 }
 
-bool check512([] u8 buf, usize n, [] const u8 want) {
+bool check512([] u8 buf, usize n, [] const char want) {
     u8[64] d;
     if !std::sha::sha512(buf[0..n], d[0..64]).is_ok() { return false; }
-    u8[128] hx;
+    char[128] hx;
     if !std::sha::hex_encode(d[0..64], hx[0..128]).is_ok() { return false; }
     if !same(hx[0..128], want) { return false; }
     std::sha::Sha512 h = std::sha::Sha512::new();
@@ -612,10 +612,10 @@ public i32 main() {
     u8[256] backing;
     std::mem::FixedBuffer fb = std::mem::new_fixed_buffer(backing[0..256]);
     std::mem::Allocator a = fb.allocator();
-    std::result::Result([] u8, std::mem::AllocError) fr = std::fmt::format_alloc(&a, "{}-{:x}", 42, 255 as u8);
+    std::result::Result([] char, std::mem::AllocError) fr = std::fmt::format_alloc(&a, "{}-{:x}", 42, 255 as u8);
     if fr.is_err() { return 8; }
-    [] u8 text = fr.unwrap();
-    if text.len != 5 || text[0] != 52 || text[2] != 45 || text[4] != 102 { a.free(text); return 9; }
+    [] char text = fr.unwrap();
+    if text.len != 5 || text[0] != '4' || text[2] != '-' || text[4] != 'f' { a.free(text); return 9; }
     a.free(text);
 
     std::debug::assert(true, "unreachable");
@@ -631,7 +631,7 @@ TEST_CASE("fmt format_buf correctly formats bool, int, float, and string")
     constexpr std::string_view source = R"(module main;
 import std::fmt;
 
-bool same([] const u8 a, [] const u8 b) {
+bool same([] const char a, [] const char b) {
     if a.len != b.len { return false; }
     for usize i = 0; i < a.len; i++ {
         if a[i] != b[i] { return false; }
@@ -640,11 +640,11 @@ bool same([] const u8 a, [] const u8 b) {
 }
 
 public i32 main() {
-    u8[128] buf;
-    [] u8 r_bool = std::fmt::format_buf(buf[0..128], "{} {}", true, false).unwrap();
+    char[128] buf;
+    [] char r_bool = std::fmt::format_buf(buf[0..128], "{} {}", true, false).unwrap();
     if !same(r_bool, "true false") { return 1; }
 
-    [] u8 r_mixed = std::fmt::format_buf(buf[0..128], "bool: {} int: {} float: {:.1} str: {}", true, -42 as i32, 1.5 as f64, "hello" as []const u8).unwrap();
+    [] char r_mixed = std::fmt::format_buf(buf[0..128], "bool: {} int: {} float: {:.1} str: {}", true, -42 as i32, 1.5 as f64, "hello" as []const char).unwrap();
     if !same(r_mixed, "bool: true int: -42 float: 1.5 str: hello") { return 2; }
 
     return 0;
@@ -778,7 +778,7 @@ T drain(T)(dir::Iterator* it, T seed, T(*)(T, dir::Entry*) step) {
     return acc;
 }
 
-bool same([] const u8 a, [] const u8 b) {
+bool same([] const char a, [] const char b) {
     return std::mem::equal(a, b);
 }
 
@@ -1890,7 +1890,7 @@ import std::json;
 import std::mem;
 import std::result;
 
-bool check_int([] const u8 input, i64 want) {
+bool check_int([] const char input, i64 want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
@@ -1902,7 +1902,7 @@ bool check_int([] const u8 input, i64 want) {
     return got.unwrap_some() == want;
 }
 
-bool check_int_err([] const u8 input, std::json::JsonError want) {
+bool check_int_err([] const char input, std::json::JsonError want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
@@ -1911,7 +1911,7 @@ bool check_int_err([] const u8 input, std::json::JsonError want) {
     return r.unwrap_err() == want;
 }
 
-bool check_float([] const u8 input, f64 lo, f64 hi) {
+bool check_float([] const char input, f64 lo, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
@@ -1925,33 +1925,33 @@ bool check_float([] const u8 input, f64 lo, f64 hi) {
 }
 
 public i32 main() {
-    u8[3] t123 = {'1' as u8, '2' as u8, '3' as u8};
+    char[3] t123 = {'1' as char, '2' as char, '3' as char};
     if !check_int(t123[0..3], 123) { return 1; }
-    u8[4] tn123 = {'-' as u8, '1' as u8, '2' as u8, '3' as u8};
+    char[4] tn123 = {'-' as char, '1' as char, '2' as char, '3' as char};
     if !check_int(tn123[0..4], -123) { return 2; }
-    u8[1] tz = {'0' as u8};
+    char[1] tz = {'0' as char};
     if !check_int(tz[0..1], 0) { return 3; }
-    u8[19] tmax = {'9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '7' as u8};
+    char[19] tmax = {'9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '7' as char};
     if !check_int(tmax[0..19], 9223372036854775807) { return 4; }
-    u8[20] tmin = {'-' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    char[20] tmin = {'-' as char, '9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '8' as char};
     if !check_int(tmin[0..20], -9223372036854775808) { return 5; }
-    u8[19] toobig = {'9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    char[19] toobig = {'9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '8' as char};
     if !check_int_err(toobig[0..19], std::json::JsonError::NumberOutOfRange) { return 6; }
-    u8[20] toosmall = {'-' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '9' as u8};
+    char[20] toosmall = {'-' as char, '9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '9' as char};
     if !check_int_err(toosmall[0..20], std::json::JsonError::NumberOutOfRange) { return 7; }
-    u8[20] huge = {'9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8, '9' as u8};
+    char[20] huge = {'9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char, '9' as char};
     if !check_int_err(huge[0..20], std::json::JsonError::NumberOutOfRange) { return 8; }
-    u8[2] leadzero = {'0' as u8, '1' as u8};
+    char[2] leadzero = {'0' as char, '1' as char};
     if !check_int_err(leadzero[0..2], std::json::JsonError::InvalidNumber) { return 9; }
-    u8[4] f314 = {'3' as u8, '.' as u8, '1' as u8, '4' as u8};
+    char[4] f314 = {'3' as char, '.' as char, '1' as char, '4' as char};
     if !check_float(f314[0..4], 3.13, 3.15) { return 10; }
-    u8[3] fe3 = {'1' as u8, 'e' as u8, '3' as u8};
+    char[3] fe3 = {'1' as char, 'e' as char, '3' as char};
     if !check_float(fe3[0..3], 999.0, 1001.0) { return 11; }
-    u8[7] fn25e = {'-' as u8, '2' as u8, '.' as u8, '5' as u8, 'e' as u8, '-' as u8, '2' as u8};
+    char[7] fn25e = {'-' as char, '2' as char, '.' as char, '5' as char, 'e' as char, '-' as char, '2' as char};
     if !check_float(fn25e[0..7], -0.03, -0.02) { return 12; }
-    u8[5] fbig = {'1' as u8, 'e' as u8, '9' as u8, '9' as u8, '9' as u8};
+    char[5] fbig = {'1' as char, 'e' as char, '9' as char, '9' as char, '9' as char};
     if !check_int_err(fbig[0..5], std::json::JsonError::NumberOutOfRange) { return 13; }
-    u8[3] f10 = {'1' as u8, '.' as u8, '0' as u8};
+    char[3] f10 = {'1' as char, '.' as char, '0' as char};
     if !check_float(f10[0..3], 0.99, 1.01) { return 14; }
     return 0;
 }
@@ -1969,14 +1969,14 @@ import std::toml;
 import std::mem;
 import std::result;
 
-bool check_int([] const u8 input, i64 want) {
+bool check_int([] const char input, i64 want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
-    u8[1] key = {'k' as u8};
+    char[1] key = {'k' as char};
     std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
     if found.is_none() { return false; }
     std::toml::Value v = found.unwrap_some();
@@ -1985,7 +1985,7 @@ bool check_int([] const u8 input, i64 want) {
     return got.unwrap_some() == want;
 }
 
-bool check_int_err([] const u8 input, std::toml::TomlError want) {
+bool check_int_err([] const char input, std::toml::TomlError want) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
@@ -1994,14 +1994,14 @@ bool check_int_err([] const u8 input, std::toml::TomlError want) {
     return r.unwrap_err() == want;
 }
 
-bool check_float([] const u8 input, f64 lo, f64 hi) {
+bool check_float([] const char input, f64 lo, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
-    u8[1] key = {'k' as u8};
+    char[1] key = {'k' as char};
     std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
     if found.is_none() { return false; }
     std::toml::Value v = found.unwrap_some();
@@ -2011,14 +2011,14 @@ bool check_float([] const u8 input, f64 lo, f64 hi) {
     return f >= lo && f <= hi;
 }
 
-bool check_float_above([] const u8 input, f64 lo) {
+bool check_float_above([] const char input, f64 lo) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
-    u8[1] key = {'k' as u8};
+    char[1] key = {'k' as char};
     std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
     if found.is_none() { return false; }
     std::toml::Value v = found.unwrap_some();
@@ -2027,14 +2027,14 @@ bool check_float_above([] const u8 input, f64 lo) {
     return got.unwrap_some() > lo;
 }
 
-bool check_float_below([] const u8 input, f64 hi) {
+bool check_float_below([] const char input, f64 hi) {
     u8[4096] backing;
     std::mem::FixedBuffer fb = std::mem::FixedBuffer::new(backing[0..4096]);
     std::mem::Allocator alloc = std::mem::allocator(&fb);
     std::result::Result(std::toml::Table, std::toml::TomlError) r = std::toml::parse(&alloc, input);
     if r.is_err() { return false; }
     std::toml::Table t = r.unwrap();
-    u8[1] key = {'k' as u8};
+    char[1] key = {'k' as char};
     std::result::Optional(std::toml::Value) found = std::toml::get(&t, key[0..1]);
     if found.is_none() { return false; }
     std::toml::Value v = found.unwrap_some();
@@ -2044,47 +2044,47 @@ bool check_float_below([] const u8 input, f64 hi) {
 }
 
 public i32 main() {
-    u8[5] t1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8};
+    char[5] t1 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char};
     if !check_int(t1[0..5], 1) { return 1; }
-    u8[6] tn1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '-' as u8, '1' as u8};
+    char[6] tn1 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '-' as char, '1' as char};
     if !check_int(tn1[0..6], -1) { return 2; }
-    u8[6] tp1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '+' as u8, '1' as u8};
+    char[6] tp1 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '+' as char, '1' as char};
     if !check_int(tp1[0..6], 1) { return 3; }
-    u8[8] tus = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, '_' as u8, '0' as u8, '0' as u8};
+    char[8] tus = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char, '_' as char, '0' as char, '0' as char};
     if !check_int(tus[0..8], 100) { return 4; }
-    u8[8] thxff = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'x' as u8, 'F' as u8, 'F' as u8};
+    char[8] thxff = {'k' as char, ' ' as char, '=' as char, ' ' as char, '0' as char, 'x' as char, 'F' as char, 'F' as char};
     if !check_int(thxff[0..8], 255) { return 5; }
-    u8[8] toct17 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'o' as u8, '1' as u8, '7' as u8};
+    char[8] toct17 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '0' as char, 'o' as char, '1' as char, '7' as char};
     if !check_int(toct17[0..8], 15) { return 6; }
-    u8[9] tbin = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'b' as u8, '1' as u8, '0' as u8, '1' as u8};
+    char[9] tbin = {'k' as char, ' ' as char, '=' as char, ' ' as char, '0' as char, 'b' as char, '1' as char, '0' as char, '1' as char};
     if !check_int(tbin[0..9], 5) { return 7; }
-    u8[23] tmax = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '7' as u8};
+    char[23] tmax = {'k' as char, ' ' as char, '=' as char, ' ' as char, '9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '7' as char};
     if !check_int(tmax[0..23], 9223372036854775807) { return 8; }
-    u8[24] tmin = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '-' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    char[24] tmin = {'k' as char, ' ' as char, '=' as char, ' ' as char, '-' as char, '9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '8' as char};
     if !check_int(tmin[0..24], -9223372036854775808) { return 9; }
-    u8[23] toobig = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '9' as u8, '2' as u8, '2' as u8, '3' as u8, '3' as u8, '7' as u8, '2' as u8, '0' as u8, '3' as u8, '6' as u8, '8' as u8, '5' as u8, '4' as u8, '7' as u8, '7' as u8, '5' as u8, '8' as u8, '0' as u8, '8' as u8};
+    char[23] toobig = {'k' as char, ' ' as char, '=' as char, ' ' as char, '9' as char, '2' as char, '2' as char, '3' as char, '3' as char, '7' as char, '2' as char, '0' as char, '3' as char, '6' as char, '8' as char, '5' as char, '4' as char, '7' as char, '7' as char, '5' as char, '8' as char, '0' as char, '8' as char};
     if !check_int_err(toobig[0..23], std::toml::TomlError::NumberOutOfRange) { return 10; }
-    u8[8] tdbl = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, '_' as u8, '_' as u8, '2' as u8};
+    char[8] tdbl = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char, '_' as char, '_' as char, '2' as char};
     if !check_int_err(tdbl[0..8], std::toml::TomlError::InvalidNumber) { return 11; }
-    u8[6] tlead1 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '_' as u8, '1' as u8};
+    char[6] tlead1 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '_' as char, '1' as char};
     if !check_int_err(tlead1[0..6], std::toml::TomlError::UnexpectedByte) { return 12; }
-    u8[6] ttrail = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, '_' as u8};
+    char[6] ttrail = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char, '_' as char};
     if !check_int_err(ttrail[0..6], std::toml::TomlError::InvalidNumber) { return 13; }
-    u8[22] tradixbig = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'x' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8, 'F' as u8};
+    char[22] tradixbig = {'k' as char, ' ' as char, '=' as char, ' ' as char, '0' as char, 'x' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char, 'F' as char};
     if !check_int_err(tradixbig[0..22], std::toml::TomlError::NumberOutOfRange) { return 14; }
-    u8[8] tf314 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '3' as u8, '.' as u8, '1' as u8, '4' as u8};
+    char[8] tf314 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '3' as char, '.' as char, '1' as char, '4' as char};
     if !check_float(tf314[0..8], 3.13, 3.15) { return 15; }
-    u8[7] tf1e6 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, 'e' as u8, '6' as u8};
+    char[7] tf1e6 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char, 'e' as char, '6' as char};
     if !check_float(tf1e6[0..7], 999999.0, 1000001.0) { return 16; }
-    u8[7] tfinf = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, 'i' as u8, 'n' as u8, 'f' as u8};
+    char[7] tfinf = {'k' as char, ' ' as char, '=' as char, ' ' as char, 'i' as char, 'n' as char, 'f' as char};
     if !check_float_above(tfinf[0..7], 1.7976931348623157e308) { return 17; }
-    u8[8] tfninf = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '-' as u8, 'i' as u8, 'n' as u8, 'f' as u8};
+    char[8] tfninf = {'k' as char, ' ' as char, '=' as char, ' ' as char, '-' as char, 'i' as char, 'n' as char, 'f' as char};
     if !check_float_below(tfninf[0..8], -1.7976931348623157e308) { return 18; }
-    u8[9] tfe = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '1' as u8, 'e' as u8, '9' as u8, '9' as u8, '9' as u8};
+    char[9] tfe = {'k' as char, ' ' as char, '=' as char, ' ' as char, '1' as char, 'e' as char, '9' as char, '9' as char, '9' as char};
     if !check_int_err(tfe[0..9], std::toml::TomlError::NumberOutOfRange) { return 19; }
-    u8[7] tf05 = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, '.' as u8, '5' as u8};
+    char[7] tf05 = {'k' as char, ' ' as char, '=' as char, ' ' as char, '0' as char, '.' as char, '5' as char};
     if !check_float(tf05[0..7], 0.49, 0.51) { return 20; }
-    u8[6] tnodig = {'k' as u8, ' ' as u8, '=' as u8, ' ' as u8, '0' as u8, 'x' as u8};
+    char[6] tnodig = {'k' as char, ' ' as char, '=' as char, ' ' as char, '0' as char, 'x' as char};
     if !check_int_err(tnodig[0..6], std::toml::TomlError::InvalidNumber) { return 21; }
     return 0;
 }

@@ -60,8 +60,8 @@ static if core::target::FLOAT_AVAILABLE {
         ArrayBegin,
         ArrayEnd,
         /// borrows the input unless `needs_unescape` is set on the scanner
-        Key([] const u8),
-        String([] const u8),
+        Key([] const char),
+        String([] const char),
         Integer(i64),
         Float(f64),
         Bool(bool),
@@ -75,8 +75,8 @@ static if core::target::FLOAT_AVAILABLE {
         ArrayBegin,
         ArrayEnd,
         /// borrows the input unless `needs_unescape` is set on the scanner
-        Key([] const u8),
-        String([] const u8),
+        Key([] const char),
+        String([] const char),
         Integer(i64),
         Bool(bool),
         Null,
@@ -98,7 +98,7 @@ using u8 FRAME_SEEN = 2;
 using u8 FRAME_AFTER_KEY = 4;
 
 public struct Scanner {
-    [] const u8 input;
+    [] const char input;
     Position at;
     u8[64] frames;
     usize depth;
@@ -108,7 +108,7 @@ public struct Scanner {
     bool complete;
 }
 
-public Scanner scan([] const u8 input) {
+public Scanner scan([] const char input) {
     Scanner self;
     self.input = input;
     self.at = Position::start();
@@ -122,21 +122,21 @@ bool at_end(const Scanner* self) {
     return self.at.offset >= self.input.len;
 }
 
-u8 peek(const Scanner* self) {
+char peek(const Scanner* self) {
     return self.input[self.at.offset];
 }
 
-u8 take(Scanner* self) {
-    u8 b = self.input[self.at.offset];
+char take(Scanner* self) {
+    char b = self.input[self.at.offset];
     parse::advance(&self.at, b);
     return b;
 }
 
 void skip_space(Scanner* self) {
     while !at_end(self) {
-        u8 c = peek(self);
+        char c = peek(self);
 
-        if c != (' ' as u8) && c != ('\t' as u8) && c != ('\n' as u8) && c != ('\r' as u8) {
+        if c != (' ' as char) && c != ('\t' as char) && c != ('\n' as char) && c != ('\r' as char) {
             return;
         }
 
@@ -144,7 +144,7 @@ void skip_space(Scanner* self) {
     }
 }
 
-Status(JsonError) expect(Scanner* self, u8 wanted) {
+Status(JsonError) expect(Scanner* self, char wanted) {
     if at_end(self) {
         return JsonError::UnexpectedEnd;
     }
@@ -157,7 +157,7 @@ Status(JsonError) expect(Scanner* self, u8 wanted) {
     return Status::Ok;
 }
 
-Status(JsonError) expect_word(Scanner* self, [] const u8 word) {
+Status(JsonError) expect_word(Scanner* self, [] const char word) {
     for usize i = 0; i < word.len; i++ {
         if at_end(self) {
             return JsonError::UnexpectedEnd;
@@ -204,21 +204,21 @@ Status(JsonError) check_escape(Scanner* self) {
         return JsonError::UnexpectedEnd;
     }
 
-    u8 c = take(self);
+    char c = take(self);
 
-    if c == ('"' as u8)
-        || c == ('\\' as u8)
-        || c == ('/' as u8)
-        || c == ('b' as u8)
-        || c == ('f' as u8)
-        || c == ('n' as u8)
-        || c == ('r' as u8)
-        || c == ('t' as u8)
+    if c == ('"' as char)
+        || c == ('\\' as char)
+        || c == ('/' as char)
+        || c == ('b' as char)
+        || c == ('f' as char)
+        || c == ('n' as char)
+        || c == ('r' as char)
+        || c == ('t' as char)
     {
         return Status::Ok;
     }
 
-    if c != ('u' as u8) {
+    if c != ('u' as char) {
         return JsonError::InvalidEscape;
     }
 
@@ -234,8 +234,8 @@ Status(JsonError) check_escape(Scanner* self) {
         return Status::Ok;
     }
 
-    expect(self, '\\' as u8) ?;
-    expect(self, 'u' as u8) ?;
+    expect(self, '\\' as char) ?;
+    expect(self, 'u' as char) ?;
 
     u32 low = 0;
     check_hex4(self, &low) ?;
@@ -248,7 +248,7 @@ Status(JsonError) check_escape(Scanner* self) {
 }
 
 /// reads to the closing quote, with the opening one already consumed.
-Result([] const u8, JsonError) read_string_body(Scanner* self) {
+Result([] const char, JsonError) read_string_body(Scanner* self) {
     usize start = self.at.offset;
     self.needs_unescape = false;
 
@@ -257,26 +257,26 @@ Result([] const u8, JsonError) read_string_body(Scanner* self) {
             return JsonError::UnexpectedEnd;
         }
 
-        u8 c = peek(self);
+        char c = peek(self);
 
-        if c == ('"' as u8) {
+        if c == ('"' as char) {
             usize end = self.at.offset;
             take(self);
             return Result::Ok(self.input[start..end]);
         }
 
-        if c < 0x20 {
+        if (c as u8) < 0x20 {
             return JsonError::ControlCharacter;
         }
 
-        if c == ('\\' as u8) {
+        if c == ('\\' as char) {
             take(self);
             self.needs_unescape = true;
             check_escape(self) ?;
             continue;
         }
 
-        if c < 0x80 {
+        if (c as u8) < 0x80 {
             take(self);
             continue;
         }
@@ -304,11 +304,11 @@ Result([] const u8, JsonError) read_string_body(Scanner* self) {
 //! conversion this language exists to avoid.
 //!
 
-Result(i64, JsonError) to_integer([] const u8 text) {
+Result(i64, JsonError) to_integer([] const char text) {
     usize i = 0;
     bool negative = false;
 
-    if text[0] == ('-' as u8) {
+    if text[0] == ('-' as char) {
         negative = true;
         i = 1;
     }
@@ -343,11 +343,11 @@ Result(i64, JsonError) to_integer([] const u8 text) {
 using usize MANTISSA_DIGITS = 19;
 
 static if core::target::FLOAT_AVAILABLE {
-    Result(f64, JsonError) to_float([] const u8 text) {
+    Result(f64, JsonError) to_float([] const char text) {
         usize i = 0;
         bool negative = false;
 
-        if text[0] == ('-' as u8) {
+        if text[0] == ('-' as char) {
             negative = true;
             i = 1;
         }
@@ -358,7 +358,7 @@ static if core::target::FLOAT_AVAILABLE {
 
         while i < text.len && parse::is_digit(text[i]) {
             if taken < MANTISSA_DIGITS {
-                mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
+                mantissa = mantissa * 10 + (text[i] as u32 - ('0' as u32)) as u64;
                 taken++;
             } else {
                 // past the precision f64 can hold; keep the magnitude only
@@ -368,12 +368,12 @@ static if core::target::FLOAT_AVAILABLE {
             i++;
         }
 
-        if i < text.len && text[i] == ('.' as u8) {
+        if i < text.len && text[i] == ('.' as char) {
             i++;
 
             while i < text.len && parse::is_digit(text[i]) {
                 if taken < MANTISSA_DIGITS {
-                    mantissa = mantissa * 10 + (text[i] - ('0' as u8)) as u64;
+                    mantissa = mantissa * 10 + (text[i] as u32 - ('0' as u32)) as u64;
                     taken++;
                     exponent = exponent - 1;
                 }
@@ -382,12 +382,12 @@ static if core::target::FLOAT_AVAILABLE {
             }
         }
 
-        if i < text.len && (text[i] == ('e' as u8) || text[i] == ('E' as u8)) {
+        if i < text.len && (text[i] == ('e' as char) || text[i] == ('E' as char)) {
             i++;
 
             bool negative_exponent = false;
-            if i < text.len && (text[i] == ('+' as u8) || text[i] == ('-' as u8)) {
-                negative_exponent = text[i] == ('-' as u8);
+            if i < text.len && (text[i] == ('+' as char) || text[i] == ('-' as char)) {
+                negative_exponent = text[i] == ('-' as char);
                 i++;
             }
 
@@ -396,7 +396,7 @@ static if core::target::FLOAT_AVAILABLE {
                 // clamp rather than wrap: anything past this overflows or
                 // underflows the result regardless of the exact value
                 if written < 100000 {
-                    written = written * 10 + (text[i] - ('0' as u8)) as i32;
+                    written = written * 10 + (text[i] as u32 - ('0' as u32)) as i32;
                 }
 
                 i++;
@@ -426,7 +426,7 @@ Result(Event, JsonError) read_number(Scanner* self) {
     usize start = self.at.offset;
     bool is_float = false;
 
-    if peek(self) == ('-' as u8) {
+    if peek(self) == ('-' as char) {
         take(self);
     }
 
@@ -434,7 +434,7 @@ Result(Event, JsonError) read_number(Scanner* self) {
         return JsonError::UnexpectedEnd;
     }
 
-    if peek(self) == ('0' as u8) {
+    if peek(self) == ('0' as char) {
         take(self);
 
         if !at_end(self) && parse::is_digit(peek(self)) {
@@ -448,7 +448,7 @@ Result(Event, JsonError) read_number(Scanner* self) {
         return JsonError::InvalidNumber;
     }
 
-    if !at_end(self) && peek(self) == ('.' as u8) {
+    if !at_end(self) && peek(self) == ('.' as char) {
         take(self);
         is_float = true;
 
@@ -461,11 +461,11 @@ Result(Event, JsonError) read_number(Scanner* self) {
         }
     }
 
-    if !at_end(self) && (peek(self) == ('e' as u8) || peek(self) == ('E' as u8)) {
+    if !at_end(self) && (peek(self) == ('e' as char) || peek(self) == ('E' as char)) {
         take(self);
         is_float = true;
 
-        if !at_end(self) && (peek(self) == ('+' as u8) || peek(self) == ('-' as u8)) {
+        if !at_end(self) && (peek(self) == ('+' as char) || peek(self) == ('-' as char)) {
             take(self);
         }
 
@@ -478,7 +478,7 @@ Result(Event, JsonError) read_number(Scanner* self) {
         }
     }
 
-    [] const u8 text = self.input[start..self.at.offset];
+    [] const char text = self.input[start..self.at.offset];
 
     if is_float {
         static if core::target::FLOAT_AVAILABLE {
@@ -518,41 +518,41 @@ Result(Event, JsonError) read_value(Scanner* self) {
         return JsonError::UnexpectedEnd;
     }
 
-    u8 c = peek(self);
+    char c = peek(self);
 
-    if c == ('{' as u8) {
+    if c == ('{' as char) {
         take(self);
         push_frame(self, FRAME_OBJECT) ?;
         return Result::Ok(Event::ObjectBegin);
     }
 
-    if c == ('[' as u8) {
+    if c == ('[' as char) {
         take(self);
         push_frame(self, 0) ?;
         return Result::Ok(Event::ArrayBegin);
     }
 
-    if c == ('"' as u8) {
+    if c == ('"' as char) {
         take(self);
         return Result::Ok(Event::String(read_string_body(self) ?));
     }
 
-    if c == ('t' as u8) {
+    if c == ('t' as char) {
         expect_word(self, "true") ?;
         return Result::Ok(Event::Bool(true));
     }
 
-    if c == ('f' as u8) {
+    if c == ('f' as char) {
         expect_word(self, "false") ?;
         return Result::Ok(Event::Bool(false));
     }
 
-    if c == ('n' as u8) {
+    if c == ('n' as char) {
         expect_word(self, "null") ?;
         return Result::Ok(Event::Null);
     }
 
-    if c == ('-' as u8) || parse::is_digit(c) {
+    if c == ('-' as char) || parse::is_digit(c) {
         return read_number(self);
     }
 
@@ -590,23 +590,23 @@ public Result(Located(Event), JsonError) next(Scanner* self) {
             return JsonError::UnexpectedEnd;
         }
 
-        if peek(self) == ('}' as u8) {
+        if peek(self) == ('}' as char) {
             take(self);
             pop_frame(self);
             return Result::Ok({event = Event::ObjectEnd, at = here});
         }
 
         if (frame & FRAME_SEEN) != 0 {
-            expect(self, ',' as u8) ?;
+            expect(self, ',' as char) ?;
             skip_space(self);
             here = self.at;
         }
 
-        expect(self, '"' as u8) ?;
-        [] const u8 key = read_string_body(self) ?;
+        expect(self, '"' as char) ?;
+        [] const char key = read_string_body(self) ?;
 
         skip_space(self);
-        expect(self, ':' as u8) ?;
+        expect(self, ':' as char) ?;
 
         self.frames[self.depth - 1] = frame | FRAME_AFTER_KEY | FRAME_SEEN;
         return Result::Ok({event = Event::Key(key), at = here});
@@ -622,14 +622,14 @@ public Result(Located(Event), JsonError) next(Scanner* self) {
         return JsonError::UnexpectedEnd;
     }
 
-    if peek(self) == (']' as u8) {
+    if peek(self) == (']' as char) {
         take(self);
         pop_frame(self);
         return Result::Ok({event = Event::ArrayEnd, at = here});
     }
 
     if (frame & FRAME_SEEN) != 0 {
-        expect(self, ',' as u8) ?;
+        expect(self, ',' as char) ?;
         skip_space(self);
         here = self.at;
     }
@@ -647,7 +647,7 @@ public Result(Located(Event), JsonError) next(Scanner* self) {
 //! is always a sufficient output bound.
 //!
 
-usize read_hex4([] const u8 raw, usize at, u32* out) {
+usize read_hex4([] const char raw, usize at, u32* out) {
     u32 value = 0;
 
     for usize i = 0; i < 4; i++ {
@@ -660,14 +660,14 @@ usize read_hex4([] const u8 raw, usize at, u32* out) {
 
 /// decodes `raw` into `out`, returning the bytes written. only needed
 /// when the scanner set `needs_unescape` for the event.
-public Result(usize, JsonError) unescape([] const u8 raw, [] u8 out) {
+public Result(usize, JsonError) unescape([] const char raw, [] char out) {
     usize i = 0;
     usize n = 0;
 
     while i < raw.len {
-        u8 c = raw[i];
+        char c = raw[i];
 
-        if c != ('\\' as u8) {
+        if c != ('\\' as char) {
             if n >= out.len {
                 return JsonError::OutOfSpace;
             }
@@ -683,23 +683,23 @@ public Result(usize, JsonError) unescape([] const u8 raw, [] u8 out) {
             return JsonError::InvalidEscape;
         }
 
-        u8 kind = raw[i];
+        char kind = raw[i];
         i++;
 
-        if kind != ('u' as u8) {
-            u8 plain = match kind as char {
-                '"' => '"' as u8,
-                '\\' => '\\' as u8,
-                '/' => '/' as u8,
-                'b' => 8,
-                'f' => 12,
-                'n' => '\n' as u8,
-                'r' => '\r' as u8,
-                't' => '\t' as u8,
-                _ => 0,
+        if kind != ('u' as char) {
+            char plain = match kind as char {
+                '"' => '"' as char,
+                '\\' => '\\' as char,
+                '/' => '/' as char,
+                'b' => '\x08',
+                'f' => '\x0c',
+                'n' => '\n' as char,
+                'r' => '\r' as char,
+                't' => '\t' as char,
+                _ => '\0',
             };
 
-            if plain == 0 {
+            if plain == '\0' {
                 return JsonError::InvalidEscape;
             }
 
@@ -724,7 +724,7 @@ public Result(usize, JsonError) unescape([] const u8 raw, [] u8 out) {
                 return JsonError::InvalidEscape;
             }
 
-            if raw[i] != ('\\' as u8) || raw[i + 1] != ('u' as u8) {
+            if raw[i] != ('\\' as char) || raw[i + 1] != ('u' as char) {
                 return JsonError::InvalidEscape;
             }
 
@@ -761,7 +761,7 @@ public Result(usize, JsonError) unescape([] const u8 raw, [] u8 out) {
 //!
 
 public struct Member {
-    [] const u8 key;
+    [] const char key;
     Value value;
 }
 
@@ -771,7 +771,7 @@ static if core::target::FLOAT_AVAILABLE {
         Bool(bool),
         Integer(i64),
         Float(f64),
-        String([] const u8),
+        String([] const char),
         Array([] Value),
         Object([] Member),
     }
@@ -780,7 +780,7 @@ static if core::target::FLOAT_AVAILABLE {
         Null,
         Bool(bool),
         Integer(i64),
-        String([] const u8),
+        String([] const char),
         Array([] Value),
         Object([] Member),
     }
@@ -881,23 +881,23 @@ Status(JsonError) push_member(
 /// borrows `raw` when it holds no escape, and decodes into `alloc` when
 /// it does. must be called before the next `next`, which overwrites the
 /// scanner's `needs_unescape`.
-Result([] const u8, JsonError) materialize(
+Result([] const char, JsonError) materialize(
     const mem::Allocator* alloc,
     const Scanner* self,
-    [] const u8 raw
+    [] const char raw
 ) {
     if !self.needs_unescape {
         return Result::Ok(raw);
     }
 
-    Result([] u8, mem::AllocError) slot = alloc.alloc(raw.len);
+    Result([] char, mem::AllocError) slot = alloc.alloc(raw.len);
     if slot.is_err() {
         return JsonError::OutOfMemory;
     }
 
-    [] u8 buffer = slot.unwrap();
+    [] char buffer = slot.unwrap();
     usize n = unescape(raw, buffer) ?;
-    return Result::Ok(buffer[0..n] as [] const u8);
+    return Result::Ok(buffer[0..n] as [] const char);
 }
 
 Result(Value, JsonError) build_array(
@@ -930,7 +930,7 @@ Result(Value, JsonError) build_object(
     while true {
         Located(Event) step = next(self) ?;
 
-        [] const u8 raw = match step.event {
+        [] const char raw = match step.event {
             Event::ObjectEnd => return Result::Ok(
                 Value::Object(members.items[0..members.len])
             ),
@@ -938,7 +938,7 @@ Result(Value, JsonError) build_object(
             _ => return JsonError::UnexpectedByte,
         };
 
-        [] const u8 key = materialize(alloc, self, raw) ?;
+        [] const char key = materialize(alloc, self, raw) ?;
 
         Located(Event) value_event = next(self) ?;
         Value value = build(alloc, self, value_event.event) ?;
@@ -961,7 +961,7 @@ Result(Value, JsonError) build(
             Event::Integer(v) => Result::Ok(Value::Integer(v)),
             Event::Float(v) => Result::Ok(Value::Float(v)),
             Event::String(raw) => {
-                Result([] const u8, JsonError) text = materialize(alloc, self, raw);
+                Result([] const char, JsonError) text = materialize(alloc, self, raw);
                 if text.is_err() {
                     return text.unwrap_err();
                 }
@@ -977,7 +977,7 @@ Result(Value, JsonError) build(
             Event::Bool(b) => Result::Ok(Value::Bool(b)),
             Event::Integer(v) => Result::Ok(Value::Integer(v)),
             Event::String(raw) => {
-                Result([] const u8, JsonError) text = materialize(alloc, self, raw);
+                Result([] const char, JsonError) text = materialize(alloc, self, raw);
                 if text.is_err() {
                     return text.unwrap_err();
                 }
@@ -994,7 +994,7 @@ Result(Value, JsonError) build(
 /// escape, so the result outlives neither `alloc` nor `input`.
 public Result(Value, JsonError) parse(
     const mem::Allocator* alloc,
-    [] const u8 input
+    [] const char input
 ) {
     Scanner self = scan(input);
 
@@ -1018,11 +1018,11 @@ public Result(Value, JsonError) own(
 ) {
     return match *self {
         Value::String(text) => {
-            Result([] u8, mem::AllocError) slot = alloc.dupe(text);
+            Result([] char, mem::AllocError) slot = alloc.dupe(text);
             if slot.is_err() {
                 return JsonError::OutOfMemory;
             }
-            Result::Ok(Value::String(slot.unwrap() as [] const u8))
+            Result::Ok(Value::String(slot.unwrap() as [] const char))
         },
         Value::Array(items) => {
             Result([] Value, mem::AllocError) slot = alloc.alloc(items.len);
@@ -1046,7 +1046,7 @@ public Result(Value, JsonError) own(
             }
             [] Member copied = slot.unwrap();
             for usize i = 0; i < members.len; i++ {
-                Result([] u8, mem::AllocError) key = alloc.dupe(members[i].key);
+                Result([] char, mem::AllocError) key = alloc.dupe(members[i].key);
                 if key.is_err() {
                     return JsonError::OutOfMemory;
                 }
@@ -1055,7 +1055,7 @@ public Result(Value, JsonError) own(
                     return value.unwrap_err();
                 }
                 copied[i] = Member {
-                    key = key.unwrap() as [] const u8,
+                    key = key.unwrap() as [] const char,
                     value = value.unwrap(),
                 };
             }
@@ -1073,7 +1073,7 @@ public Result(Value, JsonError) own(
 //! would save.
 //!
 
-public Optional(Value) get(const Value* self, [] const u8 key) {
+public Optional(Value) get(const Value* self, [] const char key) {
     return match *self {
         Value::Object(members) => {
             for usize i = 0; i < members.len; i++ {
@@ -1132,7 +1132,7 @@ public Optional(bool) as_bool(const Value* self) {
     };
 }
 
-public Optional([] const u8) as_string(const Value* self) {
+public Optional([] const char) as_string(const Value* self) {
     return match *self {
         Value::String(v) => Optional::Some(v),
         _ => Optional::None,
@@ -1178,9 +1178,9 @@ Status(fmt::FmtError) write_newline(Emitter* self) {
         return Status::Ok;
     }
 
-    self.out.write_byte('\n' as u8) ?;
+    self.out.write_byte('\n' as char) ?;
     return self.out.write_repeat(
-        ' ' as u8,
+        ' ' as char,
         self.depth * self.indent as usize
     );
 }
@@ -1193,7 +1193,7 @@ Status(fmt::FmtError) separate(Emitter* self) {
     }
 
     if self.need_comma {
-        self.out.write_byte(',' as u8) ?;
+        self.out.write_byte(',' as char) ?;
     }
 
     if self.depth != 0 {
@@ -1206,63 +1206,63 @@ Status(fmt::FmtError) separate(Emitter* self) {
 
 public Status(fmt::FmtError) write_escaped(
     const fmt::Writer* w,
-    [] const u8 text
+    [] const char text
 ) {
-    w.write_byte('"' as u8) ?;
+    w.write_byte('"' as char) ?;
 
     usize plain = 0;
     for usize i = 0; i < text.len; i++ {
-        u8 c = text[i];
+        char c = text[i];
 
-        if c != ('"' as u8) && c != ('\\' as u8) && c >= 0x20 {
+        if c != ('"' as char) && c != ('\\' as char) && (c as u8) >= 0x20 {
             continue;
         }
 
         w.write_all(text[plain..i]) ?;
         plain = i + 1;
 
-        if c == ('"' as u8) {
+        if c == ('"' as char) {
             w.write_all("\\\"") ?;
-        } else if c == ('\\' as u8) {
+        } else if c == ('\\' as char) {
             w.write_all("\\\\") ?;
-        } else if c == ('\n' as u8) {
+        } else if c == ('\n' as char) {
             w.write_all("\\n") ?;
-        } else if c == ('\r' as u8) {
+        } else if c == ('\r' as char) {
             w.write_all("\\r") ?;
-        } else if c == ('\t' as u8) {
+        } else if c == ('\t' as char) {
             w.write_all("\\t") ?;
-        } else if c == 8 {
+        } else if c == '\x08' {
             w.write_all("\\b") ?;
-        } else if c == 12 {
+        } else if c == '\x0c' {
             w.write_all("\\f") ?;
         } else {
-            u8[6] scratch;
-            [] u8 view = slice::from_raw(&scratch[0], 6);
-            view[0] = '\\' as u8;
-            view[1] = 'u' as u8;
-            view[2] = '0' as u8;
-            view[3] = '0' as u8;
-            view[4] = hex_digit((c >> 4) as u32);
-            view[5] = hex_digit((c & 0xF) as u32);
+            char[6] scratch;
+            [] char view = slice::from_raw(&scratch[0], 6);
+            view[0] = '\\' as char;
+            view[1] = 'u' as char;
+            view[2] = '0' as char;
+            view[3] = '0' as char;
+            view[4] = hex_digit((c as u8 >> 4) as u32);
+            view[5] = hex_digit((c as u8 & 0xF) as u32);
             w.write_all(view) ?;
         }
     }
 
     w.write_all(text[plain..text.len]) ?;
-    return w.write_byte('"' as u8);
+    return w.write_byte('"' as char);
 }
 
-u8 hex_digit(u32 nibble) {
+char hex_digit(u32 nibble) {
     if nibble < 10 {
-        return ('0' as u8) + nibble as u8;
+        return (('0' as u32) + nibble) as char;
     }
 
-    return ('a' as u8) + (nibble - 10) as u8;
+    return (('a' as u32) + nibble - 10) as char;
 }
 
 public Status(fmt::FmtError) begin_object(Emitter* self) {
     separate(self) ?;
-    self.out.write_byte('{' as u8) ?;
+    self.out.write_byte('{' as char) ?;
     self.depth = self.depth + 1;
     self.need_comma = false;
     return Status::Ok;
@@ -1276,14 +1276,14 @@ public Status(fmt::FmtError) end_object(Emitter* self) {
         write_newline(self) ?;
     }
 
-    self.out.write_byte('}' as u8) ?;
+    self.out.write_byte('}' as char) ?;
     self.need_comma = true;
     return Status::Ok;
 }
 
 public Status(fmt::FmtError) begin_array(Emitter* self) {
     separate(self) ?;
-    self.out.write_byte('[' as u8) ?;
+    self.out.write_byte('[' as char) ?;
     self.depth = self.depth + 1;
     self.need_comma = false;
     return Status::Ok;
@@ -1297,20 +1297,20 @@ public Status(fmt::FmtError) end_array(Emitter* self) {
         write_newline(self) ?;
     }
 
-    self.out.write_byte(']' as u8) ?;
+    self.out.write_byte(']' as char) ?;
     self.need_comma = true;
     return Status::Ok;
 }
 
 /// writes a member name. the value that follows joins it on the same
 /// line rather than starting a new one.
-public Status(fmt::FmtError) key(Emitter* self, [] const u8 name) {
+public Status(fmt::FmtError) key(Emitter* self, [] const char name) {
     separate(self) ?;
     write_escaped(&self.out, name) ?;
-    self.out.write_byte(':' as u8) ?;
+    self.out.write_byte(':' as char) ?;
 
     if self.indent != 0 {
-        self.out.write_byte(' ' as u8) ?;
+        self.out.write_byte(' ' as char) ?;
     }
 
     self.suppress_separator = true;
@@ -1318,7 +1318,7 @@ public Status(fmt::FmtError) key(Emitter* self, [] const u8 name) {
     return Status::Ok;
 }
 
-public Status(fmt::FmtError) string(Emitter* self, [] const u8 text) {
+public Status(fmt::FmtError) string(Emitter* self, [] const char text) {
     separate(self) ?;
     return write_escaped(&self.out, text);
 }

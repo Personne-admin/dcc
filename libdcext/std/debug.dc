@@ -8,7 +8,7 @@ using core::source_location::source_location;
 //! Panic hook
 //!
 
-public using PanicFn = void(*)([] const u8 message, core::source_location::SourceLocation sl);
+public using PanicFn = void(*)([] const char message, core::source_location::SourceLocation sl);
 
 PanicFn g_panic = null;
 
@@ -19,7 +19,7 @@ public void set_panic_handler(PanicFn handler) {
 
 /// reports an unrecoverable condition and does not return.
 public void panic(
-    [] const u8 message,
+    [] const char message,
     core::source_location::SourceLocation sl = source_location()
 ) {
     match g_panic {
@@ -33,7 +33,7 @@ public void panic(
 /// panics when `cond` is false.
 public void assert(
     bool cond,
-    [] const u8 message,
+    [] const char message,
     core::source_location::SourceLocation sl = source_location()
 ) {
     if !cond {

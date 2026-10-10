@@ -11,7 +11,7 @@ using std::os::{ path, error };
 using std::{ mem, slice, result };
 using error::Error;
 
-bool same([] const u8 a, [] const u8 b) {
+bool same([] const char a, [] const char b) {
     return mem::equal(a, b);
 }
 
@@ -30,8 +30,8 @@ bool same16([] const u16 a, [] const u16 b) {
 i32 test_roundtrip_ascii() {
     u16[16] wbuf;
     [] u16 wout = slice::from_raw(&wbuf[0], 16);
-    u8[16] bbuf;
-    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    char[16] bbuf;
+    [] char bout = slice::from_raw(&bbuf[0], 16);
     Result(usize, Error) r = path::to_wide("hello", wout);
     if r.is_err() || r.unwrap() != 5 {
         return 10;
@@ -56,10 +56,10 @@ i32 test_roundtrip_ascii() {
 i32 test_roundtrip_bmp() {
     u16[16] wbuf;
     [] u16 wout = slice::from_raw(&wbuf[0], 16);
-    u8[16] bbuf;
-    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    char[16] bbuf;
+    [] char bout = slice::from_raw(&bbuf[0], 16);
     // e-acute U+00E9
-    u8[2] e9 = {0xC3, 0xA9};
+    char[2] e9 = {0xc3 as char, 0xa9 as char};
     Result(usize, Error) r = path::to_wide(e9[0..2], wout);
     if r.is_err() || r.unwrap() != 1 {
         return 20;
@@ -75,7 +75,7 @@ i32 test_roundtrip_bmp() {
         return 23;
     }
     // euro sign U+20AC
-    u8[3] euro = {0xE2, 0x82, 0xAC};
+    char[3] euro = {0xe2 as char, 0x82 as char, 0xac as char};
     r = path::to_wide(euro[0..3], wout);
     if r.unwrap() != 1 || wbuf[0] != 8364 {
         return 24;
@@ -90,10 +90,10 @@ i32 test_roundtrip_bmp() {
 i32 test_roundtrip_astral() {
     u16[16] wbuf;
     [] u16 wout = slice::from_raw(&wbuf[0], 16);
-    u8[16] bbuf;
-    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    char[16] bbuf;
+    [] char bout = slice::from_raw(&bbuf[0], 16);
     // U+1F600
-    u8[4] smile = {0xF0, 0x9F, 0x98, 0x80};
+    char[4] smile = {0xf0 as char, 0x9f as char, 0x98 as char, 0x80 as char};
     Result(usize, Error) r = path::to_wide(smile[0..4], wout);
     if r.is_err() || r.unwrap() != 2 {
         return 30;
@@ -114,11 +114,11 @@ i32 test_roundtrip_astral() {
 i32 test_invalid_utf8() {
     u16[16] wbuf;
     [] u16 wout = slice::from_raw(&wbuf[0], 16);
-    u8[1] cont = { 0x80 };
-    u8[2] overlong = {0xC0, 0xAF};
-    u8[2] truncated = {0xE2, 0x82};
-    u8[4] too_large = {0xF4, 0x90, 0x80, 0x80};
-    u8[3] surrogate = {0xED, 0xA0, 0x80};
+    char[1] cont = { 0x80 as char };
+    char[2] overlong = {0xc0 as char, 0xaf as char};
+    char[2] truncated = {0xe2 as char, 0x82 as char};
+    char[4] too_large = {0xf4 as char, 0x90 as char, 0x80 as char, 0x80 as char};
+    char[3] surrogate = {0xed as char, 0xa0 as char, 0x80 as char};
     if path::to_wide(cont[0..1], wout).unwrap_err() != Error::InvalidArgument {
         return 40;
     }
@@ -138,8 +138,8 @@ i32 test_invalid_utf8() {
 }
 
 i32 test_unpaired_surrogate() {
-    u8[16] bbuf;
-    [] u8 bout = slice::from_raw(&bbuf[0], 16);
+    char[16] bbuf;
+    [] char bout = slice::from_raw(&bbuf[0], 16);
     u16[2] high_alone = {0xD83D, 0};
     u16[2] low_alone = {0xDE00, 0};
     u16[3] high_bad = {0xD83D, 65, 0};
@@ -164,11 +164,11 @@ i32 test_small_buffers() {
     }
     u16[2] ab = {65, 66};
     u16[3] ab_nul = {65, 66, 0};
-    u8[2] tiny_b2;
-    [] u8 tinyb2 = slice::from_raw(&tiny_b2[0], 2);
+    char[2] tiny_b2;
+    [] char tinyb2 = slice::from_raw(&tiny_b2[0], 2);
     // "AB" needs 2 bytes; 2-byte buffer succeeds, 1-byte fails
-    u8[1] tiny_b1;
-    [] u8 tinyb1 = slice::from_raw(&tiny_b1[0], 1);
+    char[1] tiny_b1;
+    [] char tinyb1 = slice::from_raw(&tiny_b1[0], 1);
     if path::from_wide(ab_nul[0..3], tinyb1).unwrap_err() != Error::NameTooLong {
         return 61;
     }
@@ -192,16 +192,16 @@ i32 test_small_buffers() {
             return 64;
         }
     }
-    u8[8] bback;
+    char[8] bback;
     for usize i = 0; i < 8; i++ {
-        bback[i] = 171 as u8;
+        bback[i] = 171 as char;
     }
-    [] u8 bsmall = bback[0..1];
+    [] char bsmall = bback[0..1];
     if path::from_wide(smile_w[0..3], bsmall).unwrap_err() != Error::NameTooLong {
         return 65;
     }
     for usize i = 1; i < 8; i++ {
-        if bback[i] != 171 as u8 {
+        if bback[i] != 171 as char {
             return 66;
         }
     }
@@ -211,8 +211,8 @@ i32 test_small_buffers() {
 i32 test_empty() {
     u16[8] wbuf;
     [] u16 wout = slice::from_raw(&wbuf[0], 8);
-    u8[8] bbuf;
-    [] u8 bout = slice::from_raw(&bbuf[0], 8);
+    char[8] bbuf;
+    [] char bout = slice::from_raw(&bbuf[0], 8);
     Result(usize, Error) r = path::to_wide("", wout);
     if r.is_err() || r.unwrap() != 0 {
         return 70;

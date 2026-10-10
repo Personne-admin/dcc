@@ -109,7 +109,7 @@ public OpenFlags read_write() {
 
 // At least one access mode is required; mutation flags require write access.
 static if core::target::OS != core::target::Os::Freestanding {
-    public Result(File, Error) open([] const u8 name, OpenFlags flags) {
+    public Result(File, Error) open([] const char name, OpenFlags flags) {
         if (!flags.read && !flags.write) || (!flags.write && (flags.truncate || flags.append)) {
             return Result::Err(Error::InvalidArgument);
         }
@@ -221,7 +221,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Result(File, Error) create([] const u8 name) {
+    public Result(File, Error) create([] const char name) {
         return open(name, write_only());
     }
 }
@@ -593,7 +593,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 //!
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Status(Error) delete_file([] const u8 name) {
+    public Status(Error) delete_file([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW p;
             path::to_pathw(name, &p) ?;
@@ -623,7 +623,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Status(Error) make_directory([] const u8 name) {
+    public Status(Error) make_directory([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW p;
             path::to_pathw(name, &p) ?;
@@ -656,7 +656,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Status(Error) remove_directory([] const u8 name) {
+    public Status(Error) remove_directory([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW p;
             path::to_pathw(name, &p) ?;
@@ -692,7 +692,7 @@ static if core::target::OS != core::target::Os::Freestanding {
     /// filesystem this is atomic, which is what makes write-temp-then-rename
     /// a safe way to update a file. across filesystems it fails rather than
     /// silently copying.
-    public Status(Error) rename([] const u8 from, [] const u8 to) {
+    public Status(Error) rename([] const char from, [] const char to) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW old_path;
             path::PathW new_path;
@@ -743,7 +743,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 //!
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public Result(dir::Metadata, Error) metadata([] const u8 name) {
+    public Result(dir::Metadata, Error) metadata([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             usize root = path::root_len(name);
             usize end = name.len;
@@ -807,7 +807,7 @@ static if core::target::OS != core::target::Os::Freestanding {
     /// true when the name resolves to anything at all. a permission failure
     /// on a parent directory is reported as absence, because that is all the
     /// caller can observe.
-    public bool exists([] const u8 name) {
+    public bool exists([] const char name) {
         static if core::target::OS == core::target::Os::Windows {
             path::PathW p;
             Status(Error) converted = path::to_pathw(name, &p);
@@ -841,7 +841,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public bool is_directory([] const u8 name) {
+    public bool is_directory([] const char name) {
         Result(dir::Metadata, Error) info = metadata(name);
         if info.is_err() {
             return false;
@@ -852,7 +852,7 @@ static if core::target::OS != core::target::Os::Freestanding {
 }
 
 static if core::target::OS != core::target::Os::Freestanding {
-    public bool is_file([] const u8 name) {
+    public bool is_file([] const char name) {
         Result(dir::Metadata, Error) info = metadata(name);
         if info.is_err() {
             return false;
@@ -869,7 +869,7 @@ static if core::target::OS != core::target::Os::Freestanding {
     /// the create-then-check order is deliberate: testing first and creating
     /// second loses to a concurrent creator, while a failed create followed
     /// by a directory check is correct whoever wins.
-    public Status(Error) make_directory_all([] const u8 name) {
+    public Status(Error) make_directory_all([] const char name) {
         if name.len == 0 {
             return Error::InvalidArgument;
         }
@@ -890,7 +890,7 @@ static if core::target::OS != core::target::Os::Freestanding {
                 break;
             }
 
-            [] const u8 prefix = name[0..i];
+            [] const char prefix = name[0..i];
             Status(Error) made = make_directory(prefix);
 
             if !made.is_ok() && !is_directory(prefix) {
@@ -926,10 +926,10 @@ public FileWriter new_file_writer(File file) {
 public using FileWriter::new = new_file_writer;
 
 static if core::target::OS != core::target::Os::Freestanding {
-    Status(fmt::FmtError) file_write(void* ctx, [] const u8 bytes) {
+    Status(fmt::FmtError) file_write(void* ctx, [] const char bytes) {
         FileWriter* self = ctx as FileWriter*;
 
-        Status(Error) st = write_all(&self.file, bytes);
+        Status(Error) st = write_all(&self.file, bytes as [] const u8);
         if !st.is_ok() {
             self.failed = true;
             self.last_error = st.unwrap_err();

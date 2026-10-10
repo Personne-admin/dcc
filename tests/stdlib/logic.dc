@@ -13,7 +13,7 @@ using std::os::{ error, path, dir };
 using std::sys::{ linux, win };
 using error::Error;
 
-bool same([] const u8 a, [] const u8 b) {
+bool same([] const char a, [] const char b) {
     return std::mem::equal(a, b);
 }
 
@@ -588,19 +588,19 @@ i32 lexical_paths() {
 
     bool separators_ok = false;
     static if core::target::OS == core::target::Os::Windows {
-        separators_ok = path::separator() == 92 && path::is_separator(92) && same(
+        separators_ok = path::separator() == '\\' && path::is_separator('\\') && same(
             path::basename("C:\\a\\b"),
             "b"
         );
     } else {
-        separators_ok = path::separator() == 47 && !path::is_separator(92);
+        separators_ok = path::separator() == '/' && !path::is_separator('\\');
     }
 
     if !separators_ok {
         return 241;
     }
 
-    if !path::is_separator(47) || path::is_separator(65) {
+    if !path::is_separator('/') || path::is_separator('A') {
         return 242;
     }
 
@@ -620,8 +620,8 @@ i32 path_encodings() {
 
     path::PathZ z;
     path::PathW w;
-    u8[10] utf = {65, 0xC3, 0xA9, 0xE2, 0x82, 0xAC, 0xF0, 0x9F, 0x98, 0x80};
-    if !path::to_pathz(utf, &z).is_ok() || z.len != 10 || z.bytes[10] != 0 || !same(
+    char[10] utf = {65 as char, 0xC3 as char, 0xA9 as char, 0xE2 as char, 0x82 as char, 0xAC as char, 0xF0 as char, 0x9F as char, 0x98 as char, 0x80 as char};
+    if !path::to_pathz(utf, &z).is_ok() || z.len != 10 || z.bytes[10] != '\0' || !same(
         z.bytes[0..10],
         utf
     ) {
@@ -645,15 +645,15 @@ i32 path_encodings() {
         return 245;
     }
 
-    if !path::to_pathz("", &z).is_ok() || z.len != 0 || z.bytes[0] != 0 {
+    if !path::to_pathz("", &z).is_ok() || z.len != 0 || z.bytes[0] != '\0' {
         return 245;
     }
 
-    u8[4097] boundary;
-    std::mem::set(boundary[0..4097], 65 as u8);
+    char[4097] boundary;
+    std::mem::set(boundary[0..4097], 65 as char);
     if !path::to_pathz(boundary[0..4095], &z).is_ok()
         || z.len != 4095
-        || z.bytes[4095] != 0
+        || z.bytes[4095] != '\0'
     {
         return 246;
     }
@@ -679,10 +679,10 @@ i32 path_encodings() {
         return 249;
     }
 
-    boundary[4091] = 0xF0;
-    boundary[4092] = 0x9F;
-    boundary[4093] = 0x98;
-    boundary[4094] = 0x80;
+    boundary[4091] = 0xF0 as char;
+    boundary[4092] = 0x9F as char;
+    boundary[4093] = 0x98 as char;
+    boundary[4094] = 0x80 as char;
     if !path::to_pathw(boundary[0..4097], &w).is_ok()
         || w.len != 4095
         || w.units[4095] != 0
@@ -690,29 +690,29 @@ i32 path_encodings() {
         return 250;
     }
 
-    boundary[4091] = 65;
-    boundary[4092] = 0xF0;
-    boundary[4093] = 0x9F;
-    boundary[4094] = 0x98;
-    boundary[4095] = 0x80;
+    boundary[4091] = 65 as char;
+    boundary[4092] = 0xF0 as char;
+    boundary[4093] = 0x9F as char;
+    boundary[4094] = 0x98 as char;
+    boundary[4095] = 0x80 as char;
     if !path::to_pathw(boundary[0..4097], &w).is_ok() || w.len != 4095 {
         return 250;
     }
 
-    u8[4098] wider;
-    std::mem::set(wider[0..4098], 65 as u8);
-    wider[4092] = 0xF0;
-    wider[4093] = 0x9F;
-    wider[4094] = 0x98;
-    wider[4095] = 0x80;
+    char[4098] wider;
+    std::mem::set(wider[0..4098], 65 as char);
+    wider[4092] = 0xF0 as char;
+    wider[4093] = 0x9F as char;
+    wider[4094] = 0x98 as char;
+    wider[4095] = 0x80 as char;
     if path::to_pathw(wider, &w).unwrap_err() != Error::NameTooLong {
         return 250;
     }
 
-    u8[1] continuation = { 0x80 };
-    u8[2] overlong = {0xC0, 0xAF};
-    u8[2] truncated = {0xE2, 0x82};
-    u8[4] too_large = {0xF4, 0x90, 0x80, 0x80};
+    char[1] continuation = {0x80 as char};
+    char[2] overlong = {0xC0 as char, 0xAF as char};
+    char[2] truncated = {0xE2 as char, 0x82 as char};
+    char[4] too_large = {0xF4 as char, 0x90 as char, 0x80 as char, 0x80 as char};
     if path::to_pathw(continuation, &w).unwrap_err() != Error::InvalidArgument || path::to_pathw(
         overlong,
         &w
@@ -726,7 +726,7 @@ i32 path_encodings() {
         return 251;
     }
 
-    u8[3] bad = {0xED, 0xA0, 0x80};
+    char[3] bad = {0xED as char, 0xA0 as char, 0x80 as char};
     if path::to_pathw(bad, &w).unwrap_err() != Error::InvalidArgument {
         return 251;
     }

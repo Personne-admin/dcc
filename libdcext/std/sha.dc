@@ -800,22 +800,22 @@ public Status(ShaError) sha512([] const u8 data, [] u8 out) {
 //! Hex rendering
 //!
 
-u8 hex_digit(u8 nibble, bool uppercase) {
+char hex_digit(u8 nibble, bool uppercase) {
     if nibble < 10 {
-        return ('0' as u8) + nibble;
+        return (('0' as u8) + nibble) as char;
     }
 
-    return (
+    return ((
         if uppercase {
             'A' as u8
         } else {
             'a' as u8
         }
-    ) + (nibble - 10);
+    ) + (nibble - 10)) as char;
 }
 
 /// writes `digest` as lowercase hex. `out` needs twice as many bytes.
-public Status(ShaError) hex_encode([] const u8 digest, [] u8 out) {
+public Status(ShaError) hex_encode([] const u8 digest, [] char out) {
     if out.len < digest.len * 2 {
         return ShaError::OutputTooSmall;
     }

@@ -277,8 +277,8 @@ public struct Wsadata {
     Word max_sockets;
     Word max_udp_dg;
     void* vendor_info;
-    u8[257] description;
-    u8[129] system_status;
+    char[257] description;
+    char[129] system_status;
 }
 
 public struct AddrInfoW {
