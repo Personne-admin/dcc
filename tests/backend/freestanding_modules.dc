@@ -46,7 +46,7 @@ import assert;
     toml = std::toml::scan("x = nan");
     if toml.next().is_err() { return 17; }
     if toml.next().unwrap_err() != std::toml::TomlError::InvalidNumber { return 18; }
-    u8[32] text;
+    char[32] text;
     if std::fmt::format_buf(text, "{}", 42).is_err() { return 14; }
     return 0;
 }
