@@ -1,0 +1,46 @@
+=== FILE: main.dc ===
+module main;
+import device;
+import bridge;
+@nomangle public i32 dcc_main() {
+ device::Uart u = 7 as device::Uart;
+ const device::Uart* c = &u;
+ if bridge::forward(u) != 7 { return 1; }
+ if bridge::forward(&u) != 7 { return 2; }
+ if bridge::forward(c) != 7 { return 3; }
+ return 0;
+}
+
+=== FILE: device.dc ===
+module device;
+@nominal public using Uart = u16;
+
+=== FILE: generic.dc ===
+module generic;
+import core;
+public struct Writer { i32 unused; }
+public i32 format_value(T)(const Writer* w, T x) {
+ static if compiles(T t) { t.hidden(); } { core::compile_error("private extension leaked"); }
+ static if compiles(T t) { t.required(); } { core::compile_error("required argument accepted"); }
+ static if compiles(T t, const Writer* q) { t.format(q); } { return x.format(w); }
+ else { core::compile_error("missing extension"); }
+}
+public i32 format(T...)(const Writer* w, T args) { i32 n = 0; static for arg in args { n += format_value(w, arg); } return n; }
+
+=== FILE: extension.dc ===
+module extension;
+public import device;
+public import generic;
+public i32 format(const device::Uart* x, const generic::Writer* w) { return *x as i32; }
+i32 hidden(const device::Uart* x) { return 99; }
+public i32 required(const device::Uart* x, i32 n) { return n; }
+
+=== FILE: bridge.dc ===
+module bridge;
+import generic;
+import extension;
+public i32 forward(T)(T x) { generic::Writer w = {unused = 0}; return w.format(x); }
+
+=== ENTRY: main.dc ===
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0
