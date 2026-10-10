@@ -1043,6 +1043,49 @@ calls with auto-referenced receivers, capture the call expression's location.
 Synthesized protocol calls capture the `?` token's location, including when
 it appears on a separate line or inside an instantiated generic function.
 
+`core::source_location::SourceLocation` contains `[]const char file`,
+`u32 line`, `u32 column`, then `[]const char function`. The appended field
+preserves the offsets of the first three fields and increases the struct's
+size. `function` is the qualified name of the containing function.
+
+The same module exports `FunctionNameStyle { Plain, Qualified, Pretty,
+Mangled }` and the intrinsic
+`[]const char function_name(FunctionNameStyle style = FunctionNameStyle::Qualified)`.
+The style must be a compile-time constant enum value. The result is a
+compile-time constant text slice; identical strings share read-only storage.
+Plain returns the bare name, Qualified returns `module::function`, and
+Mangled returns the emitted symbol (including `@nomangle` names).
+
+Pretty uses `return_type module::name(template_arguments)(parameter_type
+parameter_name, ...)`, omitting the template parentheses for ordinary
+functions. Types use DC syntax, with named types spelled as in their
+declaring scope. Instantiated packs expand their arguments and parameter
+names (`args_0`, `args_1`, ...). For example:
+
+```dc
+// Plain function:
+i32 app::add(i32 left, i32 right)
+// Generic instantiation:
+i32 app::identity(i32)(i32 value)
+// UFCS function with a const pointer receiver:
+void app::write(const Device* receiver)
+// Instantiated pack:
+void app::log(i32, char)(i32 args_0, char args_1)
+```
+
+In a default argument, both `function_name()` and `SourceLocation.function`
+identify the caller, including calls through UFCS with auto-referenced
+receivers and instantiated generic callers. Synthesized `?` calls identify
+the function containing the operator. Lambda names include their enclosing
+function and source position, such as `app::outer::<lambda@12:9>`; nested
+lambdas extend that path. Calls in module-scope initializers or value aliases
+have an empty name because no function contains them. CTFE identifies the
+function being evaluated, consistently with runtime.
+
+Hosted Linux and Windows panic reports print the function alongside file,
+line and column. Freestanding retains its user-installed panic hook and
+passes the extended location to it; it supplies no default output device.
+
 **Conceptual expansion.** For a function returning `Ret`, the expression
 `value?` behaves as if the compiler inlined:
 

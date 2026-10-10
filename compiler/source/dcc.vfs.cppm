@@ -191,10 +191,16 @@ public struct SourceLocation {
     []const char file;
     u32 line;
     u32 column;
+    []const char function;
 }
 
 @intrinsic
 public SourceLocation source_location();
+
+public enum FunctionNameStyle { Plain, Qualified, Pretty, Mangled }
+
+@intrinsic
+public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Qualified);
 
 )dc";
 

@@ -117,10 +117,11 @@ static if core::target::OS != core::target::Os::Freestanding {
 
         match fmt::format_buf(
             scratch,
-            "{}:{}:{}\n",
+            "{}:{}:{} in {}\n",
             sl.file,
             sl.line,
-            sl.column
+            sl.column,
+            sl.function
         ) {
             Result::Ok(rendered) => file::write_all(&err, rendered as [] const u8),
             Result::Err(_) => file::write_all(&err, "<unknown location>\n"),

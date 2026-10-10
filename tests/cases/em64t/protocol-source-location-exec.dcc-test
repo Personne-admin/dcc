@@ -4,10 +4,10 @@ import core::source_location;
 using core::source_location::*;
 struct Box(T) { bool ok; T value; }
 u32 ok_line;
-[]const char filename;
+[]const char filename; []const char function;
 @runtime bool is_ok(T)(const Box(T)* self, SourceLocation sl = source_location()) { ok_line = sl.line; return self.ok; }
-@runtime u32 unwrap(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; return sl.line; }
-@runtime u32 unwrap_err(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; return sl.line; }
+@runtime u32 unwrap(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; function = sl.function; return sl.line; }
+@runtime u32 unwrap_err(T)(const Box(T)* self, SourceLocation sl = source_location()) { filename = sl.file; function = sl.function; return sl.line; }
 u32 propagate(T)(Box(T) box) {
     return box
         ?;
@@ -24,6 +24,9 @@ u32 propagate(T)(Box(T) box) {
     if propagate(err) != 12 || ok_line != 12 { return 4; }
     if filename.len < 7 { return 5; }
     if filename[filename.len - 7] != 't' || filename[filename.len - 6] != 'e' || filename[filename.len - 5] != 's' || filename[filename.len - 4] != 't' || filename[filename.len - 3] != '.' || filename[filename.len - 2] != 'd' || filename[filename.len - 1] != 'c' { return 6; }
+    []const char expected_function = "locations::propagate";
+    if function.len != expected_function.len { return 7; }
+    for usize i = 0; i < expected_function.len; i++ { if function[i] != expected_function[i] { return 8; } }
     return 0;
 }
 

@@ -274,6 +274,7 @@ export namespace dcc::ast
     {
         None,
         SourceLocation,
+        FunctionName,
         CompileError,
         CompileWarning,
         CompileNote,
@@ -1289,6 +1290,8 @@ export namespace dcc::ast
         std::optional<Block> body;
         struct LambdaExpr* lambda_source{};
         bool synthesized_lambda : 1 {};
+        FuncDecl const* enclosing_function{};
+        std::array<std::string, 4> function_names;
         FuncDecl(sm::SourceRange r, std::string_view n, sm::SourceRange nr, Allocator a)
             : Decl(Kind, r, a), name(n), name_range(nr), template_params(a), params(a)
         {

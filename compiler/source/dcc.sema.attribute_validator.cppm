@@ -106,6 +106,8 @@ namespace
             {
                 if (f->name == "source_location")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::SourceLocation;
+                else if (f->name == "function_name")
+                    d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::FunctionName;
                 else if (f->name == "compile_error")
                     d.sema.intrinsic_kind = dcc::ast::IntrinsicKind::CompileError;
                 else if (f->name == "compile_warning")
