@@ -14748,12 +14748,17 @@ export namespace dcc::sema
                 }
 
             collect_unique(&scope, all_syms);
-            auto const& import_visibility_mod = m_specialization_defining_module ? *m_specialization_defining_module : mod;
-            for (auto const& imp : import_visibility_mod.imports)
-            {
-                if (imp.target && imp.target->export_scope)
-                    collect_unique(imp.target->export_scope, all_syms);
-            }
+            auto collect_imports = [&](ModuleInfo const& context) {
+                for (auto const& imp : context.imports)
+                    if (imp.target && imp.target->export_scope)
+                        collect_unique(imp.target->export_scope, all_syms);
+            };
+            collect_imports(mod);
+            if (m_specialization_defining_module && m_specialization_defining_module != &mod)
+                collect_imports(*m_specialization_defining_module);
+            for (auto const* context : m_specialization_modules)
+                if (context)
+                    collect_imports(*context);
 
             std::unordered_set<ModuleInfo const*> associated_modules;
             collect_associated_modules(association_receiver->type, associated_modules);
