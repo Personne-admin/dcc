@@ -21,7 +21,7 @@ def main():
 import core::source_location;
 using core::source_location::*;
 const SourceLocation LOCATION = source_location();
-@nomangle public []const u8 file() { return LOCATION.file; }
+@nomangle public []const char file() { return LOCATION.file; }
 @nomangle public u8 load([]u8 values, usize index) { return values[index]; }
 """
     checks = 0
