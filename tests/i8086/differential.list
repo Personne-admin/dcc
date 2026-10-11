@@ -55,3 +55,9 @@ em64t/switch-stmt.dcc-test
 em64t/u32-shift-exec.dcc-test
 em64t/wide-match-exec.dcc-test
 em64t/z-compound-type-static-if.dcc-test
+em64t/forin-array.dcc-test
+em64t/forin-slice.dcc-test
+em64t/slice-arg.dcc-test
+em64t/call-small-aggregate-return-exec.dcc-test
+em64t/ctfe-slice-field-const-exec.dcc-test
+em64t/global-slice-init.dcc-test

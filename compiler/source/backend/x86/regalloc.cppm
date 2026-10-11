@@ -35,6 +35,8 @@ export namespace dcc::backend::x86
         MOpc gpr_restore;
         SpillAccess xmm_save;
         bool is_win64;
+        std::uint64_t byte_registers{~std::uint64_t{0}};
+        std::uint64_t address16_registers{~std::uint64_t{0}};
 
         [[nodiscard]] RegisterClassPolicy const& of(RegClass cls) const noexcept { return cls == RegClass::XMM ? xmm : gpr; }
         [[nodiscard]] VReg scratch(RegClass cls) const noexcept
@@ -689,8 +691,35 @@ namespace dcc::backend::x86
             std::ranges::sort(ranges, [](LiveRange const& a, LiveRange const& b) { return a.start < b.start; });
         }
 
+        [[nodiscard]] std::unordered_map<VReg, std::uint64_t> register_constraints(MFunction const& func, RegisterPolicy const& regs)
+        {
+            std::unordered_map<VReg, std::uint64_t> masks;
+            auto constrain = [&](VReg vreg, std::uint64_t mask) {
+                if (!vreg.is_virtual() || mask == ~std::uint64_t{0})
+                    return;
+                auto [it, added] = masks.try_emplace(vreg, mask);
+                if (!added)
+                    it->second &= mask;
+            };
+            for (auto const& block : func.blocks)
+                for (auto const& instr : block.instrs)
+                    for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+                    {
+                        auto const& op = instr.ops[i];
+                        if (op.kind == MOpKind::Mem && op.mem.address_bits == 16)
+                        {
+                            constrain(op.mem.base, regs.address16_registers);
+                            constrain(op.mem.index, regs.address16_registers);
+                        }
+                        if (op.kind == MOpKind::Reg && operand_bits(instr.opc) == 8)
+                            constrain(op.reg, regs.byte_registers);
+                    }
+            return masks;
+        }
+
         void linear_scan(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange>& ranges)
         {
+            auto constraints = register_constraints(func, regs);
             auto gprs = regs.gpr.allocatable;
             auto xmms = regs.xmm.allocatable;
 
@@ -755,6 +784,9 @@ namespace dcc::backend::x86
 
                 auto const& avail = (range.reg_class == RegClass::XMM) ? xmms : gprs;
                 auto reg_is_allowed = [&](PhysReg reg) {
+                    if (auto constraint = constraints.find(range.vreg);
+                        constraint != constraints.end() && !(constraint->second & (1ULL << static_cast<unsigned>(reg))))
+                        return false;
                     if (setcc_defs.contains(range.vreg) && (reg == PhysReg::RSI || reg == PhysReg::RDI))
                         return false;
                     if (shift_dsts.contains(range.vreg) && reg == PhysReg::RCX)
@@ -865,6 +897,7 @@ namespace dcc::backend::x86
 
         void rewrite_function(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange> const& ranges)
         {
+            auto constraints = register_constraints(func, regs);
             std::unordered_map<VReg, LiveRange const*> range_map;
             for (auto const& r : ranges)
                 range_map[r.vreg] = &r;
@@ -1077,7 +1110,8 @@ namespace dcc::backend::x86
                             return found->second;
                         PhysReg chosen = scratch_gpr.phys_reg();
                         for (auto candidate : gpr_scratch_order)
-                            if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0)
+                            if ((occupied & (1ULL << static_cast<unsigned>(candidate))) == 0 &&
+                                (!constraints.contains(vreg) || (constraints.at(vreg) & (1ULL << static_cast<unsigned>(candidate)))))
                             {
                                 chosen = candidate;
                                 break;
@@ -1107,6 +1141,11 @@ namespace dcc::backend::x86
                             auto const* range = range_map.at(rl.spilled_vreg);
                             if (range->reg_class != RegClass::GPR || memory_scratch.contains(rl.spilled_vreg))
                                 continue;
+                            if (constraints.contains(rl.spilled_vreg))
+                            {
+                                std::ignore = pick_gpr_scratch(rl.spilled_vreg);
+                                continue;
+                            }
                             PhysReg chosen = scratch_gpr.phys_reg();
                             if (!memory_scratch.empty())
                             {

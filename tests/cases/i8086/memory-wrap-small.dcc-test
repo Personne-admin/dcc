@@ -1,0 +1,19 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@noinline u8 read(u8* p, usize index) { return p[index]; }
+@nomangle public i32 dcc_main() {
+    u8* high = 65535 as usize as u8*;
+    high[0] = 11;
+    high[1] = 22;
+    high[2] = 33;
+    u8* low = 1 as usize as u8*;
+    if read(high, 1) != 22 { return 1; }
+    if read(high, 2) != 33 { return 2; }
+    if read(low, -1 as usize) != 22 { return 3; }
+    if read(low, -2 as usize) != 11 { return 4; }
+    if read(low, 0) != 33 { return 5; }
+    return 42;
+}
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

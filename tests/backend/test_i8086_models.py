@@ -1,4 +1,6 @@
 from pathlib import Path
+import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -50,4 +52,56 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
                 images.append(image.read_bytes())
             assert images[0] == images[1], (model, level)
             checks += 1
+    fixture = Path(__file__).resolve().parent.parent / "cases/i8086/memory-aggregates-small.dcc-test"
+    memory = directory / "memory.dc"
+    memory.write_text(fixture.read_text().split("=== FILE: main.dc ===\n", 1)[1].split("\n=== EXPECT-I8086-RUN ===", 1)[0])
+    for model in ("small", "unreal", "unreal32"):
+        for level in ("-O0", "-O2"):
+            base = ["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbackend", "custom", level]
+            obj = directory / f"memory-{model}{level}.o"
+            listing = obj.with_suffix(".s")
+            reassembled = directory / f"memory-{model}{level}-nasm.o"
+            for flag, output in (("-c", obj), ("-S", listing)):
+                result = subprocess.run(base + [flag, str(memory), "-o", str(output)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+            disassembly = subprocess.run(["objdump", "-d", "-M", "i8086", str(obj)], capture_output=True, text=True, check=True).stdout
+            if model == "small":
+                for line in disassembly.splitlines():
+                    match = re.match(r"\s*[0-9a-f]+:\s*((?:[0-9a-f]{2}\s+)+)", line)
+                    if match:
+                        for byte in bytes.fromhex(match[1]):
+                            if byte not in (0xf0, 0xf2, 0xf3, 0x26, 0x2e, 0x36, 0x3e, 0x64, 0x65, 0x66, 0x67):
+                                break
+                            assert byte != 0x67, line
+            result = subprocess.run(["timeout", "60", "nasm", "-f", "elf32", str(listing), "-o", str(reassembled)], capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+            images = []
+            for linked in (obj, reassembled):
+                image = linked.with_suffix(".bin")
+                result = subprocess.run(["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbase=1000:0", str(crt0), str(linked),
+                                         "-o", str(image)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+                images.append(image.read_bytes())
+            assert images[0] == images[1], (model, level)
+            checks += 1
+    if os.access("/dev/kvm", os.R_OK | os.W_OK):
+        for model in ("small", "unreal"):
+            fixture = Path(__file__).resolve().parent.parent / f"cases/i8086/memory-wrap-{model}.dcc-test"
+            source = directory / f"wrap-{model}.dc"
+            source.write_text(fixture.read_text().split("=== FILE: main.dc ===\n", 1)[1].split("\n=== EXPECT-I8086-RUN ===", 1)[0])
+            for level in ("-O0", "-O2"):
+                obj = directory / f"wrap-{model}{level}.o"
+                image = obj.with_suffix(".bin")
+                result = subprocess.run(["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbackend", "custom", level,
+                                         "-c", str(source), "-o", str(obj)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+                result = subprocess.run(["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbase=1000:0", str(crt0), str(obj),
+                                         "-o", str(image)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+                result = subprocess.run([sys.executable, str(Path(__file__).resolve().parent.parent / "i8086/run.py"), str(image), "--mode",
+                                         "real" if model == "small" else "unreal", "--accel", "kvm"], capture_output=True, timeout=60)
+                assert result.returncode == 42, result.stderr
+                checks += 1
+    else:
+        print("  NOTE    no /dev/kvm: structural and TCG wrap checks remain enabled")
     print("  RESULT  i8086 model diagnostics and assembly round trips: %d/%d passed" % (checks, checks))

@@ -217,6 +217,7 @@ namespace dcc::backend::i8086
             MFunction mfunc;
             MBlock* block{};
             bool c_abi{};
+            VReg sret_pointer;
             std::unordered_map<IrValue const*, VReg> values;
             std::unordered_map<IrValue const*, std::vector<VReg>> asm_results;
             std::unordered_map<IrValue const*, std::uint32_t> slots;
@@ -253,6 +254,8 @@ namespace dcc::backend::i8086
                         return 8;
                     case IrTypeKind::Int:
                         return static_cast<IrIntType const*>(type)->bits;
+                    case IrTypeKind::Pointer:
+                        return static_cast<IrPointerType const*>(type)->flavor == PointerFlavor::Near ? static_cast<unsigned>(type->byte_size * 8) : 0;
                     default:
                         return 0;
                 }
@@ -276,6 +279,8 @@ namespace dcc::backend::i8086
             {
                 if (auto* integer = ir_cast<IrIntConstant>(value))
                     return static_cast<std::int32_t>(static_cast<std::uint32_t>(integer->value));
+                if (ir_cast<IrNullConstant>(value))
+                    return 0;
                 if (auto* boolean = ir_cast<IrBoolConstant>(value))
                     return boolean->value ? 1 : 0;
                 return std::nullopt;
@@ -298,6 +303,27 @@ namespace dcc::backend::i8086
                 }
                 if (auto found = values.find(v); found != values.end())
                     return found->second;
+                if (auto found = slots.find(v); found != slots.end())
+                    return slot_address(found->second);
+                if (auto* ref = ir_cast<IrGlobalRef>(v))
+                {
+                    auto bits = value_bits(v->type);
+                    if (!bits)
+                        return std::nullopt;
+                    auto name = ref->global ? ref->global->name : ref->function ? ref->function->name : std::string_view{};
+                    if (name.empty())
+                    {
+                        unsupported("an unnamed global address");
+                        return std::nullopt;
+                    }
+                    MMem mem{};
+                    mem.symbol = name;
+                    mem.disp = static_cast<std::int32_t>(ref->addend);
+                    mem.address_bits = target.pointer_bits;
+                    return emit(bits == 16 ? MOpc::LEA16rm : MOpc::LEA32rm, {MOp::from_mem(mem)});
+                }
+                if (memory_type(v->type))
+                    return memory_value(v);
                 if (auto imm = constant(v))
                 {
                     auto bits = value_bits(v->type);
@@ -324,7 +350,9 @@ namespace dcc::backend::i8086
                     mem.address_bits = static_cast<std::uint8_t>(target.pointer_bits == 32 ? 32 : 16);
                     return MOp::from_mem(mem);
                 }
-                unsupported(std::format("memory access through an IR {} pointer", kind_name(pointer ? pointer->kind : IrNodeKind::Local)));
+                auto reg = value(pointer);
+                if (reg)
+                    return MOp::from_mem(near_memory(*reg));
                 return std::nullopt;
             }
 
@@ -363,30 +391,215 @@ namespace dcc::backend::i8086
                 return d;
             }
 
+            [[nodiscard]] static bool memory_type(IrType const* type)
+            {
+                return type && (type->kind == IrTypeKind::Aggregate || type->kind == IrTypeKind::Array ||
+                                (type->kind == IrTypeKind::Slice && static_cast<IrSliceType const*>(type)->flavor == PointerFlavor::Near));
+            }
+
+            [[nodiscard]] static bool indirect_return(IrType const* type)
+            {
+                return memory_type(type) && type->byte_size != 1 && type->byte_size != 2 && type->byte_size != 4;
+            }
+
+            [[nodiscard]] MMem near_memory(VReg base, std::int32_t offset = 0) const
+            {
+                auto mem = MMem::make_base_disp(base, offset);
+                mem.address_bits = target.pointer_bits;
+                return mem;
+            }
+
+            [[nodiscard]] VReg slot_address(std::uint32_t slot)
+            {
+                auto address = emit(MOpc::LEA16rm, {MOp::from_frame_slot(slot)});
+                return target.pointer_bits == 32 ? emit(MOpc::MOVZX32_16rr, {MOp::from_reg(address)}) : address;
+            }
+
+            [[nodiscard]] VReg temporary(IrType const* type)
+            {
+                if (type->byte_size > 65535)
+                {
+                    unsupported("an aggregate larger than the 16-bit stack");
+                    return {};
+                }
+                return slot_address(mfunc.new_frame_slot(static_cast<std::uint32_t>(type->byte_size),
+                                                         std::min<std::uint32_t>(static_cast<std::uint32_t>(std::max<std::uint64_t>(type->byte_align, 1)), 2)));
+            }
+
+            [[nodiscard]] VReg offset_address(VReg base, std::uint64_t offset)
+            {
+                if (!offset)
+                    return base;
+                return emit(target.pointer_bits == 16 ? MOpc::ADD16ri : MOpc::ADD32ri,
+                            {MOp::from_reg(base), MOp::from_imm(fit(static_cast<std::int64_t>(offset), target.pointer_bits, false, target.pointer_bits))});
+            }
+
+            void bulk_memory(VReg destination, VReg source, std::uint64_t size, bool zero)
+            {
+                if (!size)
+                    return;
+                if (size <= 8)
+                {
+                    for (std::uint64_t offset = 0; offset < size;)
+                    {
+                        auto bytes = size - offset >= 4 ? 4u : size - offset >= 2 ? 2u : 1u;
+                        auto dst = MOp::from_mem(near_memory(destination, static_cast<std::int32_t>(offset)));
+                        if (zero)
+                            append(make_instr(bytes == 4 ? MOpc::MOV32mi : bytes == 2 ? MOpc::MOV16mi : MOpc::MOV8mi, {dst, MOp::from_imm(0)}, 0));
+                        else
+                        {
+                            auto loaded = emit(bytes == 4   ? MOpc::MOV32rm
+                                               : bytes == 2 ? MOpc::MOV16rm
+                                                            : MOpc::MOVZX16rm8,
+                                               {MOp::from_mem(near_memory(source, static_cast<std::int32_t>(offset)))});
+                            append(make_instr(bytes == 4 ? MOpc::MOV32mr : bytes == 2 ? MOpc::MOV16mr : MOpc::MOV8mr, {dst, MOp::from_reg(loaded)}, 0));
+                        }
+                        offset += bytes;
+                    }
+                    return;
+                }
+                append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::DS)}, 0));
+                append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
+                if (!zero)
+                    copy_to(PhysReg::RSI, source, target.pointer_bits);
+                copy_to(PhysReg::RDI, destination, target.pointer_bits);
+                append(make_instr(target.pointer_bits == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(size / 2)}, 1));
+                if (zero)
+                    append(make_instr(MOpc::MOV16ri, {phys_operand(PhysReg::RAX), MOp::from_imm(0)}, 1));
+                auto strings = [&](bool tail) {
+                    MInstr rep = make_instr(
+                        zero ? (target.pointer_bits == 16 ? (tail ? MOpc::REPSTOS : MOpc::REPSTOSW) : (tail ? MOpc::REPSTOS_A32 : MOpc::REPSTOSW_A32))
+                             : (target.pointer_bits == 16 ? (tail ? MOpc::REPMOVS : MOpc::REPMOVSW) : (tail ? MOpc::REPMOVS_A32 : MOpc::REPMOVSW_A32)),
+                        {}, 0);
+                    rep.implicit_defs = bit(PhysReg::RDI) | bit(PhysReg::RCX) | (zero ? 0 : bit(PhysReg::RSI));
+                    rep.implicit_uses = rep.implicit_defs | bit(PhysReg::ES) | (zero ? bit(PhysReg::RAX) : bit(PhysReg::DS));
+                    append(rep);
+                };
+                strings(false);
+                if (size & 1)
+                {
+                    append(make_instr(target.pointer_bits == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(1)}, 1));
+                    strings(true);
+                }
+            }
+
+            [[nodiscard]] std::optional<VReg> pointer_address(IrValue const* pointer) { return value(pointer); }
+
+            [[nodiscard]] std::uint64_t member_offset(IrType const* type, std::uint32_t field)
+            {
+                if (type->kind == IrTypeKind::Aggregate)
+                    return static_cast<IrAggregateType const*>(type)->member_offsets.at(field);
+                if (type->kind == IrTypeKind::Array)
+                    return static_cast<IrArrayType const*>(type)->element->byte_size * field;
+                return target.pointer_bits / 8 * field;
+            }
+
+            void store_at(IrValue const* stored, VReg destination)
+            {
+                auto src = value(stored);
+                if (!src)
+                    return;
+                if (memory_type(stored->type))
+                    return bulk_memory(destination, *src, stored->type->byte_size, false);
+                auto bits = value_bits(stored->type);
+                if (bits)
+                    append(make_instr(bits == 8    ? MOpc::MOV8mr
+                                      : bits == 16 ? MOpc::MOV16mr
+                                                   : MOpc::MOV32mr,
+                                      {MOp::from_mem(near_memory(destination)), MOp::from_reg(*src)}, 0));
+            }
+
+            [[nodiscard]] static bool zero_value(IrValue const* v)
+            {
+                if (!v || ir_cast<IrNullConstant>(v))
+                    return true;
+                if (auto imm = constant(v))
+                    return *imm == 0;
+                if (auto const* agg = ir_cast<IrAggregateInst>(v))
+                    return std::ranges::all_of(agg->values, [](IrValue const* member) { return zero_value(member); });
+                return false;
+            }
+
+            [[nodiscard]] std::optional<VReg> memory_value(IrValue const* v)
+            {
+                auto dst = temporary(v->type);
+                if (!dst.is_valid())
+                    return std::nullopt;
+                if (auto const* agg = ir_cast<IrAggregateInst>(v))
+                {
+                    bulk_memory(dst, {}, v->type->byte_size, true);
+                    for (std::uint32_t i = 0; i < agg->values.size(); ++i)
+                        if (!zero_value(agg->values[i]))
+                            store_at(agg->values[i], offset_address(dst, member_offset(v->type, i)));
+                }
+                else if (auto const* str = ir_cast<IrStringConstant>(v); str && v->type->kind == IrTypeKind::Array)
+                {
+                    bulk_memory(dst, {}, v->type->byte_size, true);
+                    for (std::uint32_t i = 0; i < std::min<std::uint64_t>(str->value.size(), v->type->byte_size); ++i)
+                        append(make_instr(
+                            MOpc::MOV8mi,
+                            {MOp::from_mem(near_memory(dst, static_cast<std::int32_t>(i))), MOp::from_imm(static_cast<unsigned char>(str->value[i]))}, 0));
+                }
+                else if (ir_cast<IrNullConstant>(v))
+                    bulk_memory(dst, {}, v->type->byte_size, true);
+                else
+                {
+                    unsupported(std::format("an aggregate operand of IR {}", kind_name(v->kind)));
+                    return std::nullopt;
+                }
+                values[v] = dst;
+                return dst;
+            }
+
             void lower_alloca(IrAllocaInst const& alloca)
             {
                 auto* type = alloca.allocated_type;
-                if (alloca.count || !scalar_bits(type) || scalar_bits(type) > 32)
-                {
-                    unsupported("a local that is not an 8-, 16- or 32-bit scalar");
+                auto count = alloca.count ? constant(alloca.count) : std::optional<std::int64_t>{1};
+                if (!count || *count < 0 || static_cast<std::uint64_t>(*count) * type->byte_size > 65535)
+                    return unsupported("a dynamic or oversized local allocation");
+                auto align = alloca.alignment ? alloca.alignment : type->byte_align;
+                if (!memory_type(type) && !value_bits(type))
                     return;
+                slots[&alloca] = mfunc.new_frame_slot(static_cast<std::uint32_t>(type->byte_size * static_cast<std::uint64_t>(*count)),
+                                                      std::min<std::uint32_t>(static_cast<std::uint32_t>(std::max<std::uint64_t>(align, 1)), 2));
+            }
+
+            void load_at(IrValue const* inst, VReg source)
+            {
+                if (memory_type(inst->type))
+                {
+                    auto dst = temporary(inst->type);
+                    bulk_memory(dst, source, inst->type->byte_size, false);
+                    values[inst] = dst;
                 }
-                slots[&alloca] =
-                    mfunc.new_frame_slot(static_cast<std::uint32_t>(type->byte_size), std::min<std::uint32_t>(static_cast<std::uint32_t>(type->byte_align), 2));
+                else if (auto bits = value_bits(inst->type))
+                    values[inst] = emit(bits == 8 ? MOpc::MOVZX16rm8 : bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_mem(near_memory(source))});
             }
 
             void lower_load(IrValue const* inst, IrValue const* pointer)
             {
+                if (memory_type(inst->type))
+                {
+                    auto src = pointer_address(pointer);
+                    if (src)
+                        load_at(inst, *src);
+                    return;
+                }
                 auto bits = value_bits(inst->type);
                 auto mem = bits ? address(pointer) : std::nullopt;
-                if (!mem)
-                    return;
-                auto opc = bits == 8 ? MOpc::MOVZX16rm8 : bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm;
-                values[inst] = emit(opc, {*mem});
+                if (mem)
+                    values[inst] = emit(bits == 8 ? MOpc::MOVZX16rm8 : bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {*mem});
             }
 
             void lower_store(IrValue const* stored, IrValue const* pointer)
             {
+                if (memory_type(stored ? stored->type : nullptr))
+                {
+                    auto dst = pointer_address(pointer);
+                    if (dst)
+                        store_at(stored, *dst);
+                    return;
+                }
                 auto bits = value_bits(stored ? stored->type : nullptr);
                 auto mem = bits ? address(pointer) : std::nullopt;
                 if (!mem)
@@ -402,11 +615,48 @@ namespace dcc::backend::i8086
                     return;
                 if (bits == 8)
                 {
-                    copy_to(PhysReg::RAX, *v, 16);
-                    append(make_instr(MOpc::MOV8mr, {*mem, phys_operand(PhysReg::RAX)}, 0));
+                    append(make_instr(MOpc::MOV8mr, {*mem, MOp::from_reg(*v)}, 0));
                     return;
                 }
                 append(make_instr(bits == 16 ? MOpc::MOV16mr : MOpc::MOV32mr, {*mem, MOp::from_reg(*v)}, 0));
+            }
+
+            void lower_gep(IrGepInst const& gep)
+            {
+                auto ptr = pointer_address(gep.base);
+                if (!ptr)
+                    return;
+                auto result = *ptr;
+                auto type = static_cast<IrPointerType const*>(gep.base->type)->pointee;
+                for (auto const& index : gep.indices)
+                {
+                    if (index.kind == IrGepInst::IndexKind::Field)
+                    {
+                        result = offset_address(result, member_offset(type, index.field_index));
+                        if (type->kind == IrTypeKind::Aggregate)
+                            type = static_cast<IrAggregateType const*>(type)->members.at(index.field_index);
+                        else
+                            type = nullptr;
+                    }
+                    else
+                    {
+                        auto elem = type && type->kind == IrTypeKind::Array ? static_cast<IrArrayType const*>(type)->element : type;
+                        auto stride = elem ? elem->byte_size : 1;
+                        if (auto imm = constant(index.dynamic_index))
+                            result = offset_address(result, static_cast<std::uint64_t>(*imm) * stride);
+                        else if (auto dynamic = value(index.dynamic_index))
+                        {
+                            auto scaled = stride == 1 ? *dynamic
+                                                      : emit(target.pointer_bits == 16 ? MOpc::IMUL16rri : MOpc::IMUL32rri,
+                                                             {MOp::from_reg(*dynamic), MOp::from_imm(static_cast<std::int64_t>(stride))});
+                            result = emit(target.pointer_bits == 16 ? MOpc::ADD16rr : MOpc::ADD32rr, {MOp::from_reg(result), MOp::from_reg(scaled)});
+                        }
+                        else
+                            return;
+                        type = elem;
+                    }
+                }
+                values[&gep] = result;
             }
 
             void lower_arithmetic(IrNode const* inst, IrType const* type)
@@ -598,40 +848,70 @@ namespace dcc::backend::i8086
                 append(make_instr(bits <= 16 ? MOpc::PUSH16r : MOpc::PUSH32r, {MOp::from_reg(*v)}, 0));
             }
 
+            [[nodiscard]] std::vector<std::optional<PhysReg>> classify_arguments(std::span<IrValue* const> args, bool c_convention, bool sret)
+            {
+                std::vector<std::optional<PhysReg>> registers(args.size());
+                std::size_t next = sret ? 1 : 0;
+                for (std::size_t i = 0; i < args.size(); ++i)
+                    if (!c_convention && !memory_type(args[i]->type) && next < register_arguments.size())
+                        registers[i] = register_arguments[next++];
+                return registers;
+            }
+
             void lower_call(IrValue const* inst, IrValue const* callee, std::span<IrValue* const> args)
             {
                 auto const* ref = ir_cast<IrGlobalRef>(callee);
                 if (!ref || !ref->function)
                     return unsupported("an indirect call");
                 bool const c_convention = uses_c_abi(*ref->function);
-                std::vector<unsigned> widths;
-                for (auto* arg : args)
+                bool const sret = indirect_return(inst->type);
+                auto registers = classify_arguments(args, c_convention, sret);
+                std::optional<VReg> result;
+                if (memory_type(inst->type))
+                    result = temporary(inst->type);
+                std::vector<VReg> inputs(args.size());
+                for (std::size_t i = 0; i < args.size(); ++i)
                 {
-                    auto bits = value_bits(arg ? arg->type : nullptr);
-                    if (!bits)
+                    auto input = value(args[i]);
+                    if (!input)
                         return;
-                    widths.push_back(bits);
+                    inputs[i] = *input;
                 }
-                std::size_t const in_registers = c_convention ? 0 : std::min(args.size(), register_arguments.size());
                 std::int64_t pushed = 0;
-                for (auto i = args.size(); i > in_registers; --i)
+                for (std::size_t i = args.size(); i > 0; --i)
                 {
-                    push_argument(args[i - 1], widths[i - 1]);
-                    pushed += widths[i - 1] <= 16 ? 2 : 4;
+                    auto* arg = args[i - 1];
+                    if (registers[i - 1])
+                        continue;
+                    auto bytes = memory_type(arg->type) ? (arg->type->byte_size + 1) & ~std::uint64_t{1} : scalar_bits(arg->type) <= 16 ? 2 : 4;
+                    if (memory_type(arg->type))
+                    {
+                        append(make_instr(MOpc::SUB16ri,
+                                          {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(static_cast<std::int64_t>(bytes))}, 1));
+                        auto stack = emit(MOpc::MOVZX32_16rr, {phys_operand(PhysReg::RSP)});
+                        bulk_memory(stack, inputs[i - 1], arg->type->byte_size, false);
+                    }
+                    else
+                        push_argument(arg, value_bits(arg->type));
+                    pushed += bytes;
+                }
+                if (sret && c_convention)
+                {
+                    append(make_instr(target.pointer_bits == 16 ? MOpc::PUSH16r : MOpc::PUSH32r, {MOp::from_reg(*result)}, 0));
+                    pushed += target.pointer_bits / 8;
                 }
                 std::uint64_t uses = bit(PhysReg::RSP);
-                for (std::size_t i = 0; i < in_registers; ++i)
+                if (sret && !c_convention)
                 {
-                    auto reg = register_arguments[i];
-                    auto width = op_width(widths[i]);
-                    if (auto imm = constant(args[i]))
-                        append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(reg), MOp::from_imm(fit(*imm, widths[i], false, width))}, 1));
-                    else if (auto v = value(args[i]))
-                        copy_to(reg, *v, width);
-                    else
-                        return;
-                    uses |= bit(reg);
+                    copy_to(PhysReg::RAX, *result, target.pointer_bits);
+                    uses |= bit(PhysReg::RAX);
                 }
+                for (std::size_t i = 0; i < args.size(); ++i)
+                    if (registers[i])
+                    {
+                        copy_to(*registers[i], inputs[i], op_width(value_bits(args[i]->type)));
+                        uses |= bit(*registers[i]);
+                    }
                 MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->function->name)}, 0);
                 call.implicit_uses = uses;
                 call.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX);
@@ -640,42 +920,72 @@ namespace dcc::backend::i8086
                     append(make_instr(MOpc::ADD16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(pushed)}, 1));
                 if (!inst->type || inst->type->kind == IrTypeKind::Void)
                     return;
-                auto bits = value_bits(inst->type);
-                if (!bits)
-                    return;
-                if (bits == 32 && c_convention)
+                if (sret)
                 {
-                    auto low = copy_from(PhysReg::RAX);
-                    auto high = copy_from(PhysReg::RDX);
-                    auto shifted = emit(MOpc::SHL32ri8, {MOp::from_reg(high), MOp::from_imm(16)});
-                    auto widened = emit(MOpc::MOVZX32_16rr, {MOp::from_reg(low)});
-                    values[inst] = emit(MOpc::OR32rr, {MOp::from_reg(shifted), MOp::from_reg(widened)});
+                    values[inst] = *result;
                     return;
                 }
-                values[inst] = copy_from(PhysReg::RAX);
+                auto bits = memory_type(inst->type) ? inst->type->byte_size * 8 : value_bits(inst->type);
+                if (!bits)
+                    return;
+                auto returned = copy_from(PhysReg::RAX);
+                if (bits == 32 && (c_convention || memory_type(inst->type)))
+                {
+                    auto high = copy_from(PhysReg::RDX);
+                    auto shifted = emit(MOpc::SHL32ri8, {MOp::from_reg(high), MOp::from_imm(16)});
+                    auto widened = emit(MOpc::MOVZX32_16rr, {MOp::from_reg(returned)});
+                    returned = emit(MOpc::OR32rr, {MOp::from_reg(shifted), MOp::from_reg(widened)});
+                }
+                if (memory_type(inst->type))
+                {
+                    append(make_instr(bits == 8    ? MOpc::MOV8mr
+                                      : bits == 16 ? MOpc::MOV16mr
+                                                   : MOpc::MOV32mr,
+                                      {MOp::from_mem(near_memory(*result)), MOp::from_reg(returned)}, 0));
+                    values[inst] = *result;
+                }
+                else
+                    values[inst] = returned;
             }
 
             void lower_parameters()
             {
                 auto const& params = func.entry_block->params;
-                std::size_t const in_registers = c_abi ? 0 : std::min(params.size(), register_arguments.size());
+                auto ret = func.func_type->return_type;
+                auto sret = indirect_return(ret);
                 std::int32_t offset = 4;
+                if (sret)
+                {
+                    if (c_abi)
+                    {
+                        MMem mem = MMem::make_base_disp(VReg::phys(PhysReg::RBP), offset);
+                        sret_pointer = emit(target.pointer_bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_mem(mem)});
+                        offset += target.pointer_bits / 8;
+                    }
+                    else
+                        sret_pointer = copy_from(PhysReg::RAX);
+                }
+                auto registers = classify_arguments(params, c_abi, sret);
+                for (std::size_t i = 0; i < params.size(); ++i)
+                    if (registers[i])
+                        values[params[i]] = copy_from(*registers[i]);
                 for (std::size_t i = 0; i < params.size(); ++i)
                 {
                     auto const* param = params[i];
-                    auto bits = value_bits(param ? param->type : nullptr);
-                    if (!bits)
-                        return;
-                    if (i < in_registers)
-                    {
-                        values[param] = copy_from(register_arguments[i]);
+                    if (registers[i])
                         continue;
+                    MMem slot = MMem::make_base_disp(VReg::phys(PhysReg::RBP), offset);
+                    if (memory_type(param->type))
+                    {
+                        auto addr = emit(MOpc::LEA16rm, {MOp::from_mem(slot)});
+                        values[param] = target.pointer_bits == 32 ? emit(MOpc::MOVZX32_16rr, {MOp::from_reg(addr)}) : addr;
+                        offset += (param->type->byte_size + 1) & ~std::uint64_t{1};
                     }
-                    MMem slot{};
-                    slot.base = VReg::phys(PhysReg::RBP);
-                    slot.disp = offset;
-                    values[param] = emit(bits <= 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_mem(slot)});
-                    offset += bits <= 16 ? 2 : 4;
+                    else if (auto bits = value_bits(param->type))
+                    {
+                        values[param] = emit(bits <= 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_mem(slot)});
+                        offset += bits <= 16 ? 2 : 4;
+                    }
                 }
             }
 
@@ -775,10 +1085,30 @@ namespace dcc::backend::i8086
                         auto found = asm_results.find(extract->aggregate);
                         if (found != asm_results.end() && extract->field_index < found->second.size())
                             values[v] = found->second[extract->field_index];
-                        else
-                            unsupported("an extract outside inline assembly");
+                        else if (auto aggregate = value(extract->aggregate))
+                            load_at(v, offset_address(*aggregate, member_offset(extract->aggregate->type, extract->field_index)));
                         return;
                     }
+                    case IrNodeKind::Aggregate:
+                        std::ignore = value(v);
+                        return;
+                    case IrNodeKind::Gep:
+                        return lower_gep(*static_cast<IrGepInst const*>(inst));
+                    case IrNodeKind::Insert: {
+                        auto const* insert = static_cast<IrInsertInst const*>(inst);
+                        auto aggregate = value(insert->aggregate);
+                        if (!aggregate)
+                            return;
+                        auto dst = temporary(v->type);
+                        bulk_memory(dst, *aggregate, v->type->byte_size, false);
+                        store_at(insert->value, offset_address(dst, member_offset(v->type, insert->field_index)));
+                        values[v] = dst;
+                        return;
+                    }
+                    case IrNodeKind::PtrToI:
+                        return lower_cast(v, static_cast<IrPtrToIInst const*>(inst)->operand);
+                    case IrNodeKind::IToPtr:
+                        return lower_cast(v, static_cast<IrIToPtrInst const*>(inst)->operand);
                     case IrNodeKind::Alloca:
                         return lower_alloca(*static_cast<IrAllocaInst const*>(inst));
                     case IrNodeKind::Load:
@@ -821,9 +1151,27 @@ namespace dcc::backend::i8086
                         return lower_cast(v, static_cast<IrTruncInst const*>(inst)->operand);
                     case IrNodeKind::Bitcast: {
                         auto const* operand = static_cast<IrBitcastInst const*>(inst)->operand;
-                        if (scalar_bits(v->type) != scalar_bits(operand ? operand->type : nullptr))
+                        if (v->type->byte_size != operand->type->byte_size)
                             return unsupported("a bitcast between differently sized values");
-                        return lower_cast(v, operand);
+                        if (memory_type(v->type) && memory_type(operand->type))
+                        {
+                            if (auto addr = value(operand))
+                                values[v] = *addr;
+                        }
+                        else if (memory_type(operand->type))
+                        {
+                            if (auto addr = value(operand))
+                                load_at(v, *addr);
+                        }
+                        else if (memory_type(v->type))
+                        {
+                            auto addr = temporary(v->type);
+                            store_at(operand, addr);
+                            values[v] = addr;
+                        }
+                        else
+                            lower_cast(v, operand);
+                        return;
                     }
                     case IrNodeKind::Call: {
                         auto const* call = static_cast<IrCallInst const*>(inst);
@@ -845,13 +1193,25 @@ namespace dcc::backend::i8086
                 std::uint64_t uses = (1ULL << static_cast<unsigned>(PhysReg::RSP));
                 if (ret.value)
                 {
-                    auto bits = value_bits(ret.value->type);
-                    auto v = bits ? value(ret.value) : std::nullopt;
+                    auto type = ret.value->type;
+                    auto bits = memory_type(type) ? static_cast<unsigned>(type->byte_size * 8) : value_bits(type);
+                    auto v = bits || memory_type(type) ? value(ret.value) : std::nullopt;
+                    if (v && indirect_return(type))
+                    {
+                        bulk_memory(sret_pointer, *v, type->byte_size, false);
+                        copy_to(PhysReg::RAX, sret_pointer, target.pointer_bits);
+                        MInstr mi = make_instr(MOpc::RET, {}, 0);
+                        mi.implicit_uses = uses | bit(PhysReg::RAX);
+                        append(mi);
+                        return;
+                    }
+                    if (v && memory_type(type))
+                        v = emit(bits == 8 ? MOpc::MOVZX16rm8 : bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_mem(near_memory(*v))});
                     if (!v)
                         return;
                     copy_to(PhysReg::RAX, *v, op_width(bits));
                     uses |= 1ULL << static_cast<unsigned>(PhysReg::RAX);
-                    if (bits == 32 && c_abi)
+                    if (bits == 32 && (c_abi || memory_type(ret.value->type)))
                     {
                         copy_to(PhysReg::RDX, *v, 32);
                         append(make_instr(MOpc::SHR32ri8, {phys_operand(PhysReg::RDX), phys_operand(PhysReg::RDX), MOp::from_imm(16)}, 1));
@@ -1075,7 +1435,7 @@ namespace dcc::backend::i8086
                         ++pred_counts[succ];
                 for (auto const& [phi, owner, result] : pending_phis)
                 {
-                    auto bits = value_bits(phi->type);
+                    auto bits = memory_type(phi->type) ? target.pointer_bits : value_bits(phi->type);
                     if (!bits)
                         return;
                     std::vector<MOp> inputs;

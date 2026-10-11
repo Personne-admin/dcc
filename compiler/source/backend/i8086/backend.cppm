@@ -145,6 +145,19 @@ namespace dcc::backend
                     }
                     i8086::regalloc(mfunc, opts.target);
                     i8086::frame_layout(mfunc, opts.target);
+                    if (mfunc.frame_size >= 65532)
+                        return fail(std::format("i8086 backend: stack frame in function `{}` exceeds the 16-bit stack", func->name));
+                    if (opts.target.code_model == target::CodeModel::Default || opts.target.code_model == target::CodeModel::Small)
+                        for (auto const& block : mfunc.blocks)
+                            for (auto const& instruction : block.instrs)
+                            {
+                                bool address32 = instruction.opc == MOpc::REPMOVS_A32 || instruction.opc == MOpc::REPSTOS_A32 ||
+                                                 instruction.opc == MOpc::REPMOVSW_A32 || instruction.opc == MOpc::REPSTOSW_A32;
+                                for (std::uint8_t i = 0; i < instruction.num_ops; ++i)
+                                    address32 |= instruction.ops[i].kind == MOpKind::Mem && instruction.ops[i].mem.address_bits == 32;
+                                if (address32)
+                                    return fail(std::format("i8086 backend: 32-bit address in small-model function `{}`", func->name));
+                            }
                     i8086::remove_fallthrough_jumps(mfunc);
                     functions.push_back(std::move(mfunc));
                 }

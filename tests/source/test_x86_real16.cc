@@ -7,6 +7,8 @@ import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
 import dcc.backend.x86.prefix;
 import dcc.backend.object.elf32;
+import dcc.backend.i8086.registers;
+import dcc.backend.i8086.framelay;
 
 #include "harness.hh"
 
@@ -731,4 +733,42 @@ TEST_CASE("i8086 elf32 objects link with ld.lld into a flat binary that runs und
     CHECK(run_command(std::format("python3 '{}' --load 1000:0000 --mode real '{}/prog.bin' > '{}/serial.out' 2>&1", DCC_I8086_RUNNER, d, d)) == 9);
     std::error_code ec;
     std::filesystem::remove_all(dir, ec);
+}
+
+TEST_CASE("real16 register constraints survive allocation and spilling")
+{
+    MFunction func;
+    func.owned_name = "memory_constraints";
+    auto& block = func.create_block("entry");
+    std::array<VReg, 6> addresses;
+    for (auto& address : addresses)
+    {
+        address = func.new_vreg();
+        block.instrs.push_back(make_instr(MOpc::MOV16ri, {MOp::from_reg(address), I(1234)}, 1));
+    }
+    auto byte = func.new_vreg();
+    block.instrs.push_back(make_instr(MOpc::MOV16ri, {MOp::from_reg(byte), I(42)}, 1));
+    for (auto address : addresses)
+    {
+        auto mem = MMem::make_base_disp(address, 1);
+        mem.address_bits = 16;
+        block.instrs.push_back(make_instr(MOpc::MOV8mr, {MOp::from_mem(mem), MOp::from_reg(byte)}, 0));
+    }
+    block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    dcc::target::TargetConfig target;
+    target.arch = dcc::target::Arch::I8086;
+    target.pointer_bits = 16;
+    dcc::backend::i8086::regalloc(func, target);
+    CHECK(std::ranges::any_of(func.frame_slots, [](MFrameSlot const& slot) { return slot.is_spill; }));
+    dcc::backend::i8086::frame_layout(func, target);
+    auto encoded = encode_function(func, EncodeMode::Real16);
+    CHECK(encoded.warnings.empty());
+    for (auto const& instruction : func.entry_block().instrs)
+        if (instruction.opc == MOpc::MOV8mr)
+        {
+            auto base = instruction.ops[0].mem.base.phys_reg();
+            CHECK((base == PhysReg::RBX || base == PhysReg::RSI || base == PhysReg::RDI));
+            auto source = instruction.ops[1].reg.phys_reg();
+            CHECK((source == PhysReg::RAX || source == PhysReg::RCX || source == PhysReg::RDX || source == PhysReg::RBX));
+        }
 }
