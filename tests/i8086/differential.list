@@ -62,3 +62,4 @@ em64t/call-small-aggregate-return-exec.dcc-test
 em64t/ctfe-slice-field-const-exec.dcc-test
 em64t/global-slice-init.dcc-test
 em64t/i64-pairs-matrix-exec.dcc-test
+em64t/nested-slice-fields-exec.dcc-test
