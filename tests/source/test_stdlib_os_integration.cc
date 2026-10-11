@@ -848,3 +848,24 @@ TEST_CASE("llvm backend aggregates up to 16 bytes and slices follow the C callin
     auto r = os_test::run_modules({{"peer.c", peer}, {"main.dc", main}}, windows(), "llvm");
     CHECK_EQ(r.status, 42);
 }
+
+TEST_CASE("compiler checks pass expression messages and source locations on both backends")
+{
+    std::array<std::pair<std::string_view, std::string_view>, 3> cases = {{
+        {"u8{0..10} value = input as u8{0..10};", "value out of range for restricted type"},
+        {"u8[2] values = {1, 2}; u8 value = values[input as usize];", "array index out of bounds"},
+        {"[]u8 values = {1, 2}; []u8 value = values[0..input as usize];", "slice range out of bounds"},
+    }};
+    for (auto backend : {"llvm", "custom"})
+        for (auto optimization : {"-O0", "-O2"})
+            for (auto const& [statement, message] : cases)
+            {
+                auto source = std::format("module main;\nu8 input = 20;\npublic i32 main() {{\n    {}\n    return 0;\n}}\n", statement);
+                auto result = os_test::run(source, windows(), std::format("-fbackend {} {} -fbounds-check -frestricted-check", backend, optimization));
+                CHECK_EQ(result.status, 134);
+                CHECK(result.err.starts_with(std::format("panic: {}\n  at ", message)));
+                CHECK(result.err.contains("main.dc:4:"));
+                CHECK(result.err.contains(" in main::main\n"));
+                CHECK(!result.err.contains("main.dc:4:0"));
+            }
+}
