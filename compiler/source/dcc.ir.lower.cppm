@@ -10196,6 +10196,18 @@ export namespace dcc::ir::lower
                     }
                 }
 
+                auto lv = lower_assign_lvalue(fa->object);
+                auto* base_ptr = lv.gep_ptr ? lv.gep_ptr : lv.entry && lv.entry->is_storage ? lv.entry->value : nullptr;
+                if (base_ptr)
+                {
+                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_resolved_type), base_ptr);
+                    gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
+                    auto gep_name = ident_name();
+                    gep->name = m_name_pool.back();
+                    append_inst(gep);
+                    return gep;
+                }
+
                 lower_panic(fa, "cannot lower slice field lvalue");
             }
 

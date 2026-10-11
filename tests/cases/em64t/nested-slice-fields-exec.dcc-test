@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module main;
+struct Box { u16 tag; []u16 values; }
+@nomangle public i32 dcc_main() {
+    u16[3] words = {11, 13, 17};
+    Box[2] boxes;
+    boxes[1].values.ptr = &words[0];
+    boxes[1].values.len = 3;
+    Box* p = &boxes[1];
+    p.values.len = 2;
+    u16 total = 0;
+    for x in p.values { total += x; }
+    if total != 24 || p.values[1] != 13 { return 1; }
+    return 42;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42
