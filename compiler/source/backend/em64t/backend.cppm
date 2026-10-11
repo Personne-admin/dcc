@@ -21,6 +21,7 @@ import dcc.backend.x86.regalloc;
 import dcc.backend.em64t.registers;
 import dcc.backend.em64t.framelay;
 import dcc.backend.x86.encode;
+import dcc.backend.x86.modasm;
 import dcc.backend.object.elf64;
 import dcc.backend.object.coff;
 import dcc.backend.object.archive;
@@ -101,6 +102,30 @@ namespace dcc::backend
                 default:
                     return false;
             }
+        }
+
+        [[nodiscard]] std::optional<std::string> check_module_asm(ir::IrModule const& module, x86::ModuleAsmObject const& object, bool coff)
+        {
+            std::unordered_set<std::string_view> defined;
+            for (auto* func : module.functions)
+                if (func && !func->blocks.empty())
+                    defined.insert(func->name);
+            for (auto* global : module.globals)
+                if (global && !global->is_declaration)
+                    defined.insert(global->name);
+            for (auto const& sym : object.symbols)
+            {
+                if (sym.binding != x86::ModuleAsmBinding::Local && defined.contains(sym.name))
+                    return std::format("module asm defines `{}`, which this module already defines", sym.name);
+                if (coff && sym.binding == x86::ModuleAsmBinding::Weak)
+                    return std::format("module asm weak symbol `{}` is not supported for COFF targets", sym.name);
+            }
+            if (coff)
+                for (auto const& section : object.sections)
+                    for (auto const& r : section.relocations)
+                        if (r.kind == x86::Reloc::Kind::Abs16 || r.kind == x86::Reloc::Kind::Rel16)
+                            return std::format("module asm 16-bit reference to `{}` is not supported for COFF targets", r.symbol);
+            return std::nullopt;
         }
 
         [[nodiscard]] bool has_segmented_type(ir::IrType const* type)
@@ -189,13 +214,25 @@ namespace dcc::backend
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("custom backend: malformed initializer for global `{}`", *mismatch)});
                     return artifact;
                 }
+                std::optional<x86::ModuleAsmObject> module_asm;
                 if (!input_module->module_asms.empty())
                 {
-                    auto* ma = input_module->module_asms.front();
-                    artifact.diagnostics.push_back(
-                        BackendDiagnostic{ma ? ma->range : decltype(ma->range){}, "custom backend: module asm is not supported on the native backend"});
-                    return artifact;
+                    bool const coff = opts.target.object_format == dcc::target::ObjectFormat::Coff;
+                    auto assembled = x86::assemble_module_asm(input_module->module_asms, x86::EncodeMode::Long64,
+                                                              coff ? x86::ModuleAsmFormat::Coff : x86::ModuleAsmFormat::Elf);
+                    if (!assembled)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{assembled.error().range, "custom backend: " + assembled.error().message});
+                        return artifact;
+                    }
+                    if (auto problem = check_module_asm(*input_module, *assembled, coff))
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{input_module->module_asms.front()->range, "custom backend: " + *problem});
+                        return artifact;
+                    }
+                    module_asm = std::move(*assembled);
                 }
+                x86::ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
 
                 std::vector<x86::MFunction> mfuncs;
                 mfuncs.reserve(input_module->functions.size());
@@ -243,7 +280,7 @@ namespace dcc::backend
                 }
 
                 if (want_asm)
-                    artifact.asm_text = em64t::emit_intel_asm(*input_module, mfuncs, opts.target);
+                    artifact.asm_text = em64t::emit_intel_asm(*input_module, mfuncs, opts.target, asm_object);
 
                 if (need_encode)
                 {
@@ -268,9 +305,9 @@ namespace dcc::backend
                     std::vector<std::uint8_t> object_data;
 
                     if (opts.target.object_format == dcc::target::ObjectFormat::Coff)
-                        object_data = object::write_coff(*input_module, mmod, encoded, opts.target, object::coff_x86_64_policy);
+                        object_data = object::write_coff(*input_module, mmod, encoded, opts.target, object::coff_x86_64_policy, asm_object);
                     else
-                        object_data = object::write_elf64(*input_module, mmod, encoded, opts.target, object::elf64_x86_64_policy);
+                        object_data = object::write_elf64(*input_module, mmod, encoded, opts.target, object::elf64_x86_64_policy, asm_object);
 
                     std::vector<std::byte> obj_bytes;
                     obj_bytes.reserve(object_data.size());

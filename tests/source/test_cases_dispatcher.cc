@@ -220,6 +220,8 @@ namespace
         std::optional<std::string> serial;
         std::string load{"1000:0000"};
         int timeout{10};
+        bool default_start{true};
+        std::optional<std::string> start_error;
     };
 
     struct ExpectEm64tAsm
@@ -975,6 +977,14 @@ namespace
                         e.load = trim(std::string_view{tl}.substr(9));
                     else if (starts_with(tl, "RUN-TIMEOUT:"))
                         e.timeout = std::stoi(trim(std::string_view{tl}.substr(12)));
+                    else if (starts_with(tl, "START:"))
+                    {
+                        auto value = trim(std::string_view{tl}.substr(6));
+                        if (value == "none")
+                            e.default_start = false;
+                        else if (value != "default")
+                            e.start_error = std::format("START must be 'default' or 'none', not '{}'", value);
+                    }
                 }
                 fx.i8086_run_blocks.push_back(std::move(e));
             }
@@ -3801,6 +3811,11 @@ namespace
                 fail("requires TARGET: i8086-binary and an entry module");
                 continue;
             }
+            if (exp.start_error)
+            {
+                fail(*exp.start_error);
+                continue;
+            }
             auto base = dcc::backend::i8086::parse_link_base(exp.load);
             if (!base || !base->segment)
             {
@@ -3811,7 +3826,8 @@ namespace
             auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
             fs::create_directories(run_dir, ec);
             auto crt0 = run_dir / "crt0.o";
-            if (std::system(std::format("nasm -f elf32 '{}' -o '{}' > '{}' 2>&1", DCC_I8086_CRT0, crt0.string(), (run_dir / "nasm.log").string()).c_str()) != 0)
+            if (exp.default_start &&
+                std::system(std::format("nasm -f elf32 '{}' -o '{}' > '{}' 2>&1", DCC_I8086_CRT0, crt0.string(), (run_dir / "nasm.log").string()).c_str()) != 0)
             {
                 fail("cannot assemble tests/i8086/crt0.asm with nasm");
                 fs::remove_all(run_dir, ec);
@@ -3872,7 +3888,10 @@ namespace
                     out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
                 }
                 dcc::backend::i8086::LinkOptions link{.base = *base, .stack_reserve = 4096, .model = target.code_model};
-                std::vector<std::string> inputs{crt0.string(), object.string()};
+                std::vector<std::string> inputs;
+                if (exp.default_start)
+                    inputs.push_back(crt0.string());
+                inputs.push_back(object.string());
                 inputs.insert(inputs.end(), extra_objects.begin(), extra_objects.end());
                 auto linked = dcc::backend::i8086::link_flat_binary(inputs, binary.string(), link, {});
                 if (!linked)

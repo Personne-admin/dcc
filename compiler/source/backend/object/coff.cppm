@@ -4,6 +4,7 @@ import std;
 import dcc.ir;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
+import dcc.backend.x86.modasm;
 import dcc.target;
 import dcc.backend.object.layout;
 
@@ -17,6 +18,7 @@ export namespace dcc::backend::object
         std::uint16_t reloc_rel32;
         std::uint16_t reloc_abs;
         std::uint64_t address_width;
+        std::uint16_t reloc_abs32{0x0002};
     };
 
     inline constexpr CoffArchPolicy coff_x86_64_policy{0x8664, 0x0004, 0x0001, 8};
@@ -81,9 +83,12 @@ namespace dcc::backend::object
 export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_coff(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
-                                                       target::TargetConfig const& target, CoffArchPolicy const& arch)
+                                                       target::TargetConfig const& target, CoffArchPolicy const& arch,
+                                                       ModuleAsmObject const* asm_object = nullptr)
     {
         (void)target;
+        ModuleAsmObject const empty_asm;
+        ModuleAsmObject const& asm_code = asm_object ? *asm_object : empty_asm;
 
         std::vector<std::string> func_names;
         func_names.reserve(mod.functions.size());
@@ -111,11 +116,18 @@ export namespace dcc::backend::object
             for (auto const& jt : mf.jump_tables)
                 defined_names.insert(jt.symbol);
 
+        for (auto const& sym : asm_code.symbols)
+            defined_names.insert(sym.name);
+
         std::unordered_set<std::string> ext_sym_set;
         for (auto const& er : encoded)
             for (auto const& r : er.relocs)
                 if (!defined_names.contains(std::string{r.symbol}))
                     ext_sym_set.insert(std::string{r.symbol});
+        for (auto const& section : asm_code.sections)
+            for (auto const& r : section.relocations)
+                if (!defined_names.contains(r.symbol))
+                    ext_sym_set.insert(r.symbol);
 
         std::vector<std::string> ext_syms(ext_sym_set.begin(), ext_sym_set.end());
         std::ranges::sort(ext_syms);
@@ -348,6 +360,27 @@ export namespace dcc::backend::object
             comdats.push_back(std::move(comdat));
         }
 
+        struct CoffAsmSection
+        {
+            ModuleAsmSection const* source{};
+            std::vector<std::uint8_t> data;
+            std::vector<CoffReloc> rels;
+            std::uint32_t section_index{};
+            std::uint32_t str_off{};
+            std::uint32_t raw_start{};
+            std::size_t reloc_block{};
+        };
+        std::vector<CoffAsmSection> asm_sections;
+        for (auto const& section : asm_code.sections)
+        {
+            CoffAsmSection as;
+            as.source = &section;
+            as.data = section.data;
+            as.section_index = next_sec++;
+            as.str_off = add_str(section.name);
+            asm_sections.push_back(std::move(as));
+        }
+
         for (auto& gl : globals)
         {
             if (!gl.g->section.empty())
@@ -495,6 +528,22 @@ export namespace dcc::backend::object
                 sym_name_to_idx[jt.symbol] = static_cast<std::uint32_t>(coff_syms.size() - 1);
                 jt_sym_slot[jt.symbol] = coff_syms.size() - 1;
             }
+        }
+
+        for (auto const& sym : asm_code.symbols)
+        {
+            if (sym_name_to_idx.contains(sym.name))
+                continue;
+            auto so = add_str(sym.name);
+            coff_syms.push_back({.name = sym.name,
+                                 .str_off = so,
+                                 .is_func = false,
+                                 .is_object = false,
+                                 .is_local = sym.binding == ModuleAsmBinding::Local,
+                                 .sec_idx = asm_sections[sym.section].section_index,
+                                 .value = sym.offset,
+                                 .size = 0});
+            sym_name_to_idx[sym.name] = static_cast<std::uint32_t>(coff_syms.size() - 1);
         }
 
         {
@@ -704,6 +753,41 @@ export namespace dcc::backend::object
             }
         }
 
+        for (auto& as : asm_sections)
+        {
+            for (auto const& r : as.source->relocations)
+            {
+                auto it = sym_name_to_idx.find(r.symbol);
+                if (it == sym_name_to_idx.end())
+                    continue;
+                std::uint16_t rtype = arch.reloc_rel32;
+                std::int64_t implicit = r.addend;
+                std::size_t field = 4;
+                switch (r.kind)
+                {
+                    case Reloc::Kind::Rel32:
+                    case Reloc::Kind::Rel32_Got:
+                    case Reloc::Kind::Rel32_Call:
+                        implicit = r.addend + 4;
+                        break;
+                    case Reloc::Kind::Abs64:
+                        rtype = arch.reloc_abs;
+                        field = 8;
+                        break;
+                    case Reloc::Kind::Abs32:
+                        rtype = arch.reloc_abs32;
+                        break;
+                    case Reloc::Kind::Abs16:
+                    case Reloc::Kind::Rel16:
+                        std::println(std::cerr, "coff objwriter: 16-bit relocation in module asm; refusing to emit malformed object");
+                        std::abort();
+                }
+                for (std::size_t i = 0; i < field && r.offset + i < as.data.size(); ++i)
+                    as.data[static_cast<std::size_t>(r.offset + i)] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(implicit) >> (8 * i));
+                as.rels.push_back({.virt_addr = static_cast<std::uint32_t>(r.offset), .sym_idx = it->second, .type = rtype});
+            }
+        }
+
         std::uint32_t num_sec = 1;
         if (has_rdata)
             num_sec++;
@@ -714,6 +798,7 @@ export namespace dcc::backend::object
         num_sec += static_cast<std::uint32_t>(custom_sections.size());
         for (auto const& comdat : comdats)
             num_sec += comdat.rdata_index != 0 ? 2U : 1U;
+        num_sec += static_cast<std::uint32_t>(asm_sections.size());
 
         std::uint32_t hdr_size = 20;
         std::uint32_t sec_hdr_size = 40;
@@ -765,6 +850,16 @@ export namespace dcc::backend::object
                 cur_raw += 4 - (cur_raw % 4);
         }
 
+        for (auto& as : asm_sections)
+        {
+            if (as.source->nobits)
+                continue;
+            as.raw_start = cur_raw;
+            cur_raw += static_cast<std::uint32_t>(as.data.size());
+            if (cur_raw % 4 != 0)
+                cur_raw += 4 - (cur_raw % 4);
+        }
+
         struct CoffSecReloc
         {
             std::uint32_t raw_start;
@@ -794,6 +889,12 @@ export namespace dcc::backend::object
                 continue;
             sec_relocs.push_back({comdat.rdata_raw, comdat.rdata_rels});
             comdat.rdata_reloc_block = sec_relocs.size() - 1;
+        }
+
+        for (auto& as : asm_sections)
+        {
+            sec_relocs.push_back({as.source->nobits ? 0U : as.raw_start, as.rels});
+            as.reloc_block = sec_relocs.size() - 1;
         }
 
         for (auto& sr : sec_relocs)
@@ -905,6 +1006,24 @@ export namespace dcc::backend::object
                           IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_4BYTES | IMAGE_SCN_LNK_COMDAT);
         }
 
+        for (auto const& as : asm_sections)
+        {
+            auto const& src = *as.source;
+            std::uint32_t characteristics = coff_align_bits(std::max<std::uint64_t>(src.alignment, 1));
+            if (src.exec)
+                characteristics |= IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ;
+            else if (src.nobits)
+                characteristics |= IMAGE_SCN_CNT_UNINITIALIZED_DATA | IMAGE_SCN_MEM_READ | IMAGE_SCN_MEM_WRITE;
+            else
+                characteristics |= IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ | (src.write ? IMAGE_SCN_MEM_WRITE : 0U);
+            auto reloc_ptr = as.rels.empty() ? 0U : sec_relocs[as.reloc_block].raw_start;
+            if (src.nobits)
+                write_sec_hdr(src.name, as.str_off, static_cast<std::uint32_t>(src.size), 0, 0, 0, characteristics);
+            else
+                write_sec_hdr(src.name, as.str_off, static_cast<std::uint32_t>(as.data.size()), as.raw_start, reloc_ptr,
+                              static_cast<std::uint16_t>(as.rels.size()), characteristics);
+        }
+
         while (out.size() < text_raw_start)
             w8(out, 0);
         out.insert(out.end(), text_data.begin(), text_data.end());
@@ -942,6 +1061,15 @@ export namespace dcc::backend::object
             while (out.size() < comdat.rdata_raw)
                 w8(out, 0);
             out.insert(out.end(), comdat.rdata.begin(), comdat.rdata.end());
+        }
+
+        for (auto const& as : asm_sections)
+        {
+            if (as.source->nobits)
+                continue;
+            while (out.size() < as.raw_start)
+                w8(out, 0);
+            out.insert(out.end(), as.data.begin(), as.data.end());
         }
 
         for (auto const& sr : sec_relocs)

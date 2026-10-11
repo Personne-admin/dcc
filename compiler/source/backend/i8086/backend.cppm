@@ -7,6 +7,7 @@ import dcc.ir.pipeline;
 import dcc.target;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
+import dcc.backend.x86.modasm;
 import dcc.backend.i8086.isel;
 import dcc.backend.i8086.registers;
 import dcc.backend.i8086.framelay;
@@ -99,8 +100,32 @@ namespace dcc::backend
                 marked->globals.push_back(reference);
                 input = marked;
 
+                std::optional<ModuleAsmObject> module_asm;
                 if (!input->module_asms.empty())
-                    return fail("i8086 backend: module asm is not supported yet");
+                {
+                    auto assembled = assemble_module_asm(input->module_asms, EncodeMode::Real16, ModuleAsmFormat::Elf);
+                    if (!assembled)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{assembled.error().range, "i8086 backend: " + assembled.error().message});
+                        return artifact;
+                    }
+                    for (auto const& sym : assembled->symbols)
+                    {
+                        if (sym.binding == ModuleAsmBinding::Local)
+                            continue;
+                        bool const clash =
+                            std::ranges::any_of(input->functions, [&](ir::IrFunction const* f) { return f && !f->blocks.empty() && f->name == sym.name; }) ||
+                            std::ranges::any_of(input->globals, [&](ir::IrGlobal const* g) { return g && !g->is_declaration && g->name == sym.name; });
+                        if (clash)
+                            return fail(std::format("i8086 backend: module asm defines `{}`, which this module already defines", sym.name));
+                    }
+                    for (auto const& section : assembled->sections)
+                        for (auto const& r : section.relocations)
+                            if (r.kind == Reloc::Kind::Abs64)
+                                return fail(std::format("i8086 backend: module asm 64-bit reference to `{}` is not supported", r.symbol));
+                    module_asm = std::move(*assembled);
+                }
+                ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
                 for (auto* global : input->globals)
                     if (global && has_segmented_type(global->type))
                         return fail(std::format("i8086 backend: global `{}` uses far or based pointers, which are not supported yet", global->name));
@@ -144,7 +169,7 @@ namespace dcc::backend
 
                 if (opts.requested_artifacts.contains(ArtifactKind::AsmText))
                 {
-                    auto text = i8086::emit_intel_asm(*input, functions, opts.target);
+                    auto text = i8086::emit_intel_asm(*input, functions, opts.target, asm_object);
                     if (!text)
                         return fail(text.error());
                     artifact.asm_text = std::move(*text);
@@ -164,7 +189,7 @@ namespace dcc::backend
                     }
                     if (!artifact.diagnostics.empty())
                         return artifact;
-                    auto bytes = object::write_elf32(*input, mmod, encoded, opts.target, object::elf32_i8086_policy);
+                    auto bytes = object::write_elf32(*input, mmod, encoded, opts.target, object::elf32_i8086_policy, asm_object);
                     std::vector<std::byte> object_bytes(bytes.size());
                     std::ranges::transform(bytes, object_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
                     artifact.object_bytes = std::move(object_bytes);

@@ -6,6 +6,7 @@ import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
 import dcc.target;
 import dcc.backend.object.elf;
+import dcc.backend.x86.modasm;
 
 export namespace dcc::backend::object
 {
@@ -17,18 +18,21 @@ export namespace dcc::backend::object
         std::uint32_t reloc_got_pc32;
         std::uint32_t reloc_plt32;
         std::uint64_t address_width;
+        std::uint32_t reloc_abs32{10};
+        std::uint32_t reloc_abs16{12};
     };
 
     inline constexpr Elf64ArchPolicy elf64_x86_64_policy{62, 1, 2, 42, 4, 8};
 
     [[nodiscard]] std::vector<std::uint8_t> write_elf64(ir::IrModule const& ir_mod, x86::MModule const& mod, std::vector<x86::EncodeResult> const& encoded,
-                                                        target::TargetConfig const& target, Elf64ArchPolicy const& arch)
+                                                        target::TargetConfig const& target, Elf64ArchPolicy const& arch,
+                                                        x86::ModuleAsmObject const* asm_object = nullptr)
     {
         ElfWriterPolicy const writer{
             .machine = arch.machine,
             .address_width = arch.address_width,
-            .reloc_abs16 = 0,
-            .reloc_abs32 = 0,
+            .reloc_abs16 = arch.reloc_abs16,
+            .reloc_abs32 = arch.reloc_abs32,
             .reloc_abs64 = arch.reloc_abs,
             .reloc_pc16 = 0,
             .reloc_pc32 = arch.reloc_pc32,
@@ -40,6 +44,6 @@ export namespace dcc::backend::object
             .jump_table_reloc = arch.reloc_pc32,
             .jump_table_addend = -4,
         };
-        return write_elf_object(ir_mod, mod, encoded, target, writer);
+        return write_elf_object(ir_mod, mod, encoded, target, writer, asm_object);
     }
 }

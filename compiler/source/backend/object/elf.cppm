@@ -4,6 +4,7 @@ import std;
 import dcc.ir;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
+import dcc.backend.x86.modasm;
 import dcc.target;
 import dcc.backend.object.layout;
 
@@ -320,6 +321,19 @@ namespace dcc::backend::object
             std::uint64_t rela_file_offset{};
         };
 
+        struct ElfAsmSection
+        {
+            ModuleAsmSection const* source{};
+            std::vector<std::uint8_t> data;
+            std::vector<Elf64_Rela> relas;
+            std::uint32_t section_index{};
+            std::uint32_t rela_section_index{};
+            std::uint32_t sh_name{};
+            std::uint32_t rela_sh_name{};
+            std::uint64_t file_offset{};
+            std::uint64_t rela_file_offset{};
+        };
+
         [[nodiscard]] std::pair<std::uint32_t, std::uint64_t> elf_section_traits(DataSection section)
         {
             switch (section)
@@ -391,9 +405,12 @@ namespace dcc::backend::object
 export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_elf_object(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
-                                                             target::TargetConfig const& target, ElfWriterPolicy const& arch)
+                                                             target::TargetConfig const& target, ElfWriterPolicy const& arch,
+                                                             ModuleAsmObject const* asm_object = nullptr)
     {
         (void)target;
+        ModuleAsmObject const empty_asm;
+        ModuleAsmObject const& asm_code = asm_object ? *asm_object : empty_asm;
 
         std::vector<std::string> func_names;
         func_names.reserve(mod.functions.size());
@@ -424,11 +441,18 @@ export namespace dcc::backend::object
                 defined_names.insert(std::string{g->name});
         }
 
+        for (auto const& sym : asm_code.symbols)
+            defined_names.insert(sym.name);
+
         std::unordered_set<std::string> ext_sym_set;
         for (auto const& er : encoded)
             for (auto const& r : er.relocs)
                 if (!defined_names.contains(std::string{r.symbol}))
                     ext_sym_set.insert(std::string{r.symbol});
+        for (auto const& section : asm_code.sections)
+            for (auto const& r : section.relocations)
+                if (!defined_names.contains(r.symbol))
+                    ext_sym_set.insert(r.symbol);
 
         std::vector<std::string> ext_syms(ext_sym_set.begin(), ext_sym_set.end());
 
@@ -552,6 +576,18 @@ export namespace dcc::backend::object
         {
             cs.sh_name = add_str(shstrtab, cs.name);
             cs.rela_sh_name = add_str(shstrtab, rel_prefix + cs.name);
+        }
+
+        std::vector<ElfAsmSection> asm_sections;
+        for (auto const& section : asm_code.sections)
+        {
+            ElfAsmSection as;
+            as.source = &section;
+            as.data = section.data;
+            as.sh_name = add_str(shstrtab, section.name);
+            if (!section.relocations.empty())
+                as.rela_sh_name = add_str(shstrtab, rel_prefix + section.name);
+            asm_sections.push_back(std::move(as));
         }
 
         std::vector<std::uint8_t> rodata_data;
@@ -804,6 +840,13 @@ export namespace dcc::backend::object
                 cs.rela_section_index = next_sec++;
         }
 
+        for (auto& as : asm_sections)
+        {
+            as.section_index = next_sec++;
+            if (!as.source->relocations.empty())
+                as.rela_section_index = next_sec++;
+        }
+
         std::uint32_t sec_symtab = next_sec++;
         std::uint32_t sec_strtab = next_sec++;
         std::uint32_t sec_shstrtab = next_sec++;
@@ -933,6 +976,22 @@ export namespace dcc::backend::object
             syms.push_back(s);
         }
 
+        auto add_asm_symbol = [&](ModuleAsmSymbol const& sym, std::uint8_t bind) {
+            if (name_to_sym_idx.contains(sym.name))
+                return;
+            auto const type = sym.type == ModuleAsmSymbolType::Function ? STT_FUNC : sym.type == ModuleAsmSymbolType::Object ? STT_OBJECT : STT_NOTYPE;
+            Elf64_Sym es{};
+            es.st_name = add_str(strtab, sym.name);
+            es.st_info = elf_st_info(bind, static_cast<std::uint8_t>(type));
+            es.st_shndx = static_cast<std::uint16_t>(asm_sections[sym.section].section_index);
+            es.st_value = sym.offset;
+            name_to_sym_idx[sym.name] = static_cast<std::uint32_t>(syms.size());
+            syms.push_back(es);
+        };
+        for (auto const& sym : asm_code.symbols)
+            if (sym.binding == ModuleAsmBinding::Local)
+                add_asm_symbol(sym, STB_LOCAL);
+
         for (auto const& ext : ext_syms)
         {
             if (name_to_sym_idx.contains(ext))
@@ -962,6 +1021,10 @@ export namespace dcc::backend::object
             name_to_sym_idx[fn] = static_cast<std::uint32_t>(syms.size());
             syms.push_back(s);
         }
+
+        for (auto const& sym : asm_code.symbols)
+            if (sym.binding != ModuleAsmBinding::Local)
+                add_asm_symbol(sym, sym.binding == ModuleAsmBinding::Weak ? STB_WEAK : STB_GLOBAL);
 
         for (auto* glp : rodata_globals)
         {
@@ -1158,6 +1221,23 @@ export namespace dcc::backend::object
             }
         }
 
+        for (auto& as : asm_sections)
+        {
+            for (auto const& r : as.source->relocations)
+            {
+                auto it = name_to_sym_idx.find(r.symbol);
+                if (it == name_to_sym_idx.end())
+                    continue;
+                Elf64_Rela rela{};
+                rela.r_offset = r.offset;
+                rela.r_addend = r.addend;
+                rela.r_info = elf_r_info(it->second, elf_reloc_type(arch, r.kind));
+                if (!arch.rela)
+                    store_implicit_addend(as.data, r.offset, reloc_field_size(r.kind), r.addend);
+                as.relas.push_back(rela);
+            }
+        }
+
         std::uint64_t shoff = ehdr_size(arch);
         std::uint64_t sec_hdr_size = static_cast<std::uint64_t>(total_sec) * shdr_size(arch);
         std::uint64_t cur_offset = shoff + sec_hdr_size;
@@ -1208,6 +1288,25 @@ export namespace dcc::backend::object
             cs.rela_file_offset = cur_offset;
             cur_offset += cs.relas.size() * rel_size(arch);
         }
+
+        for (auto& as : asm_sections)
+        {
+            if (as.source->nobits)
+                continue;
+            cur_offset = align_up(cur_offset, std::max<std::uint64_t>(as.source->alignment, 1));
+            as.file_offset = cur_offset;
+            cur_offset += as.data.size();
+        }
+        for (auto& as : asm_sections)
+        {
+            if (as.rela_section_index == 0)
+                continue;
+            cur_offset = align_up(cur_offset, table_alignment(arch));
+            as.rela_file_offset = cur_offset;
+            cur_offset += as.relas.size() * rel_size(arch);
+        }
+        if (!asm_sections.empty())
+            cur_offset = align_up(cur_offset, table_alignment(arch));
 
         auto symtab_off = cur_offset;
         auto symtab_size = static_cast<std::uint64_t>(syms.size()) * sym_size(arch);
@@ -1351,6 +1450,32 @@ export namespace dcc::backend::object
             }
         }
 
+        for (auto& as : asm_sections)
+        {
+            auto const& src = *as.source;
+            auto& sh = shdrs[as.section_index];
+            sh = {};
+            sh.sh_name = as.sh_name;
+            sh.sh_type = src.nobits ? SHT_NOBITS : SHT_PROGBITS;
+            sh.sh_flags = (src.alloc ? SHF_ALLOC : 0) | (src.write ? SHF_WRITE : 0) | (src.exec ? SHF_EXECINSTR : 0);
+            sh.sh_offset = src.nobits ? 0 : as.file_offset;
+            sh.sh_size = src.nobits ? src.size : as.data.size();
+            sh.sh_addralign = std::max<std::uint64_t>(src.alignment, 1);
+            if (as.rela_section_index != 0)
+            {
+                auto& rh = shdrs[as.rela_section_index];
+                rh = {};
+                rh.sh_name = as.rela_sh_name;
+                rh.sh_type = rel_section_type(arch);
+                rh.sh_offset = as.rela_file_offset;
+                rh.sh_size = as.relas.size() * rel_size(arch);
+                rh.sh_link = sec_symtab;
+                rh.sh_info = as.section_index;
+                rh.sh_addralign = table_alignment(arch);
+                rh.sh_entsize = rel_size(arch);
+            }
+        }
+
         shdrs[sec_symtab] = {};
         shdrs[sec_symtab].sh_name = sh_name_symtab;
         shdrs[sec_symtab].sh_type = SHT_SYMTAB;
@@ -1446,6 +1571,24 @@ export namespace dcc::backend::object
             {
                 serialize_rel(out, rel, arch);
             }
+        }
+
+        for (auto& as : asm_sections)
+        {
+            if (as.source->nobits)
+                continue;
+            while (out.size() < as.file_offset)
+                out.push_back(0);
+            out.insert(out.end(), as.data.begin(), as.data.end());
+        }
+        for (auto& as : asm_sections)
+        {
+            if (as.rela_section_index == 0)
+                continue;
+            while (out.size() < as.rela_file_offset)
+                out.push_back(0);
+            for (auto const& rel : as.relas)
+                serialize_rel(out, rel, arch);
         }
 
         for (auto const& sym : syms)
