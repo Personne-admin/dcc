@@ -2182,6 +2182,22 @@ namespace dcc::backend::em64t
                 move.ops[1] = MOp::from_reg(src);
                 ctx.append_instr(move);
             };
+            bool port_io = std::ranges::any_of(plan.instructions,
+                                               [](MInstr const& instruction) { return instruction.opc >= MOpc::IN8ri && instruction.opc <= MOpc::OUT32rr; });
+            std::vector<VReg> inputs(ai->operands.size());
+            if (port_io)
+                for (std::size_t i = 0; i < ai->operands.size(); ++i)
+                {
+                    auto const& op = ai->operands[i];
+                    if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                        continue;
+                    inputs[i] = ctx.try_materialize(op.value);
+                    if (!inputs[i].is_valid())
+                    {
+                        fail("cannot materialize inline assembly input");
+                        return;
+                    }
+                }
             for (std::size_t i = 0; i < ai->operands.size(); ++i)
             {
                 auto const& op = ai->operands[i];
@@ -2194,7 +2210,7 @@ namespace dcc::backend::em64t
                     fail("inline assembly input operand has no value");
                     return;
                 }
-                VReg source = ctx.try_materialize(op.value);
+                VReg source = port_io ? inputs[i] : ctx.try_materialize(op.value);
                 if (!source.is_valid())
                 {
                     fail("cannot materialize inline assembly input");

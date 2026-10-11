@@ -1,0 +1,35 @@
+=== FILE: main.dc ===
+module main;
+
+@nomangle
+public void write_port(T)(u16 port, T value) {
+    asm @[intel, inputs(p in dx = port, v in accumulator = value)] { "out %[p], %[v]" };
+}
+
+@nomangle
+public T read_port(T)(u16 port) {
+    T value;
+    asm @[output(v = value in accumulator), inputs(p in dx = port)] { "in %[p], %[v]" };
+    return value;
+}
+
+@nomangle
+public void ports(u16 port) {
+    write_port(port, 1 as u8);
+    write_port(port, 2 as u16);
+    write_port(port, 3 as u32);
+    read_port!u8(port);
+    read_port!u16(port);
+    read_port!u32(port);
+    asm @[intel] { "out 255, al\nin ax, 255\nout dx, eax" };
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: out dx, al
+CONTAINS: out dx, ax
+CONTAINS: out dx, eax
+CONTAINS: in al, dx
+CONTAINS: in ax, dx
+CONTAINS: in eax, dx
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===

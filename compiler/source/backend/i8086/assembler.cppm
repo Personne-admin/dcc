@@ -196,6 +196,23 @@ namespace dcc::backend::i8086
                     return line(std::format("{} {}", *setcc, operand(mi.ops[0], 8)));
                 switch (mi.opc)
                 {
+                    case MOpc::IN8ri:
+                    case MOpc::IN16ri:
+                    case MOpc::IN32ri:
+                    case MOpc::IN8rr:
+                    case MOpc::IN16rr:
+                    case MOpc::IN32rr:
+                    case MOpc::OUT8ir:
+                    case MOpc::OUT16ir:
+                    case MOpc::OUT32ir:
+                    case MOpc::OUT8rr:
+                    case MOpc::OUT16rr:
+                    case MOpc::OUT32rr: {
+                        bool input = mi.opc == MOpc::IN8ri || mi.opc == MOpc::IN16ri || mi.opc == MOpc::IN32ri || mi.opc == MOpc::IN8rr ||
+                                     mi.opc == MOpc::IN16rr || mi.opc == MOpc::IN32rr;
+                        return line(std::format("{} {}, {}", input ? "in" : "out", operand(mi.ops[0], input ? operand_bits(mi.opc) : 16),
+                                                operand(mi.ops[1], input ? 16 : operand_bits(mi.opc))));
+                    }
                     case MOpc::NOP:
                         return line("nop");
                     case MOpc::JMP:
@@ -226,6 +243,7 @@ namespace dcc::backend::i8086
                         if (mi.ops[0].reg != mi.ops[1].reg)
                             line(std::format("mov {}, {}", operand(mi.ops[0], 32), operand(mi.ops[1], 32)));
                         return;
+                    case MOpc::MOV8rr:
                     case MOpc::MOV8mr:
                     case MOpc::MOV16rr:
                     case MOpc::MOV32rr:
