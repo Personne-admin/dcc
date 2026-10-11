@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+asm { ".globl att_copy\natt_copy:\n    movq %%rdi, %%rax\n    addq %%rsi, %%rax\n    ret\n" };
+
+asm @[intel] { ".globl intel_copy\nintel_copy:\n    mov rax, %%rdi\n    ret\n" };
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+module asm ".globl att_copy"
+module asm "att_copy:"
+module asm "    movq %rdi, %rax"
+module asm "    addq %rsi, %rax"
+module asm "    ret"
+module asm ".intel_syntax noprefix"
+module asm ".globl intel_copy"
+module asm "intel_copy:"
+module asm "    mov rax, rdi"
+module asm "    ret"
+module asm ""
+module asm ".att_syntax prefix"
