@@ -1,0 +1,56 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+struct Big { u16[17] words; u8 tail; }
+@nomangle u16 seed;
+@nomangle u8[31] zeros;
+@noinline Big make(u16 x) {
+    Big b;
+    b.words[0] = x;
+    b.words[16] = 9;
+    b.tail = 7;
+    return b;
+}
+@noinline u16 take(u16 x, Big b, u16 y) {
+    return x + b.words[0] + b.words[16] + b.tail as u16 + y;
+}
+@noinline Big mixed(u16 a, Big b, u16 c, u16 d, u16 e, u16 f) {
+    b.words[0] = a + c + d + e + f;
+    return b;
+}
+@noinline []u16 identity([]u16 s) { return s; }
+@noinline []u16 choose(bool flag, []u16 a, []u16 b) {
+    []u16 result = a;
+    if flag { result = b; }
+    return result;
+}
+@noinline u16 sum([]u16 s, u16 base) {
+    u16 result = base;
+    for x in s { result = result + x; }
+    return result;
+}
+@nomangle public i32 dcc_main() {
+    if seed != 0 || zeros[30] != 0 { return 1; }
+    seed = 5;
+    Big a = make(seed);
+    Big b = a;
+    a.words[0] = 100;
+    if take(2, b, 3) != 26 { return 2; }
+    Big mixed_value = mixed(1, b, 2, 3, 4, 5);
+    if mixed_value.words[0] != 15 || mixed_value.words[16] != 9 { return 6; }
+    u16* pointer = &seed;
+    if *pointer != 5 || (pointer as usize as u16*) != pointer { return 7; }
+    u16[4] values = {3, 4, 5, 6};
+    []u16 view = identity(values[1..4]);
+    if view.len != 3 { return 3; }
+    if view.ptr[0] != 4 { return 4; }
+    if sum(view, 1) != 16 { return 5; }
+    []u16 chosen = choose(false, view, values[0..1]);
+    if chosen.len != 3 || chosen[0] != 4 { return 8; }
+    chosen = choose(true, view, values[0..1]);
+    if chosen.len != 1 || chosen[0] != 3 { return 9; }
+    return 42;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

@@ -1,0 +1,186 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal ===
+=== FILE: main.dc ===
+module main;
+public struct One { u8 v; }
+public struct Two { u16 v; }
+public struct Three { u8 a; u8 b; u8 c; }
+public struct Four { u16 lo; u16 hi; }
+public struct Big { u16[5] words; }
+struct Odd { u8[11] bytes; }
+@nomangle public One dc_one(One a) { return a; }
+@nomangle public Two dc_two(Two a) { return a; }
+@nomangle public Three dc_three(Three a) { return a; }
+@nomangle public Four dc_four(Four a) { return a; }
+@nomangle public Big dc_big(u16 a, u16 b) {
+    Big value;
+    value.words[0] = a;
+    value.words[4] = b;
+    return value;
+}
+@nomangle public []u16 dc_slice([]u16 s) { return s; }
+@nomangle public u16* dc_pointer(u16* p) { return p; }
+@nomangle extern u16* nasm_pointer(u16* p);
+@nomangle extern Big nasm_big(u16 v);
+@nomangle extern u16 nasm_read(Big b, u16 tag);
+@nomangle extern u16 nasm_slice([]u16 s, u16 tag);
+@nomangle extern i32 nasm_call_dc();
+@nomangle extern void poison_es();
+@noinline Odd odd_copy(Odd a, u16 n) {
+    a.bytes[10] = n as u8;
+    return a;
+}
+@nomangle public i32 dcc_main() {
+    Three tiny = dc_three(Three {a = 3, b = 4, c = 5});
+    if tiny.a != 3 || tiny.b != 4 || tiny.c != 5 { return 7; }
+    Big a = nasm_big(13);
+    Big b = a;
+    if *nasm_pointer(&b.words[0]) != 13 { return 6; }
+    if nasm_read(b, 3) != 33 { return 1; }
+    if nasm_slice(b.words[0..5], 4) != 22 { return 2; }
+    if nasm_call_dc() != 42 { return 3; }
+    poison_es();
+    Odd x;
+    if x.bytes[0] != 0 || x.bytes[10] != 0 { return 4; }
+    x.bytes[0] = 5;
+    poison_es();
+    Odd y = odd_copy(x, 7);
+    if y.bytes[0] != 5 || y.bytes[10] != 7 || x.bytes[10] != 0 { return 5; }
+    return 42;
+}
+
+=== FILE: helpers.asm ===
+bits 16
+section .text
+global nasm_big
+global nasm_read
+global nasm_slice
+global nasm_call_dc
+global poison_es
+global nasm_pointer
+extern dc_one
+extern dc_two
+extern dc_four
+extern dc_big
+extern dc_slice
+extern dc_pointer
+poison_es:
+    push 0x1234
+    pop es
+    ret
+nasm_pointer:
+    push bp
+    mov bp, sp
+    mov ax, [bp + 4]
+    xor dx, dx
+    pop bp
+    ret
+nasm_read:
+    push bp
+    mov bp, sp
+    mov ax, [bp + 4]
+    add ax, [bp + 12]
+    add ax, [bp + 14]
+    call poison_es
+    pop bp
+    ret
+nasm_big:
+    push bp
+    mov bp, sp
+    mov bx, [bp + 4]
+    mov ax, [bp + 6]
+    mov [bx], ax
+    mov dword [bx + 2], 0
+    mov word [bx + 6], 0
+    add ax, 4
+    mov [bx + 8], ax
+    mov ax, bx
+    call poison_es
+    pop bp
+    ret
+nasm_slice:
+    push bp
+    mov bp, sp
+    mov bx, [bp + 4]
+    mov ax, [bx]
+    add ax, [bp + 6]
+    add ax, [bp + 8]
+    call poison_es
+    pop bp
+    ret
+nasm_call_dc:
+    push bp
+    mov bp, sp
+    push esi
+    push edi
+    sub sp, 18
+    mov esi, 0x12345678
+    mov edi, 0x87654321
+    push word 7
+    call dc_one
+    add sp, 2
+    cmp al, 7
+    jne .fail
+    push word 0x4321
+    call dc_two
+    add sp, 2
+    cmp ax, 0x4321
+    jne .fail
+    push dword 0x12345678
+    call dc_four
+    add sp, 4
+    cmp ax, 0x5678
+    jne .fail
+    cmp dx, 0x1234
+    jne .fail
+    push word 9
+    push word 7
+    lea bx, [bp - 18]
+    push bx
+    call dc_big
+    add sp, 6
+    lea bx, [bp - 18]
+    cmp ax, bx
+    jne .fail
+    cmp word [bp - 18], 7
+    jne .fail
+    cmp word [bp - 10], 9
+    jne .fail
+    cmp word [bp - 16], 0
+    jne .fail
+    push word 3
+    push bx
+    call dc_slice
+    add sp, 4
+    lea bx, [bp - 18]
+    cmp ax, bx
+    jne .fail
+    cmp dx, 3
+    jne .fail
+    push bx
+    call dc_pointer
+    add sp, 2
+    lea bx, [bp - 18]
+    cmp ax, bx
+    jne .fail
+    cmp esi, 0x12345678
+    jne .fail
+    cmp edi, 0x87654321
+    jne .fail
+    lea ax, [bp - 26]
+    cmp sp, ax
+    jne .fail
+    mov ax, 42
+    xor dx, dx
+    jmp .done
+.fail:
+    mov ax, 1
+    xor dx, dx
+.done:
+    add sp, 18
+    pop edi
+    pop esi
+    pop bp
+    ret
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

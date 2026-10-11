@@ -1,0 +1,19 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+import core::source_location;
+using core::source_location::{SourceLocation, source_location};
+@noinline SourceLocation site(SourceLocation sl = source_location()) { return sl; }
+@nomangle public []const char text([]const char value) { return value; }
+@noinline usize size([]const char value) { return value.len; }
+@nomangle public i32 dcc_main() {
+    SourceLocation location = site();
+    SourceLocation copy = location;
+    if copy.file.len == 0 || copy.line == 0 || copy.column == 0 { return 1; }
+    if copy.function.len != 14 || copy.function[0] != 'm' { return 2; }
+    []const char result = text("hello");
+    if size(result) != 5 || result.ptr[4] != 'o' { return 3; }
+    return 42;
+}
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

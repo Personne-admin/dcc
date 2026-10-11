@@ -213,6 +213,30 @@ namespace dcc::backend::i8086
                         return line(std::format("{} {}, {}", input ? "in" : "out", operand(mi.ops[0], input ? operand_bits(mi.opc) : 16),
                                                 operand(mi.ops[1], input ? 16 : operand_bits(mi.opc))));
                     }
+                    case MOpc::PUSHSEG:
+                        return line(std::format("push {}", reg(mi.ops[0].reg, 16)));
+                    case MOpc::POPSEG:
+                        return line(std::format("pop {}", reg(mi.ops[0].reg, 16)));
+                    case MOpc::REPMOVS:
+                        return line("rep movsb");
+                    case MOpc::REPMOVSW:
+                        return line("rep movsw");
+                    case MOpc::REPSTOS:
+                        return line("rep stosb");
+                    case MOpc::REPSTOSW:
+                        return line("rep stosw");
+                    case MOpc::REPMOVS_A32:
+                        return line("a32 rep movsb");
+                    case MOpc::REPMOVSW_A32:
+                        return line("a32 rep movsw");
+                    case MOpc::REPSTOS_A32:
+                        return line("a32 rep stosb");
+                    case MOpc::REPSTOSW_A32:
+                        return line("a32 rep stosw");
+                    case MOpc::LEA16rm:
+                    case MOpc::LEA32rm:
+                        return line(std::format("lea {}, {}", operand(mi.ops[0], operand_bits(mi.opc)),
+                                                intel_memory_operand(mi.ops[1].mem, mi.ops[1].mem.address_bits == 32 ? 32 : 16)));
                     case MOpc::NOP:
                         return line("nop");
                     case MOpc::JMP:

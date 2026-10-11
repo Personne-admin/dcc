@@ -1,0 +1,22 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module main;
+struct Buffer { u8[4097] bytes; }
+@nomangle Buffer data;
+@noinline Buffer change(Buffer b, u8 value) {
+    b.bytes[4096] = value;
+    return b;
+}
+@nomangle public i32 dcc_main() {
+    if data.bytes[0] != 0 || data.bytes[4096] != 0 { return 1; }
+    Buffer zero;
+    if zero.bytes[0] != 0 || zero.bytes[4096] != 0 { return 2; }
+    data.bytes[0] = 5;
+    Buffer a = data;
+    Buffer b = change(a, 9);
+    if b.bytes[0] != 5 || b.bytes[4096] != 9 { return 3; }
+    if a.bytes[4096] != 0 || data.bytes[4096] != 0 { return 4; }
+    return 42;
+}
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42
