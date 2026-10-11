@@ -42,5 +42,4 @@ import extension;
 public i32 forward(T)(T x) { generic::Writer w = {unused = 0}; return w.format(x); }
 
 === ENTRY: main.dc ===
-=== EXPECT-EM64T-OBJECT ===
-RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===

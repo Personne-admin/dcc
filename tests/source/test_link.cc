@@ -196,14 +196,14 @@ std::fmt::Status(std::fmt::FmtError) format(
 ) {
     usize len = 0;
     while str[len] != 0 as char { len++; }
-    [] const u8 bytes = std::slice::from_raw_const(str as const u8*, len);
+    [] const char bytes = std::slice::from_raw_const(str as const char*, len);
     return std::fmt::format_value(w, bytes, o);
 }
 
 public std::result::Status(std::fmt::FmtError) print(T...)(
     const std::fmt::Writer* w, [] const char fmt, T args
 ) {
-    return w.format(fmt as [] const u8, args...);
+    return w.format(fmt as [] const char, args...);
 }
 
 public std::result::Status(std::fmt::FmtError) println(T...)(
@@ -220,7 +220,7 @@ import std::fmt;
 import std::mem;
 
 public i32 main() {
-    u8[256] bytes;
+    char[256] bytes;
     std::fmt::BufferWriter sink = std::fmt::BufferWriter::new(bytes);
     std::fmt::Writer w = sink.writer();
     char[4] name = {'d', 'c', 'c', 0 as char};
@@ -230,10 +230,10 @@ public i32 main() {
     if !print::println(&w, "argc: {}", 1).is_ok() { return 1; }
     if !print::println(&w, "invalid usage: {} [input] [output]", arg).is_ok() { return 2; }
     if !print::println(&w, "{:>5}|{:<5}|{}", constant, arg, empty).is_ok() { return 3; }
-    if !std::mem::equal(sink.written_slice(), "argc: 1\ninvalid usage: dcc [input] [output]\n  dcc|dcc  |\n" as [] const u8) {
+    if !std::mem::equal(sink.written_slice(), "argc: 1\ninvalid usage: dcc [input] [output]\n  dcc|dcc  |\n" as [] const char) {
         return 4;
     }
-    u8[1] small;
+    char[1] small;
     std::fmt::BufferWriter short_sink = std::fmt::BufferWriter::new(small);
     std::fmt::Writer short_writer = short_sink.writer();
     if print::println(&short_writer, "{}", arg).is_ok() { return 5; }

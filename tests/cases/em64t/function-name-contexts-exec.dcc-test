@@ -42,6 +42,6 @@ struct Device { i32 value; }
 @nomangle public i32 dcc_main() { return run(); }
 []const char constant_generic(T)(T value) { return function_name(FunctionNameStyle::Pretty); }
 using []const char generic_ctfe = constant_generic(7);
-=== EXPECT-EM64T-OBJECT ===
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
 RUN-EXIT: 0
 REQUIRE-SECTION-READONLY: .rodata

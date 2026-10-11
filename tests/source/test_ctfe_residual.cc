@@ -703,15 +703,15 @@ std::fmt::Status(std::fmt::FmtError) do_format(const std::fmt::Writer* w) {
 
 @nomangle
 public i32 dcc_main() {
-    u8[64] backing;
+    char[64] backing;
     std::fmt::BufferWriter bw = std::fmt::new_buffer_writer(backing[0..64]);
     std::fmt::Writer w = std::fmt::writer(&bw);
     match do_format(&w) {
         std::fmt::Status::Ok => {},
         _ => return 1,
     }
-    [] const u8 got = std::fmt::written_slice(&bw);
-    [] const u8 want = "hello 42 world";
+    [] const char got = std::fmt::written_slice(&bw);
+    [] const char want = "hello 42 world";
     if got.len != want.len {
         return 2;
     }

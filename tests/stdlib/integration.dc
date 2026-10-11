@@ -222,7 +222,7 @@ i32 test_dirs() {
     if dir::open("plain", &bad).unwrap_err() != Error::NotDirectory {
         return 225;
     }
-    u8[4] scratch;
+    char[4] scratch;
     dir::Entry be;
     be.name = scratch[0..0];
     be.kind = dir::EntryKind::Unknown;
@@ -378,8 +378,8 @@ i32 test_files() {
     if file::create("missing/child").unwrap_err() != Error::NotFound {
         return 24;
     }
-    u8[4096] long_path;
-    mem::set(long_path[0..4096], 65 as u8);
+    char[4096] long_path;
+    mem::set(long_path[0..4096] as []u8, 65 as u8);
     if file::open(long_path, file::read_only()).unwrap_err() != Error::NameTooLong || file::create(
         long_path
     ).unwrap_err() != Error::NameTooLong {
