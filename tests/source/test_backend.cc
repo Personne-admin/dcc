@@ -934,6 +934,47 @@ TEST_CASE("ir-verifier-allows-fs-gs-based-pointers-only-on-i386-class-i8086")
     CHECK(!verify_for("i286").empty());
 }
 
+TEST_CASE("ir-verifier-checks-pointer-constants-against-flavor-offset-widths")
+{
+    for (auto model : {dcc::target::CodeModel::Small, dcc::target::CodeModel::Unreal, dcc::target::CodeModel::Unreal32})
+        for (auto flavor : {PointerFlavor::Near, PointerFlavor::Based, PointerFlavor::Far})
+        {
+            auto target = *TargetConfig::parse_triple("i8086-binary");
+            REQUIRE(!target.configure(model, "i386"));
+            auto verify = [&](std::uint64_t offset, std::uint16_t segment, bool invalid_type = false, bool null = false) {
+                IrContext ctx{256 * 1024, &target};
+                auto* mod = ctx.module("pointer_constants");
+                auto* pointer = ctx.pointer_to(ctx.int_t(8, false), flavor == PointerFlavor::Based ? Segment::Es : Segment::None, flavor);
+                auto* signature = ir_type_cast<IrFuncType>(ctx.func_t(pointer, {}));
+                auto* function = ctx.function("constant", signature);
+                auto* block = ctx.basic_block("entry", 0);
+                auto* constant = ctx.pointer_const(pointer, offset, segment);
+                if (invalid_type)
+                    constant->type = ctx.int_t(16, false);
+                block->terminator = ctx.ret(null ? static_cast<IrValue*>(ctx.null_const(pointer)) : static_cast<IrValue*>(constant));
+                function->blocks.push_back(block);
+                function->entry_block = block;
+                mod->functions.push_back(function);
+                return dcc::ir::pass::IrVerifier{target}.verify(*mod);
+            };
+            auto invalid_constant = [&](std::uint64_t offset, std::uint16_t segment, bool invalid_type = false) {
+                auto errors = verify(offset, segment, invalid_type);
+                return std::ranges::any_of(errors, [](std::string const& error) {
+                    return error.find("pointer constant has invalid flavor or noncanonical fields") != std::string::npos;
+                });
+            };
+            auto const bits = flavor == PointerFlavor::Near ? target.pointer_bits : target.far_offset_bits();
+            auto const limit = std::uint64_t{1} << bits;
+            CHECK(verify(0, 0).empty());
+            CHECK(verify(limit - 1, flavor == PointerFlavor::Far ? 65535 : 0).empty());
+            CHECK(invalid_constant(limit, 0));
+            CHECK(invalid_constant(~std::uint64_t{0}, 0));
+            CHECK(invalid_constant(0, 0, true));
+            CHECK(verify(1, 1).empty() == (flavor == PointerFlavor::Far));
+            CHECK(verify(0, 0, false, true).empty() == (flavor != PointerFlavor::Based));
+        }
+}
+
 TEST_CASE("custom-backend-rejects-far-and-unavailable-based-ir")
 {
     auto target = TargetConfig::host_default();

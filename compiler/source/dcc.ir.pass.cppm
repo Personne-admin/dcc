@@ -1130,8 +1130,9 @@ namespace dcc::ir::pass
                 case IrNodeKind::PointerConstant: {
                     auto* constant = static_cast<IrPointerConstant const*>(value);
                     auto* ptr = ir_type_cast<IrPointerType>(value->type);
+                    auto const bits = ptr ? offset_bits(ptr->flavor) : m_target.pointer_bits;
                     if (!ptr || (ptr->flavor != PointerFlavor::Far && constant->segment != 0) ||
-                        (m_target.pointer_bits < 64 && constant->offset >= (std::uint64_t{1} << m_target.pointer_bits)))
+                        (bits < 64 && constant->offset >= (std::uint64_t{1} << bits)))
                         error("pointer constant has invalid flavor or noncanonical fields");
                     break;
                 }
