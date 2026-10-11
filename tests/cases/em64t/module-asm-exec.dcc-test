@@ -1,0 +1,57 @@
+=== FILE: test.dc ===
+module test;
+
+u64 counter = 5;
+
+@import @nomangle extern
+i64 asm_sum(i64 a, i64 b);
+
+@import @nomangle extern
+i64 asm_loop(i64 n);
+
+@import @nomangle extern
+i64 asm_table_entry(i64 index);
+
+@import @nomangle extern
+i64 asm_message_length();
+
+@nomangle
+public i64 triple(i64 x) {
+    return x * 3;
+}
+
+asm { ".text\n.globl asm_sum\n.type asm_sum, @function\n.p2align 4\nasm_sum:\n    leaq (%%rdi,%%rsi), %%rax\n    movq %{counter}(%%rip), %%rcx\n    addq %%rcx, %%rax\n    ret\n" };
+
+asm @[intel] { ".equ STEP, 1\n.text\n.globl asm_loop\nasm_loop:\n    push rbx\n    xor eax, eax\n1:\n    test rdi, rdi\n    jz 2f\n    add rax, rdi\n    sub rdi, STEP\n    jmp 1b\n2:\n    mov rbx, rax\n    mov rdi, rax\n    call triple\n    sub rax, rbx\n    pop rbx\n    ret\n" };
+
+asm @[intel] { ".globl asm_table_entry\nasm_table_entry:\n    lea rax, [rip + table]\n    mov rax, qword ptr [rax + rdi*8]\n    ret\n.globl asm_message_length\nasm_message_length:\n    lea rax, [rip + message_end]\n    lea rcx, [rip + message]\n    sub rax, rcx\n    ret\n.section .rodata\nmessage:\n    .ascii \"module\\tasm\\n\"\nmessage_end:\n.data\n.p2align 3\ntable:\n    .quad 11, %{counter}, message_end - message, 0x1F\n" };
+
+@nomangle
+public i32 dcc_main() {
+    i64 sum = asm_sum(10, 20);
+    if sum != 35 {
+        return 1;
+    }
+    if asm_loop(4) != 20 {
+        return 2;
+    }
+    if asm_table_entry(0) != 11 || asm_table_entry(2) != 11 || asm_table_entry(3) != 31 {
+        return 3;
+    }
+    if asm_table_entry(1) != 0 {
+        u64* p = asm_table_entry(1) as u64*;
+        if *p != 5 {
+            return 4;
+        }
+    }
+    if asm_message_length() != 11 {
+        return 5;
+    }
+    return 42;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 42

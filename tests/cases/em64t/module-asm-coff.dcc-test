@@ -1,0 +1,27 @@
+=== FILE: test.dc ===
+module test;
+
+u64 counter = 5;
+
+@nomangle
+extern i64 asm_value();
+
+asm @[intel] { ".text\n.globl asm_value\nasm_value:\n    mov rax, qword ptr [rip + counter_copy]\n    call helper\n    ret\nlocal_label:\n    ret\n.data\ncounter_copy:\n    .quad %{counter}\n    .long 3\n" };
+
+@nomangle
+public i64 helper() {
+    return 1;
+}
+
+@nomangle
+public i64 dcc_main() {
+    return asm_value();
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+TARGET: x86_64-coff
+REQUIRE-COFF-DEFINED: asm_value
+REQUIRE-COFF-DEFINED: counter_copy
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 counter_copy
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 helper
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 _DC0G1.4.test7.counteri64u

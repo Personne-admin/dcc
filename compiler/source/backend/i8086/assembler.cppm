@@ -5,6 +5,7 @@ import dcc.ir;
 import dcc.target;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.intel;
+import dcc.backend.x86.modasm;
 import dcc.backend.object.layout;
 
 using namespace dcc::backend::x86;
@@ -12,7 +13,7 @@ using namespace dcc::backend::x86;
 export namespace dcc::backend::i8086
 {
     [[nodiscard]] std::expected<std::string, std::string> emit_intel_asm(dcc::ir::IrModule const& module, std::vector<MFunction> const& functions,
-                                                                         dcc::target::TargetConfig const& target);
+                                                                         dcc::target::TargetConfig const& target, ModuleAsmObject const* module_asm = nullptr);
 }
 
 namespace dcc::backend::i8086
@@ -419,7 +420,8 @@ namespace dcc::backend::i8086
 
     } // namespace
 
-    std::expected<std::string, std::string> emit_intel_asm(IrModule const& module, std::vector<MFunction> const& functions, target::TargetConfig const&)
+    std::expected<std::string, std::string> emit_intel_asm(IrModule const& module, std::vector<MFunction> const& functions, target::TargetConfig const&,
+                                                           ModuleAsmObject const* module_asm)
     {
         Printer p;
         p.out = "bits 16\n";
@@ -427,6 +429,13 @@ namespace dcc::backend::i8086
         std::set<std::string> referenced;
         for (auto const& f : functions)
             defined.emplace(f.name());
+        if (module_asm)
+        {
+            for (auto const& sym : module_asm->symbols)
+                defined.emplace(sym.name);
+            for (auto const& name : module_asm_external_references(*module_asm))
+                referenced.emplace(name);
+        }
         for (auto* g : module.globals)
             if (g && object::classify_global(g) != DataSection::None)
                 defined.emplace(g->name);
@@ -494,6 +503,8 @@ namespace dcc::backend::i8086
             tables.jump_tables(f);
         if (!tables.out.empty())
             p.out += std::format("\n{}\n{}", section_directive(DataSection::Rodata), tables.out);
+        if (module_asm && !module_asm->empty())
+            p.out += "\n; module asm" + module_asm_intel_text(*module_asm, ModuleAsmFormat::Elf);
         return p.out;
     }
 

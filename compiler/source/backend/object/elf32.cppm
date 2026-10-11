@@ -6,6 +6,7 @@ import dcc.backend.x86.mir;
 import dcc.backend.x86.encode;
 import dcc.target;
 import dcc.backend.object.elf;
+import dcc.backend.x86.modasm;
 
 export namespace dcc::backend::object
 {
@@ -27,7 +28,8 @@ export namespace dcc::backend::object
     inline constexpr Elf32ArchPolicy elf32_i8086_policy{3, 20, 1, 21, 2, 4, 2, 1, 1, 2, 20};
 
     [[nodiscard]] std::vector<std::uint8_t> write_elf32(ir::IrModule const& ir_mod, x86::MModule const& mod, std::vector<x86::EncodeResult> const& encoded,
-                                                        target::TargetConfig const& target, Elf32ArchPolicy const& arch)
+                                                        target::TargetConfig const& target, Elf32ArchPolicy const& arch,
+                                                        x86::ModuleAsmObject const* asm_object = nullptr)
     {
         ElfWriterPolicy const writer{
             .machine = arch.machine,
@@ -47,6 +49,6 @@ export namespace dcc::backend::object
             .class32 = true,
             .rela = false,
         };
-        return write_elf_object(ir_mod, mod, encoded, target, writer);
+        return write_elf_object(ir_mod, mod, encoded, target, writer, asm_object);
     }
 }

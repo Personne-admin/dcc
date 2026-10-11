@@ -627,6 +627,22 @@ export namespace dcc::backend::x86
         XCHG8mr,
         XCHG16mr,
         XCHG32mr,
+        HLT,
+        CLD,
+        STD,
+        INT,
+        IN8ri,
+        IN16ri,
+        IN32ri,
+        IN8rr,
+        IN16rr,
+        IN32rr,
+        OUT8ir,
+        OUT16ir,
+        OUT32ir,
+        OUT8rr,
+        OUT16rr,
+        OUT32rr,
     };
 
     [[nodiscard]] std::uint8_t operand_bits(MOpc opc) noexcept
@@ -805,6 +821,10 @@ export namespace dcc::backend::x86
             case MOpc::LFS32rm:
             case MOpc::LGS32rm:
             case MOpc::XCHG32mr:
+            case MOpc::IN32ri:
+            case MOpc::IN32rr:
+            case MOpc::OUT32ir:
+            case MOpc::OUT32rr:
                 return 32;
             case MOpc::MOV16rr:
             case MOpc::MOV16ri:
@@ -878,6 +898,10 @@ export namespace dcc::backend::x86
             case MOpc::REPMOVSW_A32:
             case MOpc::REPSTOSW_A32:
             case MOpc::XCHG16mr:
+            case MOpc::IN16ri:
+            case MOpc::IN16rr:
+            case MOpc::OUT16ir:
+            case MOpc::OUT16rr:
                 return 16;
             case MOpc::MOV8rr:
             case MOpc::MOV8ri:
@@ -922,6 +946,10 @@ export namespace dcc::backend::x86
             case MOpc::REPMOVS_A32:
             case MOpc::REPSTOS_A32:
             case MOpc::XCHG8mr:
+            case MOpc::IN8ri:
+            case MOpc::IN8rr:
+            case MOpc::OUT8ir:
+            case MOpc::OUT8rr:
                 return 8;
             default:
                 return 0;
@@ -1057,6 +1085,22 @@ export namespace dcc::backend::x86
                 case MOpc::XCHG8mr:
                 case MOpc::XCHG16mr:
                 case MOpc::XCHG32mr:
+                case MOpc::HLT:
+                case MOpc::CLD:
+                case MOpc::STD:
+                case MOpc::INT:
+                case MOpc::IN8ri:
+                case MOpc::IN16ri:
+                case MOpc::IN32ri:
+                case MOpc::IN8rr:
+                case MOpc::IN16rr:
+                case MOpc::IN32rr:
+                case MOpc::OUT8ir:
+                case MOpc::OUT16ir:
+                case MOpc::OUT32ir:
+                case MOpc::OUT8rr:
+                case MOpc::OUT16rr:
+                case MOpc::OUT32rr:
                     return true;
                 default:
                     return false;
@@ -2062,6 +2106,38 @@ export namespace dcc::backend::x86
                 return "XCHG16mr"sv;
             case MOpc::XCHG32mr:
                 return "XCHG32mr"sv;
+            case MOpc::HLT:
+                return "HLT"sv;
+            case MOpc::CLD:
+                return "CLD"sv;
+            case MOpc::STD:
+                return "STD"sv;
+            case MOpc::INT:
+                return "INT"sv;
+            case MOpc::IN8ri:
+                return "IN8ri"sv;
+            case MOpc::IN16ri:
+                return "IN16ri"sv;
+            case MOpc::IN32ri:
+                return "IN32ri"sv;
+            case MOpc::IN8rr:
+                return "IN8rr"sv;
+            case MOpc::IN16rr:
+                return "IN16rr"sv;
+            case MOpc::IN32rr:
+                return "IN32rr"sv;
+            case MOpc::OUT8ir:
+                return "OUT8ir"sv;
+            case MOpc::OUT16ir:
+                return "OUT16ir"sv;
+            case MOpc::OUT32ir:
+                return "OUT32ir"sv;
+            case MOpc::OUT8rr:
+                return "OUT8rr"sv;
+            case MOpc::OUT16rr:
+                return "OUT16rr"sv;
+            case MOpc::OUT32rr:
+                return "OUT32rr"sv;
         }
         return "?OPC?"sv;
     }

@@ -1,0 +1,34 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal ===
+=== FILE: main.dc ===
+module main;
+
+u16 zeroed;
+
+@import @nomangle extern
+u16 asm_value;
+
+@import @nomangle extern
+u16 asm_triple(u16 x);
+
+@import @nomangle extern
+void serial_putc(u8 c);
+
+asm @[intel] { ".section .start, \"ax\", @progbits\n.code16\n.globl _start\n_start:\n    cld\n    mov edi, offset __bss_start\n    mov ecx, offset __bss_end\n    sub ecx, edi\n    xor eax, eax\n    addr32 rep stosb\n    call dcc_main\n    mov dx, 0xf4\n    out dx, al\n1:\n    cli\n    hlt\n    jmp 1b\n" };
+
+asm @[intel] { ".text\n.globl serial_putc\nserial_putc:\n    push bp\n    mov bp, sp\n    mov dx, 0x3fd\n2:\n    in al, dx\n    test al, 0x20\n    jz 2b\n    mov al, byte ptr [bp + 4]\n    mov dx, 0x3f8\n    out dx, al\n    pop bp\n    ret\n.globl asm_triple\nasm_triple:\n    push bp\n    mov bp, sp\n    mov ax, word ptr [bp + 4]\n    mov cx, ax\n    shl ax, 1\n    add ax, cx\n    pop bp\n    ret\n.data\n.globl asm_value\nasm_value:\n    .word 7\n" };
+
+@nomangle
+public i32 dcc_main() {
+    if zeroed != 0 {
+        return 1;
+    }
+    serial_putc(79);
+    serial_putc(75);
+    serial_putc(10);
+    return (asm_triple(asm_value) + 21) as i32;
+}
+
+=== EXPECT-I8086-RUN ===
+START: none
+RUN-EXIT: 42
+RUN-SERIAL: OK\n

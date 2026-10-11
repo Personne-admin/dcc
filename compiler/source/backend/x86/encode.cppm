@@ -35,6 +35,13 @@ export namespace dcc::backend::x86
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr, EncodeMode mode);
 
+    struct EncodedInstruction
+    {
+        std::vector<std::uint8_t> bytes;
+        std::vector<Reloc> relocs;
+    };
+
+    [[nodiscard]] std::expected<EncodedInstruction, std::string> encode_instruction(MInstr const& instr, EncodeMode mode);
 }
 
 namespace
@@ -587,6 +594,110 @@ namespace
         std::uint32_t target_label;
         std::uint8_t width{4};
     };
+
+    [[nodiscard]] static std::optional<std::string> encode_system_instruction(MInstr const& instr, std::vector<std::uint8_t>& buf)
+    {
+        auto const& ops = instr.ops;
+        auto const np = instr.num_ops;
+        auto is_phys = [&](unsigned i, PhysReg reg) { return i < np && ops[i].kind == MOpKind::Reg && ops[i].reg == VReg::phys(reg); };
+        auto port = [&](unsigned i) -> std::optional<std::uint8_t> {
+            if (i >= np || ops[i].kind != MOpKind::Imm64 || ops[i].imm < 0 || ops[i].imm > 255)
+                return std::nullopt;
+            return static_cast<std::uint8_t>(ops[i].imm);
+        };
+        auto const bits = operand_bits(instr.opc);
+        auto const wide = bits != 8;
+        switch (instr.opc)
+        {
+            case MOpc::CLI:
+                emit_u8(buf, 0xFA);
+                return std::nullopt;
+            case MOpc::STI:
+                emit_u8(buf, 0xFB);
+                return std::nullopt;
+            case MOpc::HLT:
+                emit_u8(buf, 0xF4);
+                return std::nullopt;
+            case MOpc::CLD:
+                emit_u8(buf, 0xFC);
+                return std::nullopt;
+            case MOpc::STD:
+                emit_u8(buf, 0xFD);
+                return std::nullopt;
+            case MOpc::INT: {
+                auto const vector = port(0);
+                if (!vector)
+                    return std::string{"interrupt vector must be an immediate from 0 to 255"};
+                emit_u8(buf, 0xCD);
+                emit_u8(buf, *vector);
+                return std::nullopt;
+            }
+            case MOpc::IN8ri:
+            case MOpc::IN16ri:
+            case MOpc::IN32ri: {
+                auto const number = port(1);
+                if (!is_phys(0, PhysReg::RAX) || !number)
+                    return std::string{"'in' reads an immediate port from 0 to 255 into the accumulator"};
+                emit_u8(buf, wide ? 0xE5 : 0xE4);
+                emit_u8(buf, *number);
+                return std::nullopt;
+            }
+            case MOpc::IN8rr:
+            case MOpc::IN16rr:
+            case MOpc::IN32rr:
+                if (!is_phys(0, PhysReg::RAX) || !is_phys(1, PhysReg::RDX))
+                    return std::string{"'in' with a register port reads port DX into the accumulator"};
+                emit_u8(buf, wide ? 0xED : 0xEC);
+                return std::nullopt;
+            case MOpc::OUT8ir:
+            case MOpc::OUT16ir:
+            case MOpc::OUT32ir: {
+                auto const number = port(0);
+                if (!number || !is_phys(1, PhysReg::RAX))
+                    return std::string{"'out' writes the accumulator to an immediate port from 0 to 255"};
+                emit_u8(buf, wide ? 0xE7 : 0xE6);
+                emit_u8(buf, *number);
+                return std::nullopt;
+            }
+            case MOpc::OUT8rr:
+            case MOpc::OUT16rr:
+            case MOpc::OUT32rr:
+                if (!is_phys(0, PhysReg::RDX) || !is_phys(1, PhysReg::RAX))
+                    return std::string{"'out' with a register port writes the accumulator to port DX"};
+                emit_u8(buf, wide ? 0xEF : 0xEE);
+                return std::nullopt;
+            default:
+                return std::string{"not a system instruction"};
+        }
+    }
+
+    [[nodiscard]] static bool is_system_instruction(MOpc opc) noexcept
+    {
+        switch (opc)
+        {
+            case MOpc::CLI:
+            case MOpc::STI:
+            case MOpc::HLT:
+            case MOpc::CLD:
+            case MOpc::STD:
+            case MOpc::INT:
+            case MOpc::IN8ri:
+            case MOpc::IN16ri:
+            case MOpc::IN32ri:
+            case MOpc::IN8rr:
+            case MOpc::IN16rr:
+            case MOpc::IN32rr:
+            case MOpc::OUT8ir:
+            case MOpc::OUT16ir:
+            case MOpc::OUT32ir:
+            case MOpc::OUT8rr:
+            case MOpc::OUT16rr:
+            case MOpc::OUT32rr:
+                return true;
+            default:
+                return false;
+        }
+    }
 
     [[nodiscard]] static bool encode_instr_body(MInstr const& instr, std::vector<std::uint8_t>& buf, std::vector<BranchPatch>& branches, std::vector<Reloc>& relocs,
                                                 std::vector<std::string>& wrn)
@@ -3418,6 +3529,15 @@ namespace
             }
 
             default:
+                if (is_system_instruction(instr.opc))
+                {
+                    if (auto error = encode_system_instruction(instr, buf))
+                    {
+                        wrn.push_back(std::format("cannot encode {}: {}", opc_name(instr.opc), *error));
+                        goto ud2_lbl;
+                    }
+                    break;
+                }
                 wrn.push_back(std::format("unrecognized opcode {} , emitting UD2", opc_name(instr.opc)));
                 goto ud2_lbl;
         }
@@ -4419,10 +4539,26 @@ namespace
                     emit_u8(m_buf, 0xC3);
                     return;
                 case MOpc::CLI:
-                    emit_u8(m_buf, 0xFA);
-                    return;
                 case MOpc::STI:
-                    emit_u8(m_buf, 0xFB);
+                case MOpc::HLT:
+                case MOpc::CLD:
+                case MOpc::STD:
+                case MOpc::INT:
+                case MOpc::IN8ri:
+                case MOpc::IN16ri:
+                case MOpc::IN32ri:
+                case MOpc::IN8rr:
+                case MOpc::IN16rr:
+                case MOpc::IN32rr:
+                case MOpc::OUT8ir:
+                case MOpc::OUT16ir:
+                case MOpc::OUT32ir:
+                case MOpc::OUT8rr:
+                case MOpc::OUT16rr:
+                case MOpc::OUT32rr:
+                    prefixes(width(), nullptr);
+                    if (auto error = encode_system_instruction(m_instr, m_buf))
+                        return fail(*error);
                     return;
                 case MOpc::PUSHF16:
                     emit_u8(m_buf, 0x9C);
@@ -4790,6 +4926,25 @@ export namespace dcc::backend::x86
             return std::unexpected("cannot encode inline assembly instruction");
         std::vector<std::uint8_t> result(bytes.begin() + static_cast<std::ptrdiff_t>(before), bytes.end());
         return result;
+    }
+
+    [[nodiscard]] std::expected<EncodedInstruction, std::string> encode_instruction(MInstr const& instr, EncodeMode mode)
+    {
+        if (mode == EncodeMode::Protected32)
+            return std::unexpected("instruction encoding is not implemented for this x86 mode");
+        for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+            if (instr.ops[i].kind == MOpKind::Label || instr.ops[i].kind == MOpKind::FrameSlot)
+                return std::unexpected("instruction cannot use labels or frame slots");
+        EncodedInstruction out;
+        std::vector<BranchPatch> branches;
+        std::vector<std::string> warnings;
+        encode_instr(instr, mode, out.bytes, branches, out.relocs, warnings);
+        for (auto const& warning : warnings)
+            if (warning.find("encoding as") == std::string::npos)
+                return std::unexpected(warning);
+        if (!branches.empty() || out.bytes.empty() || (out.bytes.size() == 2 && out.bytes[0] == 0x0F && out.bytes[1] == 0x0B && instr.opc != MOpc::UD2))
+            return std::unexpected("cannot encode instruction");
+        return out;
     }
 
     [[nodiscard]] EncodeResult encode_function(MFunction const& func, EncodeMode mode)
