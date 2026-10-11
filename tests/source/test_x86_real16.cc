@@ -772,3 +772,29 @@ TEST_CASE("real16 register constraints survive allocation and spilling")
             CHECK((source == PhysReg::RAX || source == PhysReg::RCX || source == PhysReg::RDX || source == PhysReg::RBX));
         }
 }
+
+TEST_CASE("real16 subtract with borrow keeps its right operand live")
+{
+    MFunction func;
+    func.owned_name = "borrow_liveness";
+    auto& block = func.create_block("entry");
+    auto right = func.new_vreg();
+    auto left = func.new_vreg();
+    auto result = func.new_vreg();
+    block.instrs.push_back(make_instr(MOpc::MOV32ri, {MOp::from_reg(right), I(10)}, 1));
+    block.instrs.push_back(make_instr(MOpc::MOV32ri, {MOp::from_reg(left), I(30)}, 1));
+    block.instrs.push_back(make_instr(MOpc::SBB32rr, {MOp::from_reg(result), MOp::from_reg(left), MOp::from_reg(right)}, 1));
+    block.instrs.push_back(make_instr(MOpc::COPY, {R(PhysReg::RAX), MOp::from_reg(result)}, 1));
+    auto ret = make_instr(MOpc::RET, {}, 0);
+    ret.implicit_uses = 1ULL << static_cast<unsigned>(PhysReg::RAX);
+    block.instrs.push_back(ret);
+    dcc::target::TargetConfig target;
+    target.arch = dcc::target::Arch::I8086;
+    target.pointer_bits = 16;
+    dcc::backend::i8086::regalloc(func, target);
+    dcc::backend::i8086::frame_layout(func, target);
+    CHECK(encode_function(func, EncodeMode::Real16).warnings.empty());
+    for (auto const& instruction : func.entry_block().instrs)
+        if (instruction.opc == MOpc::SBB32rr)
+            CHECK(instruction.ops[0].reg != instruction.ops[2].reg || instruction.ops[0].reg == instruction.ops[1].reg);
+}

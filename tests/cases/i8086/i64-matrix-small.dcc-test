@@ -1,0 +1,68 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@runtime u64 add(u64 a, u64 b) { return a + b; }
+@runtime u64 sub(u64 a, u64 b) { return a - b; }
+@runtime u64 mul(u64 a, u64 b) { return a * b; }
+@runtime u64 bits_and(u64 a, u64 b) { return a & b; }
+@runtime u64 bits_or(u64 a, u64 b) { return a | b; }
+@runtime u64 bits_xor(u64 a, u64 b) { return a ^ b; }
+@runtime u64 divide(u64 a, u64 b) { return a / b; }
+@runtime u64 remain(u64 a, u64 b) { return a % b; }
+@runtime u64 left(u64 a, u16 count) { return a << (count as u64); }
+@runtime u64 right(u64 a, u16 count) { return a >> (count as u64); }
+@runtime i64 arithmetic(i64 a, u16 count) { return a >> (count as i64); }
+@runtime i64 signed_divide(i64 a, i64 b) { return a / b; }
+@runtime i64 signed_remain(i64 a, i64 b) { return a % b; }
+@runtime u64 invert(u64 a) { return ~a; }
+@runtime u64 negate(u64 a) { return (-(a as i64)) as u64; }
+@runtime i64 extend(i32 a) { return a as i64; }
+@runtime u64 widen(u16 a) { return a as u64; }
+@runtime u32 narrow(u64 a) { return a as u32; }
+@runtime u16 compare_u64(u64 a, u64 b) { return ((a == b) as u16 << 0) | ((a != b) as u16 << 1) | ((a < b) as u16 << 2) | ((a <= b) as u16 << 3) | ((a > b) as u16 << 4) | ((a >= b) as u16 << 5); }
+@runtime u16 compare_i64(i64 a, i64 b) { return ((a == b) as u16 << 0) | ((a != b) as u16 << 1) | ((a < b) as u16 << 2) | ((a <= b) as u16 << 3) | ((a > b) as u16 << 4) | ((a >= b) as u16 << 5); }
+@runtime u64 select(bool flag, u64 a, u64 b) { u64 result = a; if flag { result = b; } return result; }
+@nomangle u64 storage = 0x123456789abcdef0;
+struct Wide { u64 a; u64 b; }
+@runtime Wide memory(Wide value) { value.a = value.a + value.b; return value; }
+@runtime i64 signed_add(i64 a, i64 b) { return a + b; }
+@runtime i64 signed_sub(i64 a, i64 b) { return a - b; }
+@runtime i64 signed_mul(i64 a, i64 b) { return a * b; }
+@runtime i64 extend8(i8 a) { return a as i64; }
+@runtime i64 extend16(i16 a) { return a as i64; }
+@runtime u64 widen32(u32 a) { return a as u64; }
+@runtime u64 constant_left(u64 a) { return (a << 31) ^ (a << 32) ^ (a << 33) ^ (a << 63); }
+@runtime u64 constant_right(u64 a) { return (a >> 31) ^ (a >> 32) ^ (a >> 33) ^ (a >> 63); }
+@runtime i64 constant_arithmetic(i64 a) { return (a >> 31) ^ (a >> 32) ^ (a >> 33) ^ (a >> 63); }
+@nomangle public i32 dcc_main() {
+    if add(0x0, 0x1) != 0x1 || sub(0x0, 0x1) != 0xffffffffffffffff || mul(0x0, 0x1) != 0x0 || bits_and(0x0, 0x1) != 0x0 || bits_or(0x0, 0x1) != 0x1 || bits_xor(0x0, 0x1) != 0x1 { return 1; }
+    if divide(0x0, 0x1) != 0x0 || remain(0x0, 0x1) != 0x0 || add(0xffffffff, 0x1) != 0x100000000 || sub(0xffffffff, 0x1) != 0xfffffffe || mul(0xffffffff, 0x1) != 0xffffffff || bits_and(0xffffffff, 0x1) != 0x1 { return 2; }
+    if bits_or(0xffffffff, 0x1) != 0xffffffff || bits_xor(0xffffffff, 0x1) != 0xfffffffe || divide(0xffffffff, 0x1) != 0xffffffff || remain(0xffffffff, 0x1) != 0x0 || add(0x100000000, 0xffffffff) != 0x1ffffffff || sub(0x100000000, 0xffffffff) != 0x1 { return 3; }
+    if mul(0x100000000, 0xffffffff) != 0xffffffff00000000 || bits_and(0x100000000, 0xffffffff) != 0x0 || bits_or(0x100000000, 0xffffffff) != 0x1ffffffff || bits_xor(0x100000000, 0xffffffff) != 0x1ffffffff || divide(0x100000000, 0xffffffff) != 0x1 || remain(0x100000000, 0xffffffff) != 0x1 { return 4; }
+    if add(0x123456789abcdef0, 0x987654321) != 0x1234568222222211 || sub(0x123456789abcdef0, 0x987654321) != 0x1234566f13579bcf || mul(0x123456789abcdef0, 0x987654321) != 0x3333328fe5618cf0 || bits_and(0x123456789abcdef0, 0x987654321) != 0x882244220 || bits_or(0x123456789abcdef0, 0x987654321) != 0x123456799ffddff1 || bits_xor(0x123456789abcdef0, 0x987654321) != 0x123456711dd99dd1 { return 5; }
+    if divide(0x123456789abcdef0, 0x987654321) != 0x1e9131a || remain(0x123456789abcdef0, 0x987654321) != 0x71c6f9a96 || add(0xffffffffffffffff, 0x100000001) != 0x100000000 || sub(0xffffffffffffffff, 0x100000001) != 0xfffffffefffffffe || mul(0xffffffffffffffff, 0x100000001) != 0xfffffffeffffffff || bits_and(0xffffffffffffffff, 0x100000001) != 0x100000001 { return 6; }
+    if bits_or(0xffffffffffffffff, 0x100000001) != 0xffffffffffffffff || bits_xor(0xffffffffffffffff, 0x100000001) != 0xfffffffefffffffe || divide(0xffffffffffffffff, 0x100000001) != 0xffffffff || remain(0xffffffffffffffff, 0x100000001) != 0x0 || add(0x8000000000000000, 0x3) != 0x8000000000000003 || sub(0x8000000000000000, 0x3) != 0x7ffffffffffffffd { return 7; }
+    if mul(0x8000000000000000, 0x3) != 0x8000000000000000 || bits_and(0x8000000000000000, 0x3) != 0x0 || bits_or(0x8000000000000000, 0x3) != 0x8000000000000003 || bits_xor(0x8000000000000000, 0x3) != 0x8000000000000003 || divide(0x8000000000000000, 0x3) != 0x2aaaaaaaaaaaaaaa || remain(0x8000000000000000, 0x3) != 0x2 { return 8; }
+    if left(0x923456789abcdef0, 0) != 0x923456789abcdef0 || right(0x923456789abcdef0, 0) != 0x923456789abcdef0 || (arithmetic(0x923456789abcdef0 as i64, 0) as u64) != 0x923456789abcdef0 || left(0x923456789abcdef0, 1) != 0x2468acf13579bde0 || right(0x923456789abcdef0, 1) != 0x491a2b3c4d5e6f78 || (arithmetic(0x923456789abcdef0 as i64, 1) as u64) != 0xc91a2b3c4d5e6f78 { return 9; }
+    if left(0x923456789abcdef0, 31) != 0x4d5e6f7800000000 || right(0x923456789abcdef0, 31) != 0x12468acf1 || (arithmetic(0x923456789abcdef0 as i64, 31) as u64) != 0xffffffff2468acf1 || left(0x923456789abcdef0, 32) != 0x9abcdef000000000 || right(0x923456789abcdef0, 32) != 0x92345678 || (arithmetic(0x923456789abcdef0 as i64, 32) as u64) != 0xffffffff92345678 { return 10; }
+    if left(0x923456789abcdef0, 33) != 0x3579bde000000000 || right(0x923456789abcdef0, 33) != 0x491a2b3c || (arithmetic(0x923456789abcdef0 as i64, 33) as u64) != 0xffffffffc91a2b3c || left(0x923456789abcdef0, 63) != 0x0 || right(0x923456789abcdef0, 63) != 0x1 || (arithmetic(0x923456789abcdef0 as i64, 63) as u64) != 0xffffffffffffffff { return 11; }
+    if left(0x923456789abcdef0, 64) != 0x923456789abcdef0 || right(0x923456789abcdef0, 64) != 0x923456789abcdef0 || (arithmetic(0x923456789abcdef0 as i64, 64) as u64) != 0x923456789abcdef0 || left(0x923456789abcdef0, 65) != 0x2468acf13579bde0 || right(0x923456789abcdef0, 65) != 0x491a2b3c4d5e6f78 || (arithmetic(0x923456789abcdef0 as i64, 65) as u64) != 0xc91a2b3c4d5e6f78 { return 12; }
+    if signed_divide(0 as i64, 1 as i64) != 0 as i64 || signed_remain(0 as i64, 1 as i64) != 0 as i64 || signed_divide(-1 as i64, 1 as i64) != -1 as i64 || signed_remain(-1 as i64, 1 as i64) != 0 as i64 || signed_divide(-4294967297 as i64, 3 as i64) != -1431655765 as i64 || signed_remain(-4294967297 as i64, 3 as i64) != -2 as i64 { return 13; }
+    if signed_divide(-9223372036854775808 as i64, 2 as i64) != -4611686018427387904 as i64 || signed_remain(-9223372036854775808 as i64, 2 as i64) != 0 as i64 || signed_divide(9223372036854775807 as i64, -3 as i64) != -3074457345618258602 as i64 || signed_remain(9223372036854775807 as i64, -3 as i64) != 1 as i64 || signed_divide(-11 as i64, -3 as i64) != 3 as i64 || signed_remain(-11 as i64, -3 as i64) != -2 as i64 { return 14; }
+    if compare_u64(0 as u64, 0 as u64) != 41 || compare_u64(4294967295 as u64, 4294967296 as u64) != 14 || compare_u64(18446744073709551615 as u64, 0 as u64) != 50 || compare_u64(9223372036854775808 as u64, 9223372036854775807 as u64) != 50 || compare_i64(-1 as i64, 0 as i64) != 14 || compare_i64(-4294967296 as i64, -4294967295 as i64) != 14 { return 15; }
+    if compare_i64(-9223372036854775808 as i64, 9223372036854775807 as i64) != 14 || compare_i64(0 as i64, 0 as i64) != 41 || invert(0x123456789abcdef0) != 0xedcba9876543210f || negate(0x100000000) != 0xffffffff00000000 || negate(1) != 0xffffffffffffffff || extend(-2147483648) != -2147483648 as i64 { return 16; }
+    if widen(65535) != 65535 || narrow(0x123456789abcdef0) != 0x9abcdef0 || select(false, 0x123456789abcdef0, 0xffffffff00000000) != 0x123456789abcdef0 || select(true, 0x123456789abcdef0, 0xffffffff00000000) != 0xffffffff00000000 { return 17; }
+    if signed_add(-17, -19) != -36 || signed_sub(-17, 19) != -36 || signed_mul(-17, 19) != -323 || extend8(-128) != -128 as i64 || extend16(-32768) != -32768 as i64 || widen32(0xffffffff) != 0xffffffff { return 33; }
+    if (constant_left(0x923456789abcdef0 as u64) as u64) != 0xe29b0c6800000000 || (constant_right(0x923456789abcdef0 as u64) as u64) != 0x1ff46d1b4 || (constant_arithmetic(0x923456789abcdef0 as i64) as u64) != 0x80b92e4a { return 34; }
+    Wide value = Wide {a = 0x100000000, b = 0xffffffff};
+    Wide result = memory(value);
+    if result.a != 0x1ffffffff || result.b != 0xffffffff || value.a != 0x100000000 { return 30; }
+    u64* address = &storage;
+    if *address != 0x123456789abcdef0 { return 31; }
+    *address = 0xfedcba9876543210;
+    if storage != 0xfedcba9876543210 { return 32; }
+    return 42;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

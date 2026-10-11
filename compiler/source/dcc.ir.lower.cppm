@@ -5060,6 +5060,44 @@ export namespace dcc::ir::lower
         {
             auto type_cat = classify_type(sema_ty);
 
+            if (m_type_ctx && m_type_ctx->arch() == target::Arch::I8086 && ty->kind == IrTypeKind::Int && ty->byte_size == 8 &&
+                (op == dcc::lex::TokenKind::Slash || op == dcc::lex::TokenKind::Percent))
+            {
+                IrFunction* helper{};
+                auto name = type_cat == TypeCat::Unsigned ? "__dcc_udivmod64" : "__dcc_divmod64";
+                if (m_module_graph)
+                    for (auto const& mod : m_module_graph->all())
+                        if (mod && mod->canonical_path.str() == "core::i8086_arith" && mod->tu)
+                            for (auto* decl : mod->tu->decls)
+                                if (auto* fd = ast::node_cast<ast::FuncDecl>(decl))
+                                {
+                                    create_func_shell(fd, true);
+                                    auto* f = m_func_map.at(fd);
+                                    f->linkage = Linkage::LinkOnceODR;
+                                    if (fd->name == name)
+                                        helper = f;
+                                }
+                if (!helper)
+                    lower_panic("missing i8086 division helper module");
+                auto* unsigned_type = m_ctx.int_t(64, false);
+                if (ty != unsigned_type)
+                {
+                    lhs = m_ctx.bitcast(unsigned_type, lhs);
+                    rhs = m_ctx.bitcast(unsigned_type, rhs);
+                    append_inst(lhs);
+                    append_inst(rhs);
+                }
+                auto* call = m_ctx.call(helper->func_type->return_type, m_ctx.func_ref(helper));
+                call->args.push_back(lhs);
+                call->args.push_back(rhs);
+                append_inst(call);
+                auto* result = m_ctx.extract(unsigned_type, call, op == dcc::lex::TokenKind::Percent ? 1 : 0);
+                if (ty == unsigned_type)
+                    return result;
+                append_inst(result);
+                return m_ctx.bitcast(ty, result);
+            }
+
             switch (op)
             {
                 case dcc::lex::TokenKind::Plus:

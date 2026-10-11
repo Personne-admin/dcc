@@ -295,6 +295,7 @@ public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Q
     };
 
     constexpr DynamicModuleEntry kDynamicCoreModules[] = {
+        {"core::i8086_arith", "dcc-core:/core/i8086_arith.dc"},
         {
             .module_path = "core::target",
             .uri = "dcc-core:/core/target.dc",
@@ -408,6 +409,43 @@ public const bool FLOAT_AVAILABLE = {};
         return out;
     }
 
+    [[nodiscard]] std::string generate_i8086_arithmetic_source()
+    {
+        return R"dc(module core::i8086_arith;
+public struct DivResult { u64 quotient; u64 remainder; }
+@nomangle @runtime public u32 __dcc_i64_trap(u32 zero) { return 1 / zero; }
+@nomangle @runtime public DivResult __dcc_udivmod64(u64 dividend, u64 divisor) {
+    if divisor == 0 { __dcc_i64_trap(0); }
+    u64 quotient = 0;
+    u64 remainder = 0;
+    u16 count = 64;
+    while count != 0 {
+        count = count - 1;
+        bool overflow = (remainder >> 63) != 0;
+        remainder = (remainder << 1) | ((dividend >> (count as u64)) & 1);
+        if overflow || remainder >= divisor {
+            remainder = remainder - divisor;
+            quotient = quotient | (1 as u64 << (count as u64));
+        }
+    }
+    return DivResult {quotient = quotient, remainder = remainder};
+}
+@nomangle @runtime public DivResult __dcc_divmod64(u64 dividend, u64 divisor) {
+    bool negative_lhs = (dividend as i64) < 0;
+    bool negative_rhs = (divisor as i64) < 0;
+    if dividend == 0x8000000000000000 && divisor == 0xffffffffffffffff { __dcc_i64_trap(0); }
+    u64 a = dividend;
+    u64 b = divisor;
+    if negative_lhs { a = 0 - a; }
+    if negative_rhs { b = 0 - b; }
+    DivResult result = __dcc_udivmod64(a, b);
+    if negative_lhs != negative_rhs { result.quotient = 0 - result.quotient; }
+    if negative_lhs { result.remainder = 0 - result.remainder; }
+    return result;
+}
+)dc";
+    }
+
     [[nodiscard]] sm::FileId materialize_dynamic(DynamicModuleEntry const& entry, dcc::target::TargetConfig const& target, sm::SourceManager& smgr)
     {
         auto rest = entry.uri.substr(kDccCoreScheme.size());
@@ -419,7 +457,9 @@ public const bool FLOAT_AVAILABLE = {};
         syn_path += kDccCorePathPrefix;
         syn_path += rest;
 
-        std::string source = entry.module_path == "core::seg" ? generate_core_seg_source(target) : generate_core_target_source(target);
+        std::string source = entry.module_path == "core::i8086_arith" ? generate_i8086_arithmetic_source()
+                             : entry.module_path == "core::seg"       ? generate_core_seg_source(target)
+                                                                      : generate_core_target_source(target);
         return smgr.open_virtual_in_memory(std::string{entry.uri}, std::move(source), std::move(syn_path));
     }
 

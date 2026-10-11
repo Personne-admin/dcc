@@ -510,7 +510,7 @@ namespace dcc::backend::x86
                                     if (!bldef.contains(op.reg))
                                         bluse.insert(op.reg);
                                     std::uint32_t use_pp = pp;
-                                    if (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr || instr.opc == MOpc::SUB16rr)
+                                    if (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr || instr.opc == MOpc::SUB16rr || instr.opc == MOpc::SBB32rr)
                                         ++use_pp;
                                     auto it = last_use.find(op.reg);
                                     if (it == last_use.end() || use_pp > it->second)

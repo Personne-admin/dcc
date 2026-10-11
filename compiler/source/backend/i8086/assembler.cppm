@@ -297,6 +297,18 @@ namespace dcc::backend::i8086
                     case MOpc::SUB32ri:
                     case MOpc::SUB32rr:
                         return tied("sub", mi, operand_bits(mi.opc));
+                    case MOpc::ADC32rr:
+                    case MOpc::ADC32ri:
+                        return tied("adc", mi, 32, true);
+                    case MOpc::SBB32rr:
+                    case MOpc::SBB32ri:
+                        return tied("sbb", mi, 32);
+                    case MOpc::SHLD32rri8:
+                    case MOpc::SHLD32rrCL:
+                    case MOpc::SHRD32rri8:
+                    case MOpc::SHRD32rrCL:
+                        return line(std::format("{} {}, {}, {}", mi.opc == MOpc::SHLD32rri8 || mi.opc == MOpc::SHLD32rrCL ? "shld" : "shrd",
+                                                operand(mi.ops[0], 32), operand(mi.ops[1], 32), operand(mi.ops[2], mi.ops[2].kind == MOpKind::Reg ? 8 : 32)));
                     case MOpc::AND16ri:
                     case MOpc::AND16rr:
                     case MOpc::AND32ri:
@@ -348,6 +360,8 @@ namespace dcc::backend::i8086
                     case MOpc::NOT16r:
                     case MOpc::NOT32r:
                         return unary("not", mi, operand_bits(mi.opc));
+                    case MOpc::MUL32r:
+                        return line(std::format("mul {}", operand(mi.ops[0], 32)));
                     case MOpc::DIV16r:
                     case MOpc::DIV32r:
                         return line(std::format("div {}", operand(mi.ops[0], operand_bits(mi.opc))));
