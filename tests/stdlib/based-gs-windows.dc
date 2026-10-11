@@ -1,5 +1,30 @@
 module main;
 
+@noinline usize read_slice_element(usize* pointer) { return *pointer; }
+@noinline usize read_slice_element(usize^GS pointer) { return *pointer; }
+
+@noinline bool check_based_slice(usize^GS pointer, usize first, usize second) {
+    [^GS]usize values;
+    values.ptr = pointer;
+    values.len = 2;
+    usize total = 0;
+    for value in values { total += value; }
+    if total != first + second { return false; };
+    [^GS]usize tail = values[1..2];
+    if tail.ptr != pointer + 1 || tail.len != 1 || tail[0] != second { return false; }
+    total = 0;
+    for value in tail { total += value; }
+    if total != second { return false; }
+    values.ptr = pointer + 1;
+    values.len = 1;
+    total = 0;
+    for value in values { total += value; }
+    if total != second { return false; }
+    total = 0;
+    for &value in values { total += read_slice_element(value); }
+    return total == second;
+}
+
 public i32 main() {
     usize^GS teb_self = GS:0x30;
     usize^GS peb_slot = GS:0x60;
@@ -9,5 +34,7 @@ public i32 main() {
     usize* near_self = (teb + 0x30) as usize*;
     usize* near_peb = (teb + 0x60) as usize*;
     if *near_self != teb || *near_peb != peb { return 2; }
+    usize* next = (teb + 0x38) as usize*;
+    if !check_based_slice(teb_self, teb, *next) { return 3; }
     return 42;
 }
