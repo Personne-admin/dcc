@@ -1,0 +1,19 @@
+=== FILE: test.dc ===
+module test;
+
+u64 value = 7;
+
+asm { ".globl value_address\nvalue_address:\n    leaq %{value}(%%rip), %%rax\n    ret\n" };
+
+=== EXPECT-LLVM ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+module asm ".globl value_address"
+module asm "value_address:"
+module asm "    leaq _DC0G1.4.test5.valuei64u(%rip), %rax"
+module asm "    ret"
+
+@_DC0G1.4.test5.valuei64u = global i64 7
+@llvm.compiler.used = appending global [1 x ptr] [ptr @_DC0G1.4.test5.valuei64u], section "llvm.metadata"

@@ -16741,7 +16741,7 @@ export namespace dcc::sema
                 if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral && !span.name.empty() &&
                     (span.name.front() == '_' || (span.name.front() >= 'a' && span.name.front() <= 'z') ||
                      (span.name.front() >= 'A' && span.name.front() <= 'Z')) &&
-                    !lookup_register(arch, span.name))
+                    !lookup_register(arch, span.name) && !(arch == Arch::X86_64 && span.name == "rip"))
                 {
                     error(placeholder_source_range(node.template_range, span), "unknown register `{}` for target `{}`", span.name, arch_name);
                     continue;
@@ -16909,7 +16909,7 @@ export namespace dcc::sema
                 if (span.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral && !span.name.empty() &&
                     (span.name.front() == '_' || (span.name.front() >= 'a' && span.name.front() <= 'z') ||
                      (span.name.front() >= 'A' && span.name.front() <= 'Z')) &&
-                    !lookup_register(arch, span.name))
+                    !lookup_register(arch, span.name) && !(arch == Arch::X86_64 && span.name == "rip"))
                 {
                     error(placeholder_source_range(node.template_range, span), "unknown register `{}` for target `{}`", span.name, arch_name);
                     continue;
