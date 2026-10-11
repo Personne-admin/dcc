@@ -10768,6 +10768,13 @@ export namespace dcc::sema
 
             note_array_decay_escape(expr, out, expected_type, const_env);
 
+            if (m_target && m_target->arch == target::Arch::I8086 && !out.constant)
+                if (auto const* binary = ast::node_cast<ast::BinaryExpr>(&expr))
+                    if (binary->op == lex::TokenKind::Slash || binary->op == lex::TokenKind::Percent || binary->op == lex::TokenKind::SlashEq ||
+                        binary->op == lex::TokenKind::PercentEq)
+                        if (auto const* integer = types::type_cast<types::IntType>(erase_refinement(out.type)); integer && integer->bits == 64)
+                            mod.needs_i8086_arithmetic = true;
+
             set_resolved_type(expr.sema, out.type);
             expr.sema.const_value = out.constant;
             expr.sema.resolved_decl = out.resolved_decl;

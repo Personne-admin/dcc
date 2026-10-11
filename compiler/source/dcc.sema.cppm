@@ -81,6 +81,9 @@ export namespace dcc::sema
             complete_all_templated_tagged_enums(m_types, m_alloc);
             complete_all_templated_structs(m_types, m_alloc);
 
+            if (!m_diag.has_errors() && std::ranges::any_of(m_graph.all(), [](auto const& mod) { return mod->needs_i8086_arithmetic; }))
+                analyze_i8086_arithmetic(*root);
+
             return root;
         }
 
@@ -124,6 +127,26 @@ export namespace dcc::sema
         }
 
     private:
+        void analyze_i8086_arithmetic(ModuleInfo const& root)
+        {
+            auto const first = m_graph.all().size();
+            ast::Path path{m_ast_ctx.allocator()};
+            for (auto name : {"core", "i8086_arith"})
+                path.segments.push_back({m_opts.interner ? m_opts.interner->intern(name) : std::string_view{name}, sm::SourceRange{}});
+            auto* helper = m_importer.resolve_import(path, root);
+            if (!helper || helper->state == ModuleState::BodiesAnalyzed)
+                return;
+
+            load_transitively(m_importer, *helper);
+            auto modules = std::span{m_graph.all()}.subspan(first);
+            collect_all(modules, m_diag, m_types, m_alloc);
+            resolve_usings(modules, m_diag, m_alloc);
+            resolve_signature_types(modules, m_diag, m_types, m_alloc);
+            validate_attributes(modules, m_diag, m_alloc);
+            validate_public_signatures(modules, m_diag);
+            analyze_bodies(modules, m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target);
+        }
+
         void prepare_injected_sources()
         {
             if (m_injected_sources_prepared)

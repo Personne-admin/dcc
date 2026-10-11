@@ -218,6 +218,12 @@ namespace dcc::backend::i8086
             MBlock* block{};
             bool c_abi{};
             VReg sret_pointer;
+            struct Pair
+            {
+                VReg low;
+                VReg high;
+            };
+            std::unordered_map<IrValue const*, Pair> pairs;
             std::unordered_map<IrValue const*, VReg> values;
             std::unordered_map<IrValue const*, std::vector<VReg>> asm_results;
             std::unordered_map<IrValue const*, std::uint32_t> slots;
@@ -259,6 +265,173 @@ namespace dcc::backend::i8086
                     default:
                         return 0;
                 }
+            }
+
+            [[nodiscard]] static bool wide(IrType const* type) { return type && type->kind == IrTypeKind::Int && type->byte_size == 8; }
+
+            [[nodiscard]] std::optional<Pair> pair(IrValue const* v)
+            {
+                if (auto found = pairs.find(v); found != pairs.end())
+                    return found->second;
+                if (auto* imm = ir_cast<IrIntConstant>(v))
+                {
+                    auto bits = static_cast<std::uint64_t>(imm->value);
+                    Pair result{emit(MOpc::MOV32ri, {MOp::from_imm(static_cast<std::int32_t>(bits))}),
+                                emit(MOpc::MOV32ri, {MOp::from_imm(static_cast<std::int32_t>(bits >> 32))})};
+                    pairs[v] = result;
+                    return result;
+                }
+                unsupported("an unavailable i64 pair");
+                return std::nullopt;
+            }
+
+            void store_pair(Pair src, MMem mem)
+            {
+                append(make_instr(MOpc::MOV32mr, {MOp::from_mem(mem), MOp::from_reg(src.low)}, 0));
+                mem.disp += 4;
+                append(make_instr(MOpc::MOV32mr, {MOp::from_mem(mem), MOp::from_reg(src.high)}, 0));
+            }
+
+            [[nodiscard]] Pair load_pair(MMem mem)
+            {
+                auto low = emit(MOpc::MOV32rm, {MOp::from_mem(mem)});
+                mem.disp += 4;
+                return {low, emit(MOpc::MOV32rm, {MOp::from_mem(mem)})};
+            }
+
+            [[nodiscard]] VReg condition(MOpc cc)
+            {
+                append(make_instr(cc, {phys_operand(PhysReg::RAX)}, 1));
+                return emit(MOpc::MOVZX16_8rr, {phys_operand(PhysReg::RAX)});
+            }
+
+            [[nodiscard]] VReg compare_pair(Pair l, Pair r, MOpc cc)
+            {
+                if (cc == MOpc::SETEr || cc == MOpc::SETNEr)
+                {
+                    auto a = emit(MOpc::XOR32rr, {MOp::from_reg(l.low), MOp::from_reg(r.low)});
+                    auto b = emit(MOpc::XOR32rr, {MOp::from_reg(l.high), MOp::from_reg(r.high)});
+                    auto both = emit(MOpc::OR32rr, {MOp::from_reg(a), MOp::from_reg(b)});
+                    append(make_instr(MOpc::CMP32ri, {MOp::from_reg(both), MOp::from_imm(0)}, 0));
+                    return condition(cc);
+                }
+                bool less = cc == MOpc::SETLr || cc == MOpc::SETLEr || cc == MOpc::SETBr || cc == MOpc::SETBEr;
+                bool signed_op = cc == MOpc::SETLr || cc == MOpc::SETLEr || cc == MOpc::SETGr || cc == MOpc::SETGEr;
+                bool inclusive = cc == MOpc::SETLEr || cc == MOpc::SETBEr || cc == MOpc::SETGEr || cc == MOpc::SETAEr;
+                append(make_instr(MOpc::CMP32rr, {MOp::from_reg(l.high), MOp::from_reg(r.high)}, 0));
+                auto high = condition(signed_op ? (less ? MOpc::SETLr : MOpc::SETGr) : (less ? MOpc::SETBr : MOpc::SETAr));
+                append(make_instr(MOpc::CMP32rr, {MOp::from_reg(l.high), MOp::from_reg(r.high)}, 0));
+                auto equal = condition(MOpc::SETEr);
+                append(make_instr(MOpc::CMP32rr, {MOp::from_reg(l.low), MOp::from_reg(r.low)}, 0));
+                auto low = condition(less ? (inclusive ? MOpc::SETBEr : MOpc::SETBr) : (inclusive ? MOpc::SETAEr : MOpc::SETAr));
+                auto tied = emit(MOpc::AND16rr, {MOp::from_reg(equal), MOp::from_reg(low)});
+                return emit(MOpc::OR16rr, {MOp::from_reg(high), MOp::from_reg(tied)});
+            }
+
+            void wide_arithmetic(IrValue const* inst)
+            {
+                auto [lhs, rhs] = binary_operands(inst);
+                auto l = pair(lhs), r = pair(rhs);
+                if (!l || !r)
+                    return;
+                Pair out;
+                if (inst->kind == IrNodeKind::Mul)
+                {
+                    auto cross_a = emit(MOpc::IMUL32rr, {MOp::from_reg(l->low), MOp::from_reg(r->high)});
+                    auto cross_b = emit(MOpc::IMUL32rr, {MOp::from_reg(l->high), MOp::from_reg(r->low)});
+                    auto cross = emit(MOpc::ADD32rr, {MOp::from_reg(cross_a), MOp::from_reg(cross_b)});
+                    copy_to(PhysReg::RAX, l->low, 32);
+                    MInstr mul = make_instr(MOpc::MUL32r, {MOp::from_reg(r->low)}, 0);
+                    mul.implicit_uses = bit(PhysReg::RAX);
+                    mul.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RDX);
+                    append(mul);
+                    out.low = copy_from(PhysReg::RAX);
+                    auto high = copy_from(PhysReg::RDX);
+                    out.high = emit(MOpc::ADD32rr, {MOp::from_reg(high), MOp::from_reg(cross)});
+                }
+                else
+                {
+                    MOpc low = inst->kind == IrNodeKind::Add   ? MOpc::ADD32rr
+                               : inst->kind == IrNodeKind::Sub ? MOpc::SUB32rr
+                               : inst->kind == IrNodeKind::And ? MOpc::AND32rr
+                               : inst->kind == IrNodeKind::Or  ? MOpc::OR32rr
+                                                               : MOpc::XOR32rr;
+                    MOpc high = inst->kind == IrNodeKind::Add ? MOpc::ADC32rr : inst->kind == IrNodeKind::Sub ? MOpc::SBB32rr : low;
+                    out.low = emit(low, {MOp::from_reg(l->low), MOp::from_reg(r->low)});
+                    out.high = emit(high, {MOp::from_reg(l->high), MOp::from_reg(r->high)});
+                }
+                pairs[inst] = out;
+            }
+
+            void wide_shift(IrValue const* inst)
+            {
+                auto [lhs, rhs] = binary_operands(inst);
+                auto input = pair(lhs);
+                if (!input)
+                    return;
+                bool left = inst->kind == IrNodeKind::Shl;
+                bool arithmetic = inst->kind == IrNodeKind::AShr;
+                auto single = left ? MOpc::SHL32ri8 : arithmetic ? MOpc::SAR32ri8 : MOpc::SHR32ri8;
+                auto double_op = left ? MOpc::SHLD32rri8 : MOpc::SHRD32rri8;
+                if (auto imm = ir_cast<IrIntConstant>(rhs))
+                {
+                    auto count = static_cast<unsigned>(imm->value) & 63;
+                    if (!count)
+                        return void(pairs[inst] = *input);
+                    if (count >= 32)
+                    {
+                        auto shifted = emit(single, {MOp::from_reg(left ? input->low : input->high), MOp::from_imm(count - 32)});
+                        auto fill =
+                            arithmetic ? emit(MOpc::SAR32ri8, {MOp::from_reg(input->high), MOp::from_imm(31)}) : emit(MOpc::MOV32ri, {MOp::from_imm(0)});
+                        pairs[inst] = left ? Pair{fill, shifted} : Pair{shifted, fill};
+                        return;
+                    }
+                    copy_to(PhysReg::RAX, left ? input->high : input->low, 32);
+                    MInstr shift = make_instr(double_op, {phys_operand(PhysReg::RAX), MOp::from_reg(left ? input->low : input->high), MOp::from_imm(count)}, 1);
+                    shift.implicit_uses = bit(PhysReg::RAX);
+                    append(shift);
+                    auto combined = copy_from(PhysReg::RAX);
+                    auto shifted = emit(single, {MOp::from_reg(left ? input->low : input->high), MOp::from_imm(count)});
+                    pairs[inst] = left ? Pair{shifted, combined} : Pair{combined, shifted};
+                    return;
+                }
+                std::optional<VReg> count;
+                if (wide(rhs->type))
+                {
+                    if (auto src = pair(rhs))
+                        count = src->low;
+                }
+                else
+                    count = value(rhs);
+                if (!count)
+                    return;
+                append(make_instr(MOpc::TEST16ri, {MOp::from_reg(*count), MOp::from_imm(32)}, 0));
+                auto large = condition(MOpc::SETNEr);
+                auto widened = emit(MOpc::MOVZX32_16rr, {MOp::from_reg(large)});
+                auto mask = emit(MOpc::NEG32r, {MOp::from_reg(widened)});
+                auto inverse = emit(MOpc::NOT32r, {MOp::from_reg(mask)});
+                auto fill = arithmetic ? emit(MOpc::SAR32ri8, {MOp::from_reg(input->high), MOp::from_imm(31)}) : emit(MOpc::MOV32ri, {MOp::from_imm(0)});
+                copy_to(PhysReg::RCX, *count, 32);
+                copy_to(PhysReg::RAX, input->low, 32);
+                copy_to(PhysReg::RDX, input->high, 32);
+                MInstr combined = make_instr(
+                    left ? MOpc::SHLD32rrCL : MOpc::SHRD32rrCL,
+                    {phys_operand(left ? PhysReg::RDX : PhysReg::RAX), phys_operand(left ? PhysReg::RAX : PhysReg::RDX), phys_operand(PhysReg::RCX)}, 1);
+                combined.implicit_uses = bit(PhysReg::RAX) | bit(PhysReg::RDX) | bit(PhysReg::RCX);
+                append(combined);
+                auto reg = left ? PhysReg::RAX : PhysReg::RDX;
+                MInstr shifted = make_instr(left         ? MOpc::SHL32rCL
+                                            : arithmetic ? MOpc::SAR32rCL
+                                                         : MOpc::SHR32rCL,
+                                            {phys_operand(reg), phys_operand(reg), phys_operand(PhysReg::RCX)}, 1);
+                append(shifted);
+                auto low = copy_from(PhysReg::RAX), high = copy_from(PhysReg::RDX);
+                auto select = [&](VReg ordinary, VReg large_value) {
+                    auto a = emit(MOpc::AND32rr, {MOp::from_reg(ordinary), MOp::from_reg(inverse)});
+                    auto b = emit(MOpc::AND32rr, {MOp::from_reg(large_value), MOp::from_reg(mask)});
+                    return emit(MOpc::OR32rr, {MOp::from_reg(a), MOp::from_reg(b)});
+                };
+                pairs[inst] = left ? Pair{select(low, fill), select(high, low)} : Pair{select(low, high), select(high, fill)};
             }
 
             [[nodiscard]] unsigned value_bits(IrType const* type)
@@ -496,6 +669,12 @@ namespace dcc::backend::i8086
 
             void store_at(IrValue const* stored, VReg destination)
             {
+                if (wide(stored->type))
+                {
+                    if (auto src = pair(stored))
+                        store_pair(*src, near_memory(destination));
+                    return;
+                }
                 auto src = value(stored);
                 if (!src)
                     return;
@@ -513,6 +692,8 @@ namespace dcc::backend::i8086
             {
                 if (!v || ir_cast<IrNullConstant>(v))
                     return true;
+                if (auto* integer = ir_cast<IrIntConstant>(v))
+                    return integer->value == 0;
                 if (auto imm = constant(v))
                     return *imm == 0;
                 if (auto const* agg = ir_cast<IrAggregateInst>(v))
@@ -558,7 +739,7 @@ namespace dcc::backend::i8086
                 if (!count || *count < 0 || static_cast<std::uint64_t>(*count) * type->byte_size > 65535)
                     return unsupported("a dynamic or oversized local allocation");
                 auto align = alloca.alignment ? alloca.alignment : type->byte_align;
-                if (!memory_type(type) && !value_bits(type))
+                if (!memory_type(type) && !wide(type) && !value_bits(type))
                     return;
                 slots[&alloca] = mfunc.new_frame_slot(static_cast<std::uint32_t>(type->byte_size * static_cast<std::uint64_t>(*count)),
                                                       std::min<std::uint32_t>(static_cast<std::uint32_t>(std::max<std::uint64_t>(align, 1)), 2));
@@ -566,6 +747,11 @@ namespace dcc::backend::i8086
 
             void load_at(IrValue const* inst, VReg source)
             {
+                if (wide(inst->type))
+                {
+                    pairs[inst] = load_pair(near_memory(source));
+                    return;
+                }
                 if (memory_type(inst->type))
                 {
                     auto dst = temporary(inst->type);
@@ -578,6 +764,12 @@ namespace dcc::backend::i8086
 
             void lower_load(IrValue const* inst, IrValue const* pointer)
             {
+                if (wide(inst->type))
+                {
+                    if (auto source = pointer_address(pointer))
+                        pairs[inst] = load_pair(near_memory(*source));
+                    return;
+                }
                 if (memory_type(inst->type))
                 {
                     auto src = pointer_address(pointer);
@@ -593,6 +785,13 @@ namespace dcc::backend::i8086
 
             void lower_store(IrValue const* stored, IrValue const* pointer)
             {
+                if (wide(stored->type))
+                {
+                    auto destination = pointer_address(pointer);
+                    if (auto src = pair(stored); src && destination)
+                        store_pair(*src, near_memory(*destination));
+                    return;
+                }
                 if (memory_type(stored ? stored->type : nullptr))
                 {
                     auto dst = pointer_address(pointer);
@@ -661,6 +860,8 @@ namespace dcc::backend::i8086
 
             void lower_arithmetic(IrNode const* inst, IrType const* type)
             {
+                if (wide(type))
+                    return wide_arithmetic(static_cast<IrValue const*>(inst));
                 auto [lhs, rhs] = binary_operands(inst);
                 auto bits = value_bits(type);
                 auto l = bits ? value(lhs) : std::nullopt;
@@ -703,6 +904,8 @@ namespace dcc::backend::i8086
 
             void lower_shift(IrNode const* inst, IrType const* type)
             {
+                if (wide(type))
+                    return wide_shift(static_cast<IrValue const*>(inst));
                 auto [lhs, rhs] = binary_operands(inst);
                 auto bits = value_bits(type);
                 auto l = bits ? value(lhs) : std::nullopt;
@@ -797,6 +1000,14 @@ namespace dcc::backend::i8086
 
             void lower_compare(IrNode const* inst, MOpc setcc)
             {
+                auto [lhs, rhs] = binary_operands(inst);
+                if (lhs && wide(lhs->type))
+                {
+                    auto l = pair(lhs), r = pair(rhs);
+                    if (l && r)
+                        values[static_cast<IrValue const*>(inst)] = compare_pair(*l, *r, setcc);
+                    return;
+                }
                 if (!emit_compare(inst, setcc))
                     return;
                 append(make_instr(setcc, {phys_operand(PhysReg::RAX)}, 1));
@@ -805,6 +1016,20 @@ namespace dcc::backend::i8086
 
             void lower_unary(IrValue const* inst, IrValue const* operand)
             {
+                if (wide(inst->type))
+                {
+                    auto src = pair(operand);
+                    if (!src)
+                        return;
+                    auto high = emit(MOpc::NOT32r, {MOp::from_reg(src->high)});
+                    auto low = emit(inst->kind == IrNodeKind::Neg ? MOpc::NEG32r : MOpc::NOT32r, {MOp::from_reg(src->low)});
+                    if (inst->kind == IrNodeKind::Neg)
+                    {
+                        high = emit(MOpc::SBB32ri, {MOp::from_reg(high), MOp::from_imm(-1)});
+                    }
+                    pairs[inst] = {low, high};
+                    return;
+                }
                 auto bits = value_bits(inst->type);
                 auto v = bits ? value(operand) : std::nullopt;
                 if (!v)
@@ -820,6 +1045,28 @@ namespace dcc::backend::i8086
 
             void lower_cast(IrValue const* inst, IrValue const* operand)
             {
+                if (wide(operand->type))
+                {
+                    if (auto src = pair(operand))
+                    {
+                        if (wide(inst->type))
+                            pairs[inst] = *src;
+                        else
+                            values[inst] = src->low;
+                    }
+                    return;
+                }
+                if (wide(inst->type))
+                {
+                    auto src = value(operand);
+                    if (!src)
+                        return;
+                    auto low = extend(*src, scalar_bits(operand->type), inst->kind == IrNodeKind::Sext, 32);
+                    auto high = inst->kind == IrNodeKind::Sext ? emit(MOpc::SAR32ri8, {MOp::from_reg(low), MOp::from_imm(31)})
+                                                               : emit(MOpc::MOV32ri, {MOp::from_imm(0)});
+                    pairs[inst] = {low, high};
+                    return;
+                }
                 auto to = value_bits(inst->type);
                 auto from = to ? value_bits(operand ? operand->type : nullptr) : 0;
                 auto v = from ? value(operand) : std::nullopt;
@@ -853,7 +1100,7 @@ namespace dcc::backend::i8086
                 std::vector<std::optional<PhysReg>> registers(args.size());
                 std::size_t next = sret ? 1 : 0;
                 for (std::size_t i = 0; i < args.size(); ++i)
-                    if (!c_convention && !memory_type(args[i]->type) && next < register_arguments.size())
+                    if (!c_convention && !memory_type(args[i]->type) && !wide(args[i]->type) && next < register_arguments.size())
                         registers[i] = register_arguments[next++];
                 return registers;
             }
@@ -872,6 +1119,12 @@ namespace dcc::backend::i8086
                 std::vector<VReg> inputs(args.size());
                 for (std::size_t i = 0; i < args.size(); ++i)
                 {
+                    if (wide(args[i]->type))
+                    {
+                        if (!pair(args[i]))
+                            return;
+                        continue;
+                    }
                     auto input = value(args[i]);
                     if (!input)
                         return;
@@ -883,6 +1136,14 @@ namespace dcc::backend::i8086
                     auto* arg = args[i - 1];
                     if (registers[i - 1])
                         continue;
+                    if (wide(arg->type))
+                    {
+                        auto src = *pair(arg);
+                        append(make_instr(MOpc::PUSH32r, {MOp::from_reg(src.high)}, 0));
+                        append(make_instr(MOpc::PUSH32r, {MOp::from_reg(src.low)}, 0));
+                        pushed += 8;
+                        continue;
+                    }
                     auto bytes = memory_type(arg->type) ? (arg->type->byte_size + 1) & ~std::uint64_t{1} : scalar_bits(arg->type) <= 16 ? 2 : 4;
                     if (memory_type(arg->type))
                     {
@@ -920,6 +1181,23 @@ namespace dcc::backend::i8086
                     append(make_instr(MOpc::ADD16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(pushed)}, 1));
                 if (!inst->type || inst->type->kind == IrTypeKind::Void)
                     return;
+                if (wide(inst->type))
+                {
+                    if (!c_convention)
+                        pairs[inst] = {copy_from(PhysReg::RAX), copy_from(PhysReg::RDX)};
+                    else
+                    {
+                        auto ax = copy_from(PhysReg::RAX), bx = copy_from(PhysReg::RBX);
+                        auto cx = copy_from(PhysReg::RCX), dx = copy_from(PhysReg::RDX);
+                        auto join = [&](VReg low, VReg high) {
+                            auto a = emit(MOpc::MOVZX32_16rr, {MOp::from_reg(low)});
+                            auto b = emit(MOpc::SHL32ri8, {MOp::from_reg(high), MOp::from_imm(16)});
+                            return emit(MOpc::OR32rr, {MOp::from_reg(a), MOp::from_reg(b)});
+                        };
+                        pairs[inst] = {join(dx, cx), join(bx, ax)};
+                    }
+                    return;
+                }
                 if (sret)
                 {
                     values[inst] = *result;
@@ -975,7 +1253,12 @@ namespace dcc::backend::i8086
                     if (registers[i])
                         continue;
                     MMem slot = MMem::make_base_disp(VReg::phys(PhysReg::RBP), offset);
-                    if (memory_type(param->type))
+                    if (wide(param->type))
+                    {
+                        pairs[param] = load_pair(slot);
+                        offset += 8;
+                    }
+                    else if (memory_type(param->type))
                     {
                         auto addr = emit(MOpc::LEA16rm, {MOp::from_mem(slot)});
                         values[param] = target.pointer_bits == 32 ? emit(MOpc::MOVZX32_16rr, {MOp::from_reg(addr)}) : addr;
@@ -1194,6 +1477,32 @@ namespace dcc::backend::i8086
                 if (ret.value)
                 {
                     auto type = ret.value->type;
+                    if (wide(type))
+                    {
+                        auto src = pair(ret.value);
+                        if (!src)
+                            return;
+                        if (!c_abi)
+                        {
+                            copy_to(PhysReg::RAX, src->low, 32);
+                            copy_to(PhysReg::RDX, src->high, 32);
+                            uses |= bit(PhysReg::RAX) | bit(PhysReg::RDX);
+                        }
+                        else
+                        {
+                            auto high_word = emit(MOpc::SHR32ri8, {MOp::from_reg(src->high), MOp::from_imm(16)});
+                            auto low_word = emit(MOpc::SHR32ri8, {MOp::from_reg(src->low), MOp::from_imm(16)});
+                            copy_to(PhysReg::RAX, high_word, 16);
+                            copy_to(PhysReg::RBX, src->high, 16);
+                            copy_to(PhysReg::RCX, low_word, 16);
+                            copy_to(PhysReg::RDX, src->low, 16);
+                            uses |= bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX);
+                        }
+                        MInstr mi = make_instr(MOpc::RET, {}, 0);
+                        mi.implicit_uses = uses;
+                        append(mi);
+                        return;
+                    }
                     auto bits = memory_type(type) ? static_cast<unsigned>(type->byte_size * 8) : value_bits(type);
                     auto v = bits || memory_type(type) ? value(ret.value) : std::nullopt;
                     if (v && indirect_return(type))
@@ -1435,7 +1744,7 @@ namespace dcc::backend::i8086
                         ++pred_counts[succ];
                 for (auto const& [phi, owner, result] : pending_phis)
                 {
-                    auto bits = memory_type(phi->type) ? target.pointer_bits : value_bits(phi->type);
+                    auto bits = wide(phi->type) ? 32 : memory_type(phi->type) ? target.pointer_bits : value_bits(phi->type);
                     if (!bits)
                         return;
                     std::vector<MOp> inputs;
@@ -1445,7 +1754,21 @@ namespace dcc::backend::i8086
                             continue;
                         auto via = edge_block(incoming.block, owner, pred_counts[owner]);
                         VReg input;
-                        if (auto imm = constant(incoming.value))
+                        if (wide(phi->type))
+                        {
+                            if (auto imm = ir_cast<IrIntConstant>(incoming.value))
+                            {
+                                input = mfunc.new_vreg();
+                                auto half_bits = static_cast<std::uint64_t>(imm->value) >> (result == pairs.at(phi).high ? 32 : 0);
+                                insert_before_branches(
+                                    via, make_instr(MOpc::MOV32ri, {MOp::from_reg(input), MOp::from_imm(static_cast<std::int32_t>(half_bits))}, 1));
+                            }
+                            else if (auto found = pairs.find(incoming.value); found != pairs.end())
+                                input = result == pairs.at(phi).high ? found->second.high : found->second.low;
+                            else
+                                return unsupported("an unavailable i64 phi input");
+                        }
+                        else if (auto imm = constant(incoming.value))
                         {
                             input = mfunc.new_vreg();
                             auto width = op_width(bits);
@@ -1528,8 +1851,8 @@ namespace dcc::backend::i8086
                     if (!term || term->kind != IrNodeKind::BrCond)
                         continue;
                     auto* condition = static_cast<IrBrCondInst const*>(term)->condition;
-                    if (condition && setcc_for(condition->kind) && use_def.use_count(condition) == 0 && terminator_uses[condition] == 1 &&
-                        std::ranges::find(ir_block->instructions, condition) != ir_block->instructions.end())
+                    if (condition && setcc_for(condition->kind) && !wide(binary_operands(condition).first->type) && use_def.use_count(condition) == 0 &&
+                        terminator_uses[condition] == 1 && std::ranges::find(ir_block->instructions, condition) != ir_block->instructions.end())
                         fused.insert(condition);
                 }
 
@@ -1549,6 +1872,14 @@ namespace dcc::backend::i8086
                         if (inst->kind == IrNodeKind::Phi)
                         {
                             auto const* phi = static_cast<IrPhiInst const*>(inst);
+                            if (wide(phi->type))
+                            {
+                                Pair result{mfunc.new_vreg(), mfunc.new_vreg()};
+                                pairs[phi] = result;
+                                pending_phis.push_back({phi, ir_block, result.low});
+                                pending_phis.push_back({phi, ir_block, result.high});
+                                continue;
+                            }
                             VReg result = mfunc.new_vreg();
                             values[phi] = result;
                             pending_phis.push_back({phi, ir_block, result});

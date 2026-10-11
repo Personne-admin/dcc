@@ -2,6 +2,14 @@ import std;
 import dcc.session;
 import dcc.sm;
 import dcc.diag;
+import dcc.ast;
+import dcc.lex;
+import dcc.parser;
+import dcc.si;
+import dcc.sema;
+import dcc.ir;
+import dcc.ir.lower;
+import dcc.target;
 
 #include "harness.hh"
 
@@ -460,4 +468,54 @@ TEST_CASE("in-memory files survive repeated recompilation")
         CHECK(result.module != nullptr);
         CHECK(!result.has_errors);
     }
+}
+
+TEST_CASE("direct semantic analysis provides i8086 division dependencies without source imports")
+{
+    struct Probe
+    {
+        std::string_view source;
+        bool needs_helper;
+    };
+    Probe const probes[] = {
+        {"@runtime u64 f(u64 a, u64 b) { return a / b + a % b; }", true},
+        {"@runtime i64 f(i64 a, i64 b) { return a / b + a % b; }", true},
+        {"@runtime u64 f(u64 a, u64 b) { a /= b; a %= b; return a; }", true},
+        {"T divide(T)(T a, T b) { return a / b; } @runtime u64 f(u64 a, u64 b) { return divide(a, b); }", true},
+        {"@runtime u64 f(u64 a, u64 b) { return a + b; }", false},
+        {"@runtime u32 f(u32 a, u32 b) { return a / b; }", false},
+        {"public u64 value = 12 as u64 / 3;", false},
+        {"import core::i8086_arith; @runtime u64 f(u64 a, u64 b) { return a / b; }", true},
+    };
+    for (auto model : {dcc::target::CodeModel::Small, dcc::target::CodeModel::Unreal, dcc::target::CodeModel::Unreal32})
+        for (auto const& probe : probes)
+        {
+            TempDir td;
+            td.write_file("main.dc", std::string{"module main;\n"} + std::string{probe.source});
+            dcc::sm::SourceManager sm;
+            std::ostringstream errors;
+            dcc::diag::DiagnosticEngine diag{sm, errors};
+            dcc::ast::AstContext ast;
+            dcc::si::string_interner interner;
+            auto parse = [&](dcc::sm::FileId fid, dcc::ast::AstContext& ctx, dcc::diag::DiagnosticEngine& d) {
+                dcc::lex::Lexer lexer{*sm.get(fid), interner};
+                return dcc::parser::Parser{lexer, ctx, d}.parse();
+            };
+            auto target = *dcc::target::TargetConfig::parse_triple("i8086-binary");
+            REQUIRE(!target.configure(model, "i386"));
+            dcc::sema::SemaOptions opts;
+            opts.target = target;
+            opts.interner = &interner;
+            dcc::sema::SemaContext sema{sm, diag, ast, parse, std::move(opts)};
+            auto* entry = sema.analyze_entry(td.file("main.dc"));
+            REQUIRE(entry != nullptr);
+            CHECK(!diag.has_errors());
+            auto helpers = std::ranges::count_if(sema.graph().all(), [](auto const& m) { return m->canonical_path.str() == "core::i8086_arith"; });
+            CHECK_EQ(helpers, probe.needs_helper ? 1 : 0);
+            dcc::ir::IrContext ir{256 * 1024, &target};
+            dcc::ir::lower::Lowerer lowerer{ir, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types()};
+            auto* module = lowerer.lower_module(*entry);
+            REQUIRE(module != nullptr);
+            CHECK(lowerer.lower_errors().empty());
+        }
 }
