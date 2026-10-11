@@ -16,17 +16,17 @@ public []i32 const_sub([]i32 s) {
 === EXPECT-IR FLAGS: -fbounds-check ===
 module "test"
 
-const global @.str.0 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
+const global @.str.0 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #105, #110, #100, #101, #120, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
 
-const global @.str.1 : [9 x u8] = aggregate [9 x u8], #115, #108, #105, #99, #101, #95, #105, #100, #120
+const global @.str.1 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
 
-const global @.str.2 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #105, #110, #100, #101, #120, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
+const global @.str.2 : [15 x u8] = aggregate [15 x u8], #116, #101, #115, #116, #58, #58, #115, #108, #105, #99, #101, #95, #105, #100, #120
 
-const global @.str.3 : [12 x u8] = aggregate [12 x u8], #115, #108, #105, #99, #101, #95, #112, #114, #101, #102, #105, #120
+const global @.str.3 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #114, #97, #110, #103, #101, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
 
-const global @.str.4 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #114, #97, #110, #103, #101, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
+const global @.str.4 : [18 x u8] = aggregate [18 x u8], #116, #101, #115, #116, #58, #58, #115, #108, #105, #99, #101, #95, #112, #114, #101, #102, #105, #120
 
-const global @.str.5 : [9 x u8] = aggregate [9 x u8], #99, #111, #110, #115, #116, #95, #115, #117, #98
+const global @.str.5 : [15 x u8] = aggregate [15 x u8], #116, #101, #115, #116, #58, #58, #99, #111, #110, #115, #116, #95, #115, #117, #98
 
 
 i32@_DC0F1.4.test9.slice_idx1Sqi32si32s([]i32) {
@@ -43,7 +43,7 @@ i32@_DC0F1.4.test9.slice_idx1Sqi32si32s([]i32) {
   %6 = load i32, ptr<i32> %5
   ret i32 %6
 %bounds.fail2:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #4, []u8 aggregate []u8, @.str.1, #9, []u8 aggregate []u8, @.str.2, #25)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.0, #25, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #4, #12, aggregate []u8, @.str.2, #15)
   unreachable
 }
 
@@ -60,7 +60,7 @@ i32@_DC0F1.4.test9.slice_idx1Sqi32si32s([]i32) {
   %5 = cmp.ule usize %n, %3
   br.cond %5, label %slice.okb3, label %slice.failb4
 %slice.faila2:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #8, []u8 aggregate []u8, @.str.3, #12, []u8 aggregate []u8, @.str.4, #25)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.3, #25, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #8, #12, aggregate []u8, @.str.4, #18)
   unreachable
 %slice.okb3:
   %6 = sub usize %n, usize #0
@@ -68,7 +68,7 @@ i32@_DC0F1.4.test9.slice_idx1Sqi32si32s([]i32) {
   %8 = aggregate []i32, %7, %6
   ret []i32 %8
 %slice.failb4:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #8, []u8 aggregate []u8, @.str.3, #12, []u8 aggregate []u8, @.str.4, #25)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.3, #25, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #8, #12, aggregate []u8, @.str.4, #18)
   unreachable
 }
 
@@ -87,10 +87,9 @@ i32@_DC0F1.4.test9.slice_idx1Sqi32si32s([]i32) {
   %7 = aggregate []i32, %6, %5
   ret []i32 %7
 %slice.failb2:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #12, []u8 aggregate []u8, @.str.5, #9, []u8 aggregate []u8, @.str.4, #25)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.3, #25, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #12, #12, aggregate []u8, @.str.5, #15)
   unreachable
 }
 
-import void@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv([]u8, i32, []u8, []u8) {
+void@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v([]u8, {@0 []u8, @16 u32, @20 u32, @24 []u8}) {
 }
-

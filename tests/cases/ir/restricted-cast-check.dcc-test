@@ -9,11 +9,11 @@ public i64 test(u8 v) {
 === EXPECT-IR FLAGS: -frestricted-check ===
 module "test"
 
-const global @.str.0 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
+const global @.str.0 : [38 x u8] = aggregate [38 x u8], #118, #97, #108, #117, #101, #32, #111, #117, #116, #32, #111, #102, #32, #114, #97, #110, #103, #101, #32, #102, #111, #114, #32, #114, #101, #115, #116, #114, #105, #99, #116, #101, #100, #32, #116, #121, #112, #101
 
-const global @.str.1 : [4 x u8] = aggregate [4 x u8], #116, #101, #115, #116
+const global @.str.1 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
 
-const global @.str.2 : [38 x u8] = aggregate [38 x u8], #118, #97, #108, #117, #101, #32, #111, #117, #116, #32, #111, #102, #32, #114, #97, #110, #103, #101, #32, #102, #111, #114, #32, #114, #101, #115, #116, #114, #105, #99, #116, #101, #100, #32, #116, #121, #112, #101
+const global @.str.2 : [10 x u8] = aggregate [10 x u8], #116, #101, #115, #116, #58, #58, #116, #101, #115, #116
 
 
 i64@_DC0F1.4.test4.test1i8ui64s(u8) {
@@ -33,9 +33,9 @@ i64@_DC0F1.4.test4.test1i8ui64s(u8) {
   %9 = zext u8 %8 to i64
   ret i64 %9
 %restricted.fail2:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #4, []u8 aggregate []u8, @.str.1, #4, []u8 aggregate []u8, @.str.2, #38)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.0, #38, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #4, #20, aggregate []u8, @.str.2, #10)
   unreachable
 }
 
-import void@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv([]u8, i32, []u8, []u8) {
+void@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v([]u8, {@0 []u8, @16 u32, @20 u32, @24 []u8}) {
 }

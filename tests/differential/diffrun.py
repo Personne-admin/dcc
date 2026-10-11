@@ -63,13 +63,13 @@ def ensure_deps(root, work):
 
     stub_lines = [
         ".text",
-        ".globl _DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv",
-        ".type _DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv, @function",
-        "_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv:",
+        ".globl _DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v",
+        ".type _DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v, @function",
+        "_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v:",
         "    mov $" + str(ASSERT_EXIT_CODE) + ", %edi",
         "    mov $60, %eax",
         "    syscall",
-        ".size _DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv, . - _DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv",
+        ".size _DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v, . - _DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v",
         "",
     ]
     stub_source = work / "assert_exit.s"

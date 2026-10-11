@@ -20,11 +20,11 @@ public []i64 slice_omit_start([]i64 s) {
 === EXPECT-IR FLAGS: -fbounds-check ===
 module "test"
 
-const global @.str.0 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
+const global @.str.0 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #114, #97, #110, #103, #101, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
 
-const global @.str.1 : [16 x u8] = aggregate [16 x u8], #115, #108, #105, #99, #101, #95, #111, #109, #105, #116, #95, #115, #116, #97, #114, #116
+const global @.str.1 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
 
-const global @.str.2 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #114, #97, #110, #103, #101, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
+const global @.str.2 : [22 x u8] = aggregate [22 x u8], #116, #101, #115, #116, #58, #58, #115, #108, #105, #99, #101, #95, #111, #109, #105, #116, #95, #115, #116, #97, #114, #116
 
 
 []i64@_DC0F1.4.test14.arr_omit_start1A5i64sSqi64s([5 x i64]) {
@@ -75,9 +75,9 @@ const global @.str.2 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #
   %7 = aggregate []i64, %6, %5
   ret []i64 %7
 %slice.failb2:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #16, []u8 aggregate []u8, @.str.1, #16, []u8 aggregate []u8, @.str.2, #25)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.0, #25, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #16, #12, aggregate []u8, @.str.2, #22)
   unreachable
 }
 
-import void@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv([]u8, i32, []u8, []u8) {
+void@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v([]u8, {@0 []u8, @16 u32, @20 u32, @24 []u8}) {
 }

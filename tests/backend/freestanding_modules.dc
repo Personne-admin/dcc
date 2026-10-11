@@ -21,7 +21,7 @@ import assert;
     if mapping.put(3, 7).is_err() { return 2; }
     if mapping.get(3).unwrap_some() != 7 { return 3; }
     if std::hash::fnv1a_64("abc") == 0 {
-        assert::__assert("freestanding_modules.dc", 23, "kernel_test", "hash is nonzero");
+        assert::__assert("hash is nonzero", core::source_location::source_location());
     }
     u8[32] digest;
     if !std::sha::sha256("abc", digest[0..32]).is_ok() { return 4; }

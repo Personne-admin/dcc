@@ -7,11 +7,11 @@ public void test([]i64 s, i64 i) {
 === EXPECT-IR FLAGS: -fbounds-check ===
 module "test"
 
-const global @.str.0 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
+const global @.str.0 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #105, #110, #100, #101, #120, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
 
-const global @.str.1 : [4 x u8] = aggregate [4 x u8], #116, #101, #115, #116
+const global @.str.1 : [7 x u8] = aggregate [7 x u8], #116, #101, #115, #116, #46, #100, #99
 
-const global @.str.2 : [25 x u8] = aggregate [25 x u8], #115, #108, #105, #99, #101, #32, #105, #110, #100, #101, #120, #32, #111, #117, #116, #32, #111, #102, #32, #98, #111, #117, #110, #100, #115
+const global @.str.2 : [10 x u8] = aggregate [10 x u8], #116, #101, #115, #116, #58, #58, #116, #101, #115, #116
 
 
 void@_DC0F1.4.test4.test2Sqi64si64sv([]i64, i64) {
@@ -30,9 +30,9 @@ void@_DC0F1.4.test4.test2Sqi64si64sv([]i64, i64) {
   store i64 #42, ptr<i64> %7
   ret void
 %bounds.fail2:
-  call fn(@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv)([]u8 aggregate []u8, @.str.0, #7, i32 #4, []u8 aggregate []u8, @.str.1, #4, []u8 aggregate []u8, @.str.2, #25)
+  call fn(@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v)([]u8 aggregate []u8, @.str.0, #25, {@0 []u8, @16 u32, @20 u32, @24 []u8} aggregate {@0 []u8, @16 u32, @20 u32, @24 []u8}, aggregate []u8, @.str.1, #7, #4, #5, aggregate []u8, @.str.2, #10)
   unreachable
 }
 
-import void@_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv([]u8, i32, []u8, []u8) {
+void@_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v([]u8, {@0 []u8, @16 u32, @20 u32, @24 []u8}) {
 }

@@ -1591,6 +1591,8 @@ namespace
             sm.add_file_prefix_map(root.generic_string(), "dcc");
             sm.add_file_prefix_map((fs::temp_directory_path() / "dcc-byte-fixtures").generic_string(), "dcc-fixtures");
         }
+        else
+            sm.add_file_prefix_map(sb->root.generic_string() + "/", "");
         std::ostringstream diag_sink;
         dcc::diag::DiagnosticEngine diag{sm, diag_sink};
         diag.set_color(false);
@@ -3643,8 +3645,8 @@ namespace
                        << "    mov %eax, %edi\n"
                        << "    mov $60, %eax\n"
                        << "    syscall\n"
-                       << ".weak _DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv\n"
-                       << "_DC0F1.6.assert8.__assert4SCqci32sSCqcSCqcv:\n"
+                       << ".weak _DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v\n"
+                       << "_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v:\n"
                        << "    ret\n";
                 }
 

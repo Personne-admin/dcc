@@ -2126,32 +2126,9 @@ export namespace dcc::ir::lower
 
             set_current_block(fail_bb);
 
-            std::string file = "<unknown>";
-            int line = 0;
-            std::string func = "<unknown>";
-
-            if (m_current_func_decl && !m_current_func_decl->name.empty())
-                func = std::string(m_current_func_decl->name);
-            else if (m_current_func && !m_current_func->name.empty())
-                func = std::string(m_current_func->name);
-
-            sm::SourceRange resolved_range = range;
+            auto resolved_range = range;
             if (!resolved_range.valid())
                 resolved_range = fallback_range;
-            if (!resolved_range.valid() && m_current_func_decl)
-                resolved_range = m_current_func_decl->range;
-
-            auto* sm_ptr = get_source_manager();
-            if (sm_ptr && resolved_range.valid())
-            {
-                auto const* f = sm_ptr->get(resolved_range.begin.fileId);
-                if (f)
-                    file = std::filesystem::path(sm_ptr->map_output_path(f->path().string())).filename().string();
-                auto lc = sm_ptr->line_col(resolved_range.begin);
-                if (lc)
-                    line = static_cast<int>(lc->line);
-            }
-
             std::string_view expr_str;
             switch (kind)
             {
@@ -2163,7 +2140,7 @@ export namespace dcc::ir::lower
                     break;
             }
 
-            emit_assert_call(file, line, func, expr_str);
+            emit_assert_call(expr_str, resolved_range);
             emit_unreachable();
 
             set_current_block(ok_bb);
@@ -2267,79 +2244,77 @@ export namespace dcc::ir::lower
 
             set_current_block(fail_bb);
 
-            std::string file = "<unknown>";
-            int line = 0;
-            std::string func = "<unknown>";
-
-            if (m_current_func_decl && !m_current_func_decl->name.empty())
-                func = std::string(m_current_func_decl->name);
-            else if (m_current_func && !m_current_func->name.empty())
-                func = std::string(m_current_func->name);
-
-            sm::SourceRange resolved_range = range;
-            if (!resolved_range.valid() && m_current_func_decl)
-                resolved_range = m_current_func_decl->range;
-
-            auto* sm_ptr = get_source_manager();
-            if (sm_ptr && resolved_range.valid())
-            {
-                auto const* f = sm_ptr->get(resolved_range.begin.fileId);
-                if (f)
-                    file = std::filesystem::path(sm_ptr->map_output_path(f->path().string())).filename().string();
-                auto lc = sm_ptr->line_col(resolved_range.begin);
-                if (lc)
-                    line = static_cast<int>(lc->line);
-            }
-
-            emit_assert_call(file, line, func, "value out of range for restricted type");
+            auto resolved_range = range;
+            emit_assert_call("value out of range for restricted type", resolved_range);
             emit_unreachable();
 
             set_current_block(ok_bb);
         }
 
-        void emit_assert_call(std::string_view file, int line, std::string_view func, std::string_view expr)
+        IrType const* assert_location_type()
+        {
+            auto* slice = m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None);
+            auto* u32 = m_ctx.int_t(32, false);
+            std::array<IrType const*, 4> members = {slice, u32, u32, slice};
+            auto align = std::max<std::uint64_t>(slice->byte_align, u32->byte_align);
+            auto function_offset = (slice->byte_size + 8 + slice->byte_align - 1) / slice->byte_align * slice->byte_align;
+            std::array<std::uint64_t, 4> offsets = {0, slice->byte_size, slice->byte_size + 4, function_offset};
+            auto size = (function_offset + slice->byte_size + align - 1) / align * align;
+            return m_ctx.aggregate_t(members, offsets, size, align);
+        }
+
+        void emit_assert_call(std::string_view expr, sm::SourceRange range)
         {
             get_or_create_assert_func();
+            if (!range.valid() && m_current_func_decl)
+                range = m_current_func_decl->range;
 
-            auto* void_type = m_ctx.void_t();
-            auto* call_inst = m_ctx.call(void_type, m_assert_func_ref);
-
+            std::string file = "<unknown>";
+            std::uint32_t line = 0;
+            std::uint32_t column = 0;
+            if (auto* source_manager = get_source_manager(); source_manager && range.valid())
             {
-                auto* slice_ir_ty = m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None);
-                auto* file_global = get_or_create_string_global(file, false);
-                auto* file_ptr = m_ctx.global_ref(file_global, m_ctx.pointer_to(m_ctx.int_t(8, false)));
-                auto* file_len = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(file.size()));
-                auto* file_slice = m_ctx.aggregate(slice_ir_ty);
-                file_slice->values.push_back(file_ptr);
-                file_slice->values.push_back(file_len);
-                call_inst->args.push_back(file_slice);
+                if (auto* source_file = source_manager->get(range.begin.fileId))
+                    file = source_manager->map_output_path(source_file->path().string());
+                if (auto lc = source_manager->line_col(range.begin))
+                {
+                    line = lc->line;
+                    column = lc->column;
+                }
+            }
+            std::string function = "<unknown>";
+            if (m_current_func_decl)
+            {
+                if (!m_current_func_decl->function_names[1].empty())
+                    function = m_current_func_decl->function_names[1];
+                else
+                {
+                    function = std::string(m_current_func_decl->name);
+                    for (auto* parent = m_current_func_decl->enclosing_function; parent; parent = parent->enclosing_function)
+                        function = std::string(parent->name) + "::" + function;
+                    auto module_path = module_path_for_decl(m_current_func_decl);
+                    for (auto it = module_path.rbegin(); it != module_path.rend(); ++it)
+                        function = std::string(*it) + "::" + function;
+                }
             }
 
-            call_inst->args.push_back(m_ctx.int_const(m_ctx.int_t(32, true), line));
+            auto make_slice = [&](std::string_view text) {
+                auto* slice = m_ctx.aggregate(m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None));
+                slice->values.push_back(m_ctx.global_ref(get_or_create_string_global(text, false), m_ctx.pointer_to(m_ctx.int_t(8, false))));
+                slice->values.push_back(m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(text.size())));
+                return slice;
+            };
+            auto* message = make_slice(expr);
+            auto* location = m_ctx.aggregate(assert_location_type());
+            location->values.push_back(make_slice(file));
+            location->values.push_back(m_ctx.int_const(m_ctx.int_t(32, false), line));
+            location->values.push_back(m_ctx.int_const(m_ctx.int_t(32, false), column));
+            location->values.push_back(make_slice(function));
 
-            {
-                auto* slice_ir_ty = m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None);
-                auto* func_global = get_or_create_string_global(func, false);
-                auto* func_ptr = m_ctx.global_ref(func_global, m_ctx.pointer_to(m_ctx.int_t(8, false)));
-                auto* func_len = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(func.size()));
-                auto* func_slice = m_ctx.aggregate(slice_ir_ty);
-                func_slice->values.push_back(func_ptr);
-                func_slice->values.push_back(func_len);
-                call_inst->args.push_back(func_slice);
-            }
-
-            {
-                auto* slice_ir_ty = m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None);
-                auto* expr_global = get_or_create_string_global(expr, false);
-                auto* expr_ptr = m_ctx.global_ref(expr_global, m_ctx.pointer_to(m_ctx.int_t(8, false)));
-                auto* expr_len = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(expr.size()));
-                auto* expr_slice = m_ctx.aggregate(slice_ir_ty);
-                expr_slice->values.push_back(expr_ptr);
-                expr_slice->values.push_back(expr_len);
-                call_inst->args.push_back(expr_slice);
-            }
-
-            append_inst(call_inst);
+            auto* call = m_ctx.call(m_ctx.void_t(), m_assert_func_ref);
+            call->args.push_back(message);
+            call->args.push_back(location);
+            append_inst(call);
         }
 
         void get_or_create_assert_func()
@@ -2353,9 +2328,8 @@ export namespace dcc::ir::lower
 
             auto* void_type_ir = m_ctx.void_t();
             auto* slice_type_ir = m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None);
-            auto* i32_type_ir = m_ctx.int_t(32, true);
 
-            std::vector<IrType const*> params_ir = {slice_type_ir, i32_type_ir, slice_type_ir, slice_type_ir};
+            std::vector<IrType const*> params_ir = {slice_type_ir, assert_location_type()};
             auto* func_type = m_ctx.func_t(void_type_ir, params_ir);
 
             auto* assert_func_type = ir_type_cast<IrFuncType>(func_type);
@@ -2364,16 +2338,21 @@ export namespace dcc::ir::lower
 
             auto* void_sema = m_ctx.make<dcc::types::VoidType>();
             auto* char_sema = m_ctx.make<dcc::types::CharType>();
-            auto* i32_sema = m_ctx.make<dcc::types::IntType>(static_cast<std::uint8_t>(32), true);
+            auto* location_sema = m_ctx.make<dcc::types::StructType>(nullptr, m_ctx.allocator());
             auto* slice_const_char_sema = m_ctx.make<dcc::types::SliceType>(char_sema, dcc::types::Qual::Const, m_ctx.pointer_bits(), m_ctx.pointer_align());
 
             auto* synthetic_fd = m_ctx.make<ast::FuncDecl>(sm::SourceRange{}, std::string_view{"__assert"}, sm::SourceRange{});
 
-            std::vector<dcc::types::TypePtr> param_sema_types = {slice_const_char_sema, i32_sema, slice_const_char_sema, slice_const_char_sema};
+            std::vector<dcc::types::TypePtr> param_sema_types = {slice_const_char_sema, location_sema};
+            auto resolver = [this](void const* decl) -> std::optional<dcc::ir::mangle::NominalInfo> {
+                if (!decl)
+                    return dcc::ir::mangle::NominalInfo{{"core", "source_location"}, "SourceLocation"};
+                return m_nominal_resolver(decl);
+            };
             std::array<std::string_view, 1> assert_module_path = {"assert"};
 
             m_name_pool.push_back(dcc::ir::mangle::mangle_function(std::span<std::string_view const>{assert_module_path}, *synthetic_fd, param_sema_types,
-                                                                   void_sema, {}, m_nominal_resolver));
+                                                                   void_sema, {}, resolver));
 
             std::string_view mangled_name = m_name_pool.back();
 
@@ -2396,7 +2375,6 @@ export namespace dcc::ir::lower
             else
             {
                 m_assert_func = m_ctx.function(mangled_name, assert_func_type);
-                m_assert_func->is_dll_import = true;
                 m_assert_func->linkage = ir::Linkage::External;
                 m_module->functions.push_back(m_assert_func);
 
@@ -10048,30 +10026,6 @@ export namespace dcc::ir::lower
 
                 if (need_start_le_end || need_end_le_len)
                 {
-                    std::string file = "<unknown>";
-                    int line = 0;
-                    std::string func = "<unknown>";
-
-                    if (m_current_func_decl && !m_current_func_decl->name.empty())
-                        func = std::string(m_current_func_decl->name);
-                    else if (m_current_func && !m_current_func->name.empty())
-                        func = std::string(m_current_func->name);
-
-                    sm::SourceRange resolved_range = idx_expr->range;
-                    if (!resolved_range.valid() && m_current_func_decl)
-                        resolved_range = m_current_func_decl->range;
-
-                    auto* sm_ptr = get_source_manager();
-                    if (sm_ptr && resolved_range.valid())
-                    {
-                        auto const* f = sm_ptr->get(resolved_range.begin.fileId);
-                        if (f)
-                            file = std::filesystem::path(sm_ptr->map_output_path(f->path().string())).filename().string();
-                        auto lc = sm_ptr->line_col(resolved_range.begin);
-                        if (lc)
-                            line = static_cast<int>(lc->line);
-                    }
-
                     auto emit_one_check = [&](IrValue* lhs, IrValue* rhs, std::string_view suffix) {
                         auto* cmp = m_ctx.cmp_ule(lhs, rhs);
                         auto cmp_name = ident_name();
@@ -10084,7 +10038,7 @@ export namespace dcc::ir::lower
                         emit_br_cond(cmp, ok_bb, fail_bb);
 
                         set_current_block(fail_bb);
-                        emit_assert_call(file, line, func, "slice range out of bounds");
+                        emit_assert_call("slice range out of bounds", idx_expr->range);
                         emit_unreachable();
 
                         set_current_block(ok_bb);
