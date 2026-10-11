@@ -34,11 +34,11 @@ namespace dcc::backend
             {
                 case ir::IrTypeKind::Pointer: {
                     auto* pointer = static_cast<ir::IrPointerType const*>(type);
-                    return pointer->flavor != ir::PointerFlavor::Near || has_segmented_type(pointer->pointee, seen);
+                    return pointer->flavor == ir::PointerFlavor::Far || has_segmented_type(pointer->pointee, seen);
                 }
                 case ir::IrTypeKind::Slice: {
                     auto* slice = static_cast<ir::IrSliceType const*>(type);
-                    return slice->flavor != ir::PointerFlavor::Near || has_segmented_type(slice->element, seen);
+                    return slice->flavor == ir::PointerFlavor::Far || has_segmented_type(slice->element, seen);
                 }
                 case ir::IrTypeKind::Array:
                     return has_segmented_type(static_cast<ir::IrArrayType const*>(type)->element, seen);
@@ -128,7 +128,7 @@ namespace dcc::backend
                 ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
                 for (auto* global : input->globals)
                     if (global && has_segmented_type(global->type))
-                        return fail(std::format("i8086 backend: global `{}` uses far or based pointers, which are not supported yet", global->name));
+                        return fail(std::format("i8086 backend: global `{}` uses dynamic far pointers, which are not supported yet", global->name));
 
                 std::vector<MFunction> functions;
                 for (auto* func : input->functions)
@@ -145,6 +145,16 @@ namespace dcc::backend
                     }
                     i8086::regalloc(mfunc, opts.target);
                     i8086::frame_layout(mfunc, opts.target);
+                    for (auto& block : mfunc.blocks)
+                        for (auto& instruction : block.instrs)
+                            for (std::uint8_t i = 0; i < instruction.num_ops; ++i)
+                                if (auto& operand = instruction.ops[i]; operand.kind == MOpKind::Mem)
+                                {
+                                    auto& memory = operand.mem;
+                                    bool const stack_base = memory.base == VReg::phys(PhysReg::RBP) || memory.base == VReg::phys(PhysReg::RSP);
+                                    if (memory.segment == (stack_base ? SegmentOverride::SS : SegmentOverride::DS))
+                                        memory.segment = SegmentOverride::None;
+                                }
                     if (mfunc.frame_size >= 65532)
                         return fail(std::format("i8086 backend: stack frame in function `{}` exceeds the 16-bit stack", func->name));
                     if (opts.target.code_model == target::CodeModel::Default || opts.target.code_model == target::CodeModel::Small)

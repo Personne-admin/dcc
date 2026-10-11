@@ -389,6 +389,43 @@ TEST_CASE("16-bit encodings match nasm byte for byte")
     }
 }
 
+TEST_CASE("based memory and segmented string encodings match the assembler in both address widths")
+{
+    using P = PhysReg;
+    for (auto segment : {SegmentOverride::CS, SegmentOverride::DS, SegmentOverride::ES, SegmentOverride::SS, SegmentOverride::FS, SegmentOverride::GS})
+        for (bool address32 : {false, true})
+        {
+            auto memory = Seg(address32 ? A32(B(P::RBX, 16)) : B(P::RBX, 16), segment);
+            auto name = segment_name(segment);
+            auto base = address32 ? "ebx" : "bx";
+            std::vector<Case> cases{
+                {std::format("mov al, {}:[{}+16]", name, base), X(MOpc::MOV8rm, {R(P::RAX), M(memory)}, 1)},
+                {std::format("mov {}:[{}+16], al", name, base), X(MOpc::MOV8mr, {M(memory), R(P::RAX)})},
+                {std::format("mov ax, {}:[{}+16]", name, base), X(MOpc::MOV16rm, {R(P::RAX), M(memory)}, 1)},
+                {std::format("mov {}:[{}+16], ax", name, base), X(MOpc::MOV16mr, {M(memory), R(P::RAX)})},
+                {std::format("mov eax, {}:[{}+16]", name, base), X(MOpc::MOV32rm, {R(P::RAX), M(memory)}, 1)},
+                {std::format("mov {}:[{}+16], eax", name, base), X(MOpc::MOV32mr, {M(memory), R(P::RAX)})},
+            };
+            MMem source{};
+            source.segment = segment;
+            cases.push_back({std::format("{} {}rep movsb", name, address32 ? "a32 " : ""),
+                             X(address32 ? MOpc::REPMOVS_A32 : MOpc::REPMOVS, {M(source)})});
+            cases.push_back({std::format("{} {}rep movsw", name, address32 ? "a32 " : ""),
+                             X(address32 ? MOpc::REPMOVSW_A32 : MOpc::REPMOVSW, {M(source)})});
+            for (auto const& c : cases)
+            {
+                std::vector<std::string> warnings;
+                auto bytes = encode16(c.instr, &warnings);
+                auto expected = nasm16(c.text);
+                REQUIRE(expected.has_value());
+                CHECK(warnings.empty());
+                if (bytes != *expected)
+                    std::println(std::cerr, "      {}: dcc [{}] assembler [{}]", c.text, hex(bytes), hex(*expected));
+                CHECK(bytes == *expected);
+            }
+        }
+}
+
 TEST_CASE("16-bit encodings never emit a rex byte before the opcode")
 {
     using P = PhysReg;

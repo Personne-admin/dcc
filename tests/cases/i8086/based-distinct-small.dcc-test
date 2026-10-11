@@ -1,0 +1,179 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+struct BoxCS { u16 tag; [^CS]u16 values; }
+@noinline u16 nestedCS(BoxCS b) {
+    u16 total = b.values[0];
+    [^CS]u16 tail = b.values[1..3];
+    for x in tail { total += x; }
+    u16 reference_total = 0;
+    for &x in tail {
+        u16^CS q = x;
+        reference_total += *q;
+    }
+    if reference_total != total - b.values[0] { return 0; }
+    return total + b.tag;
+}
+struct BoxDS { u16 tag; [^DS]u16 values; }
+@noinline u16 nestedDS(BoxDS b) {
+    u16 total = b.values[0];
+    [^DS]u16 tail = b.values[1..3];
+    for x in tail { total += x; }
+    u16 reference_total = 0;
+    for &x in tail {
+        u16^DS q = x;
+        reference_total += *q;
+    }
+    if reference_total != total - b.values[0] { return 0; }
+    return total + b.tag;
+}
+struct BoxES { u16 tag; [^ES]u16 values; }
+@noinline u16 nestedES(BoxES b) {
+    u16 total = b.values[0];
+    [^ES]u16 tail = b.values[1..3];
+    for x in tail { total += x; }
+    u16 reference_total = 0;
+    for &x in tail {
+        u16^ES q = x;
+        reference_total += *q;
+    }
+    if reference_total != total - b.values[0] { return 0; }
+    return total + b.tag;
+}
+struct BoxSS { u16 tag; [^SS]u16 values; }
+@noinline u16 nestedSS(BoxSS b) {
+    u16 total = b.values[0];
+    [^SS]u16 tail = b.values[1..3];
+    for x in tail { total += x; }
+    u16 reference_total = 0;
+    for &x in tail {
+        u16^SS q = x;
+        reference_total += *q;
+    }
+    if reference_total != total - b.values[0] { return 0; }
+    return total + b.tag;
+}
+struct BoxFS { u16 tag; [^FS]u16 values; }
+@noinline u16 nestedFS(BoxFS b) {
+    u16 total = b.values[0];
+    [^FS]u16 tail = b.values[1..3];
+    for x in tail { total += x; }
+    u16 reference_total = 0;
+    for &x in tail {
+        u16^FS q = x;
+        reference_total += *q;
+    }
+    if reference_total != total - b.values[0] { return 0; }
+    return total + b.tag;
+}
+struct BoxGS { u16 tag; [^GS]u16 values; }
+@noinline u16 nestedGS(BoxGS b) {
+    u16 total = b.values[0];
+    [^GS]u16 tail = b.values[1..3];
+    for x in tail { total += x; }
+    u16 reference_total = 0;
+    for &x in tail {
+        u16^GS q = x;
+        reference_total += *q;
+    }
+    if reference_total != total - b.values[0] { return 0; }
+    return total + b.tag;
+}
+struct Odd { u8[33] bytes; }
+@nomangle public i32 dcc_main() {
+    u16^CS pCS = CS:0x8000;
+    pCS[0] = 10;
+    pCS[1] = 11;
+    pCS[2] = 12;
+    u16^DS pDS = DS:0x8000;
+    pDS[0] = 11;
+    pDS[1] = 12;
+    pDS[2] = 13;
+    u16^ES pES = ES:0x8000;
+    pES[0] = 12;
+    pES[1] = 13;
+    pES[2] = 14;
+    u16^SS pSS = SS:0x8000;
+    pSS[0] = 11;
+    pSS[1] = 12;
+    pSS[2] = 13;
+    u16^FS pFS = FS:0x8000;
+    pFS[0] = 14;
+    pFS[1] = 15;
+    pFS[2] = 16;
+    u16^GS pGS = GS:0x8000;
+    pGS[0] = 15;
+    pGS[1] = 16;
+    pGS[2] = 17;
+    BoxCS bCS;
+    bCS.tag = 7;
+    bCS.values.ptr = pCS;
+    bCS.values.len = 3;
+    if nestedCS(bCS) != 40 { return 1; }
+    BoxDS bDS;
+    bDS.tag = 7;
+    bDS.values.ptr = pDS;
+    bDS.values.len = 3;
+    if nestedDS(bDS) != 43 { return 2; }
+    BoxES bES;
+    bES.tag = 7;
+    bES.values.ptr = pES;
+    bES.values.len = 3;
+    if nestedES(bES) != 46 { return 3; }
+    BoxSS bSS;
+    bSS.tag = 7;
+    bSS.values.ptr = pSS;
+    bSS.values.len = 3;
+    if nestedSS(bSS) != 43 { return 4; }
+    BoxFS bFS;
+    bFS.tag = 7;
+    bFS.values.ptr = pFS;
+    bFS.values.len = 3;
+    if nestedFS(bFS) != 52 { return 5; }
+    BoxGS bGS;
+    bGS.tag = 7;
+    bGS.values.ptr = pGS;
+    bGS.values.len = 3;
+    if nestedGS(bGS) != 55 { return 6; }
+    Odd^ES odd = ES:0x8100;
+    Odd value;
+    value.bytes[0] = 37;
+    value.bytes[32] = 39;
+    *odd = value;
+    Odd^FS dest = FS:0x8200;
+    *dest = *odd;
+    if dest.bytes[0] != 37 || dest.bytes[32] != 39 { return 7; }
+    Odd blank;
+    *dest = blank;
+    if dest.bytes[0] != 0 || dest.bytes[32] != 0 { return 8; }
+    u8^ES zero = ES:0;
+    *zero = 41;
+    if *zero != 41 { return 9; }
+    return 42;
+}
+=== FILE: start.asm ===
+bits 16
+section .start
+global _start
+extern dcc_main
+_start:
+    cli
+    cld
+    mov ax, 0x2000
+    mov ds, ax
+    mov ss, ax
+    mov sp, 0xfffe
+    mov ax, 0x3000
+    mov es, ax
+    mov ax, 0x4000
+    mov fs, ax
+    mov ax, 0x5000
+    mov gs, ax
+    call dcc_main
+    mov dx, 0xf4
+    out dx, al
+stop:
+    jmp stop
+=== EXPECT-I8086-RUN ===
+START: none
+RUN-EXIT: 42
