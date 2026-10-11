@@ -14,6 +14,31 @@ volatile usize first_base;
     return pointer == zero && value == expected;
 }
 
+@noinline usize read_slice_element(usize* pointer) { return *pointer; }
+@noinline usize read_slice_element(usize^FS pointer) { return *pointer; }
+
+@noinline bool check_based_slice(usize^FS pointer, usize first, usize second) {
+    [^FS]usize values;
+    values.ptr = pointer;
+    values.len = 2;
+    usize total = 0;
+    for value in values { total += value; }
+    if total != first + second { return false; };
+    [^FS]usize tail = values[1..2];
+    if tail.ptr != pointer + 1 || tail.len != 1 || tail[0] != second { return false; }
+    total = 0;
+    for value in tail { total += value; }
+    if total != second { return false; }
+    values.ptr = pointer + 1;
+    values.len = 1;
+    total = 0;
+    for value in values { total += value; }
+    if total != second { return false; }
+    total = 0;
+    for &value in values { total += read_slice_element(value); }
+    return total == second;
+}
+
 i32 check_fs(usize seed) {
     usize[4] tls;
     tls[0] = seed;
@@ -29,6 +54,7 @@ i32 check_fs(usize seed) {
     if base != &tls[0] as usize || !zero_offset_is_valid(first, seed) || *second != seed + 7 { result = 4; }
     if seed == 31 { first_base = base; }
     if seed == 53 && base == first_base { result = 7; }
+    if !check_based_slice(first, seed, seed + 7) { result = 8; }
     *second = seed + 11;
     if tls[1] != seed + 11 { result = 5; }
     if std::sys::linux::syscall::raw2(158, 0x1002, old_base) != 0 { return 6; }

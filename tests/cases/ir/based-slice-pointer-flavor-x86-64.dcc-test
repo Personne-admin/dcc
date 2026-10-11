@@ -1,0 +1,185 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+@nomangle public usize sumFS([^FS]usize values) {
+    usize total = 0;
+    for x in values { total += x; };
+    [^FS]usize tail = values[1..2];
+    tail.ptr = values.ptr + 1;
+    for &x in tail {
+        usize^FS p = x;
+        total += *p;
+    }
+    return total;
+}
+@nomangle public usize sumGS([^GS]usize values) {
+    usize total = 0;
+    for x in values { total += x; };
+    [^GS]usize tail = values[1..2];
+    tail.ptr = values.ptr + 1;
+    for &x in tail {
+        usize^GS p = x;
+        total += *p;
+    }
+    return total;
+}
+
+=== EXPECT-IR ===
+module "main"
+@nomangle
+usize@sumFS([]fs usize) {
+%entry([]fs usize %values):
+  %0 = alloca []fs usize
+  store []fs usize %values, ptr<[]fs usize> %0
+  %1 = alloca usize
+  store usize #0, ptr<usize> %1
+  %2 = load []fs usize, ptr<[]fs usize> %0
+  %3 = extract []fs usize %2, field #1
+  %4 = extract []fs usize %2, field #0
+  %5 = alloca usize
+  store usize #0, ptr<usize> %5
+  %10 = alloca usize
+  %17 = alloca []fs usize
+  %32 = alloca usize
+  %37 = alloca ptr<usize, based=fs>
+  br label %forin.header1
+%forin.header1:
+  %6 = load usize, ptr<usize> %5
+  %7 = cmp.ult usize %6, %3
+  br.cond %7, label %forin.body2, label %forin.exit4
+%forin.body2:
+  %8 = load usize, ptr<usize> %5
+  %9 = gep ptr<usize, based=fs> %4, %8
+  %11 = load usize, ptr<usize, based=fs> %9
+  store usize %11, ptr<usize> %10
+  %12 = load usize, ptr<usize> %1
+  %13 = load usize, ptr<usize> %10
+  %14 = add usize %12, usize %13
+  store usize %14, ptr<usize> %1
+  br label %forin.step3
+%forin.step3:
+  %15 = load usize, ptr<usize> %5
+  %16 = add usize %15, usize #1
+  store usize %16, ptr<usize> %5
+  br label %forin.header1
+%forin.exit4:
+  %18 = load []fs usize, ptr<[]fs usize> %0
+  %19 = extract []fs usize %18, field #0
+  %20 = extract []fs usize %18, field #1
+  %21 = sub usize #2, usize #1
+  %22 = gep ptr<usize, based=fs> %19, #1
+  %23 = aggregate []fs usize, %22, %21
+  store []fs usize %23, ptr<[]fs usize> %17
+  %24 = gep ptr<[]fs usize> %0, field #0
+  %25 = load ptr<usize, based=fs>, ptr<ptr<usize, based=fs>> %24
+  %26 = sext i32 #1 to i64
+  %27 = gep ptr<usize, based=fs> %25, %26
+  %28 = gep ptr<[]fs usize> %17, field #0
+  store ptr<usize, based=fs> %27, ptr<ptr<usize, based=fs>> %28
+  %29 = load []fs usize, ptr<[]fs usize> %17
+  %30 = extract []fs usize %29, field #1
+  %31 = extract []fs usize %29, field #0
+  store usize #0, ptr<usize> %32
+  br label %forin.header5
+%forin.header5:
+  %33 = load usize, ptr<usize> %32
+  %34 = cmp.ult usize %33, %30
+  br.cond %34, label %forin.body6, label %forin.exit8
+%forin.body6:
+  %35 = load usize, ptr<usize> %32
+  %36 = gep ptr<usize, based=fs> %31, %35
+  store ptr<usize, based=fs> %36, ptr<ptr<usize, based=fs>> %37
+  %38 = load usize, ptr<usize> %1
+  %39 = load ptr<usize, based=fs>, ptr<ptr<usize, based=fs>> %37
+  %40 = load usize, ptr<usize, based=fs> %39
+  %41 = add usize %38, usize %40
+  store usize %41, ptr<usize> %1
+  br label %forin.step7
+%forin.step7:
+  %42 = load usize, ptr<usize> %32
+  %43 = add usize %42, usize #1
+  store usize %43, ptr<usize> %32
+  br label %forin.header5
+%forin.exit8:
+  %44 = load usize, ptr<usize> %1
+  ret usize %44
+}
+
+@nomangle
+usize@sumGS([]gs usize) {
+%entry([]gs usize %values):
+  %0 = alloca []gs usize
+  store []gs usize %values, ptr<[]gs usize> %0
+  %1 = alloca usize
+  store usize #0, ptr<usize> %1
+  %2 = load []gs usize, ptr<[]gs usize> %0
+  %3 = extract []gs usize %2, field #1
+  %4 = extract []gs usize %2, field #0
+  %5 = alloca usize
+  store usize #0, ptr<usize> %5
+  %10 = alloca usize
+  %17 = alloca []gs usize
+  %32 = alloca usize
+  %37 = alloca ptr<usize, based=gs>
+  br label %forin.header1
+%forin.header1:
+  %6 = load usize, ptr<usize> %5
+  %7 = cmp.ult usize %6, %3
+  br.cond %7, label %forin.body2, label %forin.exit4
+%forin.body2:
+  %8 = load usize, ptr<usize> %5
+  %9 = gep ptr<usize, based=gs> %4, %8
+  %11 = load usize, ptr<usize, based=gs> %9
+  store usize %11, ptr<usize> %10
+  %12 = load usize, ptr<usize> %1
+  %13 = load usize, ptr<usize> %10
+  %14 = add usize %12, usize %13
+  store usize %14, ptr<usize> %1
+  br label %forin.step3
+%forin.step3:
+  %15 = load usize, ptr<usize> %5
+  %16 = add usize %15, usize #1
+  store usize %16, ptr<usize> %5
+  br label %forin.header1
+%forin.exit4:
+  %18 = load []gs usize, ptr<[]gs usize> %0
+  %19 = extract []gs usize %18, field #0
+  %20 = extract []gs usize %18, field #1
+  %21 = sub usize #2, usize #1
+  %22 = gep ptr<usize, based=gs> %19, #1
+  %23 = aggregate []gs usize, %22, %21
+  store []gs usize %23, ptr<[]gs usize> %17
+  %24 = gep ptr<[]gs usize> %0, field #0
+  %25 = load ptr<usize, based=gs>, ptr<ptr<usize, based=gs>> %24
+  %26 = sext i32 #1 to i64
+  %27 = gep ptr<usize, based=gs> %25, %26
+  %28 = gep ptr<[]gs usize> %17, field #0
+  store ptr<usize, based=gs> %27, ptr<ptr<usize, based=gs>> %28
+  %29 = load []gs usize, ptr<[]gs usize> %17
+  %30 = extract []gs usize %29, field #1
+  %31 = extract []gs usize %29, field #0
+  store usize #0, ptr<usize> %32
+  br label %forin.header5
+%forin.header5:
+  %33 = load usize, ptr<usize> %32
+  %34 = cmp.ult usize %33, %30
+  br.cond %34, label %forin.body6, label %forin.exit8
+%forin.body6:
+  %35 = load usize, ptr<usize> %32
+  %36 = gep ptr<usize, based=gs> %31, %35
+  store ptr<usize, based=gs> %36, ptr<ptr<usize, based=gs>> %37
+  %38 = load usize, ptr<usize> %1
+  %39 = load ptr<usize, based=gs>, ptr<ptr<usize, based=gs>> %37
+  %40 = load usize, ptr<usize, based=gs> %39
+  %41 = add usize %38, usize %40
+  store usize %41, ptr<usize> %1
+  br label %forin.step7
+%forin.step7:
+  %42 = load usize, ptr<usize> %32
+  %43 = add usize %42, usize #1
+  store usize %43, ptr<usize> %32
+  br label %forin.header5
+%forin.exit8:
+  %44 = load usize, ptr<usize> %1
+  ret usize %44
+}

@@ -1895,7 +1895,8 @@ export namespace dcc::ir::lower
                 append_inst(len_extract);
                 len_val = len_extract;
 
-                auto* ptr_type = m_ctx.pointer_to(ir_element_type);
+                auto* slice_type = static_cast<IrSliceType const*>(iter_val->type);
+                auto* ptr_type = m_ctx.pointer_to(slice_type->element, slice_type->seg, slice_type->flavor);
                 auto* ptr_extract = m_ctx.extract(ptr_type, iter_val, 0);
                 auto ptr_name = ident_name();
                 ptr_extract->name = m_name_pool.back();
@@ -1982,6 +1983,8 @@ export namespace dcc::ir::lower
                         if (!fs->item_name.empty())
                         {
                             auto* ptr_sema_ty = make_ptr_sema_type(element_sema_type, element_quals);
+                            if (auto const* slice = types::type_cast<types::SliceType>(get_sema_resolved_type(iter_expr)); slice && m_type_ctx)
+                                ptr_sema_ty = m_type_ctx->pointer_with_flavor(element_sema_type, element_quals, slice->flavor, slice->segment);
                             m_named_values[fs->item_name] = MapEntry{gep, false, ptr_sema_ty, false};
                         }
                     }
@@ -9932,7 +9935,8 @@ export namespace dcc::ir::lower
 
                 auto* obj_val = lower_expr(idx_expr->object);
 
-                auto* ptr_type = m_ctx.pointer_to(ir_element_type);
+                auto* slice_type = static_cast<IrSliceType const*>(obj_val->type);
+                auto* ptr_type = m_ctx.pointer_to(slice_type->element, slice_type->seg, slice_type->flavor);
                 auto* ptr_extract = m_ctx.extract(ptr_type, obj_val, 0);
                 auto ptr_name = ident_name();
                 ptr_extract->name = m_name_pool.back();

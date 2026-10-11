@@ -16150,7 +16150,11 @@ export namespace dcc::sema
 
                         types::TypePtr binding_type = element_type;
                         if (f.by_reference && element_type)
-                            binding_type = m_types.pointer_to(element_type, element_quals);
+                        {
+                            auto const* slice = types::type_cast<types::SliceType>(iterable_result.type);
+                            binding_type = slice ? m_types.pointer_with_flavor(element_type, element_quals, slice->flavor, slice->segment)
+                                                 : m_types.pointer_to(element_type, element_quals);
+                        }
 
                         if (f.item_type && f.item_type->sema.canonical && !has_error(binding_type))
                         {
