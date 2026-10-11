@@ -7024,7 +7024,7 @@ export namespace dcc::ir::lower
                     {
                         if (md->dialect == ast::AsmDialect::Intel)
                         {
-                            auto start = part.byte_offset + part.byte_length;
+                            auto start = part.byte_offset + 2;
                             auto end = start;
                             while (end < md->template_str.size() && std::isalnum(static_cast<unsigned char>(md->template_str[end])))
                                 ++end;
@@ -7066,7 +7066,7 @@ export namespace dcc::ir::lower
                         if (!failed)
                             out += mangled;
                     }
-                    cursor = part.byte_offset + part.byte_length;
+                    cursor = part.byte_offset + (part.kind == ast::AsmPlaceholderSpan::Kind::RegLiteral ? 2 : part.byte_length);
                 }
                 out += std::string_view(md->template_str).substr(cursor);
                 if (failed)
