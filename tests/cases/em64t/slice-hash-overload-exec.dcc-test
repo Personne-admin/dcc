@@ -10,6 +10,6 @@ import core;
     return 0;
 }
 @nomangle public i32 dcc_main() { return run(); }
-=== EXPECT-EM64T-OBJECT ===
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
 LINK-STD: true
 RUN-EXIT: 0

@@ -32,7 +32,7 @@ import b;
 void test(char* x) {
     b::forward(x);
     a::absent(x);
-    b::isolated(42);
+    a::absent(42);
 }
 
 === ENTRY: main.dc ===

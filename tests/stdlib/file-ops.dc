@@ -141,27 +141,27 @@ i32 test_make_directory_all_file_conflict() {
 }
 
 i32 test_make_directory_all_absolute() {
-    u8[512] cwd_store;
-    [] u8 cwd_view = slice::from_raw(&cwd_store[0], 512);
-    Result([] const u8, Error) cr = process::current_dir(cwd_view);
+    char[512] cwd_store;
+    [] char cwd_view = slice::from_raw(&cwd_store[0], 512);
+    Result([] const char, Error) cr = process::current_dir(cwd_view);
     if cr.is_err() {
         return 60;
     }
-    [] const u8 cwd = cr.unwrap();
-    u8[1024] join_store;
-    [] u8 join_view = slice::from_raw(&join_store[0], 1024);
-    Result([] u8, Error) jr = path::join(cwd, "fops_abs/a/b", join_view);
+    [] const char cwd = cr.unwrap();
+    char[1024] join_store;
+    [] char join_view = slice::from_raw(&join_store[0], 1024);
+    Result([] char, Error) jr = path::join(cwd, "fops_abs/a/b", join_view);
     if jr.is_err() {
         return 61;
     }
-    [] u8 abs_path = jr.unwrap();
+    [] char abs_path = jr.unwrap();
     // copy to owned buffer since join_view borrows join_store
-    u8[1024] owned;
+    char[1024] owned;
     for usize i = 0; i < abs_path.len; i++ {
         owned[i] = abs_path[i];
     }
-    [] const u8 abs_const = slice::from_raw_const!u8(&owned[0], abs_path.len);
-    // make_directory_all takes [] const u8; slice::from_raw gives [] u8 which coerces?
+    [] const char abs_const = slice::from_raw_const!char(&owned[0], abs_path.len);
+    // make_directory_all takes [] const char; slice::from_raw gives [] char which coerces?
     if !file::make_directory_all(abs_const).is_ok() {
         return 62;
     }
@@ -171,9 +171,9 @@ i32 test_make_directory_all_absolute() {
     if !file::remove_directory(abs_const).is_ok() {
         return 64;
     }
-    u8[1024] parent_store;
-    [] u8 parent_view = slice::from_raw(&parent_store[0], 1024);
-    Result([] u8, Error) pr = path::join(cwd, "fops_abs/a", parent_view);
+    char[1024] parent_store;
+    [] char parent_view = slice::from_raw(&parent_store[0], 1024);
+    Result([] char, Error) pr = path::join(cwd, "fops_abs/a", parent_view);
     if pr.is_err() {
         return 65;
     }

@@ -75,18 +75,18 @@ const SourceLocation NESTED_DEFAULT = wrapper();
 const SourceLocation FORWARDED = forward(DEFAULT_A);
 const SourceLocation HELPER_DEFAULT = helper::helper_capture();
 
-bool ends_with_main_dc([]const u8 file) {
+bool ends_with_main_dc([]const char file) {
     if file.len < 7 {
         return false;
     }
     usize start = file.len - 7;
-    return file[start] == (109 as u8) &&
-           file[start + 1] == (97 as u8) &&
-           file[start + 2] == (105 as u8) &&
-           file[start + 3] == (110 as u8) &&
-           file[start + 4] == (46 as u8) &&
-           file[start + 5] == (100 as u8) &&
-           file[start + 6] == (99 as u8);
+    return file[start] == (109 as char) &&
+           file[start + 1] == (97 as char) &&
+           file[start + 2] == (105 as char) &&
+           file[start + 3] == (110 as char) &&
+           file[start + 4] == (46 as char) &&
+           file[start + 5] == (100 as char) &&
+           file[start + 6] == (99 as char);
 }
 
 bool loc(SourceLocation actual, u32 line, u32 column) {
