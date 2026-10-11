@@ -4476,6 +4476,8 @@ namespace
 
         void string_op(std::uint8_t opcode, bool address32)
         {
+            if (is_mem(0))
+                append_legacy_prefixes(m_buf, EncodeMode::Real16, 0, 0, op(0).mem.segment);
             if (address32)
                 emit_u8(m_buf, 0x67);
             emit_u8(m_buf, 0xF3);

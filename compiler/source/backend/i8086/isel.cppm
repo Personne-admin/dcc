@@ -217,6 +217,7 @@ namespace dcc::backend::i8086
             MFunction mfunc;
             MBlock* block{};
             bool c_abi{};
+            bool preserve_es{};
             VReg sret_pointer;
             struct Pair
             {
@@ -261,7 +262,7 @@ namespace dcc::backend::i8086
                     case IrTypeKind::Int:
                         return static_cast<IrIntType const*>(type)->bits;
                     case IrTypeKind::Pointer:
-                        return static_cast<IrPointerType const*>(type)->flavor == PointerFlavor::Near ? static_cast<unsigned>(type->byte_size * 8) : 0;
+                        return static_cast<IrPointerType const*>(type)->flavor != PointerFlavor::Far ? static_cast<unsigned>(type->byte_size * 8) : 0;
                     default:
                         return 0;
                 }
@@ -452,6 +453,8 @@ namespace dcc::backend::i8086
             {
                 if (auto* integer = ir_cast<IrIntConstant>(value))
                     return static_cast<std::int32_t>(static_cast<std::uint32_t>(integer->value));
+                if (auto* pointer = ir_cast<IrPointerConstant>(value); pointer && static_cast<IrPointerType const*>(pointer->type)->flavor == PointerFlavor::Based)
+                    return static_cast<std::int32_t>(pointer->offset);
                 if (ir_cast<IrNullConstant>(value))
                     return 0;
                 if (auto* boolean = ir_cast<IrBoolConstant>(value))
@@ -511,21 +514,92 @@ namespace dcc::backend::i8086
                 return std::nullopt;
             }
 
+            [[nodiscard]] static bool has_based_type(IrType const* type)
+            {
+                std::unordered_set<IrType const*> seen;
+                auto visit = [&](auto&& self, IrType const* t) -> bool {
+                    if (!t || !seen.insert(t).second)
+                        return false;
+                    if (t->kind == IrTypeKind::Pointer)
+                    {
+                        auto* p = static_cast<IrPointerType const*>(t);
+                        return p->flavor == PointerFlavor::Based || self(self, p->pointee);
+                    }
+                    if (t->kind == IrTypeKind::Slice)
+                        return static_cast<IrSliceType const*>(t)->flavor == PointerFlavor::Based;
+                    if (t->kind == IrTypeKind::Array)
+                        return self(self, static_cast<IrArrayType const*>(t)->element);
+                    if (t->kind == IrTypeKind::Aggregate)
+                        return std::ranges::any_of(static_cast<IrAggregateType const*>(t)->members, [&](IrType const* m) { return self(self, m); });
+                    return false;
+                };
+                return visit(visit, type);
+            }
+
+            [[nodiscard]] static SegmentOverride based_segment(IrType const* type)
+            {
+                if (!type || type->kind != IrTypeKind::Pointer)
+                    return SegmentOverride::None;
+                auto* pointer = static_cast<IrPointerType const*>(type);
+                if (pointer->flavor != PointerFlavor::Based)
+                    return SegmentOverride::None;
+                switch (pointer->seg)
+                {
+                    case Segment::Cs: return SegmentOverride::CS;
+                    case Segment::Ds: return SegmentOverride::DS;
+                    case Segment::Es: return SegmentOverride::ES;
+                    case Segment::Ss: return SegmentOverride::SS;
+                    case Segment::Fs: return SegmentOverride::FS;
+                    case Segment::Gs: return SegmentOverride::GS;
+                    default: return SegmentOverride::None;
+                }
+            }
+
+            [[nodiscard]] std::uint8_t address_bits(IrType const* type) const
+            {
+                return based_segment(type) == SegmentOverride::None ? target.pointer_bits : target.far_offset_bits();
+            }
+
+            [[nodiscard]] MMem pointer_memory(VReg base, IrType const* type, std::int32_t offset = 0) const
+            {
+                auto mem = MMem::make_base_disp(base, offset);
+                mem.address_bits = address_bits(type);
+                mem.segment = based_segment(type);
+                return mem;
+            }
+
             [[nodiscard]] std::optional<MOp> address(IrValue const* pointer)
             {
                 if (auto found = slots.find(pointer); found != slots.end())
                     return MOp::from_frame_slot(found->second);
+                auto segment = based_segment(pointer->type);
+                if (segment != SegmentOverride::None)
+                {
+                    auto offset = constant(pointer);
+                    if (auto* make = ir_cast<IrMakePointerInst>(pointer))
+                        offset = constant(make->offset);
+                    if (offset)
+                    {
+                        MMem mem{};
+                        mem.disp = static_cast<std::int32_t>(*offset);
+                        mem.address_bits = address_bits(pointer->type);
+                        mem.segment = segment;
+                        mem.absolute = true;
+                        return MOp::from_mem(mem);
+                    }
+                }
                 if (auto* ref = ir_cast<IrGlobalRef>(pointer); ref && ref->global)
                 {
                     MMem mem{};
                     mem.symbol = ref->global->name;
                     mem.disp = static_cast<std::int32_t>(ref->addend);
-                    mem.address_bits = static_cast<std::uint8_t>(target.pointer_bits == 32 ? 32 : 16);
+                    mem.address_bits = address_bits(pointer->type);
+                    mem.segment = segment;
                     return MOp::from_mem(mem);
                 }
                 auto reg = value(pointer);
                 if (reg)
-                    return MOp::from_mem(near_memory(*reg));
+                    return MOp::from_mem(pointer_memory(*reg, pointer->type));
                 return std::nullopt;
             }
 
@@ -567,7 +641,7 @@ namespace dcc::backend::i8086
             [[nodiscard]] static bool memory_type(IrType const* type)
             {
                 return type && (type->kind == IrTypeKind::Aggregate || type->kind == IrTypeKind::Array ||
-                                (type->kind == IrTypeKind::Slice && static_cast<IrSliceType const*>(type)->flavor == PointerFlavor::Near));
+                                (type->kind == IrTypeKind::Slice && static_cast<IrSliceType const*>(type)->flavor != PointerFlavor::Far));
             }
 
             [[nodiscard]] static bool indirect_return(IrType const* type)
@@ -599,15 +673,17 @@ namespace dcc::backend::i8086
                                                          std::min<std::uint32_t>(static_cast<std::uint32_t>(std::max<std::uint64_t>(type->byte_align, 1)), 2)));
             }
 
-            [[nodiscard]] VReg offset_address(VReg base, std::uint64_t offset)
+            [[nodiscard]] VReg offset_address(VReg base, std::uint64_t offset, unsigned bits = 0)
             {
                 if (!offset)
                     return base;
-                return emit(target.pointer_bits == 16 ? MOpc::ADD16ri : MOpc::ADD32ri,
-                            {MOp::from_reg(base), MOp::from_imm(fit(static_cast<std::int64_t>(offset), target.pointer_bits, false, target.pointer_bits))});
+                if (!bits)
+                    bits = target.pointer_bits;
+                return emit(bits == 16 ? MOpc::ADD16ri : MOpc::ADD32ri,
+                            {MOp::from_reg(base), MOp::from_imm(fit(static_cast<std::int64_t>(offset), bits, false, bits))});
             }
 
-            void bulk_memory(VReg destination, VReg source, std::uint64_t size, bool zero)
+            void bulk_memory(VReg destination, VReg source, std::uint64_t size, bool zero, IrType const* destination_type = nullptr, IrType const* source_type = nullptr)
             {
                 if (!size)
                     return;
@@ -616,7 +692,7 @@ namespace dcc::backend::i8086
                     for (std::uint64_t offset = 0; offset < size;)
                     {
                         auto bytes = size - offset >= 4 ? 4u : size - offset >= 2 ? 2u : 1u;
-                        auto dst = MOp::from_mem(near_memory(destination, static_cast<std::int32_t>(offset)));
+                        auto dst = MOp::from_mem(pointer_memory(destination, destination_type, static_cast<std::int32_t>(offset)));
                         if (zero)
                             append(make_instr(bytes == 4 ? MOpc::MOV32mi : bytes == 2 ? MOpc::MOV16mi : MOpc::MOV8mi, {dst, MOp::from_imm(0)}, 0));
                         else
@@ -624,36 +700,74 @@ namespace dcc::backend::i8086
                             auto loaded = emit(bytes == 4   ? MOpc::MOV32rm
                                                : bytes == 2 ? MOpc::MOV16rm
                                                             : MOpc::MOVZX16rm8,
-                                               {MOp::from_mem(near_memory(source, static_cast<std::int32_t>(offset)))});
+                                               {MOp::from_mem(pointer_memory(source, source_type, static_cast<std::int32_t>(offset)))});
                             append(make_instr(bytes == 4 ? MOpc::MOV32mr : bytes == 2 ? MOpc::MOV16mr : MOpc::MOV8mr, {dst, MOp::from_reg(loaded)}, 0));
                         }
                         offset += bytes;
                     }
                     return;
                 }
-                append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::DS)}, 0));
-                append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
+                auto source_segment = based_segment(source_type);
+                auto destination_segment = based_segment(destination_type);
+                bool const save_es = preserve_es || source_segment != SegmentOverride::None || destination_segment != SegmentOverride::None;
+                bool const save_fs = !zero && source_segment == SegmentOverride::ES && destination_segment != SegmentOverride::ES;
+                auto phys_segment = [](SegmentOverride segment) {
+                    switch (segment)
+                    {
+                        case SegmentOverride::CS: return PhysReg::CS;
+                        case SegmentOverride::ES: return PhysReg::ES;
+                        case SegmentOverride::SS: return PhysReg::SS;
+                        case SegmentOverride::FS: return PhysReg::FS;
+                        case SegmentOverride::GS: return PhysReg::GS;
+                        default: return PhysReg::DS;
+                    }
+                };
+                if (save_es)
+                    append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::ES)}, 0));
+                if (save_fs)
+                {
+                    append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::FS)}, 0));
+                    append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::ES)}, 0));
+                    append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::FS)}, 1));
+                    source_segment = SegmentOverride::FS;
+                }
+                if (destination_segment != SegmentOverride::ES)
+                {
+                    append(make_instr(MOpc::PUSHSEG, {phys_operand(phys_segment(destination_segment))}, 0));
+                    append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
+                }
+                auto width = std::max<unsigned>(address_bits(destination_type), zero ? 16u : address_bits(source_type));
                 if (!zero)
-                    copy_to(PhysReg::RSI, source, target.pointer_bits);
-                copy_to(PhysReg::RDI, destination, target.pointer_bits);
-                append(make_instr(target.pointer_bits == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(size / 2)}, 1));
+                    copy_to(PhysReg::RSI, extend(source, address_bits(source_type), false, width), width);
+                copy_to(PhysReg::RDI, extend(destination, address_bits(destination_type), false, width), width);
+                append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(size / 2)}, 1));
                 if (zero)
                     append(make_instr(MOpc::MOV16ri, {phys_operand(PhysReg::RAX), MOp::from_imm(0)}, 1));
                 auto strings = [&](bool tail) {
                     MInstr rep = make_instr(
-                        zero ? (target.pointer_bits == 16 ? (tail ? MOpc::REPSTOS : MOpc::REPSTOSW) : (tail ? MOpc::REPSTOS_A32 : MOpc::REPSTOSW_A32))
-                             : (target.pointer_bits == 16 ? (tail ? MOpc::REPMOVS : MOpc::REPMOVSW) : (tail ? MOpc::REPMOVS_A32 : MOpc::REPMOVSW_A32)),
+                        zero ? (width == 16 ? (tail ? MOpc::REPSTOS : MOpc::REPSTOSW) : (tail ? MOpc::REPSTOS_A32 : MOpc::REPSTOSW_A32))
+                             : (width == 16 ? (tail ? MOpc::REPMOVS : MOpc::REPMOVSW) : (tail ? MOpc::REPMOVS_A32 : MOpc::REPMOVSW_A32)),
                         {}, 0);
+                    if (!zero && source_segment != SegmentOverride::None && source_segment != SegmentOverride::DS)
+                    {
+                        MMem source_mem{};
+                        source_mem.segment = source_segment;
+                        rep.ops[rep.num_ops++] = MOp::from_mem(source_mem);
+                    }
                     rep.implicit_defs = bit(PhysReg::RDI) | bit(PhysReg::RCX) | (zero ? 0 : bit(PhysReg::RSI));
-                    rep.implicit_uses = rep.implicit_defs | bit(PhysReg::ES) | (zero ? bit(PhysReg::RAX) : bit(PhysReg::DS));
+                    rep.implicit_uses = rep.implicit_defs | bit(PhysReg::ES) | (zero ? bit(PhysReg::RAX) : bit(phys_segment(source_segment)));
                     append(rep);
                 };
                 strings(false);
                 if (size & 1)
                 {
-                    append(make_instr(target.pointer_bits == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(1)}, 1));
+                    append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(1)}, 1));
                     strings(true);
                 }
+                if (save_fs)
+                    append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::FS)}, 1));
+                if (save_es)
+                    append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
             }
 
             [[nodiscard]] std::optional<VReg> pointer_address(IrValue const* pointer) { return value(pointer); }
@@ -664,6 +778,8 @@ namespace dcc::backend::i8086
                     return static_cast<IrAggregateType const*>(type)->member_offsets.at(field);
                 if (type->kind == IrTypeKind::Array)
                     return static_cast<IrArrayType const*>(type)->element->byte_size * field;
+                if (type->kind == IrTypeKind::Slice)
+                    return (static_cast<IrSliceType const*>(type)->flavor == PointerFlavor::Based ? target.far_offset_bits() : target.pointer_bits) / 8 * field;
                 return target.pointer_bits / 8 * field;
             }
 
@@ -767,14 +883,18 @@ namespace dcc::backend::i8086
                 if (wide(inst->type))
                 {
                     if (auto source = pointer_address(pointer))
-                        pairs[inst] = load_pair(near_memory(*source));
+                        pairs[inst] = load_pair(pointer_memory(*source, pointer->type));
                     return;
                 }
                 if (memory_type(inst->type))
                 {
                     auto src = pointer_address(pointer);
                     if (src)
-                        load_at(inst, *src);
+                    {
+                        auto dst = temporary(inst->type);
+                        bulk_memory(dst, *src, inst->type->byte_size, false, nullptr, pointer->type);
+                        values[inst] = dst;
+                    }
                     return;
                 }
                 auto bits = value_bits(inst->type);
@@ -789,14 +909,15 @@ namespace dcc::backend::i8086
                 {
                     auto destination = pointer_address(pointer);
                     if (auto src = pair(stored); src && destination)
-                        store_pair(*src, near_memory(*destination));
+                        store_pair(*src, pointer_memory(*destination, pointer->type));
                     return;
                 }
                 if (memory_type(stored ? stored->type : nullptr))
                 {
                     auto dst = pointer_address(pointer);
                     if (dst)
-                        store_at(stored, *dst);
+                        if (auto src = value(stored))
+                            bulk_memory(*dst, *src, stored->type->byte_size, false, pointer->type);
                     return;
                 }
                 auto bits = value_bits(stored ? stored->type : nullptr);
@@ -826,14 +947,17 @@ namespace dcc::backend::i8086
                 if (!ptr)
                     return;
                 auto result = *ptr;
+                auto bits = address_bits(gep.base->type);
                 auto type = static_cast<IrPointerType const*>(gep.base->type)->pointee;
                 for (auto const& index : gep.indices)
                 {
                     if (index.kind == IrGepInst::IndexKind::Field)
                     {
-                        result = offset_address(result, member_offset(type, index.field_index));
+                        result = offset_address(result, member_offset(type, index.field_index), bits);
                         if (type->kind == IrTypeKind::Aggregate)
                             type = static_cast<IrAggregateType const*>(type)->members.at(index.field_index);
+                        else if (type->kind == IrTypeKind::Slice)
+                            type = index.field_index == 0 ? gep.type : nullptr;
                         else
                             type = nullptr;
                     }
@@ -842,13 +966,14 @@ namespace dcc::backend::i8086
                         auto elem = type && type->kind == IrTypeKind::Array ? static_cast<IrArrayType const*>(type)->element : type;
                         auto stride = elem ? elem->byte_size : 1;
                         if (auto imm = constant(index.dynamic_index))
-                            result = offset_address(result, static_cast<std::uint64_t>(*imm) * stride);
+                            result = offset_address(result, static_cast<std::uint64_t>(*imm) * stride, bits);
                         else if (auto dynamic = value(index.dynamic_index))
                         {
-                            auto scaled = stride == 1 ? *dynamic
-                                                      : emit(target.pointer_bits == 16 ? MOpc::IMUL16rri : MOpc::IMUL32rri,
-                                                             {MOp::from_reg(*dynamic), MOp::from_imm(static_cast<std::int64_t>(stride))});
-                            result = emit(target.pointer_bits == 16 ? MOpc::ADD16rr : MOpc::ADD32rr, {MOp::from_reg(result), MOp::from_reg(scaled)});
+                            auto index_value = extend(*dynamic, scalar_bits(index.dynamic_index->type), false, bits);
+                            auto scaled = stride == 1 ? index_value
+                                                      : emit(bits == 16 ? MOpc::IMUL16rri : MOpc::IMUL32rri,
+                                                             {MOp::from_reg(index_value), MOp::from_imm(static_cast<std::int64_t>(stride))});
+                            result = emit(bits == 16 ? MOpc::ADD16rr : MOpc::ADD32rr, {MOp::from_reg(result), MOp::from_reg(scaled)});
                         }
                         else
                             return;
@@ -1175,7 +1300,8 @@ namespace dcc::backend::i8086
                     }
                 MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->function->name)}, 0);
                 call.implicit_uses = uses;
-                call.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX);
+                call.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX) |
+                                     bit(PhysReg::ES) | bit(PhysReg::FS) | bit(PhysReg::GS);
                 append(call);
                 if (pushed > 0)
                     append(make_instr(MOpc::ADD16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(pushed)}, 1));
@@ -1361,6 +1487,20 @@ namespace dcc::backend::i8086
                 auto const* v = static_cast<IrValue const*>(inst);
                 switch (inst->kind)
                 {
+                    case IrNodeKind::MakePointer: {
+                        auto* make = static_cast<IrMakePointerInst const*>(inst);
+                        if (static_cast<IrPointerType const*>(v->type)->flavor == PointerFlavor::Far)
+                            return unsupported("a dynamic far pointer");
+                        if (auto offset = value(make->offset))
+                            values[v] = *offset;
+                        return;
+                    }
+                    case IrNodeKind::PointerOffset: {
+                        auto* extract = static_cast<IrPointerOffsetInst const*>(inst);
+                        if (auto offset = value(extract->pointer))
+                            values[v] = *offset;
+                        return;
+                    }
                     case IrNodeKind::InlineAsm:
                         return lower_inline_asm(*static_cast<IrInlineAsmInst const*>(inst));
                     case IrNodeKind::Extract: {
@@ -1825,6 +1965,13 @@ namespace dcc::backend::i8086
 
 
                 auto order = reverse_post_order();
+                for (auto* b : order)
+                {
+                    for (auto* param : b->params)
+                        preserve_es |= has_based_type(param->type);
+                    for (auto* inst : b->instructions)
+                        preserve_es |= has_based_type(static_cast<IrValue const*>(inst)->type);
+                }
                 for (auto* ir_block : order)
                 {
                     auto& mblock = mfunc.create_block(ir_block->has_name() ? ir_block->name : std::string_view{});
@@ -1834,6 +1981,8 @@ namespace dcc::backend::i8086
                 }
 
                 auto use_def = analysis::UseDef::build(func);
+                for (auto const& [operand, users] : use_def.uses)
+                    preserve_es |= has_based_type(operand->type);
                 std::unordered_map<IrValue const*, std::size_t> terminator_uses;
                 for (auto* ir_block : order)
                 {

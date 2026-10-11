@@ -218,17 +218,17 @@ namespace dcc::backend::i8086
                     case MOpc::POPSEG:
                         return line(std::format("pop {}", reg(mi.ops[0].reg, 16)));
                     case MOpc::REPMOVS:
-                        return line("rep movsb");
+                        return line(std::format("{}{}", mi.num_ops && mi.ops[0].kind == MOpKind::Mem ? std::string(segment_name(mi.ops[0].mem.segment)) + " " : "", "rep movsb"));
                     case MOpc::REPMOVSW:
-                        return line("rep movsw");
+                        return line(std::format("{}{}", mi.num_ops && mi.ops[0].kind == MOpKind::Mem ? std::string(segment_name(mi.ops[0].mem.segment)) + " " : "", "rep movsw"));
                     case MOpc::REPSTOS:
                         return line("rep stosb");
                     case MOpc::REPSTOSW:
                         return line("rep stosw");
                     case MOpc::REPMOVS_A32:
-                        return line("a32 rep movsb");
+                        return line(std::format("{}{}", mi.num_ops && mi.ops[0].kind == MOpKind::Mem ? std::string(segment_name(mi.ops[0].mem.segment)) + " " : "", "a32 rep movsb"));
                     case MOpc::REPMOVSW_A32:
-                        return line("a32 rep movsw");
+                        return line(std::format("{}{}", mi.num_ops && mi.ops[0].kind == MOpKind::Mem ? std::string(segment_name(mi.ops[0].mem.segment)) + " " : "", "a32 rep movsw"));
                     case MOpc::REPSTOS_A32:
                         return line("a32 rep stosb");
                     case MOpc::REPSTOSW_A32:

@@ -1,0 +1,137 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+import core::seg;
+struct Tiny { u16 a; u16 b; }
+struct Big { u16[17] words; u8 tail; }
+struct Holder { u16 tag; u8^FS pointer; }
+@nomangle u8^FS saved = FS:0x8000;
+@nomangle Holder holder = {tag = 7, pointer = FS:0x8002};
+@nomangle extern void configure();
+@nomangle extern u16 segment_ok();
+@noinline u8^FS identity(u8^FS p) { return p; }
+@nomangle public u8^FS c_identity(u8^FS p) { return p; }
+@noinline u8^FS many(u8^FS a, u8^FS b, u8^FS c, u8^FS d, u8^FS e, u8^FS f) {
+    return a + b.offset() as usize + c.offset() as usize + d.offset() as usize + e.offset() as usize + f.offset() as usize;
+}
+@noinline [^FS]u16 view(u16^FS p, usize n) {
+    [^FS]u16 s;
+    s.ptr = p;
+    s.len = n;
+    return s;
+}
+@noinline [^FS]u16 choose(bool flag, [^FS]u16 a, [^FS]u16 b) {
+    [^FS]u16 result = a;
+    if flag { result = b; }
+    return result;
+}
+@noinline u16 sum([^FS]u16 s) {
+    u16 result = 0;
+    for x in s { result += x; }
+    return result;
+}
+@noinline Big read_big(Big^FS p) { return *p; }
+@noinline void write_big(Big^FS p, Big b) { *p = b; }
+@noinline u64 wide(u64^FS p, u64 x) {
+    *p = x;
+    *p = (*p << 9) + 0x12345678;
+    return *p;
+}
+@noinline u32 pressure(u16^FS a, u16^FS b, u16^FS c, u16^FS d, u16^FS e, u16^FS f, u16^FS g, u16^FS h) {
+    u32 x = *a as u32;
+    u32 y = *b as u32;
+    u32 z = *c as u32;
+    u32 w = *d as u32;
+    u32 t = *e as u32;
+    u32 u = *f as u32;
+    u32 v = *g as u32;
+    u32 q = *h as u32;
+    return x * y + z * w + t * u + v * q;
+}
+@nomangle public i32 dcc_main() {
+    configure();
+    u8^FS p = identity(saved);
+    if p.offset() != 0x8000 || holder.tag != 7 || holder.pointer.offset() != 0x8002 { return 1; }
+    *p = 11;
+    u8^FS constant = FS:0x8000;
+    if *constant != 11 { return 2; }
+    *constant = 12;
+    if *p != 12 { return 3; }
+    u8^FS high = c_identity(FS:0x8000);
+    if high.offset() != 0x8000 || (high + 3).offset() != 0x8000 + 3 { return 4; }
+    if many(FS:1, FS:2, FS:3, FS:4, FS:5, FS:6).offset() != 21 { return 5; }
+    u8^FS updated = p.with_offset(0x8004);
+    *updated = 13;
+    if p == updated || (p + 4) != updated { return 6; }
+    u16^FS words = FS:0x8040;
+    words[0] = 3;
+    words[1] = 4;
+    words[2] = 5;
+    words[3] = 6;
+    [^FS]u16 s = view(words, 4);
+    if s.len != 4 || s.ptr != words || sum(s) != 18 { return 7; };
+    [^FS]u16 window = s[1..3];
+    if window.len != 2 || window[0] != 4 || sum(window) != 9 { return 8; };
+    [^FS]u16 selected = choose(true, s, window);
+    if selected.ptr != words + 1 || selected.len != 2 { return 9; }
+    Tiny^FS tiny = FS:0x8080;
+    Tiny small = {a = 17, b = 19};
+    *tiny = small;
+    Tiny copy = *tiny;
+    if copy.a != 17 || copy.b != 19 { return 10; }
+    Big^FS big = FS:0x8100;
+    Big value;
+    value.words[0] = 23;
+    value.words[16] = 29;
+    value.tail = 31;
+    write_big(big, value);
+    Big snap = read_big(big);
+    big.words[0] = 99;
+    if snap.words[0] != 23 || snap.words[16] != 29 || snap.tail != 31 { return 11; }
+    Big^FS other = FS:0x8200;
+    *other = *big;
+    if other.words[0] != 99 || other.tail != 31 { return 12; }
+    u64^FS wide_pointer = FS:0x8300;
+    if wide(wide_pointer, 0x0102030405060708) != 0x0406080a1e426678 { return 13; }
+    u64 extra = *wide_pointer;
+    *wide_pointer = extra ^ 0xff00ff00ff00ff00;
+    if *wide_pointer != (extra ^ 0xff00ff00ff00ff00) { return 14; }
+    if pressure(words, words + 1, words + 2, words + 3, words, words + 1, words + 2, words + 3) != 84 { return 15; }
+    Big blank;
+    *other = blank;
+    if other.words[0] != 0 || other.tail != 0 { return 16; }
+    if segment_ok() != 42 { return 17; }
+    return 42;
+}
+
+=== FILE: helpers.asm ===
+bits 16
+section .text
+global configure
+global segment_ok
+configure:
+    push 0x3000
+    pop es
+    push 0x4000
+    pop fs
+    push 0x5000
+    pop gs
+    ret
+segment_ok:
+    mov ax, es
+    cmp ax, 0x3000
+    jne bad
+    mov ax, fs
+    cmp ax, 0x4000
+    jne bad
+    mov ax, gs
+    cmp ax, 0x5000
+    jne bad
+    mov ax, 42
+    ret
+bad:
+    xor ax, ax
+    ret
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42
