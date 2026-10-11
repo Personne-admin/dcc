@@ -1,0 +1,38 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+
+public void write_port(T)(u16 port, T value) {
+    asm @[intel, inputs(p in dx = port, v in accumulator = value)] { "out %[p], %[v]" };
+}
+
+public T read_port(T)(u16 port) {
+    T value;
+    asm @[intel, output(v = value in accumulator), inputs(p in dx = port)] { "in %[v], %[p]" };
+    return value;
+}
+
+@nomangle
+public void widths(u16 port) {
+    write_port(port, 2 as u16);
+    write_port(port, 3 as u32);
+    read_port!u16(port);
+    read_port!u32(port);
+    asm @[intel] { "out 255, al\nin ax, 255\nout dx, eax" };
+}
+
+@nomangle
+public i32 dcc_main() {
+    u8 ready = read_port!u8(0x3fd);
+    if (ready & 0x20) == 0 { return 1; }
+    write_port(0x3f8, 79 as u8);
+    asm @[output(v = ready in accumulator), inputs(p in dx = 0x3fd as u16)] { "inb %[p], %[v]" };
+    if (ready & 0x20) == 0 { return 2; }
+    asm @[inputs(v in accumulator = 75 as u8, p in dx = 0x3f8 as u16)] { "outb %[v], %[p]" };
+    write_port(0x3f8, 10 as u8);
+    return 42;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42
+RUN-SERIAL: OK\n

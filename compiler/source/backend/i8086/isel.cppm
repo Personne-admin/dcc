@@ -4,6 +4,7 @@ import std;
 import dcc.ir;
 import dcc.ir.analysis;
 import dcc.target;
+import dcc.backend.inline_asm;
 import dcc.backend.x86.mir;
 
 using namespace dcc::backend::x86;
@@ -217,6 +218,7 @@ namespace dcc::backend::i8086
             MBlock* block{};
             bool c_abi{};
             std::unordered_map<IrValue const*, VReg> values;
+            std::unordered_map<IrValue const*, std::vector<VReg>> asm_results;
             std::unordered_map<IrValue const*, std::uint32_t> slots;
             std::unordered_map<IrBasicBlock const*, std::uint32_t> block_ids;
             std::unordered_set<IrValue const*> fused;
@@ -677,11 +679,106 @@ namespace dcc::backend::i8086
                 }
             }
 
+            void lower_inline_asm(IrInlineAsmInst const& assembly)
+            {
+                auto fail = [&](std::string const& message) {
+                    diags.push_back(std::format("i8086 backend: inline assembly: {} in function `{}`", message, func.name));
+                };
+                for (auto const& operand : assembly.operands)
+                    if (operand.placement_kind == IrAsmOperand::PlacementKind::Mem)
+                        return fail("memory operands are not supported yet");
+                auto plan = dcc::backend::prepare_inline_asm(assembly, target);
+                if (!plan.error.empty())
+                    return fail(plan.error);
+                std::vector<VReg> pinned(assembly.operands.size());
+                std::vector<VReg> inputs(assembly.operands.size());
+                for (std::size_t i = 0; i < assembly.operands.size(); ++i)
+                {
+                    auto const& operand = assembly.operands[i];
+                    if (operand.direction == IrAsmOperand::Direction::Out || operand.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                        continue;
+                    auto input = value(operand.value);
+                    if (!input)
+                        return;
+                    inputs[i] = *input;
+                }
+
+                std::uint64_t clobbers = 0;
+                for (auto const& name : plan.clobbers)
+                {
+                    if (name == "memory" || name == "cc")
+                        continue;
+                    auto reg = dcc::backend::inline_asm_family_phys(target::register_family(name));
+                    if (reg < PhysReg::RAX || reg > PhysReg::RDI || reg == PhysReg::RSP || reg == PhysReg::RBP)
+                        return fail(std::format("clobbered register '{}' is not supported yet", name));
+                    clobbers |= 1ULL << static_cast<unsigned>(reg);
+                }
+                for (std::size_t i = 0; i < assembly.operands.size(); ++i)
+                {
+                    auto const& operand = assembly.operands[i];
+                    if (plan.registers[i].empty())
+                        continue;
+                    auto reg = dcc::backend::inline_asm_family_phys(target::register_family(plan.registers[i]));
+                    if (reg < PhysReg::RAX || reg > PhysReg::RDI || reg == PhysReg::RSP || reg == PhysReg::RBP)
+                        return fail(std::format("operand register '{}' is not supported yet", plan.registers[i]));
+                    pinned[i] = VReg::phys(reg);
+                    auto bits = value_bits(operand.type);
+                    if (!bits)
+                        return;
+                    if (operand.direction != IrAsmOperand::Direction::Out)
+                    {
+                        append(make_instr(bits == 8    ? MOpc::MOV8rr
+                                          : bits == 16 ? MOpc::MOV16rr
+                                                       : MOpc::MOV32rr,
+                                          {MOp::from_reg(pinned[i]), MOp::from_reg(inputs[i])}, 1));
+                    }
+                }
+                for (auto instruction : plan.instructions)
+                {
+                    if (instruction.opc != MOpc::IN8ri && instruction.opc != MOpc::IN16ri && instruction.opc != MOpc::IN32ri &&
+                        instruction.opc != MOpc::IN8rr && instruction.opc != MOpc::IN16rr && instruction.opc != MOpc::IN32rr &&
+                        instruction.opc != MOpc::OUT8ir && instruction.opc != MOpc::OUT16ir && instruction.opc != MOpc::OUT32ir &&
+                        instruction.opc != MOpc::OUT8rr && instruction.opc != MOpc::OUT16rr && instruction.opc != MOpc::OUT32rr)
+                        return fail("only in and out instructions are supported yet");
+                    instruction.implicit_defs |= clobbers;
+                    append(instruction);
+                }
+                std::vector<VReg> outputs;
+                for (std::size_t i = 0; i < assembly.operands.size(); ++i)
+                {
+                    auto const& operand = assembly.operands[i];
+                    if (operand.direction == IrAsmOperand::Direction::In)
+                        continue;
+                    auto bits = value_bits(operand.type);
+                    if (!bits)
+                        return;
+                    auto output = copy_from(pinned[i].phys_reg());
+                    if (bits == 8)
+                        output = emit(MOpc::AND16ri, {MOp::from_reg(output), MOp::from_imm(255)});
+                    outputs.push_back(output);
+                }
+                if (outputs.size() == 1)
+                    values[&assembly] = outputs.front();
+                else if (!outputs.empty())
+                    asm_results[&assembly] = std::move(outputs);
+            }
+
             void lower_instruction(IrNode const* inst)
             {
                 auto const* v = static_cast<IrValue const*>(inst);
                 switch (inst->kind)
                 {
+                    case IrNodeKind::InlineAsm:
+                        return lower_inline_asm(*static_cast<IrInlineAsmInst const*>(inst));
+                    case IrNodeKind::Extract: {
+                        auto const* extract = static_cast<IrExtractInst const*>(inst);
+                        auto found = asm_results.find(extract->aggregate);
+                        if (found != asm_results.end() && extract->field_index < found->second.size())
+                            values[v] = found->second[extract->field_index];
+                        else
+                            unsupported("an extract outside inline assembly");
+                        return;
+                    }
                     case IrNodeKind::Alloca:
                         return lower_alloca(*static_cast<IrAllocaInst const*>(inst));
                     case IrNodeKind::Load:

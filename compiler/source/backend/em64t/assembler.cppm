@@ -1494,6 +1494,26 @@ namespace
             case MOpc::UD2:
                 out += "ud2\n";
                 break;
+            case MOpc::IN8ri:
+            case MOpc::IN16ri:
+            case MOpc::IN32ri:
+            case MOpc::IN8rr:
+            case MOpc::IN16rr:
+            case MOpc::IN32rr:
+            case MOpc::OUT8ir:
+            case MOpc::OUT16ir:
+            case MOpc::OUT32ir:
+            case MOpc::OUT8rr:
+            case MOpc::OUT16rr:
+            case MOpc::OUT32rr: {
+                bool input =
+                    opc == MOpc::IN8ri || opc == MOpc::IN16ri || opc == MOpc::IN32ri || opc == MOpc::IN8rr || opc == MOpc::IN16rr || opc == MOpc::IN32rr;
+                auto bits = operand_bits(opc);
+                auto acc_width = bits == 8 ? RegWidth::Bits8 : bits == 16 ? RegWidth::Bits16 : RegWidth::Bits32;
+                out += std::string(input ? "in " : "out ") + format_op(ctx, ops[0], input ? acc_width : RegWidth::Bits16, false) + ", " +
+                       format_op(ctx, ops[1], input ? RegWidth::Bits16 : acc_width, false) + "\n";
+                break;
+            }
             case MOpc::NOP:
                 out += "nop\n";
                 break;

@@ -118,7 +118,7 @@ namespace dcc::backend
         [[nodiscard]] ResolvedOperands select_registers(IrInlineAsmInst const& assembly, target::TargetConfig const& target)
         {
             ResolvedOperands resolved;
-            if (target.arch != target::Arch::X86_64)
+            if (target.arch != target::Arch::X86_64 && target.arch != target::Arch::I8086)
             {
                 resolved.error = "inline assembly is currently supported on x86_64";
                 return resolved;
@@ -554,6 +554,7 @@ namespace dcc::backend
             std::size_t pos = 0;
             bool att = false;
             std::string error;
+            target::Arch arch = target::Arch::X86_64;
 
             [[nodiscard]] AsmToken const& peek() const { return tokens[pos]; }
 
@@ -583,7 +584,7 @@ namespace dcc::backend
 
             [[nodiscard]] std::optional<x86::PhysReg> resolve_register(std::string_view name)
             {
-                auto const* entry = target::lookup_register(target::Arch::X86_64, name);
+                auto const* entry = target::lookup_register(arch, name);
                 if (!entry)
                     return std::nullopt;
 
@@ -604,7 +605,7 @@ namespace dcc::backend
 
             [[nodiscard]] std::optional<unsigned> register_width(std::string_view name)
             {
-                auto const* entry = target::lookup_register(target::Arch::X86_64, name);
+                auto const* entry = target::lookup_register(arch, name);
                 if (!entry)
                     return std::nullopt;
 
@@ -1171,8 +1172,8 @@ namespace dcc::backend
                 unsigned width = (last == 'b') ? 8 : (last == 'w') ? 16 : (last == 'l') ? 32 : (last == 'q') ? 64 : 0;
                 if (width != 0)
                 {
-                    static constexpr std::string_view suffixed[] = {"mov",  "add", "sub",  "and", "or",  "xor",  "cmp",   "test", "shl",
-                                                                    "shr",  "sar", "inc",  "dec", "neg", "not",  "imul",  "push", "pop",
+                    static constexpr std::string_view suffixed[] = {"mov",  "add", "sub",  "and", "or",  "xor",  "cmp",   "test", "shl", "shr",
+                                                                    "sar",  "inc", "dec",  "neg", "not", "imul", "push",  "pop",  "in",  "out",
                                                                     "xchg", "lea", "call", "jmp", "ret", "movq", "callq", "jmpq"};
                     auto candidate = lowered.substr(0, lowered.size() - 1);
                     for (auto known : suffixed)
@@ -1227,6 +1228,42 @@ namespace dcc::backend
             auto reg_op = [](ParsedOperand const& op) { return x86::MOp::from_reg(x86::VReg::phys(op.reg)); };
             auto imm_op = [](ParsedOperand const& op) { return x86::MOp::from_imm(op.imm); };
             auto mem_op = [](ParsedOperand const& op) { return x86::MOp::from_mem(op.mem); };
+
+            if (mnemonic == "in" || mnemonic == "out")
+            {
+                bool input = mnemonic == "in";
+                if (operands.size() != 2)
+                    return fail(std::format("'{}' expects two operands", mnemonic));
+                auto const& accumulator = operands[input ? 0 : 1];
+                auto const& port = operands[input ? 1 : 0];
+                if (accumulator.kind != Kind::Reg || accumulator.reg != x86::PhysReg::RAX ||
+                    (accumulator.width != 8 && accumulator.width != 16 && accumulator.width != 32))
+                    return fail(std::format("'{}' requires al, ax or eax as the accumulator", mnemonic));
+                if (width && width != accumulator.width)
+                    return fail(std::format("'{}' accumulator width does not match the mnemonic suffix", mnemonic));
+                bool immediate = port.kind == Kind::Imm;
+                if (immediate ? (port.imm < 0 || port.imm > 255) : (port.kind != Kind::Reg || port.reg != x86::PhysReg::RDX || port.width != 16))
+                    return fail(std::format("'{}' requires dx or an unsigned 8-bit immediate port", mnemonic));
+                x86::MInstr instruction;
+                auto bits = accumulator.width;
+                instruction.opc = input ? (immediate ? (bits == 8    ? MOpc::IN8ri
+                                                        : bits == 16 ? MOpc::IN16ri
+                                                                     : MOpc::IN32ri)
+                                                     : (bits == 8    ? MOpc::IN8rr
+                                                        : bits == 16 ? MOpc::IN16rr
+                                                                     : MOpc::IN32rr))
+                                        : (immediate ? (bits == 8    ? MOpc::OUT8ir
+                                                        : bits == 16 ? MOpc::OUT16ir
+                                                                     : MOpc::OUT32ir)
+                                                     : (bits == 8    ? MOpc::OUT8rr
+                                                        : bits == 16 ? MOpc::OUT16rr
+                                                                     : MOpc::OUT32rr));
+                instruction.num_ops = 2;
+                instruction.num_defs = input ? 1 : 0;
+                instruction.ops[input ? 0 : 1] = reg_op(accumulator);
+                instruction.ops[input ? 1 : 0] = immediate ? imm_op(port) : reg_op(port);
+                return instruction;
+            }
 
             std::string owned_mnemonic;
             if (mnemonic == "movq")
@@ -1992,7 +2029,7 @@ namespace dcc::backend
             return fail(std::format("unknown inline assembly instruction '{}'", mnemonic));
         }
 
-        [[nodiscard]] std::optional<std::vector<x86::MInstr>> parse_native_line(std::string_view line, bool att, std::string& error)
+        [[nodiscard]] std::optional<std::vector<x86::MInstr>> parse_native_line(std::string_view line, bool att, std::string& error, target::Arch arch)
         {
             std::vector<x86::MInstr> instructions;
             std::size_t first = line.find_first_not_of(" \t\r");
@@ -2006,7 +2043,7 @@ namespace dcc::backend
             auto tokens = tokenize_asm_line(line, error);
             if (!error.empty())
                 return std::nullopt;
-            AsmParser parser{std::move(tokens), 0, att, {}};
+            AsmParser parser{std::move(tokens), 0, att, {}, arch};
             if (parser.at_end())
                 return instructions;
             auto raw_mnemonic = parser.expect_ident("an instruction mnemonic");
@@ -2162,7 +2199,7 @@ namespace dcc::backend
         bool att = assembly.dialect != IrAsmDialect::Intel;
         for (auto const& [text, number] : *lines)
         {
-            auto parsed = parse_native_line(text, att, plan.error);
+            auto parsed = parse_native_line(text, att, plan.error, target.arch);
             if (!parsed)
             {
                 plan.error = std::format("line {}: {}", number, plan.error);

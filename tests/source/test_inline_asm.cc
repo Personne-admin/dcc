@@ -758,3 +758,58 @@ TEST_CASE("clobbers and literal registers are tracked")
     REQUIRE(plan.literal_registers[0] == "rcx");
     REQUIRE(plan.registers[0] != "rcx");
 }
+
+TEST_CASE("inline port io matches nasm in both modes and dialects")
+{
+    using namespace dcc::backend::x86;
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc-inline-port-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    for (auto arch : {dcc::target::Arch::X86_64, dcc::target::Arch::I8086})
+        for (auto dialect : {IrAsmDialect::Intel, IrAsmDialect::Att})
+            for (auto acc : {"al", "ax", "eax"})
+                for (bool input : {false, true})
+                    for (bool immediate : {false, true})
+                    {
+                        AsmFixture fx;
+                        fx.target.arch = arch;
+                        auto port = immediate ? "255" : "dx";
+                        auto intel = input ? std::format("in {}, {}", acc, port) : std::format("out {}, {}", port, acc);
+                        auto source = intel;
+                        if (dialect == IrAsmDialect::Att)
+                        {
+                            auto a = std::string("%%") + acc;
+                            auto p = immediate ? "$255" : "%%dx";
+                            auto suffix = std::string_view(acc) == "al" ? "b" : std::string_view(acc) == "ax" ? "w" : "l";
+                            source = input ? std::format("in{} {}, {}", suffix, p, a) : std::format("out{} {}, {}", suffix, a, p);
+                        }
+                        auto plan = prepare_inline_asm(*fx.build(source, {}, dialect), fx.target);
+                        REQUIRE(plan.error.empty());
+                        REQUIRE(plan.instructions.size() == 1);
+                        auto encoded =
+                            encode_single_instruction(plan.instructions[0], arch == dcc::target::Arch::I8086 ? EncodeMode::Real16 : EncodeMode::Long64);
+                        REQUIRE(encoded.has_value());
+                        {
+                            std::ofstream out{dir / "case.asm"};
+                            out << "bits " << (arch == dcc::target::Arch::I8086 ? 16 : 64) << "\n" << intel << "\n";
+                        }
+                        auto command = std::format("timeout 60 nasm -f bin -o '{}' '{}'", (dir / "case.bin").string(), (dir / "case.asm").string());
+                        REQUIRE(std::system(command.c_str()) == 0);
+                        std::ifstream in{dir / "case.bin", std::ios::binary};
+                        std::vector<std::uint8_t> expected{std::istreambuf_iterator<char>{in}, {}};
+                        CHECK(*encoded == expected);
+                    }
+    std::filesystem::remove_all(dir);
+}
+
+TEST_CASE("inline port io rejects invalid accumulator port and suffix")
+{
+    AsmFixture fx;
+    for (auto source : {"out dx, bl", "in rax, dx", "out edx, al", "in al, -1", "out 256, ax", "out dx", "in al, [rdx]"})
+    {
+        auto plan = prepare_inline_asm(*fx.build(source, {}, IrAsmDialect::Intel), fx.target);
+        CHECK(!plan.error.empty());
+        CHECK(plan.error.starts_with("line 1:"));
+    }
+    auto plan = prepare_inline_asm(*fx.build("outw %%al, %%dx", {}, IrAsmDialect::Att), fx.target);
+    CHECK(plan.error.find("mnemonic suffix") != std::string::npos);
+}

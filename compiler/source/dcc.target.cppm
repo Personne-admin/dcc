@@ -499,6 +499,20 @@ export namespace dcc::target
             {"dr6"sv, PhysRegClass::GPR, 32, false},      {"dr7"sv, PhysRegClass::GPR, 32, false},
         };
 
+        inline constexpr PhysReg i8086_regs[] = {
+            {"eax"sv, PhysRegClass::GPR, 32, false},     {"ebx"sv, PhysRegClass::GPR, 32, false}, {"ecx"sv, PhysRegClass::GPR, 32, false},
+            {"edx"sv, PhysRegClass::GPR, 32, false},     {"esi"sv, PhysRegClass::GPR, 32, false}, {"edi"sv, PhysRegClass::GPR, 32, true},
+            {"ebp"sv, PhysRegClass::GPR, 32, true},      {"esp"sv, PhysRegClass::GPR, 32, true},  {"ax"sv, PhysRegClass::GPR, 16, false},
+            {"bx"sv, PhysRegClass::GPR, 16, false},      {"cx"sv, PhysRegClass::GPR, 16, false},  {"dx"sv, PhysRegClass::GPR, 16, false},
+            {"si"sv, PhysRegClass::GPR, 16, false},      {"di"sv, PhysRegClass::GPR, 16, true},   {"bp"sv, PhysRegClass::GPR, 16, true},
+            {"sp"sv, PhysRegClass::GPR, 16, true},       {"al"sv, PhysRegClass::GPR, 8, false},   {"bl"sv, PhysRegClass::GPR, 8, false},
+            {"cl"sv, PhysRegClass::GPR, 8, false},       {"dl"sv, PhysRegClass::GPR, 8, false},   {"ah"sv, PhysRegClass::GPR, 8, false},
+            {"bh"sv, PhysRegClass::GPR, 8, false},       {"ch"sv, PhysRegClass::GPR, 8, false},   {"dh"sv, PhysRegClass::GPR, 8, false},
+            {"cs"sv, PhysRegClass::Seg, 16, true},       {"ds"sv, PhysRegClass::Seg, 16, true},   {"es"sv, PhysRegClass::Seg, 16, true},
+            {"ss"sv, PhysRegClass::Seg, 16, true},       {"fs"sv, PhysRegClass::Seg, 16, true},   {"gs"sv, PhysRegClass::Seg, 16, true},
+            {"eflags"sv, PhysRegClass::Flags, 32, true},
+        };
+
     } // namespace detail
 
     [[nodiscard]] std::span<PhysReg const> register_table(Arch arch) noexcept
@@ -511,7 +525,7 @@ export namespace dcc::target
             case Arch::X86:
                 return x86_regs;
             case Arch::I8086:
-                return {};
+                return i8086_regs;
         }
 
         return {};
