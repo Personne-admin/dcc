@@ -1,6 +1,7 @@
 import std;
 
 import dcc.ir;
+import dcc.ir.pipeline;
 import dcc.types;
 import dcc.ir.pass;
 import dcc.target;
@@ -1164,4 +1165,38 @@ TEST_CASE("far pointer and slice initializer fields use canonical layouts")
         CHECK(bytes[pointer->byte_size] == 7);
         CHECK(bytes[pointer->byte_size + 1] == 0);
     }
+}
+
+TEST_CASE("mem2reg preserves segment reads while replacing promoted loads")
+{
+    auto target = *TargetConfig::parse_triple("x86-elf");
+    IrContext input(262144, &target);
+    auto* module = input.module("segment_promotion");
+    auto* u16 = input.int_t(16, false);
+    auto* function = input.function("read_ds", ir_type_cast<IrFuncType>(input.func_t(u16, {})));
+    auto* block = input.basic_block("entry", 0);
+    auto* segment = input.read_segment(Segment::Ds);
+    auto* local = input.alloca(input.pointer_to(u16), u16);
+    auto* load = input.load(u16, local);
+    block->instructions.push_back(segment);
+    block->instructions.push_back(local);
+    block->instructions.push_back(input.store(segment, local));
+    block->instructions.push_back(load);
+    block->terminator = input.ret(load);
+    function->entry_block = block;
+    function->blocks.push_back(block);
+    module->functions.push_back(function);
+    IrContext output(262144, &target);
+    auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+    REQUIRE(optimized);
+    REQUIRE(optimized->functions.size() == 1);
+    auto* result = optimized->functions.front();
+    REQUIRE(result->entry_block);
+    auto* returned = ir_cast<IrRetInst>(result->entry_block->terminator);
+    REQUIRE(returned);
+    auto* read = ir_cast<IrReadSegmentInst>(returned->value);
+    REQUIRE(read);
+    CHECK(read->segment == Segment::Ds);
+    dcc::ir::pass::IrVerifier verifier(target);
+    CHECK(verifier.verify(*optimized).empty());
 }
