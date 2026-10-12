@@ -7,6 +7,7 @@ import dcc.target;
 import dcc.backend;
 import dcc.backend.llvm;
 import dcc.backend.em64t;
+import dcc.backend.object.layout;
 
 #include "harness.hh"
 
@@ -1129,5 +1130,38 @@ TEST_CASE("i8086 code models agree across sema and ir layouts")
             CHECK(sema_slice->byte_size == ir_slice->byte_size);
             CHECK(sema_slice->byte_align == ir_slice->byte_align);
         }
+    }
+}
+
+TEST_CASE("far pointer and slice initializer fields use canonical layouts")
+{
+    for (auto [triple, model] : {std::pair{"i8086-binary", CodeModel::Small}, {"i8086-binary", CodeModel::Unreal},
+                               {"i8086-binary", CodeModel::Unreal32}, {"x86-elf", CodeModel::Default}, {"x86-coff", CodeModel::Default}})
+    {
+        auto target = *TargetConfig::parse_triple(triple);
+        REQUIRE(!target.configure(model, "i386"));
+        IrContext ctx(262144, &target);
+        auto* pointer = ctx.pointer_to(ctx.int_t(8, false), Segment::None, PointerFlavor::Far);
+        auto* constant = ctx.pointer_const(pointer, 0x1234, 0x5678);
+        std::vector<std::uint8_t> bytes(pointer->byte_size, 0xFF);
+        std::vector<dcc::backend::object::InitReloc> relocs;
+        dcc::backend::object::serialize_init_memory(bytes, relocs, constant, pointer, 0, 2);
+        auto width = static_cast<std::size_t>(target.far_offset_bits() / 8);
+        CHECK(bytes[0] == 0x34);
+        CHECK(bytes[1] == 0x12);
+        CHECK(bytes[width] == 0x78);
+        CHECK(bytes[width + 1] == 0x56);
+        CHECK(std::ranges::all_of(std::span(bytes).subspan(width + 2), [](auto byte) { return byte == 0; }));
+        CHECK(relocs.empty());
+        auto* slice = ctx.slice_t(ctx.int_t(8, false), Segment::None, PointerFlavor::Far);
+        auto* aggregate = ctx.aggregate(slice);
+        aggregate->values.push_back(constant);
+        aggregate->values.push_back(ctx.int_const(ctx.usize_t(), 7));
+        bytes.assign(slice->byte_size, 0xFF);
+        dcc::backend::object::serialize_init_memory(bytes, relocs, aggregate, slice, 0, 2);
+        CHECK(bytes[width] == 0x78);
+        CHECK(bytes[width + 1] == 0x56);
+        CHECK(bytes[pointer->byte_size] == 7);
+        CHECK(bytes[pointer->byte_size + 1] == 0);
     }
 }
