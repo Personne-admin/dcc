@@ -368,6 +368,7 @@ namespace dcc::ir::pass
                 case IrNodeKind::Local:
                 case IrNodeKind::GlobalRef:
                 case IrNodeKind::Fence:
+                case IrNodeKind::ReadSegment:
                 case IrNodeKind::Br:
                 case IrNodeKind::Unreachable:
                 case IrNodeKind::BasicBlock:
