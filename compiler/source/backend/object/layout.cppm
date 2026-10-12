@@ -222,6 +222,12 @@ export namespace dcc::backend::object
                     bytes[i] = into_u8(uv & 0xFF);
                     uv >>= 8;
                 }
+                if (auto* pointer = ir::ir_type_cast<ir::IrPointerType>(expected_type); pointer && pointer->flavor == ir::PointerFlavor::Far)
+                {
+                    auto offset_bytes = pointer->byte_size == 4 ? 2u : 4u;
+                    bytes[offset_bytes] = into_u8(pc->segment);
+                    bytes[offset_bytes + 1] = into_u8(pc->segment >> 8);
+                }
                 write_init_bytes(data, relocs, offset, bytes);
                 break;
             }
@@ -282,7 +288,7 @@ export namespace dcc::backend::object
                 else if (agg_type->kind == ir::IrTypeKind::Slice)
                 {
                     auto* st = static_cast<ir::IrSliceType const*>(agg_type);
-                    auto ptr_bytes = st->byte_size / 2;
+                    auto ptr_bytes = st->flavor == ir::PointerFlavor::Far ? (st->byte_align == 2 ? 4u : 8u) : st->byte_size / 2;
 
                     auto const* data_val = ir::slice_data_index < agg->values.size() ? agg->values[ir::slice_data_index] : nullptr;
                     if (data_val && data_val->type)
