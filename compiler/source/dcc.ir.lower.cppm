@@ -1105,7 +1105,7 @@ export namespace dcc::ir::lower
 
             if (!current_block_terminated())
             {
-                auto& defers = m_scope_frames.back().defers;
+                auto defers = m_scope_frames.back().defers;
                 for (auto it = defers.rbegin(); it != defers.rend(); ++it)
                     lower_stmt(it->body);
             }
@@ -1218,7 +1218,7 @@ export namespace dcc::ir::lower
         {
             for (std::size_t i = m_scope_frames.size(); i > depth; --i)
             {
-                auto& defers = m_scope_frames[i - 1].defers;
+                auto defers = m_scope_frames[i - 1].defers;
                 for (auto it = defers.rbegin(); it != defers.rend(); ++it)
                     lower_stmt(it->body);
             }
