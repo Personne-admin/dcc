@@ -1,0 +1,6 @@
+=== FILE: main.dc ===
+module main;
+i32 f() { return { i32 y = ; y }; }
+
+=== EXPECT-ERRORS ===
+main.dc:2:28: expected expression, found ';'
