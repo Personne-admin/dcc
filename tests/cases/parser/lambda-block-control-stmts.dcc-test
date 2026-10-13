@@ -1,0 +1,204 @@
+=== FILE: main.dc ===
+module m;
+using F = i32(*)(i32);
+void consume(F f) {}
+void g() {
+    consume(|i32 v -> {
+        if v > 0 { v = 1; }
+        v = v + 2;
+        v
+    });
+    consume(|i32 v -> {
+        if v > 0 { v = 1; } else { v = 3; }
+        v = v + 4;
+        v
+    });
+    consume(|i32 v -> {
+        match v {
+            0 => { v = 5; },
+            _ => {},
+        }
+        v = v + 6;
+        v
+    });
+    consume(|i32 v -> {
+        { v = 7; }
+        v = v + 8;
+        v
+    });
+    consume(|i32 v -> { if v > 0 { 10 } else { 20 } });
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Using kind=alias
+    alias=F
+    TargetType
+      FuncPtr
+        Return
+          Primitive i32
+        Params
+          Primitive i32
+  Func name=consume
+    Return
+      Primitive void
+    Params
+      Param name=f
+        Named F
+    Body
+  Func name=g
+    Return
+      Primitive void
+    Body
+      ExprStmt
+        Call
+          Callee
+            Ident consume
+          Args
+            Lambda
+              Params
+                Param name=v
+                  Primitive i32
+              Body
+                Block
+                  ExprStmt
+                    If
+                      Cond
+                        Binary op=>
+                          Ident v
+                          IntLiteral 0
+                      Then
+                        ExprStmt
+                          Binary op==
+                            Ident v
+                            IntLiteral 1
+                  ExprStmt
+                    Binary op==
+                      Ident v
+                      Binary op=+
+                        Ident v
+                        IntLiteral 2
+                  Tail
+                    Ident v
+      ExprStmt
+        Call
+          Callee
+            Ident consume
+          Args
+            Lambda
+              Params
+                Param name=v
+                  Primitive i32
+              Body
+                Block
+                  ExprStmt
+                    If
+                      Cond
+                        Binary op=>
+                          Ident v
+                          IntLiteral 0
+                      Then
+                        ExprStmt
+                          Binary op==
+                            Ident v
+                            IntLiteral 1
+                      Else
+                        Block
+                          ExprStmt
+                            Binary op==
+                              Ident v
+                              IntLiteral 3
+                  ExprStmt
+                    Binary op==
+                      Ident v
+                      Binary op=+
+                        Ident v
+                        IntLiteral 4
+                  Tail
+                    Ident v
+      ExprStmt
+        Call
+          Callee
+            Ident consume
+          Args
+            Lambda
+              Params
+                Param name=v
+                  Primitive i32
+              Body
+                Block
+                  ExprStmt
+                    Match
+                      Operand
+                        Ident v
+                      Arm
+                        LiteralPattern
+                          IntLiteral 0
+                        Body
+                          Block
+                            ExprStmt
+                              Binary op==
+                                Ident v
+                                IntLiteral 5
+                      Arm
+                        WildcardPattern
+                        Body
+                          Block
+                  ExprStmt
+                    Binary op==
+                      Ident v
+                      Binary op=+
+                        Ident v
+                        IntLiteral 6
+                  Tail
+                    Ident v
+      ExprStmt
+        Call
+          Callee
+            Ident consume
+          Args
+            Lambda
+              Params
+                Param name=v
+                  Primitive i32
+              Body
+                Block
+                  ExprStmt
+                    Block
+                      ExprStmt
+                        Binary op==
+                          Ident v
+                          IntLiteral 7
+                  ExprStmt
+                    Binary op==
+                      Ident v
+                      Binary op=+
+                        Ident v
+                        IntLiteral 8
+                  Tail
+                    Ident v
+      ExprStmt
+        Call
+          Callee
+            Ident consume
+          Args
+            Lambda
+              Params
+                Param name=v
+                  Primitive i32
+              Body
+                Block
+                  Tail
+                    If
+                      Cond
+                        Binary op=>
+                          Ident v
+                          IntLiteral 0
+                      Then
+                        Tail
+                          IntLiteral 10
+                      Else
+                        Block
+                          Tail
+                            IntLiteral 20

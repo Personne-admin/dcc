@@ -1,0 +1,173 @@
+=== FILE: main.dc ===
+module m;
+i32 f(i32 x, bool c) {
+    i32 y = 0;
+    i32 a = {
+        if c { y = 1; }
+        y = y + 2;
+        y
+    };
+    i32 b = {
+        if c { y = 1; } else { y = 3; }
+        y = y + 4;
+        y
+    };
+    i32 d = {
+        match y {
+            0 => { y = 5; },
+            _ => {},
+        }
+        y = y + 6;
+        y
+    };
+    i32 e = {
+        { y = 7; }
+        y = y + 8;
+        y
+    };
+    i32 g = { if c { 10 } else { 20 } };
+    return a + b + d + e + g;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=f
+    Return
+      Primitive i32
+    Params
+      Param name=x
+        Primitive i32
+      Param name=c
+        Primitive bool
+    Body
+      Var name=y
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      Var name=a
+        Type
+          Primitive i32
+        Init
+          Block
+            ExprStmt
+              If
+                Cond
+                  Ident c
+                Then
+                  ExprStmt
+                    Binary op==
+                      Ident y
+                      IntLiteral 1
+            ExprStmt
+              Binary op==
+                Ident y
+                Binary op=+
+                  Ident y
+                  IntLiteral 2
+            Tail
+              Ident y
+      Var name=b
+        Type
+          Primitive i32
+        Init
+          Block
+            ExprStmt
+              If
+                Cond
+                  Ident c
+                Then
+                  ExprStmt
+                    Binary op==
+                      Ident y
+                      IntLiteral 1
+                Else
+                  Block
+                    ExprStmt
+                      Binary op==
+                        Ident y
+                        IntLiteral 3
+            ExprStmt
+              Binary op==
+                Ident y
+                Binary op=+
+                  Ident y
+                  IntLiteral 4
+            Tail
+              Ident y
+      Var name=d
+        Type
+          Primitive i32
+        Init
+          Block
+            ExprStmt
+              Match
+                Operand
+                  Ident y
+                Arm
+                  LiteralPattern
+                    IntLiteral 0
+                  Body
+                    Block
+                      ExprStmt
+                        Binary op==
+                          Ident y
+                          IntLiteral 5
+                Arm
+                  WildcardPattern
+                  Body
+                    Block
+            ExprStmt
+              Binary op==
+                Ident y
+                Binary op=+
+                  Ident y
+                  IntLiteral 6
+            Tail
+              Ident y
+      Var name=e
+        Type
+          Primitive i32
+        Init
+          Block
+            ExprStmt
+              Block
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    IntLiteral 7
+            ExprStmt
+              Binary op==
+                Ident y
+                Binary op=+
+                  Ident y
+                  IntLiteral 8
+            Tail
+              Ident y
+      Var name=g
+        Type
+          Primitive i32
+        Init
+          Block
+            Tail
+              If
+                Cond
+                  Ident c
+                Then
+                  Tail
+                    IntLiteral 10
+                Else
+                  Block
+                    Tail
+                      IntLiteral 20
+      Return
+        Binary op=+
+          Binary op=+
+            Binary op=+
+              Binary op=+
+                Ident a
+                Ident b
+              Ident d
+            Ident e
+          Ident g

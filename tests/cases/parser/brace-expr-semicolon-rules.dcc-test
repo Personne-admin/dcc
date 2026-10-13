@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module m;
+i32 f(i32 x) {
+    return match x {
+        1 => { 1 2 },
+        _ => 0,
+    };
+}
+
+=== EXPECT-ERRORS ===
+main.dc:4: expected ',', ';', or '}' inside braces

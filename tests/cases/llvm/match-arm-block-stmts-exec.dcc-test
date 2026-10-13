@@ -1,0 +1,111 @@
+=== FILE: test.dc ===
+module test;
+i32 f(i32 x, bool c) {
+    i32 y = 0;
+    match x {
+        1 => {
+            if c { y = 1; }
+            y = y + 2;
+        },
+        _ => {},
+    };
+    return y;
+}
+@nomangle
+public i32 dcc_main() {
+    if f(1, true) != 3 {
+        return 1;
+    }
+    if f(1, false) != 2 {
+        return 2;
+    }
+    if f(9, true) != 0 {
+        return 3;
+    }
+    return 0;
+}
+
+=== EXPECT-LLVM FLAGS: -verify ===
+; ModuleID = 'test'
+source_filename = "test"
+target triple = "x86_64-elf"
+
+; Function Attrs: uwtable
+define i32 @_DC0F1.4.test1.f2i32sbi32s(i32 %x, i1 %c) #0 {
+entry:
+  %"0" = alloca i32, align 4
+  store i32 0, ptr %"0", align 4
+  br label %match.arm0.test3
+
+match.merge1:                                     ; preds = %match.arm1.body6, %if.merge9
+  %"4" = load i32, ptr %"0", align 4
+  ret i32 %"4"
+
+match.fail2:                                      ; No predecessors!
+  unreachable
+
+match.arm0.test3:                                 ; preds = %entry
+  %"1" = icmp eq i32 %x, 1
+  br i1 %"1", label %match.arm0.body4, label %match.arm1.test5
+
+match.arm0.body4:                                 ; preds = %match.arm0.test3
+  br i1 %c, label %if.then7, label %if.else8
+
+match.arm1.test5:                                 ; preds = %match.arm0.test3
+  br label %match.arm1.body6
+
+match.arm1.body6:                                 ; preds = %match.arm1.test5
+  br label %match.merge1
+
+if.then7:                                         ; preds = %match.arm0.body4
+  store i32 1, ptr %"0", align 4
+  br label %if.merge9
+
+if.else8:                                         ; preds = %match.arm0.body4
+  br label %if.merge9
+
+if.merge9:                                        ; preds = %if.else8, %if.then7
+  %"2" = load i32, ptr %"0", align 4
+  %"3" = add i32 %"2", 2
+  store i32 %"3", ptr %"0", align 4
+  br label %match.merge1
+}
+
+; Function Attrs: uwtable
+define i32 @dcc_main() #0 {
+entry:
+  br i1 false, label %if.then1, label %if.else2
+
+if.then1:                                         ; preds = %entry
+  ret i32 1
+
+if.else2:                                         ; preds = %entry
+  br label %if.merge3
+
+if.merge3:                                        ; preds = %if.else2
+  br i1 false, label %if.then4, label %if.else5
+
+if.then4:                                         ; preds = %if.merge3
+  ret i32 2
+
+if.else5:                                         ; preds = %if.merge3
+  br label %if.merge6
+
+if.merge6:                                        ; preds = %if.else5
+  br i1 false, label %if.then7, label %if.else8
+
+if.then7:                                         ; preds = %if.merge6
+  ret i32 3
+
+if.else8:                                         ; preds = %if.merge6
+  br label %if.merge9
+
+if.merge9:                                        ; preds = %if.else8
+  ret i32 0
+}
+
+attributes #0 = { uwtable }
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+LINK-STD: true
+RUN-EXIT: 0
