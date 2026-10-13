@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+using core::atomic::{Atomic, atomic_store, atomic_load, atomic_exchange, MemoryOrder};
+struct S { Atomic(u32) state; }
+Atomic(u32) global;
+bool field(S* self) { return atomic_exchange(&self.state, 1 as u32, MemoryOrder::Relaxed) == 0; }
+bool parameter(Atomic(u32)* param) { return atomic_load(param, MemoryOrder::Relaxed) != 0; }
+bool global_test() { return atomic_load(&global, MemoryOrder::Relaxed) < 10; }
+bool array_test(Atomic(u32)* array) { return atomic_exchange(&array[0], 2 as u32, MemoryOrder::Relaxed) >= 1; }
+@nomangle public i32 dcc_main() {
+    S s; Atomic(u32) local; Atomic(u32)[2] array;
+    atomic_store(&s.state, 0 as u32, MemoryOrder::Relaxed);
+    atomic_store(&local, 3 as u32, MemoryOrder::Relaxed);
+    atomic_store(&global, 4 as u32, MemoryOrder::Relaxed);
+    atomic_store(&array[0], 1 as u32, MemoryOrder::Relaxed);
+    if !field(&s) || !parameter(&local) || !global_test() || !array_test(&array[0]) { return 1; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0

@@ -9,5 +9,5 @@ public i32 demo(u16 x, u16 y) {
 }
 
 === EXPECT-ERRORS ===
-main.dc:4: segment construction target must be a far or based pointer type, got `bool`
+main.dc:4: segment construction requires a far or based pointer target type from the declaration, parameter, return type, or `as`
 main.dc:5: binary operator `^` type mismatch: left `u8^`, right `u16`
