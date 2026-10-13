@@ -84,6 +84,43 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
                 images.append(image.read_bytes())
             assert images[0] == images[1], (model, level)
             checks += 1
+    for model in ("unreal", "unreal32"):
+        fixture = Path(__file__).resolve().parent.parent / f"cases/i8086/large-data-{model}.dcc-test"
+        folder = directory / ("large-" + model)
+        folder.mkdir()
+        files = re.findall(r"=== FILE: (.*?) ===\n(.*?)(?=\n=== |\Z)", fixture.read_text(), re.S)
+        for name, body in files:
+            (folder / name).write_text(body)
+        helpers = []
+        for name, body in files:
+            if name.endswith(".asm"):
+                obj = folder / (name + ".o")
+                subprocess.run(["timeout", "60", "nasm", "-f", "elf32", str(folder / name), "-o", str(obj)], check=True)
+                helpers.append(str(obj))
+        for level in ("-O0", "-O2"):
+            obj = folder / (level + ".o")
+            listing = obj.with_suffix(".s")
+            reassembled = folder / (level + "-nasm.o")
+            base = ["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbackend", "custom", level]
+            for flag, output in (("-c", obj), ("-S", listing)):
+                result = subprocess.run(base + [flag, str(folder / "main.dc"), "-o", str(output)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+            subprocess.run(["timeout", "60", "nasm", "-f", "elf32", str(listing), "-o", str(reassembled)], check=True)
+            images = []
+            for linked in (obj, reassembled):
+                image = linked.with_suffix(".bin")
+                subprocess.run(["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbase=1000:0",
+                                str(crt0), str(linked), *helpers, "-o", str(image)], check=True)
+                images.append(image.read_bytes())
+            assert images[0] == images[1], (model, level)
+            checks += 1
+            accelerators = ("tcg", "kvm") if os.access("/dev/kvm", os.R_OK | os.W_OK) else ("tcg",)
+            for accel in accelerators:
+                result = subprocess.run([sys.executable, str(Path(__file__).resolve().parent.parent / "i8086/run.py"), str(obj.with_suffix(".bin")),
+                                         "--mode", "unreal", "--accel", accel], capture_output=True, timeout=60)
+                assert result.returncode == 42, (model, level, accel, result.stderr)
+                checks += 1
+                print(f"  NOTE    large-data {model} {level} passed under {accel}")
     if os.access("/dev/kvm", os.R_OK | os.W_OK):
         for model in ("small", "unreal"):
             fixture = Path(__file__).resolve().parent.parent / f"cases/i8086/memory-wrap-{model}.dcc-test"

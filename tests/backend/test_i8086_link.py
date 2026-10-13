@@ -110,6 +110,25 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
         contains="i8086 small model: the image plus the 4096-byte stack reserve (-fstack-reserve) does not fit in one 64 KiB segment")
     run(*i8086, "-fstack-reserve=0", crt0, obj, stack_bss, "-o", directory / "x.bin")
 
+    for model in ("unreal", "unreal32"):
+        script = run(*i8086, f"-mcmodel={model}", "--print-linker-script").stdout
+        for section in (".rodata", ".data", ".bss"):
+            assert f"SIZEOF({section}) > 0xF000 ? 0x10000" in script, script
+            checks += 1
+    large_data = nasm(directory, "large-data", "bits 16\nsection .data\ntimes 0x20001 db 0x5a\n")
+    run(*i8086, "-mcmodel=small", crt0, objects["small"], large_data, "-o", directory / "large-small.bin", expect=1,
+        contains="i8086 small model")
+    for model in ("unreal", "unreal32"):
+        image = directory / f"large-data-{model}.bin"
+        map_file = directory / f"large-data-{model}.map"
+        run(*i8086, f"-mcmodel={model}", "-fbase=1000:0", crt0, objects[model], large_data, "-Wl,-Map=" + str(map_file), "-o", image)
+        payload = image.read_bytes()
+        input_line = next(line for line in map_file.read_text().splitlines() if "large-data.o:(.data)" in line)
+        fields = input_line.split()
+        address, size = int(fields[0], 16), int(fields[2], 16)
+        assert address >= 0x10000 and size == 0x20001, input_line
+        assert payload[address:address + size] == bytes([0x5a]) * size
+        checks += 1
     huge_bss = nasm(directory, "huge", "bits 16\nsection .bss\nresb 0x30000\n")
     run(*i8086, "-mcmodel=small", crt0, objects["small"], huge_bss, "-o", directory / "x.bin", expect=1, contains="i8086 small model")
     for model in ("unreal", "unreal32"):

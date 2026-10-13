@@ -228,6 +228,10 @@ namespace dcc::backend::i8086
                         return line(std::format("{} {}, {}", mnemonic, operand(mi.ops[0], operand_bits(mi.opc)),
                                                 intel_memory_operand(mi.ops[1].mem, mi.ops[1].mem.address_bits == 32 ? 32 : 16)));
                     }
+                    case MOpc::CLD:
+                        return line("cld");
+                    case MOpc::STD:
+                        return line("std");
                     case MOpc::PUSHSEG:
                         return line(std::format("push {}", reg(mi.ops[0].reg, 16)));
                     case MOpc::POPSEG:

@@ -208,6 +208,14 @@ namespace dcc::backend::i8086
                     errors += std::format("section {} starts at offset 0x{:X}, below the -fbase offset 0x{:X}\n", section.name, section.address, options.base.offset);
                 if ((section.name == ".start" || section.name == ".text") && std::uint64_t{section.address} + section.size > 0x10000)
                     errors += std::format("section {} ends above offset 0x10000 of the 64 KiB code segment\n", section.name);
+                auto end = std::uint64_t{section.address} + section.size;
+                auto stack_start = 0x10000 - options.stack_reserve;
+                if (small_model(options.model) && end > stack_start)
+                    errors += std::format("i8086 small model: section {} overlaps the {}-byte stack reserve in its 64 KiB segment\n", section.name,
+                                          options.stack_reserve);
+                if (!small_model(options.model) && section.name != ".start" && section.name != ".text" && section.address < 0x10000 && end > stack_start)
+                    errors += std::format("i8086 {} model: section {} overlaps the reserved 16-bit stack offsets 0x{:X}..0x10000\n", model_name(options.model),
+                                          section.name, stack_start);
             }
             if (!errors.empty())
                 return std::unexpected(errors);
@@ -300,6 +308,15 @@ namespace dcc::backend::i8086
                                          "}}\n"
                                          "{1} = 0;\n",
                                          model_marker_section, model_marker(options.model), options.base.offset);
+        if (!small_model(options.model))
+            for (auto section : {".rodata", ".data", ".bss"})
+            {
+                auto before = std::format("  {} ", section);
+                auto at = script.find(before);
+                auto address = std::format("ALIGN(. < 0x10000 && ALIGN(., ALIGNOF({0})) + SIZEOF({0}) > 0x{1:X} ? 0x10000 : ., ALIGNOF({0})) ", section,
+                                           0x10000 - options.stack_reserve);
+                script.insert(at + before.size(), address);
+            }
         if (options.base.segment)
             script += std::format("__dcc_dgroup_segment = 0x{:X};\n", *options.base.segment);
         script += "ASSERT(__dcc_code_end <= 0x10000, \"i8086 code (.start and .text) does not fit below offset 0x10000 of its 64 KiB code segment\")\n";

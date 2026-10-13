@@ -229,6 +229,7 @@ namespace dcc::backend::i8086
             std::unordered_map<IrValue const*, std::vector<VReg>> asm_results;
             std::unordered_map<IrValue const*, std::uint32_t> slots;
             std::unordered_map<IrBasicBlock const*, std::uint32_t> block_ids;
+            std::unordered_map<IrBasicBlock const*, std::uint32_t> block_tails;
             std::unordered_set<IrValue const*> fused;
             std::unordered_map<std::uint32_t, std::size_t> jump_table_blocks;
             std::map<std::pair<std::uint32_t, std::uint32_t>, std::uint32_t> split_edges;
@@ -793,10 +794,13 @@ namespace dcc::backend::i8086
                             {MOp::from_reg(base), MOp::from_imm(fit(static_cast<std::int64_t>(offset), bits, false, bits))});
             }
 
-            void bulk_memory(VReg destination, VReg source, std::uint64_t size, bool zero, IrType const* destination_type = nullptr, IrType const* source_type = nullptr)
+            void bulk_memory(VReg destination, VReg source, std::uint64_t size, bool zero, IrType const* destination_type = nullptr,
+                             IrType const* source_type = nullptr, SegmentOverride source_override = SegmentOverride::None, bool reverse = false)
             {
                 if (!size)
                     return;
+                if (size > std::numeric_limits<std::uint32_t>::max())
+                    return unsupported("a memory operation larger than the 32-bit offset space");
                 if (size <= 8)
                 {
                     for (std::uint64_t offset = 0; offset < size;)
@@ -817,7 +821,7 @@ namespace dcc::backend::i8086
                     }
                     return;
                 }
-                auto source_segment = based_segment(source_type);
+                auto source_segment = source_override == SegmentOverride::None ? based_segment(source_type) : source_override;
                 auto destination_segment = based_segment(destination_type);
                 bool const save_es = preserve_es || source_segment != SegmentOverride::None || destination_segment != SegmentOverride::None;
                 bool const save_fs = !zero && source_segment == SegmentOverride::ES && destination_segment != SegmentOverride::ES;
@@ -847,10 +851,18 @@ namespace dcc::backend::i8086
                     append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
                 }
                 auto width = std::max<unsigned>(address_bits(destination_type), zero ? 16u : address_bits(source_type));
+                if (size > 65535)
+                    width = 32;
+                if (reverse)
+                {
+                    source = offset_address(extend(source, address_bits(source_type), false, width), size - 1, width);
+                    destination = offset_address(extend(destination, address_bits(destination_type), false, width), size - 1, width);
+                }
                 if (!zero)
-                    copy_to(PhysReg::RSI, extend(source, address_bits(source_type), false, width), width);
-                copy_to(PhysReg::RDI, extend(destination, address_bits(destination_type), false, width), width);
-                append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(size / 2)}, 1));
+                    copy_to(PhysReg::RSI, extend(source, reverse ? width : address_bits(source_type), false, width), width);
+                copy_to(PhysReg::RDI, extend(destination, reverse ? width : address_bits(destination_type), false, width), width);
+                append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri,
+                                  {phys_operand(PhysReg::RCX), MOp::from_imm(static_cast<std::int64_t>(reverse ? size : size / 2))}, 1));
                 if (zero)
                     append(make_instr(MOpc::MOV16ri, {phys_operand(PhysReg::RAX), MOp::from_imm(0)}, 1));
                 auto strings = [&](bool tail) {
@@ -868,8 +880,12 @@ namespace dcc::backend::i8086
                     rep.implicit_uses = rep.implicit_defs | bit(PhysReg::ES) | (zero ? bit(PhysReg::RAX) : bit(phys_segment(source_segment)));
                     append(rep);
                 };
-                strings(false);
-                if (size & 1)
+                if (reverse)
+                    append(make_instr(MOpc::STD, {}, 0));
+                strings(reverse);
+                if (reverse)
+                    append(make_instr(MOpc::CLD, {}, 0));
+                if (!reverse && (size & 1))
                 {
                     append(make_instr(width == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {phys_operand(PhysReg::RCX), MOp::from_imm(1)}, 1));
                     strings(true);
@@ -1046,6 +1062,33 @@ namespace dcc::backend::i8086
 
             void lower_store(IrValue const* stored, IrValue const* pointer)
             {
+                auto* large_source = stored && memory_type(stored->type) && stored->type->byte_size > 65535 ? ir_cast<IrLoadInst>(stored) : nullptr;
+                auto source_binding = large_source ? based_segment(large_source->pointer->type) : SegmentOverride::None;
+                bool borrow = large_source && (far(large_source->pointer->type) || (far(pointer->type) && source_binding == SegmentOverride::ES));
+                auto scratch = based_segment(pointer->type) == SegmentOverride::FS ? PhysReg::GS : PhysReg::FS;
+                struct RestoreSegment
+                {
+                    Isel& selector;
+                    PhysReg reg;
+                    bool active;
+                    ~RestoreSegment()
+                    {
+                        if (active)
+                            selector.append(make_instr(MOpc::POPSEG, {phys_operand(reg)}, 1));
+                    }
+                } restore{*this, scratch, borrow};
+                if (borrow)
+                {
+                    append(make_instr(MOpc::PUSHSEG, {phys_operand(scratch)}, 0));
+                    if (far(large_source->pointer->type))
+                        append(make_instr(MOpc::MOV16sr, {phys_operand(scratch), MOp::from_reg(pair(large_source->pointer)->high)}, 1));
+                    else
+                    {
+                        append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::ES)}, 0));
+                        append(make_instr(MOpc::POPSEG, {phys_operand(scratch)}, 1));
+                    }
+                    source_binding = scratch == PhysReg::FS ? SegmentOverride::FS : SegmentOverride::GS;
+                }
                 FarAccess access(*this, pointer);
                 if (far(stored->type))
                 {
@@ -1059,6 +1102,54 @@ namespace dcc::backend::i8086
                     auto destination = pointer_address(pointer);
                     if (auto src = pair(stored); src && destination)
                         store_pair(*src, pointer_memory(*destination, pointer->type));
+                    return;
+                }
+                if (memory_type(stored ? stored->type : nullptr) && stored->type->byte_size > 65535)
+                {
+                    if (target.code_model != target::CodeModel::Unreal && target.code_model != target::CodeModel::Unreal32)
+                        return unsupported("a large memory operation in the small model");
+                    auto destination = pointer_address(pointer);
+                    if (!destination)
+                        return;
+                    if (zero_value(stored))
+                        return bulk_memory(*destination, {}, stored->type->byte_size, true, pointer->type);
+                    auto* load = ir_cast<IrLoadInst>(stored);
+                    if (!load || !fused.contains(stored))
+                        return unsupported("a large aggregate value requiring temporary storage");
+                    auto source = pointer_address(load->pointer);
+                    if (!source)
+                        return;
+                    auto segment = source_binding;
+                    auto linear = [&](VReg offset, IrType const* type, SegmentOverride binding) {
+                        auto reg = binding == SegmentOverride::ES   ? PhysReg::ES
+                                   : binding == SegmentOverride::CS ? PhysReg::CS
+                                   : binding == SegmentOverride::SS ? PhysReg::SS
+                                   : binding == SegmentOverride::FS ? PhysReg::FS
+                                   : binding == SegmentOverride::GS ? PhysReg::GS
+                                                                    : PhysReg::DS;
+                        auto base = emit(MOpc::SHL32ri8, {MOp::from_reg(read_segment(reg)), MOp::from_imm(4)});
+                        return emit(MOpc::ADD32rr, {MOp::from_reg(extend(offset, address_bits(type), false, 32)), MOp::from_reg(base)});
+                    };
+                    auto src_linear = linear(*source, load->pointer->type, segment);
+                    auto dst_linear = linear(*destination, pointer->type, based_segment(pointer->type));
+                    auto current = block->id;
+                    auto forward = mfunc.create_block("copy.forward").id;
+                    auto backward = mfunc.create_block("copy.backward").id;
+                    auto done = mfunc.create_block("copy.done").id;
+                    block = mfunc.block_by_id(current);
+                    append(make_instr(MOpc::CMP32rr, {MOp::from_reg(dst_linear), MOp::from_reg(src_linear)}, 0));
+                    append(make_instr(MOpc::JBE, {MOp::from_label(forward)}, 0));
+                    auto distance = emit(MOpc::SUB32rr, {MOp::from_reg(dst_linear), MOp::from_reg(src_linear)});
+                    append(make_instr(MOpc::CMP32ri, {MOp::from_reg(distance), MOp::from_imm(static_cast<std::int64_t>(stored->type->byte_size))}, 0));
+                    append(make_instr(MOpc::JAE, {MOp::from_label(forward)}, 0));
+                    append(make_instr(MOpc::JMP, {MOp::from_label(backward)}, 0));
+                    block = mfunc.block_by_id(forward);
+                    bulk_memory(*destination, *source, stored->type->byte_size, false, pointer->type, load->pointer->type, segment);
+                    append(make_instr(MOpc::JMP, {MOp::from_label(done)}, 0));
+                    block = mfunc.block_by_id(backward);
+                    bulk_memory(*destination, *source, stored->type->byte_size, false, pointer->type, load->pointer->type, segment, true);
+                    append(make_instr(MOpc::JMP, {MOp::from_label(done)}, 0));
+                    block = mfunc.block_by_id(done);
                     return;
                 }
                 if (memory_type(stored ? stored->type : nullptr))
@@ -1120,7 +1211,8 @@ namespace dcc::backend::i8086
                         {
                             auto* integer = ir_type_cast<IrIntType>(index.dynamic_index->type);
                             auto index_value =
-                                extend(*dynamic, scalar_bits(index.dynamic_index->type), far(gep.base->type) && integer && integer->is_signed, bits);
+                                extend(*dynamic, scalar_bits(index.dynamic_index->type),
+                                       (far(gep.base->type) || based_segment(gep.base->type) != SegmentOverride::None) && integer && integer->is_signed, bits);
                             auto scaled = stride == 1 ? index_value
                                                       : emit(bits == 16 ? MOpc::IMUL16rri : MOpc::IMUL32rri,
                                                              {MOp::from_reg(index_value), MOp::from_imm(static_cast<std::int64_t>(stride))});
@@ -2010,7 +2102,9 @@ namespace dcc::backend::i8086
                     table.symbol = std::format("{}.jt{}", mfunc.owned_name, table.id);
                     auto const& symbol = *mfunc.owned_strings.emplace_back(std::make_unique<std::string>(table.symbol));
                     mfunc.jump_tables.push_back(std::move(table));
-                    bool const wide_addresses = target.pointer_bits == 32;
+                    bool const wide_addresses = target.far_offset_bits() == 32;
+                    if (wide_addresses && narrow)
+                        index = extend(index, 16, false, 32);
                     MInstr dispatch = make_instr(MOpc::JUMP_TABLE, {MOp::from_reg(index), MOp::from_symbol(symbol), MOp::from_imm(wide_addresses ? 32 : 16)}, 0);
                     if (!wide_addresses)
                         dispatch.implicit_defs = 1ULL << static_cast<unsigned>(PhysReg::RDI);
@@ -2117,7 +2211,7 @@ namespace dcc::backend::i8086
 
             [[nodiscard]] std::uint32_t edge_block(IrBasicBlock const* pred, IrBasicBlock const* succ, std::size_t succ_preds)
             {
-                auto pred_id = block_ids.at(pred);
+                auto pred_id = block_tails.contains(pred) ? block_tails.at(pred) : block_ids.at(pred);
                 auto succ_id = block_ids.at(succ);
                 if (successors(pred->terminator).size() < 2 || succ_preds < 2)
                     return pred_id;
@@ -2287,6 +2381,22 @@ namespace dcc::backend::i8086
                 }
 
                 for (auto* ir_block : order)
+                    for (std::size_t i = 0; i < ir_block->instructions.size(); ++i)
+                    {
+                        auto* value = static_cast<IrValue const*>(ir_block->instructions[i]);
+                        if (!memory_type(value->type) || value->type->byte_size <= 65535)
+                            continue;
+                        if ((value->kind == IrNodeKind::Load || value->kind == IrNodeKind::Aggregate) && use_def.use_count(value) == 0 &&
+                            terminator_uses[value] == 0)
+                            fused.insert(value);
+                        else if (value->kind == IrNodeKind::Aggregate && zero_value(value))
+                            fused.insert(value);
+                        else if (value->kind == IrNodeKind::Load && use_def.use_count(value) == 1 && terminator_uses[value] == 0 &&
+                                 i + 1 < ir_block->instructions.size())
+                            if (auto* store = ir_cast<IrStoreInst>(ir_block->instructions[i + 1]); store && store->value == value)
+                                fused.insert(value);
+                    }
+                for (auto* ir_block : order)
                 {
                     block = mfunc.block_by_id(block_ids.at(ir_block));
                     if (ir_block == func.entry_block)
@@ -2320,6 +2430,7 @@ namespace dcc::backend::i8086
                             return;
                     }
                     lower_terminator(ir_block->terminator);
+                    block_tails[ir_block] = block->id;
                     if (!diags.empty())
                         return;
                 }
