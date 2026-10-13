@@ -98,6 +98,36 @@ export namespace dcc::backend::object
         return DataSection::Bss;
     }
 
+    [[nodiscard]] std::string global_section(ir::IrGlobal const* g, bool enabled, bool coff = false)
+    {
+        if (!g->section.empty())
+            return std::string{g->section};
+        if (!enabled || classify_global(g) == DataSection::None)
+            return {};
+        auto kind = classify_global(g);
+        auto prefix = kind == DataSection::Bss ? ".bss." : kind == DataSection::Rodata || kind == DataSection::RodataRelRO
+                                                                ? (coff ? ".rdata." : ".rodata.") : ".data.";
+        return prefix + std::string{g->name};
+    }
+
+    [[nodiscard]] std::string function_section(ir::IrFunction const* f, bool enabled)
+    {
+        if (!f)
+            return {};
+        for (auto const& attr : f->attrs)
+            if (attr.kind == ir::IrFuncAttr::Section)
+                return std::string{attr.value};
+        return enabled ? ".text." + std::string{f->name} : std::string{};
+    }
+
+    [[nodiscard]] std::string function_section(ir::IrModule const& module, std::string_view name, bool enabled)
+    {
+        for (auto* f : module.functions)
+            if (f && f->name == name)
+                return function_section(f, enabled);
+        return enabled ? ".text." + std::string{name} : std::string{};
+    }
+
     struct InitReloc
     {
         std::uint64_t offset{};

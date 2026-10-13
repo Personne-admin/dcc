@@ -534,9 +534,9 @@ export namespace dcc::backend::object
         std::unordered_map<std::string, std::size_t> custom_section_index;
         for (auto& gl : globals)
         {
-            if (!gl.g->section.empty())
+            if (!global_section(gl.g, target.data_sections).empty())
             {
-                std::string sname{gl.g->section};
+                std::string sname = global_section(gl.g, target.data_sections);
                 auto it = custom_section_index.find(sname);
                 if (it == custom_section_index.end())
                 {
@@ -578,6 +578,9 @@ export namespace dcc::backend::object
             cs.rela_sh_name = add_str(shstrtab, rel_prefix + cs.name);
         }
 
+        std::deque<ModuleAsmSection> function_sources;
+        std::unordered_map<std::string, std::size_t> jump_sections;
+        std::vector<std::optional<std::size_t>> function_sections(mod.functions.size());
         std::vector<ElfAsmSection> asm_sections;
         for (auto const& section : asm_code.sections)
         {
@@ -589,6 +592,56 @@ export namespace dcc::backend::object
                 as.rela_sh_name = add_str(shstrtab, rel_prefix + section.name);
             asm_sections.push_back(std::move(as));
         }
+
+        for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
+        {
+            auto name = function_section(ir_mod, func_names[fi], target.function_sections);
+            if (name.empty())
+                continue;
+            ModuleAsmSection source;
+            source.name = std::move(name);
+            source.alloc = true;
+            source.exec = true;
+            source.alignment = arch.function_alignment;
+            source.data = func_codes[fi];
+            for (auto const& r : func_relocs[fi])
+                source.relocations.push_back({r.offset, std::string{r.symbol}, r.kind, r.addend});
+            function_sources.push_back(std::move(source));
+            auto const& stored = function_sources.back();
+            ElfAsmSection section;
+            section.source = &stored;
+            section.data = stored.data;
+            section.sh_name = add_str(shstrtab, stored.name);
+            if (!stored.relocations.empty())
+                section.rela_sh_name = add_str(shstrtab, rel_prefix + stored.name);
+            function_sections[fi] = asm_sections.size();
+            asm_sections.push_back(std::move(section));
+        }
+
+        if (target.function_sections || target.data_sections)
+            for (auto const& function : mod.functions)
+                for (auto const& table : function.jump_tables)
+                {
+                    ModuleAsmSection source;
+                    source.name = ".rodata." + table.symbol;
+                    source.alloc = true;
+                    source.alignment = arch.jump_table_entry_size;
+                    source.data.resize(table.targets.size() * arch.jump_table_entry_size);
+                    auto kind = arch.jump_table_reloc == arch.reloc_pc32 ? Reloc::Kind::Rel32
+                               : arch.jump_table_entry_size == 2 ? Reloc::Kind::Abs16 : Reloc::Kind::Abs32;
+                    for (std::size_t i = 0; i < table.targets.size(); ++i)
+                        source.relocations.push_back({i * arch.jump_table_entry_size, function.owned_name + ".bb" + std::to_string(table.targets[i]),
+                                                      kind, arch.jump_table_addend});
+                    function_sources.push_back(std::move(source));
+                    auto const& stored = function_sources.back();
+                    ElfAsmSection section;
+                    section.source = &stored;
+                    section.data = stored.data;
+                    section.sh_name = add_str(shstrtab, stored.name);
+                    section.rela_sh_name = add_str(shstrtab, rel_prefix + stored.name);
+                    jump_sections[table.symbol] = asm_sections.size();
+                    asm_sections.push_back(std::move(section));
+                }
 
         std::vector<std::uint8_t> rodata_data;
         std::vector<Elf64_Rela> rodata_relas;
@@ -608,6 +661,8 @@ export namespace dcc::backend::object
         {
             for (auto const& jt : mf.jump_tables)
             {
+                if (jump_sections.contains(jt.symbol))
+                    continue;
                 while (rodata_data.size() % arch.jump_table_entry_size != 0)
                     rodata_data.push_back(0);
 
@@ -700,7 +755,9 @@ export namespace dcc::backend::object
             std::uint64_t cur = 0;
             for (std::size_t i = 0; i < func_codes.size(); ++i)
             {
-                func_offsets.push_back(cur);
+                func_offsets.push_back(function_sections[i] ? 0 : cur);
+                if (function_sections[i])
+                    continue;
                 cur += func_codes[i].size();
                 cur = align_up(cur, arch.function_alignment);
             }
@@ -712,6 +769,8 @@ export namespace dcc::backend::object
         std::vector<std::uint8_t> text_data;
         for (std::size_t i = 0; i < func_codes.size(); ++i)
         {
+            if (function_sections[i])
+                continue;
             while (text_data.size() < func_offsets[i])
                 text_data.push_back(0x90);
 
@@ -724,6 +783,8 @@ export namespace dcc::backend::object
         std::vector<Elf64_Rela> text_relas;
         for (std::size_t fi = 0; fi < func_relocs.size(); ++fi)
         {
+            if (function_sections[fi])
+                continue;
             auto func_off = func_offsets[fi];
             for (auto const& r : func_relocs[fi])
             {
@@ -788,7 +849,7 @@ export namespace dcc::backend::object
 
         bool has_jump_tables = false;
         for (auto const& mf : mod.functions)
-            if (!mf.jump_tables.empty())
+            if (std::ranges::any_of(mf.jump_tables, [&](auto const& table) { return !jump_sections.contains(table.symbol); }))
             {
                 has_jump_tables = true;
                 break;
@@ -865,7 +926,7 @@ export namespace dcc::backend::object
 
         for (auto& gl : globals)
         {
-            if (!gl.g->section.empty())
+            if (!global_section(gl.g, target.data_sections).empty())
                 continue;
             if (gl.sec == DataSection::Rodata)
                 gl.section_index = sec_rodata;
@@ -964,7 +1025,7 @@ export namespace dcc::backend::object
                     Elf64_Sym s{};
                     s.st_name = add_str(strtab, jt.symbol);
                     s.st_info = elf_st_info(STB_LOCAL, STT_OBJECT);
-                    s.st_shndx = static_cast<std::uint16_t>(sec_rodata);
+                    s.st_shndx = static_cast<std::uint16_t>(jump_sections.contains(jt.symbol) ? asm_sections[jump_sections.at(jt.symbol)].section_index : sec_rodata);
                     s.st_value = 0;
                     s.st_size = static_cast<std::uint64_t>(jt.targets.size()) * arch.jump_table_entry_size;
                     name_to_sym_idx[jt.symbol] = static_cast<std::uint32_t>(syms.size());
@@ -980,7 +1041,7 @@ export namespace dcc::backend::object
             Elf64_Sym s{};
             s.st_name = add_str(strtab, bs.sym_name);
             s.st_info = elf_st_info(STB_LOCAL, STT_NOTYPE);
-            s.st_shndx = static_cast<std::uint16_t>(sec_text);
+            s.st_shndx = static_cast<std::uint16_t>(function_sections[bs.func_index] ? asm_sections[*function_sections[bs.func_index]].section_index : sec_text);
             s.st_value = static_cast<std::uint64_t>(bs.func_offset) + bs.block_offset_within_func;
             s.st_size = 0;
             name_to_sym_idx[bs.sym_name] = static_cast<std::uint32_t>(syms.size());
@@ -1026,7 +1087,7 @@ export namespace dcc::backend::object
             Elf64_Sym s{};
             s.st_name = add_str(strtab, fn);
             s.st_info = elf_st_info(bind, STT_FUNC);
-            s.st_shndx = static_cast<std::uint16_t>(sec_text);
+            s.st_shndx = static_cast<std::uint16_t>(function_sections[i] ? asm_sections[*function_sections[i]].section_index : sec_text);
             s.st_value = func_offsets[i];
             s.st_size = func_codes[i].size();
             name_to_sym_idx[fn] = static_cast<std::uint32_t>(syms.size());
@@ -1139,6 +1200,8 @@ export namespace dcc::backend::object
             auto const& mf = mod.functions[fi];
             for (auto const& jt : mf.jump_tables)
             {
+                if (jump_sections.contains(jt.symbol))
+                    continue;
                 while (rodata_data.size() % arch.jump_table_entry_size != 0)
                     rodata_data.push_back(0);
 
@@ -1213,6 +1276,8 @@ export namespace dcc::backend::object
         std::vector<Elf64_Rela> final_text_relas;
         for (std::size_t fi = 0; fi < func_relocs.size(); ++fi)
         {
+            if (function_sections[fi])
+                continue;
             auto func_off = func_offsets[fi];
             for (auto const& r : func_relocs[fi])
             {

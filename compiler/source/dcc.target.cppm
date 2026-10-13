@@ -57,6 +57,8 @@ export namespace dcc::target
         std::uint8_t pointer_align{8};
         bool little_endian{true};
 
+        bool function_sections{false};
+        bool data_sections{false};
         bool no_red_zone{false};
         bool no_simd{false};
         bool no_x87{false};

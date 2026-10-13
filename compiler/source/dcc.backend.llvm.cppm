@@ -11,6 +11,8 @@ module;
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
 
+extern "C" void dcc_llvm_set_sections(LLVMTargetMachineRef machine, bool functions, bool data);
+
 #ifdef _WIN32
 #define popen _popen
 #define pclose _pclose
@@ -23,6 +25,7 @@ import dcc.backend;
 import dcc.ir;
 import dcc.ir.pipeline;
 import dcc.backend.inline_asm;
+import dcc.backend.object.layout;
 import dcc.target;
 import dcc.sm;
 
@@ -1809,7 +1812,7 @@ namespace dcc::backend
                     if (!g || !g->type)
                         continue;
 
-                    if (auto* gv = declare_global(g, llvm_mod, type_cache))
+                    if (auto* gv = declare_global(g, llvm_mod, type_cache, opts))
                         val_map[g] = gv;
                 }
 
@@ -2023,6 +2026,7 @@ namespace dcc::backend
                         return artifact;
                     }
                     tm_created = true;
+                    dcc_llvm_set_sections(tm, opts.target.function_sections, opts.target.data_sections);
 
                     {
                         auto* td = LLVMCreateTargetDataLayout(tm);
@@ -2459,7 +2463,7 @@ namespace dcc::backend
                 return false;
             }
 
-            [[nodiscard]] static LLVMValueRef declare_global(IrGlobal const* g, LLVMModuleRef mod, TypeCache& tc)
+            [[nodiscard]] static LLVMValueRef declare_global(IrGlobal const* g, LLVMModuleRef mod, TypeCache& tc, BackendOptions const& opts)
             {
                 auto* mem_ty = llvm_mem_type_cached(tc, g->type);
                 if (!mem_ty)
@@ -2483,8 +2487,17 @@ namespace dcc::backend
                     LLVMSetDLLStorageClass(gv, LLVMDLLImportStorageClass);
                 else if (g->is_dll_export)
                     LLVMSetDLLStorageClass(gv, LLVMDLLExportStorageClass);
-                if (!g->section.empty())
-                    LLVMSetSection(gv, std::string{g->section}.c_str());
+                auto section = object::global_section(g, opts.target.data_sections, opts.target.object_format == ObjectFormat::Coff);
+                if (!section.empty())
+                    LLVMSetSection(gv, section.c_str());
+                if (opts.target.data_sections && g->section.empty() && !g->is_declaration && !g->is_dll_import &&
+                    opts.target.object_format == ObjectFormat::Coff)
+                {
+                    auto* comdat = LLVMGetOrInsertComdat(mod, std::string{g->name}.c_str());
+                    LLVMSetComdatSelectionKind(comdat, g->linkage == Linkage::LinkOnceODR || g->linkage == Linkage::WeakODR
+                                                          ? LLVMAnyComdatSelectionKind : LLVMNoDeduplicateComdatSelectionKind);
+                    LLVMSetComdat(gv, comdat);
+                }
                 return gv;
             }
 
@@ -2672,6 +2685,16 @@ namespace dcc::backend
 
                 auto* llvm_func = LLVMAddFunction(mod, std::string{func->name}.c_str(), sig.fn_type);
                 apply_linkage_and_comdat(llvm_func, func->linkage, mod, func->name);
+                auto section = object::function_section(func, opts.target.function_sections);
+                if (!section.empty())
+                    LLVMSetSection(llvm_func, section.c_str());
+                if (opts.target.function_sections && !func->blocks.empty() && opts.target.object_format == ObjectFormat::Coff)
+                {
+                    auto* comdat = LLVMGetOrInsertComdat(mod, std::string{func->name}.c_str());
+                    LLVMSetComdatSelectionKind(comdat, func->linkage == Linkage::LinkOnceODR || func->linkage == Linkage::WeakODR
+                                                          ? LLVMAnyComdatSelectionKind : LLVMNoDeduplicateComdatSelectionKind);
+                    LLVMSetComdat(llvm_func, comdat);
+                }
                 val_map[func] = llvm_func;
                 auto const uwtable_kind = LLVMGetEnumAttributeKindForName("uwtable", 7);
                 auto* uwtable = LLVMCreateEnumAttribute(ctx, uwtable_kind, 2);

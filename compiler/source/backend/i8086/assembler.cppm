@@ -495,7 +495,7 @@ namespace dcc::backend::i8086
 
     } // namespace
 
-    std::expected<std::string, std::string> emit_intel_asm(IrModule const& module, std::vector<MFunction> const& functions, target::TargetConfig const&,
+    std::expected<std::string, std::string> emit_intel_asm(IrModule const& module, std::vector<MFunction> const& functions, target::TargetConfig const& target,
                                                            ModuleAsmObject const* module_asm)
     {
         Printer p;
@@ -520,7 +520,7 @@ namespace dcc::backend::i8086
         {
             Printer section_printer;
             for (auto* g : module.globals)
-                if (g && g->section.empty() && object::classify_global(g) == section)
+                if (g && object::global_section(g, target.data_sections).empty() && object::classify_global(g) == section)
                     section_printer.global(g, section, referenced);
             if (!section_printer.error.empty())
                 return std::unexpected(section_printer.error);
@@ -528,18 +528,18 @@ namespace dcc::backend::i8086
                 data += std::format("\n{}\n{}", section_directive(section), section_printer.out);
         }
 
-        std::vector<std::string_view> custom_sections;
+        std::vector<std::string> custom_sections;
         for (auto* g : module.globals)
-            if (g && !g->section.empty() && object::classify_global(g) != DataSection::None &&
-                std::ranges::find(custom_sections, g->section) == custom_sections.end())
-                custom_sections.push_back(g->section);
+            if (g && !object::global_section(g, target.data_sections).empty() && object::classify_global(g) != DataSection::None &&
+                std::ranges::find(custom_sections, object::global_section(g, target.data_sections)) == custom_sections.end())
+                custom_sections.push_back(object::global_section(g, target.data_sections));
 
         for (auto name : custom_sections)
         {
             Printer section_printer;
             DataSection kind = DataSection::None;
             for (auto* g : module.globals)
-                if (g && g->section == name && object::classify_global(g) != DataSection::None)
+                if (g && object::global_section(g, target.data_sections) == name && object::classify_global(g) != DataSection::None)
                 {
                     if (kind == DataSection::None)
                         kind = object::classify_global(g);
@@ -568,8 +568,19 @@ namespace dcc::backend::i8086
                 p.out += std::format("extern {}\n", name);
 
         p.out += "\nsection .text progbits alloc exec nowrite align=1\n";
+        std::string current_section = ".text";
         for (auto const& f : functions)
+        {
+            auto section = object::function_section(module, f.owned_name, target.function_sections);
+            if (section.empty())
+                section = ".text";
+            if (section != current_section)
+            {
+                p.out += std::format("\nsection {} progbits alloc exec nowrite align=1\n", section);
+                current_section = std::move(section);
+            }
             p.function(f);
+        }
         if (!p.error.empty())
             return std::unexpected(p.error);
         p.out += data;

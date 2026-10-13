@@ -222,6 +222,8 @@ namespace
         std::string load{"1000:0000"};
         int timeout{10};
         bool default_start{true};
+        bool gc_sections{false};
+        std::vector<std::string> forbidden_linked_symbols;
         std::optional<std::string> start_error;
     };
 
@@ -241,6 +243,8 @@ namespace
         dcc::target::CodeModel target_model{dcc::target::CodeModel::Default};
         std::string target_cpu;
         bool target_restricted_check{false};
+        bool target_function_sections{false};
+        bool target_data_sections{false};
         std::size_t target_line{};
         std::vector<ExpectAst> ast_blocks;
         std::vector<ExpectScope> scope_blocks;
@@ -381,6 +385,10 @@ namespace
                             fx.target_cpu = option.substr(7);
                         else if (option == "-frestricted-check")
                             fx.target_restricted_check = true;
+                        else if (option == "-ffunction-sections")
+                            fx.target_function_sections = true;
+                        else if (option == "-fdata-sections")
+                            fx.target_data_sections = true;
                     }
                 }
                 fx.target_line = sec.body_start_line - 1;
@@ -978,6 +986,10 @@ namespace
                         }
                         e.serial = std::move(text);
                     }
+                    else if (starts_with(tl, "GC-SECTIONS:"))
+                        e.gc_sections = trim(std::string_view{tl}.substr(12)) == "true";
+                    else if (starts_with(tl, "FORBID-LINKED-SYMBOL:"))
+                        e.forbidden_linked_symbols.push_back(trim(std::string_view{tl}.substr(21)));
                     else if (starts_with(tl, "RUN-LOAD:"))
                         e.load = trim(std::string_view{tl}.substr(9));
                     else if (starts_with(tl, "RUN-TIMEOUT:"))
@@ -1569,6 +1581,12 @@ namespace
                 std::println(std::cerr, "    FAIL  unknown fixture target '{}'  ({}:{})", fx.target_name, path.string(), fx.target_line);
                 return false;
             }
+        }
+
+        if (fixture_target)
+        {
+            fixture_target->function_sections = fx.target_function_sections;
+            fixture_target->data_sections = fx.target_data_sections;
         }
 
         if (fixture_target)
@@ -3902,11 +3920,27 @@ namespace
                     inputs.push_back(crt0.string());
                 inputs.push_back(object.string());
                 inputs.insert(inputs.end(), extra_objects.begin(), extra_objects.end());
-                auto linked = dcc::backend::i8086::link_flat_binary(inputs, binary.string(), link, {});
+                auto map = run_dir / std::format("linked-{}.map", level);
+                std::vector<std::string> link_arguments;
+                if (exp.gc_sections)
+                    link_arguments.push_back("--gc-sections");
+                if (!exp.forbidden_linked_symbols.empty())
+                    link_arguments.push_back("-Map=" + map.string());
+                auto linked = dcc::backend::i8086::link_flat_binary(inputs, binary.string(), link, link_arguments);
                 if (!linked)
                 {
                     fail(std::format("{}: linking failed: {}", level, linked.error()));
                     continue;
+                }
+                if (!exp.forbidden_linked_symbols.empty())
+                {
+                    std::ifstream map_input{map};
+                    std::string linked_map{std::istreambuf_iterator<char>{map_input}, {}};
+                    if (linked_map.empty())
+                        fail(std::format("{}: no linker map", level));
+                    for (auto const& symbol : exp.forbidden_linked_symbols)
+                        if (linked_map.contains(symbol))
+                            fail(std::format("{}: discarded symbol {} is still in the linked image", level, symbol));
                 }
                 auto serial = run_dir / std::format("serial-{}.out", level);
                 auto log = run_dir / std::format("run-{}.log", level);

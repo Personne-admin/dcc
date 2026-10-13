@@ -6,6 +6,7 @@ import dcc.backend.x86.mir;
 import dcc.backend.x86.intel;
 import dcc.backend.x86.modasm;
 import dcc.target;
+import dcc.backend.object.layout;
 
 using namespace dcc::backend::x86;
 
@@ -22,6 +23,7 @@ namespace
     using namespace dcc::backend::em64t;
     using namespace dcc::ir;
     namespace ir = dcc::ir;
+    namespace object = dcc::backend::object;
 
     [[nodiscard]] std::string_view reg64(PhysReg r)
     {
@@ -1795,6 +1797,29 @@ namespace
                                            ModuleAsmObject const* module_asm)
     {
         std::string out;
+        auto select_section = [&](IrGlobal const* global, std::string_view fallback, std::string& current) {
+            auto section = object::global_section(global, target.data_sections, target.object_format == dcc::target::ObjectFormat::Coff);
+            if (section.empty())
+                section = fallback;
+            if (section == current)
+                return;
+            auto kind = object::classify_global(global);
+            auto alignment = global->alignment ? global->alignment : global->type ? global->type->byte_align : 1;
+            std::string attributes;
+            if (target.object_format == dcc::target::ObjectFormat::Coff)
+            {
+                attributes = kind == object::DataSection::Bss ? " bss" : kind == object::DataSection::Rodata ? " rdata" : " data";
+                if (target.data_sections && global->section.empty())
+                    attributes += (global->linkage == ir::Linkage::LinkOnceODR || global->linkage == ir::Linkage::WeakODR ? " comdat=2:" : " comdat=1:") +
+                                  std::string{global->name};
+            }
+            else
+                attributes = kind == object::DataSection::Bss ? " nobits alloc noexec write" : kind == object::DataSection::Rodata
+                                                                                                  ? " progbits alloc noexec nowrite" : " progbits alloc noexec write";
+            out += "section " + section + attributes + " align=" + std::to_string(std::max<std::uint64_t>(alignment, 1)) + "\n";
+            current = std::move(section);
+        };
+
 
         for (auto* g : ir_mod.globals)
             if (g && !g->is_declaration && !g->is_dll_import)
@@ -1906,8 +1931,10 @@ namespace
         if (!rodata.empty())
         {
             out += "section .rodata\n";
+            std::string current_section = ".rodata";
             for (auto const& gl : rodata)
             {
+                select_section(gl.g, ".rodata", current_section);
                 if (gl.g->linkage != ir::Linkage::Internal)
                     out += "global " + gl.name + "\n";
                 out += gl.name + ":\n";
@@ -1919,8 +1946,10 @@ namespace
         if (!rodata_relro.empty())
         {
             out += "section .data.rel.ro\n";
+            std::string current_section = ".data.rel.ro";
             for (auto const& gl : rodata_relro)
             {
+                select_section(gl.g, ".data.rel.ro", current_section);
                 if (gl.g->linkage != ir::Linkage::Internal)
                     out += "global " + gl.name + "\n";
                 out += gl.name + ":\n";
@@ -1932,8 +1961,10 @@ namespace
         if (!data.empty())
         {
             out += "section .data\n";
+            std::string current_section = ".data";
             for (auto const& gl : data)
             {
+                select_section(gl.g, ".data", current_section);
                 if (gl.g->linkage != ir::Linkage::Internal)
                     out += "global " + gl.name + "\n";
                 out += gl.name + ":\n";
@@ -1945,12 +1976,18 @@ namespace
         if (!bss.empty())
         {
             out += "section .bss\n";
+            std::string current_section = ".bss";
             for (auto const& gl : bss)
             {
+                select_section(gl.g, ".bss", current_section);
                 if (gl.g->linkage != ir::Linkage::Internal)
                     out += "global " + gl.name + "\n";
                 out += gl.name + ":\n";
-                out += "    resb " + std::to_string(gl.size > 0 ? gl.size : 1) + "\n";
+                auto size = std::to_string(gl.size > 0 ? gl.size : 1);
+                if (target.object_format == dcc::target::ObjectFormat::Coff && target.data_sections && gl.g->section.empty())
+                    out += "    times " + size + " db 0\n";
+                else
+                    out += "    resb " + size + "\n";
             }
         }
 
@@ -1975,12 +2012,25 @@ export namespace dcc::backend::em64t
         if (!functions.empty())
         {
             out += "section .text\n";
+            std::string current_section = ".text";
 
             for (auto const& mfunc : functions)
             {
                 std::string func_name = mfunc.owned_name;
                 if (func_name.empty())
                     continue;
+                auto section = object::function_section(ir_mod, func_name, target.function_sections);
+                if (section.empty())
+                    section = ".text";
+                if (section != current_section)
+                {
+                    auto attributes = target.object_format == dcc::target::ObjectFormat::Coff ? std::string{" code align=16"}
+                                                                                              : std::string{" progbits alloc exec nowrite align=16"};
+                    if (target.object_format == dcc::target::ObjectFormat::Coff && target.function_sections)
+                        attributes += (mfunc.linkage == ir::Linkage::LinkOnceODR || mfunc.linkage == ir::Linkage::WeakODR ? " comdat=2:" : " comdat=1:") + func_name;
+                    out += "section " + section + attributes + "\n";
+                    current_section = std::move(section);
+                }
                 defined_syms.insert(func_name);
 
                 std::unordered_map<std::uint32_t, std::string> block_labels;
@@ -2042,6 +2092,13 @@ export namespace dcc::backend::em64t
                 {
                     for (auto const& jt : mfunc.jump_tables)
                     {
+                        if (target.function_sections || target.data_sections)
+                        {
+                            if (target.object_format == dcc::target::ObjectFormat::Coff)
+                                out += "section .rdata." + jt.symbol + " rdata align=4 comdat=5:" + mfunc.owned_name + "\n";
+                            else
+                                out += "section .rodata." + jt.symbol + " progbits alloc noexec nowrite align=4\n";
+                        }
                         out += mfunc.owned_name + jt.symbol + ":\n";
                         for (auto tgt : jt.targets)
                         {
