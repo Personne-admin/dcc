@@ -3436,6 +3436,29 @@ export namespace dcc::parser
 
             if (da.had_suppressed_error && !ea.ok)
             {
+                ast::TypeExpr* missing_initializer_type = nullptr;
+                lex::Token missing_initializer_name;
+                {
+                    Speculation spec(*this);
+                    auto* type = parse_type(true);
+                    if (type && !spec.had_suppressed_errors() && check(TK::Identifier) && check_at(1, TK::Eq) && check_at(2, TK::Semicolon))
+                    {
+                        missing_initializer_type = type;
+                        missing_initializer_name = advance();
+                        advance();
+                        spec.commit();
+                    }
+                }
+                if (missing_initializer_type)
+                {
+                    m_last_error_range = {};
+                    error_at(single_range(), "expected expression, found ';'");
+                    advance();
+                    auto* var = m_ctx.make<ast::VarDecl>(range_from(start), missing_initializer_name.interned, missing_initializer_name.range);
+                    var->type = missing_initializer_type;
+                    return m_ctx.make<ast::DeclStmt>(var->range, var);
+                }
+
                 bool type_failed = false;
                 bool type_advanced = false;
                 {
