@@ -251,7 +251,7 @@ export namespace dcc::sema
                     {
                         if (!is_publicly_visible(mod, decl))
                         {
-                            m_diag.error(node->range, "public declaration exposes private type");
+                            diagnose_private_type(mod, decl, node->range);
                             return;
                         }
 
@@ -332,7 +332,7 @@ export namespace dcc::sema
             {
                 if (!is_publicly_visible(mod, decl))
                 {
-                    m_diag.error(range, "public declaration exposes private type");
+                    diagnose_private_type(mod, decl, range);
                     return;
                 }
 
@@ -391,6 +391,47 @@ export namespace dcc::sema
                 case types::TypeKind::Error:
                     return;
             }
+        }
+
+        void diagnose_private_type(ModuleInfo const& mod, void const* nominal, sm::SourceRange range)
+        {
+            auto const* decl = static_cast<ast::Decl const*>(nominal);
+            if (decl->is_public)
+            {
+                for (auto const& imp : mod.imports)
+                {
+                    if (!imp.target || !imp.target->export_scope || !imp.decl || imp.decl->is_public ||
+                        !scope_contains_decl(*imp.target->export_scope, decl))
+                        continue;
+
+                    for (auto const& owner : m_modules)
+                    {
+                        if (owner->file_id != decl->range.begin.fileId)
+                            continue;
+
+                        std::string_view name;
+                        switch (decl->kind)
+                        {
+                            case ast::DeclKind::Struct:
+                                name = static_cast<ast::StructDecl const*>(decl)->name;
+                                break;
+                            case ast::DeclKind::Union:
+                                name = static_cast<ast::UnionDecl const*>(decl)->name;
+                                break;
+                            case ast::DeclKind::Enum:
+                                name = static_cast<ast::EnumDecl const*>(decl)->name;
+                                break;
+                            default:
+                                break;
+                        }
+                        auto const import_path = imp.target->canonical_path.str();
+                        m_diag.error(range, "public declaration exposes `{}::{}` from privately imported module `{}`; use `public import {}`",
+                                     owner->canonical_path.str(), name, import_path, import_path);
+                        return;
+                    }
+                }
+            }
+            m_diag.error(range, "public declaration exposes private type");
         }
 
         static bool shares_common_prefix(ModulePath const& a, ModulePath const& b) noexcept
