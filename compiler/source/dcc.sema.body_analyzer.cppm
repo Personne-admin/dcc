@@ -11887,6 +11887,8 @@ export namespace dcc::sema
                 default:
                     break;
             }
+            if (comparison)
+                expected_type = nullptr;
             bool const lhs_literal = adopts_operand_type && b.lhs && literal_only(*b.lhs);
             bool const rhs_literal = adopts_operand_type && b.rhs && literal_only(*b.rhs);
             auto literal_context = [&](types::TypePtr other) -> types::TypePtr {
