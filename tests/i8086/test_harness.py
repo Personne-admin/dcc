@@ -92,6 +92,35 @@ def test_large_binary(directory):
     check(result.exit_code == 33, repr(result))
 
 
+def test_large_unreal_binary(directory):
+    for seg, off in ((0x1000, 0), (0x2345, 0x123)):
+        source = Path(directory) / "large-unreal.asm"
+        source.write_text("bits 16\n"
+                          "mov eax, " + str(off + 0x10000) + "\n"
+                          "cmp byte [eax], 0x55\njne bad\n"
+                          "mov eax, " + str(off + 0x20001) + "\n"
+                          "cmp byte [eax], 0x66\njne bad\n"
+                          "mov eax, " + str(off + 0x30000) + "\n"
+                          "cmp byte [eax], 0xa5\njne bad\n"
+                          "mov al, 42\njmp done\nbad: mov al, 1\n"
+                          "done: mov dx, 0xf4\nout dx, al\njmp $\n"
+                          "times 0x10000-($-$$) db 0\ndb 0x55\n"
+                          "times 0x20001-($-$$) db 0\ndb 0x66\n"
+                          "times 0x30000-($-$$) db 0\ndb 0xa5\n")
+        output = source.with_suffix(".bin")
+        subprocess.run([NASM, "-f", "bin", str(source), "-o", str(output)], check=True)
+        for accel in (["tcg", "kvm"] if os.access("/dev/kvm", os.R_OK | os.W_OK) else ["tcg"]):
+            result = run(output.read_bytes(), load=(seg, off), mode="unreal", accel=accel)
+            check(result.exit_code == 42 and result.error is None, repr(result))
+    for mode, size in (("real", 0x10000), ("unreal", runner.MAX_STACK_TOP)):
+        try:
+            runner.check_layout(0x1000, 0, size, mode)
+        except runner.HarnessError:
+            check(True, mode)
+        else:
+            check(False, "accepted oversized " + mode + " image")
+
+
 def test_a20(directory):
     for mode in ("real", "unreal"):
         result = run(assemble(directory, "a20"), mode=mode)
@@ -140,6 +169,6 @@ def test_unreal(directory):
 
 with tempfile.TemporaryDirectory(prefix="i8086-harness-") as scratch:
     for test in (test_exit_codes, test_serial, test_timeout, test_loader_failure_codes, test_layout_validation,
-                 test_load_addresses, test_large_binary, test_a20, test_i386, test_unreal):
+                 test_load_addresses, test_large_binary, test_large_unreal_binary, test_a20, test_i386, test_unreal):
         test(scratch)
 print("  RESULT  i8086 qemu harness: %d/%d passed" % (checks, checks))

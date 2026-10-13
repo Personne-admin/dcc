@@ -52,21 +52,25 @@ def parse_load(text):
     return seg, off
 
 
-def check_layout(seg, off, size):
+def check_layout(seg, off, size, mode="real"):
     if size == 0:
         raise HarnessError("empty binary")
     if seg * 16 + off < MIN_LINEAR:
         raise HarnessError("load address %04X:%04X is below linear 0x%X (loader area)" % (seg, off, MIN_LINEAR))
     if seg * 16 + 0x10000 > MAX_STACK_TOP:
         raise HarnessError("segment %04X puts the stack top (SS:FFFE) above linear 0x%X" % (seg, MAX_STACK_TOP))
-    if off + size > 0x10000 - MIN_STACK:
+    if mode == "unreal":
+        loaded_end = seg * 16 + off + ((size + SECTOR - 1) // SECTOR) * SECTOR
+        if loaded_end > MAX_STACK_TOP:
+            raise HarnessError("unreal binary extends above conventional memory limit 0x%X" % MAX_STACK_TOP)
+    elif off + size > 0x10000 - MIN_STACK:
         raise HarnessError("binary of %d bytes at offset %04X leaves less than %d bytes of stack" % (size, off, MIN_STACK))
 
 
 def build_image(binary, seg, off, mode, nasm="nasm", workdir=None):
     if mode not in ("real", "unreal"):
         raise HarnessError("mode must be real or unreal")
-    check_layout(seg, off, len(binary))
+    check_layout(seg, off, len(binary), mode)
     sectors = (len(binary) + SECTOR - 1) // SECTOR
     with tempfile.TemporaryDirectory(prefix="i8086-loader-", dir=workdir) as directory:
         out = Path(directory) / "loader.bin"
