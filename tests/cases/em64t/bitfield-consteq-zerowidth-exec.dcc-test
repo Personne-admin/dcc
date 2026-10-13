@@ -1,0 +1,24 @@
+=== FILE: test.dc ===
+module test;
+
+struct Z { u32 a : 3; u32 : 0; u32 b : 5; }
+
+const Z z1 = Z { a = 1, b = 2 };
+const Z z2 = Z { a = 1, b = 2 };
+const Z z3 = Z { a = 1, b = 3 };
+const bool eq12 = (z1 == z2);
+const bool eq13 = (z1 == z3);
+const bool ne13 = (z1 != z3);
+
+@nomangle
+public i32 dcc_main() {
+    if (!eq12) { return 1; }
+    if (eq13) { return 2; }
+    if (!ne13) { return 3; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

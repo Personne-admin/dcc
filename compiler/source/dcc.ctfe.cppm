@@ -84,6 +84,7 @@ export namespace dcc::ctfe
         std::size_t trace_limit{4096};
         std::function<bool(ast::FuncDecl const&)> prepare_function;
         std::unordered_set<ast::FuncDecl const*>* specializing{};
+        bool restricted_check{false};
     };
 
     struct Call
@@ -677,6 +678,58 @@ export namespace dcc::ctfe
             return v;
         }
 
+        static ast::FieldDecl const* bitfield_store_field(ast::Expr const& target, types::TypePtr& field_ty)
+        {
+            field_ty = nullptr;
+            if (target.kind != ast::ExprKind::FieldAccess)
+                return nullptr;
+            auto const& fa = static_cast<ast::FieldAccessExpr const&>(target);
+            auto obj_ty = type_of(*fa.object);
+            while (auto pointee = pointee_of(obj_ty))
+                obj_ty = pointee;
+            for (auto const& f : record_fields(obj_ty))
+            {
+                if (f.name == fa.field && f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu)
+                {
+                    field_ty = f.type ? type_of(f.type) : nullptr;
+                    return &f;
+                }
+            }
+            return nullptr;
+        }
+
+        static comptime::Value truncate_bitfield_store(ast::Expr const& target, comptime::Value value)
+        {
+            types::TypePtr field_ty = nullptr;
+            auto const* fd = bitfield_store_field(target, field_ty);
+            if (!fd)
+                return value;
+            return truncate_bitfield_value_ctfe(std::move(value), *fd, field_ty ? field_ty : value.type);
+        }
+
+        std::optional<Result> check_restricted_bitfield_value(comptime::Value const& value, ast::FieldDecl const& fd, types::TypePtr field_ty)
+        {
+            if (!m_context.restricted_check)
+                return std::nullopt;
+            auto original = value.const_to_int();
+            if (!original)
+                return std::nullopt;
+            auto truncated = truncate_bitfield_value_ctfe(comptime::Value(value), fd, field_ty);
+            auto after = truncated.const_to_int();
+            if (after && *after == *original)
+                return std::nullopt;
+            return failure(std::format("value {} does not fit in bitfield `{}` width {}", *original, fd.name, fd.bit_width));
+        }
+
+        std::optional<Result> check_restricted_bitfield_store(ast::Expr const& target, comptime::Value const& value)
+        {
+            types::TypePtr field_ty = nullptr;
+            auto const* fd = bitfield_store_field(target, field_ty);
+            if (!fd)
+                return std::nullopt;
+            return check_restricted_bitfield_value(value, *fd, field_ty ? field_ty : value.type);
+        }
+
         Result field_place(ast::FieldAccessExpr const& expr, comptime::ValuePtr& out)
         {
             comptime::ValuePtr base;
@@ -810,23 +863,9 @@ export namespace dcc::ctfe
             if (r.flow != Flow::Normal)
                 return r;
 
-            if (target.kind == ast::ExprKind::FieldAccess)
-            {
-                auto const& fa = static_cast<ast::FieldAccessExpr const&>(target);
-                auto obj_ty = type_of(*fa.object);
-                while (auto pointee = pointee_of(obj_ty))
-                    obj_ty = pointee;
-                auto fields = record_fields(obj_ty);
-                for (auto const& f : fields)
-                {
-                    if (f.name == fa.field && f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu)
-                    {
-                        auto* fty = f.type ? type_of(f.type) : value.type;
-                        value = truncate_bitfield_value_ctfe(std::move(value), f, fty ? fty : value.type);
-                        break;
-                    }
-                }
-            }
+            if (auto restricted = check_restricted_bitfield_store(target, value))
+                return *restricted;
+            value = truncate_bitfield_store(target, std::move(value));
             auto* slot = m_heap.write_target(ptr);
             if (!slot)
                 return m_heap.is_mutable(ptr) ? failure("write outside the bounds of a compile-time object") : failure("write to read-only storage");
@@ -1099,8 +1138,17 @@ export namespace dcc::ctfe
                             return r;
                         auto const& fd = fields[field.resolved_field_index];
                         if (fd.is_bitfield && fd.bit_width != 0 && fd.bit_width != 0xFFFFFFFFu)
+                        {
+                            if (auto restricted = check_restricted_bitfield_value(*r.value, fd, type_of(fd.type)))
+                                return *restricted;
                             *r.value = truncate_bitfield_value_ctfe(std::move(*r.value), fd, type_of(fd.type));
+                        }
                         elements[field.resolved_field_index] = std::move(*r.value);
+                    }
+                    for (std::size_t i = 0; i < fields.size(); ++i)
+                    {
+                        if (fields[i].name.empty() && fields[i].is_bitfield)
+                            elements[i] = comptime::Value::make_int(0, type_of(fields[i].type));
                     }
                     return folded(comptime::Value::make_aggregate(std::move(elements), type));
                 }
@@ -1528,6 +1576,9 @@ export namespace dcc::ctfe
                 return failure("write to read-only storage");
             if (specializing() && next)
                 inherit_taint(*next, *old.value);
+            if (auto restricted = check_restricted_bitfield_store(target, *next))
+                return *restricted;
+            *next = truncate_bitfield_store(target, std::move(*next));
             *slot = *next;
             m_heap.mark_clean(ptr);
             return prefix ? folded(std::move(next)) : folded(std::move(old.value));

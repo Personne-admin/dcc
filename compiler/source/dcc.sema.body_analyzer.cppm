@@ -26,7 +26,7 @@ export namespace dcc::sema
 {
     void analyze_bodies(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx,
                         types::TypeContext& type_ctx, std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& reg,
-                        target::TargetConfig const* target = nullptr);
+                        target::TargetConfig const* target = nullptr, bool restricted_check = false);
 
     void analyze_instantiated_body(ModuleInfo& mod, ast::FuncDecl& fn, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
                                    std::pmr::polymorphic_allocator<> alloc, target::TargetConfig const* target = nullptr);
@@ -883,9 +883,10 @@ export namespace dcc::sema
     {
     public:
         BodyAnalyzer(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
-                     std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& spec_registry, target::TargetConfig const* target = nullptr)
+                     std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& spec_registry, target::TargetConfig const* target = nullptr,
+                     bool restricted_check = false)
             : m_modules{modules}, m_diag{diag}, m_had_prior_errors{diag.has_errors()}, m_ast_ctx{ast_ctx}, m_types{type_ctx}, m_alloc{alloc},
-              m_spec_registry{spec_registry}, m_target{target}
+              m_spec_registry{spec_registry}, m_target{target}, m_restricted_check{restricted_check}
         {
         }
 
@@ -979,6 +980,7 @@ export namespace dcc::sema
         std::pmr::polymorphic_allocator<> m_alloc;
         SpecializationRegistry& m_spec_registry;
         target::TargetConfig const* m_target{};
+        bool m_restricted_check{false};
         bool m_suppress_errors{};
         std::unordered_set<ast::Expr const*> m_warned_array_decay;
 
@@ -8205,6 +8207,7 @@ export namespace dcc::sema
             context.function = function;
             context.types = &m_types;
             context.source_manager = &m_diag.source_manager();
+            context.restricted_check = m_restricted_check;
             context.prepare_function = [&](ast::FuncDecl const& fn) { return prepare_ctfe_function(fn, speculative); };
 
             auto result = ctfe::Evaluator(std::move(context), mode).evaluate(expr);
@@ -13837,6 +13840,11 @@ export namespace dcc::sema
                         bool all_const = true;
                         for (std::size_t fi = 0; fi < fields.size(); ++fi)
                         {
+                            if (fields[fi].name.empty())
+                            {
+                                agg_elems.push_back(comptime::Value::make_int(0, fields[fi].type));
+                                continue;
+                            }
                             auto lit_it = std::find_if(s.fields.begin(), s.fields.end(), [&](ast::StructLiteralField const& sf) {
                                 return sf.resolved_field_index <= fi && fi < sf.resolved_field_index + sf.resolved_field_count;
                             });
@@ -18293,9 +18301,10 @@ export namespace dcc::sema
     };
 
     void analyze_bodies(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx,
-                        types::TypeContext& type_ctx, std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& reg, target::TargetConfig const* target)
+                        types::TypeContext& type_ctx, std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& reg, target::TargetConfig const* target,
+                        bool restricted_check)
     {
-        BodyAnalyzer{modules, diag, ast_ctx, type_ctx, alloc, reg, target}.run();
+        BodyAnalyzer{modules, diag, ast_ctx, type_ctx, alloc, reg, target, restricted_check}.run();
     }
 
     void analyze_instantiated_body(ModuleInfo& mod, ast::FuncDecl& fn, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
