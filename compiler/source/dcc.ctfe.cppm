@@ -280,7 +280,8 @@ export namespace dcc::ctfe
 
         std::optional<std::size_t> append_emit(ast::Expr const& node, std::vector<std::size_t> children)
         {
-            for (auto child : children) {
+            for (auto child : children)
+            {
                 assert(child < m_trace.nodes.size());
                 std::ignore = child;
             }
@@ -621,6 +622,61 @@ export namespace dcc::ctfe
             return {};
         }
 
+        static comptime::Value truncate_bitfield_value_ctfe(comptime::Value v, ast::FieldDecl const& fd, types::TypePtr field_ty)
+        {
+            if (!fd.is_bitfield || fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu || fd.bit_width >= 64)
+                return v;
+            if (v.kind() == comptime::Value::Kind::Bool)
+                return v;
+            auto iv = v.const_to_int();
+            if (!iv)
+                return v;
+            auto* unw = field_ty;
+            while (unw)
+            {
+                if (auto* n = types::type_cast<types::NominalType>(unw))
+                {
+                    unw = n->underlying;
+                    continue;
+                }
+                break;
+            }
+            bool is_signed = false;
+            if (auto* it = types::type_cast<types::IntType>(unw))
+                is_signed = it->is_signed;
+            else if (auto* et = types::type_cast<types::EnumType>(unw))
+            {
+                auto* backing = et->backing;
+                while (backing)
+                {
+                    if (auto* n = types::type_cast<types::NominalType>(backing))
+                    {
+                        backing = n->underlying;
+                        continue;
+                    }
+                    break;
+                }
+                if (auto* bit = types::type_cast<types::IntType>(backing))
+                    is_signed = bit->is_signed;
+                else
+                    return v;
+            }
+            else if (types::type_cast<types::BoolType>(unw))
+                return v;
+            else
+                return v;
+            std::uint64_t mask = (1ull << fd.bit_width) - 1;
+            std::uint64_t uv = static_cast<std::uint64_t>(*iv) & mask;
+            std::int64_t out = 0;
+            if (is_signed && fd.bit_width > 0 && (uv & (1ull << (fd.bit_width - 1))))
+                out = static_cast<std::int64_t>(uv | (~mask));
+            else
+                out = static_cast<std::int64_t>(uv);
+            if (v.kind() == comptime::Value::Kind::Int)
+                return comptime::Value::make_int(out, v.type);
+            return v;
+        }
+
         Result field_place(ast::FieldAccessExpr const& expr, comptime::ValuePtr& out)
         {
             comptime::ValuePtr base;
@@ -754,6 +810,23 @@ export namespace dcc::ctfe
             if (r.flow != Flow::Normal)
                 return r;
 
+            if (target.kind == ast::ExprKind::FieldAccess)
+            {
+                auto const& fa = static_cast<ast::FieldAccessExpr const&>(target);
+                auto obj_ty = type_of(*fa.object);
+                while (auto pointee = pointee_of(obj_ty))
+                    obj_ty = pointee;
+                auto fields = record_fields(obj_ty);
+                for (auto const& f : fields)
+                {
+                    if (f.name == fa.field && f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu)
+                    {
+                        auto* fty = f.type ? type_of(f.type) : value.type;
+                        value = truncate_bitfield_value_ctfe(std::move(value), f, fty ? fty : value.type);
+                        break;
+                    }
+                }
+            }
             auto* slot = m_heap.write_target(ptr);
             if (!slot)
                 return m_heap.is_mutable(ptr) ? failure("write outside the bounds of a compile-time object") : failure("write to read-only storage");
@@ -997,8 +1070,24 @@ export namespace dcc::ctfe
             {
                 case ast::ExprSema::ConstructionKind::Struct: {
                     auto fields = record_fields(type);
-                    if (fields.empty() || expr.fields.size() != fields.size())
-                        return failure("aggregate requires fully initialized resolved fields");
+                    bool has_bitfield_lit = false;
+                    for (auto const& f : fields)
+                        if (f.is_bitfield)
+                            has_bitfield_lit = true;
+                    if (!has_bitfield_lit)
+                    {
+                        if (fields.empty() || expr.fields.size() != fields.size())
+                            return failure("aggregate requires fully initialized resolved fields");
+                    }
+                    else
+                    {
+                        std::size_t named = 0;
+                        for (auto const& f : fields)
+                            if (!f.name.empty())
+                                ++named;
+                        if (fields.empty() || expr.fields.size() != named)
+                            return failure("aggregate requires fully initialized resolved fields");
+                    }
 
                     std::vector<comptime::Value> elements(fields.size());
                     for (auto const& field : expr.fields)
@@ -1008,6 +1097,9 @@ export namespace dcc::ctfe
                         auto r = convert(*field.value, type_of(fields[field.resolved_field_index].type));
                         if (r.flow != Flow::Normal || !r.value)
                             return r;
+                        auto const& fd = fields[field.resolved_field_index];
+                        if (fd.is_bitfield && fd.bit_width != 0 && fd.bit_width != 0xFFFFFFFFu)
+                            *r.value = truncate_bitfield_value_ctfe(std::move(*r.value), fd, type_of(fd.type));
                         elements[field.resolved_field_index] = std::move(*r.value);
                     }
                     return folded(comptime::Value::make_aggregate(std::move(elements), type));
@@ -1520,13 +1612,11 @@ export namespace dcc::ctfe
                 return emitted;
             }
 
-            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) &&
-                (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
+            if (specializing() && m_unwrap_depth == 0 && (op == K::EqEq || op == K::BangEq) && (contains_tainted(*lhs.value) || contains_tainted(*rhs.value)))
                 return abandoned(AbandonReason::UnsupportedEffect);
 
             Result r{};
-            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far ||
-                rhs.value->kind() == Kind::Far)
+            if (lhs.value->kind() == Kind::Pointer || rhs.value->kind() == Kind::Pointer || lhs.value->kind() == Kind::Far || rhs.value->kind() == Kind::Far)
                 r = pointer_binary(op, *lhs.value, *rhs.value, out_type);
             else
             {
@@ -2432,8 +2522,7 @@ export namespace dcc::ctfe
             return const_eval::fold_cast(std::move(value), target);
         }
 
-        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args,
-                          std::vector<ast::Expr const*> const& arg_sources = {})
+        Result specialize(ast::FuncDecl const& fn, std::vector<comptime::Value> args, std::vector<ast::Expr const*> const& arg_sources = {})
         {
             m_steps = 0;
             m_cells = 0;

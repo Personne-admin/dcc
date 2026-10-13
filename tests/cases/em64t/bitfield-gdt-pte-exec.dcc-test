@@ -1,0 +1,84 @@
+=== FILE: test.dc ===
+module test;
+
+struct GdtDescriptor {
+    u64 limit_low : 16;
+    u64 base_low : 16;
+    u64 base_mid : 8;
+    u64 accessed : 1;
+    u64 rw : 1;
+    u64 dc : 1;
+    u64 exec : 1;
+    u64 desc_type : 1;
+    u64 priv : 2;
+    u64 present : 1;
+    u64 limit_high : 4;
+    u64 reserved : 1;
+    u64 long_mode : 1;
+    u64 db : 1;
+    u64 gran : 1;
+    u64 base_high : 8;
+}
+
+struct PageEntry {
+    u64 present : 1;
+    u64 writable : 1;
+    u64 user : 1;
+    u64 writethrough : 1;
+    u64 cachedisable : 1;
+    u64 accessed : 1;
+    u64 dirty : 1;
+    u64 pagesize : 1;
+    u64 global : 1;
+    u64 avail1 : 3;
+    u64 phys : 40;
+    u64 avail2 : 11;
+    u64 nx : 1;
+}
+
+union RawGdt { GdtDescriptor d; u64 raw; }
+union RawPte { PageEntry e; u64 raw; }
+
+@nomangle
+public i32 dcc_main() {
+    if (sizeof(GdtDescriptor) != 8) { return 1; }
+    if (alignof(GdtDescriptor) != 8) { return 2; }
+    if (sizeof(PageEntry) != 8) { return 3; }
+    if (alignof(PageEntry) != 8) { return 4; }
+
+    GdtDescriptor code = GdtDescriptor {
+        limit_low = 0xFFFF, base_low = 0, base_mid = 0,
+        accessed = 0, rw = 1, dc = 0, exec = 1, desc_type = 1, priv = 0, present = 1,
+        limit_high = 0xF, reserved = 0, long_mode = 1, db = 0, gran = 1,
+        base_high = 0,
+    };
+    RawGdt rc = RawGdt { d = code };
+    if (rc.raw != 0x00AF9A000000FFFF) { return 5; }
+
+    RawGdt rc2 = RawGdt { raw = 0x00AF9A000000FFFF };
+    if (rc2.d.limit_low != 0xFFFF) { return 6; }
+    if (rc2.d.exec != 1) { return 7; }
+    if (rc2.d.long_mode != 1) { return 8; }
+    if (rc2.d.priv != 0) { return 9; }
+
+    PageEntry p = PageEntry {
+        present = 1, writable = 1, user = 0, writethrough = 0, cachedisable = 0,
+        accessed = 0, dirty = 0, pagesize = 0, global = 1,
+        avail1 = 0, phys = 0x12345, avail2 = 0, nx = 1,
+    };
+    RawPte rp = RawPte { e = p };
+    u64 expected = (1 as u64) | ((1 as u64) << 1) | ((1 as u64) << 8) | ((0x12345 as u64) << 12) | ((1 as u64) << 63);
+    if (rp.raw != expected) { return 10; }
+
+    RawPte rp2 = RawPte { raw = expected };
+    if (rp2.e.present != 1) { return 11; }
+    if (rp2.e.phys != 0x12345) { return 12; }
+    if (rp2.e.nx != 1) { return 13; }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

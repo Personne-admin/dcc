@@ -1279,10 +1279,19 @@ export namespace dcc::ast
 
         void print_field_decl(const FieldDecl& f)
         {
-            line_fmt("{} name={}", f.is_pack ? "PackField" : "Field", f.name);
+            if (f.is_bitfield)
+                line_fmt("{} name={} bitfield", f.is_pack ? "PackField" : "Field", f.name);
+            else
+                line_fmt("{} name={}", f.is_pack ? "PackField" : "Field", f.name);
             IndentScope is(m_indent_level);
             if (f.type)
                 visitTypeExpr(f.type);
+            if (f.bit_width_expr)
+            {
+                line("BitWidth");
+                IndentScope is2(m_indent_level);
+                visitExpr(f.bit_width_expr);
+            }
         }
 
         void print_enum_variant(const EnumVariant& v)

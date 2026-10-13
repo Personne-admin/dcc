@@ -1,0 +1,42 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+struct S { u32 a : 3; u32 b; }
+void f_addr() {
+    S s = S { a = 1, b = 2 };
+    u32* p = &s.a;
+}
+void f_off() {
+    offsetof(S, a);
+}
+void f_forin() {
+    S s = S { a = 1, b = 2 };
+    for &x in s.a {
+    }
+}
+void f_match() {
+    S s = S { a = 1, b = 2 };
+    match s {
+        S { &a, b } => {},
+    };
+}
+void f_const_assign() {
+    S s = S { a = 1, b = 2 };
+    s.a = 8;
+}
+void f_const_lit() {
+    S s = S { a = 8, b = 2 };
+}
+void f_atomic() {
+    S s = S { a = 1, b = 2 };
+    u32 old = core::atomic::atomic_fetch_add(&s.a, 1, core::atomic::MemoryOrder::SeqCst);
+}
+
+=== EXPECT-ERRORS ===
+test.dc:6: cannot take address of bitfield
+test.dc:9: cannot take offsetof of bitfield `a`
+test.dc:13: cannot bind bitfield by reference in for-in
+test.dc:19: cannot bind bitfield `a` by reference in match
+test.dc:24: constant 8 does not fit in bitfield `a` width 3
+test.dc:27: constant 8 does not fit in bitfield `a` width 3
+test.dc:31: cannot take address of bitfield

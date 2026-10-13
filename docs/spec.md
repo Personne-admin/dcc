@@ -174,6 +174,38 @@ enum Optional(T) {
 }
 ```
 
+### 2.4 Bitfields
+
+A struct or union field may declare a bit width: `T name : N;`, where `N`
+is a compile-time constant from 1 to the bit width of `T`. An unnamed
+zero-width field `T : 0;` forces the next bitfield into a new storage unit.
+
+```dc
+struct Flags {
+    u8 a : 3;
+    u8 b : 5;
+    u8 : 0;
+    u8 c : 2;
+}
+```
+
+Allowed `T`: integer types, `bool` (width must be exactly 1), and enums
+with an explicit integer backing type (`N` must fit every enumerator,
+signed or unsigned per the backing type). Anything else is an error. Pack
+fields (`...`) cannot be bitfields.
+
+Layout: bits are allocated starting at the least significant bit of a
+storage unit whose type is the field's declared type. Consecutive bitfields
+with the same declared type share a unit while bits remain; a bitfield that
+does not fit in the remaining bits starts a new unit (no straddling). A
+bitfield after a field of a different declared type, or after an ordinary
+field, starts a new unit. Storage units are aligned like their type, and
+`@packed` applies to them as to ordinary fields.
+
+`volatile` rule: each read of a volatile bitfield reads its whole storage unit
+exactly once at the unit's width; each write reads and writes the unit
+exactly once (read-modify-write).
+
 ---
 
 ## 3. Pointers & References

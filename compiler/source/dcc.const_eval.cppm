@@ -165,6 +165,29 @@ export namespace dcc::const_eval
                 return comptime::Value::make_bool(false, out_type);
         }
 
+        if ((op == lex::TokenKind::EqEq || op == lex::TokenKind::BangEq) && lhs.kind() == comptime::Value::Kind::Aggregate &&
+            rhs.kind() == comptime::Value::Kind::Aggregate && lhs.type && lhs.type == rhs.type && lhs.size() == rhs.size())
+        {
+            if (types::type_cast<types::StructType>(lhs.type))
+            {
+                bool eq = true;
+                for (std::size_t i = 0; i < lhs.size(); ++i)
+                {
+                    auto f = fold_cmp(lex::TokenKind::EqEq, lhs.at(i), rhs.at(i), out_type);
+                    if (!f || f->kind() != comptime::Value::Kind::Bool)
+                        return std::nullopt;
+                    if (!f->get_bool())
+                    {
+                        eq = false;
+                        break;
+                    }
+                }
+                if (op == lex::TokenKind::BangEq)
+                    eq = !eq;
+                return comptime::Value::make_bool(eq, out_type);
+            }
+        }
+
         return std::nullopt;
     }
 

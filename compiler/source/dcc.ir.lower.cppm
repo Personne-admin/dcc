@@ -4388,7 +4388,12 @@ export namespace dcc::ir::lower
             }
 
             if (operand->kind == ast::ExprKind::FieldAccess)
-                return lower_field_lvalue(static_cast<ast::FieldAccessExpr const*>(operand));
+            {
+                auto* fa = static_cast<ast::FieldAccessExpr const*>(operand);
+                if (auto* fd = find_decl_field(fa); fd && fd->is_bitfield && fd->bit_width != 0 && fd->bit_width != 0xFFFFFFFFu)
+                    lower_panic(operand, "cannot take address of bitfield");
+                return lower_field_lvalue(fa);
+            }
 
             if (operand->kind == ast::ExprKind::Index)
                 return lower_index_lvalue(static_cast<ast::IndexExpr const*>(operand));
@@ -4447,6 +4452,33 @@ export namespace dcc::ir::lower
 
         IrValue* lower_pre_incdec(ast::Expr const* operand, IrType const* ir_ty, bool is_inc)
         {
+            if (operand && operand->kind == ast::ExprKind::FieldAccess)
+            {
+                auto* fa = static_cast<ast::FieldAccessExpr const*>(operand);
+                if (auto* fd = find_decl_field(fa); fd && fd->is_bitfield && fd->bit_width != 0 && fd->bit_width != 0xFFFFFFFFu)
+                {
+                    auto lv = lower_assign_lvalue(operand);
+                    if (!lv.gep_ptr)
+                        lower_panic(operand, "bitfield pre-inc/dec requires assignable lvalue");
+                    auto* field_sema_ty = get_field_type_with_subst(fa, fd);
+                    auto* unit_ty = bitfield_unit_ir_type(fd, field_sema_ty);
+                    IrValue* loaded_unit = nullptr;
+                    if (field_type_is_volatile_lower(fd->type))
+                        loaded_unit = m_ctx.load_volatile(unit_ty, lv.gep_ptr);
+                    else
+                        loaded_unit = m_ctx.load(unit_ty, lv.gep_ptr);
+                    auto ln = ident_name();
+                    loaded_unit->name = m_name_pool.back();
+                    append_inst(loaded_unit);
+                    auto* old_logical = lower_bitfield_extract(loaded_unit, fd, field_sema_ty, ir_ty);
+                    auto* result = incdec_step(old_logical, ir_ty, get_sema_resolved_type(operand), is_inc);
+                    auto rn = ident_name();
+                    result->name = m_name_pool.back();
+                    append_inst(result);
+                    lower_bitfield_store_inner(lv.gep_ptr, loaded_unit, fd, field_sema_ty, result, fa->range);
+                    return result;
+                }
+            }
             auto lv = lower_assign_lvalue(operand);
             if (!lv.entry && !lv.gep_ptr)
                 lower_unimplemented(operand, "pre-inc/dec on unsupported lvalue");
@@ -4731,6 +4763,33 @@ export namespace dcc::ir::lower
 
         IrValue* lower_post_incdec(ast::Expr const* operand, IrType const* ir_ty, bool is_inc)
         {
+            if (operand && operand->kind == ast::ExprKind::FieldAccess)
+            {
+                auto* fa = static_cast<ast::FieldAccessExpr const*>(operand);
+                if (auto* fd = find_decl_field(fa); fd && fd->is_bitfield && fd->bit_width != 0 && fd->bit_width != 0xFFFFFFFFu)
+                {
+                    auto lv = lower_assign_lvalue(operand);
+                    if (!lv.gep_ptr)
+                        lower_panic(operand, "bitfield post-inc/dec requires assignable lvalue");
+                    auto* field_sema_ty = get_field_type_with_subst(fa, fd);
+                    auto* unit_ty = bitfield_unit_ir_type(fd, field_sema_ty);
+                    IrValue* loaded_unit = nullptr;
+                    if (field_type_is_volatile_lower(fd->type))
+                        loaded_unit = m_ctx.load_volatile(unit_ty, lv.gep_ptr);
+                    else
+                        loaded_unit = m_ctx.load(unit_ty, lv.gep_ptr);
+                    auto ln = ident_name();
+                    loaded_unit->name = m_name_pool.back();
+                    append_inst(loaded_unit);
+                    auto* old_logical = lower_bitfield_extract(loaded_unit, fd, field_sema_ty, ir_ty);
+                    auto* updated = incdec_step(old_logical, ir_ty, get_sema_resolved_type(operand), is_inc);
+                    auto rn = ident_name();
+                    updated->name = m_name_pool.back();
+                    append_inst(updated);
+                    lower_bitfield_store_inner(lv.gep_ptr, loaded_unit, fd, field_sema_ty, updated, fa->range);
+                    return old_logical;
+                }
+            }
             auto lv = lower_assign_lvalue(operand);
             if (!lv.entry && !lv.gep_ptr)
                 lower_unimplemented(operand, "post-inc/dec on unsupported lvalue");
@@ -4766,6 +4825,153 @@ export namespace dcc::ir::lower
             return loaded;
         }
 
+        IrValue* lower_struct_equality(IrValue* lhs_val, IrValue* rhs_val, dcc::types::TypePtr struct_ty)
+        {
+            auto* unw = struct_ty;
+            while (unw)
+            {
+                if (auto* n = types::type_cast<types::NominalType>(unw))
+                {
+                    unw = n->underlying;
+                    continue;
+                }
+                break;
+            }
+            auto* st = types::type_cast<types::StructType>(unw);
+            if (!st)
+                lower_panic("struct equality on non-struct type");
+            IrValue* acc = nullptr;
+            auto combine = [&](IrValue* eq) {
+                if (!acc)
+                    acc = eq;
+                else
+                {
+                    auto* anded = m_ctx.and_(eq->type, acc, eq);
+                    auto n = ident_name();
+                    anded->name = m_name_pool.back();
+                    append_inst(anded);
+                    acc = anded;
+                }
+            };
+            if (st->has_expansion)
+            {
+                for (std::size_t i = 0; i < st->expanded_field_count; ++i)
+                {
+                    auto* fty = st->expanded_fields[i].type;
+                    auto* ir_ft = lower_type(fty);
+                    auto* lv = m_ctx.extract(ir_ft, lhs_val, static_cast<std::uint32_t>(i));
+                    auto n = ident_name();
+                    lv->name = m_name_pool.back();
+                    append_inst(lv);
+                    auto* rv = m_ctx.extract(ir_ft, rhs_val, static_cast<std::uint32_t>(i));
+                    n = ident_name();
+                    rv->name = m_name_pool.back();
+                    append_inst(rv);
+                    auto* funw2 = fty;
+                    while (funw2)
+                    {
+                        if (auto* nn = types::type_cast<types::NominalType>(funw2))
+                        {
+                            funw2 = nn->underlying;
+                            continue;
+                        }
+                        break;
+                    }
+                    if (types::type_cast<types::StructType>(funw2))
+                    {
+                        combine(lower_struct_equality(lv, rv, fty));
+                        continue;
+                    }
+                    if (fty->kind == types::TypeKind::Int || fty->kind == types::TypeKind::Bool || fty->kind == types::TypeKind::Float ||
+                        fty->kind == types::TypeKind::Char || fty->kind == types::TypeKind::Pointer || fty->kind == types::TypeKind::Enum)
+                    {
+                        auto* eq = m_ctx.cmp_eq(lv, rv);
+                        n = ident_name();
+                        eq->name = m_name_pool.back();
+                        append_inst(eq);
+                        combine(eq);
+                        continue;
+                    }
+                    lower_panic("struct equality with unsupported field type");
+                }
+                if (!acc)
+                    acc = m_ctx.bool_const(true);
+                return acc;
+            }
+            auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+            for (std::uint32_t i = 0; i < sd->fields.size(); ++i)
+            {
+                auto const& fd = sd->fields[i];
+                if (fd.name.empty())
+                    continue;
+                if (fd.is_bitfield && (fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu))
+                    continue;
+                auto* fty = get_canonical_type(fd.type);
+                if (types::is_fam_type(fty))
+                    lower_panic("struct equality with flexible array member");
+                auto* ir_ft = lower_type(fty);
+                std::uint32_t phys = struct_decl_has_bitfields(sd) ? struct_physical_index(sd, i) : i;
+                if (phys == 0xFFFFFFFFu)
+                    lower_panic("struct equality field index out of range");
+                IrValue* lv = nullptr;
+                IrValue* rv = nullptr;
+                if (fd.is_bitfield)
+                {
+                    auto* unit_ty = bitfield_unit_ir_type(&fd, fty);
+                    auto* lunit = m_ctx.extract(unit_ty, lhs_val, phys);
+                    auto n = ident_name();
+                    lunit->name = m_name_pool.back();
+                    append_inst(lunit);
+                    auto* runit = m_ctx.extract(unit_ty, rhs_val, phys);
+                    n = ident_name();
+                    runit->name = m_name_pool.back();
+                    append_inst(runit);
+                    lv = lower_bitfield_extract(lunit, &fd, fty, ir_ft);
+                    rv = lower_bitfield_extract(runit, &fd, fty, ir_ft);
+                }
+                else
+                {
+                    lv = m_ctx.extract(ir_ft, lhs_val, phys);
+                    auto n = ident_name();
+                    lv->name = m_name_pool.back();
+                    append_inst(lv);
+                    rv = m_ctx.extract(ir_ft, rhs_val, phys);
+                    n = ident_name();
+                    rv->name = m_name_pool.back();
+                    append_inst(rv);
+                }
+                auto* funw2 = fty;
+                while (funw2)
+                {
+                    if (auto* nn = types::type_cast<types::NominalType>(funw2))
+                    {
+                        funw2 = nn->underlying;
+                        continue;
+                    }
+                    break;
+                }
+                if (types::type_cast<types::StructType>(funw2))
+                {
+                    combine(lower_struct_equality(lv, rv, fty));
+                    continue;
+                }
+                if (fty->kind == types::TypeKind::Int || fty->kind == types::TypeKind::Bool || fty->kind == types::TypeKind::Float ||
+                    fty->kind == types::TypeKind::Char || fty->kind == types::TypeKind::Pointer || fty->kind == types::TypeKind::Enum)
+                {
+                    auto* eq = m_ctx.cmp_eq(lv, rv);
+                    auto n = ident_name();
+                    eq->name = m_name_pool.back();
+                    append_inst(eq);
+                    combine(eq);
+                    continue;
+                }
+                lower_panic("struct equality with unsupported field type");
+            }
+            if (!acc)
+                acc = m_ctx.bool_const(true);
+            return acc;
+        }
+
         IrValue* lower_binary_expr(ast::BinaryExpr const* bin)
         {
             auto* lhs = bin->lhs;
@@ -4784,6 +4990,45 @@ export namespace dcc::ir::lower
             if (is_compound_assign(bin->op))
                 return lower_compound_assign(bin, sema_ty, ir_ty);
 
+            if (bin->op == dcc::lex::TokenKind::EqEq || bin->op == dcc::lex::TokenKind::BangEq)
+            {
+                auto* lhs_ty = get_sema_resolved_type(lhs);
+                auto* unw = lhs_ty;
+                while (unw)
+                {
+                    if (auto* n = types::type_cast<types::NominalType>(unw))
+                    {
+                        unw = n->underlying;
+                        continue;
+                    }
+                    break;
+                }
+                if (auto* st = types::type_cast<types::StructType>(unw))
+                {
+                    bool has_bf = false;
+                    if (!st->has_expansion)
+                    {
+                        auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                        has_bf = sd && struct_decl_has_bitfields(sd);
+                    }
+                    if (has_bf)
+                    {
+                        auto* lhs_val = lower_expr(lhs);
+                        auto* rhs_val = lower_expr(rhs);
+                        auto* eq = lower_struct_equality(lhs_val, rhs_val, lhs_ty);
+                        if (bin->op == dcc::lex::TokenKind::BangEq)
+                        {
+                            auto* t = m_ctx.bool_const(true);
+                            auto* ne = m_ctx.xor_(eq->type, eq, t);
+                            auto n = ident_name();
+                            ne->name = m_name_pool.back();
+                            append_inst(ne);
+                            return ne;
+                        }
+                        return eq;
+                    }
+                }
+            }
             auto* lhs_val = lower_expr(lhs);
             auto* rhs_val = lower_expr(rhs);
 
@@ -4835,9 +5080,204 @@ export namespace dcc::ir::lower
             }
         }
 
+        void emit_bitfield_range_check(IrValue* new_val, ast::FieldDecl const* fd, dcc::types::TypePtr field_sema_ty, sm::SourceRange range)
+        {
+            if (!m_restricted_check)
+                return;
+            if (!fd || fd->bit_width == 0 || fd->bit_width == 0xFFFFFFFFu)
+                return;
+            if (new_val && (new_val->kind == IrNodeKind::IntConstant || new_val->kind == IrNodeKind::BoolConstant))
+                return;
+            auto* unwrapped = field_sema_ty;
+            while (unwrapped)
+            {
+                if (auto* nt = types::type_cast<types::NominalType>(unwrapped))
+                {
+                    unwrapped = nt->underlying;
+                    continue;
+                }
+                break;
+            }
+            if (types::type_cast<types::BoolType>(unwrapped))
+                return;
+            bool is_signed = false;
+            std::uint32_t type_bits = 0;
+            if (auto* it = types::type_cast<types::IntType>(unwrapped))
+            {
+                is_signed = it->is_signed;
+                type_bits = it->bits;
+            }
+            else if (auto* et = types::type_cast<types::EnumType>(unwrapped))
+            {
+                auto* backing = et->backing;
+                while (backing)
+                {
+                    if (auto* nt = types::type_cast<types::NominalType>(backing))
+                    {
+                        backing = nt->underlying;
+                        continue;
+                    }
+                    break;
+                }
+                if (auto* bit = types::type_cast<types::IntType>(backing))
+                {
+                    is_signed = bit->is_signed;
+                    type_bits = bit->bits;
+                }
+                else
+                    return;
+            }
+            else
+                return;
+            std::uint32_t w = fd->bit_width;
+            if (w >= type_bits)
+                return;
+            if (!new_val || !new_val->type || new_val->type->kind != IrTypeKind::Int)
+                return;
+            IrValue* pred = nullptr;
+            if (is_signed)
+            {
+                std::int64_t lo = (w == 1) ? -1 : -(1ll << (w - 1));
+                std::int64_t hi = (w == 1) ? 0 : ((1ll << (w - 1)) - 1);
+                auto* lo_c = m_ctx.int_const(new_val->type, lo);
+                auto* hi_c = m_ctx.int_const(new_val->type, hi);
+                auto* ge = m_ctx.cmp_ge(new_val, lo_c);
+                auto n = ident_name();
+                ge->name = m_name_pool.back();
+                append_inst(ge);
+                auto* le = m_ctx.cmp_le(new_val, hi_c);
+                n = ident_name();
+                le->name = m_name_pool.back();
+                append_inst(le);
+                pred = m_ctx.and_(ge->type, ge, le);
+                n = ident_name();
+                pred->name = m_name_pool.back();
+                append_inst(pred);
+            }
+            else
+            {
+                std::uint64_t limit = (w >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << w) - 1);
+                auto* hi_c = m_ctx.int_const(new_val->type, static_cast<std::int64_t>(limit));
+                pred = m_ctx.cmp_ule(new_val, hi_c);
+                auto n = ident_name();
+                pred->name = m_name_pool.back();
+                append_inst(pred);
+            }
+            if (!pred)
+                return;
+            auto* ok_bb = create_block("bitfield.ok");
+            auto* fail_bb = create_block("bitfield.fail");
+            emit_br_cond(pred, ok_bb, fail_bb);
+            set_current_block(fail_bb);
+            emit_assert_call("value out of range for bitfield", range);
+            emit_unreachable();
+            set_current_block(ok_bb);
+        }
+
+        IrValue* lower_bitfield_store_inner(IrValue* unit_ptr, IrValue* loaded_unit, ast::FieldDecl const* fd, dcc::types::TypePtr field_sema_ty,
+                                            IrValue* new_logical_val, sm::SourceRange range)
+        {
+            auto* unit_ty = bitfield_unit_ir_type(fd, field_sema_ty);
+            std::uint32_t w = fd->bit_width;
+            std::uint32_t off = fd->bit_offset;
+            IrValue* val_for_check = new_logical_val;
+            emit_bitfield_range_check(val_for_check, fd, field_sema_ty, range);
+            IrValue* unit_val = new_logical_val;
+            if (unit_val->type != unit_ty)
+            {
+                if (unit_val->type && unit_val->type->kind == IrTypeKind::Bool && unit_ty->kind == IrTypeKind::Int)
+                {
+                    auto* z = m_ctx.zext(unit_ty, unit_val);
+                    auto n = ident_name();
+                    z->name = m_name_pool.back();
+                    append_inst(z);
+                    unit_val = z;
+                }
+                else if (unit_val->type && unit_val->type->kind == IrTypeKind::Int && unit_ty->kind == IrTypeKind::Int)
+                {
+                    auto* src = static_cast<IrIntType const*>(unit_val->type);
+                    auto* dst = static_cast<IrIntType const*>(unit_ty);
+                    if (src->bits != dst->bits)
+                    {
+                        IrValue* conv = nullptr;
+                        if (dst->bits < src->bits)
+                            conv = m_ctx.trunc(unit_ty, unit_val);
+                        else
+                            conv = src->is_signed ? static_cast<IrValue*>(m_ctx.sext(unit_ty, unit_val)) : static_cast<IrValue*>(m_ctx.zext(unit_ty, unit_val));
+                        auto n = ident_name();
+                        conv->name = m_name_pool.back();
+                        append_inst(conv);
+                        unit_val = conv;
+                    }
+                }
+            }
+            std::uint64_t mask = (w >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << w) - 1);
+            auto* mask_val = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(mask));
+            auto* trunc = m_ctx.and_(unit_ty, unit_val, mask_val);
+            auto n = ident_name();
+            trunc->name = m_name_pool.back();
+            append_inst(trunc);
+            IrValue* shifted_new = trunc;
+            if (off != 0)
+            {
+                auto* amt = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(off));
+                shifted_new = m_ctx.shl(unit_ty, trunc, amt);
+                n = ident_name();
+                shifted_new->name = m_name_pool.back();
+                append_inst(shifted_new);
+            }
+            std::uint64_t field_mask = (w >= 64) ? 0xFFFFFFFFFFFFFFFFull : (mask << off);
+            auto* field_mask_val = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(field_mask));
+            auto* all_ones = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(0xFFFFFFFFFFFFFFFFull));
+            auto* inv_mask = m_ctx.xor_(unit_ty, field_mask_val, all_ones);
+            n = ident_name();
+            inv_mask->name = m_name_pool.back();
+            append_inst(inv_mask);
+            IrValue* old_unit = loaded_unit;
+            if (!old_unit)
+            {
+                if (field_type_is_volatile_lower(fd->type))
+                    old_unit = m_ctx.load_volatile(unit_ty, unit_ptr);
+                else
+                    old_unit = m_ctx.load(unit_ty, unit_ptr);
+                n = ident_name();
+                old_unit->name = m_name_pool.back();
+                append_inst(old_unit);
+            }
+            auto* cleared = m_ctx.and_(unit_ty, old_unit, inv_mask);
+            n = ident_name();
+            cleared->name = m_name_pool.back();
+            append_inst(cleared);
+            auto* merged = m_ctx.or_(unit_ty, cleared, shifted_new);
+            n = ident_name();
+            merged->name = m_name_pool.back();
+            append_inst(merged);
+            if (field_type_is_volatile_lower(fd->type))
+                append_inst(m_ctx.store_volatile(merged, unit_ptr));
+            else
+                append_inst(m_ctx.store(merged, unit_ptr));
+            return new_logical_val;
+        }
+
         IrValue* lower_assign(ast::BinaryExpr const* bin, dcc::types::TypePtr sema_ty, IrType const* ir_ty)
         {
             std::ignore = ir_ty;
+            if (bin->lhs && bin->lhs->kind == ast::ExprKind::FieldAccess)
+            {
+                auto* fa = static_cast<ast::FieldAccessExpr const*>(bin->lhs);
+                if (auto* fd = find_decl_field(fa); fd && fd->is_bitfield && fd->bit_width != 0 && fd->bit_width != 0xFFFFFFFFu)
+                {
+                    auto* rhs_val = lower_implicit_enum_construction(bin->rhs, [&]() { return lower_expr(bin->rhs); });
+                    auto* field_sema_ty = get_field_type_with_subst(fa, fd);
+                    auto lv = lower_assign_lvalue(bin->lhs);
+                    if (!lv.gep_ptr)
+                        lower_panic(bin, "bitfield assignment LHS must be assignable");
+                    lower_bitfield_store_inner(lv.gep_ptr, nullptr, fd, field_sema_ty, rhs_val, bin->range);
+                    if (sema_ty && sema_ty->kind != dcc::types::TypeKind::Void)
+                        return rhs_val;
+                    return nullptr;
+                }
+            }
             auto* rhs_val = lower_implicit_enum_construction(bin->rhs, [&]() { return lower_expr(bin->rhs); });
 
             auto* rhs_sema_type = get_sema_resolved_type(bin->rhs);
@@ -4876,6 +5316,39 @@ export namespace dcc::ir::lower
 
         IrValue* lower_compound_assign(ast::BinaryExpr const* bin, dcc::types::TypePtr sema_ty, IrType const* ir_ty)
         {
+            if (bin->lhs && bin->lhs->kind == ast::ExprKind::FieldAccess)
+            {
+                auto* fa = static_cast<ast::FieldAccessExpr const*>(bin->lhs);
+                if (auto* fd = find_decl_field(fa); fd && fd->is_bitfield && fd->bit_width != 0 && fd->bit_width != 0xFFFFFFFFu)
+                {
+                    auto lv = lower_assign_lvalue(bin->lhs);
+                    if (!lv.gep_ptr)
+                        lower_panic(bin, "bitfield compound assignment LHS must be assignable");
+                    auto* field_sema_ty = get_field_type_with_subst(fa, fd);
+                    auto* unit_ty = bitfield_unit_ir_type(fd, field_sema_ty);
+                    IrValue* loaded_unit = nullptr;
+                    if (field_type_is_volatile_lower(fd->type))
+                        loaded_unit = m_ctx.load_volatile(unit_ty, lv.gep_ptr);
+                    else
+                        loaded_unit = m_ctx.load(unit_ty, lv.gep_ptr);
+                    auto ln = ident_name();
+                    loaded_unit->name = m_name_pool.back();
+                    append_inst(loaded_unit);
+                    auto* old_logical = lower_bitfield_extract(loaded_unit, fd, field_sema_ty, ir_ty);
+                    auto* rhs_val = lower_expr(bin->rhs);
+                    auto bin_op = compound_to_binop(bin->op);
+                    auto* result = make_pointer_binop(ir_ty, old_logical, rhs_val, bin_op, sema_ty, get_sema_resolved_type(bin->rhs));
+                    if (!result)
+                        result = make_binop(ir_ty, old_logical, rhs_val, bin_op, sema_ty);
+                    auto rn = ident_name();
+                    result->name = m_name_pool.back();
+                    append_inst(result);
+                    lower_bitfield_store_inner(lv.gep_ptr, loaded_unit, fd, field_sema_ty, result, bin->range);
+                    if (sema_ty && sema_ty->kind != dcc::types::TypeKind::Void)
+                        return result;
+                    return nullptr;
+                }
+            }
             auto lv = lower_assign_lvalue(bin->lhs);
             if (!lv.entry && !lv.gep_ptr)
                 lower_panic(bin, "compound assignment LHS must be assignable");
@@ -6704,12 +7177,14 @@ export namespace dcc::ir::lower
                     {
                         dcc::types::TypePtr field_sema_ty = nullptr;
                         IrType const* ir_field_ty = nullptr;
+                        ast::FieldDecl const* field_decl_ptr = nullptr;
                         for (auto const& sf : struct_decl->fields)
                         {
                             if (sf.name == field.field_name)
                             {
                                 field_sema_ty = get_canonical_type(sf.type);
                                 ir_field_ty = lower_type(field_sema_ty);
+                                field_decl_ptr = &sf;
                                 break;
                             }
                         }
@@ -6717,27 +7192,58 @@ export namespace dcc::ir::lower
                         if (!field_sema_ty || !field.pattern)
                             continue;
 
+                        bool is_bitfield_pat = field_decl_ptr && field_decl_ptr->is_bitfield && field_decl_ptr->bit_width != 0 &&
+                                               field_decl_ptr->bit_width != 0xFFFFFFFFu;
+                        std::uint32_t pat_phys_idx = field.resolved_field_index;
+                        if (is_bitfield_pat || struct_decl_has_bitfields(struct_decl))
+                        {
+                            auto phys = struct_physical_index(struct_decl, field.resolved_field_index);
+                            if (phys != 0xFFFFFFFFu)
+                                pat_phys_idx = phys;
+                        }
                         IrValue* field_val = nullptr;
                         if (operand_ir_is_aggregate(value->type))
                         {
-                            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_field_ty, ir::Segment::None), value);
-                            gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field.resolved_field_index});
+                            IrType const* gep_ty = ir_field_ty;
+                            if (is_bitfield_pat)
+                                gep_ty = bitfield_unit_ir_type(field_decl_ptr, field_sema_ty);
+                            auto* gep = gep_preserving_flavor(m_ctx.pointer_to(gep_ty, ir::Segment::None), value);
+                            gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, pat_phys_idx});
                             auto name = ident_name();
                             gep->name = m_name_pool.back();
                             append_inst(gep);
-                            auto* loaded = m_ctx.load(ir_field_ty, gep);
+                            IrType const* load_ty = is_bitfield_pat ? gep_ty : ir_field_ty;
+                            IrValue* loaded = nullptr;
+                            if (is_bitfield_pat && field_decl_ptr && field_type_is_volatile_lower(field_decl_ptr->type))
+                                loaded = m_ctx.load_volatile(load_ty, gep);
+                            else
+                                loaded = m_ctx.load(load_ty, gep);
                             auto load_name = ident_name();
                             loaded->name = m_name_pool.back();
                             append_inst(loaded);
+                            if (is_bitfield_pat)
+                                loaded = lower_bitfield_extract(loaded, field_decl_ptr, field_sema_ty, ir_field_ty);
                             field_val = loaded;
                         }
                         else
                         {
-                            auto* extract = m_ctx.extract(ir_field_ty, value, field.resolved_field_index);
-                            auto name = ident_name();
-                            extract->name = m_name_pool.back();
-                            append_inst(extract);
-                            field_val = extract;
+                            if (is_bitfield_pat)
+                            {
+                                auto* unit_ty = bitfield_unit_ir_type(field_decl_ptr, field_sema_ty);
+                                auto* unit_val = m_ctx.extract(unit_ty, value, pat_phys_idx);
+                                auto n = ident_name();
+                                unit_val->name = m_name_pool.back();
+                                append_inst(unit_val);
+                                field_val = lower_bitfield_extract(unit_val, field_decl_ptr, field_sema_ty, ir_field_ty);
+                            }
+                            else
+                            {
+                                auto* extract = m_ctx.extract(ir_field_ty, value, pat_phys_idx);
+                                auto name = ident_name();
+                                extract->name = m_name_pool.back();
+                                append_inst(extract);
+                                field_val = extract;
+                            }
                         }
 
                         if (field.pattern->kind == ast::PatternKind::Binding)
@@ -6745,11 +7251,13 @@ export namespace dcc::ir::lower
                             auto const& bp = static_cast<ast::BindingPattern const&>(*field.pattern);
                             if (bp.by_reference)
                             {
+                                if (is_bitfield_pat)
+                                    lower_panic("cannot bind bitfield by reference in match");
                                 auto* ptr_sema_ty = make_ptr_sema_type(field_sema_ty, dcc::types::Qual::None);
                                 if (operand_ir_is_aggregate(value->type))
                                 {
                                     auto* gep = gep_preserving_flavor(m_ctx.pointer_to(ir_field_ty, ir::Segment::None), value);
-                                    gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field.resolved_field_index});
+                                    gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, pat_phys_idx});
                                     auto name = ident_name();
                                     gep->name = m_name_pool.back();
                                     append_inst(gep);
@@ -7838,6 +8346,97 @@ export namespace dcc::ir::lower
             }
         }
 
+        IrValue* lower_bitfield_struct_literal_constant_pack(ast::StructLiteralExpr const* sl, dcc::types::TypePtr target_type,
+                                                                     types::StructType const* st, ast::StructDecl const* sd, IrType const* ir_ty)
+        {
+            std::ignore = target_type;
+            std::ignore = st;
+            std::unordered_map<std::uint32_t, ast::StructLiteralField const*> provided;
+            for (auto const& f : sl->fields)
+            {
+                if (f.resolved_field_count != 1)
+                    lower_panic(sl, "pack field in bitfield struct constant literal");
+                provided[f.resolved_field_index] = &f;
+            }
+            std::vector<IrValue*> logical_vals(sd->fields.size(), nullptr);
+            std::vector<dcc::types::TypePtr> logical_types;
+            for (auto const& f : sd->fields)
+                logical_types.push_back(get_canonical_type(f.type));
+            for (std::uint32_t i = 0; i < sd->fields.size(); ++i)
+            {
+                auto const& fd = sd->fields[i];
+                if (fd.is_bitfield && (fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu))
+                    continue;
+                auto it = provided.find(i);
+                if (it == provided.end())
+                {
+                    auto* ft = logical_types[i];
+                    if (fd.is_bitfield)
+                    {
+                        auto* unw = ft;
+                        while (unw)
+                        {
+                            if (auto* n = types::type_cast<types::NominalType>(unw))
+                            {
+                                unw = n->underlying;
+                                continue;
+                            }
+                            break;
+                        }
+                        if (types::type_cast<types::BoolType>(unw))
+                            logical_vals[i] = m_ctx.bool_const(false);
+                        else
+                            logical_vals[i] = m_ctx.int_const(lower_type(ft), 0);
+                    }
+                    else
+                        logical_vals[i] = zero_value(lower_type(ft));
+                    continue;
+                }
+                logical_vals[i] = lower_constant_expr(it->second->value, logical_types[i]);
+            }
+            auto* agg = m_ctx.aggregate(ir_ty);
+            for (std::uint32_t i = 0; i < sd->fields.size(); ++i)
+            {
+                auto const& fd = sd->fields[i];
+                if (fd.is_bitfield)
+                {
+                    if (fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu)
+                        continue;
+                    if (fd.bit_offset != 0)
+                        continue;
+                    auto* unit_ty = bitfield_unit_ir_type(&fd, logical_types[i]);
+                    std::uint64_t acc = 0;
+                    for (std::uint32_t j = i; j < sd->fields.size(); ++j)
+                    {
+                        auto const& g = sd->fields[j];
+                        if (!g.is_bitfield || g.bit_width == 0 || g.bit_width == 0xFFFFFFFFu)
+                            break;
+                        if (g.byte_offset != fd.byte_offset)
+                            break;
+                        IrValue* lv = logical_vals[j];
+                        if (!lv)
+                            continue;
+                        std::uint64_t v = 0;
+                        if (lv->kind == IrNodeKind::IntConstant)
+                            v = static_cast<std::uint64_t>(static_cast<IrIntConstant const*>(lv)->value);
+                        else if (lv->kind == IrNodeKind::BoolConstant)
+                            v = static_cast<IrBoolConstant const*>(lv)->value ? 1 : 0;
+                        else
+                            lower_panic(sl, "non-constant value in bitfield struct constant literal");
+                        std::uint64_t mask = (g.bit_width >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << g.bit_width) - 1);
+                        acc |= ((v & mask) << g.bit_offset);
+                    }
+                    agg->values.push_back(m_ctx.int_const(unit_ty, static_cast<std::int64_t>(acc)));
+                    continue;
+                }
+                IrValue* v = logical_vals[i];
+                if (!v)
+                    v = zero_value(lower_type(logical_types[i]));
+                agg->values.push_back(v);
+            }
+            return agg;
+        }
+
         IrValue* lower_struct_literal_constant(ast::StructLiteralExpr const* sl, dcc::types::TypePtr target_type)
         {
             if (!target_type)
@@ -7850,6 +8449,12 @@ export namespace dcc::ir::lower
                 target_type = nt->underlying;
 
             auto* ir_ty = lower_type(target_type);
+            if (auto* st = types::type_cast<types::StructType>(target_type); st && !st->has_expansion)
+            {
+                auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                if (sd && struct_decl_has_bitfields(sd))
+                    return lower_bitfield_struct_literal_constant_pack(sl, target_type, st, sd, ir_ty);
+            }
 
             std::uint32_t field_count = 0;
             std::vector<types::TypePtr> field_types;
@@ -7921,6 +8526,21 @@ export namespace dcc::ir::lower
                     continue;
 
                 auto* val = lower_constant_expr(f.value, (idx < field_types.size()) ? field_types[idx] : nullptr);
+                if (auto* ut2 = types::type_cast<types::UnionType>(target_type))
+                {
+                    auto* ud2 = reinterpret_cast<ast::UnionDecl const*>(ut2->decl);
+                    if (ud2 && idx < ud2->fields.size())
+                    {
+                        auto const& fd2 = ud2->fields[idx];
+                        if (fd2.is_bitfield && fd2.bit_width != 0 && fd2.bit_width != 0xFFFFFFFFu && val && val->kind == IrNodeKind::IntConstant)
+                        {
+                            auto* ic = static_cast<IrIntConstant const*>(val);
+                            std::uint64_t mask = (fd2.bit_width >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << fd2.bit_width) - 1);
+                            std::uint64_t masked = static_cast<std::uint64_t>(ic->value) & mask;
+                            val = m_ctx.int_const(ic->type, static_cast<std::int64_t>(masked));
+                        }
+                    }
+                }
 
                 agg->values[idx] = val;
             }
@@ -8293,6 +8913,82 @@ export namespace dcc::ir::lower
                         }
                     }
 
+                    if (auto* st2 = types::type_cast<types::StructType>(type_to_check); st2 && !st2->has_expansion)
+                    {
+                        auto* sd2 = reinterpret_cast<ast::StructDecl const*>(st2->decl);
+                        if (sd2 && struct_decl_has_bitfields(sd2) && cv.size() == sd2->fields.size())
+                        {
+                            auto* ir_ty2 = lower_type(type_to_check);
+                            auto* agg2 = m_ctx.aggregate(ir_ty2);
+                            for (std::uint32_t i = 0; i < sd2->fields.size(); ++i)
+                            {
+                                auto const& fd = sd2->fields[i];
+                                if (fd.is_bitfield)
+                                {
+                                    if (fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu)
+                                        continue;
+                                    if (fd.bit_offset != 0)
+                                        continue;
+                                    auto* unit_ty = bitfield_unit_ir_type(&fd, get_canonical_type(fd.type));
+                                    std::uint64_t acc = 0;
+                                    for (std::uint32_t j = i; j < sd2->fields.size(); ++j)
+                                    {
+                                        auto const& g = sd2->fields[j];
+                                        if (!g.is_bitfield || g.bit_width == 0 || g.bit_width == 0xFFFFFFFFu)
+                                            break;
+                                        if (g.byte_offset != fd.byte_offset)
+                                            break;
+                                        auto& elem = cv.at(j);
+                                        std::uint64_t v = 0;
+                                        if (elem.kind() == dcc::comptime::Value::Kind::Int)
+                                            v = static_cast<std::uint64_t>(elem.get_int());
+                                        else if (elem.kind() == dcc::comptime::Value::Kind::Bool)
+                                            v = elem.get_bool() ? 1 : 0;
+                                        else if (elem.kind() == dcc::comptime::Value::Kind::Char)
+                                            v = static_cast<std::uint64_t>(elem.get_char());
+                                        else
+                                            lower_panic("non-integer comptime value in bitfield struct");
+                                        std::uint64_t mask = (g.bit_width >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << g.bit_width) - 1);
+                                        acc |= ((v & mask) << g.bit_offset);
+                                    }
+                                    agg2->values.push_back(m_ctx.int_const(unit_ty, static_cast<std::int64_t>(acc)));
+                                    continue;
+                                }
+                                auto& elem = cv.at(i);
+                                agg2->values.push_back(materialize_comptime(elem, nullptr));
+                            }
+                            return agg2;
+                        }
+                    }
+                    if (auto* ut2 = types::type_cast<types::UnionType>(type_to_check))
+                    {
+                        auto* ud2 = reinterpret_cast<ast::UnionDecl const*>(ut2->decl);
+                        if (ud2 && union_decl_has_bitfields(ud2) && cv.size() == ud2->fields.size())
+                        {
+                            auto* ir_ty2 = lower_type(type_to_check);
+                            auto* agg2 = m_ctx.aggregate(ir_ty2);
+                            for (std::size_t i = 0; i < cv.size(); ++i)
+                            {
+                                auto& elem = cv.at(i);
+                                auto* elem_val = materialize_comptime(elem, nullptr);
+                                if (i < ud2->fields.size())
+                                {
+                                    auto const& fd = ud2->fields[i];
+                                    if (fd.is_bitfield && fd.bit_width != 0 && fd.bit_width != 0xFFFFFFFFu && elem_val &&
+                                        elem_val->kind == IrNodeKind::IntConstant)
+                                    {
+                                        auto* ic = static_cast<IrIntConstant const*>(elem_val);
+                                        std::uint64_t mask = (fd.bit_width >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << fd.bit_width) - 1);
+                                        std::uint64_t masked = static_cast<std::uint64_t>(ic->value) & mask;
+                                        elem_val = m_ctx.int_const(ic->type, static_cast<std::int64_t>(masked));
+                                    }
+                                }
+                                agg2->values.push_back(elem_val);
+                            }
+                            return agg2;
+                        }
+                    }
+
                     auto* ir_ty = lower_type(type_to_check);
                     auto* agg = m_ctx.aggregate(ir_ty);
                     for (std::size_t i = 0; i < cv.size(); ++i)
@@ -8571,6 +9267,79 @@ export namespace dcc::ir::lower
             return type;
         }
 
+        [[nodiscard]] static bool struct_decl_has_bitfields(ast::StructDecl const* sd) noexcept
+        {
+            if (!sd)
+                return false;
+            for (auto const& f : sd->fields)
+                if (f.is_bitfield)
+                    return true;
+            return false;
+        }
+
+        [[nodiscard]] static bool union_decl_has_bitfields(ast::UnionDecl const* ud) noexcept
+        {
+            if (!ud)
+                return false;
+            for (auto const& f : ud->fields)
+                if (f.is_bitfield)
+                    return true;
+            return false;
+        }
+
+        [[nodiscard]] static std::uint32_t struct_physical_index(ast::StructDecl const* sd, std::uint32_t logical) noexcept
+        {
+            if (!sd || logical >= sd->fields.size())
+                return 0xFFFFFFFFu;
+            std::uint32_t phys = 0;
+            for (std::uint32_t i = 0; i < logical; ++i)
+            {
+                auto const& f = sd->fields[i];
+                if (f.is_bitfield)
+                {
+                    if (f.bit_width == 0 || f.bit_width == 0xFFFFFFFFu)
+                        continue;
+                    if (f.bit_offset == 0)
+                        ++phys;
+                }
+                else
+                    ++phys;
+            }
+            auto const& target = sd->fields[logical];
+            if (target.is_bitfield)
+            {
+                if (target.bit_width == 0 || target.bit_width == 0xFFFFFFFFu)
+                    return 0xFFFFFFFFu;
+                if (target.bit_offset != 0)
+                {
+                    for (std::int32_t i = static_cast<std::int32_t>(logical) - 1; i >= 0; --i)
+                    {
+                        auto const& f = sd->fields[static_cast<std::size_t>(i)];
+                        if (f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu && f.bit_offset == 0 && f.byte_offset == target.byte_offset)
+                            return struct_physical_index(sd, static_cast<std::uint32_t>(i));
+                    }
+                    return 0xFFFFFFFFu;
+                }
+            }
+            return phys;
+        }
+
+        [[nodiscard]] static bool field_type_is_volatile_lower(ast::TypeExpr const* t) noexcept
+        {
+            while (t)
+            {
+                if (auto* qt = ast::node_cast<ast::QualifiedType>(t))
+                {
+                    if (ast::has_qual(qt->quals, ast::Qual::Volatile))
+                        return true;
+                    t = qt->inner;
+                    continue;
+                }
+                return false;
+            }
+            return false;
+        }
+
         IrType const* lower_user_type(dcc::types::TypePtr type)
         {
             if (!type)
@@ -8614,6 +9383,78 @@ export namespace dcc::ir::lower
 
                 auto subst = st->template_args.empty() ? std::unordered_map<void const*, types::TypePtr>{}
                                                        : build_template_subst(sd->template_params, st->template_args);
+
+                if (struct_decl_has_bitfields(sd))
+                {
+                    if (!subst.empty())
+                        lower_panic("generic struct with bitfields reached lowering");
+                    std::vector<IrType const*> members;
+                    std::vector<std::uint64_t> offsets;
+                    members.reserve(sd->fields.size());
+                    offsets.reserve(sd->fields.size());
+                    for (auto const& f : sd->fields)
+                    {
+                        if (f.is_bitfield)
+                        {
+                            if (f.bit_width == 0 || f.bit_width == 0xFFFFFFFFu)
+                                continue;
+                            if (f.bit_offset != 0)
+                                continue;
+                            auto* ft = get_canonical_type(f.type);
+                            auto* unwrapped = ft;
+                            while (unwrapped)
+                            {
+                                if (auto* nt = types::type_cast<types::NominalType>(unwrapped))
+                                {
+                                    unwrapped = nt->underlying;
+                                    continue;
+                                }
+                                break;
+                            }
+                            IrType const* ir_ft = nullptr;
+                            if (types::type_cast<types::BoolType>(unwrapped))
+                                ir_ft = m_ctx.int_t(8, false);
+                            else
+                                ir_ft = lower_type(ft);
+                            members.push_back(ir_ft);
+                            offsets.push_back(f.byte_offset);
+                            continue;
+                        }
+                        auto* ft = get_canonical_type(f.type);
+                        auto* ir_ft = lower_type(ft);
+                        members.push_back(ir_ft);
+                        offsets.push_back(f.byte_offset);
+                        if (types::is_fam_type(ft))
+                        {
+                            placeholder->has_trailing_fam = true;
+                            placeholder->fam_member_index = static_cast<std::uint32_t>(members.size() - 1);
+                        }
+                    }
+                    placeholder->members.assign(members.begin(), members.end());
+                    placeholder->member_offsets.assign(offsets.begin(), offsets.end());
+                    for (auto const& f : sd->fields)
+                    {
+                        if (f.name.empty())
+                            continue;
+                        IrBitfieldMemberDebug dbg{};
+                        dbg.name = f.name;
+                        dbg.byte_offset = f.byte_offset;
+                        dbg.bit_offset = f.bit_offset;
+                        dbg.bit_width = f.is_bitfield ? f.bit_width : 0;
+                        dbg.is_bitfield = f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu;
+                        dbg.logical_type = lower_type(get_canonical_type(f.type));
+                        dbg.file_id = static_cast<std::uint32_t>(f.range.begin.fileId);
+                        if (m_source_manager && f.range.valid())
+                        {
+                            if (auto lc = m_source_manager->line_col(f.range.begin))
+                                dbg.line = static_cast<std::uint32_t>(lc->line);
+                        }
+                        if (dbg.line == 0)
+                            dbg.line = 1;
+                        placeholder->bitfield_debug.push_back(dbg);
+                    }
+                    return placeholder;
+                }
 
                 std::vector<IrType const*> members;
                 std::vector<types::TypePtr> subst_field_types;
@@ -8664,6 +9505,50 @@ export namespace dcc::ir::lower
                 std::vector<std::uint64_t> offsets;
                 members.reserve(ud->fields.size());
                 offsets.reserve(ud->fields.size());
+
+                if (union_decl_has_bitfields(ud))
+                {
+                    for (auto const& f : ud->fields)
+                    {
+                        if (f.is_bitfield && (f.bit_width == 0 || f.bit_width == 0xFFFFFFFFu))
+                        {
+                            members.push_back(m_ctx.void_t());
+                            offsets.push_back(0);
+                            continue;
+                        }
+                        auto* ft = get_canonical_type(f.type);
+                        auto* ir_ft = lower_type(ft);
+                        members.push_back(ir_ft);
+                        offsets.push_back(0);
+                    }
+                    placeholder->members.assign(members.begin(), members.end());
+                    placeholder->member_offsets.assign(offsets.begin(), offsets.end());
+                    placeholder->bitfield_is_union = true;
+                    for (auto const& f : ud->fields)
+                    {
+                        if (f.name.empty())
+                            continue;
+                        if (f.is_bitfield && (f.bit_width == 0 || f.bit_width == 0xFFFFFFFFu))
+                            continue;
+                        IrBitfieldMemberDebug dbg{};
+                        dbg.name = f.name;
+                        dbg.byte_offset = 0;
+                        dbg.bit_offset = f.bit_offset;
+                        dbg.bit_width = f.is_bitfield ? f.bit_width : 0;
+                        dbg.is_bitfield = f.is_bitfield && f.bit_width != 0 && f.bit_width != 0xFFFFFFFFu;
+                        dbg.logical_type = lower_type(get_canonical_type(f.type));
+                        dbg.file_id = static_cast<std::uint32_t>(f.range.begin.fileId);
+                        if (m_source_manager && f.range.valid())
+                        {
+                            if (auto lc = m_source_manager->line_col(f.range.begin))
+                                dbg.line = static_cast<std::uint32_t>(lc->line);
+                        }
+                        if (dbg.line == 0)
+                            dbg.line = 1;
+                        placeholder->bitfield_debug.push_back(dbg);
+                    }
+                    return placeholder;
+                }
 
                 for (auto const& f : ud->fields)
                 {
@@ -8732,6 +9617,166 @@ export namespace dcc::ir::lower
             return lower_type(type);
         }
 
+        IrValue* lower_bitfield_struct_literal_pack(ast::StructLiteralExpr const* sl, dcc::types::TypePtr target_type, types::StructType const* st,
+                                                          ast::StructDecl const* sd, IrType const* ir_ty)
+        {
+            std::ignore = target_type;
+            std::ignore = st;
+            auto lower_field_value = [&](ast::Expr const* value_expr) -> IrValue* {
+                if (!value_expr)
+                    return nullptr;
+                return lower_implicit_enum_construction(value_expr, [&]() { return lower_expr(value_expr); });
+            };
+            std::unordered_map<std::uint32_t, ast::StructLiteralField const*> provided;
+            for (auto const& f : sl->fields)
+            {
+                if (f.resolved_field_count != 1)
+                    lower_panic(sl, "pack field in bitfield struct literal");
+                provided[f.resolved_field_index] = &f;
+            }
+            std::vector<IrValue*> logical_vals(sd->fields.size(), nullptr);
+            std::vector<dcc::types::TypePtr> logical_types;
+            logical_types.reserve(sd->fields.size());
+            for (auto const& f : sd->fields)
+                logical_types.push_back(get_canonical_type(f.type));
+            for (std::uint32_t i = 0; i < sd->fields.size(); ++i)
+            {
+                auto const& fd = sd->fields[i];
+                if (fd.is_bitfield && (fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu))
+                    continue;
+                auto it = provided.find(i);
+                if (it == provided.end())
+                {
+                    auto* ft = logical_types[i];
+                    if (fd.is_bitfield)
+                    {
+                        auto* unw = ft;
+                        while (unw)
+                        {
+                            if (auto* n = types::type_cast<types::NominalType>(unw))
+                            {
+                                unw = n->underlying;
+                                continue;
+                            }
+                            break;
+                        }
+                        if (types::type_cast<types::BoolType>(unw))
+                            logical_vals[i] = m_ctx.bool_const(false);
+                        else
+                            logical_vals[i] = m_ctx.int_const(lower_type(ft), 0);
+                    }
+                    else
+                    {
+                        auto* ir_ft = lower_type(ft);
+                        logical_vals[i] = zero_value(ir_ft);
+                    }
+                    continue;
+                }
+                auto const* lf = it->second;
+                IrValue* val = nullptr;
+                auto* field_target_type = logical_types[i];
+                if (!fd.is_bitfield && field_target_type && field_target_type->kind == types::TypeKind::Slice)
+                    val = lower_array_lvalue_to_slice(lf->value, field_target_type);
+                if (!val)
+                {
+                    val = lower_field_value(lf->value);
+                    if (val && field_target_type && !fd.is_bitfield)
+                        val = coerce_array_decay(lf->value, val, get_sema_resolved_type(lf->value), field_target_type);
+                }
+                if (fd.is_bitfield && val)
+                    emit_bitfield_range_check(val, &fd, field_target_type, lf->value ? lf->value->range : sl->range);
+                logical_vals[i] = val;
+            }
+            auto* agg = m_ctx.aggregate(ir_ty);
+            for (std::uint32_t i = 0; i < sd->fields.size(); ++i)
+            {
+                auto const& fd = sd->fields[i];
+                if (fd.is_bitfield)
+                {
+                    if (fd.bit_width == 0 || fd.bit_width == 0xFFFFFFFFu)
+                        continue;
+                    if (fd.bit_offset != 0)
+                        continue;
+                    auto* field_ty = logical_types[i];
+                    auto* unit_ty = bitfield_unit_ir_type(&fd, field_ty);
+                    IrValue* acc = m_ctx.int_const(unit_ty, 0);
+                    for (std::uint32_t j = i; j < sd->fields.size(); ++j)
+                    {
+                        auto const& g = sd->fields[j];
+                        if (!g.is_bitfield || g.bit_width == 0 || g.bit_width == 0xFFFFFFFFu)
+                            break;
+                        if (g.byte_offset != fd.byte_offset)
+                            break;
+                        IrValue* lv = logical_vals[j];
+                        if (!lv)
+                            continue;
+                        IrValue* uv = lv;
+                        if (uv->type != unit_ty)
+                        {
+                            if (uv->type && uv->type->kind == IrTypeKind::Bool && unit_ty->kind == IrTypeKind::Int)
+                            {
+                                auto* z = m_ctx.zext(unit_ty, uv);
+                                auto n = ident_name();
+                                z->name = m_name_pool.back();
+                                append_inst(z);
+                                uv = z;
+                            }
+                            else if (uv->type && uv->type->kind == IrTypeKind::Int && unit_ty->kind == IrTypeKind::Int)
+                            {
+                                auto* src = static_cast<IrIntType const*>(uv->type);
+                                auto* dst = static_cast<IrIntType const*>(unit_ty);
+                                if (src->bits != dst->bits)
+                                {
+                                    IrValue* conv = nullptr;
+                                    if (dst->bits < src->bits)
+                                        conv = m_ctx.trunc(unit_ty, uv);
+                                    else
+                                        conv = src->is_signed ? static_cast<IrValue*>(m_ctx.sext(unit_ty, uv)) : static_cast<IrValue*>(m_ctx.zext(unit_ty, uv));
+                                    auto n = ident_name();
+                                    conv->name = m_name_pool.back();
+                                    append_inst(conv);
+                                    uv = conv;
+                                }
+                            }
+                        }
+                        std::uint64_t mask = (g.bit_width >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << g.bit_width) - 1);
+                        auto* mask_val = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(mask));
+                        auto* masked = m_ctx.and_(unit_ty, uv, mask_val);
+                        auto n = ident_name();
+                        masked->name = m_name_pool.back();
+                        append_inst(masked);
+                        IrValue* shifted = masked;
+                        if (g.bit_offset != 0)
+                        {
+                            auto* amt = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(g.bit_offset));
+                            shifted = m_ctx.shl(unit_ty, masked, amt);
+                            n = ident_name();
+                            shifted->name = m_name_pool.back();
+                            append_inst(shifted);
+                        }
+                        auto* orr = m_ctx.or_(unit_ty, acc, shifted);
+                        n = ident_name();
+                        orr->name = m_name_pool.back();
+                        append_inst(orr);
+                        acc = orr;
+                    }
+                    agg->values.push_back(acc);
+                    continue;
+                }
+                IrValue* v = logical_vals[i];
+                if (!v)
+                {
+                    auto* ir_ft = lower_type(logical_types[i]);
+                    v = zero_value(ir_ft);
+                }
+                agg->values.push_back(v);
+            }
+            auto name = ident_name();
+            agg->name = m_name_pool.back();
+            append_inst(agg);
+            return agg;
+        }
+
         IrValue* lower_struct_literal_expr(ast::StructLiteralExpr const* sl)
         {
             auto* target_type = get_sema_resolved_type(sl);
@@ -8747,6 +9792,12 @@ export namespace dcc::ir::lower
             auto* ut = types::type_cast<types::UnionType>(target_type);
             auto* arrt = types::type_cast<types::ArrayType>(target_type);
             auto* slicet = types::type_cast<types::SliceType>(target_type);
+            if (st && !st->has_expansion)
+            {
+                auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                if (sd && struct_decl_has_bitfields(sd))
+                    return lower_bitfield_struct_literal_pack(sl, target_type, st, sd, ir_ty);
+            }
 
             auto lower_field_value = [&](ast::Expr const* value_expr) -> IrValue* {
                 if (!value_expr)
@@ -8885,6 +9936,28 @@ export namespace dcc::ir::lower
                     val = lower_field_value(f.value);
                     if (val && field_target_type)
                         val = coerce_array_decay(f.value, val, get_sema_resolved_type(f.value), field_target_type);
+                }
+                if (ut && val)
+                {
+                    auto* ud = reinterpret_cast<ast::UnionDecl const*>(ut->decl);
+                    if (ud && idx < ud->fields.size())
+                    {
+                        auto const& fd = ud->fields[idx];
+                        if (fd.is_bitfield && fd.bit_width != 0 && fd.bit_width != 0xFFFFFFFFu)
+                        {
+                            emit_bitfield_range_check(val, &fd, field_target_type, f.value ? f.value->range : sl->range);
+                            if (val->type && val->type->kind == IrTypeKind::Int)
+                            {
+                                std::uint64_t mask = (fd.bit_width >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << fd.bit_width) - 1);
+                                auto* mask_val = m_ctx.int_const(val->type, static_cast<std::int64_t>(mask));
+                                auto* masked = m_ctx.and_(val->type, val, mask_val);
+                                auto n = ident_name();
+                                masked->name = m_name_pool.back();
+                                append_inst(masked);
+                                val = masked;
+                            }
+                        }
+                    }
                 }
                 agg->values[idx] = val;
             }
@@ -9354,6 +10427,175 @@ export namespace dcc::ir::lower
             return get_field_canonical_with_subst(pointee, *field_decl, &subst);
         }
 
+        [[nodiscard]] std::uint32_t bitfield_gep_index(ast::FieldAccessExpr const* fa, ast::FieldDecl const* fd) const
+        {
+            if (!fd)
+                return 0xFFFFFFFFu;
+            auto* obj_type = get_sema_resolved_type(fa->object);
+            if (!obj_type)
+                return fd->index;
+            auto* pointee = obj_type;
+            if (auto* pt = types::type_cast<types::PointerType>(pointee))
+                pointee = pt->pointee;
+            if (auto* nt = types::type_cast<types::NominalType>(pointee))
+                pointee = nt->underlying;
+            if (auto* st = types::type_cast<types::StructType>(pointee))
+            {
+                auto* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                if (sd && struct_decl_has_bitfields(sd))
+                {
+                    auto phys = struct_physical_index(sd, fd->index);
+                    if (phys != 0xFFFFFFFFu)
+                        return phys;
+                }
+            }
+            return fd->index;
+        }
+
+        [[nodiscard]] IrType const* bitfield_unit_ir_type(ast::FieldDecl const* fd, dcc::types::TypePtr field_sema_ty)
+        {
+            std::ignore = fd;
+            auto* unwrapped = field_sema_ty;
+            while (unwrapped)
+            {
+                if (auto* nt = types::type_cast<types::NominalType>(unwrapped))
+                {
+                    unwrapped = nt->underlying;
+                    continue;
+                }
+                break;
+            }
+            if (types::type_cast<types::BoolType>(unwrapped))
+                return m_ctx.int_t(8, false);
+            return lower_type(field_sema_ty);
+        }
+
+        IrValue* lower_bitfield_extract(IrValue* unit_val, ast::FieldDecl const* fd, dcc::types::TypePtr field_sema_ty, IrType const* ir_resolved_ty)
+        {
+            std::uint32_t w = fd->bit_width;
+            std::uint32_t off = fd->bit_offset;
+            auto* unit_ty = unit_val->type;
+            std::uint32_t unit_bits = 0;
+            if (auto* it = ir_type_cast<IrIntType>(unit_ty))
+                unit_bits = it->bits;
+            else if (unit_ty && unit_ty->kind == IrTypeKind::Bool)
+                unit_bits = 8;
+            else if (unit_ty)
+                unit_bits = static_cast<std::uint32_t>(unit_ty->byte_size * 8);
+            if (unit_bits == 0)
+                lower_panic("bitfield unit has zero width");
+            IrValue* shifted = unit_val;
+            if (off != 0)
+            {
+                auto* amt = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(off));
+                shifted = m_ctx.lshr(unit_ty, unit_val, amt);
+                auto n = ident_name();
+                shifted->name = m_name_pool.back();
+                append_inst(shifted);
+            }
+            std::uint64_t mask = (w >= 64) ? 0xFFFFFFFFFFFFFFFFull : ((w == 0) ? 0 : ((1ull << w) - 1));
+            auto* unwrapped = field_sema_ty;
+            while (unwrapped)
+            {
+                if (auto* nt = types::type_cast<types::NominalType>(unwrapped))
+                {
+                    unwrapped = nt->underlying;
+                    continue;
+                }
+                break;
+            }
+            bool is_signed = false;
+            bool is_bool = false;
+            if (types::type_cast<types::BoolType>(unwrapped))
+                is_bool = true;
+            else if (auto* it = types::type_cast<types::IntType>(unwrapped))
+                is_signed = it->is_signed;
+            else if (auto* et = types::type_cast<types::EnumType>(unwrapped))
+            {
+                auto* backing = et->backing;
+                while (backing)
+                {
+                    if (auto* nt = types::type_cast<types::NominalType>(backing))
+                    {
+                        backing = nt->underlying;
+                        continue;
+                    }
+                    break;
+                }
+                if (auto* bit = types::type_cast<types::IntType>(backing))
+                    is_signed = bit->is_signed;
+            }
+            if (is_bool)
+            {
+                auto* mask_val = m_ctx.int_const(unit_ty, 1);
+                auto* masked = m_ctx.and_(unit_ty, shifted, mask_val);
+                auto n = ident_name();
+                masked->name = m_name_pool.back();
+                append_inst(masked);
+                auto* trunc = m_ctx.trunc(ir_resolved_ty, masked);
+                auto n2 = ident_name();
+                trunc->name = m_name_pool.back();
+                append_inst(trunc);
+                return trunc;
+            }
+            if (is_signed)
+            {
+                if (w < unit_bits)
+                {
+                    std::uint32_t sh = unit_bits - w;
+                    auto* sh_val = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(sh));
+                    auto* left = m_ctx.shl(unit_ty, shifted, sh_val);
+                    auto n = ident_name();
+                    left->name = m_name_pool.back();
+                    append_inst(left);
+                    auto* right = m_ctx.ashr(unit_ty, left, sh_val);
+                    auto n2 = ident_name();
+                    right->name = m_name_pool.back();
+                    append_inst(right);
+                    if (right->type != ir_resolved_ty)
+                    {
+                        if (ir_resolved_ty->byte_size < right->type->byte_size)
+                        {
+                            auto* t = m_ctx.trunc(ir_resolved_ty, right);
+                            auto n3 = ident_name();
+                            t->name = m_name_pool.back();
+                            append_inst(t);
+                            return t;
+                        }
+                    }
+                    return right;
+                }
+                return shifted;
+            }
+            if (w < unit_bits)
+            {
+                auto* mask_val = m_ctx.int_const(unit_ty, static_cast<std::int64_t>(mask));
+                auto* masked = m_ctx.and_(unit_ty, shifted, mask_val);
+                auto n = ident_name();
+                masked->name = m_name_pool.back();
+                append_inst(masked);
+                if (masked->type != ir_resolved_ty && ir_resolved_ty->kind == IrTypeKind::Int && masked->type->kind == IrTypeKind::Int)
+                {
+                    auto* masked_int = static_cast<IrIntType const*>(masked->type);
+                    auto* res_int = static_cast<IrIntType const*>(ir_resolved_ty);
+                    if (masked_int->bits != res_int->bits)
+                    {
+                        IrValue* conv = nullptr;
+                        if (res_int->bits < masked_int->bits)
+                            conv = m_ctx.trunc(ir_resolved_ty, masked);
+                        else
+                            conv = m_ctx.zext(ir_resolved_ty, masked);
+                        auto n2 = ident_name();
+                        conv->name = m_name_pool.back();
+                        append_inst(conv);
+                        return conv;
+                    }
+                }
+                return masked;
+            }
+            return shifted;
+        }
+
         IrValue* lower_field_access_expr(ast::FieldAccessExpr const* fa)
         {
             auto* resolved_type = get_sema_resolved_type(fa);
@@ -9441,7 +10683,7 @@ export namespace dcc::ir::lower
                     if (!field_decl)
                         lower_panic(fa, "cannot find field decl");
 
-                    std::uint32_t field_idx = field_decl->index;
+                    std::uint32_t field_idx = bitfield_gep_index(fa, field_decl);
                     auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
 
                     IrValue* base_ptr = it->second.value;
@@ -9454,7 +10696,10 @@ export namespace dcc::ir::lower
                         append_inst(base_ptr);
                     }
 
-                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(field_sema_ty)), base_ptr);
+                    IrType const* gep_elem_ty = lower_type(field_sema_ty);
+                    if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                        gep_elem_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
+                    auto* gep = gep_preserving_flavor(m_ctx.pointer_to(gep_elem_ty), base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
                     gep->name = m_name_pool.back();
@@ -9473,7 +10718,7 @@ export namespace dcc::ir::lower
                         if (!field_decl)
                             lower_panic(fa, "cannot find field decl");
 
-                        std::uint32_t field_idx = field_decl->index;
+                        std::uint32_t field_idx = bitfield_gep_index(fa, field_decl);
                         auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
 
                         IrValue* base_ptr = global_ptr;
@@ -9485,7 +10730,10 @@ export namespace dcc::ir::lower
                             append_inst(base_ptr);
                         }
 
-                        auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(field_sema_ty)), base_ptr);
+                        IrType const* gep_elem_ty = lower_type(field_sema_ty);
+                        if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                            gep_elem_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
+                        auto* gep = gep_preserving_flavor(m_ctx.pointer_to(gep_elem_ty), base_ptr);
                         gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                         auto gep_name = ident_name();
                         gep->name = m_name_pool.back();
@@ -9504,7 +10752,19 @@ export namespace dcc::ir::lower
                     auto* field_decl = find_decl_field(fa);
                     if (field_decl)
                     {
-                        auto* extracted = m_ctx.extract(ir_resolved_type, obj_val, field_decl->index);
+                        if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                        {
+                            auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
+                            auto* unit_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
+                            std::uint32_t phys = bitfield_gep_index(fa, field_decl);
+                            auto* unit_val = m_ctx.extract(unit_ty, obj_val, phys);
+                            auto n = ident_name();
+                            unit_val->name = m_name_pool.back();
+                            append_inst(unit_val);
+                            return lower_bitfield_extract(unit_val, field_decl, field_sema_ty, ir_resolved_type);
+                        }
+                        std::uint32_t phys = bitfield_gep_index(fa, field_decl);
+                        auto* extracted = m_ctx.extract(ir_resolved_type, obj_val, phys);
                         auto name = ident_name();
                         extracted->name = m_name_pool.back();
                         append_inst(extracted);
@@ -9519,12 +10779,15 @@ export namespace dcc::ir::lower
             if (!field_decl)
                 lower_panic(fa, "cannot find field decl");
 
-            std::uint32_t field_idx = field_decl->index;
+            std::uint32_t field_idx = bitfield_gep_index(fa, field_decl);
 
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
             {
                 auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
-                auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lower_type(field_sema_ty)), obj_val);
+                IrType const* gep_elem_ty = lower_type(field_sema_ty);
+                if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                    gep_elem_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
+                auto* gep = gep_preserving_flavor(m_ctx.pointer_to(gep_elem_ty), obj_val);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
                 gep->name = m_name_pool.back();
@@ -9534,6 +10797,16 @@ export namespace dcc::ir::lower
 
             if (obj_val->kind == IrNodeKind::Load)
             {
+                if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                {
+                    auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
+                    auto* unit_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
+                    auto* unit_val = m_ctx.extract(unit_ty, obj_val, field_idx);
+                    auto n = ident_name();
+                    unit_val->name = m_name_pool.back();
+                    append_inst(unit_val);
+                    return lower_bitfield_extract(unit_val, field_decl, field_sema_ty, ir_resolved_type);
+                }
                 auto* extracted = m_ctx.extract(ir_resolved_type, obj_val, field_idx);
                 auto name = ident_name();
                 extracted->name = m_name_pool.back();
@@ -9543,6 +10816,16 @@ export namespace dcc::ir::lower
 
             if (obj_val->type && (obj_val->type->kind == IrTypeKind::Aggregate || obj_val->type->kind == IrTypeKind::Array))
             {
+                if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                {
+                    auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
+                    auto* unit_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
+                    auto* unit_val = m_ctx.extract(unit_ty, obj_val, field_idx);
+                    auto n = ident_name();
+                    unit_val->name = m_name_pool.back();
+                    append_inst(unit_val);
+                    return lower_bitfield_extract(unit_val, field_decl, field_sema_ty, ir_resolved_type);
+                }
                 auto* extracted = m_ctx.extract(ir_resolved_type, obj_val, field_idx);
                 auto name = ident_name();
                 extracted->name = m_name_pool.back();
@@ -9603,7 +10886,21 @@ export namespace dcc::ir::lower
         {
             if (!types::is_fam_type(field_sema_type))
             {
+                auto* fd = find_decl_field(fa);
                 auto* ir_resolved_type = lower_type(get_sema_resolved_type(fa));
+                if (fd && fd->is_bitfield && fd->bit_width != 0 && fd->bit_width != 0xFFFFFFFFu)
+                {
+                    auto* unit_ty = bitfield_unit_ir_type(fd, field_sema_type);
+                    IrValue* loaded = nullptr;
+                    if (field_type_is_volatile_lower(fd->type))
+                        loaded = m_ctx.load_volatile(unit_ty, field_gep);
+                    else
+                        loaded = m_ctx.load(unit_ty, field_gep);
+                    auto load_name = ident_name();
+                    loaded->name = m_name_pool.back();
+                    append_inst(loaded);
+                    return lower_bitfield_extract(loaded, fd, field_sema_type, ir_resolved_type);
+                }
                 auto* loaded = m_ctx.load(ir_resolved_type, field_gep);
                 auto load_name = ident_name();
                 loaded->name = m_name_pool.back();
@@ -10242,9 +11539,12 @@ export namespace dcc::ir::lower
             if (!field_decl)
                 lower_panic(fa, "cannot find field decl for lvalue");
 
-            std::uint32_t field_idx = field_decl->index;
+            std::uint32_t field_idx = bitfield_gep_index(fa, field_decl);
             auto* field_sema_ty = get_field_type_with_subst(fa, field_decl);
             bool is_fam_lv = types::is_fam_type(field_sema_ty);
+            IrType const* lvalue_elem_ty = lower_type(field_sema_ty);
+            if (field_decl->is_bitfield && field_decl->bit_width != 0 && field_decl->bit_width != 0xFFFFFFFFu)
+                lvalue_elem_ty = bitfield_unit_ir_type(field_decl, field_sema_ty);
 
             auto wrap_lvalue = [&](IrValue* gep) -> IrValue* {
                 if (is_fam_lv)
@@ -10261,7 +11561,7 @@ export namespace dcc::ir::lower
                 {
                     IrValue* base_ptr = load_lvalue_pointer_layers(it->second.value, obj_sema_type);
 
-                    auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                    auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                     auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
@@ -10279,7 +11579,7 @@ export namespace dcc::ir::lower
                         auto* global_ref = m_ctx.global_ref(global, ptr_type);
                         IrValue* base_ptr = load_lvalue_pointer_layers(global_ref, obj_sema_type);
 
-                        auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                        auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                         auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                         gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                         auto gep_name = ident_name();
@@ -10294,7 +11594,7 @@ export namespace dcc::ir::lower
             {
                 auto* base_ptr = lower_index_lvalue(static_cast<ast::IndexExpr const*>(fa->object));
                 base_ptr = load_lvalue_pointer_layers(base_ptr, obj_sema_type);
-                auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                 auto* gep = gep_preserving_flavor(elem_ptr_type, base_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
@@ -10307,7 +11607,7 @@ export namespace dcc::ir::lower
             {
                 auto* inner_ptr = lower_field_lvalue(static_cast<ast::FieldAccessExpr const*>(fa->object));
                 inner_ptr = load_lvalue_pointer_layers(inner_ptr, obj_sema_type);
-                auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                 auto* gep = gep_preserving_flavor(elem_ptr_type, inner_ptr);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
@@ -10322,7 +11622,7 @@ export namespace dcc::ir::lower
                 if (ue->op == dcc::lex::TokenKind::Star)
                 {
                     auto* ptr = lower_expr(ue->operand);
-                    auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                    auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                     auto* gep = gep_preserving_flavor(elem_ptr_type, ptr);
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();
@@ -10336,7 +11636,7 @@ export namespace dcc::ir::lower
 
             if (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
             {
-                auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                 auto* gep = gep_preserving_flavor(elem_ptr_type, obj_val);
                 gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                 auto gep_name = ident_name();
@@ -10349,7 +11649,7 @@ export namespace dcc::ir::lower
             {
                 if (gr->global)
                 {
-                    auto* elem_ptr_type = m_ctx.pointer_to(lower_type(field_sema_ty));
+                    auto* elem_ptr_type = m_ctx.pointer_to(lvalue_elem_ty);
                     auto* gep = gep_preserving_flavor(elem_ptr_type, const_cast<IrGlobalRef*>(gr));
                     gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
                     auto gep_name = ident_name();

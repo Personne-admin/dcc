@@ -71,10 +71,94 @@ namespace dcc::backend
             LLVMMetadataRef dicu = nullptr;
             std::unordered_map<IrFunction const*, LLVMMetadataRef> subprogram_map;
             std::unordered_map<std::uint32_t, LLVMMetadataRef> file_map;
+            std::unordered_map<IrType const*, LLVMMetadataRef> basic_type_map;
+            std::unordered_map<IrAggregateType const*, LLVMMetadataRef> struct_type_map;
             sm::SourceManager const* sm = nullptr;
             std::string comp_dir;
             bool finalized = false;
             bool strict_locations = false;
+
+            LLVMMetadataRef get_or_create_basic_type(IrType const* t)
+            {
+                if (!t || !dibuilder || !difile)
+                    return nullptr;
+                auto it = basic_type_map.find(t);
+                if (it != basic_type_map.end())
+                    return it->second;
+                LLVMMetadataRef di = nullptr;
+                if (t->kind == IrTypeKind::Int)
+                {
+                    auto* int_ty = static_cast<IrIntType const*>(t);
+                    std::string name = (int_ty->is_signed ? "i" : "u") + std::to_string(int_ty->bits);
+                    unsigned enc = int_ty->is_signed ? 5 : 7;
+                    di = LLVMDIBuilderCreateBasicType(dibuilder, name.c_str(), name.size(), int_ty->bits, enc, LLVMDIFlagZero);
+                }
+                else if (t->kind == IrTypeKind::Bool)
+                {
+                    std::string name = "bool";
+                    di = LLVMDIBuilderCreateBasicType(dibuilder, name.c_str(), name.size(), 8, 2, LLVMDIFlagZero);
+                }
+                else if (t->kind == IrTypeKind::Float)
+                {
+                    auto* ft = static_cast<IrFloatType const*>(t);
+                    std::string name = (ft->bits == 32) ? "f32" : "f64";
+                    di = LLVMDIBuilderCreateBasicType(dibuilder, name.c_str(), name.size(), ft->bits, 4, LLVMDIFlagZero);
+                }
+                if (di)
+                    basic_type_map[t] = di;
+                return di;
+            }
+
+            LLVMMetadataRef get_or_create_bitfield_struct(IrAggregateType const* at)
+            {
+                if (!at || at->bitfield_debug.empty() || !dibuilder || !difile)
+                    return nullptr;
+                auto it = struct_type_map.find(at);
+                if (it != struct_type_map.end())
+                    return it->second;
+                std::vector<LLVMMetadataRef> elems;
+                elems.reserve(at->bitfield_debug.size());
+                for (auto const& m : at->bitfield_debug)
+                {
+                    auto* mem_ty = get_or_create_basic_type(m.logical_type);
+                    if (!mem_ty)
+                        continue;
+                    auto* file = get_or_create_file(m.file_id);
+                    unsigned line = m.line ? m.line : 1;
+                    std::string name{m.name};
+                    if (m.is_bitfield)
+                    {
+                        std::uint64_t sz = m.bit_width;
+                        std::uint64_t off = m.byte_offset * 8 + m.bit_offset;
+                        std::uint64_t stor = m.byte_offset * 8;
+                        auto* mem = LLVMDIBuilderCreateBitFieldMemberType(dibuilder, nullptr, name.c_str(), name.size(), file, line, sz, off,
+                                                                          stor, LLVMDIFlagZero, mem_ty);
+                        elems.push_back(mem);
+                    }
+                    else
+                    {
+                        std::uint64_t sz = m.logical_type ? m.logical_type->byte_size * 8 : 0;
+                        std::uint32_t al = m.logical_type ? static_cast<std::uint32_t>(m.logical_type->byte_align * 8) : 8;
+                        std::uint64_t off = m.byte_offset * 8;
+                        auto* mem = LLVMDIBuilderCreateMemberType(dibuilder, nullptr, name.c_str(), name.size(), file, line, sz, al, off,
+                                                                  LLVMDIFlagZero, mem_ty);
+                        elems.push_back(mem);
+                    }
+                }
+                std::string type_name = at->bitfield_is_union ? "bitfield_union" : "bitfield_struct";
+                std::uint64_t sz_bits = at->byte_size * 8;
+                std::uint32_t al_bits = static_cast<std::uint32_t>(at->byte_align * 8);
+                LLVMMetadataRef ty = nullptr;
+                if (at->bitfield_is_union)
+                    ty = LLVMDIBuilderCreateUnionType(dibuilder, dicu, type_name.c_str(), type_name.size(), difile, 1, sz_bits, al_bits,
+                                                      LLVMDIFlagZero, elems.data(), static_cast<unsigned>(elems.size()), 0, nullptr, 0);
+                else
+                    ty = LLVMDIBuilderCreateStructType(dibuilder, dicu, type_name.c_str(), type_name.size(), difile, 1, sz_bits, al_bits,
+                                                       LLVMDIFlagZero, nullptr, elems.data(), static_cast<unsigned>(elems.size()), 0, nullptr, nullptr, 0);
+                if (ty)
+                    struct_type_map[at] = ty;
+                return ty;
+            }
 
             [[nodiscard]] LLVMMetadataRef get_or_create_file(std::uint32_t file_id)
             {
@@ -2951,7 +3035,7 @@ namespace dcc::backend
                     {
                         apply_debug_loc(builder, inst);
                         auto const diag_count = diags.size();
-                        if (!emit_instruction(inst, builder, ctx, tc, val_map, bb_map, target, diags))
+                        if (!emit_instruction(inst, builder, ctx, tc, val_map, bb_map, target, diags, debug, func))
                         {
                             if (diags.size() == diag_count)
                                 add_diag(diags, inst ? inst->range : func->range,
@@ -3186,7 +3270,8 @@ namespace dcc::backend
             [[nodiscard]] static bool emit_instruction(IrValue const* inst, LLVMBuilderRef builder, LLVMContextRef ctx, TypeCache& tc,
                                                        std::unordered_map<IrValue const*, LLVMValueRef>& val_map,
                                                        [[maybe_unused]] std::unordered_map<IrBasicBlock const*, LLVMBasicBlockRef>& bb_map,
-                                                       TargetConfig const& target, std::vector<BackendDiagnostic>& diags)
+                                                       TargetConfig const& target, std::vector<BackendDiagnostic>& diags, DebugEmitContext* debug,
+                                                       IrFunction const* func)
             {
                 if (!inst)
                     return true;
@@ -3245,6 +3330,31 @@ namespace dcc::backend
 
                         set_name(ai);
                         val_map[inst] = ai;
+                        if (debug && debug->dibuilder && func && !a->count && a->allocated_type && a->allocated_type->kind == IrTypeKind::Aggregate)
+                        {
+                            auto* agg_ty = static_cast<IrAggregateType const*>(a->allocated_type);
+                            if (!agg_ty->bitfield_debug.empty())
+                            {
+                                auto* di_ty = debug->get_or_create_bitfield_struct(agg_ty);
+                                LLVMMetadataRef sp = nullptr;
+                                if (auto it = debug->subprogram_map.find(func); it != debug->subprogram_map.end())
+                                    sp = it->second;
+                                if (di_ty && sp)
+                                {
+                                    std::uint32_t file_id = inst->debug_loc.file_id;
+                                    unsigned line = inst->debug_loc.line ? inst->debug_loc.line : 1;
+                                    auto* file = debug->get_or_create_file(file_id);
+                                    std::string var_name = "bitfield_tmp";
+                                    auto* var = LLVMDIBuilderCreateAutoVariable(debug->dibuilder, sp, var_name.c_str(), var_name.size(), file, line,
+                                                                                di_ty, 1, LLVMDIFlagZero,
+                                                                                static_cast<std::uint32_t>(agg_ty->byte_align * 8));
+                                    auto* expr = LLVMDIBuilderCreateExpression(debug->dibuilder, nullptr, 0);
+                                    auto* loc = LLVMDIBuilderCreateDebugLocation(ctx, line, 0, sp, nullptr);
+                                    if (auto* bb = LLVMGetInsertBlock(builder))
+                                        LLVMDIBuilderInsertDeclareRecordAtEnd(debug->dibuilder, ai, var, expr, loc, bb);
+                                }
+                            }
+                        }
                         break;
                     }
                     case IrNodeKind::Load: {

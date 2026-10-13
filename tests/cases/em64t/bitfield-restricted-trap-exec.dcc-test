@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+
+public struct S { u32 a : 3; u32 b; }
+
+u32 g_v = 8;
+
+@nomangle
+public i32 dcc_main() {
+    S s = S { a = 1, b = 2 };
+    s.a = g_v;
+    return s.a as i32;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -frestricted-check -no-section-check ===
+RUN-EXIT: 132

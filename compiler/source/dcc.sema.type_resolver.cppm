@@ -176,6 +176,95 @@ export namespace dcc::sema
             }
         }
 
+        bool resolve_bitfield_widths(std::pmr::vector<ast::FieldDecl>& fields, ModuleInfo& mod, detail::TemplateEnv const& env)
+        {
+            for (auto& f : fields)
+            {
+                if (!f.is_bitfield)
+                    continue;
+
+                if (f.bit_width_resolved)
+                {
+                    if (f.bit_width == 0xFFFFFFFFu)
+                        return false;
+
+                    continue;
+                }
+
+                auto fail = [&]() {
+                    f.bit_width = 0xFFFFFFFFu;
+                    f.bit_width_resolved = true;
+                    return false;
+                };
+
+                if (!f.bit_width_expr)
+                {
+                    m_diag.error(f.range, "bitfield width must be a compile-time constant");
+                    return fail();
+                }
+
+                auto w = resolve_const_uint(f.bit_width_expr, mod, env);
+                if (!w)
+                {
+                    m_diag.error(f.bit_width_expr->range, "bitfield width must be a compile-time constant");
+                    return fail();
+                }
+
+                if (*w > 64)
+                {
+                    m_diag.error(f.bit_width_expr->range, "bitfield width {} exceeds maximum 64", *w);
+                    return fail();
+                }
+
+                f.bit_width = static_cast<std::uint32_t>(*w);
+                if (f.name.empty() && f.bit_width != 0)
+                {
+                    m_diag.error(f.range, "unnamed bitfield must have width 0");
+                    return fail();
+                }
+
+                if (!f.name.empty() && f.bit_width == 0)
+                {
+                    m_diag.error(f.range, "named bitfield `{}` must have non-zero width", f.name);
+                    return fail();
+                }
+
+                f.bit_width_resolved = true;
+            }
+            return true;
+        }
+
+        [[nodiscard]] static bool field_type_is_volatile(ast::TypeExpr const* t) noexcept
+        {
+            while (t)
+            {
+                if (auto* qt = ast::node_cast<ast::QualifiedType>(t))
+                {
+                    if (ast::has_qual(qt->quals, ast::Qual::Volatile))
+                        return true;
+
+                    t = qt->inner;
+                    continue;
+                }
+                return false;
+            }
+            return false;
+        }
+
+        [[nodiscard]] static types::TypePtr unwrap_nominal(types::TypePtr t) noexcept
+        {
+            while (t)
+            {
+                if (auto* nt = types::type_cast<types::NominalType>(t))
+                {
+                    t = nt->underlying;
+                    continue;
+                }
+                return t;
+            }
+            return t;
+        }
+
         void resolve_module(ModuleInfo& mod)
         {
             for (auto* d : mod.tu->decls)
@@ -221,6 +310,19 @@ export namespace dcc::sema
             for (auto& f : d.fields)
                 std::ignore = resolve_type_expr(f.type, mod, env);
 
+            if (!d.template_params.empty())
+            {
+                for (auto& f : d.fields)
+                    if (f.is_bitfield)
+                    {
+                        m_diag.error(f.range, "bitfields are not supported in generic structs");
+                        return;
+                    }
+            }
+
+            if (!resolve_bitfield_widths(d.fields, mod, env))
+                return;
+
             auto pack_field = std::ranges::find_if(d.fields, [](ast::FieldDecl const& f) { return f.is_pack; });
             if (pack_field != d.fields.end() && std::ranges::any_of(d.fields, [](ast::FieldDecl const& f) {
                     return f.type && f.type->sema.canonical && types::is_fam_type(get_canonical(f.type->sema));
@@ -238,6 +340,9 @@ export namespace dcc::sema
             detail::TemplateEnv env;
             for (auto& f : d.fields)
                 std::ignore = resolve_type_expr(f.type, mod, env);
+
+            if (!resolve_bitfield_widths(d.fields, mod, env))
+                return;
 
             finalize_union(d);
         }
@@ -560,8 +665,7 @@ export namespace dcc::sema
                     for (auto const& p : t->params)
                     {
                         auto rp = resolve_type_expr(p.type, mod, env, quiet_unknown);
-                        if (types::type_cast<types::TemplateParamType>(rp.type) && is_pack_indexable_type(rp.type) &&
-                            &p != &t->params.back())
+                        if (types::type_cast<types::TemplateParamType>(rp.type) && is_pack_indexable_type(rp.type) && &p != &t->params.back())
                             m_diag.error(p.range, "function pointer parameter pack must be the last parameter");
                         params.push_back(rp.type);
                     }
@@ -791,8 +895,7 @@ export namespace dcc::sema
             if (!resolved_args.empty() || is_variadic_struct)
             {
                 if (auto kind = nominal_kind(*decl); kind != types::TypeKind::Error)
-                    return {m_types.nominal_t(kind, const_cast<ast::Decl*>(decl), resolved_args, kind == types::TypeKind::Struct),
-                            types::Qual::None};
+                    return {m_types.nominal_t(kind, const_cast<ast::Decl*>(decl), resolved_args, kind == types::TypeKind::Struct), types::Qual::None};
             }
 
             if (auto kind = nominal_kind(*decl); kind != types::TypeKind::Error)
@@ -973,8 +1076,8 @@ export namespace dcc::sema
             return resolve_const_uint_alias(expr, mod.own_scope, chain, 0);
         }
 
-        [[nodiscard]] std::optional<std::uint64_t> resolve_const_uint_alias(ast::Expr* expr, Scope const* scope,
-                                                                            std::array<ast::UsingDecl const*, 16>& chain, std::size_t depth)
+        [[nodiscard]] std::optional<std::uint64_t> resolve_const_uint_alias(ast::Expr* expr, Scope const* scope, std::array<ast::UsingDecl const*, 16>& chain,
+                                                                            std::size_t depth)
         {
             if (!expr || !scope || depth >= chain.size())
                 return std::nullopt;
@@ -1196,6 +1299,18 @@ export namespace dcc::sema
                 for (auto& f : d.fields)
                     std::ignore = resolve_type_expr(f.type, const_cast<ModuleInfo&>(*mod), env);
 
+                if (!d.template_params.empty())
+                {
+                    for (auto& f : d.fields)
+                        if (f.is_bitfield)
+                        {
+                            m_diag.error(f.range, "bitfields are not supported in generic structs");
+                            return;
+                        }
+                }
+                if (!resolve_bitfield_widths(d.fields, const_cast<ModuleInfo&>(*mod), env))
+                    return;
+
                 finalize_struct(d);
             }
             else if (decl->kind == ast::DeclKind::Union)
@@ -1205,6 +1320,9 @@ export namespace dcc::sema
                 detail::TemplateEnv env;
                 for (auto& f : d.fields)
                     std::ignore = resolve_type_expr(f.type, const_cast<ModuleInfo&>(*mod), env);
+
+                if (!resolve_bitfield_widths(d.fields, const_cast<ModuleInfo&>(*mod), env))
+                    return;
 
                 finalize_union(d);
             }
@@ -1304,6 +1422,12 @@ export namespace dcc::sema
             std::uint64_t size = 0;
             std::uint32_t natural_align = 1;
             bool has_fam = false;
+            bool has_bitfield = false;
+            types::TypePtr unit_canonical{};
+            bool unit_volatile = false;
+            std::uint32_t unit_bits_used = 0;
+            std::uint32_t unit_bits_total = 0;
+            std::uint64_t unit_offset = 0;
 
             for (std::size_t i = 0; i < d.fields.size(); ++i)
             {
@@ -1329,6 +1453,79 @@ export namespace dcc::sema
                     break;
                 }
                 bool is_fam = can && types::is_fam_type(can);
+
+                if (f.is_bitfield)
+                {
+                    has_bitfield = true;
+                    if (f.is_pack)
+                    {
+                        complete = false;
+                        break;
+                    }
+                    if (is_fam)
+                    {
+                        m_diag.error(f.type->range, "bitfield `{}` cannot be a flexible array member", f.name);
+                        complete = false;
+                        break;
+                    }
+                    if (f.bit_width == 0xFFFFFFFFu)
+                    {
+                        complete = false;
+                        break;
+                    }
+                    if (!ts.canonical || !ts.is_complete)
+                    {
+                        complete = false;
+                        break;
+                    }
+                    if (can && types::type_has_fam_struct(can))
+                    {
+                        m_diag.error(f.type->range, "struct field `{}` has a flexible array member and cannot be embedded by value", f.name);
+                        complete = false;
+                        break;
+                    }
+                    if (!validate_bitfield_type(f, can))
+                    {
+                        complete = false;
+                        break;
+                    }
+                    if (f.bit_width == 0)
+                    {
+                        unit_canonical = nullptr;
+                        unit_bits_used = 0;
+                        unit_bits_total = 0;
+                        f.byte_offset = static_cast<std::uint32_t>(size);
+                        f.bit_offset = 0;
+                        continue;
+                    }
+                    std::uint32_t unit_align = is_packed ? 1 : ts.byte_align;
+                    std::uint64_t unit_size = ts.byte_size;
+                    std::uint32_t unit_bits = static_cast<std::uint32_t>(unit_size * 8);
+                    bool field_volatile = field_type_is_volatile(f.type);
+                    if (unit_canonical && unit_canonical == can && unit_volatile == field_volatile && unit_bits_used + f.bit_width <= unit_bits_total)
+                    {
+                        f.byte_offset = static_cast<std::uint32_t>(unit_offset);
+                        f.bit_offset = unit_bits_used;
+                        unit_bits_used += f.bit_width;
+                        continue;
+                    }
+                    natural_align = std::max(unit_align, natural_align);
+                    if (!is_packed)
+                        size = align_up(size, unit_align);
+                    f.byte_offset = static_cast<std::uint32_t>(size);
+                    f.bit_offset = 0;
+                    size += unit_size;
+                    unit_canonical = can;
+                    unit_volatile = field_volatile;
+                    unit_bits_used = f.bit_width;
+                    unit_bits_total = unit_bits;
+                    unit_offset = f.byte_offset;
+                    continue;
+                }
+
+                unit_canonical = nullptr;
+                unit_bits_used = 0;
+                unit_bits_total = 0;
 
                 if (is_fam)
                 {
@@ -1403,7 +1600,7 @@ export namespace dcc::sema
                 st->is_complete = true;
                 st->has_fam = has_fam;
 
-                if (is_packed || forced_align || has_fam)
+                if (is_packed || forced_align || has_fam || has_bitfield)
                     st->layout_is_default = false;
             }
             else
@@ -1453,12 +1650,14 @@ export namespace dcc::sema
             bool complete = true;
             std::uint64_t size = 0;
             std::uint32_t natural_align = 1;
+            bool has_bitfield = false;
 
             for (std::size_t i = 0; i < d.fields.size(); ++i)
             {
                 auto& f = d.fields[i];
                 f.index = static_cast<std::uint32_t>(i);
                 f.byte_offset = 0;
+                f.bit_offset = 0;
 
                 if (!f.type)
                 {
@@ -1476,6 +1675,32 @@ export namespace dcc::sema
                     m_diag.error(f.type->range, "union field `{}` cannot have void type", f.name);
                     complete = false;
                     break;
+                }
+                if (f.is_bitfield)
+                {
+                    has_bitfield = true;
+                    if (f.bit_width == 0xFFFFFFFFu)
+                    {
+                        complete = false;
+                        break;
+                    }
+                    if (!ts.canonical || !ts.is_complete)
+                    {
+                        complete = false;
+                        break;
+                    }
+                    auto* can = get_canonical(ts);
+                    if (!validate_bitfield_type(f, can))
+                    {
+                        complete = false;
+                        break;
+                    }
+                    if (f.bit_width == 0)
+                        continue;
+                    std::uint32_t unit_align = is_packed ? 1 : ts.byte_align;
+                    natural_align = std::max(unit_align, natural_align);
+                    size = std::max(ts.byte_size, size);
+                    continue;
                 }
                 if (!ts.canonical || !ts.is_complete)
                 {
@@ -1499,7 +1724,7 @@ export namespace dcc::sema
                 ut->is_zero_sized = (ut->byte_size == 0);
                 ut->is_complete = true;
 
-                if (is_packed || forced_align)
+                if (is_packed || forced_align || has_bitfield)
                     ut->layout_is_default = false;
             }
             else
@@ -1578,6 +1803,108 @@ export namespace dcc::sema
                 return DiscriminantValue{static_cast<std::uint64_t>(-val), true};
             }
             return DiscriminantValue{static_cast<std::uint64_t>(val), false};
+        }
+
+        bool validate_bitfield_type(ast::FieldDecl const& f, types::TypePtr can)
+        {
+            auto* unwrapped = unwrap_nominal(can);
+            if (!unwrapped)
+                return false;
+            if (f.bit_width == 0xFFFFFFFFu)
+                return false;
+            if (f.bit_width == 0)
+                return true;
+            if (auto* bt = types::type_cast<types::BoolType>(unwrapped))
+            {
+                std::ignore = bt;
+                if (f.bit_width != 1)
+                {
+                    m_diag.error(f.bit_width_expr ? f.bit_width_expr->range : f.range, "bool bitfield `{}` must have width 1, got {}", f.name,
+                                 f.bit_width);
+                    return false;
+                }
+                return true;
+            }
+            if (auto* it = types::type_cast<types::IntType>(unwrapped))
+            {
+                if (f.bit_width < 1 || f.bit_width > it->bits)
+                {
+                    m_diag.error(f.bit_width_expr ? f.bit_width_expr->range : f.range, "bitfield `{}` width {} out of range 1..{} for type", f.name,
+                                 f.bit_width, it->bits);
+                    return false;
+                }
+                return true;
+            }
+            if (auto* et = types::type_cast<types::EnumType>(unwrapped))
+            {
+                auto* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+                if (!ed || !ed->backing_type)
+                {
+                    m_diag.error(f.type->range, "bitfield `{}` enum type must have an explicit integer backing type", f.name);
+                    return false;
+                }
+                if (et->is_tagged)
+                {
+                    m_diag.error(f.type->range, "bitfield `{}` cannot use a tagged enum type", f.name);
+                    return false;
+                }
+                auto* backing = et->backing ? types::type_cast<types::IntType>(unwrap_nominal(et->backing)) : nullptr;
+                if (!backing)
+                {
+                    m_diag.error(f.type->range, "bitfield `{}` enum backing type must be an integer type", f.name);
+                    return false;
+                }
+                if (f.bit_width < 1 || f.bit_width > backing->bits)
+                {
+                    m_diag.error(f.bit_width_expr ? f.bit_width_expr->range : f.range, "bitfield `{}` width {} out of range 1..{} for type", f.name,
+                                 f.bit_width, backing->bits);
+                    return false;
+                }
+                for (auto const& v : ed->variants)
+                {
+                    auto dv = disc_from_stored(v.discriminant, v.discriminant_is_negative);
+                    bool fits = false;
+                    if (backing->is_signed)
+                    {
+                        if (f.bit_width >= 64)
+                            fits = true;
+                        else if (dv.is_negative)
+                        {
+                            std::uint64_t limit = 1ull << (f.bit_width - 1);
+                            fits = dv.bits <= limit;
+                            if (dv.bits == 0)
+                                fits = true;
+                        }
+                        else
+                        {
+                            std::uint64_t limit = (f.bit_width == 1) ? 0 : ((1ull << (f.bit_width - 1)) - 1);
+                            fits = dv.bits <= limit;
+                        }
+                    }
+                    else
+                    {
+                        if (dv.is_negative)
+                            fits = false;
+                        else if (f.bit_width >= 64)
+                            fits = true;
+                        else
+                        {
+                            std::uint64_t limit = (1ull << f.bit_width) - 1;
+                            fits = dv.bits <= limit;
+                        }
+                    }
+                    if (!fits)
+                    {
+                        m_diag.error(f.type->range, "enumerator `{}` value {} does not fit in bitfield `{}` width {}", v.name, disc_value_str(dv),
+                                     f.name, f.bit_width);
+                        return false;
+                    }
+                }
+                return true;
+            }
+            m_diag.error(f.type->range, "bitfield `{}` must have integer, bool, or enum type with explicit backing",
+                         f.name.empty() ? std::string_view{"<anonymous>"} : f.name);
+            return false;
         }
 
         [[nodiscard]] std::optional<DiscriminantValue> evaluate_enum_discriminant(ast::Expr* expr, ModuleInfo const& mod,
@@ -1854,10 +2181,10 @@ export namespace dcc::sema
             }
         }
 
-        [[nodiscard]] std::optional<std::uint64_t>
-        evaluate_restriction_endpoint(ast::Expr* expr, ast::RestrictedType const* owner, ModuleInfo const& mod,
-                                      si::InternedHashMap<DiscriminantValue>& no_variants,
-                                      std::unordered_set<ast::VarDecl const*>& evaluating_consts, types::IntType const& int_ty)
+        [[nodiscard]] std::optional<std::uint64_t> evaluate_restriction_endpoint(ast::Expr* expr, ast::RestrictedType const* owner, ModuleInfo const& mod,
+                                                                                 si::InternedHashMap<DiscriminantValue>& no_variants,
+                                                                                 std::unordered_set<ast::VarDecl const*>& evaluating_consts,
+                                                                                 types::IntType const& int_ty)
         {
             auto value = evaluate_enum_discriminant(expr, mod, no_variants, evaluating_consts);
             if (!value)
@@ -1885,7 +2212,7 @@ export namespace dcc::sema
         }
 
         [[nodiscard]] detail::ResolvedType resolve_restricted(ast::RestrictedType* node, ModuleInfo const& mod, detail::TemplateEnv const& env,
-                                                                       bool quiet_unknown)
+                                                              bool quiet_unknown)
         {
             auto underlying = resolve_type_expr(node->underlying, mod, env, quiet_unknown);
             auto const* int_ty = types::type_cast<types::IntType>(underlying.type);
