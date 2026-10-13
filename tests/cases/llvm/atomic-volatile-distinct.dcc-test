@@ -34,6 +34,6 @@ entry:
 
 define i32 @_DC0F1.4.test24.test_volatile_load_plain1PVqi32si32s(ptr %ptr) {
 entry:
-  %"0" = load i32, ptr %ptr, align 4
+  %"0" = load volatile i32, ptr %ptr, align 4
   ret i32 %"0"
 }

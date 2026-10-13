@@ -63,30 +63,30 @@ public i32 dcc_main() {
     Signed r3 = Signed { a = -3, b = 7 };
     ZeroSep r4 = ZeroSep { a = 5, b = 17 };
     Packed r5 = Packed { p = 0x12, b = 0xABCD, c = 0x3456 };
-    u32* c1 = &cs1 as u32*;
+    const u32* c1 = &cs1 as const u32*;
     u32* p1 = &r1 as u32*;
     if (c1[0] != p1[0]) { return 1; }
-    u32* c2 = &cs2 as u32*;
+    const u32* c2 = &cs2 as const u32*;
     u32* p2 = &r2 as u32*;
     if (c2[0] != p2[0]) { return 2; }
     if (c2[1] != p2[1]) { return 3; }
-    u32* c3 = &cs3 as u32*;
+    const u32* c3 = &cs3 as const u32*;
     u32* p3 = &r3 as u32*;
     if (c3[0] != p3[0]) { return 4; }
-    u32* c4 = &cs4 as u32*;
+    const u32* c4 = &cs4 as const u32*;
     u32* p4 = &r4 as u32*;
     if (c4[0] != p4[0]) { return 5; }
     if (c4[1] != p4[1]) { return 6; }
-    u8* c5 = &cs5 as u8*;
+    const u8* c5 = &cs5 as const u8*;
     u8* p5 = &r5 as u8*;
     if (c5[0] != p5[0]) { return 7; }
     if (c5[1] != p5[1]) { return 8; }
     if (c5[2] != p5[2]) { return 9; }
     if (c5[3] != p5[3]) { return 10; }
     if (c5[4] != p5[4]) { return 11; }
-    u64* gp = &gdt as u64*;
+    const u64* gp = &gdt as const u64*;
     if (gp[0] != 0x00AF9A000000FFFF) { return 12; }
-    u64* pp = &pte as u64*;
+    const u64* pp = &pte as const u64*;
     u64 expected = (1 as u64) | ((1 as u64) << 1) | ((1 as u64) << 8) | ((0x12345 as u64) << 12) | ((1 as u64) << 63);
     if (pp[0] != expected) { return 13; }
     return 0;
