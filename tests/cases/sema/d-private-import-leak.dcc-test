@@ -17,4 +17,4 @@ public lib::Vec3 value;
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===
-main.dc:5: public declaration exposes private type
+main.dc:5: public declaration exposes `lib::Vec3` from privately imported module `lib`; use `public import lib`

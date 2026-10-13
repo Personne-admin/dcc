@@ -1,0 +1,7 @@
+=== FILE: main.dc ===
+module main;
+struct Hidden { u32 value; }
+public struct Exposed { Hidden value; }
+
+=== EXPECT-ERRORS ===
+main.dc:3: public declaration exposes private type

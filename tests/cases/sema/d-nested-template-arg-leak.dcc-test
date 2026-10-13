@@ -23,4 +23,4 @@ public using Leak = lib::Box(hidden::Secret);
 === ENTRY: main.dc ===
 
 === EXPECT-ERRORS ===
-main.dc:6: public declaration exposes private type
+main.dc:6: public declaration exposes `hidden::Secret` from privately imported module `hidden`; use `public import hidden`
