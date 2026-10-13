@@ -1,0 +1,48 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module main;
+@nomangle volatile u16^ pointer = 0x3000:0x8000;
+@nomangle public i32 dcc_main() { u16* near = pointer as u16*; if near as usize != 0x8000 { return 1; } return 1; }
+=== FILE: start.asm ===
+bits 16
+section .start
+global _start
+extern dcc_main
+extern __bss_start
+extern __bss_end
+_start:
+    cli
+    cld
+    mov ax, cs
+    mov ds, ax
+    mov ss, ax
+    mov sp, 0xfffe
+    mov es, ax
+    mov edi, __bss_start
+    mov ecx, __bss_end
+    sub ecx, edi
+    xor eax, eax
+    a32 rep stosb
+    mov ax, 0x5000
+    mov es, ax
+    mov ax, 0x4000
+    mov fs, ax
+    mov ax, 0x6000
+    mov gs, ax
+    call dcc_main
+    mov dx, 0xf4
+    out dx, al
+stop:
+    jmp stop
+=== FILE: helpers.asm ===
+bits 16
+section .text
+global _DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v
+_DC0F1.6.assert8.__assert2SCqcD2.4.core15.source_location14.SourceLocation0.v:
+    mov al, 42
+    out 0xf4, al
+stop:
+    jmp stop
+=== EXPECT-I8086-RUN FLAGS: -ffar-check ===
+START: none
+RUN-EXIT: 42

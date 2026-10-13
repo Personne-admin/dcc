@@ -270,10 +270,47 @@ namespace dcc::backend::i8086
 
             [[nodiscard]] static bool wide(IrType const* type) { return type && type->kind == IrTypeKind::Int && type->byte_size == 8; }
 
+            [[nodiscard]] static bool far(IrType const* type)
+            {
+                auto* pointer = ir_type_cast<IrPointerType>(type);
+                return pointer && pointer->flavor == PointerFlavor::Far;
+            }
+
             [[nodiscard]] std::optional<Pair> pair(IrValue const* v)
             {
                 if (auto found = pairs.find(v); found != pairs.end())
                     return found->second;
+                if (far(v->type))
+                {
+                    if (auto* pointer = ir_cast<IrPointerConstant>(v))
+                    {
+                        Pair result{emit(MOpc::MOV32ri, {MOp::from_imm(static_cast<std::int32_t>(pointer->offset))}),
+                                    emit(MOpc::MOV32ri, {MOp::from_imm(pointer->segment)})};
+                        pairs[v] = result;
+                        return result;
+                    }
+                    if (ir_cast<IrNullConstant>(v))
+                    {
+                        Pair result{emit(MOpc::MOV32ri, {MOp::from_imm(0)}), emit(MOpc::MOV32ri, {MOp::from_imm(0)})};
+                        pairs[v] = result;
+                        return result;
+                    }
+                    if (auto* reference = ir_cast<IrGlobalRef>(v); reference && reference->global)
+                    {
+                        MMem memory{};
+                        memory.symbol = reference->global->name;
+                        memory.disp = static_cast<std::int32_t>(reference->addend);
+                        memory.address_bits = target.far_offset_bits();
+                        auto offset = emit(target.far_offset_bits() == 16 ? MOpc::LEA16rm : MOpc::LEA32rm, {MOp::from_mem(memory)});
+                        MMem segment_address{};
+                        segment_address.symbol = "__dcc_dgroup_segment";
+                        segment_address.address_bits = 16;
+                        auto segment = emit(MOpc::LEA16rm, {MOp::from_mem(segment_address)});
+                        Pair result{extend(offset, target.far_offset_bits(), false, 32), extend(segment, 16, false, 32)};
+                        pairs[v] = result;
+                        return result;
+                    }
+                }
                 if (auto* imm = ir_cast<IrIntConstant>(v))
                 {
                     auto bits = static_cast<std::uint64_t>(imm->value);
@@ -299,6 +336,72 @@ namespace dcc::backend::i8086
                 mem.disp += 4;
                 return {low, emit(MOpc::MOV32rm, {MOp::from_mem(mem)})};
             }
+
+            [[nodiscard]] VReg read_segment(PhysReg reg)
+            {
+                auto value = emit(MOpc::MOV16rs, {phys_operand(reg)});
+                return emit(MOpc::MOVZX32_16rr, {MOp::from_reg(value)});
+            }
+
+            [[nodiscard]] Pair load_far(MOp memory)
+            {
+                auto reg = PhysReg::ES;
+                if (target.has_i386_segments() && memory.kind == MOpKind::Mem)
+                {
+                    if (memory.mem.segment == SegmentOverride::ES)
+                        reg = PhysReg::FS;
+                    else if (memory.mem.segment == SegmentOverride::FS)
+                        reg = PhysReg::GS;
+                }
+                auto operation = reg == PhysReg::FS   ? (target.far_offset_bits() == 16 ? MOpc::LFS16rm : MOpc::LFS32rm)
+                                 : reg == PhysReg::GS ? (target.far_offset_bits() == 16 ? MOpc::LGS16rm : MOpc::LGS32rm)
+                                                      : (target.far_offset_bits() == 16 ? MOpc::LES16rm : MOpc::LES32rm);
+                append(make_instr(MOpc::PUSHSEG, {phys_operand(reg)}, 0));
+                auto offset = emit(operation, {memory});
+                block->instrs.back().implicit_defs |= bit(reg);
+                auto segment = read_segment(reg);
+                append(make_instr(MOpc::POPSEG, {phys_operand(reg)}, 1));
+                return {extend(offset, target.far_offset_bits(), false, 32), segment};
+            }
+
+            void store_far(Pair source, MMem memory)
+            {
+                auto bits = target.far_offset_bits();
+                append(make_instr(bits == 16 ? MOpc::MOV16mr : MOpc::MOV32mr, {MOp::from_mem(memory), MOp::from_reg(source.low)}, 0));
+                memory.disp += bits / 8;
+                append(make_instr(MOpc::MOV16mr, {MOp::from_mem(memory), MOp::from_reg(source.high)}, 0));
+                if (bits == 32)
+                {
+                    memory.disp += 2;
+                    append(make_instr(MOpc::MOV16mi, {MOp::from_mem(memory), MOp::from_imm(0)}, 0));
+                }
+            }
+
+            struct FarAccess
+            {
+                Isel& isel;
+                bool active;
+
+                FarAccess(Isel& selector, IrValue const* pointer) : isel(selector), active(far(pointer->type))
+                {
+                    if (active)
+                    {
+                        auto source = isel.pair(pointer);
+                        active = source.has_value();
+                        if (source)
+                        {
+                            isel.append(make_instr(MOpc::PUSHSEG, {phys_operand(PhysReg::ES)}, 0));
+                            isel.append(make_instr(MOpc::MOV16sr, {phys_operand(PhysReg::ES), MOp::from_reg(source->high)}, 1));
+                        }
+                    }
+                }
+
+                ~FarAccess()
+                {
+                    if (active)
+                        isel.append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
+                }
+            };
 
             [[nodiscard]] VReg condition(MOpc cc)
             {
@@ -523,10 +626,10 @@ namespace dcc::backend::i8086
                     if (t->kind == IrTypeKind::Pointer)
                     {
                         auto* p = static_cast<IrPointerType const*>(t);
-                        return p->flavor == PointerFlavor::Based || self(self, p->pointee);
+                        return p->flavor != PointerFlavor::Near || self(self, p->pointee);
                     }
                     if (t->kind == IrTypeKind::Slice)
-                        return static_cast<IrSliceType const*>(t)->flavor == PointerFlavor::Based;
+                        return static_cast<IrSliceType const*>(t)->flavor != PointerFlavor::Near;
                     if (t->kind == IrTypeKind::Array)
                         return self(self, static_cast<IrArrayType const*>(t)->element);
                     if (t->kind == IrTypeKind::Aggregate)
@@ -541,6 +644,8 @@ namespace dcc::backend::i8086
                 if (!type || type->kind != IrTypeKind::Pointer)
                     return SegmentOverride::None;
                 auto* pointer = static_cast<IrPointerType const*>(type);
+                if (pointer->flavor == PointerFlavor::Far)
+                    return SegmentOverride::ES;
                 if (pointer->flavor != PointerFlavor::Based)
                     return SegmentOverride::None;
                 switch (pointer->seg)
@@ -572,6 +677,12 @@ namespace dcc::backend::i8086
             {
                 if (auto found = slots.find(pointer); found != slots.end())
                     return MOp::from_frame_slot(found->second);
+                if (far(pointer->type))
+                {
+                    if (auto source = pair(pointer))
+                        return MOp::from_mem(pointer_memory(source->low, pointer->type));
+                    return std::nullopt;
+                }
                 auto segment = based_segment(pointer->type);
                 if (segment != SegmentOverride::None)
                 {
@@ -640,8 +751,7 @@ namespace dcc::backend::i8086
 
             [[nodiscard]] static bool memory_type(IrType const* type)
             {
-                return type && (type->kind == IrTypeKind::Aggregate || type->kind == IrTypeKind::Array ||
-                                (type->kind == IrTypeKind::Slice && static_cast<IrSliceType const*>(type)->flavor != PointerFlavor::Far));
+                return type && (type->kind == IrTypeKind::Aggregate || type->kind == IrTypeKind::Array || type->kind == IrTypeKind::Slice);
             }
 
             [[nodiscard]] static bool indirect_return(IrType const* type)
@@ -770,7 +880,16 @@ namespace dcc::backend::i8086
                     append(make_instr(MOpc::POPSEG, {phys_operand(PhysReg::ES)}, 1));
             }
 
-            [[nodiscard]] std::optional<VReg> pointer_address(IrValue const* pointer) { return value(pointer); }
+            [[nodiscard]] std::optional<VReg> pointer_address(IrValue const* pointer)
+            {
+                if (far(pointer->type))
+                {
+                    if (auto source = pair(pointer))
+                        return source->low;
+                    return std::nullopt;
+                }
+                return value(pointer);
+            }
 
             [[nodiscard]] std::uint64_t member_offset(IrType const* type, std::uint32_t field)
             {
@@ -779,12 +898,22 @@ namespace dcc::backend::i8086
                 if (type->kind == IrTypeKind::Array)
                     return static_cast<IrArrayType const*>(type)->element->byte_size * field;
                 if (type->kind == IrTypeKind::Slice)
+                {
+                    if (static_cast<IrSliceType const*>(type)->flavor == PointerFlavor::Far)
+                        return (target.far_offset_bits() == 16 ? 4u : 8u) * field;
                     return (static_cast<IrSliceType const*>(type)->flavor == PointerFlavor::Based ? target.far_offset_bits() : target.pointer_bits) / 8 * field;
+                }
                 return target.pointer_bits / 8 * field;
             }
 
             void store_at(IrValue const* stored, VReg destination)
             {
+                if (far(stored->type))
+                {
+                    if (auto source = pair(stored))
+                        store_far(*source, near_memory(destination));
+                    return;
+                }
                 if (wide(stored->type))
                 {
                     if (auto src = pair(stored))
@@ -855,7 +984,7 @@ namespace dcc::backend::i8086
                 if (!count || *count < 0 || static_cast<std::uint64_t>(*count) * type->byte_size > 65535)
                     return unsupported("a dynamic or oversized local allocation");
                 auto align = alloca.alignment ? alloca.alignment : type->byte_align;
-                if (!memory_type(type) && !wide(type) && !value_bits(type))
+                if (!memory_type(type) && !wide(type) && !far(type) && !value_bits(type))
                     return;
                 slots[&alloca] = mfunc.new_frame_slot(static_cast<std::uint32_t>(type->byte_size * static_cast<std::uint64_t>(*count)),
                                                       std::min<std::uint32_t>(static_cast<std::uint32_t>(std::max<std::uint64_t>(align, 1)), 2));
@@ -863,6 +992,11 @@ namespace dcc::backend::i8086
 
             void load_at(IrValue const* inst, VReg source)
             {
+                if (far(inst->type))
+                {
+                    pairs[inst] = load_far(MOp::from_mem(near_memory(source)));
+                    return;
+                }
                 if (wide(inst->type))
                 {
                     pairs[inst] = load_pair(near_memory(source));
@@ -880,6 +1014,13 @@ namespace dcc::backend::i8086
 
             void lower_load(IrValue const* inst, IrValue const* pointer)
             {
+                FarAccess access(*this, pointer);
+                if (far(inst->type))
+                {
+                    if (auto memory = address(pointer))
+                        pairs[inst] = load_far(*memory);
+                    return;
+                }
                 if (wide(inst->type))
                 {
                     if (auto source = pointer_address(pointer))
@@ -905,6 +1046,14 @@ namespace dcc::backend::i8086
 
             void lower_store(IrValue const* stored, IrValue const* pointer)
             {
+                FarAccess access(*this, pointer);
+                if (far(stored->type))
+                {
+                    auto destination = pointer_address(pointer);
+                    if (auto source = pair(stored); source && destination)
+                        store_far(*source, pointer_memory(*destination, pointer->type));
+                    return;
+                }
                 if (wide(stored->type))
                 {
                     auto destination = pointer_address(pointer);
@@ -969,7 +1118,9 @@ namespace dcc::backend::i8086
                             result = offset_address(result, static_cast<std::uint64_t>(*imm) * stride, bits);
                         else if (auto dynamic = value(index.dynamic_index))
                         {
-                            auto index_value = extend(*dynamic, scalar_bits(index.dynamic_index->type), false, bits);
+                            auto* integer = ir_type_cast<IrIntType>(index.dynamic_index->type);
+                            auto index_value =
+                                extend(*dynamic, scalar_bits(index.dynamic_index->type), far(gep.base->type) && integer && integer->is_signed, bits);
                             auto scaled = stride == 1 ? index_value
                                                       : emit(bits == 16 ? MOpc::IMUL16rri : MOpc::IMUL32rri,
                                                              {MOp::from_reg(index_value), MOp::from_imm(static_cast<std::int64_t>(stride))});
@@ -980,7 +1131,14 @@ namespace dcc::backend::i8086
                         type = elem;
                     }
                 }
-                values[&gep] = result;
+                if (far(gep.type))
+                {
+                    auto source = pair(gep.base);
+                    if (source)
+                        pairs[&gep] = {extend(result, bits, false, 32), source->high};
+                }
+                else
+                    values[&gep] = result;
             }
 
             void lower_arithmetic(IrNode const* inst, IrType const* type)
@@ -1126,7 +1284,7 @@ namespace dcc::backend::i8086
             void lower_compare(IrNode const* inst, MOpc setcc)
             {
                 auto [lhs, rhs] = binary_operands(inst);
-                if (lhs && wide(lhs->type))
+                if (lhs && (wide(lhs->type) || far(lhs->type)))
                 {
                     auto l = pair(lhs), r = pair(rhs);
                     if (l && r)
@@ -1170,6 +1328,12 @@ namespace dcc::backend::i8086
 
             void lower_cast(IrValue const* inst, IrValue const* operand)
             {
+                if (far(inst->type) && far(operand->type))
+                {
+                    if (auto source = pair(operand))
+                        pairs[inst] = *source;
+                    return;
+                }
                 if (wide(operand->type))
                 {
                     if (auto src = pair(operand))
@@ -1225,10 +1389,19 @@ namespace dcc::backend::i8086
                 std::vector<std::optional<PhysReg>> registers(args.size());
                 std::size_t next = sret ? 1 : 0;
                 for (std::size_t i = 0; i < args.size(); ++i)
-                    if (!c_convention && !memory_type(args[i]->type) && !wide(args[i]->type) && next < register_arguments.size())
-                        registers[i] = register_arguments[next++];
+                    if (!c_convention && !memory_type(args[i]->type) && !wide(args[i]->type))
+                    {
+                        auto count = far(args[i]->type) ? 2u : 1u;
+                        if (next + count <= register_arguments.size())
+                        {
+                            registers[i] = register_arguments[next];
+                            next += count;
+                        }
+                    }
                 return registers;
             }
+
+            [[nodiscard]] static PhysReg segment_argument_register(PhysReg offset) { return *(std::ranges::find(register_arguments, offset) + 1); }
 
             void lower_call(IrValue const* inst, IrValue const* callee, std::span<IrValue* const> args)
             {
@@ -1244,7 +1417,7 @@ namespace dcc::backend::i8086
                 std::vector<VReg> inputs(args.size());
                 for (std::size_t i = 0; i < args.size(); ++i)
                 {
-                    if (wide(args[i]->type))
+                    if (wide(args[i]->type) || far(args[i]->type))
                     {
                         if (!pair(args[i]))
                             return;
@@ -1261,6 +1434,16 @@ namespace dcc::backend::i8086
                     auto* arg = args[i - 1];
                     if (registers[i - 1])
                         continue;
+                    if (far(arg->type))
+                    {
+                        auto source = *pair(arg);
+                        if (target.far_offset_bits() == 32)
+                            append(make_instr(MOpc::PUSH16i, {MOp::from_imm(0)}, 0));
+                        append(make_instr(MOpc::PUSH16r, {MOp::from_reg(source.high)}, 0));
+                        append(make_instr(target.far_offset_bits() == 16 ? MOpc::PUSH16r : MOpc::PUSH32r, {MOp::from_reg(source.low)}, 0));
+                        pushed += static_cast<std::int64_t>(arg->type->byte_size);
+                        continue;
+                    }
                     if (wide(arg->type))
                     {
                         auto src = *pair(arg);
@@ -1295,7 +1478,16 @@ namespace dcc::backend::i8086
                 for (std::size_t i = 0; i < args.size(); ++i)
                     if (registers[i])
                     {
-                        copy_to(*registers[i], inputs[i], op_width(value_bits(args[i]->type)));
+                        if (far(args[i]->type))
+                        {
+                            auto source = *pair(args[i]);
+                            auto segment = segment_argument_register(*registers[i]);
+                            copy_to(*registers[i], source.low, target.far_offset_bits());
+                            copy_to(segment, source.high, 16);
+                            uses |= bit(segment);
+                        }
+                        else
+                            copy_to(*registers[i], inputs[i], op_width(value_bits(args[i]->type)));
                         uses |= bit(*registers[i]);
                     }
                 MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->function->name)}, 0);
@@ -1307,6 +1499,12 @@ namespace dcc::backend::i8086
                     append(make_instr(MOpc::ADD16ri, {phys_operand(PhysReg::RSP), phys_operand(PhysReg::RSP), MOp::from_imm(pushed)}, 1));
                 if (!inst->type || inst->type->kind == IrTypeKind::Void)
                     return;
+                if (far(inst->type))
+                {
+                    auto offset = copy_from(PhysReg::RAX), segment = copy_from(PhysReg::RDX);
+                    pairs[inst] = {extend(offset, target.far_offset_bits(), false, 32), extend(segment, 16, false, 32)};
+                    return;
+                }
                 if (wide(inst->type))
                 {
                     if (!c_convention)
@@ -1370,16 +1568,49 @@ namespace dcc::backend::i8086
                         sret_pointer = copy_from(PhysReg::RAX);
                 }
                 auto registers = classify_arguments(params, c_abi, sret);
+                auto parameter_uses = analysis::UseDef::build(func);
                 for (std::size_t i = 0; i < params.size(); ++i)
                     if (registers[i])
-                        values[params[i]] = copy_from(*registers[i]);
+                    {
+                        if (far(params[i]->type))
+                        {
+                            auto found = parameter_uses.uses.find(params[i]);
+                            bool returned = std::ranges::any_of(func.blocks, [&](IrBasicBlock const* entry) {
+                                auto* ret = ir_cast<IrRetInst>(entry->terminator);
+                                return ret && ret->value == params[i];
+                            });
+                            bool offset_used = returned || (found != parameter_uses.uses.end() && std::ranges::any_of(found->second, [](IrNode const* user) {
+                                                                return user->kind != IrNodeKind::PointerSegment;
+                                                            }));
+                            bool segment_used = returned || (found != parameter_uses.uses.end() && std::ranges::any_of(found->second, [](IrNode const* user) {
+                                                                 return user->kind != IrNodeKind::PointerOffset;
+                                                             }));
+                            pairs[params[i]] = {offset_used ? copy_from(*registers[i]) : VReg{},
+                                                segment_used ? copy_from(segment_argument_register(*registers[i])) : VReg{}};
+                        }
+                        else
+                            values[params[i]] = copy_from(*registers[i]);
+                    }
                 for (std::size_t i = 0; i < params.size(); ++i)
                 {
                     auto const* param = params[i];
                     if (registers[i])
+                    {
+                        if (far(param->type))
+                        {
+                            auto source = pairs.at(param);
+                            pairs[param] = {source.low.is_valid() ? extend(source.low, target.far_offset_bits(), false, 32) : source.low,
+                                            source.high.is_valid() ? extend(source.high, 16, false, 32) : source.high};
+                        }
                         continue;
+                    }
                     MMem slot = MMem::make_base_disp(VReg::phys(PhysReg::RBP), offset);
-                    if (wide(param->type))
+                    if (far(param->type))
+                    {
+                        pairs[param] = load_far(MOp::from_mem(slot));
+                        offset += static_cast<std::int32_t>(param->type->byte_size);
+                    }
+                    else if (wide(param->type))
                     {
                         pairs[param] = load_pair(slot);
                         offset += 8;
@@ -1489,16 +1720,45 @@ namespace dcc::backend::i8086
                 {
                     case IrNodeKind::MakePointer: {
                         auto* make = static_cast<IrMakePointerInst const*>(inst);
-                        if (static_cast<IrPointerType const*>(v->type)->flavor == PointerFlavor::Far)
-                            return unsupported("a dynamic far pointer");
+                        if (far(v->type))
+                        {
+                            auto offset = value(make->offset), segment = value(make->segment);
+                            if (offset && segment)
+                                pairs[v] = {extend(*offset, target.far_offset_bits(), false, 32), extend(*segment, 16, false, 32)};
+                            return;
+                        }
                         if (auto offset = value(make->offset))
                             values[v] = *offset;
                         return;
                     }
                     case IrNodeKind::PointerOffset: {
                         auto* extract = static_cast<IrPointerOffsetInst const*>(inst);
+                        if (far(extract->pointer->type))
+                        {
+                            if (auto source = pair(extract->pointer))
+                                values[v] = source->low;
+                            return;
+                        }
                         if (auto offset = value(extract->pointer))
                             values[v] = *offset;
+                        return;
+                    }
+                    case IrNodeKind::PointerSegment: {
+                        auto* extract = static_cast<IrPointerSegmentInst const*>(inst);
+                        if (auto source = pair(extract->pointer))
+                            values[v] = source->high;
+                        return;
+                    }
+                    case IrNodeKind::ReadSegment: {
+                        auto* read = static_cast<IrReadSegmentInst const*>(inst);
+                        auto segment = read->segment;
+                        auto reg = segment == Segment::Cs   ? PhysReg::CS
+                                   : segment == Segment::Ds ? PhysReg::DS
+                                   : segment == Segment::Es ? PhysReg::ES
+                                   : segment == Segment::Ss ? PhysReg::SS
+                                   : segment == Segment::Fs ? PhysReg::FS
+                                                            : PhysReg::GS;
+                        values[v] = read_segment(reg);
                         return;
                     }
                     case IrNodeKind::InlineAsm:
@@ -1617,6 +1877,18 @@ namespace dcc::backend::i8086
                 if (ret.value)
                 {
                     auto type = ret.value->type;
+                    if (far(type))
+                    {
+                        if (auto source = pair(ret.value))
+                        {
+                            copy_to(PhysReg::RAX, source->low, target.far_offset_bits());
+                            copy_to(PhysReg::RDX, source->high, 16);
+                            auto mi = make_instr(MOpc::RET, {}, 0);
+                            mi.implicit_uses = uses | bit(PhysReg::RAX) | bit(PhysReg::RDX);
+                            append(mi);
+                        }
+                        return;
+                    }
                     if (wide(type))
                     {
                         auto src = pair(ret.value);
@@ -1884,7 +2156,7 @@ namespace dcc::backend::i8086
                         ++pred_counts[succ];
                 for (auto const& [phi, owner, result] : pending_phis)
                 {
-                    auto bits = wide(phi->type) ? 32 : memory_type(phi->type) ? target.pointer_bits : value_bits(phi->type);
+                    auto bits = wide(phi->type) || far(phi->type) ? 32 : memory_type(phi->type) ? target.pointer_bits : value_bits(phi->type);
                     if (!bits)
                         return;
                     std::vector<MOp> inputs;
@@ -1894,9 +2166,17 @@ namespace dcc::backend::i8086
                             continue;
                         auto via = edge_block(incoming.block, owner, pred_counts[owner]);
                         VReg input;
-                        if (wide(phi->type))
+                        if (wide(phi->type) || far(phi->type))
                         {
-                            if (auto imm = ir_cast<IrIntConstant>(incoming.value))
+                            if (far(phi->type) && (ir_cast<IrPointerConstant>(incoming.value) || ir_cast<IrNullConstant>(incoming.value)))
+                            {
+                                auto* pointer = ir_cast<IrPointerConstant>(incoming.value);
+                                auto half = pointer ? (result == pairs.at(phi).high ? pointer->segment : pointer->offset) : 0;
+                                input = mfunc.new_vreg();
+                                insert_before_branches(via,
+                                                       make_instr(MOpc::MOV32ri, {MOp::from_reg(input), MOp::from_imm(static_cast<std::int32_t>(half))}, 1));
+                            }
+                            else if (auto imm = ir_cast<IrIntConstant>(incoming.value))
                             {
                                 input = mfunc.new_vreg();
                                 auto half_bits = static_cast<std::uint64_t>(imm->value) >> (result == pairs.at(phi).high ? 32 : 0);
@@ -2000,8 +2280,9 @@ namespace dcc::backend::i8086
                     if (!term || term->kind != IrNodeKind::BrCond)
                         continue;
                     auto* condition = static_cast<IrBrCondInst const*>(term)->condition;
-                    if (condition && setcc_for(condition->kind) && !wide(binary_operands(condition).first->type) && use_def.use_count(condition) == 0 &&
-                        terminator_uses[condition] == 1 && std::ranges::find(ir_block->instructions, condition) != ir_block->instructions.end())
+                    if (condition && setcc_for(condition->kind) && !wide(binary_operands(condition).first->type) &&
+                        !far(binary_operands(condition).first->type) && use_def.use_count(condition) == 0 && terminator_uses[condition] == 1 &&
+                        std::ranges::find(ir_block->instructions, condition) != ir_block->instructions.end())
                         fused.insert(condition);
                 }
 
@@ -2021,7 +2302,7 @@ namespace dcc::backend::i8086
                         if (inst->kind == IrNodeKind::Phi)
                         {
                             auto const* phi = static_cast<IrPhiInst const*>(inst);
-                            if (wide(phi->type))
+                            if (wide(phi->type) || far(phi->type))
                             {
                                 Pair result{mfunc.new_vreg(), mfunc.new_vreg()};
                                 pairs[phi] = result;

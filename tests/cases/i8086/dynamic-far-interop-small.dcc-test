@@ -1,0 +1,114 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+import core::seg;
+@nomangle extern u16^ nasm_far(u16^ pointer, u16 bias);
+@nomangle extern i32 nasm_call_dc();
+@nomangle public u16^ dc_far(u16^ pointer, u16 bias) { return pointer + bias as usize; }
+@noinline u16^ internal(u16^ a, u16^ b, u16^ c, u16 n) {
+    if n != 7 || a.segment() != 0x3000 || b.segment() != 0x4000 || c.segment() != 0x5000 { return null; }
+    return c + n as usize;
+}
+@nomangle public i32 dcc_main() {
+    u16^ result = nasm_far(0x3000:0x8000, 3);
+    if result.segment() != 0x3000 || result.offset() != 0x8006 { return 1; }
+    if nasm_call_dc() != 42 { return 2; }
+    u16^ value = internal(0x3000:0x8000, 0x4000:0x8000, 0x5000:0x8000, 7);
+    if value.segment() != 0x5000 || value.offset() != 0x800e { return 3; }
+    return 42;
+}
+=== FILE: start.asm ===
+bits 16
+section .start
+global _start
+extern dcc_main
+extern __bss_start
+extern __bss_end
+_start:
+    cli
+    cld
+    mov ax, cs
+    mov ds, ax
+    mov ss, ax
+    mov sp, 0xfffe
+    mov es, ax
+    mov edi, __bss_start
+    mov ecx, __bss_end
+    sub ecx, edi
+    xor eax, eax
+    a32 rep stosb
+    mov ax, 0x5000
+    mov es, ax
+    mov ax, 0x4000
+    mov fs, ax
+    mov ax, 0x6000
+    mov gs, ax
+    call dcc_main
+    mov dx, 0xf4
+    out dx, al
+stop:
+    jmp stop
+=== FILE: helpers.asm ===
+bits 16
+section .text
+global nasm_far
+global nasm_call_dc
+extern dc_far
+nasm_far:
+    push bp
+    mov bp, sp
+    mov ax, [bp + 4]
+    mov dx, [bp + 6]
+    movzx ecx, word [bp + 8]
+    shl ecx, 1
+    add ax, cx
+    or eax, 0xdead0000
+    or edx, 0xbeef0000
+    mov bx, 0x7000
+    mov es, bx
+    mov ebx, 0x12345678
+    mov ecx, 0xcafebabe
+    pop bp
+    ret
+bad:
+    xor eax, eax
+    xor edx, edx
+    pop bp
+    ret
+nasm_call_dc:
+    push bp
+    mov bp, sp
+    push esi
+    push edi
+    mov esi, 0x12345678
+    mov edi, 0x87654321
+    push word 3
+    push word 0x3000
+    push word 0x8000
+    call dc_far
+    add sp, 6
+    cmp ax, 0x8006
+    jne fail
+    cmp dx, 0x3000
+    jne fail
+    cmp esi, 0x12345678
+    jne fail
+    cmp edi, 0x87654321
+    jne fail
+    lea ax, [bp - 8]
+    cmp ax, sp
+    jne fail
+    mov ax, 42
+    xor dx, dx
+    jmp done
+fail:
+    mov ax, 1
+    xor dx, dx
+done:
+    pop edi
+    pop esi
+    pop bp
+    ret
+=== EXPECT-I8086-RUN ===
+START: none
+RUN-EXIT: 42

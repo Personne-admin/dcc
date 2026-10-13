@@ -8,6 +8,7 @@ import dcc.target;
 import dcc.backend;
 import dcc.backend.llvm;
 import dcc.backend.em64t;
+import dcc.backend.i8086;
 import dcc.backend.object.layout;
 
 #include "harness.hh"
@@ -1165,6 +1166,64 @@ TEST_CASE("far pointer and slice initializer fields use canonical layouts")
         CHECK(bytes[pointer->byte_size] == 7);
         CHECK(bytes[pointer->byte_size + 1] == 0);
     }
+}
+
+TEST_CASE("i8086 static far addresses relocate offset and segment separately")
+{
+    for (auto model : {CodeModel::Small, CodeModel::Unreal, CodeModel::Unreal32})
+    {
+        auto target = *TargetConfig::parse_triple("i8086-binary");
+        REQUIRE(!target.configure(model, "i386"));
+        IrContext ctx(262144, &target);
+        auto* pointer = ctx.pointer_to(ctx.int_t(8, false), Segment::None, PointerFlavor::Far);
+        auto* global = ctx.global("target", ctx.int_t(8, false));
+        auto* reference = ctx.global_ref(global, pointer, 3);
+        std::vector<std::uint8_t> bytes(pointer->byte_size, 0xFF);
+        std::vector<dcc::backend::object::InitReloc> relocs;
+        dcc::backend::object::serialize_init_memory(bytes, relocs, reference, pointer, 0, 2);
+        REQUIRE(relocs.size() == 2);
+        CHECK(relocs[0].offset == 0);
+        CHECK(relocs[0].size == static_cast<std::uint64_t>(target.far_offset_bits() / 8));
+        CHECK(relocs[0].name == "target");
+        CHECK(relocs[0].addend == 3);
+        CHECK(relocs[1].offset == static_cast<std::uint64_t>(target.far_offset_bits() / 8));
+        CHECK(relocs[1].size == 2);
+        CHECK(relocs[1].name == "__dcc_dgroup_segment");
+        CHECK(relocs[1].addend == 0);
+        CHECK(bytes[0] == 3);
+        CHECK(std::ranges::all_of(std::span(bytes).subspan(1), [](auto byte) { return byte == 0; }));
+    }
+}
+
+TEST_CASE("i8086 materializes far global address pairs in both optimization modes")
+{
+    for (auto model : {CodeModel::Small, CodeModel::Unreal, CodeModel::Unreal32})
+        for (auto level : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
+        {
+            auto target = *TargetConfig::parse_triple("i8086-binary");
+            REQUIRE(!target.configure(model, "i386"));
+            IrContext ctx(262144, &target);
+            auto* module = ctx.module("far_global_address");
+            auto* u16 = ctx.int_t(16, false);
+            auto* global = ctx.global("word_value", u16, ctx.int_const(u16, 19));
+            module->globals.push_back(global);
+            auto* pointer = ctx.pointer_to(u16, Segment::None, PointerFlavor::Far);
+            auto* function = ctx.function("address", ir_type_cast<IrFuncType>(ctx.func_t(pointer, {})));
+            auto* block = ctx.basic_block("entry", 0);
+            block->terminator = ctx.ret(ctx.global_ref(global, pointer));
+            function->entry_block = block;
+            function->blocks.push_back(block);
+            module->functions.push_back(function);
+            BackendOptions options;
+            options.target = target;
+            options.opt_level = level;
+            options.requested_artifacts = {ArtifactKind::ObjectBytes, ArtifactKind::AsmText};
+            auto result = make_i8086_backend()->emit(*module, options);
+            REQUIRE(result.diagnostics.empty());
+            REQUIRE(result.object_bytes);
+            REQUIRE(result.asm_text);
+            CHECK(result.asm_text->find("__dcc_dgroup_segment") != std::string::npos);
+        }
 }
 
 TEST_CASE("mem2reg preserves segment reads while replacing promoted loads")

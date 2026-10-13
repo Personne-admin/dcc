@@ -304,6 +304,18 @@ export namespace dcc::backend::object
                 auto* gr = static_cast<ir::IrGlobalRef const*>(val);
                 auto sz = expected_type ? expected_type->byte_size : address_width;
                 zero_init_bytes(data, relocs, offset, sz);
+                if (auto* pointer = ir::ir_type_cast<ir::IrPointerType>(expected_type);
+                    pointer && pointer->flavor == ir::PointerFlavor::Far && address_width == 2)
+                {
+                    auto width = pointer->byte_size == 4 ? 2u : 4u;
+                    if (offset <= data.size() && sz <= data.size() - offset)
+                    {
+                        write_addend_field(data, relocs, offset, width, gr->addend);
+                        relocs.push_back({offset, width, std::string{gr->name}, gr->addend});
+                        relocs.push_back({offset + width, 2, "__dcc_dgroup_segment", 0});
+                    }
+                    break;
+                }
                 if (sz < address_width)
                 {
                     std::println(std::cerr, "em64t objwriter: address relocation into a {}-byte field (symbol `{}`); refusing to emit malformed object", sz,

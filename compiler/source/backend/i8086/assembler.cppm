@@ -213,6 +213,21 @@ namespace dcc::backend::i8086
                         return line(std::format("{} {}, {}", input ? "in" : "out", operand(mi.ops[0], input ? operand_bits(mi.opc) : 16),
                                                 operand(mi.ops[1], input ? 16 : operand_bits(mi.opc))));
                     }
+                    case MOpc::MOV16sr:
+                    case MOpc::MOV16rs:
+                        return line(std::format("mov {}, {}", operand(mi.ops[0], 16), operand(mi.ops[1], 16)));
+                    case MOpc::LES16rm:
+                    case MOpc::LES32rm:
+                    case MOpc::LFS16rm:
+                    case MOpc::LFS32rm:
+                    case MOpc::LGS16rm:
+                    case MOpc::LGS32rm: {
+                        auto mnemonic = mi.opc == MOpc::LES16rm || mi.opc == MOpc::LES32rm   ? "les"
+                                        : mi.opc == MOpc::LFS16rm || mi.opc == MOpc::LFS32rm ? "lfs"
+                                                                                             : "lgs";
+                        return line(std::format("{} {}, {}", mnemonic, operand(mi.ops[0], operand_bits(mi.opc)),
+                                                intel_memory_operand(mi.ops[1].mem, mi.ops[1].mem.address_bits == 32 ? 32 : 16)));
+                    }
                     case MOpc::PUSHSEG:
                         return line(std::format("push {}", reg(mi.ops[0].reg, 16)));
                     case MOpc::POPSEG:

@@ -749,6 +749,17 @@ export namespace dcc::backend::object
                 if (glp->g->init)
                     collect_ref_names(glp->g->init, data_ref_names);
 
+        if (arch.address_width == 2)
+            for (auto* global : ir_mod.globals)
+                if (global->init)
+                {
+                    std::vector<std::uint8_t> image(init_type_size(global->type));
+                    std::vector<InitReloc> relocations;
+                    serialize_init_memory(image, relocations, global->init, global->type, 0, arch.address_width);
+                    for (auto const& relocation : relocations)
+                        data_ref_names.insert(relocation.name);
+                }
+
         for (auto const& n : data_ref_names)
             if (!defined_names.contains(n))
                 ext_sym_set.insert(n);

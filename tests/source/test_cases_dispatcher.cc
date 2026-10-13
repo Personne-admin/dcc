@@ -215,6 +215,7 @@ namespace
 
     struct ExpectI8086Run
     {
+        bool far_check{false};
         std::size_t base_line{};
         std::optional<int> exit_code;
         std::optional<std::string> serial;
@@ -949,6 +950,7 @@ namespace
             else if (starts_with(h, "EXPECT-I8086-RUN"))
             {
                 ExpectI8086Run e;
+                e.far_check = h.find("-ffar-check") != std::string::npos;
                 e.base_line = sec.body_start_line;
                 std::istringstream body_ss{sec.body};
                 std::string body_line;
@@ -3864,7 +3866,8 @@ namespace
             {
                 auto level = opt == dcc::ir::pass::OptLevel::O0 ? "O0" : "O2";
                 dcc::ir::IrContext ir_ctx{256 * 1024, &target};
-                auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+                auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types(), false, false,
+                                                                         exp.far_check);
                 auto* ir_mod = lowerer->lower_module(*mod);
                 if (!lowerer->lower_errors().empty())
                 {

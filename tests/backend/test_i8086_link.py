@@ -84,6 +84,19 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-link-") as directory:
     run(*i8086, crt0, obj, segment_user, "-o", directory / "x.bin", expect=1,
         contains="the image segment is unknown (-fbase=?:0000), but a static far pointer needs it; pass -fbase=SEG:OFF with a known segment")
     run(*i8086, "-fbase=0800:0", crt0, obj, segment_user, "-o", directory / "known.bin")
+
+    far_source = directory / "far-global.dc"
+    far_source.write_text("module far_global;\n@nomangle u16 value = 19;\n@nomangle u16^ pointer = &value;\n"
+                          "@nomangle public i32 dcc_main() { if *pointer != 19 { return 1; } return 42; }\n")
+    for model, mode in (("small", "real"), ("unreal", "unreal"), ("unreal32", "unreal")):
+        for level in ("-O0", "-O2"):
+            far_object = directory / f"far-{model}-{level}.o"
+            run(*i8086, f"-mcmodel={model}", level, "-c", far_source, "-o", far_object)
+            run(*i8086, f"-mcmodel={model}", crt0, far_object, "-o", directory / "unknown-far.bin", expect=1,
+                contains="the image segment is unknown (-fbase=?:0000), but a static far pointer needs it; pass -fbase=SEG:OFF with a known segment")
+            far_image = directory / f"far-{model}-{level}.bin"
+            run(*i8086, f"-mcmodel={model}", "-fbase=1000:0", crt0, far_object, "-o", far_image)
+            run(sys.executable, runner, "--load", "1000:0000", "--mode", mode, far_image, expect=42)
     assert bytes([0xB8, 0x00, 0x08, 0xC3]) in (directory / "known.bin").read_bytes(), (directory / "known.bin").read_bytes().hex()
     checks += 1
 
