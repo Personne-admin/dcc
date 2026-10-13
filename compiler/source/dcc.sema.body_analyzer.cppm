@@ -830,6 +830,7 @@ export namespace dcc::sema
             ast::EnumVariant const* constructed_variant{};
             bool is_lvalue{};
             bool is_writable{true};
+            types::Qual storage_quals{types::Qual::None};
             bool is_constant{};
             bool is_diverging{};
             bool is_type_instantiation{};
@@ -4971,6 +4972,24 @@ export namespace dcc::sema
         {
             std::unordered_set<ast::UsingDecl const*> visited;
             return decl_type_is_immutable(mod, scope, type, visited);
+        }
+
+        [[nodiscard]] types::Qual storage_quals(ast::TypeExpr const* type) const noexcept
+        {
+            if (!type)
+                return types::Qual::None;
+            if (auto* qt = ast::node_cast<ast::QualifiedType>(type))
+                return qual_or(ast_to_type_qual(qt->quals), storage_quals(qt->inner));
+            if (auto* arr = ast::node_cast<ast::ArrayType>(type))
+                return storage_quals(arr->element);
+            return types::Qual::None;
+        }
+
+        [[nodiscard]] types::Qual decl_storage_quals(ast::Decl const* decl) const noexcept
+        {
+            if (auto* v = ast::node_cast<ast::VarDecl>(decl))
+                return storage_quals(v->type);
+            return types::Qual::None;
         }
 
         [[nodiscard]] static bool decl_has_immutable_storage(ast::Decl const& d) noexcept
@@ -10487,6 +10506,7 @@ export namespace dcc::sema
                     track_decl_read(sym->decl);
                     out.is_lvalue = (sym->kind == SymbolKind::Variable);
                     out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
+            out.storage_quals = decl_storage_quals(sym->decl);
                 }
 
                 out.type = get_resolved_type(expr.sema);
@@ -11098,6 +11118,7 @@ export namespace dcc::sema
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
             out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
+            out.storage_quals = decl_storage_quals(sym->decl);
             if (sym->kind == SymbolKind::ValueAlias)
             {
                 if (auto const* ud = ast::node_cast<ast::UsingDecl>(sym->decl))
@@ -11332,6 +11353,7 @@ export namespace dcc::sema
             track_decl_read(sym->decl);
             out.is_lvalue = sym->kind == SymbolKind::Variable;
             out.is_writable = out.is_lvalue && !decl_has_immutable_storage(*sym->decl);
+            out.storage_quals = decl_storage_quals(sym->decl);
 
             if (sym->kind == SymbolKind::ValueAlias)
             {
@@ -11541,12 +11563,13 @@ export namespace dcc::sema
                     }
                     require_binding_storage(u.operand);
                     invalidate_written_target(u.operand, const_env);
-                    out.type = m_types.pointer_to(op.type, types::Qual::None);
+                    out.type = m_types.pointer_to(op.type, op.storage_quals);
                     break;
                 case lex::TokenKind::Star:
                     if (auto const* p = types::type_cast<types::PointerType>(op.type))
                     {
                         out.type = p->pointee;
+                        out.storage_quals = p->pointee_quals;
                         out.is_lvalue = true;
                         out.is_writable = indirect_target_writable(op.type, out.is_writable);
                         out.resolved_decl = nullptr;
@@ -12265,9 +12288,14 @@ export namespace dcc::sema
             if (!out.type)
                 out.type = m_types.m_errort();
 
+            out.storage_quals = obj.storage_quals;
+            if (auto* pt = types::type_cast<types::PointerType>(unwrap_nominal(obj.type)))
+                out.storage_quals = pt->pointee_quals;
+            out.storage_quals = qual_or(out.storage_quals, storage_quals(field->type));
             out.resolved_decl = nominal;
             out.is_lvalue = obj.value_alias_origin == nullptr;
             out.is_writable = indirect_target_writable(obj.type, out.is_writable);
+            out.is_writable = out.is_writable && !types::has_qual(out.storage_quals, types::Qual::Const);
 
             if (obj.constant && obj.constant->kind() == comptime::Value::Kind::Aggregate)
             {
@@ -12568,6 +12596,11 @@ export namespace dcc::sema
                 out.type = m_types.m_errort();
                 error(i.range, "indexing non-indexable type");
             }
+            out.storage_quals = obj.storage_quals;
+            if (auto* pt = types::type_cast<types::PointerType>(obj.type))
+                out.storage_quals = pt->pointee_quals;
+            else if (auto* sl = types::type_cast<types::SliceType>(obj.type))
+                out.storage_quals = sl->element_quals;
             out.is_lvalue = obj.value_alias_origin == nullptr;
             out.is_writable = indirect_target_writable(obj.type, out.is_writable);
 

@@ -418,7 +418,7 @@ public isize clone(
 }
 
 public isize futex(
-    i32* word,
+    volatile i32* word,
     i32 op,
     i32 value,
     abi::Timespec* timeout,

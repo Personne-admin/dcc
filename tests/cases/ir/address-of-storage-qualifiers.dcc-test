@@ -1,0 +1,118 @@
+=== FILE: test.dc ===
+module test;
+volatile u32 gv;
+const u32 gc = 1;
+const volatile u32 gcv = 1;
+struct S { volatile u32 v; const u32 c; const volatile u32 cv; }
+void f(volatile u32* vp, const u32* cp, const volatile u32* cvp, S* sp) {
+    volatile u32 v;
+    const u32 c = 1;
+    const volatile u32 cv = 1;
+    volatile u32[2] va;
+    const u32[2] ca = {1, 2};
+    const volatile u32[2] cva = {1, 2};
+    volatile u32* p1 = &v;
+    const u32* p2 = &c;
+    const volatile u32* p3 = &cv;
+    volatile u32* p4 = &gv;
+    const u32* p5 = &gc;
+    const volatile u32* p6 = &gcv;
+    volatile u32* p7 = &sp.v;
+    const u32* p8 = &sp.c;
+    const volatile u32* p9 = &sp.cv;
+    volatile u32* p10 = &va[0];
+    const u32* p11 = &ca[0];
+    const volatile u32* p12 = &cva[0];
+    volatile u32* p13 = &*vp;
+    const u32* p14 = &*cp;
+    const volatile u32* p15 = &*cvp;
+    volatile u32* p16 = &vp[0];
+    const u32* p17 = &cp[0];
+    const volatile u32* p18 = &cvp[0];
+    *p1 = 2; *p4 = 3; *p7 = 4; *p10 = 5; *p13 = 6; *p16 = 7;
+}
+
+=== EXPECT-IR ===
+module "test"
+
+global @_DC0G1.4.test2.gvi32u : u32
+
+const global @_DC0G1.4.test2.gci32u : u32 = #1
+
+const global @_DC0G1.4.test3.gcvi32u : u32 = #1
+
+
+void@_DC0F1.4.test1.f4PVqi32uPCqi32uPCVqi32uPqD1.4.test1.S0.v(ptr<u32>, ptr<u32>, ptr<u32>, ptr<{@0 u32, @4 u32, @8 u32}>) {
+%entry(ptr<u32> %vp, ptr<u32> %cp, ptr<u32> %cvp, ptr<{@0 u32, @4 u32, @8 u32}> %sp):
+  %0 = alloca u32
+  %1 = alloca u32
+  store u32 #1, ptr<u32> %1
+  %2 = alloca u32
+  store.volatile u32 #1, ptr<u32> %2
+  %3 = alloca [2 x u32]
+  %4 = alloca [2 x u32]
+  %5 = aggregate [2 x u32], #1, #2
+  store [2 x u32] %5, ptr<[2 x u32]> %4
+  %6 = alloca [2 x u32]
+  %7 = aggregate [2 x u32], #1, #2
+  store [2 x u32] %7, ptr<[2 x u32]> %6
+  %8 = alloca ptr<u32>
+  store ptr<u32> %0, ptr<ptr<u32>> %8
+  %9 = alloca ptr<u32>
+  store ptr<u32> %1, ptr<ptr<u32>> %9
+  %10 = alloca ptr<u32>
+  store ptr<u32> %2, ptr<ptr<u32>> %10
+  %11 = alloca ptr<u32>
+  store ptr<u32> @_DC0G1.4.test2.gvi32u, ptr<ptr<u32>> %11
+  %12 = alloca ptr<u32>
+  store ptr<u32> @_DC0G1.4.test2.gci32u, ptr<ptr<u32>> %12
+  %13 = alloca ptr<u32>
+  store ptr<u32> @_DC0G1.4.test3.gcvi32u, ptr<ptr<u32>> %13
+  %14 = alloca ptr<u32>
+  %15 = gep ptr<{@0 u32, @4 u32, @8 u32}> %sp, field #0
+  store ptr<u32> %15, ptr<ptr<u32>> %14
+  %16 = alloca ptr<u32>
+  %17 = gep ptr<{@0 u32, @4 u32, @8 u32}> %sp, field #1
+  store ptr<u32> %17, ptr<ptr<u32>> %16
+  %18 = alloca ptr<u32>
+  %19 = gep ptr<{@0 u32, @4 u32, @8 u32}> %sp, field #2
+  store ptr<u32> %19, ptr<ptr<u32>> %18
+  %20 = alloca ptr<u32>
+  %21 = gep ptr<[2 x u32]> %3, #0
+  store ptr<u32> %21, ptr<ptr<u32>> %20
+  %22 = alloca ptr<u32>
+  %23 = gep ptr<[2 x u32]> %4, #0
+  store ptr<u32> %23, ptr<ptr<u32>> %22
+  %24 = alloca ptr<u32>
+  %25 = gep ptr<[2 x u32]> %6, #0
+  store ptr<u32> %25, ptr<ptr<u32>> %24
+  %26 = alloca ptr<u32>
+  store ptr<u32> %vp, ptr<ptr<u32>> %26
+  %27 = alloca ptr<u32>
+  store ptr<u32> %cp, ptr<ptr<u32>> %27
+  %28 = alloca ptr<u32>
+  store ptr<u32> %cvp, ptr<ptr<u32>> %28
+  %29 = alloca ptr<u32>
+  %30 = gep ptr<u32> %vp, #0
+  store ptr<u32> %30, ptr<ptr<u32>> %29
+  %31 = alloca ptr<u32>
+  %32 = gep ptr<u32> %cp, #0
+  store ptr<u32> %32, ptr<ptr<u32>> %31
+  %33 = alloca ptr<u32>
+  %34 = gep ptr<u32> %cvp, #0
+  store ptr<u32> %34, ptr<ptr<u32>> %33
+  %35 = load ptr<u32>, ptr<ptr<u32>> %8
+  store.volatile u32 #2, ptr<u32> %35
+  %36 = load ptr<u32>, ptr<ptr<u32>> %11
+  store.volatile u32 #3, ptr<u32> %36
+  %37 = load ptr<u32>, ptr<ptr<u32>> %14
+  store.volatile u32 #4, ptr<u32> %37
+  %38 = load ptr<u32>, ptr<ptr<u32>> %20
+  store.volatile u32 #5, ptr<u32> %38
+  %39 = load ptr<u32>, ptr<ptr<u32>> %26
+  store.volatile u32 #6, ptr<u32> %39
+  %40 = load ptr<u32>, ptr<ptr<u32>> %29
+  store.volatile u32 #7, ptr<u32> %40
+  ret void
+}
+

@@ -4279,7 +4279,8 @@ export namespace dcc::ir::lower
                 }
 
                 case dcc::lex::TokenKind::Star: {
-                    auto* loaded = m_ctx.load(ir_ty, operand);
+                    IrValue* loaded = is_volatile_lvalue_storage(u) ? static_cast<IrValue*>(m_ctx.load_volatile(ir_ty, operand))
+                                                                 : static_cast<IrValue*>(m_ctx.load(ir_ty, operand));
                     auto name = ident_name();
                     loaded->name = m_name_pool.back();
                     append_inst(loaded);
@@ -4484,7 +4485,7 @@ export namespace dcc::ir::lower
                 lower_unimplemented(operand, "pre-inc/dec on unsupported lvalue");
 
             IrValue* ptr;
-            bool is_volatile = false;
+            bool is_volatile = is_volatile_lvalue_storage(operand);
             if (lv.entry)
             {
                 if (!lv.entry->is_storage)
@@ -4495,7 +4496,7 @@ export namespace dcc::ir::lower
             else
                 ptr = lv.gep_ptr;
 
-            auto* loaded = m_ctx.load(ir_ty, ptr);
+            IrValue* loaded = is_volatile ? static_cast<IrValue*>(m_ctx.load_volatile(ir_ty, ptr)) : static_cast<IrValue*>(m_ctx.load(ir_ty, ptr));
             auto load_name = ident_name();
             loaded->name = m_name_pool.back();
             append_inst(loaded);
@@ -4563,8 +4564,30 @@ export namespace dcc::ir::lower
             }
         }
 
-        [[nodiscard]] bool is_volatile_lvalue_storage(ast::Expr const* operand) const
+        [[nodiscard]] bool is_volatile_lvalue_storage(ast::Expr const* operand)
         {
+            if (!operand)
+                return false;
+            ast::Expr const* base = nullptr;
+            if (auto* u = ast::node_cast<ast::UnaryExpr>(operand); u && u->op == dcc::lex::TokenKind::Star)
+                base = u->operand;
+            else if (auto* idx = ast::node_cast<ast::IndexExpr>(operand))
+                base = idx->object;
+            else if (auto* field = ast::node_cast<ast::FieldAccessExpr>(operand))
+            {
+                if (auto* decl = find_decl_field(field); decl && field_type_is_volatile_lower(decl->type))
+                    return true;
+                base = field->object;
+            }
+            if (base)
+            {
+                auto* ty = get_sema_resolved_type(base);
+                if (auto* ptr = dcc::types::type_cast<dcc::types::PointerType>(ty))
+                    return dcc::types::has_qual(ptr->pointee_quals, dcc::types::Qual::Volatile);
+                if (auto* slice = dcc::types::type_cast<dcc::types::SliceType>(ty))
+                    return dcc::types::has_qual(slice->element_quals, dcc::types::Qual::Volatile);
+                return is_volatile_lvalue_storage(base);
+            }
             if (operand->kind != ast::ExprKind::Ident)
                 return false;
 
@@ -4795,7 +4818,7 @@ export namespace dcc::ir::lower
                 lower_unimplemented(operand, "post-inc/dec on unsupported lvalue");
 
             IrValue* ptr;
-            bool is_volatile = false;
+            bool is_volatile = is_volatile_lvalue_storage(operand);
             if (lv.entry)
             {
                 if (!lv.entry->is_storage)
@@ -4806,7 +4829,7 @@ export namespace dcc::ir::lower
             else
                 ptr = lv.gep_ptr;
 
-            auto* loaded = m_ctx.load(ir_ty, ptr);
+            IrValue* loaded = is_volatile ? static_cast<IrValue*>(m_ctx.load_volatile(ir_ty, ptr)) : static_cast<IrValue*>(m_ctx.load(ir_ty, ptr));
             auto load_name = ident_name();
             loaded->name = m_name_pool.back();
             append_inst(loaded);
@@ -5305,7 +5328,10 @@ export namespace dcc::ir::lower
             }
             else
             {
-                append_inst(m_ctx.store(rhs_val, lv.gep_ptr));
+                if (is_volatile_lvalue_storage(bin->lhs))
+                    append_inst(m_ctx.store_volatile(rhs_val, lv.gep_ptr));
+                else
+                    append_inst(m_ctx.store(rhs_val, lv.gep_ptr));
             }
 
             if (sema_ty && sema_ty->kind != dcc::types::TypeKind::Void)
@@ -5354,7 +5380,7 @@ export namespace dcc::ir::lower
                 lower_panic(bin, "compound assignment LHS must be assignable");
 
             IrValue* ptr;
-            bool is_volatile = false;
+            bool is_volatile = is_volatile_lvalue_storage(bin->lhs);
 
             if (lv.entry)
             {
@@ -5371,7 +5397,7 @@ export namespace dcc::ir::lower
             else
                 ptr = lv.gep_ptr;
 
-            auto* loaded = m_ctx.load(ir_ty, ptr);
+            IrValue* loaded = is_volatile ? static_cast<IrValue*>(m_ctx.load_volatile(ir_ty, ptr)) : static_cast<IrValue*>(m_ctx.load(ir_ty, ptr));
             auto load_name = ident_name();
             loaded->name = m_name_pool.back();
             append_inst(loaded);
