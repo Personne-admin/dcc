@@ -18454,6 +18454,31 @@ export namespace dcc::sema
 
     void complete_templated_union(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::UnionType const* ut);
 
+    void complete_layout_type(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::TypePtr ty)
+    {
+        if (!ty || ty->is_complete)
+            return;
+        if (auto* arr = types::type_cast<types::ArrayType>(ty))
+        {
+            complete_layout_type(types, alloc, arr->element);
+            if (arr->element->is_complete)
+            {
+                auto* mut = const_cast<types::ArrayType*>(arr);
+                mut->byte_size = arr->element->byte_size * arr->count;
+                mut->byte_align = arr->element->byte_align;
+                mut->is_zero_sized = mut->byte_size == 0;
+                mut->is_complete = true;
+            }
+        }
+        else if (auto* st = types::type_cast<types::StructType>(ty))
+            complete_templated_struct(types, alloc, st);
+        else if (auto* ut = types::type_cast<types::UnionType>(ty))
+            complete_templated_union(types, alloc, ut);
+        else if (auto* et = types::type_cast<types::EnumType>(ty))
+            ensure_tagged_enum_complete(types, alloc, et);
+    }
+
+
     void complete_templated_struct(types::TypeContext& types, std::pmr::polymorphic_allocator<> alloc, types::StructType const* st)
     {
         if (!st || st->is_complete || st->has_expansion)
@@ -18493,18 +18518,7 @@ export namespace dcc::sema
         auto ensure_complete = [&](types::TypePtr concrete_ft) -> bool {
             if (!concrete_ft)
                 return false;
-            if (!concrete_ft->is_complete)
-            {
-                if (auto* ft_et = types::type_cast<types::EnumType>(concrete_ft))
-                {
-                    if (!ft_et->tagged_layout && !ft_et->template_args.empty())
-                        ensure_tagged_enum_complete(types, alloc, concrete_ft);
-                }
-                else if (auto* ft_st = types::type_cast<types::StructType>(concrete_ft))
-                    complete_templated_struct(types, alloc, ft_st);
-                else if (auto* ft_ut = types::type_cast<types::UnionType>(concrete_ft))
-                    complete_templated_union(types, alloc, ft_ut);
-            }
+            complete_layout_type(types, alloc, concrete_ft);
             return concrete_ft->is_complete;
         };
 
@@ -18626,18 +18640,7 @@ export namespace dcc::sema
                 break;
             }
 
-            if (!concrete_ft->is_complete)
-            {
-                if (auto* ft_et = types::type_cast<types::EnumType>(concrete_ft))
-                {
-                    if (!ft_et->tagged_layout && !ft_et->template_args.empty())
-                        ensure_tagged_enum_complete(types, alloc, concrete_ft);
-                }
-                else if (auto* ft_st = types::type_cast<types::StructType>(concrete_ft))
-                    complete_templated_struct(types, alloc, ft_st);
-                else if (auto* ft_ut = types::type_cast<types::UnionType>(concrete_ft))
-                    complete_templated_union(types, alloc, ft_ut);
-            }
+            complete_layout_type(types, alloc, concrete_ft);
 
             if (!concrete_ft->is_complete)
             {

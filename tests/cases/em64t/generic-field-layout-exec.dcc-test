@@ -1,0 +1,34 @@
+=== FILE: foreign.dc ===
+module foreign;
+public struct Imported(T) { T v; }
+
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+import foreign;
+struct IS { foreign::Imported(u32) a; foreign::Imported(u32) b; }
+struct G(T) { T v; }
+struct S { G(u32) a; G(u32) b; }
+struct A { G(u32)[3] a; G(u32) b; }
+struct N { G(G(u32)) a; G(G(u32)) b; }
+struct Outer(T) { G(T)[2] a; G(T) b; }
+union U { G(u32) a; u8 b; }
+struct US { U a; U b; }
+struct AS { core::atomic::Atomic(u32) a; core::atomic::Atomic(u32) b; }
+@nomangle public i32 dcc_main() {
+    if sizeof(S) != 8 || alignof(S) != 4 || offsetof(S, b) != 4 { return 1; }
+    if sizeof(A) != 16 || offsetof(A, b) != 12 { return 2; }
+    if sizeof(N) != 8 || offsetof(N, b) != 4 { return 3; }
+    if sizeof(Outer(u32)) != 12 || offsetof(Outer(u32), b) != 8 { return 4; }
+    if sizeof(U) != 4 || alignof(U) != 4 || sizeof(US) != 8 || offsetof(US, b) != 4 { return 5; }
+    if sizeof(AS) != 8 || offsetof(AS, b) != 4 { return 6; }
+    if sizeof(IS) != 8 || alignof(IS) != 4 || offsetof(IS, b) != 4 { return 8; }
+    S s; s.a.v = 11; s.b.v = 22;
+    if &s.a == &s.b { return 7; }
+    return (s.a.v + s.b.v) as i32 - 33;
+}
+
+=== ENTRY: test.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0
