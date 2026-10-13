@@ -29,6 +29,7 @@ export namespace dcc::sema
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
         std::vector<std::string> injected_decls;
         bool enable_doc_comments{false};
+        bool restricted_check{false};
     };
 
     class SemaContext
@@ -75,7 +76,7 @@ export namespace dcc::sema
             resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
             validate_public_signatures(m_graph.all(), m_diag);
-            analyze_bodies(m_graph.all(), m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target);
+            analyze_bodies(m_graph.all(), m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target, m_opts.restricted_check);
             m_diag.set_parser_recovery_suppression(false);
 
             complete_all_templated_tagged_enums(m_types, m_alloc);
@@ -144,7 +145,7 @@ export namespace dcc::sema
             resolve_signature_types(modules, m_diag, m_types, m_alloc);
             validate_attributes(modules, m_diag, m_alloc);
             validate_public_signatures(modules, m_diag);
-            analyze_bodies(modules, m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target);
+            analyze_bodies(modules, m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target, m_opts.restricted_check);
         }
 
         void prepare_injected_sources()

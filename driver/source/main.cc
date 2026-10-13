@@ -2391,6 +2391,7 @@ auto main(int argc, char** argv) -> int
         compile_opts.import_roots.push_back(prefix / "include");
 
     compile_opts.inject_libdcext_prelude = opts.libdcext;
+    compile_opts.restricted_check = opts.restricted_check;
 
     bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
     auto phase_start = std::chrono::steady_clock::now();

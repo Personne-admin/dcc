@@ -1,0 +1,47 @@
+=== FILE: test.dc ===
+module test;
+
+struct S { u32 a : 3; u32 b : 5; }
+
+u32 addn(u32 n) {
+    S s = S { a = 1, b = 2 };
+    s.a += n;
+    s.b += n;
+    return (s.a * 100) + s.b;
+}
+
+u32 setn(u32 n, u32 m) {
+    S s = S { a = 0, b = 0 };
+    s.a = n;
+    s.b = m;
+    return (s.a * 100) + s.b;
+}
+
+u32 incwrap(u32 n) {
+    S s = S { a = 7, b = 31 };
+    if (n == 0) { s.a++; } else { s.b++; }
+    return (s.a * 100) + s.b;
+}
+
+const u32 c1 = addn(30);
+const u32 c2 = setn(8, 33);
+const u32 c3 = incwrap(0);
+const u32 c4 = incwrap(1);
+
+@nomangle
+public i32 dcc_main() {
+    if (c1 != 700) { return 1; }
+    if (c2 != 1) { return 2; }
+    if (c3 != 31) { return 3; }
+    if (c4 != 700) { return 4; }
+    if (addn(30) != c1) { return 5; }
+    if (setn(8, 33) != c2) { return 6; }
+    if (incwrap(0) != c3) { return 7; }
+    if (incwrap(1) != c4) { return 8; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

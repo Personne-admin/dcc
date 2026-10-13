@@ -240,6 +240,7 @@ namespace
         std::string target_name;
         dcc::target::CodeModel target_model{dcc::target::CodeModel::Default};
         std::string target_cpu;
+        bool target_restricted_check{false};
         std::size_t target_line{};
         std::vector<ExpectAst> ast_blocks;
         std::vector<ExpectScope> scope_blocks;
@@ -378,6 +379,8 @@ namespace
                             fx.target_model = dcc::target::TargetConfig::parse_code_model(option.substr(9)).value();
                         else if (option.starts_with("-farch="))
                             fx.target_cpu = option.substr(7);
+                        else if (option == "-frestricted-check")
+                            fx.target_restricted_check = true;
                     }
                 }
                 fx.target_line = sec.body_start_line - 1;
@@ -1615,6 +1618,7 @@ namespace
         dcc::sema::SemaOptions opts;
         if (fixture_target)
             opts.target = *fixture_target;
+        opts.restricted_check = fx.target_restricted_check;
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
         opts.injected_decls = fx.injected_decls;

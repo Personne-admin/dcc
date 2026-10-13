@@ -1,0 +1,14 @@
+=== TARGET: x86_64-elf FLAGS: -frestricted-check ===
+=== FILE: test.dc ===
+module test;
+struct S { u32 a : 3; u32 b : 5; }
+u32 addn(u32 n) {
+    S s = S { a = 1, b = 2 };
+    s.a += n;
+    s.b += n;
+    return (s.a * 100) + s.b;
+}
+const u32 c1 = addn(30);
+
+=== EXPECT-ERRORS ===
+test.dc:9: initializer for global `c1` is not a constant expression: value 31 does not fit in bitfield `a` width 3
