@@ -410,3 +410,52 @@ TEST_CASE("inline assembly errors fail every output mode")
         }
     std::filesystem::remove_all(dir);
 }
+
+TEST_CASE("per-symbol sections discard unused functions and globals")
+{
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_sections_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    auto source = dir / "sections.dc";
+    std::ofstream{source} << R"dc(module test;
+@nomangle public u32 initialized = 7;
+@nomangle public u32 zeroed;
+@nomangle public const u32 readonly = 9;
+@section(".data.chosen") @nomangle public u32 explicit_data = 11;
+@nomangle public u32 unused_global = 13;
+@nomangle public u32 unused_bss;
+@nomangle public const u32 unused_readonly = 15;
+@nomangle public u32 unused_function() { return unused_global; }
+@section(".text.chosen") @nomangle public u32 explicit_function() { return explicit_data; }
+
+@nomangle public u32 live_switch(u32 value) {
+    return match value { 0 => 3, 1 => 5, 2 => 11, 3 => 17, 4 => 23, 5 => 29, 6 => 31, 7 => 0, _ => 0 };
+}
+@nomangle public u32 unused_switch(u32 value) {
+    return match value { 0 => 3, 1 => 5, 2 => 11, 3 => 17, 4 => 23, 5 => 29, 6 => 31, 7 => 0, _ => unused_global };
+}
+
+@nomangle public i32 dcc_main() { return (initialized + zeroed + readonly + explicit_function() + live_switch(initialized)) as i32 - 27; }
+
+@nomangle public void _start() { initialized = dcc_main() as u32; while true {} }
+)dc";
+    for (auto backend : {"llvm", "custom"})
+    {
+        auto executable = dir / std::format("sections-{}", backend);
+        auto [code, output] = run_dcc(std::format("-O0 -fbackend {} -ffunction-sections -fdata-sections -Wl,--gc-sections {} -o {}",
+                                                backend, shell_quote(source), shell_quote(executable)));
+        CHECK_EQ(code, 0);
+        auto symbols = dir / "symbols.txt";
+        auto status = std::system(std::format("timeout 60 nm {} > {}", shell_quote(executable), shell_quote(symbols)).c_str());
+        CHECK_EQ(status, 0);
+        std::ifstream input{symbols};
+        std::string names{std::istreambuf_iterator<char>{input}, {}};
+        CHECK(names.contains("dcc_main"));
+        CHECK(names.contains("initialized"));
+        CHECK(!names.contains("unused_function"));
+        CHECK(!names.contains("unused_switch"));
+        CHECK(!names.contains("unused_global"));
+        CHECK(!names.contains("unused_bss"));
+        CHECK(!names.contains("unused_readonly"));
+    }
+    std::filesystem::remove_all(dir);
+}

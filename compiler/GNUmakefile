@@ -24,6 +24,21 @@ $(PCM_DIR)/dcc.config.pcm: $(PREFIX_STAMP)
 $(OBJ_DIR)/dcc.config.pcm.o: $(PREFIX_STAMP)
 
 CC_SRCS := $(call find-sources,$(TOPLEVEL)/compiler/source,cc)
+ifeq ($(ENABLE_LLVM),0)
+  CC_SRCS := $(filter-out %/llvm_options.cc,$(CC_SRCS))
+endif
+ifeq ($(ENABLE_LLVM),1)
+  ifneq ($(CROSS),windows)
+    LLVM_OPTIONS_CXXFLAGS := $(shell $(LLVM_CONFIG) --cxxflags 2>/dev/null)
+    $(OBJ_DIR)/compiler/source/llvm_options.cc.o: LOCAL_CXXFLAGS += $(filter -std=% -stdlib=%,$(LLVM_OPTIONS_CXXFLAGS))
+    ifeq ($(findstring -stdlib=libc++,$(LLVM_OPTIONS_CXXFLAGS)),)
+      $(OBJ_DIR)/compiler/source/llvm_options.cc.o: LOCAL_CXXFLAGS += -stdlib=libstdc++ --gcc-install-dir=$(dir $(shell $(CXX) -print-libgcc-file-name))
+    endif
+  endif
+endif
+$(OBJ_DIR)/compiler/source/llvm_options.cc.o: LOCAL_CXXFLAGS += -Wno-unused-command-line-argument
+$(OBJ_DIR)/compiler/source/llvm_options.cc.o: LOCAL_CXXFLAGS += $(patsubst -I%,-isystem %,$(filter-out -I/usr/include,$(filter -I%,$(LLVM_CXXFLAGS))))
+$(OBJ_DIR)/compiler/source/llvm_options.cc.o: $(TOPLEVEL)/compiler/GNUmakefile
 CC_OBJS := $(call objs-from-srcs,$(CC_SRCS))
 
 CC_DEPS := $(CC_OBJS:.o=.d)

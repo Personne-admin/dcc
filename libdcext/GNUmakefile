@@ -53,6 +53,7 @@ FREESTANDING_EXCLUDE := $(TOPLEVEL)/libdcext/std/sys/linux/syscall.dc $(TOPLEVEL
 TOPLEVEL_SRCS := $(TOPLEVEL)/libdcext/assert.dc $(TOPLEVEL)/libdcext/common/abi.dc
 
 ifeq ($(TARGET),x86_64-freestanding)
+  LIBDCEXT_TARGET_FLAGS += -ffunction-sections -fdata-sections
   DC_SRCS := $(filter-out $(FREESTANDING_EXCLUDE),$(call find-sources,$(TOPLEVEL)/libdcext/std,dc)) $(TOPLEVEL_SRCS)
   ASM_SRCS := $(TOPLEVEL)/libdcext/common/memory.asm
 else

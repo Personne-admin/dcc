@@ -45,6 +45,7 @@ namespace dcc::backend::object
         constexpr std::uint32_t IMAGE_SCN_LNK_COMDAT = 0x00001000;
         constexpr std::uint32_t IMAGE_SCN_LNK_INFO = 0x00000200;
         constexpr std::uint32_t IMAGE_SCN_LNK_REMOVE = 0x00000800;
+        constexpr std::uint8_t IMAGE_COMDAT_SELECT_NODUPLICATES = 1;
         constexpr std::uint8_t IMAGE_COMDAT_SELECT_ANY = 2;
         constexpr std::uint8_t IMAGE_COMDAT_SELECT_ASSOCIATIVE = 5;
         constexpr std::size_t no_coff_comdat = std::numeric_limits<std::size_t>::max();
@@ -189,6 +190,9 @@ export namespace dcc::backend::object
         struct CoffComdat
         {
             std::size_t func{};
+            std::string text_name;
+            std::uint32_t text_name_str{};
+            std::uint8_t selection{IMAGE_COMDAT_SELECT_ANY};
             std::uint32_t text_index{};
             std::uint32_t rdata_index{};
             std::vector<std::uint8_t> rdata;
@@ -206,6 +210,7 @@ export namespace dcc::backend::object
             std::uint32_t str_off{};
             std::uint32_t characteristics{};
             bool is_bss{true};
+            bool comdat{false};
             std::vector<GlobalLayout*> globals;
             std::vector<std::uint8_t> data;
             std::vector<CoffReloc> rels;
@@ -220,9 +225,9 @@ export namespace dcc::backend::object
         std::unordered_map<std::string, std::size_t> custom_section_index;
         for (auto& gl : globals)
         {
-            if (!gl.g->section.empty())
+            if (!global_section(gl.g, target.data_sections, true).empty())
             {
-                std::string sname{gl.g->section};
+                std::string sname = global_section(gl.g, target.data_sections, true);
                 auto it = custom_section_index.find(sname);
                 if (it == custom_section_index.end())
                 {
@@ -232,6 +237,9 @@ export namespace dcc::backend::object
                     custom_sections.push_back(std::move(cs));
                 }
                 auto& cs = custom_sections[custom_section_index[sname]];
+                cs.comdat = target.data_sections && gl.g->section.empty();
+                if (cs.comdat)
+                    cs.characteristics |= IMAGE_SCN_LNK_COMDAT | coff_align_bits(gl.alignment);
                 if (gl.sec == DataSection::Rodata)
                     cs.characteristics |= IMAGE_SCN_CNT_INITIALIZED_DATA | IMAGE_SCN_MEM_READ;
                 else if (gl.sec == DataSection::RodataRelRO || gl.sec == DataSection::Data)
@@ -280,6 +288,7 @@ export namespace dcc::backend::object
             std::uint64_t size;
             std::size_t comdat{no_coff_comdat};
             bool comdat_rdata{};
+            std::size_t data_comdat{no_coff_comdat};
         };
         std::vector<CoffSym> coff_syms;
         std::unordered_map<std::string, std::uint32_t> sym_name_to_idx;
@@ -342,17 +351,23 @@ export namespace dcc::backend::object
                                  .is_sec = true,
                                  .sec_idx = cs.section_index,
                                  .value = 0,
-                                 .size = 0});
+                                 .size = 0,
+                                 .data_comdat = cs.comdat ? static_cast<std::size_t>(&cs - custom_sections.data()) : no_coff_comdat});
         }
 
         std::vector<CoffComdat> comdats;
         std::vector<std::size_t> func_comdat(mod.functions.size(), no_coff_comdat);
         for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
         {
-            if (!is_link_once(mod.functions[fi].linkage))
+            auto section = function_section(ir_mod, func_names[fi], target.function_sections);
+            if (!is_link_once(mod.functions[fi].linkage) && section.empty())
                 continue;
             CoffComdat comdat;
             comdat.func = fi;
+            if (!is_link_once(mod.functions[fi].linkage))
+                comdat.selection = IMAGE_COMDAT_SELECT_NODUPLICATES;
+            comdat.text_name = section.empty() ? ".text" : std::move(section);
+            comdat.text_name_str = comdat.text_name == ".text" ? text_sec_str : add_str(comdat.text_name);
             comdat.text_index = next_sec++;
             if (!mod.functions[fi].jump_tables.empty())
                 comdat.rdata_index = next_sec++;
@@ -383,7 +398,7 @@ export namespace dcc::backend::object
 
         for (auto& gl : globals)
         {
-            if (!gl.g->section.empty())
+            if (!global_section(gl.g, target.data_sections, true).empty())
                 continue;
             if (gl.sec == DataSection::Rodata || gl.sec == DataSection::RodataRelRO)
                 gl.section_index = sec_rdata;
@@ -427,8 +442,8 @@ export namespace dcc::backend::object
             if (func_comdat[i] != no_coff_comdat)
             {
                 func_sec = comdats[func_comdat[i]].text_index;
-                coff_syms.push_back({.name = ".text",
-                                     .str_off = text_sec_str,
+                coff_syms.push_back({.name = comdats[func_comdat[i]].text_name,
+                                     .str_off = comdats[func_comdat[i]].text_name_str,
                                      .is_func = false,
                                      .is_object = false,
                                      .is_sec = true,
@@ -557,7 +572,7 @@ export namespace dcc::backend::object
                     if (it != sym_name_to_idx.end() && it->second == static_cast<std::uint32_t>(ci))
                         it->second = static_cast<std::uint32_t>(ci) + aux_so_far;
                 }
-                if (cs.is_func || cs.comdat != no_coff_comdat)
+                if (cs.is_func || cs.comdat != no_coff_comdat || cs.data_comdat != no_coff_comdat)
                     ++aux_so_far;
             }
         }
@@ -909,7 +924,7 @@ export namespace dcc::backend::object
         std::uint32_t sym_start = cur_raw;
         std::uint32_t num_func_aux = 0;
         for (auto const& cs : coff_syms)
-            if (cs.is_func || cs.comdat != no_coff_comdat)
+            if (cs.is_func || cs.comdat != no_coff_comdat || cs.data_comdat != no_coff_comdat)
                 num_func_aux++;
 
         std::uint32_t num_syms = static_cast<std::uint32_t>(coff_syms.size()) + num_func_aux;
@@ -995,7 +1010,7 @@ export namespace dcc::backend::object
         for (auto const& comdat : comdats)
         {
             auto text_reloc_ptr = comdat.text_rels.empty() ? 0U : sec_relocs[comdat.text_reloc_block].raw_start;
-            write_sec_hdr(".text", 0, static_cast<std::uint32_t>(func_codes[comdat.func].size()), comdat.text_raw, text_reloc_ptr,
+            write_sec_hdr(comdat.text_name, comdat.text_name_str, static_cast<std::uint32_t>(func_codes[comdat.func].size()), comdat.text_raw, text_reloc_ptr,
                           static_cast<std::uint16_t>(comdat.text_rels.size()),
                           IMAGE_SCN_CNT_CODE | IMAGE_SCN_MEM_EXECUTE | IMAGE_SCN_MEM_READ | IMAGE_SCN_ALIGN_16BYTES | IMAGE_SCN_LNK_COMDAT);
             if (comdat.rdata_index == 0)
@@ -1127,6 +1142,21 @@ export namespace dcc::backend::object
                 w8(out, is_local ? 3 : 2);
                 w8(out, 0);
             }
+            else if (cs.data_comdat != no_coff_comdat)
+            {
+                auto const& section = custom_sections[cs.data_comdat];
+                w16(out, 0);
+                w8(out, 3);
+                w8(out, 1);
+                w32(out, static_cast<std::uint32_t>(section.is_bss ? section.bss_size : section.data.size()));
+                w16(out, static_cast<std::uint16_t>(section.rels.size()));
+                w16(out, 0);
+                w32(out, coff_comdat_checksum(section.data));
+                w16(out, 0);
+                w8(out, is_link_once(section.globals.front()->g->linkage) ? IMAGE_COMDAT_SELECT_ANY : IMAGE_COMDAT_SELECT_NODUPLICATES);
+                w8(out, 0);
+                w16(out, 0);
+            }
             else if (cs.comdat != no_coff_comdat)
             {
                 auto const& comdat = comdats[cs.comdat];
@@ -1140,7 +1170,7 @@ export namespace dcc::backend::object
                 w16(out, 0);
                 w32(out, coff_comdat_checksum(data));
                 w16(out, static_cast<std::uint16_t>(comdat.text_index));
-                w8(out, cs.comdat_rdata ? IMAGE_COMDAT_SELECT_ASSOCIATIVE : IMAGE_COMDAT_SELECT_ANY);
+                w8(out, cs.comdat_rdata ? IMAGE_COMDAT_SELECT_ASSOCIATIVE : comdat.selection);
                 w8(out, 0);
                 w16(out, 0);
             }

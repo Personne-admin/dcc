@@ -91,6 +91,8 @@ namespace
         bool libdcext{false};
         dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
         std::string target_triple;
+        bool function_sections{false};
+        bool data_sections{false};
         bool red_zone{true};
         bool simd{true};
         bool x87{true};
@@ -364,6 +366,11 @@ namespace
          "red zone",
          "on",
          [](Options& o, bool on, std::string_view, char**) { o.red_zone = on; }},
+
+        {"-ffunction-sections", "-fno-function-sections", {}, Arg::None, "", {}, Phase::Compile, "per-function sections", "off",
+         [](Options& o, bool on, std::string_view, char**) { o.function_sections = on; }},
+        {"-fdata-sections", "-fno-data-sections", {}, Arg::None, "", {}, Phase::Compile, "per-global sections", "off",
+         [](Options& o, bool on, std::string_view, char**) { o.data_sections = on; }},
 
         {"-fsimd", "-fno-simd", {}, Arg::None, "", {}, Phase::Compile, "SIMD", "on", [](Options& o, bool on, std::string_view, char**) { o.simd = on; }},
 
@@ -2375,6 +2382,8 @@ auto main(int argc, char** argv) -> int
     compile_opts.injected_decls = std::move(opts.injected_decls);
 
     compile_opts.target = resolve_target_or_exit(opts);
+    compile_opts.target.function_sections = opts.function_sections;
+    compile_opts.target.data_sections = opts.data_sections;
     compile_opts.target.no_simd = !opts.simd;
     compile_opts.target.no_x87 = !opts.x87;
 
@@ -2459,6 +2468,8 @@ auto main(int argc, char** argv) -> int
             phase_start = std::chrono::steady_clock::now();
             dcc::target::TargetConfig target = resolve_target_or_exit(opts);
 
+            target.function_sections = opts.function_sections;
+            target.data_sections = opts.data_sections;
             target.no_red_zone = !opts.red_zone;
             target.no_simd = !opts.simd;
             target.no_x87 = !opts.x87;

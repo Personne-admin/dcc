@@ -1443,6 +1443,14 @@ attached to individual enum variants (e.g. `@[deprecated("...")] None,`).
 `@intrinsic` marks a declaration as compiler-implemented and is only valid
 inside the `core` module.
 
+`-ffunction-sections` and `-fdata-sections` are off by default. They place each
+function or global in its own section: `.text.<symbol>`, `.data.<symbol>`,
+`.rodata.<symbol>` and `.bss.<symbol>` on ELF, with `.rdata.<symbol>` for COFF
+constants. COFF uses COMDAT sections so `/OPT:REF` can discard unused symbols;
+ELF links can use `--gc-sections`. An explicit `@section` takes precedence.
+The freestanding libdcext archives are built with both flags. The i8086 linker
+script accepts these section names within its existing placement rules.
+
 ### 14.2 Expression Attributes
 
 Attributes may also be applied to expressions using prefix attribute syntax:

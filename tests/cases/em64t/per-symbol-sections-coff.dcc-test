@@ -1,0 +1,37 @@
+=== TARGET: x86_64-coff FLAGS: -ffunction-sections -fdata-sections ===
+=== FILE: test.dc ===
+module test;
+@nomangle public u32 initialized = 7;
+@nomangle public u32 zeroed;
+@nomangle public const u32 readonly = 9;
+@section(".data.chosen") @nomangle public u32 explicit_data = 11;
+@nomangle public u32 unused_global = 13;
+@nomangle public u32 unused_bss;
+@nomangle public const u32 unused_readonly = 15;
+@nomangle public u32 unused_function() { return unused_global; }
+@section(".text.chosen") @nomangle public u32 explicit_function() { return explicit_data; }
+
+@nomangle public u32 live_switch(u32 value) {
+    return match value { 0 => 3, 1 => 5, 2 => 11, 3 => 17, 4 => 23, 5 => 29, 6 => 31, 7 => 0, _ => 0 };
+}
+@nomangle public u32 unused_switch(u32 value) {
+    return match value { 0 => 3, 1 => 5, 2 => 11, 3 => 17, 4 => 23, 5 => 29, 6 => 31, 7 => 0, _ => unused_global };
+}
+
+@nomangle public i32 dcc_main() { return (initialized + zeroed + readonly + explicit_function() + live_switch(initialized)) as i32 - 27; }
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+REQUIRE-COFF-COMDAT: initialized 1
+REQUIRE-COFF-COMDAT: zeroed 1
+REQUIRE-COFF-COMDAT: readonly 1
+REQUIRE-COFF-COMDAT: unused_global 1
+REQUIRE-COFF-COMDAT: unused_function 1
+REQUIRE-COFF-COMDAT: dcc_main 1
+FORBID-COFF-COMDAT: explicit_data
+
+=== EXPECT-LLVM-PATTERNS ===
+CONTAINS: section ".text.dcc_main" comdat
+CONTAINS: section ".text.chosen" comdat
+CONTAINS: section ".data.initialized", comdat
+CONTAINS: section ".bss.zeroed", comdat
+CONTAINS: section ".rdata.readonly", comdat

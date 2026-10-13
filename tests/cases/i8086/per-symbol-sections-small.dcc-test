@@ -1,0 +1,16 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small -ffunction-sections -fdata-sections ===
+=== FILE: main.dc ===
+module main;
+@nomangle public u16 kept_global = 7;
+@nomangle public u16 unused_global = 9;
+@nomangle public u16 unused_function() { return unused_global; }
+@section(".text.chosen") @nomangle public u16 keep() { return kept_global; }
+@nomangle public i32 dcc_main() { return keep() as i32 + 35; }
+asm @[intel] { ".section .start, \"ax\", @progbits\n.code16\n.globl _start\n_start:\n    cld\n    mov edi, offset __bss_start\n    mov ecx, offset __bss_end\n    sub ecx, edi\n    xor eax, eax\n    addr32 rep stosb\n    call dcc_main\n    mov dx, 0xf4\n    out dx, al\n1:\n    cli\n    hlt\n    jmp 1b\n" };
+
+=== EXPECT-I8086-RUN ===
+START: none
+GC-SECTIONS: true
+FORBID-LINKED-SYMBOL: unused_function
+FORBID-LINKED-SYMBOL: unused_global
+RUN-EXIT: 42
