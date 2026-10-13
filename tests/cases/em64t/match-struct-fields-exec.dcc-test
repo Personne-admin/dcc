@@ -1,0 +1,23 @@
+=== FILE: test.dc ===
+module test;
+
+struct P { u32 x; u32 y; u32 z; }
+
+@nomangle
+public i32 dcc_main() {
+    P p = P { x = 11, y = 22, z = 33 };
+    i32 r = match p {
+        P { x, y, z } => (x as i32) + (y as i32) * 256 + (z as i32) * 65536,
+    };
+    if (r != 11 + 22 * 256 + 33 * 65536) { return 1; }
+    i32 y = match p {
+        P { x, y, z } => (y as i32),
+    };
+    if (y != 22) { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

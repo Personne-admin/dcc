@@ -1188,15 +1188,22 @@ namespace dcc::backend::i8086
                     return;
                 auto result = *ptr;
                 auto bits = address_bits(gep.base->type);
-                auto type = static_cast<IrPointerType const*>(gep.base->type)->pointee;
+                IrType const* type = nullptr;
+                if (gep.base && gep.base->type && gep.base->type->kind == IrTypeKind::Pointer)
+                    type = static_cast<IrPointerType const*>(gep.base->type)->pointee;
+                else if (gep.base && gep.base->type &&
+                         (gep.base->type->kind == IrTypeKind::Aggregate || gep.base->type->kind == IrTypeKind::Array))
+                    type = gep.base->type;
                 for (auto const& index : gep.indices)
                 {
                     if (index.kind == IrGepInst::IndexKind::Field)
                     {
-                        result = offset_address(result, member_offset(type, index.field_index), bits);
-                        if (type->kind == IrTypeKind::Aggregate)
+                        auto field_off = type ? member_offset(type, index.field_index)
+                                              : static_cast<std::uint64_t>(target.pointer_bits) / 8 * index.field_index;
+                        result = offset_address(result, field_off, bits);
+                        if (type && type->kind == IrTypeKind::Aggregate)
                             type = static_cast<IrAggregateType const*>(type)->members.at(index.field_index);
-                        else if (type->kind == IrTypeKind::Slice)
+                        else if (type && type->kind == IrTypeKind::Slice)
                             type = index.field_index == 0 ? gep.type : nullptr;
                         else
                             type = nullptr;
