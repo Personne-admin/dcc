@@ -1,0 +1,41 @@
+=== FILE: test.dc ===
+module test;
+u32 trace;
+void normal() {
+    defer trace = trace * 10 + 1;
+    defer { trace = trace * 10 + 2; }
+}
+i32 early() {
+    defer trace = trace * 10 + 3;
+    defer { u32 v = 4; trace = trace * 10 + v; }
+    return 7;
+}
+void loops() {
+    u32 i = 0;
+    while i < 2 {
+        defer { trace = trace * 10 + 5; }
+        i += 1;
+        continue;
+    }
+    while true {
+        defer trace = trace * 10 + 6;
+        defer { trace = trace * 10 + 7; }
+        break;
+    }
+}
+void nested() {
+    defer {
+        { u32 v = 9; trace = trace * 10 + v; }
+        trace = trace * 10 + 8;
+    }
+}
+@nomangle public i32 dcc_main() {
+    trace = 0; normal(); if trace != 21 { return 1; }
+    trace = 0; if early() != 7 || trace != 43 { return 2; }
+    trace = 0; loops(); if trace != 5576 { return 3; }
+    trace = 0; nested(); if trace != 98 { return 4; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0
