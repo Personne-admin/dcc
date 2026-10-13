@@ -15,6 +15,7 @@ import dcc.types;
 import dcc.sema.scope;
 import dcc.sema.infer;
 import dcc.sema.type_helpers;
+import dcc.sema.body_analyzer;
 
 export namespace dcc::sema
 {
@@ -1225,14 +1226,10 @@ export namespace dcc::sema
 
             if (auto* arr = const_cast<types::ArrayType*>(types::type_cast<types::ArrayType>(raw)))
             {
-                auto* elem = const_cast<types::Type*>(arr->element);
-                if (elem && !elem->is_complete)
-                {
-                    if (auto* st = const_cast<types::StructType*>(types::type_cast<types::StructType>(elem)))
-                        ensure_decl_finalized(reinterpret_cast<ast::Decl const*>(st->decl));
-                    else if (auto* ut = const_cast<types::UnionType*>(types::type_cast<types::UnionType>(elem)))
-                        ensure_decl_finalized(reinterpret_cast<ast::Decl const*>(ut->decl));
-                }
+                ast::TypeSema element_sema;
+                set_canonical(element_sema, arr->element);
+                ensure_type_finalized(element_sema);
+                auto* elem = arr->element;
                 if (elem && elem->is_complete)
                 {
                     arr->byte_align = elem->byte_align;
@@ -1259,6 +1256,10 @@ export namespace dcc::sema
                 return;
 
             ensure_decl_finalized(decl);
+            if (auto* st = types::type_cast<types::StructType>(raw))
+                complete_templated_struct(m_types, m_alloc, st);
+            else if (auto* et = types::type_cast<types::EnumType>(raw))
+                ensure_tagged_enum_complete(m_types, m_alloc, et);
 
             ts.byte_size = raw->byte_size;
             ts.byte_align = raw->byte_align;
