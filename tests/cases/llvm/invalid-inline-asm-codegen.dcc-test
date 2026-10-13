@@ -1,0 +1,5 @@
+=== FILE: test.dc ===
+module test;
+@nomangle public void _start() { asm @[intel] { "popq rax" }; }
+
+=== EXPECT-EXECUTABLE-ERRORS ===
