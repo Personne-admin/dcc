@@ -1014,7 +1014,7 @@ namespace
                 {
                     auto idx = ops[0].reg.phys_reg();
                     auto idx64 = reg64(idx);
-                    out += "lea r11, [rel " + std::string{ops[1].symbol} + "]\n";
+                    out += "lea r11, [rel " + ctx.func->owned_name + std::string{ops[1].symbol} + "]\n";
                     out += "    lea r10, [r11 + " + std::string{idx64} + "*4 + 4]\n";
                     out += "    movsxd rax, dword [r11 + " + std::string{idx64} + "*4]\n";
                     out += "    add rax, r10\n";
@@ -2042,7 +2042,7 @@ export namespace dcc::backend::em64t
                 {
                     for (auto const& jt : mfunc.jump_tables)
                     {
-                        out += jt.symbol + ":\n";
+                        out += mfunc.owned_name + jt.symbol + ":\n";
                         for (auto tgt : jt.targets)
                         {
                             std::string blk_lbl;
@@ -2052,7 +2052,7 @@ export namespace dcc::backend::em64t
                             else
                                 blk_lbl = std::format(".bb{}", tgt);
 
-                            out += "    dd " + blk_lbl + " - ($ + 4)\n";
+                            out += "    dd " + mfunc.owned_name + blk_lbl + " - ($ + 4)\n";
                         }
                         out += '\n';
                     }
