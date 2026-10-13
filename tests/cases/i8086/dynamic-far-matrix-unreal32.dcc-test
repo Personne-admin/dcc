@@ -1,0 +1,165 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal32 ===
+=== FILE: main.dc ===
+module main;
+import core::seg;
+struct Big { u8[33] bytes; }
+struct Box { u16 tag; [^]u16 values; u16^ saved; }
+@nomangle u16 global_word = 19;
+@nomangle u16^ global_address = &global_word;
+@nomangle u16^ saved = 0x3000:0x8000;
+@nomangle volatile u16 segment_seed = 0x3000;
+@nomangle volatile usize offset_seed = 0x8000;
+@nomangle Box holder;
+struct StaticHolder { u16 tag; u16^ saved; }
+@nomangle StaticHolder initial = {tag = 7, saved = 0x4000:0x8000};
+@nomangle extern void poison();
+@noinline u16^ identity(u16^ p) { return p; }
+@noinline u16^ choose(bool flag, u16^ a, u16^ b) { u16^ p = a; if flag { p = b; } return p; }
+@noinline u16^ nullable(bool flag, u16^ value) { u16^ p = null; if flag { p = value; } return p; }
+@noinline u8^ move(u8^ p, isize n) { return p + n; }
+@nomangle public u16^ c_identity(u16^ p) { return p; }
+@noinline u16 pressure(u16^ a, u16^ b, u16^ c, u16^ d, u16^ e, u16^ f, u16^ g) {
+    poison();
+    return *a + *b + *c + *d + *e + *f + *g;
+}
+@noinline [^]u16 view(u16^ p, usize n) { return p.from_raw(n); }
+@noinline u16 nested(Box box) {
+    u16 total = box.values[0];
+    [^]u16 tail = box.values[1..3];
+    for x in tail { total += x; }
+    u16 references = 0;
+    for &x in tail { u16^ p = x; references += *p; }
+    if references != total - box.values[0] { return 0; }
+    return total + box.tag;
+}
+@noinline Big copy(Big^ p) { return *p; }
+@noinline void write(Big^ p, Big value) { *p = value; }
+@noinline u64 wide(u64^ p, u64 value) { *p = value; poison(); return *p + 1; }
+@nomangle public i32 dcc_main() {
+    u8^ high = c_identity(0x3000:0x81238000) as u8^;
+    if high.offset() != 0x81238000 || (high + 3).offset() != 0x81238003 || high.segment() != 0x3000 { return 19; }
+    u16^ accessible = 0x3000:0x18000;
+    *accessible = 29;
+    if *accessible != 29 { return 20; }
+    u16^ p = identity(saved);
+    if p.segment() != 0x3000 || p.offset() != 0x8000 { return 1; }
+    p[0] = 10; p[1] = 11; p[2] = 12;
+    u16^ runtime = segment_seed:offset_seed;
+    if runtime != p || *runtime != 10 { return 25; }
+    u16^ q = c_identity(0x4000:0x8000);
+    *q = 23;
+    if *p != 10 || *q != 23 { return 2; }
+    if choose(true, p, q) != q || choose(false, p, q) != p || nullable(true, p) != p || nullable(false, p) != null { return 24; }
+    u16^ same = p.with_segment(0x4000);
+    if *same != 23 || same == p || same.offset() != p.offset() { return 3; }
+    u16^ offset = p.with_offset(0x8002);
+    if *offset != 11 || offset != p + 1 { return 4; }
+    u16^ nil = null;
+    if nil != null || p == null || nil.segment() != 0 || nil.offset() != 0 { return 5; }
+    u8^ wrap = 0x3000:0xffffffff;
+    if (wrap + 1).offset() != 0 || (wrap + 1).segment() != 0x3000 { return 6; }
+    u16 local = 17;
+    u16^ near = &local;
+    u16* back = near as u16*;
+    if near.segment() != 0x1000 || *near != 17 || back != &local { return 7; }
+    u16^CS cs = CS:0x8000;
+    u16^DS ds = DS:0x8000;
+    u16^SS ss = SS:0x8000;
+    u16^ES es = ES:0x8000;
+    u16^FS fs = FS:0x8000;
+    u16^GS gs = GS:0x8000;
+    *cs = 21; *es = 22; *fs = 23; *gs = 24;
+    u16^ a = cs as u16^;
+    u16^ b = ds as u16^;
+    u16^ c = ss as u16^;
+    u16^ d = es as u16^;
+    u16^ e = fs as u16^;
+    u16^ f = gs as u16^;
+    if a.segment() != 0x1000 || b.segment() != 0x1000 || c.segment() != 0x1000 || d.segment() != 0x5000 || e.segment() != 0x4000 || f.segment() != 0x6000 { return 8; }
+    if *a != 21 || *b != 21 || *c != 21 || *d != 22 || *e != 23 || *f != 24 { return 9; }
+    holder.tag = initial.tag;
+    holder.saved = initial.saved;
+    u16^^ indirect = 0x3000:0x8400;
+    *indirect = p;
+    u16^ recovered = *indirect;
+    if recovered != p || *recovered != 10 { return 21; }
+    u16^^FS fs_indirect = FS:0x8500;
+    *fs_indirect = p;
+    recovered = *fs_indirect;
+    if recovered != p || *recovered != 10 { return 22; }
+    if move(0x3000:0x8000, -3).offset() != 0x7ffd { return 23; }
+    Box box = holder;
+    box.values.ptr = p;
+    box.values.len = 3;
+    if nested(box) != 40 || box.saved.segment() != 0x4000 { return 10; };
+    [^]u16 slice = view(p, 3);
+    if slice.ptr != p || slice.len != 3 || slice[2] != 12 { return 11; }
+    slice.ptr = q;
+    slice.len = 1;
+    if slice[0] != 23 { return 12; }
+    if *global_address != 19 || global_address.segment() != 0x1000 { return 13; }
+    Big value;
+    value.bytes[0] = 31; value.bytes[32] = 32;
+    Big^ source = 0x3000:0x8100;
+    Big^ destination = 0x4000:0x8200;
+    write(source, value);
+    write(destination, copy(source));
+    if destination.bytes[0] != 31 || destination.bytes[32] != 32 { return 14; }
+    Big blank;
+    *destination = blank;
+    if destination.bytes[0] != 0 || destination.bytes[32] != 0 { return 15; }
+    if wide(0x3000:0x8300, 0x123456789abcdef0) != 0x123456789abcdef1 { return 16; }
+    if pressure(p, p+1, p+2, q, p, q, p+1) != 100 { return 17; }
+    u16^ vga = 0xb800:0;
+    *vga = 0x1741;
+    if *vga != 0x1741 { return 18; }
+    return 42;
+}
+=== FILE: start.asm ===
+bits 16
+section .start
+global _start
+extern dcc_main
+extern __bss_start
+extern __bss_end
+_start:
+    cli
+    cld
+    mov ax, cs
+    mov ds, ax
+    mov ss, ax
+    mov sp, 0xfffe
+    mov es, ax
+    mov edi, __bss_start
+    mov ecx, __bss_end
+    sub ecx, edi
+    xor eax, eax
+    a32 rep stosb
+    mov ax, 0x5000
+    mov es, ax
+    mov ax, 0x4000
+    mov fs, ax
+    mov ax, 0x6000
+    mov gs, ax
+    call dcc_main
+    mov dx, 0xf4
+    out dx, al
+stop:
+    jmp stop
+=== FILE: helpers.asm ===
+bits 16
+section .text
+global poison
+poison:
+    mov ax, 0x7000
+    mov es, ax
+    mov fs, ax
+    mov gs, ax
+    mov eax, 0xdeadbeef
+    mov ebx, 0xcafebabe
+    mov ecx, 0xabcdef01
+    mov edx, 0x12345678
+    ret
+=== EXPECT-I8086-RUN ===
+START: none
+RUN-EXIT: 42

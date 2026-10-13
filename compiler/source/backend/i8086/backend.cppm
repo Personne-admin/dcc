@@ -26,36 +26,6 @@ namespace dcc::backend
 {
     namespace
     {
-        [[nodiscard]] bool has_segmented_type(ir::IrType const* type, std::unordered_set<ir::IrType const*>& seen)
-        {
-            if (!type || !seen.insert(type).second)
-                return false;
-            switch (type->kind)
-            {
-                case ir::IrTypeKind::Pointer: {
-                    auto* pointer = static_cast<ir::IrPointerType const*>(type);
-                    return pointer->flavor == ir::PointerFlavor::Far || has_segmented_type(pointer->pointee, seen);
-                }
-                case ir::IrTypeKind::Slice: {
-                    auto* slice = static_cast<ir::IrSliceType const*>(type);
-                    return slice->flavor == ir::PointerFlavor::Far || has_segmented_type(slice->element, seen);
-                }
-                case ir::IrTypeKind::Array:
-                    return has_segmented_type(static_cast<ir::IrArrayType const*>(type)->element, seen);
-                case ir::IrTypeKind::Aggregate:
-                    return std::ranges::any_of(static_cast<ir::IrAggregateType const*>(type)->members,
-                                               [&](ir::IrType const* member) { return has_segmented_type(member, seen); });
-                default:
-                    return false;
-            }
-        }
-
-        [[nodiscard]] bool has_segmented_type(ir::IrType const* type)
-        {
-            std::unordered_set<ir::IrType const*> seen;
-            return has_segmented_type(type, seen);
-        }
-
         class I8086Backend : public Backend
         {
         public:
@@ -126,10 +96,6 @@ namespace dcc::backend
                     module_asm = std::move(*assembled);
                 }
                 ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
-                for (auto* global : input->globals)
-                    if (global && has_segmented_type(global->type))
-                        return fail(std::format("i8086 backend: global `{}` uses dynamic far pointers, which are not supported yet", global->name));
-
                 std::vector<MFunction> functions;
                 for (auto* func : input->functions)
                 {

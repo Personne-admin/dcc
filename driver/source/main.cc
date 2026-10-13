@@ -82,6 +82,7 @@ namespace
         bool emit_asm_only{false};
         bool shared_library{false};
         bool bounds_check{false};
+        bool far_check{false};
         bool restricted_check{false};
         bool partial_eval{false};
         bool emit_debug_info{false};
@@ -308,6 +309,17 @@ namespace
              else
                  o.opt_level = dcc::ir::pass::OptLevel::Os;
          }},
+
+        {"-ffar-check",
+         "-fno-far-check",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Compile,
+         "checked far-to-near pointer conversions",
+         "off",
+         [](Options& o, bool on, std::string_view, char**) { o.far_check = on; }},
 
         {"-fbounds-check",
          "-fno-bounds-check",
@@ -2422,7 +2434,7 @@ auto main(int argc, char** argv) -> int
 
         dcc::ir::IrContext ir_ctx{256 * 1024, &compile_opts.target};
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
-                                                                 &sema->types(), opts.restricted_check, opts.partial_eval);
+                                                                 &sema->types(), opts.restricted_check, opts.partial_eval, opts.far_check);
         auto* ir_mod = lowerer->lower_module(*module);
         if (!lowerer->lower_errors().empty())
         {

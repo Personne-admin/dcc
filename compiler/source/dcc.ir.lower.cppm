@@ -22,9 +22,9 @@ export namespace dcc::ir::lower
     public:
         explicit Lowerer(IrContext& ctx, sema::SpecializationRegistry const* spec_reg = nullptr, sema::ModuleGraph const* module_graph = nullptr,
                          bool bounds_check = false, sm::SourceManager const* source_manager = nullptr, dcc::types::TypeContext* type_ctx = nullptr,
-                         bool restricted_check = false, bool partial_eval = false)
+                         bool restricted_check = false, bool partial_eval = false, bool far_check = false)
             : m_ctx(ctx), m_spec_reg(spec_reg), m_module_graph(module_graph), m_type_ctx(type_ctx), m_bounds_check(bounds_check),
-              m_restricted_check(restricted_check), m_source_manager(source_manager), m_partial_eval(partial_eval)
+              m_restricted_check(restricted_check), m_source_manager(source_manager), m_partial_eval(partial_eval), m_far_check(far_check)
         {
         }
 
@@ -5509,6 +5509,32 @@ export namespace dcc::ir::lower
                     else if (src_ptr->flavor != PointerFlavor::Far || dst_ptr->flavor != PointerFlavor::Near)
                         lower_panic(c, "invalid pointer flavor conversion");
 
+                    if (m_far_check && src_ptr->flavor == PointerFlavor::Far && dst_ptr->flavor == PointerFlavor::Near)
+                    {
+                        auto emit_named = [&](IrValue* value) -> IrValue* {
+                            auto name = ident_name();
+                            value->name = m_name_pool.back();
+                            append_inst(value);
+                            return value;
+                        };
+                        auto* actual = emit_named(m_ctx.pointer_segment(operand));
+                        auto* expected = emit_named(m_ctx.read_segment(Segment::Ds));
+                        IrValue* valid = emit_named(m_ctx.cmp_eq(actual, expected));
+                        if (offset->type->byte_size > dst_ir_ty->byte_size)
+                        {
+                            auto maximum = (std::uint64_t{1} << (dst_ir_ty->byte_size * 8)) - 1;
+                            auto* fits = emit_named(m_ctx.cmp_ule(offset, m_ctx.int_const(offset->type, static_cast<std::int64_t>(maximum))));
+                            valid = emit_named(m_ctx.and_(m_ctx.bool_t(), valid, fits));
+                        }
+                        auto* success = create_block("far.ok");
+                        auto* failure = create_block("far.fail");
+                        emit_br_cond(valid, success, failure);
+                        set_current_block(failure);
+                        emit_assert_call("far pointer cannot be represented as a near pointer", c->range);
+                        emit_unreachable();
+                        set_current_block(success);
+                    }
+
                     auto* result = m_ctx.make_pointer(dst_ir_ty, fit_pointer_offset(offset, dst_ir_ty), segment);
                     auto result_name = ident_name();
                     result->name = m_name_pool.back();
@@ -6993,6 +7019,7 @@ export namespace dcc::ir::lower
         bool m_restricted_check{false};
         sm::SourceManager const* m_source_manager{};
         bool m_partial_eval{false};
+        bool m_far_check{false};
         std::size_t m_specialize_depth{};
         dcc::ctfe::Trace const* m_residual_trace{};
         std::unordered_map<std::size_t, IrValue*> m_residual_memo;
