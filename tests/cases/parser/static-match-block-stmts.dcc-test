@@ -1,0 +1,77 @@
+=== FILE: main.dc ===
+module m;
+i32 f(i32 x, bool c) {
+    i32 y = 0;
+    static match 1 {
+        1 => {
+            if c { y = 1; }
+            y = y + 2;
+        },
+        _ => {
+            { y = 7; }
+            y = y + 8;
+        },
+    };
+    return y;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=f
+    Return
+      Primitive i32
+    Params
+      Param name=x
+        Primitive i32
+      Param name=c
+        Primitive bool
+    Body
+      Var name=y
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      StaticMatch
+        Operand
+          IntLiteral 1
+        Arm
+          LiteralPattern
+            IntLiteral 1
+          Body
+            Block
+              ExprStmt
+                If
+                  Cond
+                    Ident c
+                  Then
+                    ExprStmt
+                      Binary op==
+                        Ident y
+                        IntLiteral 1
+              ExprStmt
+                Binary op==
+                  Ident y
+                  Binary op=+
+                    Ident y
+                    IntLiteral 2
+        Arm
+          WildcardPattern
+          Body
+            Block
+              ExprStmt
+                Block
+                  ExprStmt
+                    Binary op==
+                      Ident y
+                      IntLiteral 7
+              ExprStmt
+                Binary op==
+                  Ident y
+                  Binary op=+
+                    Ident y
+                    IntLiteral 8
+      ExprStmt
+        <null-expr>
+      Return
+        Ident y

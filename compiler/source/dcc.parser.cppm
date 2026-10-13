@@ -4816,6 +4816,17 @@ export namespace dcc::parser
                 return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));
             }
 
+            if (is_block_like_expr(first))
+            {
+                ast::Block block(m_ctx.allocator());
+                block.range.begin = start;
+                block.stmts.push_back(m_ctx.make<ast::ExprStmt>(range_from(first_start), first));
+                parse_block_stmts_and_tail(block);
+                expect(TK::RBrace, "to close block");
+                block.range = range_from(start);
+                return m_ctx.make<ast::BlockExpr>(range_from(start), std::move(block));
+            }
+
             error_at(single_range(), "expected ',', ';', or '}' inside braces");
 
             expect(TK::RBrace, "to close block");

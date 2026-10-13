@@ -1,0 +1,230 @@
+=== FILE: main.dc ===
+module m;
+i32 f(i32 x, bool c) {
+    i32 y = 0;
+    match x {
+        1 => {
+            if c { y = 1; }
+            y = y + 2;
+        },
+        2 => {
+            if c { y = 1; } else { y = 3; }
+            y = y + 4;
+        },
+        3 => {
+            match y {
+                0 => { y = 5; },
+                _ => {},
+            }
+            y = y + 6;
+        },
+        4 => {
+            { y = 7; }
+            y = y + 8;
+        },
+        5 => {
+            while y < 10 { y = y + 1; }
+            y = y + 9;
+        },
+        _ => {
+            if c { y = 1; };
+            y = y + 10;
+        },
+    };
+    return match y {
+        0 => { if c { 10 } else { 20 } },
+        _ => { match x { 1 => 30, _ => 40 } },
+    };
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Func name=f
+    Return
+      Primitive i32
+    Params
+      Param name=x
+        Primitive i32
+      Param name=c
+        Primitive bool
+    Body
+      Var name=y
+        Type
+          Primitive i32
+        Init
+          IntLiteral 0
+      ExprStmt
+        Match
+          Operand
+            Ident x
+          Arm
+            LiteralPattern
+              IntLiteral 1
+            Body
+              Block
+                ExprStmt
+                  If
+                    Cond
+                      Ident c
+                    Then
+                      ExprStmt
+                        Binary op==
+                          Ident y
+                          IntLiteral 1
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    Binary op=+
+                      Ident y
+                      IntLiteral 2
+          Arm
+            LiteralPattern
+              IntLiteral 2
+            Body
+              Block
+                ExprStmt
+                  If
+                    Cond
+                      Ident c
+                    Then
+                      ExprStmt
+                        Binary op==
+                          Ident y
+                          IntLiteral 1
+                    Else
+                      Block
+                        ExprStmt
+                          Binary op==
+                            Ident y
+                            IntLiteral 3
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    Binary op=+
+                      Ident y
+                      IntLiteral 4
+          Arm
+            LiteralPattern
+              IntLiteral 3
+            Body
+              Block
+                ExprStmt
+                  Match
+                    Operand
+                      Ident y
+                    Arm
+                      LiteralPattern
+                        IntLiteral 0
+                      Body
+                        Block
+                          ExprStmt
+                            Binary op==
+                              Ident y
+                              IntLiteral 5
+                    Arm
+                      WildcardPattern
+                      Body
+                        Block
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    Binary op=+
+                      Ident y
+                      IntLiteral 6
+          Arm
+            LiteralPattern
+              IntLiteral 4
+            Body
+              Block
+                ExprStmt
+                  Block
+                    ExprStmt
+                      Binary op==
+                        Ident y
+                        IntLiteral 7
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    Binary op=+
+                      Ident y
+                      IntLiteral 8
+          Arm
+            LiteralPattern
+              IntLiteral 5
+            Body
+              Block
+                While
+                  Cond
+                    Binary op=<
+                      Ident y
+                      IntLiteral 10
+                  Body
+                    ExprStmt
+                      Binary op==
+                        Ident y
+                        Binary op=+
+                          Ident y
+                          IntLiteral 1
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    Binary op=+
+                      Ident y
+                      IntLiteral 9
+          Arm
+            WildcardPattern
+            Body
+              Block
+                ExprStmt
+                  If
+                    Cond
+                      Ident c
+                    Then
+                      ExprStmt
+                        Binary op==
+                          Ident y
+                          IntLiteral 1
+                ExprStmt
+                  Binary op==
+                    Ident y
+                    Binary op=+
+                      Ident y
+                      IntLiteral 10
+      Return
+        Match
+          Operand
+            Ident y
+          Arm
+            LiteralPattern
+              IntLiteral 0
+            Body
+              Block
+                Tail
+                  If
+                    Cond
+                      Ident c
+                    Then
+                      Tail
+                        IntLiteral 10
+                    Else
+                      Block
+                        Tail
+                          IntLiteral 20
+          Arm
+            WildcardPattern
+            Body
+              Block
+                Tail
+                  Match
+                    Operand
+                      Ident x
+                    Arm
+                      LiteralPattern
+                        IntLiteral 1
+                      Body
+                        IntLiteral 30
+                    Arm
+                      WildcardPattern
+                      Body
+                        IntLiteral 40
