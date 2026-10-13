@@ -394,3 +394,19 @@ TEST_CASE("DCC_WARN_ARRAY_DECAY reports repeated template instantiations once")
     std::filesystem::remove(obj);
 }
 #endif
+
+TEST_CASE("inline assembly errors fail every output mode")
+{
+    auto dir = std::filesystem::temp_directory_path() / std::format("dcc_asm_errors_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+    std::filesystem::create_directories(dir);
+    auto source = dir / "invalid.dc";
+    std::ofstream{source} << "module test;\n@nomangle public void _start() { asm @[intel] { \"popq rax\" }; }\n";
+    for (auto backend : {"llvm", "custom"})
+        for (auto mode : {"-c", "-S", ""})
+        {
+            auto [code, output] = run_dcc(std::format("-fbackend {} {} {} -o {}", backend, mode, shell_quote(source), shell_quote(dir / "output")));
+            CHECK_EQ(code, 1);
+            CHECK(output.contains("popq"));
+        }
+    std::filesystem::remove_all(dir);
+}

@@ -1675,6 +1675,19 @@ namespace dcc::backend
 
                 auto* ctx = LLVMContextCreate();
                 LlvmCtxGuard ctx_guard{ctx};
+                LLVMContextSetDiagnosticHandler(
+                    ctx,
+                    [](LLVMDiagnosticInfoRef info, void* opaque) {
+                        if (LLVMGetDiagInfoSeverity(info) != LLVMDSError)
+                            return;
+                        auto& diagnostics = *static_cast<std::vector<BackendDiagnostic>*>(opaque);
+                        char* message = LLVMGetDiagInfoDescription(info);
+                        add_diag(diagnostics, {}, message ? message : "LLVM code generation failed");
+                        if (message)
+                            LLVMDisposeMessage(message);
+                    },
+                    &diags);
+
 
                 std::string mod_name = input_module->name.empty() ? "dcc_module" : std::string{input_module->name};
                 auto* llvm_mod = LLVMModuleCreateWithNameInContext(mod_name.c_str(), ctx);
@@ -2069,8 +2082,6 @@ namespace dcc::backend
                         if (LLVMTargetMachineEmitToMemoryBuffer(tm, llvm_mod, LLVMAssemblyFile, &emit_err, &membuf))
                         {
                             add_diag(diags, {}, std::format("LLVM backend: assembly emission failed: {}", emit_err ? emit_err : "unknown error"));
-                            if (emit_err)
-                                LLVMDisposeMessage(emit_err);
                         }
                         else
                         {
@@ -2091,8 +2102,6 @@ namespace dcc::backend
                         if (LLVMTargetMachineEmitToMemoryBuffer(tm, llvm_mod, LLVMObjectFile, &emit_err, &membuf))
                         {
                             add_diag(diags, {}, std::format("LLVM backend: object emission failed: {}", emit_err ? emit_err : "unknown error"));
-                            if (emit_err)
-                                LLVMDisposeMessage(emit_err);
                         }
                         else
                         {
@@ -2115,6 +2124,15 @@ namespace dcc::backend
 
                 if (tm_created)
                     LLVMDisposeTargetMachine(tm);
+
+                if (!diags.empty())
+                {
+                    artifact.asm_text.reset();
+                    artifact.object_bytes.reset();
+                    artifact.llvm_ir_text.reset();
+                    LLVMDisposeModule(llvm_mod);
+                    return artifact;
+                }
 
                 if (want_exe && !obj_bytes_for_link.empty())
                 {
