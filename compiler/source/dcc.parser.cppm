@@ -2360,11 +2360,29 @@ export namespace dcc::parser
                 if (!allow_pack)
                     error_at(range_from(start), "pack fields are only allowed in struct declarations");
             }
-            auto name = expect(TK::Identifier, "in field declaration");
-            if (name.kind == TK::Identifier)
+            if (check(TK::Colon))
             {
-                f.name = name.interned;
-                f.name_range = name.range;
+                advance();
+                f.is_bitfield = true;
+                f.bit_width_expr = parse_expr();
+                if (f.is_pack)
+                    error_at(range_from(start), "pack field cannot be a bitfield");
+            }
+            else
+            {
+                auto name = expect(TK::Identifier, "in field declaration");
+                if (name.kind == TK::Identifier)
+                {
+                    f.name = name.interned;
+                    f.name_range = name.range;
+                }
+                if (match(TK::Colon))
+                {
+                    f.is_bitfield = true;
+                    f.bit_width_expr = parse_expr();
+                    if (f.is_pack)
+                        error_at(range_from(start), "pack field cannot be a bitfield");
+                }
             }
 
             expect(TK::Semicolon, "after field declaration");

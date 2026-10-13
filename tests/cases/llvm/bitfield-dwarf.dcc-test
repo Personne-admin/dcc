@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+public struct S { u32 a : 3; u32 b : 5; }
+@nomangle
+public u32 get() {
+    S s = S { a = 1, b = 2 };
+    return s.a + s.b;
+}
+
+=== EXPECT-LLVM-PATTERNS FLAGS: -gdwarf -verify ===
+CONTAINS: DIDerivedType(tag: DW_TAG_member, name: "a"
+CONTAINS: size: 3, flags: DIFlagBitField
+CONTAINS: DIDerivedType(tag: DW_TAG_member, name: "b"
+CONTAINS: size: 5, offset: 3, flags: DIFlagBitField

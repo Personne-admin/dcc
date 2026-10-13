@@ -1,0 +1,39 @@
+=== FILE: main.dc ===
+module m;
+
+struct Single {
+    u32 a : 3;
+    u32 b : 5;
+}
+
+struct Several {
+    u32 a : 16;
+    u32 b : 16;
+    u32 c : 16;
+}
+
+@packed struct Packed {
+    u8 a;
+    u32 b : 16;
+    u32 c : 16;
+}
+
+void f() {
+    sizeof(Single);
+    alignof(Single);
+    sizeof(Several);
+    alignof(Several);
+    sizeof(Packed);
+    alignof(Packed);
+}
+
+=== EXPECT-BODY ===
+Module m
+  Func f diverging=false
+    Body
+      Sizeof [type=usize const=4 constant]
+      Alignof [type=usize const=4 constant]
+      Sizeof [type=usize const=8 constant]
+      Alignof [type=usize const=4 constant]
+      Sizeof [type=usize const=5 constant]
+      Alignof [type=usize const=1 constant]

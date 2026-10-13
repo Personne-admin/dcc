@@ -9871,6 +9871,20 @@ export namespace dcc::sema
 
                         field.resolved_field_index = static_cast<std::uint32_t>(std::distance(fields.begin(), it));
                         auto field_ty = substitute_in_nominal_context(it->type, matched_type);
+                        if (auto* fd = find_field(*struct_decl, field.field_name); fd && fd->is_bitfield && fd->bit_width != 0 && field.pattern)
+                        {
+                            bool binds_by_ref = false;
+                            if (field.pattern->kind == ast::PatternKind::Binding)
+                                binds_by_ref = static_cast<ast::BindingPattern*>(field.pattern)->by_reference;
+                            else if (field.pattern->kind == ast::PatternKind::Ref)
+                                binds_by_ref = true;
+
+                            if (binds_by_ref)
+                            {
+                                error(field.range, "cannot bind bitfield `{}` by reference in match", field.field_name);
+                                out.ok = false;
+                            }
+                        }
                         if (field.pattern)
                             validate_child(field.pattern, field_ty);
                     }
@@ -10021,6 +10035,94 @@ export namespace dcc::sema
                         return &f;
             }
             return nullptr;
+        }
+
+        ast::FieldDecl const* bitfield_decl_for_access(ast::Expr const* e, detail::ExprResult const& r) const
+        {
+            auto* fa = ast::node_cast<ast::FieldAccessExpr>(const_cast<ast::Expr*>(e));
+            if (!fa || !r.resolved_decl)
+                return nullptr;
+            auto* f = const_cast<BodyAnalyzer*>(this)->find_field(*r.resolved_decl, fa->field);
+            if (f && f->is_bitfield && f->bit_width != 0 && f->bit_width != 0xFFFFFFFFu)
+                return f;
+            return nullptr;
+        }
+
+        bool check_bitfield_constant_fit(ast::FieldDecl const* fd, types::TypePtr field_ty, comptime::Value const* c, std::string_view field_name,
+                                         sm::SourceRange range)
+        {
+            if (!fd || !c || fd->bit_width == 0 || fd->bit_width == 0xFFFFFFFFu)
+                return true;
+            auto v = c->const_to_int();
+            if (!v)
+                return true;
+            auto* unwrapped = field_ty;
+            while (unwrapped)
+            {
+                if (auto* nt = types::type_cast<types::NominalType>(unwrapped))
+                {
+                    unwrapped = nt->underlying;
+                    continue;
+                }
+                break;
+            }
+            bool is_signed = false;
+            if (types::type_cast<types::BoolType>(unwrapped))
+                is_signed = false;
+            else if (auto* it = types::type_cast<types::IntType>(unwrapped))
+                is_signed = it->is_signed;
+            else if (auto* et = types::type_cast<types::EnumType>(unwrapped))
+            {
+                auto* backing = et->backing;
+                while (backing)
+                {
+                    if (auto* nt = types::type_cast<types::NominalType>(backing))
+                    {
+                        backing = nt->underlying;
+                        continue;
+                    }
+                    break;
+                }
+                if (auto* bit = types::type_cast<types::IntType>(backing))
+                    is_signed = bit->is_signed;
+                else
+                    return true;
+            }
+            else
+                return true;
+            std::uint32_t w = fd->bit_width;
+            bool fits = false;
+            if (is_signed)
+            {
+                if (w >= 64)
+                    fits = true;
+                else if (w == 0)
+                    fits = false;
+                else
+                {
+                    std::int64_t lo = (w == 64) ? std::numeric_limits<std::int64_t>::min() : -(1ll << (w - 1));
+                    std::int64_t hi = (w == 64) ? std::numeric_limits<std::int64_t>::max() : ((w == 1) ? 0 : ((1ll << (w - 1)) - 1));
+                    fits = *v >= lo && *v <= hi;
+                }
+            }
+            else
+            {
+                if (*v < 0)
+                    fits = false;
+                else if (w >= 64)
+                    fits = true;
+                else
+                {
+                    std::uint64_t limit = (w == 64) ? 0xFFFFFFFFFFFFFFFFull : ((1ull << w) - 1);
+                    fits = static_cast<std::uint64_t>(*v) <= limit;
+                }
+            }
+            if (!fits)
+            {
+                error(range, "constant {} does not fit in bitfield `{}` width {}", *v, field_name, w);
+                return false;
+            }
+            return true;
         }
 
         comptime::Value const* make_value(comptime::Value v) { return m_ast_ctx.own_value(std::move(v)); }
@@ -11428,6 +11530,12 @@ export namespace dcc::sema
                         error(u.range, "unary operator `{}` type mismatch: operand `{}`", lex::to_string(u.op), format_type_str(op.type));
                         break;
                     }
+                    if (bitfield_decl_for_access(u.operand, op))
+                    {
+                        out.type = m_types.m_errort();
+                        error(u.range, "cannot take address of bitfield");
+                        break;
+                    }
                     require_binding_storage(u.operand);
                     invalidate_written_target(u.operand, const_env);
                     out.type = m_types.pointer_to(op.type, types::Qual::None);
@@ -11926,6 +12034,18 @@ export namespace dcc::sema
                             break;
                     }
 
+                    if (b.op == lex::TokenKind::Eq)
+                    {
+                        if (auto* fd = bitfield_decl_for_access(b.lhs, lhs))
+                        {
+                            auto* fa = static_cast<ast::FieldAccessExpr*>(b.lhs);
+                            if (rhs.constant && !check_bitfield_constant_fit(fd, lhs_type, rhs.constant, fa->field, b.rhs->range))
+                            {
+                                out.type = m_types.m_errort();
+                                return out;
+                            }
+                        }
+                    }
                     track_decl_write(lhs.resolved_decl);
                     require_binding_storage(b.lhs);
                     invalidate_written_target(b.lhs, const_env);
@@ -13355,6 +13475,13 @@ export namespace dcc::sema
                             }
                             warn_implicit_array_copy(f.value, val.type, expected_field);
                         }
+                        if (val.constant)
+                        {
+                            if (auto* fd = find_field(*record_decl, fields[field_index].name);
+                                fd && fd->is_bitfield && fd->bit_width != 0 &&
+                                !check_bitfield_constant_fit(fd, expected_field, val.constant, fields[field_index].name, f.value->range))
+                                return std::nullopt;
+                        }
                     }
                 }
 
@@ -13368,10 +13495,14 @@ export namespace dcc::sema
                     std::size_t covered = 0;
                     for (auto const& f : s.fields)
                         covered += f.resolved_field_count;
-                    if (!has_splice && covered != fields.size())
+                    std::size_t required = 0;
+                    for (auto const& fld : fields)
+                        if (!fld.name.empty())
+                            ++required;
+                    if (!has_splice && covered != required)
                     {
                         for (std::size_t i = 0; i < used.size(); ++i)
-                            if (!used[i] && !types::is_fam_type(fields[i].type))
+                            if (!used[i] && !fields[i].name.empty() && !types::is_fam_type(fields[i].type))
                                 error(s.range, "missing initializer for field `{}` in struct literal", fields[i].name);
                     }
                 }
@@ -13904,6 +14035,24 @@ export namespace dcc::sema
             auto const* target_ty = s.target ? resolve_type_node(mod, scope, s.target) : nullptr;
             if (target_ty && mod.own_scope && s.target)
                 check_type_constraints_in_type(mod, *mod.own_scope, target_ty, s.target->range);
+            if (target_ty && (target_ty->kind == types::TypeKind::Struct || target_ty->kind == types::TypeKind::Union))
+            {
+                ast::Decl const* nominal = nullptr;
+                if (auto const* st = types::type_cast<types::StructType>(target_ty))
+                    nominal = reinterpret_cast<ast::Decl const*>(st->decl);
+                else if (auto const* ut = types::type_cast<types::UnionType>(target_ty))
+                    nominal = reinterpret_cast<ast::Decl const*>(ut->decl);
+
+                if (nominal)
+                {
+                    if (auto* f = find_field(*nominal, s.field); f && f->is_bitfield && f->bit_width != 0)
+                    {
+                        out.type = m_types.m_errort();
+                        error(s.range, "cannot take offsetof of bitfield `{}`", s.field);
+                        return out;
+                    }
+                }
+            }
             if (target_ty &&
                 (target_ty->kind == types::TypeKind::Struct || target_ty->kind == types::TypeKind::Union || target_ty->kind == types::TypeKind::Enum))
             {
@@ -16147,6 +16296,9 @@ export namespace dcc::sema
                                     break;
                             }
                         }
+
+                        if (f.by_reference && bitfield_decl_for_access(f.iterable, iterable_result))
+                            error(f.name_range, "cannot bind bitfield by reference in for-in");
 
                         types::TypePtr binding_type = element_type;
                         if (f.by_reference && element_type)

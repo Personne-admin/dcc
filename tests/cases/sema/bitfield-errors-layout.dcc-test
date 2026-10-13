@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+struct BadT { f32 a : 3; }
+struct BadRange { u32 a : 33; }
+struct BadBool { bool b : 2; }
+enum NoBacking { X = 1, Y = 2, }
+struct BadEnumNoBack { NoBacking e : 2; }
+enum EBack : u8 { A = 1, B = 200, }
+struct BadEnumFit { EBack e : 3; }
+struct UnnamedNonZero { u32 : 3; }
+struct NamedZero { u32 a : 0; }
+struct Generic(T) { T x : 3; }
+
+=== EXPECT-ERRORS ===
+test.dc:2: bitfield `a` must have integer, bool, or enum type with explicit backing
+test.dc:3: bitfield `a` width 33 out of range 1..32 for type
+test.dc:4: bool bitfield `b` must have width 1, got 2
+test.dc:6: bitfield `e` enum type must have an explicit integer backing type
+test.dc:8: enumerator `B` value 200 does not fit in bitfield `e` width 3
+test.dc:9: unnamed bitfield must have width 0
+test.dc:10: named bitfield `a` must have non-zero width
+test.dc:11: bitfields are not supported in generic structs

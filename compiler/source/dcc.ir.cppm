@@ -121,16 +121,30 @@ export namespace dcc::ir
         }
     };
 
+    struct IrBitfieldMemberDebug
+    {
+        std::string_view name;
+        std::uint64_t byte_offset{};
+        std::uint32_t bit_offset{};
+        std::uint32_t bit_width{};
+        bool is_bitfield{};
+        IrType const* logical_type{};
+        std::uint32_t file_id{};
+        std::uint32_t line{};
+    };
+
     struct IrAggregateType : IrType
     {
         static constexpr auto Kind = IrTypeKind::Aggregate;
 
         std::pmr::vector<IrType const*> members;
         std::pmr::vector<std::uint64_t> member_offsets;
+        std::pmr::vector<IrBitfieldMemberDebug> bitfield_debug;
         bool has_trailing_fam : 1 {};
+        bool bitfield_is_union : 1 {};
         std::uint32_t fam_member_index{};
 
-        IrAggregateType(std::pmr::polymorphic_allocator<> a) : IrType(Kind), members(a), member_offsets(a) {}
+        IrAggregateType(std::pmr::polymorphic_allocator<> a) : IrType(Kind), members(a), member_offsets(a), bitfield_debug(a) {}
     };
 
     struct IrArrayType : IrType

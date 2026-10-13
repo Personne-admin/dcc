@@ -1,0 +1,58 @@
+module main;
+
+import std::os::file;
+import std::slice;
+
+using std::os::{ file };
+using std::{ slice };
+
+struct Single { u32 a : 3; u32 b : 5; }
+struct Several { u32 a : 16; u32 b : 16; u32 c : 16; }
+struct NoFit { u8 a : 6; u8 b : 4; }
+struct ZeroSep { u32 a : 3; u32 : 0; u32 b : 5; }
+struct Mixed { u32 a : 30; u8 b : 4; }
+struct Signed { i32 a : 3; i32 b : 5; }
+@packed struct Packed { u8 p; u32 b : 16; u32 c : 16; }
+struct Wide { u64 a : 40; u64 b : 24; }
+struct Bool { bool p : 1; bool q : 1; u32 v; }
+
+struct HdrPair { u64 sz; u64 al; }
+union Hdr { HdrPair p; u8[16] raw; }
+union RawSingle { Single s; u8[4] raw; }
+union RawSeveral { Several s; u8[8] raw; }
+union RawNoFit { NoFit s; u8[2] raw; }
+union RawZeroSep { ZeroSep s; u8[8] raw; }
+union RawMixed { Mixed s; u8[8] raw; }
+union RawSigned { Signed s; u8[4] raw; }
+union RawPacked { Packed s; u8[5] raw; }
+union RawWide { Wide s; u8[8] raw; }
+union RawBool { Bool s; u8[8] raw; }
+
+void emit_case(u8* ptr, usize sz, u64 al) {
+    file::File out = file::stdout();
+    Hdr h = Hdr { p = HdrPair { sz = sz as u64, al = al } };
+    out.write_all(slice::from_raw(&h.raw[0], 16)).unwrap();
+    out.write_all(slice::from_raw(ptr, sz)).unwrap();
+}
+
+public i32 main() {
+    RawSingle s1 = RawSingle { s = Single { a = 7, b = 31 } };
+    emit_case(&s1.raw[0], 4, alignof(Single) as u64);
+    RawSeveral s2 = RawSeveral { s = Several { a = 0xABCD, b = 0x1234, c = 0x5678 } };
+    emit_case(&s2.raw[0], 8, alignof(Several) as u64);
+    RawNoFit s3 = RawNoFit { s = NoFit { a = 0x2A, b = 0x5 } };
+    emit_case(&s3.raw[0], 2, alignof(NoFit) as u64);
+    RawZeroSep s4 = RawZeroSep { s = ZeroSep { a = 5, b = 17 } };
+    emit_case(&s4.raw[0], 8, alignof(ZeroSep) as u64);
+    RawMixed s5 = RawMixed { s = Mixed { a = 0x2AAAAAAA, b = 0x5 } };
+    emit_case(&s5.raw[0], 8, alignof(Mixed) as u64);
+    RawSigned s6 = RawSigned { s = Signed { a = -3, b = 7 } };
+    emit_case(&s6.raw[0], 4, alignof(Signed) as u64);
+    RawPacked s7 = RawPacked { s = Packed { p = 0x12, b = 0xABCD, c = 0x3456 } };
+    emit_case(&s7.raw[0], 5, alignof(Packed) as u64);
+    RawWide s8 = RawWide { s = Wide { a = 0x123456789A, b = 0xBCDEF0 } };
+    emit_case(&s8.raw[0], 8, alignof(Wide) as u64);
+    RawBool s9 = RawBool { s = Bool { p = true, q = false, v = 0x12345678 } };
+    emit_case(&s9.raw[0], 8, alignof(Bool) as u64);
+    return 0;
+}

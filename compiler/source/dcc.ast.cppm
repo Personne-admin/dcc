@@ -452,10 +452,15 @@ export namespace dcc::ast
         sm::SourceRange range;
         sm::SourceRange name_range;
         TypePtr type{};
+        ExprPtr bit_width_expr{};
 
         std::uint32_t byte_offset{};
         std::uint32_t index{};
+        std::uint32_t bit_width{};
+        std::uint32_t bit_offset{};
         bool is_pack : 1 {};
+        bool is_bitfield : 1 {};
+        bool bit_width_resolved : 1 {};
         DocBlock const* doc{};
         InlayComment const* trailing{};
     };

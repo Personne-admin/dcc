@@ -1,0 +1,101 @@
+=== FILE: test.dc ===
+module test;
+
+struct S {
+    u32 a : 3;
+    i32 b : 5;
+    u32 c;
+}
+
+union U {
+    u32 x : 3;
+    u32 raw;
+}
+
+enum E : u8 {
+    A = 1,
+    B = 2,
+    C = 5,
+}
+
+struct Bs {
+    bool p : 1;
+    bool q : 1;
+    u32 v;
+}
+
+struct Es {
+    E e : 3;
+    u32 v;
+}
+
+const S cs = S { a = 5, b = -3, c = 99 };
+const u32 cx = cs.a;
+const bool ceq = (cs == S { a = 5, b = -3, c = 99 });
+
+u32 g_v = 8;
+
+@nomangle
+public i32 dcc_main() {
+    S s = S { a = 5, b = -3, c = 99 };
+    if (s.a != 5) { return 1; }
+    if (s.b != -3) { return 2; }
+    if (s.c != 99) { return 3; }
+
+    s.a = 2;
+    if (s.a != 2) { return 4; }
+    if (s.b != -3) { return 5; }
+    s.b += 1;
+    if (s.b != -2) { return 6; }
+    s.a++;
+    if (s.a != 3) { return 7; }
+    s.c--;
+    if (s.c != 98) { return 8; }
+    ++s.a;
+    if (s.a != 4) { return 9; }
+    s.b--;
+    if (s.b != -3) { return 10; }
+
+    u32 v = g_v;
+    s.a = v;
+    if (s.a != 0) { return 11; }
+
+    i32 r = match s {
+        S { a, b, c } => (a as i32) + b + (c as i32),
+    };
+    if (r != (0 + -3 + 98)) { return 12; }
+
+    S t = S { a = 0, b = -3, c = 98 };
+    if (!(s == t)) { return 13; }
+    t.a = 1;
+    if (s == t) { return 14; }
+    if (!(s != t)) { return 15; }
+
+    if (cx != 5) { return 16; }
+    if (!ceq) { return 17; }
+    if (sizeof(S) != 12) { return 18; }
+    if (alignof(S) != 4) { return 19; }
+
+    U u = U { x = 5 };
+    if (u.x != 5) { return 20; }
+    u.raw = 99;
+    if (u.raw != 99) { return 21; }
+    if (u.x != (99 & 7)) { return 22; }
+
+    Bs bs = Bs { p = true, q = false, v = 7 };
+    if (!bs.p) { return 23; }
+    if (bs.q) { return 24; }
+    bs.q = true;
+    if (!bs.q) { return 25; }
+    if (!bs.p) { return 26; }
+
+    Es es = Es { e = E::C, v = 1 };
+    if ((es.e as u8) != 5) { return 27; }
+
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0
