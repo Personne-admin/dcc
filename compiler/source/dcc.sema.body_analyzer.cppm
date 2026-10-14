@@ -13121,11 +13121,23 @@ export namespace dcc::sema
                                   cast_flavor_reason(src_slice->flavor, dst_slice->flavor, "slice"));
                     }
                 }
-                if ((is_far_or_based_pointer(op.type) && out.type->kind == types::TypeKind::Int) ||
-                    (op.type->kind == types::TypeKind::Int && is_far_or_based_pointer(out.type)))
+                if (op.type->kind == types::TypeKind::Int && is_far_or_based_pointer(out.type))
                 {
-                    error(c.range,
-                          "invalid cast from `{}` to `{}`: far and based pointers cannot be cast to or from integers; use `seg:off` construction and core::seg",
+                    std::string suggestion = "SEG:OFF";
+                    if (auto const* ptr = types::type_cast<types::PointerType>(out.type))
+                        if (ptr->flavor == types::PointerFlavor::Based)
+                        {
+                            std::string offset = "OFF";
+                            if (auto* literal = ast::node_cast<ast::IntLiteralExpr>(c.operand))
+                                offset = std::string{literal->spelling};
+                            suggestion = std::format("{}:{}", types::TypeContext::seg_reg_name(ptr->segment), offset);
+                        }
+                    error(c.range, "invalid cast from `{}` to `{}`: far and based pointers cannot be constructed by casting an integer; write `{}` instead",
+                          format_type_str(op.type), format_type_str(out.type), suggestion);
+                }
+                else if (is_far_or_based_pointer(op.type) && out.type->kind == types::TypeKind::Int)
+                {
+                    error(c.range, "invalid cast from `{}` to `{}`: far and based pointers cannot be cast to integers; use core::seg to extract the offset",
                           format_type_str(op.type), format_type_str(out.type));
                 }
                 if (op.type->kind == types::TypeKind::NullT && out.type &&

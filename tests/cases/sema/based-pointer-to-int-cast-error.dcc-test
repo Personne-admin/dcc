@@ -1,0 +1,10 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal ===
+=== FILE: main.dc ===
+module m;
+
+using u16^DS P = DS:0x800;
+using u32 Q = P as u32;
+
+=== EXPECT-ERRORS ===
+main.dc:4: invalid cast from `u16^DS` to `u32`: far and based pointers cannot be cast to integers; use core::seg to extract the offset
+main.dc:4: initializer for value alias `Q` is not a compile-time constant
