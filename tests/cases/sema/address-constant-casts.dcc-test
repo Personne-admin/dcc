@@ -1,0 +1,36 @@
+=== FILE: main.dc ===
+module m;
+
+@nominal using Port = u16;
+
+using u8* Video = 0xB8000 as u8*;
+using Port* PortAddr = 0x3c0 as Port*;
+using u16* PortAlias = PortAddr as u16*;
+using usize VideoRaw = Video as usize;
+using usize PortRaw = PortAddr as usize;
+using u8* NullVideo = null as u8*;
+using bool SameVideo = Video == (0xB8000 as u8*);
+using bool DiffVideo = Video != (0xB8010 as u8*);
+using usize Moved = ((0x3c0 as u8*) + 16) as usize;
+using usize PortMoved = (PortAddr + 1) as usize;
+
+u8* const GlobalVideo = 0xB8000 as u8*;
+const usize GlobalRaw = GlobalVideo as usize;
+
+i32 use() {
+    static if VideoRaw == 0xB8000 && PortRaw == 0x3c0 && PortMoved == 0x3c2 {
+        return 1;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+i32 use2() {
+    static if SameVideo && DiffVideo && Moved == 0x3d0 && GlobalRaw == 0xB8000 {
+        return 1;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+=== ENTRY: main.dc ===

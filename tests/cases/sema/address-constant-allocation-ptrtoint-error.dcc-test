@@ -1,0 +1,13 @@
+=== FILE: main.dc ===
+module m;
+
+usize raw() {
+    const i32[4] a = {11,22,33,44};
+    const i32* p = a;
+    return p as usize;
+}
+
+const usize X = raw();
+
+=== EXPECT-ERRORS ===
+main.dc:9: initializer for global `X` is not a constant expression: operation is unavailable at compile time
