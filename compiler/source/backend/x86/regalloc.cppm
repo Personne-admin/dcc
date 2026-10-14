@@ -37,6 +37,7 @@ export namespace dcc::backend::x86
         bool is_win64;
         std::uint64_t byte_registers{~std::uint64_t{0}};
         std::uint64_t address16_registers{~std::uint64_t{0}};
+        bool narrow_gpr{false};
 
         [[nodiscard]] RegisterClassPolicy const& of(RegClass cls) const noexcept { return cls == RegClass::XMM ? xmm : gpr; }
         [[nodiscard]] VReg scratch(RegClass cls) const noexcept
@@ -454,7 +455,100 @@ namespace dcc::backend::x86
             std::uint32_t spill_slot = (std::numeric_limits<std::uint32_t>::max)();
             bool spilled = false;
             bool crosses_call = false;
+            std::uint8_t bits = 0;
         };
+
+        [[nodiscard]] SpillAccess spill_access(RegisterPolicy const& regs, LiveRange const& range)
+        {
+            if (regs.narrow_gpr && range.reg_class == RegClass::GPR && range.bits == 16)
+                return {2, 2, MOpc::MOV16mr, MOpc::MOV16rm};
+            return regs.of(range.reg_class).spill;
+        }
+
+        [[nodiscard]] std::unordered_map<VReg, std::uint8_t> narrow_copy_widths(MFunction& func)
+        {
+            std::unordered_map<VReg, std::uint8_t> widths;
+            std::vector<VReg> worklist;
+            auto require = [&](VReg reg, unsigned bits) {
+                if (!reg.is_virtual())
+                    return false;
+                auto& width = widths[reg];
+                auto next = static_cast<std::uint8_t>(bits > 16 ? 32 : 16);
+                if (width >= next)
+                    return false;
+                width = next;
+                worklist.push_back(reg);
+                return true;
+            };
+            for (auto const& block : func.blocks)
+                for (auto const& instr : block.instrs)
+                    for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+                    {
+                        auto const& op = instr.ops[i];
+                        if (op.kind == MOpKind::Mem)
+                        {
+                            require(op.mem.base, op.mem.address_bits);
+                            require(op.mem.index, op.mem.address_bits);
+                        }
+                        else if (op.kind == MOpKind::Reg && instr.opc != MOpc::COPY)
+                        {
+                            unsigned bits = operand_bits(instr.opc);
+                            if (i >= instr.num_defs)
+                                switch (instr.opc)
+                                {
+                                    case MOpc::MOVZX32_16rr:
+                                    case MOpc::MOVSX32_16rr:
+                                    case MOpc::MOVZX32_8rr:
+                                    case MOpc::MOVSX32_8rr:
+                                    case MOpc::MOVZX32rr8:
+                                        bits = 16;
+                                        break;
+                                    case MOpc::AND32ri:
+                                        if (instr.num_ops >= 3 && instr.ops[2].kind == MOpKind::Imm64 && (instr.ops[2].imm & ~std::int64_t{0xffff}) == 0)
+                                            bits = 16;
+                                        break;
+                                    case MOpc::SHL32ri8:
+                                        if (instr.num_ops >= 3 && instr.ops[2].kind == MOpKind::Imm64 && instr.ops[2].imm >= 16 && instr.ops[2].imm < 32)
+                                            bits = 16;
+                                        break;
+                                    default:
+                                        break;
+                                }
+                            require(op.reg, bits ? bits : 32);
+                        }
+                    }
+            std::unordered_map<VReg, std::vector<VReg>> sources;
+            for (auto const& block : func.blocks)
+                for (auto const& instr : block.instrs)
+                    if (instr.opc == MOpc::COPY && instr.num_ops == 2 && instr.ops[0].kind == MOpKind::Reg && instr.ops[1].kind == MOpKind::Reg)
+                    {
+                        auto dst = instr.ops[0].reg;
+                        if (dst.is_virtual())
+                        {
+                            sources[dst].push_back(instr.ops[1].reg);
+                            require(dst, 16);
+                        }
+                        else
+                            require(instr.ops[1].reg, 32);
+                    }
+            for (std::size_t i = 0; i < worklist.size(); ++i)
+            {
+                auto reg = worklist[i];
+                if (auto found = sources.find(reg); found != sources.end())
+                    for (auto source : found->second)
+                        require(source, widths[reg]);
+            }
+            for (auto& block : func.blocks)
+                for (auto& instr : block.instrs)
+                    if (instr.opc == MOpc::COPY && instr.num_ops == 2 && instr.ops[0].kind == MOpKind::Reg)
+                    {
+                        auto dst = instr.ops[0].reg;
+                        auto bits = dst.is_virtual() ? std::max<std::uint8_t>(16, widths[dst]) : 32;
+                        if (bits == 16)
+                            instr.opc = MOpc::MOV16rr;
+                    }
+            return widths;
+        }
 
         constexpr std::uint32_t kBlockStride = 512;
 
@@ -733,7 +827,8 @@ namespace dcc::backend::x86
                 for (std::size_t ii = 0; ii < blk.instrs.size(); ++ii)
                 {
                     auto const& instr = blk.instrs[ii];
-                    if ((instr.opc == MOpc::COPY || instr.opc == MOpc::MOVSDrr || instr.opc == MOpc::MOVSSrr || instr.opc == MOpc::MOVAPSrr) &&
+                    if ((instr.opc == MOpc::COPY || (regs.narrow_gpr && instr.opc == MOpc::MOV16rr) || instr.opc == MOpc::MOVSDrr ||
+                         instr.opc == MOpc::MOVSSrr || instr.opc == MOpc::MOVAPSrr) &&
                         instr.num_ops >= 2)
                         for (std::uint8_t oi = instr.num_defs; oi < instr.num_ops; ++oi)
                             if (instr.ops[oi].kind == MOpKind::Reg && instr.ops[oi].reg.is_physical())
@@ -866,7 +961,7 @@ namespace dcc::backend::x86
                     {
                         if (spill_candidate->spill_slot == (std::numeric_limits<std::uint32_t>::max)())
                             spill_candidate->spill_slot =
-                                func.new_frame_slot(regs.of(spill_candidate->reg_class).spill.size, regs.of(spill_candidate->reg_class).spill.align, true);
+                                func.new_frame_slot(spill_access(regs, *spill_candidate).size, spill_access(regs, *spill_candidate).align, true);
 
                         spill_candidate->spilled = true;
                         PhysReg freed_reg = spill_candidate->assigned;
@@ -884,7 +979,7 @@ namespace dcc::backend::x86
                     else
                     {
                         if (range.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
-                            range.spill_slot = func.new_frame_slot(regs.of(range.reg_class).spill.size, regs.of(range.reg_class).spill.align, true);
+                            range.spill_slot = func.new_frame_slot(spill_access(regs, range).size, spill_access(regs, range).align, true);
 
                         range.spilled = true;
                         range.assigned = PhysReg::None;
@@ -980,17 +1075,20 @@ namespace dcc::backend::x86
                         auto dst = range_map.find(instr.ops[0].reg);
                         auto src = range_map.find(instr.ops[1].reg);
                         if (dst != range_map.end() && src != range_map.end() && dst->second->spilled && src->second->spilled &&
-                            dst->second->reg_class == src->second->reg_class && instr.opc == regs.of(dst->second->reg_class).move &&
+                            dst->second->reg_class == src->second->reg_class &&
+                            (instr.opc == regs.of(dst->second->reg_class).move || (regs.narrow_gpr && instr.opc == MOpc::MOV16rr)) &&
                             dst->second->spill_slot != (std::numeric_limits<std::uint32_t>::max)() &&
                             src->second->spill_slot != (std::numeric_limits<std::uint32_t>::max)())
                         {
                             if (dst->second->spill_slot != src->second->spill_slot)
                             {
-                                auto const& policy = regs.of(dst->second->reg_class);
+                                auto source_access = spill_access(regs, *src->second);
+                                auto destination_access = spill_access(regs, *dst->second);
                                 VReg scratch = regs.scratch(dst->second->reg_class);
-                                new_instrs.push_back(make_instr(policy.spill.load, {MOp::from_reg(scratch), MOp::from_frame_slot(src->second->spill_slot)}, 1));
                                 new_instrs.push_back(
-                                    make_instr(policy.spill.store, {MOp::from_frame_slot(dst->second->spill_slot), MOp::from_reg(scratch)}, 0));
+                                    make_instr(source_access.load, {MOp::from_reg(scratch), MOp::from_frame_slot(src->second->spill_slot)}, 1));
+                                new_instrs.push_back(
+                                    make_instr(destination_access.store, {MOp::from_frame_slot(dst->second->spill_slot), MOp::from_reg(scratch)}, 0));
                             }
                             continue;
                         }
@@ -1197,7 +1295,7 @@ namespace dcc::backend::x86
                         }
                         else
                         {
-                            reload.opc = regs.gpr.spill.load;
+                            reload.opc = spill_access(regs, lr).load;
                             reload.num_ops = 2;
                             reload.num_defs = 1;
                             reload.ops[0] = MOp::from_reg(scratch);
@@ -1298,7 +1396,11 @@ namespace dcc::backend::x86
                         continue;
 
                     if (is_setcc(new_instr.opc) && new_instr.num_defs > 0 && new_instr.num_ops > 0 && new_instr.ops[0].kind == MOpKind::Reg)
-                        new_instrs.push_back(make_mov_ri(new_instr.ops[0].reg, 0, 32));
+                    {
+                        bool narrow = regs.narrow_gpr && range_map.contains(instr.ops[0].reg) && range_map.at(instr.ops[0].reg)->bits == 16;
+                        new_instrs.push_back(narrow ? make_instr(MOpc::MOV16ri, {new_instr.ops[0], MOp::from_imm(0)}, 1)
+                                                    : make_mov_ri(new_instr.ops[0].reg, 0, 32));
+                    }
 
                     new_instrs.push_back(new_instr);
 
@@ -1326,7 +1428,7 @@ namespace dcc::backend::x86
                         }
                         else
                         {
-                            spill.opc = regs.gpr.spill.store;
+                            spill.opc = spill_access(regs, lr).store;
                             spill.num_ops = 2;
                             spill.num_defs = 0;
                             spill.ops[0] = MOp::from_frame_slot(lr.spill_slot);
@@ -1477,7 +1579,7 @@ namespace dcc::backend::x86
             return opc == MOpc::COPY || opc == MOpc::MOVSDrr || opc == MOpc::MOVSSrr || opc == MOpc::MOVAPSrr;
         }
 
-        [[nodiscard]] MInstr make_reg_move(RegisterPolicy const& regs, VReg dst, VReg src)
+        [[nodiscard]] MInstr make_reg_move(RegisterPolicy const& regs, VReg dst, VReg src, unsigned bits = 0)
         {
             if (dst.is_physical() && reg_class(dst.phys_reg()) == RegClass::XMM)
             {
@@ -1490,6 +1592,8 @@ namespace dcc::backend::x86
                 return mi;
             }
 
+            if (regs.narrow_gpr && bits == 16)
+                return make_instr(MOpc::MOV16rr, {MOp::from_reg(dst), MOp::from_reg(src)}, 1);
             return make_copy(dst, src);
         }
 
@@ -1523,7 +1627,10 @@ namespace dcc::backend::x86
                             break;
                     }
 
-                    auto is_phys_copy = [&](MInstr const& c) { return is_phys_reg_copy(c); };
+                    auto is_phys_copy = [&](MInstr const& c) {
+                        return is_phys_reg_copy(c) || (regs.narrow_gpr && c.opc == MOpc::MOV16rr && c.num_ops == 2 && c.ops[0].kind == MOpKind::Reg &&
+                                                       c.ops[1].kind == MOpKind::Reg && c.ops[0].reg.is_physical() && c.ops[1].reg.is_physical());
+                    };
 
                     bool is_prologue = (blk.id == func.entry_block_id) && ii == 0 && is_phys_copy(instr);
                     bool is_group = instr.copy_group != 0 && is_phys_copy(instr);
@@ -1561,6 +1668,7 @@ namespace dcc::backend::x86
                         VReg dst;
                         VReg src;
                         std::uint32_t group = 0;
+                        unsigned bits = 0;
                     };
                     auto reg_is_xmm = [](VReg r) { return r.is_physical() && reg_class(r.phys_reg()) == RegClass::XMM; };
 
@@ -1570,7 +1678,7 @@ namespace dcc::backend::x86
                         auto const& c = blk.instrs[j];
                         if (c.ops[0].reg == c.ops[1].reg)
                             continue;
-                        moves.push_back({c.ops[0].reg, c.ops[1].reg, c.copy_group});
+                        moves.push_back({c.ops[0].reg, c.ops[1].reg, c.copy_group, regs.narrow_gpr ? (c.opc == MOpc::MOV16rr ? 16u : 32u) : 0u});
                     }
                     if (std::getenv("DCC_DEBUG_GRP") != nullptr)
                     {
@@ -1586,8 +1694,13 @@ namespace dcc::backend::x86
                         continue;
                     }
 
-                    auto resolve_group = [&func](std::vector<Move> group, VReg group_scratch, SpillAccess const& temp, bool& ok, bool& changed,
-                                                 std::uint32_t& out_temp_slot) {
+                    auto resolve_group = [&func, &regs](std::vector<Move> group, VReg group_scratch, SpillAccess temp, bool& ok, bool& changed,
+                                                        std::uint32_t& out_temp_slot) {
+                        unsigned bits = 0;
+                        for (auto const& move : group)
+                            bits = std::max(bits, move.bits);
+                        if (regs.narrow_gpr && bits == 16)
+                            temp = {2, 2, MOpc::MOV16mr, MOpc::MOV16rm};
                         ok = true;
                         changed = false;
                         if (group.size() < 2)
@@ -1643,7 +1756,7 @@ namespace dcc::backend::x86
                                     continue;
 
                                 auto cycle = remaining.front();
-                                ordered.push_back({group_scratch, cycle.src});
+                                ordered.push_back({group_scratch, cycle.src, 0, bits});
                                 for (auto& rm : remaining)
                                     if (rm.src == cycle.src)
                                         rm.src = group_scratch;
@@ -1687,7 +1800,7 @@ namespace dcc::backend::x86
 
                             std::vector<Move> result;
                             for (auto const& sm : scratch_dst)
-                                result.push_back({VReg{}, sm.src});
+                                result.push_back({VReg{}, sm.src, 0, bits});
 
                             if (rest.size() >= 2)
                             {
@@ -1723,7 +1836,7 @@ namespace dcc::backend::x86
                                         if (picked)
                                             continue;
                                         auto cycle = remaining.front();
-                                        result.push_back({group_scratch, cycle.src});
+                                        result.push_back({group_scratch, cycle.src, 0, bits});
                                         for (auto& rm : remaining)
                                             if (rm.src == cycle.src)
                                                 rm.src = group_scratch;
@@ -1744,7 +1857,7 @@ namespace dcc::backend::x86
                                 result.push_back(rest[0]);
 
                             for (std::size_t si = 0; si < scratch_dst.size(); ++si)
-                                result.push_back({group_scratch, VReg{}});
+                                result.push_back({group_scratch, VReg{}, 0, bits});
 
                             changed = true;
                             return result;
@@ -1786,7 +1899,7 @@ namespace dcc::backend::x86
                                         if (picked)
                                             continue;
                                         auto cycle = remaining.front();
-                                        result.push_back({group_scratch, cycle.src});
+                                        result.push_back({group_scratch, cycle.src, 0, bits});
                                         for (auto& rm : remaining)
                                             if (rm.src == cycle.src)
                                                 rm.src = group_scratch;
@@ -1877,7 +1990,9 @@ namespace dcc::backend::x86
                             bool is_gpr = result[ri].is_gpr;
                             std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
                             MInstr store;
-                            store.opc = is_gpr ? regs.gpr.cycle_temp.store : regs.xmm.cycle_temp.store;
+                            store.opc = is_gpr && regs.narrow_gpr && func.frame_slots[slot].size == 2 ? MOpc::MOV16mr
+                                        : is_gpr                                                      ? regs.gpr.cycle_temp.store
+                                                                                                      : regs.xmm.cycle_temp.store;
                             store.num_ops = 2;
                             store.num_defs = 0;
                             store.ops[0] = MOp::from_frame_slot(slot);
@@ -1889,7 +2004,9 @@ namespace dcc::backend::x86
                             bool is_gpr = result[ri].is_gpr;
                             std::uint32_t slot = is_gpr ? gpr_temp_slot : xmm_temp_slot;
                             MInstr load;
-                            load.opc = is_gpr ? regs.gpr.cycle_temp.load : regs.xmm.cycle_temp.load;
+                            load.opc = is_gpr && regs.narrow_gpr && func.frame_slots[slot].size == 2 ? MOpc::MOV16rm
+                                       : is_gpr                                                      ? regs.gpr.cycle_temp.load
+                                                                                                     : regs.xmm.cycle_temp.load;
                             load.num_ops = 2;
                             load.num_defs = 1;
                             load.ops[0] = MOp::from_reg(mv.dst);
@@ -1897,7 +2014,7 @@ namespace dcc::backend::x86
                             blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), load);
                         }
                         else
-                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), make_reg_move(regs, mv.dst, mv.src));
+                            blk.instrs.insert(blk.instrs.begin() + static_cast<std::ptrdiff_t>(run_start + ri), make_reg_move(regs, mv.dst, mv.src, mv.bits));
                     }
 
                     ii = run_start + result.size() + (is_call ? 1 : 0);
@@ -1970,10 +2087,10 @@ namespace dcc::backend::x86
             }
         }
 
-        void remove_redundant_moves(MFunction& func)
+        void remove_redundant_moves(MFunction& func, RegisterPolicy const& regs)
         {
-            auto is_self_move = [](MInstr const& instr) {
-                if (instr.opc != MOpc::COPY && instr.opc != MOpc::MOV64rr)
+            auto is_self_move = [&](MInstr const& instr) {
+                if (instr.opc != MOpc::COPY && instr.opc != MOpc::MOV64rr && !(regs.narrow_gpr && instr.opc == MOpc::MOV16rr))
                     return false;
                 if (instr.num_ops != 2 || instr.ops[0].kind != MOpKind::Reg || instr.ops[1].kind != MOpKind::Reg)
                     return false;
@@ -1996,8 +2113,12 @@ export namespace dcc::backend::x86
     {
         eliminate_phis(func);
 
+        auto widths = regs.narrow_gpr ? narrow_copy_widths(func) : std::unordered_map<VReg, std::uint8_t>{};
         std::vector<LiveRange> ranges;
         compute_liveness(func, ranges);
+        if (regs.narrow_gpr)
+            for (auto& range : ranges)
+                range.bits = std::max<std::uint8_t>(16, widths[range.vreg]);
 
         linear_scan(func, regs, ranges);
 
@@ -2009,7 +2130,7 @@ export namespace dcc::backend::x86
 
         post_check_and_fix(func, regs);
 
-        remove_redundant_moves(func);
+        remove_redundant_moves(func, regs);
     }
 
 } // namespace dcc::backend::x86
