@@ -453,7 +453,8 @@ namespace
                 }
                 else if (ops[1].kind == MOpKind::Mem)
                 {
-                    out += "movzx " + std::string{reg_name_f(d, dw)} + ", " + format_op(ctx, ops[1], RegWidth::Bits8, true) + "\n";
+                    auto sw = opc == MOpc::MOVZX64rm16 ? RegWidth::Bits16 : RegWidth::Bits8;
+                    out += "movzx " + std::string{reg_name_f(d, dw)} + ", " + format_op(ctx, ops[1], sw, true) + "\n";
                 }
                 else
                     out += "; movzx unrecognized\n";
