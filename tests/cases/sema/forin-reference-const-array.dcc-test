@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module main;
+void f() {
+    const i32[2] values = {0, 0};
+    for &value in values {
+        *value = 7;
+    }
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: cannot assign to const-qualified target of type `i32`

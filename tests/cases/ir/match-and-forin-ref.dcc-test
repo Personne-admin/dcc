@@ -29,8 +29,7 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Point0.i32s({@0 i32, @4 i32}) {
   store {@0 i32, @4 i32} %p, ptr<{@0 i32, @4 i32}> %0
   %1 = load {@0 i32, @4 i32}, ptr<{@0 i32, @4 i32}> %0
   %3 = alloca [1 x {@0 i32, @4 i32}]
-  %9 = alloca [1 x {@0 i32, @4 i32}]
-  %11 = alloca usize
+  %9 = alloca usize
   br label %match.arm0.test3
 %match.merge1:
   %4 = gep ptr<[1 x {@0 i32, @4 i32}]> %3, #0
@@ -39,10 +38,8 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Point0.i32s({@0 i32, @4 i32}) {
   %6 = gep ptr<[1 x {@0 i32, @4 i32}]> %3, #0
   %7 = gep ptr<{@0 i32, @4 i32}> %6, field #1
   store i32 #2, ptr<i32> %7
-  %8 = load [1 x {@0 i32, @4 i32}], ptr<[1 x {@0 i32, @4 i32}]> %3
-  store [1 x {@0 i32, @4 i32}] %8, ptr<[1 x {@0 i32, @4 i32}]> %9
-  %10 = gep ptr<[1 x {@0 i32, @4 i32}]> %9, #0
-  store usize #0, ptr<usize> %11
+  %8 = gep ptr<[1 x {@0 i32, @4 i32}]> %3, #0
+  store usize #0, ptr<usize> %9
   br label %forin.header5
 %match.fail2:
   unreachable
@@ -53,31 +50,30 @@ i32@_DC0F1.4.test1.f1D1.4.test5.Point0.i32s({@0 i32, @4 i32}) {
   store i32 #42, ptr<i32> %2
   br label %match.merge1
 %forin.header5:
-  %12 = load usize, ptr<usize> %11
-  %13 = cmp.ult usize %12, #1
-  br.cond %13, label %forin.body6, label %forin.exit8
+  %10 = load usize, ptr<usize> %9
+  %11 = cmp.ult usize %10, #1
+  br.cond %11, label %forin.body6, label %forin.exit8
 %forin.body6:
-  %14 = load usize, ptr<usize> %11
-  %15 = gep ptr<{@0 i32, @4 i32}> %10, %14
-  %16 = gep ptr<{@0 i32, @4 i32}> %15, field #0
-  %17 = load i32, ptr<i32> %16
-  %18 = add i32 %17, i32 #10
-  %19 = gep ptr<{@0 i32, @4 i32}> %15, field #1
-  store i32 %18, ptr<i32> %19
+  %12 = load usize, ptr<usize> %9
+  %13 = gep ptr<{@0 i32, @4 i32}> %8, %12
+  %14 = gep ptr<{@0 i32, @4 i32}> %13, field #0
+  %15 = load i32, ptr<i32> %14
+  %16 = add i32 %15, i32 #10
+  %17 = gep ptr<{@0 i32, @4 i32}> %13, field #1
+  store i32 %16, ptr<i32> %17
   br label %forin.step7
 %forin.step7:
-  %20 = load usize, ptr<usize> %11
-  %21 = add usize %20, usize #1
-  store usize %21, ptr<usize> %11
+  %18 = load usize, ptr<usize> %9
+  %19 = add usize %18, usize #1
+  store usize %19, ptr<usize> %9
   br label %forin.header5
 %forin.exit8:
-  %22 = gep ptr<{@0 i32, @4 i32}> %0, field #0
-  %23 = load i32, ptr<i32> %22
-  %24 = load [1 x {@0 i32, @4 i32}], ptr<[1 x {@0 i32, @4 i32}]> %3
-  %25 = gep ptr<[1 x {@0 i32, @4 i32}]> %3, #0
-  %26 = load {@0 i32, @4 i32}, ptr<{@0 i32, @4 i32}> %25
-  %27 = extract {@0 i32, @4 i32} %26, field #1
-  %28 = add i32 %23, i32 %27
-  ret i32 %28
+  %20 = gep ptr<{@0 i32, @4 i32}> %0, field #0
+  %21 = load i32, ptr<i32> %20
+  %22 = load [1 x {@0 i32, @4 i32}], ptr<[1 x {@0 i32, @4 i32}]> %3
+  %23 = gep ptr<[1 x {@0 i32, @4 i32}]> %3, #0
+  %24 = load {@0 i32, @4 i32}, ptr<{@0 i32, @4 i32}> %23
+  %25 = extract {@0 i32, @4 i32} %24, field #1
+  %26 = add i32 %21, i32 %25
+  ret i32 %26
 }
-

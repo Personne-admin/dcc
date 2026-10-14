@@ -1882,12 +1882,15 @@ export namespace dcc::ir::lower
                 return;
             }
 
-            auto* iter_val = lower_expr(iter_expr);
+            auto const* iter_type = lower_type(get_sema_resolved_type(iter_expr));
+            auto* array_reference = fs->by_reference && iter_expr->sema.is_lvalue && iter_type && iter_type->kind == IrTypeKind::Array
+                                        ? lower_addr_of(iter_expr) : nullptr;
+            auto* iter_val = array_reference ? nullptr : lower_expr(iter_expr);
 
             IrValue* len_val = nullptr;
             IrValue* ptr_val = nullptr;
 
-            if (iter_val->type && iter_val->type->kind == IrTypeKind::Slice)
+            if (iter_val && iter_val->type && iter_val->type->kind == IrTypeKind::Slice)
             {
                 auto* len_extract = m_ctx.extract(usize_type, iter_val, 1);
                 auto len_name = ident_name();
@@ -1905,18 +1908,23 @@ export namespace dcc::ir::lower
             }
             else
             {
-                auto* arr_type = static_cast<IrArrayType const*>(iter_val->type);
+                auto* arr_type = static_cast<IrArrayType const*>(iter_type);
                 if (!arr_type)
                     lower_panic(fs, "for-in iterable must be array or slice type at IR level");
 
-                auto* arr_ptr_type = m_ctx.pointer_to(iter_val->type);
-                auto* temp = m_ctx.alloca(arr_ptr_type, iter_val->type);
-                auto temp_name = ident_name();
-                temp->name = m_name_pool.back();
-                append_inst(temp);
-                append_inst(m_ctx.store(iter_val, temp));
+                IrValue* storage = array_reference;
+                if (!storage)
+                {
+                    auto* arr_ptr_type = m_ctx.pointer_to(iter_type);
+                    auto* temp = m_ctx.alloca(arr_ptr_type, iter_type);
+                    auto temp_name = ident_name();
+                    temp->name = m_name_pool.back();
+                    append_inst(temp);
+                    append_inst(m_ctx.store(iter_val, temp));
+                    storage = temp;
+                }
 
-                auto* gep0 = gep_preserving_flavor(m_ctx.pointer_to(ir_element_type), temp);
+                auto* gep0 = gep_preserving_flavor(m_ctx.pointer_to(ir_element_type), storage);
                 gep0->indices.push_back({IrGepInst::IndexKind::Array, m_ctx.int_const(usize_type, 0), 0});
                 auto gep0_name = ident_name();
                 gep0->name = m_name_pool.back();
@@ -1965,7 +1973,7 @@ export namespace dcc::ir::lower
 
                 if (m_bounds_check)
                 {
-                    auto forin_kind = (iter_val->type && iter_val->type->kind == IrTypeKind::Slice) ? BoundsCheckKind::Slice : BoundsCheckKind::Array;
+                    auto forin_kind = (iter_type && iter_type->kind == IrTypeKind::Slice) ? BoundsCheckKind::Slice : BoundsCheckKind::Array;
                     emit_bounds_check(ptr_val, len_val, cur_idx2, iter_expr->range, {}, forin_kind);
                 }
 
