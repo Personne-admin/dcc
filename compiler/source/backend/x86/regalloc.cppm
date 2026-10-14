@@ -1526,8 +1526,9 @@ namespace dcc::backend::x86
                     auto is_phys_copy = [&](MInstr const& c) { return is_phys_reg_copy(c); };
 
                     bool is_prologue = (blk.id == func.entry_block_id) && ii == 0 && is_phys_copy(instr);
+                    bool is_group = instr.copy_group != 0 && is_phys_copy(instr);
 
-                    if (!is_call && !is_prologue)
+                    if (!is_call && !is_prologue && !is_group)
                     {
                         ++ii;
                         continue;
@@ -1543,7 +1544,8 @@ namespace dcc::backend::x86
                     }
                     else
                     {
-                        while (run_end < blk.instrs.size() && is_phys_copy(blk.instrs[run_end]))
+                        while (run_end < blk.instrs.size() && is_phys_copy(blk.instrs[run_end]) &&
+                               (is_prologue || blk.instrs[run_end].copy_group == instr.copy_group))
                             ++run_end;
                     }
 

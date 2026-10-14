@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+u64 pair(u64 seed) {
+    u64 result = seed;
+    asm @[intel, output(result in edx:eax)] { "mov eax, 7\nmov edx, 9" };
+    return result + 1;
+}
+u64 reversed(u32 seed) {
+    u32 high = seed; u32 low = seed;
+    asm @[intel, output(high in edx), output(low in eax)] { "mov eax, 7\nmov edx, 9" };
+    return ((high as u64) << 32) | (low as u64);
+}
+@nomangle public i32 dcc_main() {
+    u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" };
+    u64 expected = ((9 as u64) << 32) | 7;
+    if pair(seed as u64) != expected + 1 { return 1; }
+    if reversed(seed) != expected { return 2; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0
