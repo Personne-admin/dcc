@@ -1,0 +1,16 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal ===
+=== FILE: main.dc ===
+module m;
+
+using u8* NEAR_P = 0x1000 as u8*;
+using u16^DS BASED_P = DS:0x800;
+using u16^ FAR_P = 0:0x900;
+
+public void write_through_aliases() {
+    NEAR_P[0] = 1;
+    *NEAR_P = 2;
+    BASED_P[0] = 3;
+    *BASED_P = 4;
+    FAR_P[0] = 5;
+    *FAR_P = 6;
+}

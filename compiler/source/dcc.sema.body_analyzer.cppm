@@ -12698,11 +12698,17 @@ export namespace dcc::sema
                 error(i.range, "indexing non-indexable type");
             }
             out.storage_quals = obj.storage_quals;
+            bool const through_pointer = types::type_cast<types::PointerType>(obj.type) != nullptr;
             if (auto* pt = types::type_cast<types::PointerType>(obj.type))
                 out.storage_quals = pt->pointee_quals;
             else if (auto* sl = types::type_cast<types::SliceType>(obj.type))
                 out.storage_quals = sl->element_quals;
-            out.is_lvalue = obj.value_alias_origin == nullptr;
+            if (through_pointer && obj.value_alias_origin)
+            {
+                out.value_alias_origin = nullptr;
+                out.resolved_decl = nullptr;
+            }
+            out.is_lvalue = through_pointer || obj.value_alias_origin == nullptr;
             out.is_writable = indirect_target_writable(obj.type, out.is_writable);
 
             out.constant = nullptr;
