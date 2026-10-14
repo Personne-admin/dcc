@@ -28,6 +28,8 @@ export namespace dcc::ir::lower
         {
         }
 
+        void set_whole_program(bool enabled) noexcept { m_whole_program = enabled; }
+
         IrModule* lower_module(sema::ModuleInfo const& mod)
         {
             m_failure_range = {};
@@ -51,11 +53,25 @@ export namespace dcc::ir::lower
                     m_module->source_file_id = static_cast<std::uint32_t>(mod.file_id);
             }
 
+            m_defined_modules.clear();
+            if (m_whole_program && m_module_graph)
+                for (auto const& mod_ptr : m_module_graph->all())
+                    if (mod_ptr)
+                        m_defined_modules.push_back(mod_ptr.get());
+            if (!is_defined_module(&mod))
+                m_defined_modules.push_back(&mod);
+
             build_nominal_resolver();
-            lower_globals(mod);
-            build_all_function_shells(mod);
+            lower_globals();
+            for (auto const* defined : m_defined_modules)
+                build_module_function_shells(*defined);
+            build_specialization_shells();
             lower_all_function_bodies();
-            lower_module_asms(mod);
+            for (auto const* defined : m_defined_modules)
+                lower_module_asms(*defined);
+
+            if (m_whole_program)
+                prune_unreachable(mod);
 
             if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
                 emit_specialize_stats();
@@ -463,13 +479,19 @@ export namespace dcc::ir::lower
             return m_module_path_cache;
         }
 
-        void build_all_function_shells(sema::ModuleInfo const& mod)
+        [[nodiscard]] bool is_defined_module(sema::ModuleInfo const* mod) const
         {
+            return mod && std::ranges::find(m_defined_modules, mod) != m_defined_modules.end();
+        }
+
+        void build_module_function_shells(sema::ModuleInfo const& mod)
+        {
+            auto module_path = mod.canonical_path.segments();
             if (mod.tu)
                 for (auto* d : mod.tu->decls)
                     if (auto* fd = ast::node_cast<ast::FuncDecl>(d))
                         if (!is_template_func(fd))
-                            create_func_shell(fd, true);
+                            create_func_shell(fd, true, &module_path);
 
             for (auto* lf : mod.lambda_funcs)
                 if (lf && !is_template_func(lf))
@@ -477,7 +499,10 @@ export namespace dcc::ir::lower
                     auto lambda_path = lambda_module_path(lf);
                     create_func_shell(lf, true, &lambda_path);
                 }
+        }
 
+        void build_specialization_shells()
+        {
             if (m_spec_reg)
             {
                 auto first_specialization = m_module->functions.size();
@@ -560,7 +585,9 @@ export namespace dcc::ir::lower
                 if (it == m_func_map.end())
                     lower_panic(std::format("function `{}` missing from func_map during body lowering", fd->name));
 
+                auto first_ref = m_ctx.global_refs().size();
                 lower_func_body(fd, it->second);
+                claim_refs(it->second, first_ref);
 
                 auto first_new = to_lower.size();
                 for (auto& [new_fd, new_ir_func] : m_func_map)
@@ -705,13 +732,10 @@ export namespace dcc::ir::lower
             else
             {
                 auto* owning = owning_module_of(fd);
-                if (owning == m_entry_module || !owning)
-                {
-                    if (owning == m_entry_module)
-                        create_func_shell(fd, true);
-                    else
-                        return nullptr;
-                }
+                if (is_defined_module(owning))
+                    create_func_shell(fd, true);
+                else if (!owning)
+                    return nullptr;
                 else
                     create_func_shell(fd, false);
             }
@@ -737,7 +761,7 @@ export namespace dcc::ir::lower
                 return nullptr;
 
             auto* owning = owning_module_of(vd);
-            if (!owning || owning == m_entry_module)
+            if (!owning || is_defined_module(owning))
                 return nullptr;
 
             auto module_path = module_path_for_decl(vd);
@@ -2333,9 +2357,8 @@ export namespace dcc::ir::lower
             if (m_assert_func)
                 return;
 
-            bool in_assert_module = false;
-            if (m_module_path.size() == 1 && m_module_path[0] == "assert")
-                in_assert_module = true;
+            auto const* owner = owning_module_of(m_current_func_decl);
+            bool in_assert_module = owner && owner->canonical_path.str() == "assert";
 
             auto* void_type_ir = m_ctx.void_t();
             auto* slice_type_ir = m_ctx.slice_t(m_ctx.int_t(8, false), ir::Segment::None);
@@ -2367,22 +2390,22 @@ export namespace dcc::ir::lower
 
             std::string_view mangled_name = m_name_pool.back();
 
-            if (in_assert_module)
+            IrFunction* defined_func = nullptr;
+            for (auto* f : m_module->functions)
             {
-                IrFunction* self_func = nullptr;
-                for (auto* f : m_module->functions)
+                if (f->name == mangled_name)
                 {
-                    if (f->name == mangled_name)
-                    {
-                        self_func = f;
-                        break;
-                    }
+                    defined_func = f;
+                    break;
                 }
-                if (!self_func)
-                    lower_panic("__assert not found in function map while compiling assert module");
-                m_assert_func = self_func;
+            }
+            if (defined_func)
+            {
+                m_assert_func = defined_func;
                 m_assert_func_ref = m_ctx.make<IrGlobalRef>(m_assert_func, m_ctx.pointer_to(func_type));
             }
+            else if (in_assert_module)
+                lower_panic("__assert not found in function map while compiling assert module");
             else
             {
                 m_assert_func = m_ctx.function(mangled_name, assert_func_type);
@@ -7583,9 +7606,94 @@ export namespace dcc::ir::lower
         std::unordered_map<ast::VarDecl const*, IrGlobal*> m_global_map;
         std::unordered_set<ast::VarDecl const*> m_const_expanding;
         std::vector<ast::VarDecl const*> m_const_expand_stack;
-        std::vector<ast::VarDecl const*> m_global_order;
         std::vector<std::string> m_lower_errors;
         bool m_far_pointer_reported{};
+
+        bool m_whole_program{false};
+        std::vector<sema::ModuleInfo const*> m_defined_modules;
+        std::unordered_map<IrValue const*, std::vector<IrGlobalRef const*>> m_owner_refs;
+
+        void claim_refs(IrValue const* owner, std::size_t first)
+        {
+            auto const& refs = m_ctx.global_refs();
+            for (auto i = first; i < refs.size(); ++i)
+                m_owner_refs[owner].push_back(refs[i]);
+        }
+
+        [[nodiscard]] static IrValue const* resolve_ref_target(IrGlobalRef const* ref, std::unordered_map<std::string_view, IrValue const*> const& by_name)
+        {
+            if (ref->function)
+                return ref->function;
+            if (ref->global)
+                return ref->global;
+            auto it = by_name.find(ref->name);
+            return it == by_name.end() ? nullptr : it->second;
+        }
+
+        void prune_unreachable(sema::ModuleInfo const& entry)
+        {
+            std::unordered_map<std::string_view, IrValue const*> by_name;
+            for (auto const* f : m_module->functions)
+                by_name.emplace(f->name, f);
+            for (auto const* g : m_module->globals)
+                by_name.emplace(g->name, g);
+
+            std::unordered_set<IrValue const*> live;
+            std::vector<IrValue const*> work;
+            auto make_live = [&](IrValue const* v) {
+                if (v && live.insert(v).second)
+                    work.push_back(v);
+            };
+
+            std::unordered_set<IrGlobalRef const*> claimed;
+            for (auto const& [owner, refs] : m_owner_refs)
+                claimed.insert(refs.begin(), refs.end());
+            for (auto const* ref : m_ctx.global_refs())
+                if (!claimed.contains(ref))
+                    make_live(resolve_ref_target(ref, by_name));
+
+            for (auto const* mod : m_defined_modules)
+            {
+                if (!mod->tu)
+                    continue;
+                for (auto* d : mod->tu->decls)
+                {
+                    if (auto* fd = ast::node_cast<ast::FuncDecl>(d))
+                    {
+                        bool root = fd->body && fd->sema.is_nomangle;
+                        root = root || (mod == &entry && fd->is_public);
+                        if (root && m_func_map.contains(fd))
+                            make_live(m_func_map.at(fd));
+                    }
+                    else if (auto* vd = ast::node_cast<ast::VarDecl>(d))
+                    {
+                        if (mod == &entry && vd->is_public && m_global_map.contains(vd))
+                            make_live(m_global_map.at(vd));
+                    }
+                }
+            }
+
+            for (auto* md : m_module->module_asms)
+            {
+                for (auto* f : md->funcs)
+                    make_live(f);
+                for (auto* g : md->globals)
+                    make_live(g);
+            }
+
+            while (!work.empty())
+            {
+                auto const* owner = work.back();
+                work.pop_back();
+                auto it = m_owner_refs.find(owner);
+                if (it != m_owner_refs.end())
+                    for (auto const* ref : it->second)
+                        make_live(resolve_ref_target(ref, by_name));
+            }
+
+            std::erase_if(m_module->functions, [&](IrFunction const* f) { return !live.contains(f); });
+            std::erase_if(m_module->globals, [&](IrGlobal const* g) { return !live.contains(g); });
+        }
 
         void lower_module_asms(sema::ModuleInfo const& mod)
         {
@@ -7670,20 +7778,27 @@ export namespace dcc::ir::lower
             }
         }
 
-        void lower_globals(sema::ModuleInfo const& mod)
+        void lower_globals()
         {
-            collect_globals(mod);
+            std::vector<std::pair<ast::VarDecl const*, sema::ModuleInfo const*>> ordered;
+            for (auto const* mod : m_defined_modules)
+            {
+                std::vector<ast::VarDecl const*> decls;
+                collect_globals(*mod, decls);
+                for (auto* vd : decls)
+                    ordered.emplace_back(vd, mod);
+            }
 
             m_string_globals.clear();
             m_u16_string_globals.clear();
             m_next_str_id = 0;
 
-            for (auto* vd : m_global_order)
+            for (auto [vd, mod] : ordered)
             {
                 auto* ir_type = lower_type(get_canonical_type(vd->type));
                 bool is_const = vd->sema.is_immutable;
 
-                auto mangled = dcc::ir::mangle::mangle_global(m_module_path, *vd, get_canonical_type(vd->type), {}, m_nominal_resolver);
+                auto mangled = dcc::ir::mangle::mangle_global(mod->canonical_path.segments(), *vd, get_canonical_type(vd->type), {}, m_nominal_resolver);
                 m_name_pool.push_back(std::move(mangled));
                 auto name_sv = std::string_view{m_name_pool.back()};
 
@@ -7711,10 +7826,11 @@ export namespace dcc::ir::lower
                 m_global_map[vd] = ir_global;
             }
 
-            for (auto* vd : m_global_order)
+            for (auto [vd, mod] : ordered)
             {
                 auto* ir_global = m_global_map[vd];
                 auto storage = vd->sema.storage;
+                auto first_ref = m_ctx.global_refs().size();
                 if (vd->init && storage != ast::StorageClass::Extern)
                 {
                     auto* init_val = lower_constant_expr(vd->init, get_canonical_type(vd->type));
@@ -7722,6 +7838,7 @@ export namespace dcc::ir::lower
                         lower_panic(vd, std::format("initializer for global `{}` is not type-compatible with its declared type", vd->name));
                     ir_global->init = init_val;
                 }
+                claim_refs(ir_global, first_ref);
 
                 m_module->globals.push_back(ir_global);
             }
@@ -7795,29 +7912,19 @@ export namespace dcc::ir::lower
             }
         }
 
-        void collect_globals(sema::ModuleInfo const& mod)
+        static void collect_globals(sema::ModuleInfo const& mod, std::vector<ast::VarDecl const*>& out)
         {
-            m_global_order.clear();
-            std::unordered_set<ast::VarDecl const*> seen;
-
-            auto add_from_tu = [&](sema::ModuleInfo const& m) {
-                if (!m.tu)
-                    return;
-                for (auto* d : m.tu->decls)
-                {
-                    auto* vd = ast::node_cast<ast::VarDecl>(d);
-                    if (!vd)
-                        continue;
-                    auto storage = vd->sema.storage;
-                    if (storage == ast::StorageClass::ModuleGlobal || storage == ast::StorageClass::Static || storage == ast::StorageClass::Extern)
-                    {
-                        if (seen.insert(vd).second)
-                            m_global_order.push_back(vd);
-                    }
-                }
-            };
-
-            add_from_tu(mod);
+            if (!mod.tu)
+                return;
+            for (auto* d : mod.tu->decls)
+            {
+                auto* vd = ast::node_cast<ast::VarDecl>(d);
+                if (!vd)
+                    continue;
+                auto storage = vd->sema.storage;
+                if (storage == ast::StorageClass::ModuleGlobal || storage == ast::StorageClass::Static || storage == ast::StorageClass::Extern)
+                    out.push_back(vd);
+            }
         }
 
         std::unordered_map<std::string, std::string> m_string_globals;

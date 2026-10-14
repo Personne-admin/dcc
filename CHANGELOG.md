@@ -3,6 +3,14 @@
 All notable changes to dcc are documented here. The format follows
 Keep a Changelog 1.1.0.
 
+## [Unreleased]
+
+### Added
+
+- `-fwhole-program` lowers the whole import graph into one `-S` or `-c`
+  output, keeping only the code reachable from the entry module's public
+  functions and globals, `@nomangle` definitions, and module asm.
+
 ## [0.3.0] - 2026-09-11
 
 ### Fixed - em64t backend correctness sweep
