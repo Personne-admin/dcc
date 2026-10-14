@@ -21,31 +21,28 @@ i64@_DC0F1.4.test1.f0i64s() {
   store [3 x i64] %1, ptr<[3 x i64]> %0
   %2 = alloca i64
   store i64 #0, ptr<i64> %2
-  %3 = load [3 x i64], ptr<[3 x i64]> %0
-  %4 = alloca [3 x i64]
-  store [3 x i64] %3, ptr<[3 x i64]> %4
-  %5 = gep ptr<[3 x i64]> %4, #0
-  %6 = alloca usize
-  store usize #0, ptr<usize> %6
+  %3 = gep ptr<[3 x i64]> %0, #0
+  %4 = alloca usize
+  store usize #0, ptr<usize> %4
   br label %forin.header1
 %forin.header1:
-  %7 = load usize, ptr<usize> %6
-  %8 = cmp.ult usize %7, #3
-  br.cond %8, label %forin.body2, label %forin.exit4
+  %5 = load usize, ptr<usize> %4
+  %6 = cmp.ult usize %5, #3
+  br.cond %6, label %forin.body2, label %forin.exit4
 %forin.body2:
-  %9 = load usize, ptr<usize> %6
-  %10 = gep ptr<i64> %5, %9
-  %11 = load i64, ptr<i64> %2
-  %12 = load i64, ptr<i64> %10
-  %13 = add i64 %11, i64 %12
-  store i64 %13, ptr<i64> %2
+  %7 = load usize, ptr<usize> %4
+  %8 = gep ptr<i64> %3, %7
+  %9 = load i64, ptr<i64> %2
+  %10 = load i64, ptr<i64> %8
+  %11 = add i64 %9, i64 %10
+  store i64 %11, ptr<i64> %2
   br label %forin.step3
 %forin.step3:
-  %14 = load usize, ptr<usize> %6
-  %15 = add usize %14, usize #1
-  store usize %15, ptr<usize> %6
+  %12 = load usize, ptr<usize> %4
+  %13 = add usize %12, usize #1
+  store usize %13, ptr<usize> %4
   br label %forin.header1
 %forin.exit4:
-  %16 = load i64, ptr<i64> %2
-  ret i64 %16
+  %14 = load i64, ptr<i64> %2
+  ret i64 %14
 }

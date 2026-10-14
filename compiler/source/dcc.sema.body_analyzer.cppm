@@ -16410,6 +16410,7 @@ export namespace dcc::sema
                             {
                                 case types::TypeKind::Array:
                                     element_type = static_cast<types::ArrayType const*>(iterable_result.type)->element;
+                                    element_quals = iterable_result.storage_quals;
                                     break;
                                 case types::TypeKind::RuntimeArray:
                                     element_type = static_cast<types::RuntimeArrayType const*>(iterable_result.type)->element;
