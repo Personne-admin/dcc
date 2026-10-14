@@ -29,6 +29,18 @@ The hashing routine is extracted from `libdcext/std/hash.dc` (`fnv1a_32`). Inser
 
 The tools are outside the test suite. `check.py` validates metric accounting, instruction-boundary prefix decoding, retained custom slot metadata and plugin calibration; it does not invoke the full gate or change a baseline.
 
+## Seeded execution differential
+
+```sh
+python3 tools/codegen/random_differential.py
+systemd-inhibit --what=sleep --why="dcc random differential" \
+  python3 tools/codegen/random_differential.py --count 300 --output "$HOME/.cache/dcc-random/before" --minimize
+```
+
+The default six fixed seeds also run in `make test`. Each seed generates a small freestanding DC program and compares its eight-digit checksum across LLVM x86_64 O0, custom em64t O0/O2, and custom i8086 small/unreal/unreal32 O0/O2 under QEMU TCG. Runtime inputs and noinline runtime helpers retain integer operations at every width, signed and unsigned i64 division/remainder, comparisons, branches, bounded loops, struct fields, arrays, slices, local/global pointers, and one-, three- and nine-argument calls including aggregates and mixed widths. Checksums use defined unsigned wrapping; narrow signed operands and loop increments stay in range. Divisors are nonzero, signed wide operands exclude INT64_MIN, shift counts and array indices are bounded, and no checksum includes addresses or target-dependent padding.
+
+`--seeds` selects reproducible seeds; `--start` and `--count` select larger consecutive sets; `--jobs` bounds independent program workers. Compiler subprocesses have 60-second timeouts and executions have 10-second timeouts. Sources, binaries and per-configuration results are retained with `--output`; failing suite runs also preserve their temporary directory. `--minimize` greedily removes independent checksum blocks while retaining a mismatch against the first failing configuration. This is a reduced reproducer, not a complete syntax-aware reducer: unused helper declarations remain. No mismatch or unavailable configuration is skipped. Compiler defects found during measurement should be reported separately rather than fixed by this tool.
+
 ## i8086 division differential
 
 ```sh
