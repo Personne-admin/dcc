@@ -1,0 +1,63 @@
+=== FILE: test.dc ===
+module test;
+u64 msr_shape(u32 msr) {
+    u32 low = 0; u32 high = 0;
+    asm @[intel, output(low in eax), output(high in edx), inputs(reg in ecx = msr)] { "mov eax, 7\nmov edx, 9" };
+    return ((high as u64) << 32) | (low as u64);
+}
+u64 tsc_shape() {
+    u32 low = 0; u32 high = 0;
+    asm @[intel, output(low in eax), output(high in edx)] { "mov eax, 7\nmov edx, 9" };
+    return ((high as u64) << 32) | (low as u64);
+}
+u64 single() {
+    u32 value = 0;
+    asm @[intel, output(value in eax)] { "mov eax, 7" };
+    return value as u64;
+}
+u64 inout_value() {
+    u32 value = 0;
+    asm @[intel, inout(acc = value in eax)] { "add eax, 7" };
+    return value as u64;
+}
+u64 pair() {
+    u64 value = 0;
+    asm @[intel, output(value in ecx:ebx)] { "mov ebx, 7\nmov ecx, 9" };
+    return (value as i64) as u64;
+}
+u64 memory() {
+    u32 value = 0;
+    asm @[intel, output(slot = &value in mem), inputs(v in eax = 7 as u32)] { "mov %[slot], eax" };
+    asm @[intel, inout(slot = *(&value)), inputs(v in eax = 9 as u32)] { "mov %[slot], eax" };
+    return value as u64;
+}
+u64 expression() {
+    u32 value = 0;
+    u32 result = asm @[intel, output(value in eax)] { "mov eax, 7" };
+    return (value as u64) + (result as u64);
+}
+u64 parameter(u32 value) {
+    asm @[intel, output(value in eax)] { "mov eax, 7" };
+    return value as u64;
+}
+u64 branch(bool flag) {
+    u32 value = 0;
+    if flag { asm @[intel, output(value in eax)] { "mov eax, 7" }; }
+    else { asm @[intel, output(value in eax)] { "mov eax, 9" }; }
+    return value as u64;
+}
+@nomangle public i32 dcc_main() {
+    u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" };
+    u64 expected = ((9 as u64) << 32) | 7;
+    if msr_shape(seed) != expected { return 1; }
+    if tsc_shape() != expected { return 2; }
+    if single() != 7 || inout_value() != 7 { return 3; }
+    if pair() != expected { return 4; }
+    if memory() != 9 { return 5; }
+    if expression() != 14 || parameter(seed) != 7 { return 6; }
+    if branch(seed != 0) != 7 || branch(seed == 0) != 9 { return 7; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0

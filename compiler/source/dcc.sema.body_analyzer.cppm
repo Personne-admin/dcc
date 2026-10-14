@@ -1516,7 +1516,48 @@ export namespace dcc::sema
             }
         }
 
-        void collect_written_expr_names(ast::Expr const* expr, std::pmr::vector<std::string_view>& out)
+        static bool pattern_binds_reference(ast::Pattern const* pattern)
+        {
+            if (!pattern)
+                return false;
+            switch (pattern->kind)
+            {
+                case ast::PatternKind::Binding:
+                    return static_cast<ast::BindingPattern const*>(pattern)->by_reference;
+                case ast::PatternKind::Ref:
+                    return true;
+                case ast::PatternKind::EnumDestructure:
+                    for (auto* child : static_cast<ast::EnumDestructurePattern const*>(pattern)->payload)
+                        if (pattern_binds_reference(child))
+                            return true;
+                    break;
+                case ast::PatternKind::StructDestructure:
+                    for (auto const& field : static_cast<ast::StructDestructurePattern const*>(pattern)->fields)
+                        if (pattern_binds_reference(field.pattern))
+                            return true;
+                    break;
+                case ast::PatternKind::Or:
+                    for (auto* child : static_cast<ast::OrPattern const*>(pattern)->alternatives)
+                        if (pattern_binds_reference(child))
+                            return true;
+                    break;
+                default:
+                    break;
+            }
+            return false;
+        }
+
+        void collect_asm_written_names(std::span<ast::AsmOperand const> operands, std::pmr::vector<std::string_view>& out, ConstEnv const* env)
+        {
+            for (auto const& operand : operands)
+            {
+                if (operand.direction != ast::AsmOperandDirection::In)
+                    collect_assign_target_name(operand.expr, out);
+                collect_written_expr_names(operand.expr, out, env);
+            }
+        }
+
+        void collect_written_expr_names(ast::Expr const* expr, std::pmr::vector<std::string_view>& out, ConstEnv const* env)
         {
             if (!expr)
                 return;
@@ -1525,16 +1566,16 @@ export namespace dcc::sema
             {
                 case ast::ExprKind::Unary: {
                     auto* ue = static_cast<ast::UnaryExpr const*>(expr);
-                    if (ue->op == lex::TokenKind::Increment || ue->op == lex::TokenKind::Decrement)
+                    if (ue->op == lex::TokenKind::Increment || ue->op == lex::TokenKind::Decrement || ue->op == lex::TokenKind::Amp)
                         collect_assign_target_name(ue->operand, out);
-                    collect_written_expr_names(ue->operand, out);
+                    collect_written_expr_names(ue->operand, out, env);
                     break;
                 }
                 case ast::ExprKind::Postfix: {
                     auto* pe = static_cast<ast::PostfixExpr const*>(expr);
                     if (pe->op == lex::TokenKind::Increment || pe->op == lex::TokenKind::Decrement)
                         collect_assign_target_name(pe->operand, out);
-                    collect_written_expr_names(pe->operand, out);
+                    collect_written_expr_names(pe->operand, out, env);
                     break;
                 }
                 case ast::ExprKind::Binary: {
@@ -1557,85 +1598,106 @@ export namespace dcc::sema
                         default:
                             break;
                     }
-                    collect_written_expr_names(be->lhs, out);
-                    collect_written_expr_names(be->rhs, out);
+                    collect_written_expr_names(be->lhs, out, env);
+                    collect_written_expr_names(be->rhs, out, env);
                     break;
                 }
                 case ast::ExprKind::Call: {
                     auto* ce = static_cast<ast::CallExpr const*>(expr);
-                    collect_written_expr_names(ce->callee, out);
+                    collect_written_expr_names(ce->callee, out, env);
+                    auto const* callee = ce->callee;
+                    while (auto const* inst = ast::node_cast<ast::TemplateInstExpr>(callee))
+                        callee = inst->callee;
+                    if (auto const* field = ast::node_cast<ast::FieldAccessExpr>(callee))
+                        collect_assign_target_name(field->object, out);
                     for (auto* a : ce->args)
-                        collect_written_expr_names(a, out);
+                    {
+                        collect_written_expr_names(a, out, env);
+                        std::pmr::vector<std::string_view> targets{m_alloc};
+                        collect_assign_target_name(a, targets);
+                        for (auto name : targets)
+                            if (auto* value = lookup_constant(env, name); value && value->kind() == comptime::Value::Kind::Aggregate)
+                                out.push_back(name);
+                    }
                     break;
                 }
                 case ast::ExprKind::FieldAccess: {
                     auto* fa = static_cast<ast::FieldAccessExpr const*>(expr);
-                    collect_written_expr_names(fa->object, out);
+                    collect_written_expr_names(fa->object, out, env);
                     break;
                 }
                 case ast::ExprKind::Index: {
                     auto* ix = static_cast<ast::IndexExpr const*>(expr);
-                    collect_written_expr_names(ix->object, out);
-                    collect_written_expr_names(ix->index, out);
+                    collect_written_expr_names(ix->object, out, env);
+                    collect_written_expr_names(ix->index, out, env);
                     break;
                 }
                 case ast::ExprKind::PackAccess: {
                     auto* pa = static_cast<ast::PackAccessExpr const*>(expr);
-                    collect_written_expr_names(pa->object, out);
-                    collect_written_expr_names(pa->index, out);
+                    collect_written_expr_names(pa->object, out, env);
+                    collect_written_expr_names(pa->index, out, env);
                     break;
                 }
                 case ast::ExprKind::Cast: {
                     auto* ce = static_cast<ast::CastExpr const*>(expr);
-                    collect_written_expr_names(ce->operand, out);
+                    collect_written_expr_names(ce->operand, out, env);
                     break;
                 }
                 case ast::ExprKind::Block: {
                     auto* be = static_cast<ast::BlockExpr const*>(expr);
                     for (auto* s : be->body.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(be->body.tail, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(be->body.tail, out, env);
                     break;
                 }
                 case ast::ExprKind::If: {
                     auto* ie = static_cast<ast::IfExpr const*>(expr);
-                    collect_written_expr_names(ie->condition, out);
+                    collect_written_expr_names(ie->condition, out, env);
                     for (auto* s : ie->then_block.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(ie->then_block.tail, out);
-                    collect_written_expr_names(ie->else_branch, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(ie->then_block.tail, out, env);
+                    collect_written_expr_names(ie->else_branch, out, env);
                     break;
                 }
                 case ast::ExprKind::Match: {
                     auto* me = static_cast<ast::MatchExpr const*>(expr);
-                    collect_written_expr_names(me->operand, out);
+                    collect_written_expr_names(me->operand, out, env);
                     for (auto const& arm : me->arms)
                     {
-                        collect_written_expr_names(arm.guard, out);
-                        collect_written_expr_names(arm.body, out);
+                        if (pattern_binds_reference(arm.pattern))
+                            collect_assign_target_name(me->operand, out);
+                        collect_written_expr_names(arm.guard, out, env);
+                        collect_written_expr_names(arm.body, out, env);
                     }
                     break;
                 }
+                case ast::ExprKind::Asm:
+                    collect_asm_written_names(static_cast<ast::AsmExpr const*>(expr)->operands, out, env);
+                    break;
+                case ast::ExprKind::StructLiteral:
+                    for (auto const& field : static_cast<ast::StructLiteralExpr const*>(expr)->fields)
+                        collect_written_expr_names(field.value, out, env);
+                    break;
                 case ast::ExprKind::TemplateInst: {
                     auto* ti = static_cast<ast::TemplateInstExpr const*>(expr);
-                    collect_written_expr_names(ti->callee, out);
+                    collect_written_expr_names(ti->callee, out, env);
                     break;
                 }
                 case ast::ExprKind::PackExpansion: {
                     auto* pe = static_cast<ast::PackExpansionExpr const*>(expr);
-                    collect_written_expr_names(pe->operand, out);
+                    collect_written_expr_names(pe->operand, out, env);
                     break;
                 }
                 case ast::ExprKind::Range: {
                     auto* re = static_cast<ast::RangeExpr const*>(expr);
-                    collect_written_expr_names(re->start, out);
-                    collect_written_expr_names(re->end, out);
+                    collect_written_expr_names(re->start, out, env);
+                    collect_written_expr_names(re->end, out, env);
                     break;
                 }
                 case ast::ExprKind::SegConstruct: {
                     auto* re = static_cast<ast::SegConstructExpr const*>(expr);
-                    collect_written_expr_names(re->segment, out);
-                    collect_written_expr_names(re->offset, out);
+                    collect_written_expr_names(re->segment, out, env);
+                    collect_written_expr_names(re->offset, out, env);
                     break;
                 }
                 default:
@@ -1643,7 +1705,7 @@ export namespace dcc::sema
             }
         }
 
-        void collect_written_names(ast::Stmt const* stmt, std::pmr::vector<std::string_view>& out)
+        void collect_written_names(ast::Stmt const* stmt, std::pmr::vector<std::string_view>& out, ConstEnv const* env)
         {
             if (!stmt)
                 return;
@@ -1652,7 +1714,7 @@ export namespace dcc::sema
             {
                 case ast::StmtKind::Expr: {
                     auto* es = static_cast<ast::ExprStmt const*>(stmt);
-                    collect_written_expr_names(es->expr, out);
+                    collect_written_expr_names(es->expr, out, env);
                     break;
                 }
                 case ast::StmtKind::DeclStmt: {
@@ -1660,70 +1722,90 @@ export namespace dcc::sema
                     if (ds->decl)
                     {
                         if (auto* vd = ast::node_cast<ast::VarDecl>(ds->decl); vd && vd->init)
-                            collect_written_expr_names(vd->init, out);
+                            collect_written_expr_names(vd->init, out, env);
                     }
                     break;
                 }
                 case ast::StmtKind::Return: {
                     auto* rs = static_cast<ast::ReturnStmt const*>(stmt);
-                    collect_written_expr_names(rs->value, out);
+                    collect_written_expr_names(rs->value, out, env);
                     break;
                 }
                 case ast::StmtKind::While: {
                     auto* ws = static_cast<ast::WhileStmt const*>(stmt);
-                    collect_written_expr_names(ws->condition, out);
+                    collect_written_expr_names(ws->condition, out, env);
                     for (auto* s : ws->body.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(ws->body.tail, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(ws->body.tail, out, env);
                     break;
                 }
                 case ast::StmtKind::DoWhile: {
                     auto* dws = static_cast<ast::DoWhileStmt const*>(stmt);
                     for (auto* s : dws->body.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(dws->body.tail, out);
-                    collect_written_expr_names(dws->condition, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(dws->body.tail, out, env);
+                    collect_written_expr_names(dws->condition, out, env);
                     break;
                 }
                 case ast::StmtKind::For: {
                     auto* fs = static_cast<ast::ForStmt const*>(stmt);
-                    collect_written_names(fs->init, out);
-                    collect_written_expr_names(fs->cond, out);
-                    collect_written_expr_names(fs->update, out);
+                    collect_written_names(fs->init, out, env);
+                    collect_written_expr_names(fs->cond, out, env);
+                    collect_written_expr_names(fs->update, out, env);
                     for (auto* s : fs->body.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(fs->body.tail, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(fs->body.tail, out, env);
                     break;
                 }
                 case ast::StmtKind::ForIn: {
                     auto* fi = static_cast<ast::ForInStmt const*>(stmt);
-                    collect_written_expr_names(fi->iterable, out);
+                    if (fi->by_reference)
+                        collect_assign_target_name(fi->iterable, out);
+                    collect_written_expr_names(fi->iterable, out, env);
                     for (auto* s : fi->body.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(fi->body.tail, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(fi->body.tail, out, env);
+                    break;
+                }
+                case ast::StmtKind::Asm:
+                    collect_asm_written_names(static_cast<ast::AsmStmt const*>(stmt)->operands, out, env);
+                    break;
+                case ast::StmtKind::Ambiguous: {
+                    auto const* ambiguous = static_cast<ast::AmbiguousStmt const*>(stmt);
+                    if (auto const* var = ast::node_cast<ast::VarDecl>(ambiguous->as_decl))
+                        collect_written_expr_names(var->init, out, env);
+                    collect_written_expr_names(ambiguous->as_expr, out, env);
+                    break;
+                }
+                case ast::StmtKind::StaticFor: {
+                    auto const* loop = static_cast<ast::StaticForStmt const*>(stmt);
+                    collect_written_expr_names(loop->pack_expr, out, env);
+                    for (auto* child : loop->body.stmts)
+                        collect_written_names(child, out, env);
+                    collect_written_expr_names(loop->body.tail, out, env);
                     break;
                 }
                 case ast::StmtKind::Defer: {
                     auto* d = static_cast<ast::DeferStmt const*>(stmt);
-                    collect_written_names(d->body, out);
+                    collect_written_names(d->body, out, env);
                     break;
                 }
                 case ast::StmtKind::StaticIf: {
                     auto* si = static_cast<ast::StaticIfStmt const*>(stmt);
-                    collect_written_expr_names(si->condition, out);
+                    collect_written_expr_names(si->condition, out, env);
                     for (auto* s : si->then_block.stmts)
-                        collect_written_names(s, out);
-                    collect_written_expr_names(si->then_block.tail, out);
-                    collect_written_names(si->else_branch, out);
+                        collect_written_names(s, out, env);
+                    collect_written_expr_names(si->then_block.tail, out, env);
+                    collect_written_names(si->else_branch, out, env);
                     break;
                 }
                 case ast::StmtKind::StaticMatch: {
                     auto* sm = static_cast<ast::StaticMatchStmt const*>(stmt);
-                    collect_written_expr_names(sm->operand, out);
+                    collect_written_expr_names(sm->operand, out, env);
                     for (auto const& arm : sm->arms)
                     {
-                        collect_written_expr_names(arm.guard, out);
-                        collect_written_expr_names(arm.body, out);
+                        collect_written_expr_names(arm.guard, out, env);
+                        collect_written_expr_names(arm.body, out, env);
                     }
                     break;
                 }
@@ -1767,7 +1849,7 @@ export namespace dcc::sema
         void invalidate_loop_writes(ast::Stmt const* stmt, ConstEnv const* env)
         {
             std::pmr::vector<std::string_view> written(m_alloc);
-            collect_written_names(stmt, written);
+            collect_written_names(stmt, written, env);
             for (auto name : written)
                 invalidate_constant(env, name);
         }
@@ -13222,7 +13304,14 @@ export namespace dcc::sema
                     pattern_valid = validated.ok;
                     all_patterns_valid = all_patterns_valid && validated.ok;
                     if (validated.ok)
+                    {
+                        if (pattern_binds_reference(arm.pattern))
+                        {
+                            require_binding_storage(m.operand);
+                            invalidate_written_target(m.operand, const_env);
+                        }
                         install_pattern_bindings(*arm_scope, validated);
+                    }
                 }
                 if (arm.guard)
                 {
@@ -16346,6 +16435,8 @@ export namespace dcc::sema
                         types::TypePtr binding_type = element_type;
                         if (f.by_reference && element_type)
                         {
+                            require_binding_storage(f.iterable);
+                            invalidate_written_target(f.iterable, const_env);
                             auto const* slice = types::type_cast<types::SliceType>(iterable_result.type);
                             binding_type = slice ? m_types.pointer_with_flavor(element_type, element_quals, slice->flavor, slice->segment)
                                                  : m_types.pointer_to(element_type, element_quals);
@@ -16584,6 +16675,13 @@ export namespace dcc::sema
                         error(op.range, "asm output operand `{}` requires a writable lvalue", op.placeholder);
                 }
             }
+            for (auto const& op : operands)
+                if (op.expr && op.direction != ast::AsmOperandDirection::In)
+                {
+                    require_binding_storage(op.expr);
+                    track_decl_write(op.expr->sema.resolved_decl);
+                    invalidate_written_target(op.expr, const_env);
+                }
         }
 
         static types::TypePtr unwrap_nominal(types::TypePtr ty) noexcept

@@ -1,0 +1,35 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+void set(i32* self) { *self = 7; }
+i32 check(bool flag) {
+    i32 pointer = 0; i32* p = &pointer; *p = 7;
+    if (pointer as i64) != 7 { return 1; }
+    i32 called = 0; set(&called);
+    if (called as i64) != 7 { return 2; }
+    i32 receiver = 0; receiver.set();
+    if (receiver as i64) != 7 { return 3; }
+    i32 compound = 0; i32* c = &compound; *c += 7; ++*c; (*c)++; --*c; (*c)--;
+    if (compound as i64) != 7 { return 4; }
+    volatile u32 atomic = 0;
+    core::atomic::atomic_store(&atomic, 7 as u32, core::atomic::MemoryOrder::Relaxed);
+    core::atomic::atomic_exchange(&atomic, 9 as u32, core::atomic::MemoryOrder::Relaxed);
+    if (atomic as u64) != 9 { return 5; }
+    i32 branch = 0;
+    if flag { set(&branch); } else { branch += 9; }
+    if (branch as i64) != ((if flag { 7 } else { 9 }) as i64) { return 6; }
+    i32 loop = 0;
+    while (loop as i64) == 0 { loop++; }
+    if (loop as i64) != 1 { return 7; }
+    i32 deferred = 0;
+    { defer deferred = 7; }
+    if (deferred as i64) != 7 { return 8; }
+    return 0;
+}
+@nomangle public i32 dcc_main() {
+    u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" };
+    return check(seed != 0) + check(seed == 0);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0
