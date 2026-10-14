@@ -413,9 +413,22 @@ public const bool FLOAT_AVAILABLE = {};
     {
         return R"dc(module core::i8086_arith;
 public struct DivResult { u64 quotient; u64 remainder; }
+@nomangle @runtime extern u64 __dcc_udivmod32(u32 high, u32 low, u32 divisor);
 @nomangle @runtime public u32 __dcc_i64_trap(u32 zero) { return 1 / zero; }
 @nomangle @runtime public DivResult __dcc_udivmod64(u64 dividend, u64 divisor) {
     if divisor == 0 { __dcc_i64_trap(0); }
+    if (divisor >> 32) == 0 {
+        u32 denominator = divisor as u32;
+        u32 low = dividend as u32;
+        u32 high = (dividend >> 32) as u32;
+        if high == 0 {
+            u64 result = __dcc_udivmod32(0, low, denominator);
+            return DivResult {quotient = (result as u32) as u64, remainder = result >> 32};
+        }
+        u64 first = __dcc_udivmod32(0, high, denominator);
+        u64 second = __dcc_udivmod32((first >> 32) as u32, low, denominator);
+        return DivResult {quotient = (((first as u32) as u64) << 32) | ((second as u32) as u64), remainder = second >> 32};
+    }
     u64 quotient = 0;
     u64 remainder = 0;
     u16 count = 64;
