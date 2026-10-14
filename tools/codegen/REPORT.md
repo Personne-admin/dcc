@@ -1,3 +1,50 @@
+# Width-aware i8086 copies and spill slots
+
+The seeded generator and the first approved allocation-width step are complete. The native byte baseline was first brought forward from 4422e5c to b7bbaff by isolated captures at every intervening batch endpoint. All 583 changed and 918 added artifacts are attributed; all 130 changed objects are named with their introducing commits and reasons in `~/.cache/dcc-width-batch/batch-attribution.md` and `.json`. Two independent HEAD directories produced identical 30,773-record, 49,925,327-byte captures. The preserved baseline is `~/.cache/dcc-backend-baseline/baseline-b7bbaff-a`, with independent companion `-b`. The end-of-output-batch baseline adoption rule is recorded in CLAUDE.md.
+
+## Generator
+
+`77a6090 feat: add seeded cross-backend execution differential` adds `tools/codegen/random_differential.py` and its six-seed `make test` invocation. Each seeded DC program exercises all eight integer types, narrow and wide arithmetic, comparisons, branches, bounded loops, structs, arrays, slices, pointers to locals/globals/fields, and mixed one-, three- and nine-argument calls. Runtime inputs and noinline runtime helpers prevent the tests becoming entirely compile-time computations. All logical results feed a target-independent u32 wrapping checksum, printed as eight hexadecimal digits. Operands, divisions, shifts and indices are constructed to avoid undefined behavior.
+
+The oracle is LLVM x86_64 O0; comparisons cover custom em64t O0/O2 and i8086 small/unreal/unreal32 O0/O2 under QEMU TCG. Each configuration must exit successfully and print the identical checksum. Failures retain the seed, source, commands' diagnostics and configuration results; optional greedy reduction removes independent checksum blocks. It leaves unused helpers, so it is a reduced reproducer rather than a complete language reducer. The fixed six seeds took about five seconds here. The 300-seed pre-change and final post-change runs (0–299, 2,700 executions each) found **no mismatches**, with identical reference checksums before/after. The pre-change fixed set also passed all 54 executions; no compiler defects were fixed as part of generator work. Larger manual runs and reproduction commands are in README.md.
+
+## Allocation-width change
+
+The i8086 register policy opts into width inference; em64t keeps the existing policy. After phi elimination, a worklist propagates required widths backward through virtual-copy chains. Actual machine operations, extension source widths and 16/32-bit memory addresses determine the requirements. Word-only masks and left shifts that discard the input's upper half can consume narrow inputs. Narrow copies become MOV16rr; narrow virtual ranges spill/reload with MOV16mr/MOV16rm into aligned two-byte slots. Eight-bit values retain their normalized 16-bit representation. Dword values, i64 dword components, wide addresses and full-register ABI saves stay full width.
+
+Parallel-copy resolution retains individual widths and preserves the largest required width when breaking a mixed cycle; narrow-only cycle temporaries use two bytes. Narrow copies participate in physical-register read constraints and the existing self-copy removal. Focused tests exercise u8/u16 versus u32 spill storage and simulate mixed-width physical cycles with poisoned upper halves. Reserved scratch-register saves retain full width because they preserve physical register contents rather than one typed narrow virtual value. No ABI or shared IR pass changed.
+
+## Before and after at O2
+
+Same 71 programs, 355 configurations, 142 additional native checks; multi-module builds use `-fwhole-program`. Every measurement passed, including QEMU callback calibration and category/prefix accounting. Counts use the existing deterministic instruction plugin, with BIOS/startup excluded; they are instructions reached, not cycles.
+
+| Configuration | Code bytes | Executed instructions | Spill slots | Reserved frame bytes |
+| --- | ---: | ---: | ---: | ---: |
+| small | 76,198 → 74,201 (-2.62%) | 177,423 → 177,068 (-0.20%) | 388 → 388 | 2,734 → 2,356 (-13.83%) |
+| unreal | 76,192 → 74,195 (-2.62%) | 177,387 → 177,032 (-0.20%) | 388 → 388 | 2,734 → 2,356 (-13.83%) |
+| unreal32 | 78,566 → 76,771 (-2.28%) | 179,385 → 179,054 (-0.18%) | 373 → 373 | 2,782 → 2,464 (-11.43%) |
+| custom em64t | 68,701 → 68,701 | 100,068 → 100,068 | 22 → 22 | 1,152 → 1,152 |
+| LLVM x86_64 | 24,565 → 24,565 | 26,775 → 26,775 | 343 → 343 | 1,496 → 1,496 |
+
+Small/unreal now have 189 two-byte and 199 four-byte spill slots; unreal32 has 159 two-byte and 214 four-byte slots. Counts do not decrease: this step reduces transfer width and storage, rather than choosing a different allocation algorithm. Total frame bytes are summed over emitted functions, not peak stack usage.
+
+| Prefix66 bytes | small | unreal | unreal32 |
+| --- | ---: | ---: | ---: |
+| Static | 12,889 → 11,069 | 12,885 → 11,065 | 13,610 → 11,972 |
+| Execution-weighted | 108,837 → 92,903 | 108,837 → 92,903 | 123,330 → 112,339 |
+
+Small spill-store/reload execution counts stay 16,682/35,319. Copies fall 24,409 → 24,054 through the existing self-move cleanup now recognizing narrow copies; other exclusive executed categories stay unchanged. Prefix bytes overlap instruction categories. Width changes primarily save bytes and frame space; no cycle-speedup claim follows from these counts.
+
+Largest small-model code savings: `i64-pairs-matrix-exec::dcc_main` 11,468 → 10,968 bytes, frame 448 → 264; i8 matrix 6,706 → 6,448; u8 matrix 5,888 → 5,636; i16 matrix 5,797 → 5,563; u16 matrix 5,329 → 5,101. Full per-function before/after code, executed instructions, spill counts and frame sizes are in `~/.cache/dcc-width-batch/measurement-diff.json`; complete measurements, objects, MIR, slot widths and instruction callbacks are in `measure-before/` and `measure-final/` beside it.
+
+## Verification
+
+Final targeted unit checks: 762/762. QEMU differential list: 66 fixtures × three models × O0/O2 = 396 executions. ABI, based/far, memory and i64 matrices: 150 further O0/O2 executions and 150 byte-identical direct-object versus assembled-listing linked images. All 546 executions passed. The final random, native byte comparison, end-of-batch integration and adopted baseline identities are recorded in AGENTS.md and the batch completion report. Retained evidence is under `~/.cache/dcc-width-batch/`. No output changes are hidden by updating expected execution results.
+
+The earlier division report follows as historical evidence; its width optimization proposal is implemented above. Remaining broad opportunities still begin with aggregate scalar replacement/memory elimination and allocation quality (coalescing, rematerialization, splitting), followed by addressing/immediate folding and redundant memory operations. This batch implements no further optimization step.
+
+---
+
 # Code generation measurements after i8086 division fast paths
 
 The approved fast paths halve the corpus's i8086 executed instruction count. Small-model execution falls **356,707 → 177,423 (-50.3%)**, with **75,220 → 76,198 bytes (+1.3%)**. Unreal behaves equivalently; unreal32 falls 50.0% with 1.4% more text. Custom em64t and LLVM code bytes and instruction counts are unchanged.

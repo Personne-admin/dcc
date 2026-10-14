@@ -9,6 +9,8 @@ import dcc.backend;
 import dcc.backend.llvm;
 import dcc.backend.em64t;
 import dcc.backend.i8086;
+import dcc.backend.i8086.registers;
+import dcc.backend.x86.mir;
 import dcc.backend.object.layout;
 
 #include "harness.hh"
@@ -49,6 +51,77 @@ namespace
 } // anonymous namespace
 
 SECTION("backend-interface");
+
+TEST_CASE("i8086 spill slots follow transfer width")
+{
+    using namespace dcc::backend::x86;
+    for (auto bits : {8u, 16u, 32u})
+    {
+        MFunction function;
+        auto& block = function.create_block();
+        function.entry_block_id = block.id;
+        std::vector<VReg> values;
+        for (unsigned i = 0; i < 12; ++i)
+        {
+            auto value = function.new_vreg();
+            block.instrs.push_back(bits == 8 ? make_instr(MOpc::MOVZX16rm8, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1)
+                                             : make_instr(bits == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {MOp::from_reg(value), MOp::from_imm(i + 1)}, 1));
+            values.push_back(value);
+        }
+        for (auto value : values)
+        {
+            auto copy = function.new_vreg();
+            block.instrs.push_back(make_copy(copy, value));
+            block.instrs.push_back(
+                make_instr(bits <= 16 ? MOpc::MOV16mr : MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(copy)}, 0));
+        }
+        block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+        dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+        REQUIRE(!function.frame_slots.empty());
+        for (auto const& slot : function.frame_slots)
+            if (slot.is_spill)
+            {
+                CHECK(slot.size == std::max(16u, bits) / 8);
+                CHECK(slot.align == 2);
+            }
+        for (auto const& instruction : function.blocks.front().instrs)
+            if (bits <= 16)
+            {
+                CHECK(instruction.opc != MOpc::COPY);
+                CHECK(instruction.opc != MOpc::MOV32rm);
+                CHECK(instruction.opc != MOpc::MOV32mr);
+            }
+    }
+}
+
+TEST_CASE("i8086 parallel copy cycles preserve mixed widths")
+{
+    using namespace dcc::backend::x86;
+    using dcc::backend::x86::PhysReg;
+    for (bool mixed : {false, true})
+    {
+        MFunction function;
+        auto& block = function.create_block();
+        function.entry_block_id = block.id;
+        auto first = make_instr(MOpc::MOV16rr, {phys_operand(PhysReg::RAX), phys_operand(PhysReg::RCX)}, 1);
+        auto second = make_instr(mixed ? MOpc::COPY : MOpc::MOV16rr, {phys_operand(PhysReg::RCX), phys_operand(PhysReg::RAX)}, 1);
+        first.copy_group = second.copy_group = function.new_copy_group();
+        block.instrs = {first, second, make_instr(MOpc::RET, {}, 0)};
+        dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+        std::array<std::uint32_t, 32> registers{};
+        registers[static_cast<unsigned>(PhysReg::RAX)] = 0x12345678;
+        registers[static_cast<unsigned>(PhysReg::RCX)] = 0x87654321;
+        for (auto const& instruction : function.blocks.front().instrs)
+            if (instruction.opc == MOpc::COPY || instruction.opc == MOpc::MOV16rr)
+            {
+                auto& destination = registers[static_cast<unsigned>(instruction.ops[0].reg.phys_reg())];
+                auto source = registers[static_cast<unsigned>(instruction.ops[1].reg.phys_reg())];
+                destination = instruction.opc == MOpc::MOV16rr ? (destination & 0xffff0000) | (source & 0xffff) : source;
+            }
+        CHECK(registers[static_cast<unsigned>(PhysReg::RAX)] == 0x12344321);
+        CHECK(registers[static_cast<unsigned>(PhysReg::RCX)] == (mixed ? 0x12345678u : 0x87655678u));
+    }
+}
 
 TEST_CASE("llvm-ir-text-contains-define-add-ret")
 {

@@ -51,6 +51,7 @@ namespace dcc::backend::i8086
                                   (1ULL << static_cast<unsigned>(PhysReg::RCX)) | (1ULL << static_cast<unsigned>(PhysReg::RDX)),
                 .address16_registers = (1ULL << static_cast<unsigned>(PhysReg::RBX)) | (1ULL << static_cast<unsigned>(PhysReg::RSI)) |
                                        (1ULL << static_cast<unsigned>(PhysReg::RDI)),
+                .narrow_gpr = true,
             };
         }
 
