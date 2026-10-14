@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+u64 write_memory(u32 runtime) {
+    u32 value = 0;
+    asm @[intel, output(slot = &value in mem), inputs(v in eax = 7 as u32)] { "mov %[slot], eax" };
+    return value as u64;
+}
+@nomangle public i32 dcc_main() {
+    u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" };
+    return if write_memory(seed) == 7 { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0
