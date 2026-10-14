@@ -894,70 +894,83 @@ export namespace dcc::comptime
             if (kind() == Kind::Unknown)
                 return make_unknown(dst);
 
-            if (dst->kind == types::TypeKind::Bool)
+            types::TypePtr canonical = dst;
+            while (auto const* nominal = types::type_cast<types::NominalType>(canonical))
+                canonical = nominal->underlying;
+
+            types::TypePtr scalar = canonical;
+            if (auto const* restricted = types::type_cast<types::RestrictedType>(scalar))
+                scalar = restricted->underlying;
+
+            if (scalar->kind == types::TypeKind::Bool)
             {
                 if (auto v = const_to_bool())
-                    return make_bool(*v, dst);
+                    return make_bool(*v, scalar);
                 return std::nullopt;
             }
 
-            if (types::type_cast<types::IntType>(dst))
+            if (types::type_cast<types::IntType>(scalar))
             {
                 if (auto v = const_to_int())
-                    return make_int(*v, dst);
+                    return make_int(*v, scalar);
                 return std::nullopt;
             }
 
-            if (dst->kind == types::TypeKind::Char)
+            if (scalar->kind == types::TypeKind::Char)
             {
                 if (auto v = const_to_int())
-                    return make_char(static_cast<std::uint32_t>(*v), dst);
+                    return make_char(static_cast<std::uint32_t>(*v), scalar);
                 return std::nullopt;
             }
 
-            if (types::type_cast<types::FloatType>(dst))
+            if (types::type_cast<types::FloatType>(scalar))
             {
                 if (auto v = const_to_float())
-                    return make_float(*v, dst);
+                    return make_float(*v, scalar);
                 return std::nullopt;
             }
 
-            if (types::type_cast<types::PointerType>(dst) || types::type_cast<types::FuncPtrType>(dst) || dst->kind == types::TypeKind::NullT)
+            if (types::type_cast<types::PointerType>(canonical) || types::type_cast<types::FuncPtrType>(canonical) || canonical->kind == types::TypeKind::NullT)
             {
                 if (kind() == Kind::Null)
                 {
-                    if (auto const* dst_ptr = types::type_cast<types::PointerType>(dst))
+                    if (auto const* dst_ptr = types::type_cast<types::PointerType>(canonical))
                         if (dst_ptr->flavor == types::PointerFlavor::Based)
                             return std::nullopt;
-                    return make_null(dst);
+                    return make_null(canonical);
                 }
-                if (kind() == Kind::Pointer && dst->kind == types::TypeKind::Pointer)
+                if (kind() == Kind::Pointer && canonical->kind == types::TypeKind::Pointer)
                 {
                     auto const* src_ptr = types::type_cast<types::PointerType>(type);
-                    auto const* dst_ptr = static_cast<types::PointerType const*>(dst);
+                    auto const* dst_ptr = static_cast<types::PointerType const*>(canonical);
                     if (src_ptr && src_ptr->flavor == dst_ptr->flavor && src_ptr->segment == dst_ptr->segment)
-                        return make_pointer_to(get_pointer(), dst);
+                        return make_pointer_to(get_pointer(), canonical);
                     return std::nullopt;
                 }
-                if (kind() == Kind::Far && dst->kind == types::TypeKind::Pointer)
+                if (kind() == Kind::Far && canonical->kind == types::TypeKind::Pointer)
                 {
                     auto const* src_ptr = types::type_cast<types::PointerType>(type);
-                    auto const* dst_ptr = static_cast<types::PointerType const*>(dst);
+                    auto const* dst_ptr = static_cast<types::PointerType const*>(canonical);
                     if (src_ptr && src_ptr->flavor == dst_ptr->flavor && src_ptr->segment == dst_ptr->segment)
                     {
                         auto const& f = get_far();
-                        return make_far_address(f.segment, f.offset, dst);
+                        return make_far_address(f.segment, f.offset, canonical);
                     }
                     return std::nullopt;
                 }
                 return std::nullopt;
             }
 
-            if (auto const* et = types::type_cast<types::EnumType>(dst))
+            if (auto const* et = types::type_cast<types::EnumType>(canonical))
             {
                 if (!et->is_tagged)
                 {
-                    if (auto const* backing = types::type_cast<types::IntType>(et->backing))
+                    types::TypePtr backing_type = et->backing;
+                    while (auto const* nominal = types::type_cast<types::NominalType>(backing_type))
+                        backing_type = nominal->underlying;
+                    if (auto const* restricted = types::type_cast<types::RestrictedType>(backing_type))
+                        backing_type = restricted->underlying;
+                    if (auto const* backing = types::type_cast<types::IntType>(backing_type))
                     {
                         if (auto v = const_to_int())
                             return make_int(*v, backing);

@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module m;
+
+using u8 A = 0x1FF as u8;
+using u16 B = 0xFF as u16;
+using i8 C = 0x2F as i8;
+
+i32 use() {
+    static if A == 0xFF {
+        return (B as i32) + (C as i32);
+    } else {
+        return dead_undeclared;
+    }
+}
+
+=== ENTRY: main.dc ===

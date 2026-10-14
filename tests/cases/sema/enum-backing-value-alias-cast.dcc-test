@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module m;
+
+enum E : u16 { A = 0x100, B = 0x200 }
+using E X = 0x100 as E;
+using u16 Y = X as u16;
+using E Z = 7 as E;
+using u16 W = Z as u16;
+const E C = X;
+
+i32 use() {
+    static if C == E::A {
+        return Y as i32;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+i32 use2() {
+    static if W == 7 {
+        return 1;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+=== ENTRY: main.dc ===

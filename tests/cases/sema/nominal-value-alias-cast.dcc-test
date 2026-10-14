@@ -1,0 +1,38 @@
+=== FILE: Dev/Port.dc ===
+module Dev::Port;
+
+@nominal
+public using Port = u16;
+
+using public Dev::Port = Port;
+
+=== FILE: Dev/VGA.dc ===
+module Dev::VGA;
+
+public import Dev::Port;
+
+public using Dev::Port IndexDataPort = 0x3c0 as Dev::Port;
+public using Dev::Port AltPort = 0x3d0 as Dev::Port;
+
+const u16 RAW = IndexDataPort as u16;
+const u16 ALT = AltPort as u16;
+
+public i32 use() {
+    static if RAW == 0x3c0 {
+        return ALT as i32;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+=== FILE: main.dc ===
+module main;
+
+import Dev::VGA;
+
+@nomangle
+public i32 dcc_main() {
+    return Dev::VGA::use() - 0x3d0;
+}
+
+=== ENTRY: main.dc ===
