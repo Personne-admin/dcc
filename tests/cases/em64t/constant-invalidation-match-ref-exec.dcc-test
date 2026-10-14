@@ -1,0 +1,11 @@
+=== FILE: test.dc ===
+module test;
+i32 check(u32 runtime) {
+ i32 x = 0;
+ match x { &value => { *value = 7; } }
+ return if (x as i64) == 7 { 0 } else { 1 };
+}
+@nomangle public i32 dcc_main() { u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" }; return check(seed); }
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0

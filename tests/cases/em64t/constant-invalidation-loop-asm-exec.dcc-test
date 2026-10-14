@@ -1,0 +1,39 @@
+=== FILE: test.dc ===
+module test;
+i32 check(u32 runtime) {
+    u32 value = 0;
+    i32 count = 0;
+    while (value as u64) == 0 {
+        asm @[intel, output(value in eax)] { "mov eax, 7" };
+        count++;
+        if count >= 3 { break; }
+    }
+    if count != 1 || (value as u64) != 7 { return 1; }
+    u32 low = 0; u32 high = 0;
+    count = 0;
+    do {
+        if count == 1 && ((high as u64) << 32) != ((9 as u64) << 32) { return 2; }
+        asm @[intel, output(low in eax), output(high in edx)] { "mov eax, 7\nmov edx, 9" };
+        count++;
+    } while count < 2;
+    u32 next = 0;
+    count = 0;
+    for ; (next as u64) == 0; count++ {
+        next = asm @[intel, output(u32 in eax)] { "mov eax, 7" };
+        if count >= 3 { break; }
+    }
+    if count != 1 || (next as u64) != 7 { return 3; }
+    u32 item = 0;
+    for i in 0..2 {
+        if i == 1 && (item as u64) != 7 { return 4; }
+        u32 result = asm @[intel, output(item in eax)] { "mov eax, 7" };
+    }
+    return 0;
+}
+@nomangle public i32 dcc_main() {
+    u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" };
+    return check(seed);
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0

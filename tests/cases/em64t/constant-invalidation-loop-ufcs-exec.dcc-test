@@ -1,0 +1,9 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+void set(i32* self) { *self = 7; }
+i32 check(bool flag) { i32 x = 0; i32 spins = 0; while (x as i64) == 0 { x.set(); spins++; if spins >= 3 { break; } } return if (x as i64) == 7 && spins == 1 { 0 } else { 1 }; }
+@nomangle public i32 dcc_main() { u32 seed = asm @[intel, output(u32 in eax)] { "mov eax, 1" }; return check(seed != 0) + check(seed == 0); }
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0
