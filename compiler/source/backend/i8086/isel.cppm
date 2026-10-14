@@ -1507,6 +1507,37 @@ namespace dcc::backend::i8086
                 auto const* ref = ir_cast<IrGlobalRef>(callee);
                 if (!ref || !ref->function)
                     return unsupported("an indirect call");
+                if (ref->function->name == "__dcc_udivmod32" && args.size() == 3 && wide(inst->type) &&
+                    std::ranges::all_of(args, [](IrValue const* arg) { return scalar_bits(arg->type) == 32; }))
+                {
+                    auto high = value(args[0]);
+                    auto low = value(args[1]);
+                    auto divisor = value(args[2]);
+                    if (!high || !low || !divisor)
+                        return;
+                    auto input_group = mfunc.new_copy_group();
+                    auto move = make_instr(MOpc::COPY, {phys_operand(PhysReg::RAX), MOp::from_reg(*low)}, 1);
+                    move.copy_group = input_group;
+                    append(move);
+                    move = make_instr(MOpc::COPY, {phys_operand(PhysReg::RDX), MOp::from_reg(*high)}, 1);
+                    move.copy_group = input_group;
+                    append(move);
+                    auto ax_dx = (1ULL << static_cast<unsigned>(PhysReg::RAX)) | (1ULL << static_cast<unsigned>(PhysReg::RDX));
+                    auto divide = make_instr(MOpc::DIV32r, {MOp::from_reg(*divisor)}, 0);
+                    divide.implicit_defs = ax_dx;
+                    divide.implicit_uses = ax_dx;
+                    append(divide);
+                    Pair result{mfunc.new_vreg(), mfunc.new_vreg()};
+                    auto output_group = mfunc.new_copy_group();
+                    move = make_instr(MOpc::COPY, {MOp::from_reg(result.low), phys_operand(PhysReg::RAX)}, 1);
+                    move.copy_group = output_group;
+                    append(move);
+                    move = make_instr(MOpc::COPY, {MOp::from_reg(result.high), phys_operand(PhysReg::RDX)}, 1);
+                    move.copy_group = output_group;
+                    append(move);
+                    pairs[inst] = result;
+                    return;
+                }
                 bool const c_convention = uses_c_abi(*ref->function);
                 bool const sret = indirect_return(inst->type);
                 auto registers = classify_arguments(args, c_convention, sret);
