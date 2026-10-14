@@ -1,0 +1,5 @@
+module main;
+import routines;
+volatile usize count = 24;
+u8[24] text = {97,98,32,49,50,32,99,100,32,51,52,32,101,102,32,53,54,32,103,104,32,55,56,32};
+@nomangle public i32 dcc_main() { return if routines::scan(&text[0], count) == 8 { 0 } else { 1 }; }

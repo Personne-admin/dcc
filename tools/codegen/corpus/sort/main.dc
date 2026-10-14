@@ -1,0 +1,12 @@
+module main;
+import routines;
+volatile usize count = 32;
+u16[32] items;
+@nomangle public i32 dcc_main() {
+    usize n = count;
+    for usize i = 0; i < n; i += 1 { items[i] = (n - i) as u16; }
+    []u16 values; values.ptr = &items[0]; values.len = n;
+    routines::insertion(values);
+    for usize i = 0; i < n; i += 1 { if items[i] != (i + 1) as u16 { return 1; } }
+    return 0;
+}

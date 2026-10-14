@@ -1,0 +1,11 @@
+module routines;
+@noinline public u32 fnv1a_32([] const u8 bytes) {
+    u32 h = 0x811C9DC5;
+
+    for usize i = 0; i < bytes.len; i++ {
+        h = h ^ (bytes[i] as u32);
+        h = h * 0x01000193;
+    }
+
+    return h;
+}

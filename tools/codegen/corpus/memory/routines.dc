@@ -1,0 +1,4 @@
+module routines;
+@noinline public usize length(const u8* p) { usize n = 0; while p[n] != 0 { n += 1; } return n; }
+@noinline public void copy(u8* dst, const u8* src, usize n) { for usize i = 0; i < n; i += 1 { dst[i] = src[i]; } }
+@noinline public void fill(u8* dst, u8 v, usize n) { for usize i = 0; i < n; i += 1 { dst[i] = v; } }

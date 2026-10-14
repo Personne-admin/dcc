@@ -457,6 +457,9 @@ namespace dcc::backend
                 out += std::to_string(mfunc.blocks.size());
                 out += "]\n";
 
+                for (auto const& slot : mfunc.frame_slots)
+                    out += std::format("slot offset={} size={} spill={}\n", slot.offset, slot.size, slot.is_spill ? 1 : 0);
+
                 for (auto const& bb : mfunc.blocks)
                 {
                     out += bb.display_name();
