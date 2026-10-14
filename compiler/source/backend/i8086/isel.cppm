@@ -557,7 +557,7 @@ namespace dcc::backend::i8086
             {
                 if (auto* integer = ir_cast<IrIntConstant>(value))
                     return static_cast<std::int32_t>(static_cast<std::uint32_t>(integer->value));
-                if (auto* pointer = ir_cast<IrPointerConstant>(value); pointer && static_cast<IrPointerType const*>(pointer->type)->flavor == PointerFlavor::Based)
+                if (auto* pointer = ir_cast<IrPointerConstant>(value); pointer && static_cast<IrPointerType const*>(pointer->type)->flavor != PointerFlavor::Far)
                     return static_cast<std::int32_t>(pointer->offset);
                 if (ir_cast<IrNullConstant>(value))
                     return 0;

@@ -779,6 +779,54 @@ export namespace dcc::comptime
         {
             if (kind() == Kind::Unknown || rhs.kind() == Kind::Unknown)
                 return make_unknown(out_type);
+
+            if (kind() == Kind::Far || rhs.kind() == Kind::Far)
+            {
+                if (op == BinaryOp::Eq || op == BinaryOp::Ne)
+                {
+                    if (kind() == Kind::Far && rhs.kind() == Kind::Far)
+                        return make_bool((get_far() == rhs.get_far()) == (op == BinaryOp::Eq), out_type);
+                    Value const& far_value = kind() == Kind::Far ? *this : rhs;
+                    Value const& other = kind() == Kind::Far ? rhs : *this;
+                    if (other.kind() == Kind::Null)
+                    {
+                        auto const& far = far_value.get_far();
+                        return make_bool((far.segment == 0 && far.offset == 0) == (op == BinaryOp::Eq), out_type);
+                    }
+                    return std::nullopt;
+                }
+
+                if (op == BinaryOp::Add || op == BinaryOp::Sub)
+                {
+                    Value const* far_value = nullptr;
+                    std::int64_t delta = 0;
+                    if (kind() == Kind::Far && rhs.kind() == Kind::Int)
+                    {
+                        far_value = this;
+                        delta = rhs.get_int();
+                        if (op == BinaryOp::Sub)
+                            delta = -delta;
+                    }
+                    else if (kind() == Kind::Int && rhs.kind() == Kind::Far && op == BinaryOp::Add)
+                    {
+                        far_value = &rhs;
+                        delta = get_int();
+                    }
+                    else
+                        return std::nullopt;
+
+                    std::uint64_t scale = 1;
+                    if (auto const* pointer = types::type_cast<types::PointerType>(out_type ? out_type : far_value->type))
+                        if (pointer->pointee)
+                            scale = pointer->pointee->byte_size;
+                    auto const& far = far_value->get_far();
+                    auto offset = static_cast<std::uint64_t>(static_cast<std::int64_t>(far.offset) + delta * static_cast<std::int64_t>(scale));
+                    return make_far_address(far.segment, offset, out_type ? out_type : far_value->type);
+                }
+
+                return std::nullopt;
+            }
+
             auto const* ft = types::type_cast<types::FloatType>(out_type);
             auto const* it = types::type_cast<types::IntType>(out_type);
 
@@ -902,6 +950,14 @@ export namespace dcc::comptime
             if (auto const* restricted = types::type_cast<types::RestrictedType>(scalar))
                 scalar = restricted->underlying;
 
+            if (types::type_cast<types::IntType>(scalar) && kind() == Kind::Far)
+            {
+                auto const* src_ptr = types::type_cast<types::PointerType>(type);
+                if (src_ptr && src_ptr->flavor == types::PointerFlavor::Near)
+                    return make_int(static_cast<std::int64_t>(get_far().offset), scalar);
+                return std::nullopt;
+            }
+
             if (scalar->kind == types::TypeKind::Bool)
             {
                 if (auto v = const_to_bool())
@@ -938,6 +994,15 @@ export namespace dcc::comptime
                         if (dst_ptr->flavor == types::PointerFlavor::Based)
                             return std::nullopt;
                     return make_null(canonical);
+                }
+                if (kind() == Kind::Int && canonical->kind == types::TypeKind::Pointer)
+                {
+                    auto const* dst_ptr = static_cast<types::PointerType const*>(canonical);
+                    if (dst_ptr->flavor != types::PointerFlavor::Near)
+                        return std::nullopt;
+                    if (auto v = const_to_int())
+                        return make_far_address(0, static_cast<std::uint64_t>(*v), canonical);
+                    return std::nullopt;
                 }
                 if (kind() == Kind::Pointer && canonical->kind == types::TypeKind::Pointer)
                 {

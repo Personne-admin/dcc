@@ -298,7 +298,5 @@ linkonce_odr ptr<{@0 i32, @8 i64}>@_DC0S1.4.test8.allocate1PqD1.4.test5.Arena1.D
 %entry(ptr<{@0 ptr<{@0 i32, @8 i64}>}> %self):
   %0 = alloca usize
   store usize #0, ptr<usize> %0
-  %1 = load usize, ptr<usize> %0
-  %2 = itoptr usize %1 to ptr<{@0 i32, @8 i64}>
-  ret ptr<{@0 i32, @8 i64}> %2
+  ret ptr<{@0 i32, @8 i64}> #0:0
 }

@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module m;
+
+u8 deref() {
+    const u8* p = 0xB8000 as u8*;
+    return *p;
+}
+
+const u8 X = deref();
+
+=== EXPECT-ERRORS ===
+main.dc:8: initializer for global `X` is not a constant expression: cannot read target memory through an address constant at compile time

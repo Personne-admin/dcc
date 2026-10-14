@@ -588,7 +588,12 @@ export namespace dcc::ctfe
             if (value.kind() == Kind::Null)
                 return failure("null pointer dereference", true);
             if (value.kind() == Kind::Far)
+            {
+                auto const* pointer = types::type_cast<types::PointerType>(value.type);
+                if (pointer && pointer->flavor == types::PointerFlavor::Near)
+                    return failure("cannot read target memory through an address constant at compile time");
                 return failure("dereference of a far address is unavailable at compile time");
+            }
             if (value.kind() != Kind::Pointer)
                 return failure("dereference of a value that is not a pointer");
             if (value.is_null_ptr())
@@ -1481,6 +1486,17 @@ export namespace dcc::ctfe
             return std::equal(a.path.begin(), a.path.end() - 1, b.path.begin());
         }
 
+        Result offset_far(comptime::Value const& pointer, std::int64_t delta, types::TypePtr out_type)
+        {
+            std::uint64_t scale = 1;
+            if (auto const* pt = types::type_cast<types::PointerType>(out_type ? out_type : pointer.type))
+                if (pt->pointee)
+                    scale = pt->pointee->byte_size;
+            auto const& far = pointer.get_far();
+            auto offset = static_cast<std::uint64_t>(static_cast<std::int64_t>(far.offset) + delta * static_cast<std::int64_t>(scale));
+            return folded(comptime::Value::make_far_address(far.segment, offset, out_type ? out_type : pointer.type));
+        }
+
         Result pointer_binary(lex::TokenKind op, comptime::Value const& lhs, comptime::Value const& rhs, types::TypePtr out_type)
         {
             using K = lex::TokenKind;
@@ -1507,6 +1523,12 @@ export namespace dcc::ctfe
                     return folded(comptime::Value::make_bool(op == K::EqEq, out_type));
                 return folded(comptime::Value::make_bool(pointer.is_null_ptr() == (op == K::EqEq), out_type));
             }
+
+            if (lhs_far && rhs.kind() == Kind::Int && (op == K::Plus || op == K::Minus))
+                return offset_far(lhs, op == K::Plus ? rhs.get_int() : -rhs.get_int(), out_type);
+
+            if (rhs_far && lhs.kind() == Kind::Int && op == K::Plus)
+                return offset_far(rhs, lhs.get_int(), out_type);
 
             if (lhs_pointer && rhs_pointer && equality)
                 return folded(comptime::Value::make_bool((lhs.get_pointer() == rhs.get_pointer()) == (op == K::EqEq), out_type));

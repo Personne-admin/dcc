@@ -1,0 +1,10 @@
+=== FILE: main.dc ===
+module m;
+
+public u8* P = 0xB8000 as u8*;
+public u16* Q = 0x3c0 as u16*;
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS ===
+CONTAINS: inttoptr (i64 753664 to ptr)
+CONTAINS: inttoptr (i64 960 to ptr)

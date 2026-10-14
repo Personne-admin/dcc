@@ -12519,6 +12519,23 @@ export namespace dcc::sema
 
             out.type = pointer.type;
             out.resolved_decl = pointer.resolved_decl;
+
+            if (pointer.constant && pointer.constant->kind() == comptime::Value::Kind::Far && offset.constant &&
+                offset.constant->kind() == comptime::Value::Kind::Int)
+            {
+                std::uint64_t scale = 1;
+                if (auto const* pt = types::type_cast<types::PointerType>(pointer.type))
+                    if (pt->pointee)
+                        scale = pt->pointee->byte_size;
+                auto const& far = pointer.constant->get_far();
+                auto delta = offset.constant->get_int();
+                if (b.op == lex::TokenKind::Minus)
+                    delta = -delta;
+                out.constant = make_value(comptime::Value::make_far_address(
+                    far.segment, static_cast<std::uint64_t>(static_cast<std::int64_t>(far.offset) + delta * static_cast<std::int64_t>(scale)), out.type));
+                out.is_constant = out.constant != nullptr;
+            }
+
             return out;
         }
 

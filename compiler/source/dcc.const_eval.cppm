@@ -112,6 +112,9 @@ export namespace dcc::const_eval
         if (lhs.is_unknown() || rhs.is_unknown())
             return comptime::Value::make_unknown(out_type);
 
+        if (lhs.kind() == comptime::Value::Kind::Far || rhs.kind() == comptime::Value::Kind::Far)
+            return lhs.fold_binary(*bop, rhs, out_type);
+
         if (lhs.kind() == comptime::Value::Kind::Float && rhs.kind() == comptime::Value::Kind::Float)
         {
             bool r{};
@@ -199,6 +202,10 @@ export namespace dcc::const_eval
         if (op == lex::TokenKind::Plus || op == lex::TokenKind::Minus || op == lex::TokenKind::Star || op == lex::TokenKind::Slash ||
             op == lex::TokenKind::Percent)
         {
+            if ((op == lex::TokenKind::Plus || op == lex::TokenKind::Minus) &&
+                (lhs.kind() == comptime::Value::Kind::Far || rhs.kind() == comptime::Value::Kind::Far))
+                return lhs.fold_binary(op == lex::TokenKind::Plus ? comptime::BinaryOp::Add : comptime::BinaryOp::Sub, rhs, out_type);
+
             auto const* ft = types::type_cast<types::FloatType>(out_type);
             auto const* it = types::type_cast<types::IntType>(out_type);
 
