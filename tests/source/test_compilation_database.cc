@@ -231,7 +231,7 @@ TEST_CASE("malformed entries are skipped, invalid JSON is rejected")
     }
 }
 
-TEST_CASE("backend and output operands are ignored in the projection")
+TEST_CASE("target, code model, arch and analysis flags reach the projection")
 {
     TempDir td;
     auto db_path = td.path / "compile_commands.json";
@@ -241,12 +241,14 @@ TEST_CASE("backend and output operands are ignored in the projection")
             "file": "main.dc",
             "arguments": [
                 "dcc",
-                "-target", "x86-elf",
-                "-O0",
+                "-target", "i8086-binary",
+                "-mcmodel", "unreal",
+                "-farch", "i386",
+                "-fno-simd",
+                "-fno-x87",
                 "-fbounds-check",
-                "-mcmodel", "small",
-                "-fbackend", "llvm",
-                "-farch", "pentium",
+                "-frestricted-check",
+                "-fbackend", "custom",
                 "-c",
                 "main.dc",
                 "-o",
@@ -264,10 +266,51 @@ TEST_CASE("backend and output operands are ignored in the projection")
 
     auto analysis = dccd::project_analysis_command(*cmd, log);
     REQUIRE(analysis.has_value());
-    CHECK(analysis->target.has_value());
-    CHECK_EQ(analysis->target->triple, "x86-elf");
+    REQUIRE(analysis->target.has_value());
+    CHECK_EQ(analysis->target->triple, "i8086-binary");
+    CHECK(analysis->target->code_model == dcc::target::CodeModel::Unreal);
+    CHECK_EQ(analysis->target->far_offset_bits(), 32);
+    CHECK_EQ(analysis->target->cpu, "i386");
+    CHECK(analysis->target->no_simd);
+    CHECK(analysis->target->no_x87);
+    CHECK(analysis->bounds_check);
+    CHECK(analysis->restricted_check);
     CHECK(analysis->import_roots.empty());
     CHECK(analysis->injected_decls.empty());
+}
+
+TEST_CASE("x86-elf projection applies an explicit code model and cpu")
+{
+    TempDir td;
+    auto db_path = td.path / "compile_commands.json";
+    write_file(db_path, R"json([
+        {
+            "directory": "/p",
+            "file": "main.dc",
+            "arguments": [
+                "dcc",
+                "-target", "x86-elf",
+                "-mcmodel", "small",
+                "-farch", "pentium",
+                "-c",
+                "main.dc"
+            ]
+        }
+    ])json");
+
+    std::ostringstream log;
+    dccd::CompilationDatabase db;
+    REQUIRE(db.load(db_path, log));
+
+    auto* cmd = db.command_for("/p/main.dc");
+    REQUIRE(cmd != nullptr);
+
+    auto analysis = dccd::project_analysis_command(*cmd, log);
+    REQUIRE(analysis.has_value());
+    REQUIRE(analysis->target.has_value());
+    CHECK_EQ(analysis->target->triple, "x86-elf");
+    CHECK(analysis->target->code_model == dcc::target::CodeModel::Small);
+    CHECK_EQ(analysis->target->cpu, "pentium");
 }
 
 TEST_CASE("x86-elf resolves to 32-bit x86 and accepts control registers")
