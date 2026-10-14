@@ -2168,10 +2168,12 @@ namespace dcc::backend::em64t
                     return MOpc::MOV32rr;
                 return MOpc::MOV64rr;
             };
-            auto emit_transfer = [&](VReg dst, VReg src, MOpc opc) {
+            auto emit_transfer = [&](VReg dst, VReg src, MOpc opc, std::uint32_t copy_group = 0) {
                 if (opc == MOpc::COPY)
                 {
-                    ctx.append_instr(make_copy(dst, src));
+                    auto copy = make_copy(dst, src);
+                    copy.copy_group = copy_group;
+                    ctx.append_instr(copy);
                     return;
                 }
                 MInstr move;
@@ -2180,6 +2182,7 @@ namespace dcc::backend::em64t
                 move.num_defs = 1;
                 move.ops[0] = MOp::from_reg(dst);
                 move.ops[1] = MOp::from_reg(src);
+                move.copy_group = copy_group;
                 ctx.append_instr(move);
             };
             bool port_io = std::ranges::any_of(plan.instructions,
@@ -2225,6 +2228,8 @@ namespace dcc::backend::em64t
                 instruction.implicit_defs |= literal_bits;
                 ctx.append_instr(instruction);
             }
+            auto const output_group = ctx.mfunc.new_copy_group();
+            std::vector<std::pair<VReg, std::uint64_t>> output_extensions;
             std::vector<VReg> outputs;
             for (std::size_t i = 0; i < ai->operands.size(); ++i)
             {
@@ -2239,19 +2244,21 @@ namespace dcc::backend::em64t
                     return;
                 }
                 VReg out = ctx.mfunc.new_vreg();
-                emit_transfer(out, pinned[i], transfer_opc(op));
+                emit_transfer(out, pinned[i], MOpc::COPY, output_group);
                 std::uint64_t out_size = op.type ? op.type->byte_size : 8;
-                if (out_size == 1 || out_size == 2)
-                {
-                    MInstr ext;
-                    ext.opc = out_size == 1 ? MOpc::MOVZX32rr8 : MOpc::MOVZX32_16rr;
-                    ext.num_ops = 2;
-                    ext.num_defs = 1;
-                    ext.ops[0] = MOp::from_reg(out);
-                    ext.ops[1] = MOp::from_reg(out);
-                    ctx.append_instr(ext);
-                }
+                if (out_size <= 4 && (!op.type || op.type->kind != IrTypeKind::Float))
+                    output_extensions.emplace_back(out, out_size);
                 outputs.push_back(out);
+            }
+            for (auto const& [out, out_size] : output_extensions)
+            {
+                MInstr ext;
+                ext.opc = out_size == 1 ? MOpc::MOVZX32rr8 : out_size == 2 ? MOpc::MOVZX32_16rr : MOpc::MOV32rr;
+                ext.num_ops = 2;
+                ext.num_defs = 1;
+                ext.ops[0] = MOp::from_reg(out);
+                ext.ops[1] = MOp::from_reg(out);
+                ctx.append_instr(ext);
             }
             if (outputs.size() == 1)
                 ctx.set_vreg(ai, outputs.front());
