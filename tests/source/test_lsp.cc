@@ -6381,3 +6381,84 @@ TEST_CASE("compile_commands.json rewrite flips libdcext resolution")
             saw_cleared = true;
     CHECK(saw_cleared);
 }
+
+namespace
+{
+    void write_analysis_compdb(std::filesystem::path const& db_path, std::filesystem::path const& workspace, std::vector<std::string> const& args)
+    {
+        std::ofstream out{db_path};
+        out << "[{\"directory\":\"" << workspace.string() << "\",\"file\":\"main.dc\",\"arguments\":[";
+        for (std::size_t i = 0; i < args.size(); ++i)
+        {
+            if (i)
+                out << ",";
+            out << "\"" << args[i] << "\"";
+        }
+        out << "]}]";
+    }
+
+    constexpr std::string_view kBasedVideoAlias = "module main;\npublic using u16^DS VGA_MEMORY = DS:0xB8000;\n";
+    constexpr std::string_view kGsAlias = "module main;\npublic using u16^GS G = GS:0x100;\n";
+}
+
+SECTION("lsp: compile command options");
+
+TEST_CASE("compile command code model reaches dccd analysis")
+{
+    TempDir workspace;
+    write_analysis_compdb(workspace.path / "compile_commands.json", workspace.path,
+                          {"dcc", "-target", "i8086-binary", "-mcmodel", "unreal", "main.dc"});
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "main.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kBasedVideoAlias}));
+    CHECK(std::ranges::all_of(publishes, [](auto const& publish) { return publish.diagnostics.empty(); }));
+}
+
+TEST_CASE("missing code model rejects the DS video alias")
+{
+    TempDir workspace;
+    write_analysis_compdb(workspace.path / "compile_commands.json", workspace.path, {"dcc", "-target", "i8086-binary", "main.dc"});
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink, workspace.path);
+
+    auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "main.dc");
+    auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kBasedVideoAlias}));
+    REQUIRE(publishes.size() == 1);
+    REQUIRE(!publishes[0].diagnostics.empty());
+    CHECK(publishes[0].diagnostics[0].message.find("does not fit u16") != std::string::npos);
+}
+
+TEST_CASE("compile command arch gates FS and GS based pointers")
+{
+    {
+        TempDir workspace;
+        write_analysis_compdb(workspace.path / "compile_commands.json", workspace.path,
+                              {"dcc", "-target", "i8086-binary", "-mcmodel", "small", "-farch", "i386", "main.dc"});
+        Sink sink;
+        dccd::LanguageServer server{&sink.stream};
+        initialize_server(server, sink, workspace.path);
+        auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "main.dc");
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kGsAlias}));
+        CHECK(std::ranges::all_of(publishes, [](auto const& publish) { return publish.diagnostics.empty(); }));
+    }
+
+    {
+        TempDir workspace;
+        write_analysis_compdb(workspace.path / "compile_commands.json", workspace.path,
+                              {"dcc", "-target", "i8086-binary", "-mcmodel", "small", "-farch", "8086", "main.dc"});
+        Sink sink;
+        dccd::LanguageServer server{&sink.stream};
+        initialize_server(server, sink, workspace.path);
+        auto uri = dcc::sm::SourceManager::to_file_uri(workspace.path / "main.dc");
+        auto publishes = send_and_collect_publishes(server, sink, make_did_open(uri, 1, std::string{kGsAlias}));
+        REQUIRE(publishes.size() == 1);
+        REQUIRE(!publishes[0].diagnostics.empty());
+        CHECK(publishes[0].diagnostics[0].message.find("the 8086 has no FS or GS") != std::string::npos);
+    }
+}

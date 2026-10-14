@@ -2365,6 +2365,7 @@ export namespace dccd
 
                     opts.injected_decls = std::move(analysis->injected_decls);
                     opts.inject_libdcext_prelude = analysis->inject_libdcext_prelude;
+                    opts.restricted_check = analysis->restricted_check;
                     want_libdcext = analysis->inject_libdcext_prelude;
                     roots = std::move(analysis->import_roots);
 

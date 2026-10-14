@@ -23,6 +23,8 @@ ifeq ($(strip $(DCC_VERSION)),)
   DCC_VERSION := 0.3.0
 endif
 
+DCC_GIT_HASH ?= $(shell git -C $(TOPLEVEL) rev-parse --short HEAD 2>/dev/null || echo unknown)
+
 SCAN_DEPS ?= $(shell which clang-scan-deps 2>/dev/null)
 ifneq ($(filter clean distclean,$(MAKECMDGOALS)),)
 else
@@ -92,7 +94,8 @@ DCC_PREFIX_DEF := -DDCC_INSTALL_PREFIX='"$(DCC_INSTALL_PREFIX)"'
 FILE_PREFIX_MAP_FLAGS ?= -ffile-prefix-map=$(TOPLEVEL)=dcc
 
 BASE_CXXFLAGS := $(CXXSTD) $(WARNS) $(OPT_FLAGS) $(DEBUG_FLAGS) $(SAN_FLAGS) \
-                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(DCC_PREFIX_DEF) $(FILE_PREFIX_MAP_FLAGS) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="")
+                 $(LLVM_CXXFLAGS) $(LLVM_DEFS) $(STDLIB_FLAGS) $(DCC_PREFIX_DEF) $(FILE_PREFIX_MAP_FLAGS) $(if $(filter windows,$(CROSS)),,--gcc-install-dir="") \
+                 -DDCC_VERSION='"$(DCC_VERSION)"' -DDCC_GIT_HASH='"$(DCC_GIT_HASH)"'
 
 ifeq ($(CROSS),windows)
   BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) -static

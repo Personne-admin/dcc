@@ -2,6 +2,7 @@ export module dccd.compilation_database;
 
 import std;
 import dcc.target;
+import dcc.cli;
 import dccd.protocol;
 
 export namespace dccd
@@ -23,6 +24,10 @@ export namespace dccd
 
         bool inject_libdcext_prelude{false};
         dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
+        bool restricted_check{false};
+        bool bounds_check{false};
+        bool partial_eval{false};
+        bool far_check{false};
     };
 
     class CompilationDatabase
@@ -195,47 +200,6 @@ namespace dccd
             paths.push_back(std::move(p));
         }
 
-        [[nodiscard]] inline bool is_known_irrelevant_flag(std::string_view arg)
-        {
-            using namespace std::string_view_literals;
-            static constexpr std::string_view flags[] = {
-                "-c"sv,
-                "-S"sv,
-                "-shared"sv,
-                "-fbounds-check"sv,
-                "-frestricted-check"sv,
-                "-fno-red-zone"sv,
-                "-fno-simd"sv,
-                "-fno-x87"sv,
-                "-fno-stack-protector"sv,
-                "-fno-stack-probe"sv,
-                "-fomit-frame-pointer"sv,
-                "-fno-omit-frame-pointer"sv,
-                "-fPIC"sv,
-                "-fpic"sv,
-                "-fPIE"sv,
-                "-O0"sv,
-                "-O1"sv,
-                "-O2"sv,
-                "-Os"sv,
-                "-g0"sv,
-                "-gnone"sv,
-                "-g3"sv,
-                "-g"sv,
-                "-gdwarf"sv,
-                "-gpdb"sv,
-                "-fdump-ast"sv,
-                "-fdump-ir"sv,
-                "-fdump-llvm"sv,
-                "-fdump-mir"sv,
-            };
-
-            for (auto f : flags)
-                if (arg == f)
-                    return true;
-            return false;
-        }
-
     } // namespace detail
 
     bool CompilationDatabase::load(std::filesystem::path const& path, std::ostream& log)
@@ -328,121 +292,28 @@ namespace dccd
 
     std::optional<AnalysisCommand> project_analysis_command(CompileCommand const& command, std::ostream& log)
     {
+        auto parsed = dcc::cli::parse_args_lenient(std::span<std::string const>{command.arguments});
+        for (auto const& error : parsed.errors)
+            std::println(log, "[dccd] ignoring option in compile command: {}", error);
+        auto const& opts = parsed.options;
+
         AnalysisCommand analysis;
-        std::optional<std::string> triple_str;
+        analysis.injected_decls = opts.injected_decls;
+        analysis.inject_libdcext_prelude = opts.libdcext;
+        analysis.libdcext_os = opts.libdcext_os;
+        analysis.restricted_check = opts.restricted_check;
+        analysis.bounds_check = opts.bounds_check;
+        analysis.partial_eval = opts.partial_eval;
+        analysis.far_check = opts.far_check;
 
-        auto const& argv = command.arguments;
-        for (std::size_t i = 0; i < argv.size(); ++i)
-        {
-            std::string_view arg{argv[i]};
+        for (auto const& path : opts.import_paths)
+            detail::add_unique_path(analysis.import_roots, detail::normalize_path(path, command.directory));
 
-            if ((arg == "-target" || arg == "--target") && i + 1 < argv.size())
-            {
-                triple_str = argv[i + 1];
-                ++i;
-                continue;
-            }
-            if (arg.starts_with("--target="))
-            {
-                triple_str = arg.substr(9);
-                continue;
-            }
-            if (arg.starts_with("-target="))
-            {
-                triple_str = arg.substr(8);
-                continue;
-            }
-
-            if (arg == "-I" && i + 1 < argv.size())
-            {
-                detail::add_unique_path(analysis.import_roots, detail::normalize_path(std::filesystem::path{argv[i + 1]}, command.directory));
-                ++i;
-                continue;
-            }
-            if (arg.starts_with("-I") && arg.size() > 2)
-            {
-                detail::add_unique_path(analysis.import_roots, detail::normalize_path(std::filesystem::path{std::string{arg.substr(2)}}, command.directory));
-                continue;
-            }
-
-            if ((arg == "-J" || arg == "--inject") && i + 1 < argv.size())
-            {
-                analysis.injected_decls.emplace_back(argv[i + 1]);
-                ++i;
-                continue;
-            }
-            if (arg.starts_with("-J") && arg.size() > 2)
-            {
-                analysis.injected_decls.emplace_back(arg.substr(2));
-                continue;
-            }
-            if (arg.starts_with("--inject="))
-            {
-                analysis.injected_decls.emplace_back(arg.substr(9));
-                continue;
-            }
-
-            if (arg == "-flibdcext")
-            {
-                analysis.inject_libdcext_prelude = true;
-                analysis.libdcext_os = dcc::target::LibdcextOs::Host;
-
-                if (i + 1 < argv.size())
-                    if (auto os = dcc::target::parse_libdcext_os(argv[i + 1]))
-                    {
-                        analysis.libdcext_os = *os;
-                        ++i;
-                    }
-
-                continue;
-            }
-            if (arg.starts_with("-flibdcext="))
-            {
-                auto value = arg.substr(11);
-                analysis.inject_libdcext_prelude = true;
-                if (auto os = dcc::target::parse_libdcext_os(value))
-                    analysis.libdcext_os = *os;
-                else
-                    std::println(log, "[dccd] unknown -flibdcext value \"{}\"; treating as host", value);
-
-                continue;
-            }
-
-            if ((arg == "-o" || arg == "--depfile" || arg == "--compdb-entry" || arg == "-mcmodel" || arg == "-fbackend" || arg == "-farch") &&
-                i + 1 < argv.size())
-            {
-                ++i;
-                continue;
-            }
-            if (arg.starts_with("--compdb-entry=") || arg.starts_with("-mcmodel=") || arg.starts_with("-fbackend=") || arg.starts_with("-farch="))
-                continue;
-
-            if (detail::is_known_irrelevant_flag(arg))
-                continue;
-
-            if (!arg.empty() && arg[0] == '-')
-            {
-                std::println(log, "[dccd] ignoring unknown option in compile command: {}", arg);
-                continue;
-            }
-        }
-
-        if (triple_str || analysis.inject_libdcext_prelude)
-        {
-            std::optional<dcc::target::LibdcextRequest> libdcext_request;
-            if (analysis.inject_libdcext_prelude)
-                libdcext_request = dcc::target::LibdcextRequest{.enabled = true, .os = analysis.libdcext_os};
-
-            std::optional<std::string_view> triple_view;
-            if (triple_str)
-                triple_view = *triple_str;
-
-            auto resolved = dcc::target::resolve_target(triple_view, libdcext_request);
-            if (resolved)
-                analysis.target = std::move(*resolved);
-            else
-                std::println(log, "[dccd] {}; ignoring for analysis", resolved.error());
-        }
+        std::string error;
+        if (auto target = dcc::cli::resolve_target_config(opts, error))
+            analysis.target = std::move(*target);
+        else
+            std::println(log, "[dccd] {}; ignoring for analysis", error);
 
         return analysis;
     }
