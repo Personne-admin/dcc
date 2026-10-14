@@ -1,0 +1,18 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal ===
+=== FILE: main.dc ===
+module main;
+
+public using u16^DS SCRATCH = DS:0x8000;
+
+@nomangle
+public i32 dcc_main() {
+    SCRATCH[0] = 0x1234;
+    if SCRATCH[0] != 0x1234 { return 1; }
+    SCRATCH[1] = 0x5678;
+    if SCRATCH[1] != 0x5678 { return 2; }
+    if SCRATCH[0] != 0x1234 { return 3; }
+    return 42;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42
