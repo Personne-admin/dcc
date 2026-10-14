@@ -2192,7 +2192,8 @@ namespace dcc::backend::em64t
                 for (std::size_t i = 0; i < ai->operands.size(); ++i)
                 {
                     auto const& op = ai->operands[i];
-                    if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm)
+                    if ((op.direction == IrAsmOperand::Direction::Out && op.placement_kind != IrAsmOperand::PlacementKind::Mem) ||
+                        op.placement_kind == IrAsmOperand::PlacementKind::Imm)
                         continue;
                     inputs[i] = ctx.try_materialize(op.value);
                     if (!inputs[i].is_valid())
@@ -2204,7 +2205,8 @@ namespace dcc::backend::em64t
             for (std::size_t i = 0; i < ai->operands.size(); ++i)
             {
                 auto const& op = ai->operands[i];
-                if (op.direction == IrAsmOperand::Direction::Out || op.placement_kind == IrAsmOperand::PlacementKind::Imm ||
+                if ((op.direction == IrAsmOperand::Direction::Out && op.placement_kind != IrAsmOperand::PlacementKind::Mem) ||
+                        op.placement_kind == IrAsmOperand::PlacementKind::Imm ||
                     op.placement_kind == IrAsmOperand::PlacementKind::Sym || op.placement_kind == IrAsmOperand::PlacementKind::Flag ||
                     op.placement_kind == IrAsmOperand::PlacementKind::Any)
                     continue;
