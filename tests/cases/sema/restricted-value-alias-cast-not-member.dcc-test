@@ -1,0 +1,8 @@
+=== FILE: main.dc ===
+module m;
+
+using R = u8{0..10};
+using R V = 20 as R;
+
+=== EXPECT-ERRORS ===
+main.dc:4: value 20 is not a member of type u8{0..10}

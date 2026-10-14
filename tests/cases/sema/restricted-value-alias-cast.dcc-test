@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+using R = u8{0..10};
+using R V = 5 as R;
+using u8 N = V as u8;
+const R C = V;
+
+i32 use() {
+    static if N == 5 {
+        return C as i32;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+=== ENTRY: main.dc ===

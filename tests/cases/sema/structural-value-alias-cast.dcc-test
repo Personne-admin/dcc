@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module m;
+
+using Port = u16;
+using Port P = 0x3c0 as Port;
+using u16 R = P as u16;
+const Port C = P;
+
+i32 use() {
+    static if R == 0x3c0 {
+        return C as i32;
+    } else {
+        return dead_undeclared;
+    }
+}
+
+=== ENTRY: main.dc ===
