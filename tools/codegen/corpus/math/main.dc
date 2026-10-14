@@ -1,0 +1,11 @@
+module main;
+import routines;
+volatile u32 iterations = 12;
+volatile u64 seed = 0x123456789abcdef0;
+@nomangle public i32 dcc_main() {
+    u64 value = routines::mix(seed, iterations);
+    if value != 14258892733704268261 { return 1; }
+    if routines::divide(value, 0x100000001) != 4208421349 { return 2; }
+    if routines::gcd(iterations * 21, 105) != 21 { return 3; }
+    return 0;
+}

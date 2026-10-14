@@ -1,0 +1,9 @@
+module routines;
+@noinline public void insertion([]u16 items) {
+    for usize i = 1; i < items.len; i += 1 {
+        u16 value = items[i];
+        usize j = i;
+        while j > 0 && items[j - 1] > value { items[j] = items[j - 1]; j -= 1; }
+        items[j] = value;
+    }
+}

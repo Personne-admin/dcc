@@ -2081,6 +2081,7 @@ namespace dcc::backend
                 {
                     if (want_asm)
                     {
+                        LLVMSetTargetMachineAsmVerbosity(tm, std::getenv("DCC_MEASURE_ASM_VERBOSE") != nullptr);
                         LLVMMemoryBufferRef membuf = nullptr;
                         char* emit_err = nullptr;
                         if (LLVMTargetMachineEmitToMemoryBuffer(tm, llvm_mod, LLVMAssemblyFile, &emit_err, &membuf))

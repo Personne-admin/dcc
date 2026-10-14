@@ -1,0 +1,7 @@
+module routines;
+@noinline public u32 gcd(u32 a, u32 b) { while b != 0 { u32 t = a % b; a = b; b = t; } return a; }
+@noinline public u64 mix(u64 x, u32 n) {
+    for u32 i = 0; i < n; i += 1 { x = (x ^ (x >> 13)) * 0x100000001; x += i as u64; }
+    return x;
+}
+@noinline public u64 divide(u64 x, u64 y) { return x / y + x % y; }

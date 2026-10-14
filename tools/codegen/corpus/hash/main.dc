@@ -1,0 +1,11 @@
+module main;
+import routines;
+volatile usize count = 64;
+u8[64] data;
+@nomangle public i32 dcc_main() {
+    usize n = count;
+    for usize i = 0; i < n; i += 1 { data[i] = i as u8; }
+    []const u8 bytes;
+    bytes.ptr = &data[0]; bytes.len = n;
+    return if routines::fnv1a_32(bytes) == 1832519941 { 0 } else { 1 };
+}

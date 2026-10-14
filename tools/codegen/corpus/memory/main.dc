@@ -1,0 +1,14 @@
+module main;
+import routines;
+volatile usize count = 63;
+u8[64] src;
+u8[64] dst;
+@nomangle public i32 dcc_main() {
+    usize n = count;
+    routines::fill(&src[0], 65, n);
+    src[n] = 0;
+    routines::copy(&dst[0], &src[0], n + 1);
+    if routines::length(&dst[0]) != n { return 1; }
+    for usize i = 0; i < n; i += 1 { if dst[i] != 65 { return 2; } }
+    return 0;
+}

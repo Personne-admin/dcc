@@ -145,6 +145,8 @@ namespace dcc::backend
                     {
                         auto spills = std::ranges::count_if(f.frame_slots, [](MFrameSlot const& slot) { return slot.is_spill; });
                         text += std::format("func {} [frame_size={}, spill_slots={}]\n", f.name(), f.frame_size, spills);
+                        for (auto const& slot : f.frame_slots)
+                            text += std::format("slot offset={} size={} spill={}\n", slot.offset, slot.size, slot.is_spill ? 1 : 0);
                         for (auto const& block : f.blocks)
                         {
                             text += std::format("{}:\n", block.display_name());
