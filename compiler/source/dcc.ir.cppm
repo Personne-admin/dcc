@@ -1647,15 +1647,22 @@ export namespace dcc::ir
         template <typename T, typename... Args> [[nodiscard]] T* make(Args&&... args)
         {
             void* p = m_buffer.allocate(sizeof(T), alignof(T));
+            T* node;
             if constexpr (std::is_constructible_v<T, Args..., std::pmr::polymorphic_allocator<>>)
-                return ::new (p) T(std::forward<Args>(args)..., m_arena);
+                node = ::new (p) T(std::forward<Args>(args)..., m_arena);
             else
-                return ::new (p) T(std::forward<Args>(args)...);
+                node = ::new (p) T(std::forward<Args>(args)...);
+            if constexpr (std::is_same_v<T, IrGlobalRef>)
+                m_global_refs.push_back(node);
+            return node;
         }
+
+        [[nodiscard]] std::vector<IrGlobalRef*> const& global_refs() const noexcept { return m_global_refs; }
 
     private:
         std::pmr::monotonic_buffer_resource m_buffer;
         std::pmr::polymorphic_allocator<> m_arena;
+        std::vector<IrGlobalRef*> m_global_refs;
 
         IrVoidType const* m_void{};
         IrBoolType const* m_bool{};

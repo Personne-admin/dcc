@@ -151,6 +151,26 @@ prelude only injected when you pass `-flibdcext` to the driver (or set
 `.libdcext = true` in the Zig SDK options). Without it, you get exactly the
 language and `core::*` compiler intrinsics, nothing else.
 
+## Whole-program output
+
+By default `dcc -S` and `dcc -c` on an entry module emit only that module's own
+functions and globals. Calls into imported modules stay `extern` references, so
+the output can't be assembled or linked on its own.
+
+`-fwhole-program` lowers every module in the import graph into one output with
+the usual mangled names. Only reachable code is kept. The roots are the entry
+module's public functions and globals, every `@nomangle` function definition
+in the graph, and symbols named by module-level asm. Reachability then follows
+references (calls, function and global addresses, initializers) across
+modules. Imported symbols with no definition in the graph stay `extern`.
+
+Under `-flibdcext`, the std modules come from source, so the archive is not
+needed for them. An object or `-S` output from `-fwhole-program -flibdcext`
+must be linked with only libdcext's assembly members (`memory.asm.o`,
+`crt0.asm.o`, `syscall.asm.o`). Linking the whole archive duplicates the std
+symbols, so the driver rejects `-fwhole-program -flibdcext` for executables and
+shared libraries.
+
 ## Tooling
 
 `dccd` is the language server: completion, formatting, semantic tokens,

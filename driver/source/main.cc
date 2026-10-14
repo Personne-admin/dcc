@@ -85,6 +85,7 @@ namespace
         bool far_check{false};
         bool restricted_check{false};
         bool partial_eval{false};
+        bool whole_program{false};
         bool emit_debug_info{false};
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
         bool help{false};
@@ -344,6 +345,17 @@ namespace
          "call-site partial evaluation",
          "off",
          [](Options& o, bool on, std::string_view, char**) { o.partial_eval = on; }},
+
+        {"-fwhole-program",
+         "-fno-whole-program",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Compile,
+         "lower the whole import graph into one output, keeping only reachable symbols",
+         "off",
+         [](Options& o, bool on, std::string_view, char**) { o.whole_program = on; }},
 
         {"-frestricted-check",
          "-fno-restricted-check",
@@ -2445,6 +2457,7 @@ auto main(int argc, char** argv) -> int
         dcc::ir::IrContext ir_ctx{256 * 1024, &compile_opts.target};
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
                                                                  &sema->types(), opts.restricted_check, opts.partial_eval, opts.far_check);
+        lowerer->set_whole_program(opts.whole_program);
         auto* ir_mod = lowerer->lower_module(*module);
         if (!lowerer->lower_errors().empty())
         {
@@ -2529,8 +2542,17 @@ auto main(int argc, char** argv) -> int
             for (auto const& extra : explicit_linker_args(opts))
                 backend_opts.linker_args.push_back(extra);
 
-            if (opts.libdcext &&
-                (kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes)))
+            bool const links_output =
+                kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes);
+            if (opts.whole_program && opts.libdcext && links_output)
+            {
+                std::println(std::cerr, "dcc: error: -fwhole-program with -flibdcext cannot link an executable or shared library: the libdcext archive's "
+                                        "compiled std modules would duplicate the whole-program definitions; compile with -c or -S and link only "
+                                        "libdcext's assembly objects (memory.asm.o, crt0.asm.o, syscall.asm.o) yourself");
+                return 1;
+            }
+
+            if (opts.libdcext && links_output)
             {
                 if (!require_libdcext_archive(opts, target, prefix, target.float_available()))
                     return 1;
