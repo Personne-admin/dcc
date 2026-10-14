@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module main;
+
+@nomangle public u64 read_word(const u16* p) { return *p as u64; }
+@nomangle public u64 read_byte(const u8* p) { return *p as u64; }
+
+@nomangle public i32 dcc_main() {
+    u16 word = 0xABCD;
+    u8 byte = 0xCD;
+    return if read_word(&word) == 0xABCD && read_byte(&byte) == 0xCD { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: movzx rax, word [rax]
+CONTAINS: movzx rax, byte [rax]
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0
