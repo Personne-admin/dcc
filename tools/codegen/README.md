@@ -28,3 +28,12 @@ The hashing routine is extracted from `libdcext/std/hash.dc` (`fnv1a_32`). Inser
 - Callback counts describe instructions reached in these successful deterministic runs, not elapsed time or a hardware micro-op count. Calibration checks both 16-bit and 64-bit loops with five executions of the body and branch, and REP STOSB copying four bytes: QEMU 11.1.2 reports **one** instruction callback for REP, not four. This does not measure the internal work or cycle cost of REP.
 
 The tools are outside the test suite. `check.py` validates metric accounting, instruction-boundary prefix decoding, retained custom slot metadata and plugin calibration; it does not invoke the full gate or change a baseline.
+
+## i8086 division differential
+
+```sh
+systemd-inhibit --what=sleep --why="dcc division differential" \
+  python3 tools/codegen/div_differential.py --output "$HOME/.cache/dcc-div-differential"
+```
+
+The default seed is `0xC0DEF00D`: 8,192 randomized operand pairs plus all 5,776 cross-products of 76 boundary values, including every u64 power of two, 2^32 neighbors, signed limits and UINT64_MAX. The test embeds the pre-fast-path helper from `ae692f4`, checks its results against current operators in each guest, and compares every result byte with both LLVM and custom native x86-64 outputs. It runs i8086 small/unreal/unreal32 at O0/O2. Zero divisors and signed INT64_MIN/-1 are excluded from successful-result streams and covered by the existing separate #DE fixtures. Retained outputs are full result streams, not hashes alone; hashes only summarize their byte-for-byte agreement.

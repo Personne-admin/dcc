@@ -1,134 +1,117 @@
-# Custom backend measurements, 2026-10-14
+# Code generation measurements after i8086 division fast paths
 
-The largest measured i8086 opportunity is spill/copy pressure in the generated i64 division helper. The portable workloads also expose repeated aggregate/slice traffic and redundant control flow. Custom em64t emits **2.80×** LLVM's function bytes and executes **3.74×** its instruction callbacks on this corpus. These are corpus totals, not a claim about cycle performance or all applications.
+The approved fast paths halve the corpus's i8086 executed instruction count. Small-model execution falls **356,707 → 177,423 (-50.3%)**, with **75,220 → 76,198 bytes (+1.3%)**. Unreal behaves equivalently; unreal32 falls 50.0% with 1.4% more text. Custom em64t and LLVM code bytes and instruction counts are unchanged.
 
-The roadmap is recorded in the ignored `AGENTS.md`: general i8086 inline assembly (step 15) and custom inline-assembly improvements are backlog work; module assembly and separate assembly objects cover current needs. Next: custom code generation optimization, i8086 first, then fastestcall, then `-farch 8086`. No optimization or ABI change was implemented, and no byte baseline was adopted.
+The remaining optimization ranking below uses the **non-helper workloads** as its primary evidence, rather than weighting priorities toward i64 division. Division helpers still account for 34.6% of small-model execution, down from 67.4% including signed normalization before the change. The retained wide-divisor shift/subtract path is expected to remain expensive. No further optimization or byte-baseline adoption was performed.
 
-## Method and validation
+## Changes and commits
 
-Measured compiler base: `a5351c1afc9284f6c915ad95f5f345fd9dad05e2`, plus measurement-only final-frame-slot dumps and optional verbose LLVM assembly. All sources use `-O2 -fwhole-program`, including the five two-module realistic workloads. The corpus contains all **66** differential-list fixtures plus string/memory routines, FNV-1a, insertion sort, token-state scanning and integer math with i64 mixing/division. The realistic inputs come from volatile globals to retain runtime work.
+- `19ab5a4 fix: print word width for em64t u16 extending loads`: the MOVZX64rm16 assembly-printer path used `RegWidth::Bits8` for memory operands. It now prints `word`; byte loads still print `byte`. The new fixture checks both instructions and high-u16 execution. The object encoder was already correct.
+- `e4423c3 feat: accelerate i8086 i64 division with chained dword divides`: a private compiler-owned `__dcc_udivmod32(high, low, divisor)` operation lowers to one unsigned 32-bit DIV, returning quotient/remainder as the low/high dwords of a u64. Input and output register transfers use parallel-copy groups and DIV explicitly defines/uses EAX/EDX.
 
-QEMU **11.1.2**, TCG, one guest CPU, with a locally built API-7 per-instruction counting plugin measures both real-mode guests and qemu-x86_64. Native perf was unavailable (`perf` is not installed). Both x86-64 builds also run natively to check results. No BIOS/startup/host runtime instructions are included. Referenced freestanding library-call bodies are included in LLVM's totals. REP calibration reports one callback per REP instruction, independent of its byte count. See README for category, frame and prefix definitions.
+The unsigned helper checks zero first. If the divisor fits in 32 bits and the dividend does too, it invokes the primitive once with a zero high dword. Otherwise, with a 32-bit divisor, it divides the high dword first, then divides `first_remainder:low_dword`. Since the first remainder is less than the divisor, the second DIV's quotient fits in a dword. Quotient dwords are combined; the second remainder is the final remainder. Divisors wider than 32 bits retain the original shift/subtract loop.
 
-Validation:
+Signed handling remains unchanged: normalize magnitudes in unsigned arithmetic, run the unsigned helper, negate the quotient for unlike signs and the remainder for a negative dividend. Zero and signed INT64_MIN/-1 still produce #DE, including remainder operations. The helper's public calling convention and result layout are unchanged.
 
-- Full build passed. No test-suite files changed, so no full gate was run, as requested.
-- **355/355** program/configuration measurements passed their expected exit checks; **142/142** x86-64 native execution checks passed.
-- Five independent sorting repeats reproduced every static and per-function executed category count exactly.
-- The plugin calibration passed for 16/64-bit five-iteration loops and REP; accounting checks confirmed every function's decoded byte total equals its symbol size and categories sum to instruction totals.
-- All **355** objects before/after optional LLVM annotations were byte-identical. The custom slot-dump changes affect only requested MIR text; no optimizer or code emitter was changed.
-- Python syntax checks, plugin compilation with `-Wall -Wextra -Werror`, and `git diff --check` passed.
+## Printer artifact audit
 
-Retained artifacts: `/home/admin/.cache/dcc-codegen-measure/final/measurements.json`, `functions.csv`, `summary.md`, individual objects/images/listings/MIR/maps/counts; sibling build logs, `object-proof.json`, repeat results, and printer reproduction. Totals below exclude padding between function symbols and sum each program separately, including each emitted copy of its helpers. Frame totals sum functions; they are not maximum runtime stack use.
+Fresh captures before and after the isolated printer fix changed **226 existing assembly artifacts**: 162 fixture listings, 56 libdcext listings and 8 ABI listings. [Complete artifact list](printer-artifacts.txt). Every changed line is solely a MOVZX memory operand changing `byte` to `word`. All common object/status/other artifacts are byte-identical; no records were removed. There are 21 additional records for the new fixture. These captures did not replace the approved baseline.
 
-## Totals
+Targeted checks compiled ELF/COFF at O0/O2, verified direct objects were unchanged, assembled all four listings and executed the two ELF listings successfully with a value above 255. The measurement's original high-u16 reproduction is now covered by the regression shape.
 
-| Configuration | Functions | Code bytes | Static instructions | Executed instructions | Spill locations | Frame bytes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| i8086 small | 139 | 75,220 | 22,139 | 356,707 | 378 | 2,630 |
-| i8086 unreal | 139 | 75,214 | 22,128 | 356,671 | 378 | 2,630 |
-| i8086 unreal32 | 139 | 77,500 | 22,218 | 358,669 | 365 | 2,686 |
-| custom em64t | 133 | 68,701 | 18,513 | 100,068 | 22 | 1,152 |
-| LLVM x86_64 | 135 | 24,565 | 6,069 | 26,775 | 343 | 1,496 |
+## Measurement method
 
-LLVM's larger spill-location count comes mostly from straight-line test-matrix code; its spill instructions execute only 799 times. It does not explain custom's loop overhead, and physical LLVM spill addresses are not abstract allocator-object counts. Two referenced runtime routines account for the extra LLVM function entries; i8086 also emits arithmetic helpers.
+Same **71 programs**, all 66 i8086 differential-list fixtures plus five realistic multi-module workloads. Every measurement compilation uses `-O2 -fwhole-program`. Custom: i8086 small/unreal/unreal32 and em64t; LLVM: x86_64-elf. All **355/355 before and 355/355 after** measurements passed their expected results; each run also passed 142 native x86-64 checks.
 
-Each category cell below is **static instructions / executed instructions**. Prefix cells are **static bytes / execution-weighted bytes**, overlap instruction categories and must not be added to them.
+Executed instruction counts use the QEMU 11.1.2 API-7 per-instruction plugin, TCG with one guest CPU, and qemu-x86_64 for the flat builds. Native perf is unavailable. Startup/BIOS instructions are excluded; actually referenced freestanding runtime functions are included. REP copying four bytes generates one callback, as calibrated on both architectures. Counts measure instructions reached, not cycles, micro-ops or REP's internal work. Definitions and reproduction commands are in [README](README.md).
 
-| Category | small | unreal | unreal32 | em64t | LLVM |
-| --- | ---: | ---: | ---: | ---: | ---: |
-| Spill stores | 971 / 49,512 | 971 / 49,512 | 950 / 48,926 | 40 / 739 | 401 / 401 |
-| Spill reloads | 2,373 / 84,713 | 2,373 / 84,713 | 2,328 / 82,414 | 58 / 1,009 | 388 / 398 |
-| Register copies | 3,367 / 46,441 | 3,364 / 46,427 | 3,304 / 45,962 | 1,797 / 11,959 | 465 / 1,187 |
-| Frame/stack operations | 2,239 / 4,496 | 2,235 / 4,496 | 2,170 / 4,488 | 1,284 / 2,404 | 154 / 682 |
-| Branches and returns | 1,048 / 23,529 | 1,048 / 23,529 | 1,048 / 23,529 | 1,476 / 22,523 | 478 / 6,910 |
-| Calls | 143 / 364 | 143 / 364 | 143 / 364 | 131 / 326 | 121 / 208 |
-| Everything else | 11,998 / 147,652 | 11,994 / 147,630 | 12,275 / 152,986 | 13,727 / 61,108 | 4,062 / 16,989 |
-| 0x66 prefix bytes | 12,715 / 258,285 | 12,711 / 258,285 | 13,400 / 272,778 | 15 / 571 | 1,392 / 4,160 |
-| 0x67 prefix bytes | 0 / 0 | 4 / 22 | 718 / 9,375 | 0 / 0 | 0 / 0 |
+Retained evidence under `/home/admin/.cache/dcc-div-fastpaths/`: `measure-before/`, `measure-after/` (JSON, CSV, summary, per-address counts, objects, disassembly inputs, MIR and maps); `printer-artifact-differences.json`; `instruction-paths.json`; `regression-runtime-proof.json`; `random-final/`; build and integration logs. The measured after-source matches the division commit; compilation occurred just before committing it, so the JSON retains its parent revision plus the exact compiler source diff.
 
-Small-model spills consume **13,740 bytes (18.3%)** and **134,225 executions (37.6%)**. Copies consume 9,178 bytes (12.2%) and another 13.0% of execution. Prefix 0x66 alone occupies **16.9%** of small-model text, but many prefixes implement necessary u32/u64 work. They cannot all be removed. Unreal32 is 3.0% larger than small; its wide address operations add 718 static 0x67 bytes and 9,375 weighted executions. Small and unreal are nearly identical because this portable corpus predominantly accesses near conventional-memory objects, not extended-memory far data.
+## Before and after
 
-## Where the work goes
-
-Worst functions by execution, small model:
-
-| Program/function | Bytes | Executed instructions | Spills | Reserved frame |
+| Configuration | Code bytes before → after | Change | Executed instructions before → after | Change |
 | --- | ---: | ---: | ---: | ---: |
-| i64 matrix / `__dcc_udivmod64` | 1,055 | 220,044 | 28 | 128 |
-| control-flow switch / `dcc_main` | 1,187 | 49,691 | 12 | 48 |
-| insertion sort / `insertion` | 263 | 22,066 | 2 | 24 |
-| realistic math / `__dcc_udivmod64` | 1,055 | 18,540 | 28 | 128 |
-| control-flow branches / `dcc_main` | 1,399 | 4,347 | 39 | 156 |
-| internal calls / `fibonacci` | 91 | 4,154 | 1 | 4 |
-| inclusive-u8 loop / `dcc_main` | 98 | 3,850 | 0 | 0 |
-| i64 matrix / `dcc_main` | 11,468 | 2,558 | 92 | 448 |
+| i8086 small | 75,220 → 76,198 | +1.3% | 356,707 → 177,423 | -50.3% |
+| i8086 unreal | 75,214 → 76,192 | +1.3% | 356,671 → 177,387 | -50.3% |
+| i8086 unreal32 | 77,500 → 78,566 | +1.4% | 358,669 → 179,385 | -50.0% |
+| Custom em64t | 68,701 → 68,701 | 0% | 100,068 → 100,068 | 0% |
+| LLVM x86_64 | 24,565 → 24,565 | 0% | 26,775 → 26,775 | 0% |
 
-The two division-helper copies account for **238,584 executions, 66.9%** of the total, but only 2,110 static bytes (2.8%). The matrix calls the helper 24 times; realistic math calls it twice. The matrix helper's 220,044 executions contain **100,296 spill operations** and **27,096 register copies**. Its 64-iteration restoring-division loop is in `compiler/source/dcc.vfs.cppm:417`; repeated variable-width multiword shifts and aggregate results amplify allocation pressure. Improving helper code does more for this execution mix than shortening its few branches.
+Custom em64t's gap remains **2.80× LLVM's code bytes and 3.74× its executed instructions**. Its emitted objects are unaffected by either change.
 
-Largest functions by bytes: i64 matrix `dcc_main` 11,468; i8 matrix 6,706; i32 matrix 6,094; u8 matrix 5,888. Large straight-line operation matrices dominate static totals. Unreal32 has the same hotspots: helper 220,068 executions, switch 49,655, insertion 24,178; i64 matrix `dcc_main` grows to 11,563 bytes. Full per-function rankings for every model are in generated `summary.md` and `functions.csv`.
+After-change i8086 executed categories:
 
-Portable realistic programs, including their callees and referenced runtime bodies:
+| Category | small | unreal | unreal32 |
+| --- | ---: | ---: | ---: |
+| Spill stores | 16,682 | 16,682 | 16,096 |
+| Spill reloads | 35,319 | 35,319 | 33,020 |
+| Register copies | 24,409 | 24,395 | 23,930 |
+| Frame/stack operations | 4,496 | 4,496 | 4,488 |
+| Branches and returns | 17,385 | 17,385 | 17,385 |
+| Calls | 364 | 364 | 364 |
+| Everything else | 78,768 | 78,746 | 84,102 |
+| 0x66 execution-weighted prefix bytes (overlapping) | 108,837 | 108,837 | 123,330 |
+| 0x67 execution-weighted prefix bytes (overlapping) | 0 | 22 | 9,375 |
 
-| Workload | small bytes / executions | unreal32 bytes / executions | em64t bytes / executions | LLVM bytes / executions |
+Small spill traffic falls **134,225 → 52,001** instructions and copies **46,441 → 24,409**. Spills still account for 29.3% of the new total. Narrowing widths alone does not reduce instruction count: prefix bytes overlap the categories and must not be added to them.
+
+There is a stack/text tradeoff: the unsigned helper grows **1,055 → 1,544 bytes** in small/unreal, with **28 → 33 spill locations and 128 → 180 reserved frame bytes**. Unreal32 grows **1,078 → 1,611 bytes**, with 32 spill locations and a 176-byte frame. Across all functions, small/unreal spill locations grow 378 → 388 and reserved frame totals 2,630 → 2,734; unreal32 grows 365 → 373 and 2,686 → 2,782. Frame sums are not peak runtime stack usage. Allocation and width work remain useful even after the execution improvement.
+
+## What improved, and what remains
+
+The i64 matrix's unsigned helper falls **220,044 → 40,762** executions; its signed wrapper remains 2,004. The realistic integer program uses a divisor of `2^32 + 1`, so its unsigned-helper count stays approximately unchanged (**18,540 → 18,538**): it intentionally exercises the retained fallback.
+
+QEMU callback probes independently verify all three models:
+
+| Shape | Executed hardware DIVs in unsigned helper | Small/unreal helper instructions | Unreal32 helper instructions |
+| --- | ---: | ---: | ---: |
+| UINT32_MAX / 3 | 1 | 100 | 101 |
+| UINT64_MAX / 3 | 2 | 109 | 110 |
+| UINT64_MAX / (2^32 + 1) | 0 | 10,238 | 10,239 |
+
+Excluding compiler arithmetic helpers, small executes **116,119 instructions**: 25,075 spill operations (21.6%), 16,789 register copies (14.5%), 15,327 branches/returns (13.2%) and 54,708 other instructions (47.1%). Unreal32's corresponding total is 118,003. This subset is unchanged by the helper optimization and is the basis for the revised priorities.
+
+Largest remaining non-helper functions:
+
+| Function | small executions | unreal32 executions | custom em64t executions | LLVM executions |
 | --- | ---: | ---: | ---: | ---: |
-| String/memory | 340 / 2,931 | 401 / 2,863 | 520 / 2,298 | 600 / 656 |
-| FNV-1a | 344 / 3,144 | 442 / 3,214 | 384 / 1,725 | 426 / 296 |
-| Insertion sort | 525 / 23,394 | 678 / 25,219 | 616 / 15,030 | 509 / 3,538 |
-| State scan | 363 / 1,065 | 376 / 1,048 | 416 / 769 | 137 / 314 |
-| Integer/i64 math | 2,466 / 19,150 | 2,576 / 19,155 | 395 / 299 | 396 / 166 |
+| switch workload `dcc_main` | 49,691 | 49,655 | 47,413 | 13,937 |
+| insertion-sort routine | 22,066 | 24,178 | 14,193 | 3,217 |
+| branches workload `dcc_main` | 4,347 | 4,347 | 4,456 | 907 |
+| recursive Fibonacci | 4,154 | 4,154 | 4,063 | 1,740 |
+| inclusive-u8 loop | 3,850 | 3,850 | 4,357 | small LLVM loop/constant simplification |
 
-## What LLVM does differently
+Switch and sorting together consume **61.8%** of small's non-helper work. The switch has 13,403 spill accesses and 6,014 copies. Sorting has 3,226 spills and 2,141 copies on small, while custom em64t sorting has **no allocator spills**: its overhead includes repeated stack slice copies, pointer/length reloads and boolean/CFG scaffolding. LLVM keeps the slice in registers, reuses the loaded element, branches directly and unrolls selected loops.
 
-**Slice/aggregate scalar replacement, CSE and loop hoisting.** Insertion sort's custom em64t entry stores pointer/length into one 16-byte stack slice, copies it to another, then repeatedly forms `[rbp-32]` addresses and reloads the pointer and length inside loops. Consecutive identical LEAs also survive. LLVM keeps the pointer and length in registers and directly addresses `(%rdi,%r9,2)`. Its inner loop loads the previous element once, compares it, stores that same value when needed and decrements the index. Custom reloads the element and slice pointer across its short-circuit blocks. The sorting function is 325 bytes / 14,193 executions custom versus 186 / 3,217 LLVM. There are **no custom allocator spills** in this em64t function: much of the excess is ordinary aggregate memory traffic, not allocation failure.
+Static hotspots are unchanged: i64 matrix `dcc_main` 11,468 bytes, i8 matrix 6,706, i32 matrix 6,094 and u8 matrix 5,888 in small. The shared custom pipeline still has inline, mem2reg, DCE and simplifycfg, rather than general SCCP/GVN/LICM. LLVM's CSE of repeated nonvolatile matrix calculations, scalar replacement, immediate/address folding and loop transforms explain much of the remaining gap. LLVM vectorization/unrolling sometimes increases text: the hash program is 426 bytes versus custom em64t's 384, but executes 296 versus 1,725 instructions.
 
-**Control-flow simplification and induction handling.** Custom em64t often materializes a boolean, jumps to a merge, tests it and jumps again. LLVM branches directly and uses decrement/inc forms and unrolling where profitable. In the switch workload, custom executes 47,413 instructions with 15,200 branches versus LLVM's 13,937 with 4,778 branches. i8086 already fuses single-use comparisons and removes fallthrough jumps; em64t still contains 149 jumps to the immediately following instruction (772 executions, 745 bytes).
+## Revised ranking of remaining opportunities
 
-**Immediate/operation folding.** Custom emits a register constant for loop increments and comparisons, plus an ALU operation and register copy. Small sort includes `imul index,2` followed by separate base moves/adds; custom em64t already folds many scaled addresses but does not consistently fold arithmetic immediates. A scan found 312 custom em64t MOVABS constants representable by a flag-preserving shorter immediate move: an isolated **1,424-byte upper bound** on savings without deleting instructions. Zero/one materializations execute 7,634/5,174 times on em64t and 13,257/2,219 on small i8086.
+Estimates are planning ranges, **not measured improvements**, and overlap. The instruction estimates below use the **116,119-instruction small non-helper subset**, so the retained division loop does not distort priorities. Whole-corpus reductions from changes confined to this subset would be about 65.4% of the listed percentage. Additional helper benefits, if any, are excluded from these estimates. Text estimates use whole-corpus function bytes. Each step needs its own approval and measured validation.
 
-**CSE of repeated matrix operations.** The integer fixtures repeatedly calculate the same `a+b`, `a/b`, comparison and shift from values read once from volatile globals. LLVM can reuse those nonvolatile computations. The shared custom pipeline currently registers only inline, mem2reg, DCE and simplifycfg (`dcc.ir.transforms.cppm:3532`); it has no general SCCP/GVN/LICM pass. Frontend constant tracking and inline partial evaluation do exist; general propagation should extend them rather than assume there is no folding today.
-
-**Vectorization/unrolling and loop idioms.** LLVM vectorizes hash-buffer initialization and unrolls the scalar FNV loop fourfold. LLVM's hashing program is slightly larger, 426 versus 384 bytes, while using 296 versus 1,725 callbacks. LLVM recognizes memset/strlen idioms; the measurement includes their freestanding runtime bodies. Those size/count tradeoffs should not automatically become the i8086 policy.
-
-## Ranked opportunities for approval
-
-This ordering balances evidence, effort and risk, starting with changes that make later allocation work meaningful. Estimates are planning ranges against this corpus, not measured optimization results. They overlap and **must not be added**. A callback reduction is not a predicted cycle reduction.
-
-| Rank / opportunity | Evidence and estimated gain | Layer / em64t benefit | Risk |
+| Rank | Opportunity and evidence | Estimated text / non-helper instruction gain | Location, em64t benefit and risk |
 | --- | --- | --- | --- |
-| 1. Width-aware copies and spill slots | i8086 policy fixes GPRs, COPY and spills at 32 bits/four bytes (`backend/i8086/registers.cppm:14-32`), including u16 indices. Small has 12,715 0x66 bytes. Conservatively target **3–8% text**, **0% instruction count for width substitution alone**; deleting newly redundant extensions may add 0–2%. Full prefix count is only an upper bound. | Shared MIR/allocator value-width metadata plus i8086 isel/policy/frame layout. Some em64t benefit from narrower spills/copies, with different extension semantics. | Medium: upper-half liveness, register pairs, mixed-width phi/asm copies, C ABI preserved full ESI/EDI, sign/zero extension and spill alignment. |
-| 2. Allocation: coalescing, rematerialization, splitting, scratch borrowing | Small spends 37.6% of execution on spills and 13.0% on copies. Current linear scan assigns one interval, spills by farthest end and uses fixed register order; no general copy-hint coalescing, constant rematerialization or split intervals. Target **5–12% text, 12–25% callbacks** by removing a portion of this traffic. DI is permanently unavailable to allocation, leaving five GPRs, with only SI available across calls. Evaluate allocating DI with scoped scratch reservation separately; do not just add it to the list. | Shared allocator; i8086 register policy. Em64t benefits especially under pressure (branches workload: 1,748 spill callbacks), less on already spill-free loops. | High: physical clobbers/uses, CL shifts, byte/address-register masks, parallel-copy cycles, SI/DI REP operands and register-family aliases. Cost-model/coalescing can precede splitting/DI changes. |
-| 3. Aggregate scalar replacement and load/store elimination | Sorting and FNV repeatedly copy/reload slices. Custom sort has no em64t spills yet uses 4.41× LLVM's sorting callbacks. Target **2–6% total text, 3–8% total small callbacks**, with **20–50%** reductions plausible in these slice routines; em64t realistic loops have larger proportional opportunity. | Shared IR SROA/promotion, then alias-aware redundant memory elimination. Benefits both; LLVM already performs much of it. | Medium/high: address escapes, aggregate aliasing, volatile/atomic accesses, far/based pointer layout and segment reads. Promote proven nonescaping fields first. |
-| 4. i64 divmod reuse and helper fast paths | Helpers consume 66.9% of small callbacks. Realistic `x/y + x%y` invokes the same helper twice (18,540 callbacks). Reusing one divmod result would approximately halve that helper work. After allocation improvements, evaluate dividend<divisor, proven 32-bit cases and significant-bit loop bounds. Target **10–30% total callbacks** on this div-heavy corpus; **0–3% text reduction or a small increase** for fast paths. Not representative of programs without i64 division. | Shared IR/isel divmod pairing, generated helper in VFS; keep ABI unchanged initially. Pairing/native divmod also benefits em64t, where division is hardware and the absolute gain is smaller. | High: signed MIN/-1 and zero #DE, evaluation order, overflow/remainder semantics, helper sret, interrupt contract. Separate helper-algorithm changes from allocator commits. |
-| 5. Immediate/address folding | Repeated constants and multiply-by-two/add address sequences remain; em64t already has `fold_addresses` at isel:353. Target **2–5% text, 1–4% callbacks** small; the 1,424-byte em64t MOVABS bound is directly measurable, plus removal of ALU constant temporaries. | Isel/MIR peephole and encoder immediate choices. Both backends. Respect legal 16-bit BX/BP/SI/DI forms and DS/SS selection. | Low/medium for flag-preserving moves; medium for flag-writing arithmetic folding, displacement overflow and segment/address-width rules. |
-| 6. General constant propagation and CSE | Shared pass list lacks SCCP/GVN; repeated operations in six integer matrices survive, with individual custom matrices around 6 KB versus LLVM's roughly 2–2.6 KB. Target **8–20% total text, 2–8% small callbacks**, much more static gain than dynamic on this division-heavy mix. | Shared IR SCCP/algebraic simplification and local CSE first, then dominance-aware GVN. Both backends; useful before MIR allocation. | Medium/high: narrow wrap semantics, divide/trap behavior, pointer provenance, volatility, side effects and memory invalidation. Never merge volatile reads. |
-| 7. Redundant MIR moves/addresses and cleanup | 56 identical small-model register moves occupy 112 bytes and execute 375 times. Existing shared move cleanup at regalloc:1973 handles COPY/MOV64rr, leaving narrow self-moves; adjacent duplicate LEAs survive too. Narrow self-moves alone: **0.15% text / 0.11% callbacks**. Broader cleanup might reach **0.5–2% text / 0.5–2% callbacks**. | Shared MIR peephole after allocation, distinct from alias-aware IR load/store work. Both; never erase em64t `mov eax,eax` without proving upper bits irrelevant. | Low for proven full-value self-copies; medium for extensions, address reuse and dead flag-producing instructions. |
-| 8. LICM and strength reduction | Slice pointer/length and global address LEAs remain inside loops; small u16 indexing repeatedly multiplies by two. Hoist immutable addresses and use legal pointer induction where profitable. Target **1–4% text, 2–5% small callbacks**, larger routine-local gains. | Shared IR loop analysis/LICM and induction simplification; i8086 isel strength reduction informed by register pressure. Both. | High for memory LICM: aliasing, volatile loads, loops with zero iterations and trapping operations. Medium for wraparound induction, 0xFFFF boundaries and based/far offsets. |
-| 9. Branch layout, fusion and relaxation | Small already removes fallthrough jumps and fuses comparisons. 244 currently near branches fit conservative short ranges: **389 bytes (0.52%)**, **zero callback reduction** from shortening alone. Em64t has 149 removable next-instruction jumps and 940 conservatively shortenable branches; shortening bound 3,194 bytes (4.65%), overlapping jump deletion. Direct branch/short-circuit simplification can reduce more. | MIR block layout/fusion; encoder iterative branch relaxation. Both, with a bigger immediate gap on em64t. | Medium: fallthrough CFG, labels/relocations, jump tables, shrinking to a fixed point and flags. Do not speculate side-effecting RHSs. |
-| 10. Frame omission and fastestcall | Frame/stack operations execute 4,496 times (1.26%) on small; calls 364 (0.10%), versus spills 37.6%. Current four-register internal ABI, aggregate/sret copies and conservative call clobbers do cost work; frame omission/call specialization has a modest corpus-wide direct bound. Target **1–4% text / 0.5–2% callbacks** before secondary allocation effects. Fastestcall is the next separate roadmap phase. | ABI/frame layout with whole-program SCC analysis and address-taken/C ABI exclusions. Em64t may benefit, with its different ABI constraints. | High for fastestcall: recursion, interop, indirect/address-taken functions, preserved registers, segments, unwind/debugging. Do not fold into early peephole changes. |
+| 1 | **Scalar replacement and redundant memory elimination.** Sorting repeatedly copies slices and reloads pointer/length/previous elements. Its 22,066 instructions are 19.0% of the subset; em64t's spill-free routine still uses 4.41× LLVM's instructions. Start with proven nonescaping aggregates and local load forwarding/CSE. | 2–6% text; 5–12% instructions, with 20–50% routine-local savings plausible. | Shared IR SROA/promotion and alias-aware memory optimization. Strong em64t benefit. Medium/high risk: escapes, aliasing, volatile/atomic access and far/based layout. |
+| 2 | **Width-aware copies and spill slots.** i8086 still uses four-byte GPR spills/COPY for u16 values. Non-helper copies are 14.5% of execution and still carry unnecessary full-width moves. Width reduction can shrink prefixes and stack displacements, even when instruction counts stay constant. | 3–8% text; 0% instructions for width substitution alone, 0–2% from eliminating proven redundant extensions. | MIR width metadata, i8086 selection/policy/frame layout and shared allocator. Some em64t benefit with different zero-extension rules. Medium risk: upper-half liveness, mixed-width phis, parallel copies, C ABI full ESI/EDI preservation. |
+| 3 | **Allocation quality: coalescing, rematerialization, live-range splitting.** Non-helper spills are 21.6% of execution; switch and branch-pressure functions dominate them. Copies remain 14.5%. Current linear scan has fixed-order interval assignment and no general rematerialization/splitting. | 3–8% text; 8–16% instructions by eliminating part of spill/copy traffic. | Shared allocator. Em64t benefits most in pressure cases; branches alone executes 1,748 spills. High risk: physical clobbers, CL shifts, DIV and register-family aliases. Evaluate freeing permanently reserved DI as a separate later experiment with scoped scratch reservations; it cannot simply be added to the allocatable set. |
+| 4 | **General constant propagation, CSE and algebraic/CFG simplification.** Large matrices repeat arithmetic, divisions, shifts and comparisons from values read once from volatile globals. Switch consumes 42.8% of the subset; LLVM executes 3.40× fewer instructions on em64t for that program. Avoid recomputation and unnecessary boolean merge/test scaffolding. | 8–20% text; 5–15% instructions. | Shared IR SCCP/local CSE, followed by dominance-aware GVN and CFG simplification. Strong em64t benefit. Medium/high risk: narrow wrapping, trapping operations, memory invalidation and side effects. Do not merge volatile reads or speculate a short-circuit RHS. |
+| 5 | **Immediate and addressing-mode folding.** Constant temporaries, increments followed by copies, and multiply-by-two/base-add sequences remain. Em64t already folds scaled addresses but still has 312 flag-preserving short-immediate opportunities, bounded at 1,424 bytes. | 2–5% text; 2–6% instructions. | Isel/MIR peephole and immediate encoding. Both backends. Low/medium risk for moves; medium for flags, displacement limits and legal 16-bit DS/SS addressing. |
+| 6 | **LICM and strength reduction.** Slice/global addresses and lengths remain in loops; small-model indices are repeatedly scaled and transferred to legal address registers. Pointer induction and invariant promotion can reduce sorting/hash/memory work. | 1–4% text; 3–8% instructions. | Shared IR loop analysis and induction simplification; target-aware isel. Benefits em64t too. High risk for memory LICM and zero-trip/trapping expressions; medium for wraparound/0xFFFF and far offsets. |
+| 7 | **Redundant MIR moves, addresses and cleanup.** 56 narrow small self-moves occupy 112 bytes and execute 375 times; identical adjacent LEAs remain. Existing cleanup only handles COPY/MOV64rr self-moves. | Proven self-moves: 0.15% text / 0.32% subset instructions. Broader cleanup: 0.5–2% text / 0.5–3% instructions. | Shared MIR peephole after allocation. Both backends. Low risk for full-value copies; medium for extensions and flags. Preserve em64t 32-bit writes unless upper-bit effects are proven irrelevant. |
+| 8 | **Branch layout/fusion/relaxation.** i8086 already removes fallthrough jumps and fuses comparisons; the old 244 short-branch candidates give a 389-byte bound, without reducing instruction count. Em64t retains 149 next-instruction jumps (745 bytes, 772 executions), and roughly 3.2 KB of conservative shortening opportunity. | About 0.5% i8086 text for the measured shortening set, 0% instructions from shortening; further layout/fusion may save 1–3% subset instructions. | MIR layout plus iterative encoder relaxation. Larger immediate em64t benefit. Medium risk: CFG/flags, branch-distance boundaries, jump tables and relocation correctness. |
+| 9 | **Frame omission and later fastestcall.** Non-helper frame/stack operations are 3,868 (3.3%); calls 352 (0.3%). Aggregate argument/sret movement and conservative call clobbers add indirect cost. Preserve the agreed roadmap: fastestcall follows i8086 optimization. | 1–4% text; 1–3% instructions before secondary allocation effects. | ABI/frame layout with whole-program SCC/address-taken analysis. Both backends. High risk for fastestcall, recursion, C interop, preservation, segment state and unwind/debugging. |
 
-Vectorization/unrolling is lower priority for i8086: LLVM's FNV result demonstrates substantial instruction savings but increased text. For em64t it is a later separate opportunity after scalar IR and selection gaps shrink. Strict `-farch 8086` remains after fastestcall; these measurements use the existing i386-capable real-mode backend.
+Divmod-result reuse and improvements to the remaining wide-divisor algorithm are separate, lower-priority follow-ups rather than drivers of this ranking. The realistic math program still invokes the fallback twice for identical division/remainder operands; reuse could save roughly half its helper work, but that is localized evidence and needs trap/evaluation-order checks. No such reuse was added here. Vectorization/unrolling remains a later em64t opportunity with an explicit size tradeoff, and strict `-farch 8086` remains after fastestcall.
 
-## Verification proposal
+## Correctness verification and baseline policy
 
-Existing hand-written execution fixtures are a strong starting set, but **not enough** to approve arbitrary allocator, width, memory or ABI optimizations alone.
+Targeted verification passed:
 
-For each approved optimization, use one isolated commit and a targeted execution regression for the changed invariant. During iteration run the affected representative shape. Before proposing adoption, run the i8086 differential list at O0/O2 in all three models, C/internal ABI matrix with NASM interop, far/based and memory/i64/#DE QEMU matrices (including above-1-MiB unreal cases, 0xFFFF wrapping, segment caches, overlapping REP copies and ES preservation), and em64t execution fixtures on custom and LLVM for ELF/COFF. Keep the Linux/Windows cross-backend ABI checks for shared allocator or ABI changes. Use KVM checks where the existing mandatory matrix requires them; TCG alone does not enforce all segment limits. Follow the agreed one end-of-batch gate, rather than rerunning it after every byte change.
+- **48** i64 matrix, NASM C ABI, fast-path and #DE runs, all three models at O0/O2. Every listing reassembled to the same linked image. Zero divisor, signed overflow, remainder-zero and native #DE fixtures all passed.
+- **13,968 operand pairs**: 8,192 seeded random pairs and 5,776 boundary cross-products, including every power of two, 0, 1, -1, 2^32±1, INT64_MIN and UINT64_MAX. For each of the 13,892 nonzero-divisor pairs, QEMU directly compared new results with the embedded old helper; signed MIN/-1 was reserved for the trap fixtures. All actual quotient/remainder values were then compared byte-for-byte with both LLVM and custom native x86-64 results.
+- All six model/optimization runs produced the same **444,544-byte result stream**. SHA256 `3d2ce49ff7aff218ef458299a673da461602e3dcb2effef21369abd5275d6914` summarizes those identical streams; comparison used the full bytes, not only the hash. Seed `0xC0DEF00D`; reproduce with `tools/codegen/div_differential.py`.
+- Nine execution-count probes confirmed the one-DIV/two-DIV/fallback distinction in all models. Measurement accounting/prefix/plugin calibration checks passed.
 
-Add focused coverage before the relevant step:
+For subsequent optimizations, retain execution-based verification: the i8086 differential list at O0/O2 in all models, ABI interop, QEMU memory/far/based/i64/trap matrices and em64t execution fixtures on both backends, including ELF/COFF and Linux/Windows ABI checks when applicable. Add pressure/random CFG tests before allocation changes; high-u16/poisoned-upper-half and parallel-copy tests before width changes; alias/volatile/zero-trip/trap tests before memory or LICM changes. The seeded division differential adds substantial arithmetic coverage, but is not a general randomized compiler test generator.
 
-- Width narrowing: poison unused register halves, high u16 values above 255, all integer widths/signedness, call preservation of full ESI/EDI, narrow values sharing a spilled register/pair, parallel copy cycles and phi swaps; object and reassembled-listing execution must agree.
-- Allocation: randomized live-range pressure with loops/diamonds, constants live across calls, CL shifts, DIV fixed registers, REP implicit operands, pointer addressing masks and overlapping narrow/wide register families. Check results and sentinels, not just exit-only arithmetic sums.
-- IR memory work: escaped locals, overlapping pointers/aggregates, volatile/MMIO reads/writes, atomics on em64t, zero-trip loops, conditional traps and far/based qualifiers/segments. Verify ordered side effects as well as returned values.
-- Division: boundary tables plus deterministic random dividends/divisors, signedness, quotient/remainder identities, zero and MIN/-1 #DE, helper interop and pair reuse with intervening side effects.
-- Layout/fusion: branch-distance boundaries, sparse/dense switch and jump-table relocation cases, fallthrough edges and flag-dependent consumers.
-
-A **seeded randomized differential generator** would materially improve confidence: generate bounded integer/pointer/array programs with defined DC semantics, compare LLVM/native em64t against custom em64t and i8086 in all models, emit an observable memory digest and side-effect trace, record seeds and automatically reduce failures. Exclude undefined physical addresses and deliberately trapping cases from random success tests; test traps separately. Include model-aware near-pointer wrapping and segment cases with explicit reference behavior instead of treating LLVM's flat pointers as the oracle. Establish a nightly/manual larger seed budget and a small fixed-seed commit gate. This is proposed coverage, not implemented here.
-
-Output change review: retain before/after objects, disassembly, MIR slot tables, per-function/category byte and callback deltas, frame deltas and execution results. Explain every changed function by the intended transformation; investigate unrelated changes and correctness failures. Keep exact-output tests for unaffected structural invariants and update changed expected output only after execution evidence supports it. Capture the proposed replacement byte baseline twice from distinct source directories, verify reproducibility and preserve the previous approved baseline. **Submit the report and candidate baseline for explicit user approval after each optimization step; adopt only after approval.** None is adopted by this measurement commit.
-
-## Pre-existing assembly-printer defect
-
-Custom em64t's MOVZX64rm16 listing path prints every memory source with `RegWidth::Bits8` (`compiler/source/backend/em64t/assembler.cppm:456`). The encoder emits a correct word load. A sorting reproduction with values multiplied by 257 exits **0** from the direct object but **1** after NASM assembles `-S` output. Evidence is retained in `/home/admin/.cache/dcc-codegen-measure/printer-probe/`. This should be a separate correctness fix with high-u16 round-trip execution coverage before assembly listings can be trusted as byte-baseline inputs. It was not fixed because this task is measurement and analysis only. Object-based measurement is unaffected.
-
-The report and proposed order now need approval. No optimization work has started and nothing was pushed.
+Record before/after byte, instruction-category, frame and per-function changes and explain each transformation. Capture proposed replacement byte baselines twice from distinct source directories, preserve the previous baseline and adopt each new baseline **only after explicit user approval**. This batch changes output intentionally but does not adopt a baseline. The roadmap and ignored AGENTS.md record remain i8086 optimization, then fastestcall, then strict 8086.
