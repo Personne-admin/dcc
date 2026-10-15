@@ -99,4 +99,14 @@ with tempfile.TemporaryDirectory(prefix="dcc-whole-program-") as directory:
     run(*i8086, "-mcmodel", "unreal", "-O2", "-fwhole-program", "-S", entry_shape, "-o", without_e)
     assert "unused_public" in without_e.read_text(), "without -e a public entry-module function is a root"
 
+    assert_dir = directory / "assert_project"
+    assert_dir.mkdir()
+    (assert_dir / "app.dc").write_text("module app;\n\n@nomangle public void loader_entry() {\n    u8[2] a = {0, 0};\n    [] u8 s = a;\n    s[5] = 1;\n}\n")
+    (assert_dir / "assert.dc").write_text("module assert;\n\npublic import core::source_location;\n\npublic void __assert([] const char msg, core::source_location::SourceLocation sl) {\n    for ;; {}\n}\n")
+    implicit = directory / "implicit-assert.s"
+    result = run(*i8086, "-mcmodel", "unreal", "-O2", "-fwhole-program", "-fbounds-check", "-e", "loader_entry", "--print-reachability", "-S",
+                 assert_dir / "app.dc", "-o", implicit)
+    assert "6.assert8.__assert" in result.stdout, "assert module must always be imported and __assert kept:\n" + result.stdout
+    assert "6.assert8.__assert" in implicit.read_text(), "assert definition must be emitted:\n" + implicit.read_text()
+
 print(f"PASS {checks} whole-program checks")
