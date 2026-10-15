@@ -1553,3 +1553,234 @@ TEST_CASE("i8086 fully overwritten aggregates do not clear their temporary")
         CHECK((result.asm_text->find("rep stos") != std::string::npos) == padded);
     }
 }
+
+TEST_CASE("O2 integer combining preserves widths and removes identity chains")
+{
+    for (auto width : {8, 16, 32, 64})
+        for (auto level : {dcc::ir::pass::OptLevel::O1, dcc::ir::pass::OptLevel::O2})
+        {
+            auto target = *TargetConfig::parse_triple("x86_64-elf");
+            IrContext ctx(262144, &target);
+            auto* type = ctx.int_t(static_cast<std::uint8_t>(width), false);
+            IrType const* parameters[] = {type};
+            auto* module = ctx.module("integer_identities");
+            auto* function = ctx.function("identities", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+            auto* block = ctx.basic_block("entry", 0);
+            auto* parameter = ctx.local("x", 0, type);
+            block->params.push_back(parameter);
+            IrValue* value = parameter;
+            auto append = [&](IrValue* next) {
+                block->instructions.push_back(next);
+                value = next;
+            };
+            append(ctx.add(type, value, ctx.int_const(type, 0)));
+            append(ctx.mul(type, value, ctx.int_const(type, 1)));
+            append(ctx.and_(type, value, ctx.int_const(type, -1)));
+            append(ctx.or_(type, value, ctx.int_const(type, 0)));
+            append(ctx.xor_(type, value, ctx.int_const(type, 0)));
+            append(ctx.shl(type, value, ctx.int_const(type, 0)));
+            append(ctx.neg(type, value));
+            append(ctx.neg(type, value));
+            append(ctx.not_(type, value));
+            append(ctx.not_(type, value));
+            block->terminator = ctx.ret(value);
+            function->entry_block = block;
+            function->blocks.push_back(block);
+            module->functions.push_back(function);
+            IrContext output(262144, &target);
+            auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, level);
+            REQUIRE(optimized);
+            auto* result = optimized->functions.front();
+            auto* returned = ir_cast<IrRetInst>(result->entry_block->terminator);
+            REQUIRE(returned);
+            CHECK((returned->value == result->entry_block->params.front()) == (level == dcc::ir::pass::OptLevel::O2));
+            dcc::ir::pass::IrVerifier verifier(target);
+            CHECK(verifier.verify(*optimized).empty());
+        }
+}
+
+TEST_CASE("O2 constant folding wraps integer results at every width")
+{
+    for (auto width : {8, 16, 32, 64})
+        for (bool signed_type : {false, true})
+            for (bool overflow : {false, true})
+            {
+                auto target = *TargetConfig::parse_triple("x86_64-elf");
+                IrContext ctx(262144, &target);
+                auto* type = ctx.int_t(static_cast<std::uint8_t>(width), signed_type);
+                auto* module = ctx.module("wrapping_constants");
+                auto* function = ctx.function("wrap", ir_type_cast<IrFuncType>(ctx.func_t(type, {})));
+                auto* block = ctx.basic_block("entry", 0);
+                auto maximum = std::bit_cast<std::int64_t>(width == 64 ? 0x7fffffffffffffffULL : (std::uint64_t{1} << (width - 1)) - 1);
+                auto* add = ctx.add(type, ctx.int_const(type, overflow ? maximum : -1), ctx.int_const(type, 1));
+                auto* sub = ctx.sub(type, add, ctx.int_const(type, 1));
+                block->instructions = {add, sub};
+                block->terminator = ctx.ret(overflow ? static_cast<IrValue*>(add) : sub);
+                function->entry_block = block;
+                function->blocks.push_back(block);
+                module->functions.push_back(function);
+                IrContext output(262144, &target);
+                auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+                auto* returned = ir_cast<IrRetInst>(optimized->functions.front()->entry_block->terminator);
+                REQUIRE(returned);
+                auto* constant = ir_cast<IrIntConstant>(returned->value);
+                REQUIRE(constant);
+                auto mask = width == 64 ? ~std::uint64_t{} : (std::uint64_t{1} << width) - 1;
+                auto expected = overflow ? std::uint64_t{1} << (width - 1) : mask;
+                if (signed_type && width < 64 && overflow)
+                    expected |= ~mask;
+                else if (signed_type && !overflow)
+                    expected = ~std::uint64_t{};
+                CHECK(static_cast<std::uint64_t>(constant->value) == expected);
+            }
+}
+
+TEST_CASE("O2 combines masks and width round trips")
+{
+    for (auto shape : {0, 1, 2})
+    {
+        auto target = *TargetConfig::parse_triple("x86_64-elf");
+        IrContext ctx(262144, &target);
+        auto* u8 = ctx.int_t(8, false);
+        auto* u32 = ctx.int_t(32, false);
+        auto* parameter_type = shape == 1 ? u8 : u32;
+        IrType const* parameters[] = {parameter_type};
+        auto* module = ctx.module("masks");
+        auto* function = ctx.function("masks", ir_type_cast<IrFuncType>(ctx.func_t(parameter_type, parameters)));
+        auto* block = ctx.basic_block("entry", 0);
+        auto* x = ctx.local("x", 0, parameter_type);
+        block->params.push_back(x);
+        IrValue* value{};
+        if (shape == 1)
+        {
+            auto* extended = ctx.zext(u32, x);
+            value = ctx.trunc(u8, extended);
+            block->instructions = {extended, value};
+        }
+        else
+        {
+            auto* masked = ctx.and_(u32, x, ctx.int_const(u32, 127));
+            block->instructions.push_back(masked);
+            if (shape == 0)
+                value = ctx.and_(u32, masked, ctx.int_const(u32, 255));
+            else
+            {
+                auto* truncated = ctx.trunc(u8, masked);
+                block->instructions.push_back(truncated);
+                value = ctx.zext(u32, truncated);
+            }
+            block->instructions.push_back(value);
+        }
+        block->terminator = ctx.ret(value);
+        function->entry_block = block;
+        function->blocks.push_back(block);
+        module->functions.push_back(function);
+        IrContext output(262144, &target);
+        auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+        auto* result = optimized->functions.front();
+        auto* returned = ir_cast<IrRetInst>(result->entry_block->terminator);
+        REQUIRE(returned);
+        if (shape == 1)
+            CHECK(returned->value == result->entry_block->params.front());
+        else
+        {
+            auto* conjunction = ir_cast<IrAndInst>(returned->value);
+            REQUIRE(conjunction);
+            CHECK(conjunction->lhs == result->entry_block->params.front());
+            CHECK(ir_cast<IrIntConstant>(conjunction->rhs)->value == 127);
+            CHECK(result->entry_block->instructions.size() == 1);
+        }
+        dcc::ir::pass::IrVerifier verifier(target);
+        CHECK(verifier.verify(*optimized).empty());
+    }
+}
+
+TEST_CASE("SCCP merges equal constants from both executable branch edges")
+{
+    auto target = *TargetConfig::parse_triple("x86_64-elf");
+    IrContext ctx(262144, &target);
+    auto* type = ctx.int_t(32, false);
+    IrType const* parameters[] = {ctx.bool_t()};
+    auto* module = ctx.module("sparse_constants");
+    auto* function = ctx.function("diamond", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+    auto* entry = ctx.basic_block("entry", 0);
+    auto* left = ctx.basic_block("left", 1);
+    auto* right = ctx.basic_block("right", 2);
+    auto* join = ctx.basic_block("join", 3);
+    auto* good = ctx.basic_block("good", 4);
+    auto* bad = ctx.basic_block("bad", 5);
+    auto* choose = ctx.local("choose", 0, ctx.bool_t());
+    entry->params.push_back(choose);
+    entry->terminator = ctx.br_cond(choose, left, right);
+    left->terminator = ctx.br(join);
+    right->terminator = ctx.br(join);
+    auto* phi = ctx.phi(type);
+    phi->incoming = {{ctx.int_const(type, 7), left}, {ctx.int_const(type, 7), right}};
+    auto* comparison = ctx.cmp_eq(phi, ctx.int_const(type, 7));
+    join->instructions = {phi, comparison};
+    join->terminator = ctx.br_cond(comparison, good, bad);
+    good->terminator = ctx.ret(phi);
+    bad->terminator = ctx.ret(ctx.int_const(type, 99));
+    function->entry_block = entry;
+    function->blocks = {entry, left, right, join, good, bad};
+    module->functions.push_back(function);
+    IrContext output(262144, &target);
+    auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+    for (auto* block : optimized->functions.front()->blocks)
+    {
+        CHECK(block->name != "bad");
+        if (auto* returned = ir_cast<IrRetInst>(block->terminator))
+        {
+            auto* constant = ir_cast<IrIntConstant>(returned->value);
+            REQUIRE(constant);
+            CHECK(constant->value == 7);
+        }
+    }
+    dcc::ir::pass::IrVerifier verifier(target);
+    CHECK(verifier.verify(*optimized).empty());
+}
+
+TEST_CASE("O2 identities retain volatile atomic and inline asm operations")
+{
+    auto target = *TargetConfig::parse_triple("x86_64-elf");
+    IrContext ctx(262144, &target);
+    auto* type = ctx.int_t(32, false);
+    IrType const* parameters[] = {ctx.pointer_to(type)};
+    auto* module = ctx.module("observable_operations");
+    auto* function = ctx.function("observe", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+    auto* block = ctx.basic_block("entry", 0);
+    auto* pointer = ctx.local("pointer", 0, parameters[0]);
+    block->params.push_back(pointer);
+    auto* read = ctx.load_volatile(type, pointer);
+    auto* atomic = ctx.atomic_load(type, pointer, IrMemoryOrdering::Relaxed);
+    auto* assembly = ctx.inline_asm(std::pmr::string{""}, {}, {}, true, false, IrAsmDialect::Intel, ctx.void_t(), {});
+    auto* same = ctx.cmp_eq(read, read);
+    auto* result = ctx.zext(type, same);
+    block->instructions = {read, atomic, assembly, result};
+    block->instructions.insert(block->instructions.end() - 1, same);
+    block->terminator = ctx.ret(result);
+    function->entry_block = block;
+    function->blocks.push_back(block);
+    module->functions.push_back(function);
+    IrContext output(262144, &target);
+    auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+    auto* final_block = optimized->functions.front()->entry_block;
+    for (auto kind : {IrNodeKind::LoadVolatile, IrNodeKind::AtomicLoad, IrNodeKind::InlineAsm})
+        CHECK(std::ranges::any_of(final_block->instructions, [&](auto* inst) { return inst->kind == kind; }));
+    auto* returned = ir_cast<IrRetInst>(final_block->terminator);
+    REQUIRE(returned);
+    CHECK(ir_cast<IrIntConstant>(returned->value)->value == 1);
+    for (bool llvm : {false, true})
+    {
+        BackendOptions options;
+        options.target = target;
+        options.opt_level = dcc::ir::pass::OptLevel::O2;
+        options.requested_artifacts = {ArtifactKind::ObjectBytes};
+        auto backend = llvm ? make_llvm_backend() : make_em64t_backend();
+        auto result_artifact = backend->emit(*optimized, options);
+        CHECK(result_artifact.diagnostics.empty());
+        CHECK(result_artifact.object_bytes.has_value());
+    }
+    dcc::ir::pass::IrVerifier verifier(target);
+    CHECK(verifier.verify(*optimized).empty());
+}

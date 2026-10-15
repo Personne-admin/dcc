@@ -1,0 +1,30 @@
+=== FILE: main.dc ===
+module main;
+volatile u32 seed = 0xfedcba98;
+@noinline @runtime u32 identities(u32 x) {
+    u32 bits = ((x + 0) * 1) & (0xffffffff as u32);
+    return (~(~(-(-(bits as i32)))) as u32) | 0;
+}
+@noinline @runtime u32 masks(u32 x) {
+    u32 first = x & 127;
+    u32 second = first & 255;
+    return ((second as u8) as u32) ^ 0;
+}
+@noinline @runtime u32 branches(bool choose) {
+    u32 result = 0;
+    if choose { result = 7; } else { result = 7; }
+    if result == 7 { return 9; }
+    return 99;
+}
+@noinline @runtime u64 wrapping(u64 x) { return (-(-(((x + 1) - 1) as i64))) as u64; }
+@nomangle public i32 dcc_main() {
+    u32 x = seed;
+    if identities(x) != x { return 1; }
+    if masks(x) != 24 { return 2; }
+    if branches(true) != 9 || branches(false) != 9 { return 3; }
+    if wrapping(0xffffffffffffffff) != 0xffffffffffffffff { return 4; }
+    if wrapping(0x8000000000000000) != 0x8000000000000000 { return 5; }
+    return 42;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 42
