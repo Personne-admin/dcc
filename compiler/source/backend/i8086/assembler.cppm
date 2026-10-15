@@ -261,9 +261,12 @@ namespace dcc::backend::i8086
                     case MOpc::JMP:
                         return line(std::format("jmp near .bb{}", mi.ops[0].label));
                     case MOpc::CALL:
-                        if (mi.ops[0].kind != MOpKind::Symbol)
-                            return fail("i8086 assembly printer: indirect calls are not supported yet");
-                        return line(std::format("call {}", mi.ops[0].symbol));
+                        if (mi.ops[0].kind == MOpKind::Symbol)
+                            return line(std::format("call {}", mi.ops[0].symbol));
+                        [[fallthrough]];
+                    case MOpc::CALL16r:
+                    case MOpc::CALL16m:
+                        return line(std::format("call {}", operand(mi.ops[0], 16)));
                     case MOpc::PUSH16i:
                         return line(std::format("push word {}", mi.ops[0].imm));
                     case MOpc::JUMP_TABLE: {

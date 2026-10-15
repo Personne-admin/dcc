@@ -4760,9 +4760,12 @@ namespace
                     return branch(jcc_byte(opc), true);
                 case MOpc::CALL:
                 case MOpc::CALL_rel16:
-                    if (is_reg(0))
+                    if (is_reg(0) || is_mem(0))
                         return indirect(2);
                     return branch(0xE8, false);
+                case MOpc::CALL16r:
+                case MOpc::CALL16m:
+                    return indirect(2);
                 case MOpc::JMP16r:
                 case MOpc::JMP16m:
                     return indirect(4);

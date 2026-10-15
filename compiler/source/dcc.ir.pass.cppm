@@ -671,6 +671,7 @@ namespace dcc::ir::pass
                     auto* c = static_cast<IrCallInst const*>(v);
                     auto* new_call = dst.call(clone_type_impl(c->type, dst, cctx), clone_value_impl(c->callee, dst, cctx));
                     new_call->cc = c->cc;
+                    new_call->c_abi = c->c_abi;
                     for (auto* arg : c->args)
                         new_call->args.push_back(clone_value_impl(arg, dst, cctx));
 
@@ -681,6 +682,7 @@ namespace dcc::ir::pass
                     auto* c = static_cast<IrCallTailInst const*>(v);
                     auto* new_call = dst.call_tail(clone_type_impl(c->type, dst, cctx), clone_value_impl(c->callee, dst, cctx));
                     new_call->cc = c->cc;
+                    new_call->c_abi = c->c_abi;
                     for (auto* arg : c->args)
                         new_call->args.push_back(clone_value_impl(arg, dst, cctx));
 

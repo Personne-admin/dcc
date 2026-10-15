@@ -1,0 +1,58 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=unreal ===
+=== FILE: main.dc ===
+module main;
+
+using Fn = i32(*)(i32);
+using Fn4 = i32(*)(i32, i32, i32, i32);
+using Fn6 = i32(*)(i32, i32, i32, i32, i32, i32);
+
+i32 add1(i32 x) { return x + 1; }
+i32 add2(i32 x) { return x + 2; }
+i32 add3(i32 x) { return x + 3; }
+i32 sub1(i32 x) { return x - 1; }
+
+i32 sum4_internal(i32 a, i32 b, i32 c, i32 d) { return a + b + c + d; }
+i32 sum6_internal(i32 a, i32 b, i32 c, i32 d, i32 e, i32 f) { return a + b + c + d + e + f; }
+
+@nomangle
+i32 c_sum6(i32 a, i32 b, i32 c, i32 d, i32 e, i32 f) { return a + b + c + d + e + f; }
+
+struct Holder {
+    Fn f;
+}
+
+Fn g_fn = add1;
+Fn[4] g_arr = {add1, add2, add3, sub1};
+Holder g_holder = {f = add2};
+Fn4 g_four = sum4_internal;
+Fn6 g_six_internal = sum6_internal;
+@nomangle
+Fn6 g_six_c = c_sum6;
+
+i32 call_fp(Fn f, i32 x) { return f(x); }
+Fn choose(i32 which) {
+    if which == 0 { return add1; }
+    if which == 1 { return add3; }
+    return sub1;
+}
+i32 call_four(Fn4 f, i32 a, i32 b, i32 c, i32 d) { return f(a, b, c, d); }
+i32 call_six(Fn6 f, i32 a, i32 b, i32 c, i32 d, i32 e) { return f(a, b, c, d, e, 6); }
+
+@nomangle public i32 dcc_main() {
+    Fn local = add3;
+    if local(1) != 4 { return 1; }
+    if g_fn(2) != 3 { return 2; }
+    if g_arr[2](3) != 6 { return 3; }
+    if g_holder.f(4) != 6 { return 4; }
+    if call_fp(add1, 5) != 6 { return 5; }
+    Fn returned = choose(1);
+    if returned(6) != 9 { return 6; }
+    if call_four(g_four, 1, 2, 3, 4) != 10 { return 7; }
+    if g_six_internal(1, 2, 3, 4, 5, 6) != 21 { return 8; }
+    if g_six_c(1, 2, 3, 4, 5, 6) != 21 { return 9; }
+    if call_six(g_six_internal, 1, 2, 3, 4, 5) != 21 { return 10; }
+    return 0;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 0

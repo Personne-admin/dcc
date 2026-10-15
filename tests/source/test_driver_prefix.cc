@@ -203,20 +203,26 @@ TEST_CASE("the i8086 backend emits elf32 objects, assembly and mir")
     std::filesystem::remove_all(dir);
 }
 
-TEST_CASE("the i8086 backend rejects indirect calls")
+TEST_CASE("the i8086 backend lowers indirect calls")
 {
-    auto src = std::filesystem::temp_directory_path() / "dcc_i8086_unsupported.dc";
+    auto src = std::filesystem::temp_directory_path() / "dcc_i8086_indirect.dc";
     {
         std::ofstream file{src};
         file << "module test;\npublic u8 f(u8(*)() p) { return p(); }\n";
     }
 
     auto [code, output] = run_dcc("-target i8086-binary -fbackend custom -c -o /dev/null " + shell_quote(src));
-    CHECK(code == 1);
-    CHECK(output.find("i8086 backend: an indirect call in function `") != std::string::npos);
-    CHECK(output.find("is not supported yet") != std::string::npos);
+    CHECK(code == 0);
+
+    auto asm_path = std::filesystem::temp_directory_path() / "dcc_i8086_indirect.s";
+    auto [asm_code, asm_log] = run_dcc("-target i8086-binary -fbackend custom -S -o " + shell_quote(asm_path) + " " + shell_quote(src));
+    CHECK(asm_code == 0);
+    std::ifstream asm_in{asm_path};
+    std::string asm_output{std::istreambuf_iterator<char>(asm_in), {}};
+    CHECK(asm_output.find("call ") != std::string::npos);
 
     std::filesystem::remove(src);
+    std::filesystem::remove(asm_path);
 }
 
 TEST_CASE("the i8086 target dumps ir in every code model")
