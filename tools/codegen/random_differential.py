@@ -81,8 +81,51 @@ def generate(seed, keep=None):
     return result ^ (local as u32);
 }}''')
     blocks.extend(('mix(&checksum, memory(input));', 'mix(&checksum, calls(input));'))
+    negative = -128 + (seed & 63)
+    functions.append(f'''@noinline @runtime u32 signed_casts(i8 x) {{
+    i16 wide = x as i16;
+    u16 unsigned_wide = x as u16;
+    return ((wide == {negative}) as u32) | (((unsigned_wide == {negative & 65535}) as u32) << 1) |
+        (((wide < {negative + 1}) as u32) << 2) | (((unsigned_wide > 65000) as u32) << 3) |
+        ((((x as i16) == {negative}) as u32) << 4) | ((((x as u16) == {negative & 65535}) as u32) << 5);
+}}
+@noinline @runtime void save_globals(Record record, []u16 view) {{ global_record = record; global_view = view; }}
+@noinline @runtime u32 aggregate_globals(u32 x) {{
+    Record record = {{tag = 7, small = 11, word = x, wide = (x as u64) + 0x100000003}};
+    u16[3] values = {{13,17,19}};
+    save_globals(record, values[0..3]);
+    if global_view.len != 3 {{ return 0xbad; }}
+    return global_record.word ^ (global_record.small as u32) ^ (global_record.tag as u32) ^
+        (global_record.wide as u32) ^ ((global_record.wide >> 32) as u32) ^ (global_view[2] as u32);
+}}
+@noinline @runtime u32 destructure(u32 x) {{
+    Triple value = {{a = x & 255, b = (x & 255) + 1, c = (x & 255) + 2}};
+    return match value {{ Triple {{a, b, c}} => a ^ (b << 8) ^ (c << 16), }};
+}}
+@noinline @runtime Small make_small(u32 x) {{ return Small {{first = x, second = (x & 255) as u16}}; }}
+@nomangle @noinline @runtime public Small c_small(u32 x) {{ return make_small(x); }}
+@noinline @runtime u32 scalar_shapes(u32 x, bool choose) {{
+    Small value = make_small(x);
+    u16[4] fixed = {{3,5,7,11}};
+    u16[4] data = {{13,17,19,23}};
+    []u16 view = data[0..4];
+    for u16 i = 0; i < 3; i += 1 {{
+        if choose {{ value.first += 3; fixed[1] += 2; view = data[1..3]; }}
+        else {{ value.second += 1; fixed[2] += 3; view = data[0..2]; }}
+    }}
+    Small other = c_small(x + 1);
+    return value.first ^ (value.second as u32) ^ (fixed[0] as u32) ^ (fixed[1] as u32) ^
+        (fixed[2] as u32) ^ (fixed[3] as u32) ^ (view.len as u32) ^ (view[0] as u32) ^ other.first ^ (other.second as u32);
+}}''')
+    blocks.extend(('mix(&checksum, signed_casts(negative_input));', 'mix(&checksum, aggregate_globals(input));',
+                   'mix(&checksum, scalar_shapes(input, (input & 1) != 0));', 'mix(&checksum, destructure(input));'))
     header = f'''module main;
 struct Record {{ u8 tag; u16 small; u32 word; u64 wide; }}
+public struct Small {{ u32 first; u16 second; }}
+struct Triple {{ u32 a; u32 b; u32 c; }}
+Record global_record;
+[]u16 global_view;
+volatile i8 negative_input = {negative};
 volatile u32 initial = {seed & 0xffffffff};
 u16 global_word = 23;
 const char[17] digits = "0123456789abcdef";
