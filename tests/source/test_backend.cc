@@ -1520,3 +1520,36 @@ TEST_CASE("scalar replacement rewrites nested aggregate constant users")
     dcc::ir::pass::IrVerifier verifier(target);
     CHECK(verifier.verify(*optimized).empty());
 }
+
+TEST_CASE("i8086 fully overwritten aggregates do not clear their temporary")
+{
+    for (bool padded : {false, true})
+    {
+        auto target = *TargetConfig::parse_triple("i8086-binary");
+        IrContext ctx(262144, &target);
+        auto* scalar = ctx.int_t(64, false);
+        IrType const* members[] = {padded ? ctx.int_t(8, false) : scalar, scalar};
+        std::uint64_t offsets[] = {0, 8};
+        auto* type = ctx.aggregate_t(members, offsets, 16, scalar->byte_align);
+        auto* module = ctx.module("fully_overwritten");
+        auto* function = ctx.function("build_pair", ir_type_cast<IrFuncType>(ctx.func_t(type, members)));
+        auto* block = ctx.basic_block("entry", 0);
+        auto* first = ctx.local("first", 0, members[0]);
+        auto* second = ctx.local("second", 1, scalar);
+        block->params = {first, second};
+        auto* value = ctx.aggregate(type);
+        value->values = {first, second};
+        block->instructions.push_back(value);
+        block->terminator = ctx.ret(value);
+        function->entry_block = block;
+        function->blocks.push_back(block);
+        module->functions.push_back(function);
+        BackendOptions options;
+        options.target = target;
+        options.requested_artifacts = {ArtifactKind::AsmText};
+        auto result = make_i8086_backend()->emit(*module, options);
+        REQUIRE(result.diagnostics.empty());
+        REQUIRE(result.asm_text);
+        CHECK((result.asm_text->find("rep stos") != std::string::npos) == padded);
+    }
+}

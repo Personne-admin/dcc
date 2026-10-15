@@ -969,9 +969,23 @@ namespace dcc::backend::i8086
                     return std::nullopt;
                 if (auto const* agg = ir_cast<IrAggregateInst>(v))
                 {
-                    bulk_memory(dst, {}, v->type->byte_size, true);
+                    std::uint64_t covered = 0;
+                    bool complete = !agg->values.empty();
                     for (std::uint32_t i = 0; i < agg->values.size(); ++i)
-                        if (!zero_value(agg->values[i]))
+                    {
+                        auto* member = agg->values[i];
+                        if (!member || !member->type || zero_value(member) || member_offset(v->type, i) != covered)
+                        {
+                            complete = false;
+                            break;
+                        }
+                        covered += member->type->byte_size;
+                    }
+                    complete = complete && covered == v->type->byte_size;
+                    if (!complete)
+                        bulk_memory(dst, {}, v->type->byte_size, true);
+                    for (std::uint32_t i = 0; i < agg->values.size(); ++i)
+                        if (complete || !zero_value(agg->values[i]))
                             store_at(agg->values[i], offset_address(dst, member_offset(v->type, i)));
                 }
                 else if (auto const* str = ir_cast<IrStringConstant>(v); str && v->type->kind == IrTypeKind::Array)
