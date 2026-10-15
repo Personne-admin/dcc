@@ -1332,3 +1332,191 @@ TEST_CASE("mem2reg preserves segment reads while replacing promoted loads")
     dcc::ir::pass::IrVerifier verifier(target);
     CHECK(verifier.verify(*optimized).empty());
 }
+
+TEST_CASE("scalar replacement promotes bounded aggregate locals")
+{
+    for (auto triple : {"x86_64-elf", "i8086-binary"})
+        for (auto shape : {0, 1, 2})
+        {
+            auto target = *TargetConfig::parse_triple(triple);
+            IrContext input(262144, &target);
+            auto* module = input.module("scalar_replacement");
+            auto* scalar = shape == 2 ? input.usize_t() : input.int_t(32, false);
+            IrType const* members[] = {scalar, scalar};
+            std::uint64_t offsets[] = {0, scalar->byte_size};
+            auto* aggregate = shape == 0   ? input.aggregate_t(members, offsets, scalar->byte_size * 2, scalar->byte_align)
+                              : shape == 1 ? input.array_t(scalar, 4)
+                                           : input.slice_t(input.int_t(8, false));
+            IrType const* parameters[] = {scalar, scalar};
+            auto* function = input.function("replace", ir_type_cast<IrFuncType>(input.func_t(scalar, parameters)));
+            auto* block = input.basic_block("entry", 0);
+            auto* first = input.local("first", 0, scalar);
+            auto* second = input.local("second", 1, scalar);
+            block->params = {first, second};
+            auto* slot = input.alloca(input.pointer_to(aggregate), aggregate);
+            auto* value = input.aggregate(aggregate);
+            if (shape == 2)
+                value->values = {input.null_const(input.pointer_to(input.int_t(8, false))), first};
+            else
+                for (int i = 0; i < (shape == 1 ? 4 : 2); ++i)
+                    value->values.push_back(first);
+            auto* field = input.gep(input.pointer_to(scalar), slot);
+            if (shape == 1)
+                field->indices.push_back({IrGepInst::IndexKind::Array, input.int_const(input.usize_t(), 1), 0});
+            else
+                field->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 1});
+            auto* load = input.load(scalar, field);
+            block->instructions = {slot, value, input.store(value, slot), field, input.store(second, field), load};
+            block->terminator = input.ret(load);
+            function->blocks.push_back(block);
+            function->entry_block = block;
+            module->functions.push_back(function);
+            IrContext output(262144, &target);
+            auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+            REQUIRE(optimized);
+            auto* result = optimized->functions.front();
+            for (auto* bb : result->blocks)
+                for (auto* instruction : bb->instructions)
+                {
+                    CHECK(instruction->kind != IrNodeKind::Alloca);
+                    CHECK(instruction->kind != IrNodeKind::Load);
+                    CHECK(instruction->kind != IrNodeKind::Store);
+                    CHECK(instruction->kind != IrNodeKind::Gep);
+                }
+            auto* returned = ir_cast<IrRetInst>(result->entry_block->terminator);
+            REQUIRE(returned);
+            CHECK(returned->value == result->entry_block->params[1]);
+            dcc::ir::pass::IrVerifier verifier(target);
+            CHECK(verifier.verify(*optimized).empty());
+        }
+}
+
+TEST_CASE("scalar replacement retains volatile dynamic large and escaping storage")
+{
+    for (auto mode : {0, 1, 2, 3})
+    {
+        auto target = *TargetConfig::parse_triple("x86_64-elf");
+        IrContext input(262144, &target);
+        auto* module = input.module("retained_storage");
+        auto* scalar = input.int_t(32, false);
+        auto* aggregate = input.array_t(scalar, mode == 2 ? 17 : 4);
+        IrType const* parameters[] = {input.usize_t()};
+        auto* function = input.function("retain", ir_type_cast<IrFuncType>(input.func_t(scalar, parameters)));
+        auto* block = input.basic_block("entry", 0);
+        auto* index = input.local("index", 0, input.usize_t());
+        block->params.push_back(index);
+        auto* slot = input.alloca(input.pointer_to(aggregate), aggregate);
+        auto* value = input.aggregate(aggregate);
+        for (int i = 0; i < (mode == 2 ? 17 : 4); ++i)
+            value->values.push_back(input.int_const(scalar, i + 1));
+        auto* field = input.gep(input.pointer_to(scalar), slot);
+        field->indices.push_back({IrGepInst::IndexKind::Array, mode == 1 ? static_cast<IrValue*>(index) : input.int_const(input.usize_t(), 0), 0});
+        block->instructions = {slot, value, input.store(value, slot), field};
+        if (mode == 3)
+        {
+            IrType const* arguments[] = {slot->type};
+            auto* escape = input.function("escape", ir_type_cast<IrFuncType>(input.func_t(input.void_t(), arguments)));
+            auto* call = input.call(input.void_t(), input.func_ref(escape));
+            call->args.push_back(slot);
+            block->instructions.push_back(call);
+            module->functions.push_back(escape);
+        }
+        IrValue* load = mode == 0 ? static_cast<IrValue*>(input.load_volatile(scalar, field)) : input.load(scalar, field);
+        block->instructions.push_back(load);
+        block->terminator = input.ret(load);
+        function->blocks.push_back(block);
+        function->entry_block = block;
+        module->functions.insert(module->functions.begin(), function);
+        IrContext output(262144, &target);
+        auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+        REQUIRE(optimized);
+        bool retained = false;
+        for (auto* bb : optimized->functions.front()->blocks)
+            for (auto* instruction : bb->instructions)
+                if (auto* alloca = ir_cast<IrAllocaInst>(instruction))
+                    retained |= alloca->allocated_type->kind == IrTypeKind::Array;
+        CHECK(retained);
+        dcc::ir::pass::IrVerifier verifier(target);
+        CHECK(verifier.verify(*optimized).empty());
+    }
+}
+
+TEST_CASE("scalar replacement forwards unchanged aggregate ABI values")
+{
+    for (auto shape : {0, 1, 2, 3})
+    {
+        auto target = *TargetConfig::parse_triple("x86_64-elf");
+        IrContext input(262144, &target);
+        auto* scalar = input.int_t(32, false);
+        IrType const* members[] = {shape == 3 ? input.slice_t(scalar) : scalar, scalar};
+        std::uint64_t offsets[] = {0, shape == 3 ? 16u : 4u};
+        auto* type = shape == 3   ? input.aggregate_t(members, offsets, 24, 8)
+                     : shape == 0 ? input.aggregate_t(members, offsets, 8, 4)
+                     : shape == 1 ? input.array_t(scalar, 3)
+                                  : input.slice_t(scalar);
+        auto* module = input.module("aggregate_forwarding");
+        IrType const* parameters[] = {type};
+        auto* function = input.function("forward", ir_type_cast<IrFuncType>(input.func_t(type, parameters)));
+        auto* block = input.basic_block("entry", 0);
+        auto* argument = input.local("argument", 0, type);
+        block->params.push_back(argument);
+        auto* slot = input.alloca(input.pointer_to(type), type);
+        auto* load = input.load(type, slot);
+        block->instructions = {slot, input.store(argument, slot), load};
+        block->terminator = input.ret(load);
+        function->entry_block = block;
+        function->blocks.push_back(block);
+        module->functions.push_back(function);
+        IrContext output(262144, &target);
+        auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+        REQUIRE(optimized);
+        auto* result = optimized->functions.front();
+        auto* returned = ir_cast<IrRetInst>(result->entry_block->terminator);
+        REQUIRE(returned);
+        CHECK(returned->value == result->entry_block->params.front());
+        CHECK(result->entry_block->instructions.empty());
+        dcc::ir::pass::IrVerifier verifier(target);
+        CHECK(verifier.verify(*optimized).empty());
+    }
+}
+
+TEST_CASE("scalar replacement rewrites nested aggregate constant users")
+{
+    auto target = *TargetConfig::parse_triple("x86_64-elf");
+    IrContext input(262144, &target);
+    auto* scalar = input.int_t(32, false);
+    IrType const* members[] = {scalar, scalar};
+    std::uint64_t offsets[] = {0, 4};
+    auto* inner = input.aggregate_t(members, offsets, 8, 4);
+    IrType const* outer_members[] = {inner, scalar};
+    std::uint64_t outer_offsets[] = {0, 8};
+    auto* outer = input.aggregate_t(outer_members, outer_offsets, 12, 4);
+    auto* module = input.module("nested_forwarding");
+    auto* function = input.function("nested", ir_type_cast<IrFuncType>(input.func_t(outer, outer_members)));
+    auto* block = input.basic_block("entry", 0);
+    auto* pair = input.local("pair", 0, inner);
+    auto* tag = input.local("tag", 1, scalar);
+    block->params = {pair, tag};
+    auto* first = input.extract(scalar, pair, 0);
+    auto* second = input.extract(scalar, pair, 1);
+    auto* copy = input.aggregate(inner);
+    copy->values = {first, second};
+    auto* wrapped = input.aggregate(outer);
+    wrapped->values = {copy, tag};
+    block->instructions = {first, second, copy};
+    block->terminator = input.ret(wrapped);
+    function->blocks.push_back(block);
+    function->entry_block = block;
+    module->functions.push_back(function);
+    IrContext output(262144, &target);
+    auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+    REQUIRE(optimized);
+    auto* result = optimized->functions.front();
+    auto* returned = ir_cast<IrRetInst>(result->entry_block->terminator);
+    REQUIRE(returned);
+    auto* aggregate = ir_cast<IrAggregateInst>(returned->value);
+    REQUIRE(aggregate);
+    CHECK(aggregate->values.front() == result->entry_block->params.front());
+    dcc::ir::pass::IrVerifier verifier(target);
+    CHECK(verifier.verify(*optimized).empty());
+}

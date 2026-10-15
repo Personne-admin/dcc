@@ -422,6 +422,344 @@ namespace dcc::ir::pass
         return false;
     }
 
+    [[nodiscard]] static std::vector<IrType const*> sroa_members(IrType const* type, IrContext& ctx)
+    {
+        if (auto* aggregate = ir_type_cast<IrAggregateType>(type))
+        {
+            if (aggregate->has_trailing_fam || aggregate->bitfield_is_union ||
+                std::ranges::any_of(aggregate->bitfield_debug, [](auto const& field) { return field.is_bitfield; }))
+                return {};
+            std::uint64_t end = 0;
+            if (aggregate->member_offsets.size() != aggregate->members.size())
+                return {};
+            for (std::size_t i = 0; i < aggregate->members.size(); ++i)
+            {
+                auto* member = aggregate->members[i];
+                auto offset = aggregate->member_offsets[i];
+                if (!member || offset < end || offset > type->byte_size || member->byte_size > type->byte_size - offset)
+                    return {};
+                end = offset + member->byte_size;
+            }
+            return {aggregate->members.begin(), aggregate->members.end()};
+        }
+        if (auto* array = ir_type_cast<IrArrayType>(type); array && array->count <= 16)
+            return std::vector<IrType const*>(array->count, array->element);
+        if (auto* slice = ir_type_cast<IrSliceType>(type))
+            return {ctx.pointer_to(slice->element, slice->seg, slice->flavor), ctx.usize_t()};
+        return {};
+    }
+
+    static bool sroa_impl(FunctionPassContext& ctx)
+    {
+        using Path = std::vector<std::uint32_t>;
+        struct Leaf
+        {
+            Path path;
+            IrType const* type;
+            IrAllocaInst* slot{};
+        };
+        std::vector<IrAllocaInst*> candidates;
+        if (!ctx.func->entry_block)
+            return false;
+        for (auto* inst : ctx.func->entry_block->instructions)
+            if (auto* root = ir_cast<IrAllocaInst>(inst); root && !root->count && root->allocated_type && root->allocated_type->byte_size > 0 &&
+                                                          root->allocated_type->byte_size <= 64 &&
+                                                          (root->allocated_type->kind == IrTypeKind::Aggregate ||
+                                                           root->allocated_type->kind == IrTypeKind::Array || root->allocated_type->kind == IrTypeKind::Slice))
+                candidates.push_back(root);
+        std::vector<IrAggregateInst*> aggregate_nodes;
+        for (auto const& [value, users] : ctx.get_use_def().uses)
+            if (auto* aggregate = ir_cast<IrAggregateInst>(const_cast<IrValue*>(value)))
+                aggregate_nodes.push_back(aggregate);
+        for (auto* bb : ctx.func->blocks)
+            if (auto* ret = ir_cast<IrRetInst>(bb->terminator))
+                if (auto* aggregate = ir_cast<IrAggregateInst>(ret->value))
+                    aggregate_nodes.push_back(aggregate);
+        std::unordered_set<IrAggregateInst*> seen_aggregates;
+        for (std::size_t i = 0; i < aggregate_nodes.size(); ++i)
+            if (seen_aggregates.insert(aggregate_nodes[i]).second)
+                for (auto* member : aggregate_nodes[i]->values)
+                    if (auto* aggregate = ir_cast<IrAggregateInst>(member); aggregate && !seen_aggregates.contains(aggregate))
+                        aggregate_nodes.push_back(aggregate);
+        auto replace = [&](IrValue* old_value, IrValue* new_value) {
+            replace_value_uses(*ctx.func, old_value, new_value);
+            for (auto* aggregate : aggregate_nodes)
+                for (auto*& member : aggregate->values)
+                    if (member == old_value)
+                        member = new_value;
+        };
+        bool changed = false;
+        for (auto* root : candidates)
+        {
+            std::vector<Leaf> leaves;
+            std::map<Path, IrType const*> types;
+            std::map<Path, std::vector<IrType const*>> children;
+            auto flatten = [&](auto&& self, IrType const* type, Path path) -> bool {
+                if (!type || path.size() > 8 || leaves.size() >= 16 || type->byte_size == 0)
+                    return false;
+                types[path] = type;
+                if (type->kind == IrTypeKind::Aggregate || type->kind == IrTypeKind::Array || type->kind == IrTypeKind::Slice)
+                {
+                    auto members = sroa_members(type, *ctx.ctx);
+                    if (members.empty())
+                        return false;
+                    children[path] = members;
+                    for (std::uint32_t i = 0; i < members.size(); ++i)
+                    {
+                        auto child = path;
+                        child.push_back(i);
+                        if (!self(self, members[i], std::move(child)))
+                            return false;
+                    }
+                    return true;
+                }
+                if (!create_zero_for_type(type, *ctx.ctx))
+                    return false;
+                leaves.push_back({std::move(path), type});
+                return true;
+            };
+            if (!flatten(flatten, root->allocated_type, {}))
+                continue;
+            auto uses = ctx.get_use_def();
+            std::unordered_set<IrValue const*> in_block;
+            std::vector<IrAggregateInst*> aggregates;
+            for (auto* bb : ctx.func->blocks)
+            {
+                for (auto* inst : bb->instructions)
+                    in_block.insert(inst);
+                if (auto* ret = ir_cast<IrRetInst>(bb->terminator))
+                    if (auto* aggregate = ir_cast<IrAggregateInst>(ret->value))
+                        aggregates.push_back(aggregate);
+            }
+            for (auto const& [value, users] : uses.uses)
+                if (auto* aggregate = ir_cast<IrAggregateInst>(const_cast<IrValue*>(value)))
+                    aggregates.push_back(aggregate);
+            std::unordered_set<IrAggregateInst*> visited;
+            for (std::size_t i = 0; i < aggregates.size(); ++i)
+            {
+                auto* aggregate = aggregates[i];
+                if (!visited.insert(aggregate).second)
+                    continue;
+                for (auto* member : aggregate->values)
+                {
+                    uses.uses[member].push_back(aggregate);
+                    if (auto* nested = ir_cast<IrAggregateInst>(member))
+                        aggregates.push_back(nested);
+                }
+            }
+            std::unordered_map<IrValue const*, Path> addresses;
+            addresses.emplace(root, Path{});
+            std::vector<IrValue*> pending{root};
+            bool eligible = true;
+            bool accessed = false;
+            auto reachable = ctx.get_rpo();
+            std::unordered_set<IrBasicBlock const*> reachable_set(reachable.begin(), reachable.end());
+            for (auto* bb : ctx.func->blocks)
+                if (!reachable_set.contains(bb))
+                    for (auto* inst : bb->instructions)
+                        if (inst == root)
+                            eligible = false;
+            for (std::size_t i = 0; eligible && i < pending.size(); ++i)
+            {
+                auto* address = pending[i];
+                auto path = addresses.at(address);
+                if (value_used_by_terminator(*ctx.func, address))
+                {
+                    eligible = false;
+                    break;
+                }
+                for (auto* user : uses.uses_of(address))
+                {
+                    if (auto* gep = ir_cast<IrGepInst>(user); gep && gep->base == address)
+                    {
+                        auto subpath = path;
+                        for (auto const& index : gep->indices)
+                        {
+                            auto* type = types.at(subpath);
+                            if (index.kind == IrGepInst::IndexKind::Array && type->kind != IrTypeKind::Array)
+                            {
+                                auto* constant = ir_cast<IrIntConstant>(index.dynamic_index);
+                                if (!constant || constant->value != 0)
+                                    eligible = false;
+                                continue;
+                            }
+                            auto found = children.find(subpath);
+                            std::int64_t field = index.field_index;
+                            if (index.kind == IrGepInst::IndexKind::Array)
+                            {
+                                auto* constant = ir_cast<IrIntConstant>(index.dynamic_index);
+                                if (!constant)
+                                {
+                                    eligible = false;
+                                    break;
+                                }
+                                field = constant->value;
+                            }
+                            if (found == children.end() || field < 0 || static_cast<std::uint64_t>(field) >= found->second.size())
+                            {
+                                eligible = false;
+                                break;
+                            }
+                            subpath.push_back(static_cast<std::uint32_t>(field));
+                        }
+                        if (!eligible)
+                            break;
+                        if (addresses.emplace(gep, subpath).second)
+                            pending.push_back(gep);
+                    }
+                    else if (auto* load = ir_cast<IrLoadInst>(user);
+                             load && load->pointer == address && load->type->kind == types.at(path)->kind && load->type->byte_size == types.at(path)->byte_size)
+                    {
+                        accessed = true;
+                        for (auto* consumer : uses.uses_of(load))
+                            if (consumer->kind == IrNodeKind::Aggregate && !in_block.contains(consumer))
+                                eligible = false;
+                    }
+                    else if (auto* store = ir_cast<IrStoreInst>(user); store && store->pointer == address && store->value != address &&
+                                                                       store->value->type->kind == types.at(path)->kind &&
+                                                                       store->value->type->byte_size == types.at(path)->byte_size)
+                        accessed = true;
+                    else
+                    {
+                        eligible = false;
+                        break;
+                    }
+                }
+            }
+            if (!eligible || !accessed)
+                continue;
+            std::map<Path, IrAllocaInst*> slots;
+            for (auto& leaf : leaves)
+            {
+                leaf.slot = ctx.ctx->alloca(ctx.ctx->pointer_to(leaf.type), leaf.type);
+                leaf.slot->debug_loc = root->debug_loc;
+                slots[leaf.path] = leaf.slot;
+            }
+            for (auto* bb : ctx.func->blocks)
+            {
+                std::vector<IrValue*> rewritten;
+                auto read = [&](auto&& self, Path const& path) -> IrValue* {
+                    if (auto found = slots.find(path); found != slots.end())
+                    {
+                        auto* load = ctx.ctx->load(types.at(path), found->second);
+                        rewritten.push_back(load);
+                        return load;
+                    }
+                    auto* aggregate = ctx.ctx->aggregate(types.at(path));
+                    auto const& members = children.at(path);
+                    for (std::uint32_t i = 0; i < members.size(); ++i)
+                    {
+                        auto child = path;
+                        child.push_back(i);
+                        aggregate->values.push_back(self(self, child));
+                    }
+                    rewritten.push_back(aggregate);
+                    return aggregate;
+                };
+                auto write = [&](auto&& self, Path const& path, IrValue* value) -> void {
+                    if (auto found = slots.find(path); found != slots.end())
+                    {
+                        rewritten.push_back(ctx.ctx->store(value, found->second));
+                        return;
+                    }
+                    auto const& members = children.at(path);
+                    for (std::uint32_t i = 0; i < members.size(); ++i)
+                    {
+                        auto child = path;
+                        child.push_back(i);
+                        IrValue* member{};
+                        if (auto* aggregate = ir_cast<IrAggregateInst>(value); aggregate && i < aggregate->values.size())
+                            member = aggregate->values[i];
+                        else
+                        {
+                            member = ctx.ctx->extract(members[i], value, i);
+                            rewritten.push_back(member);
+                        }
+                        self(self, child, member);
+                    }
+                };
+                for (auto* inst : bb->instructions)
+                {
+                    if (inst == root)
+                    {
+                        for (auto const& leaf : leaves)
+                            rewritten.push_back(leaf.slot);
+                    }
+                    else if (inst->kind == IrNodeKind::Gep && addresses.contains(inst))
+                        continue;
+                    else if (auto* load = ir_cast<IrLoadInst>(inst); load && addresses.contains(load->pointer))
+                        replace(load, read(read, addresses.at(load->pointer)));
+                    else if (auto* store = ir_cast<IrStoreInst>(inst); store && addresses.contains(store->pointer))
+                        write(write, addresses.at(store->pointer), store->value);
+                    else
+                        rewritten.push_back(inst);
+                }
+                bb->instructions.assign(rewritten.begin(), rewritten.end());
+            }
+            changed = true;
+            ctx.invalidate_use_def();
+        }
+        std::unordered_set<IrValue const*> owned;
+        for (auto* bb : ctx.func->blocks)
+            for (auto* inst : bb->instructions)
+                owned.insert(inst);
+        auto external_aggregate_use = [&](IrValue const* value) {
+            return std::ranges::any_of(aggregate_nodes, [&](auto* aggregate) {
+                return !owned.contains(aggregate) && std::ranges::find(aggregate->values, value) != aggregate->values.end();
+            });
+        };
+        for (auto* bb : ctx.func->blocks)
+            for (auto it = bb->instructions.begin(); it != bb->instructions.end();)
+                if (auto* aggregate = ir_cast<IrAggregateInst>(*it); aggregate && !aggregate->values.empty())
+                {
+                    auto* first = ir_cast<IrExtractInst>(aggregate->values.front());
+                    IrValue* original = first ? first->aggregate : nullptr;
+                    auto* source = original;
+                    while (auto* part = ir_cast<IrExtractInst>(source))
+                        source = part->aggregate;
+                    bool identity = ir_cast<IrLocal>(source) && original->type == aggregate->type &&
+                                    sroa_members(aggregate->type, *ctx.ctx).size() == aggregate->values.size();
+                    for (std::uint32_t i = 0; identity && i < aggregate->values.size(); ++i)
+                    {
+                        auto* part = ir_cast<IrExtractInst>(aggregate->values[i]);
+                        identity = part && part->aggregate == original && part->field_index == i;
+                    }
+                    if (identity && !ir_cast<IrLocal>(original) && external_aggregate_use(aggregate))
+                        identity = false;
+                    if (identity)
+                    {
+                        replace(aggregate, original);
+                        it = bb->instructions.erase(it);
+                        changed = true;
+                    }
+                    else
+                        ++it;
+                }
+                else if (auto* extract = ir_cast<IrExtractInst>(*it))
+                {
+                    IrValue* value{};
+                    if (auto* source = ir_cast<IrAggregateInst>(extract->aggregate); source && extract->field_index < source->values.size())
+                        value = source->values[extract->field_index];
+                    if (auto* insert = ir_cast<IrInsertInst>(extract->aggregate); insert && insert->field_index == extract->field_index)
+                        value = insert->value;
+                    if (value && value->kind > IrNodeKind::GlobalRef && external_aggregate_use(extract))
+                        value = nullptr;
+                    if (value)
+                    {
+                        replace(extract, value);
+                        it = bb->instructions.erase(it);
+                        changed = true;
+                    }
+                    else
+                        ++it;
+                }
+                else
+                    ++it;
+        if (changed)
+            ctx.invalidate_use_def();
+        return changed;
+    }
+
     [[nodiscard]] static bool promote_alloca(IrAllocaInst* alloca, FunctionPassContext& ctx, analysis::UseDef const& ud,
                                              std::unordered_map<IrValue const*, IrBasicBlock*> const& home);
     [[nodiscard]] static bool merge_blocks(FunctionPassContext& ctx);
@@ -3532,6 +3870,7 @@ export namespace dcc::ir::pass
     void register_builtin_passes(PassManager& pm)
     {
         pm.add_module_pass({.name = "inline", .min_level = OptLevel::O1, .run = inline_detail::inline_impl});
+        pm.add_function_pass({.name = "sroa", .min_level = OptLevel::O1, .run = sroa_impl});
         pm.add_function_pass({.name = "mem2reg", .min_level = OptLevel::O1, .run = mem2reg_impl});
         pm.add_function_pass({.name = "dce", .min_level = OptLevel::O1, .run = dce_impl});
         pm.add_function_pass({.name = "simplifycfg", .min_level = OptLevel::O1, .run = simplifycfg_impl});
