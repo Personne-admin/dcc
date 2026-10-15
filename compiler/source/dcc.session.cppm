@@ -24,6 +24,7 @@ export namespace dcc::session
     {
         std::vector<std::filesystem::path> import_roots;
         bool inject_libdcext_prelude{false};
+        bool inject_assert_import{false};
         std::size_t arena_initial_size{256 * 1024};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
         std::vector<std::string> injected_decls;
@@ -118,6 +119,21 @@ export namespace dcc::session
                 tu->imports.push_back(import_decl);
             }
 
+            if (m_assert_import_enabled && tu && file->path() == m_entry_path)
+            {
+                bool already_imported = false;
+                for (auto* imp : tu->imports)
+                    if (auto* import = ast::node_cast<ast::ImportDecl>(imp); import && sema::ModulePath::from_ast(import->module_path).str() == "assert")
+                        already_imported = true;
+                if (!already_imported)
+                {
+                    auto alloc = ast.allocator();
+                    ast::Path assert_path{alloc};
+                    assert_path.segments.push_back({m_interner.intern("assert"), sm::SourceRange{}});
+                    tu->imports.push_back(ast.make<ast::ImportDecl>(sm::SourceRange{}, std::move(assert_path), sm::SourceRange{}, alloc));
+                }
+            }
+
             return tu;
         }
 
@@ -126,6 +142,7 @@ export namespace dcc::session
             m_bench_parse_seconds = 0;
             m_entry_path = entry_path;
             m_prelude_enabled = opts.inject_libdcext_prelude;
+            m_assert_import_enabled = opts.inject_assert_import;
 
             m_sema.reset();
             m_ast_ctx = std::make_unique<ast::AstContext>(opts.arena_initial_size);
@@ -165,6 +182,7 @@ export namespace dcc::session
             m_bench_parse_seconds = 0;
             m_entry_path.clear();
             m_prelude_enabled = opts.inject_libdcext_prelude;
+            m_assert_import_enabled = opts.inject_assert_import;
 
             m_sema.reset();
             m_ast_ctx = std::make_unique<ast::AstContext>(opts.arena_initial_size);
@@ -209,6 +227,7 @@ export namespace dcc::session
 
         std::filesystem::path m_entry_path;
         bool m_prelude_enabled{false};
+        bool m_assert_import_enabled{false};
         bool m_enable_doc{false};
         double m_bench_parse_seconds{0};
     };

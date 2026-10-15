@@ -7901,6 +7901,15 @@ export namespace dcc::ir::lower
                 }
             }
 
+            for (auto const* mod : m_defined_modules)
+            {
+                if (mod->canonical_path.str() != "assert" || !mod->tu)
+                    continue;
+                for (auto* d : mod->tu->decls)
+                    if (auto* fd = ast::node_cast<ast::FuncDecl>(d); fd && fd->name == "__assert" && m_func_map.contains(fd))
+                        make_live(m_func_map.at(fd));
+            }
+
             for (auto* md : m_module->module_asms)
             {
                 for (auto* f : md->funcs)

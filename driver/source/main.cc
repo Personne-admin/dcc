@@ -1611,6 +1611,11 @@ auto main(int argc, char** argv) -> int
         compile_opts.import_roots.push_back(prefix / "include");
 
     compile_opts.inject_libdcext_prelude = opts.libdcext;
+    bool project_assert = std::filesystem::exists(input_path.parent_path() / "assert.dc", ec);
+    for (auto& p : opts.import_paths)
+        if (!project_assert && std::filesystem::exists(std::filesystem::path{p} / "assert.dc", ec))
+            project_assert = true;
+    compile_opts.inject_assert_import = opts.whole_program && project_assert;
     compile_opts.restricted_check = opts.restricted_check;
 
     bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
