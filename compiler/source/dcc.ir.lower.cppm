@@ -585,9 +585,7 @@ export namespace dcc::ir::lower
                 if (it == m_func_map.end())
                     lower_panic(std::format("function `{}` missing from func_map during body lowering", fd->name));
 
-                auto first_ref = m_ctx.global_refs().size();
                 lower_func_body(fd, it->second);
-                claim_refs(it->second, first_ref);
 
                 auto first_new = to_lower.size();
                 for (auto& [new_fd, new_ir_func] : m_func_map)
@@ -7611,14 +7609,6 @@ export namespace dcc::ir::lower
 
         bool m_whole_program{false};
         std::vector<sema::ModuleInfo const*> m_defined_modules;
-        std::unordered_map<IrValue const*, std::vector<IrGlobalRef const*>> m_owner_refs;
-
-        void claim_refs(IrValue const* owner, std::size_t first)
-        {
-            auto const& refs = m_ctx.global_refs();
-            for (auto i = first; i < refs.size(); ++i)
-                m_owner_refs[owner].push_back(refs[i]);
-        }
 
         [[nodiscard]] static IrValue const* resolve_ref_target(IrGlobalRef const* ref, std::unordered_map<std::string_view, IrValue const*> const& by_name)
         {
@@ -7628,6 +7618,216 @@ export namespace dcc::ir::lower
                 return ref->global;
             auto it = by_name.find(ref->name);
             return it == by_name.end() ? nullptr : it->second;
+        }
+
+        static void collect_value_refs(IrValue const* v, std::unordered_set<IrValue const*>& seen, std::vector<IrGlobalRef const*>& out)
+        {
+            if (!v || !seen.insert(v).second)
+                return;
+            auto visit = [&](IrValue const* x) { collect_value_refs(x, seen, out); };
+
+#define DCC_PRUNE_BINOP(k)                                                                                                                                     \
+    case IrNodeKind::k: {                                                                                                                                      \
+        auto* i = static_cast<Ir##k##Inst const*>(v);                                                                                                          \
+        visit(i->lhs);                                                                                                                                         \
+        visit(i->rhs);                                                                                                                                         \
+        return;                                                                                                                                                \
+    }
+#define DCC_PRUNE_UNARY(k)                                                                                                                                     \
+    case IrNodeKind::k:                                                                                                                                        \
+        visit(static_cast<Ir##k##Inst const*>(v)->operand);                                                                                                    \
+        return;
+
+            switch (v->kind)
+            {
+                case IrNodeKind::GlobalRef:
+                    out.push_back(static_cast<IrGlobalRef const*>(v));
+                    return;
+                case IrNodeKind::Aggregate:
+                    for (auto* e : static_cast<IrAggregateInst const*>(v)->values)
+                        visit(e);
+                    return;
+                case IrNodeKind::Insert: {
+                    auto* i = static_cast<IrInsertInst const*>(v);
+                    visit(i->aggregate);
+                    visit(i->value);
+                    return;
+                }
+                case IrNodeKind::Phi:
+                    for (auto const& p : static_cast<IrPhiInst const*>(v)->incoming)
+                        visit(p.value);
+                    return;
+                case IrNodeKind::Call: {
+                    auto* c = static_cast<IrCallInst const*>(v);
+                    visit(c->callee);
+                    for (auto* a : c->args)
+                        visit(a);
+                    return;
+                }
+                case IrNodeKind::CallTail: {
+                    auto* c = static_cast<IrCallTailInst const*>(v);
+                    visit(c->callee);
+                    for (auto* a : c->args)
+                        visit(a);
+                    return;
+                }
+                case IrNodeKind::Alloca:
+                    visit(static_cast<IrAllocaInst const*>(v)->count);
+                    return;
+                case IrNodeKind::Load:
+                    visit(static_cast<IrLoadInst const*>(v)->pointer);
+                    return;
+                case IrNodeKind::LoadVolatile:
+                    visit(static_cast<IrLoadVolatileInst const*>(v)->pointer);
+                    return;
+                case IrNodeKind::Store: {
+                    auto* i = static_cast<IrStoreInst const*>(v);
+                    visit(i->value);
+                    visit(i->pointer);
+                    return;
+                }
+                case IrNodeKind::StoreVolatile: {
+                    auto* i = static_cast<IrStoreVolatileInst const*>(v);
+                    visit(i->value);
+                    visit(i->pointer);
+                    return;
+                }
+                case IrNodeKind::Gep: {
+                    auto* g = static_cast<IrGepInst const*>(v);
+                    visit(g->base);
+                    for (auto const& index : g->indices)
+                        visit(index.dynamic_index);
+                    return;
+                }
+                case IrNodeKind::MakePointer: {
+                    auto* i = static_cast<IrMakePointerInst const*>(v);
+                    visit(i->offset);
+                    visit(i->segment);
+                    return;
+                }
+                case IrNodeKind::PointerOffset:
+                    visit(static_cast<IrPointerOffsetInst const*>(v)->pointer);
+                    return;
+                case IrNodeKind::PointerSegment:
+                    visit(static_cast<IrPointerSegmentInst const*>(v)->pointer);
+                    return;
+                case IrNodeKind::Extract:
+                    visit(static_cast<IrExtractInst const*>(v)->aggregate);
+                    return;
+                case IrNodeKind::AtomicLoad:
+                    visit(static_cast<IrAtomicLoadInst const*>(v)->pointer);
+                    return;
+                case IrNodeKind::AtomicStore: {
+                    auto* i = static_cast<IrAtomicStoreInst const*>(v);
+                    visit(i->value);
+                    visit(i->pointer);
+                    return;
+                }
+                case IrNodeKind::AtomicRmw: {
+                    auto* i = static_cast<IrAtomicRmwInst const*>(v);
+                    visit(i->pointer);
+                    visit(i->value);
+                    return;
+                }
+                case IrNodeKind::AtomicCmpXchg: {
+                    auto* i = static_cast<IrAtomicCmpXchgInst const*>(v);
+                    visit(i->pointer);
+                    visit(i->expected);
+                    visit(i->desired);
+                    return;
+                }
+                case IrNodeKind::InlineAsm:
+                    for (auto const& operand : static_cast<IrInlineAsmInst const*>(v)->operands)
+                        visit(operand.value);
+                    return;
+                    DCC_PRUNE_BINOP(Add)
+                    DCC_PRUNE_BINOP(Sub)
+                    DCC_PRUNE_BINOP(Mul)
+                    DCC_PRUNE_BINOP(UDiv)
+                    DCC_PRUNE_BINOP(SDiv)
+                    DCC_PRUNE_BINOP(URem)
+                    DCC_PRUNE_BINOP(SRem)
+                    DCC_PRUNE_BINOP(FDiv)
+                    DCC_PRUNE_BINOP(FRem)
+                    DCC_PRUNE_BINOP(And)
+                    DCC_PRUNE_BINOP(Or)
+                    DCC_PRUNE_BINOP(Xor)
+                    DCC_PRUNE_BINOP(Shl)
+                    DCC_PRUNE_BINOP(LShr)
+                    DCC_PRUNE_BINOP(AShr)
+                    DCC_PRUNE_BINOP(CmpEq)
+                    DCC_PRUNE_BINOP(CmpNe)
+                    DCC_PRUNE_BINOP(CmpLt)
+                    DCC_PRUNE_BINOP(CmpLe)
+                    DCC_PRUNE_BINOP(CmpGt)
+                    DCC_PRUNE_BINOP(CmpGe)
+                    DCC_PRUNE_BINOP(CmpOLt)
+                    DCC_PRUNE_BINOP(CmpOLe)
+                    DCC_PRUNE_BINOP(CmpOGt)
+                    DCC_PRUNE_BINOP(CmpOGe)
+                    DCC_PRUNE_BINOP(CmpULt)
+                    DCC_PRUNE_BINOP(CmpULe)
+                    DCC_PRUNE_BINOP(CmpUGt)
+                    DCC_PRUNE_BINOP(CmpUGe)
+                    DCC_PRUNE_UNARY(Neg)
+                    DCC_PRUNE_UNARY(Not)
+                    DCC_PRUNE_UNARY(Zext)
+                    DCC_PRUNE_UNARY(Sext)
+                    DCC_PRUNE_UNARY(Trunc)
+                    DCC_PRUNE_UNARY(FpExt)
+                    DCC_PRUNE_UNARY(FpTrunc)
+                    DCC_PRUNE_UNARY(FpToI)
+                    DCC_PRUNE_UNARY(IToFp)
+                    DCC_PRUNE_UNARY(PtrToI)
+                    DCC_PRUNE_UNARY(IToPtr)
+                    DCC_PRUNE_UNARY(Bitcast)
+                default:
+                    return;
+            }
+#undef DCC_PRUNE_BINOP
+#undef DCC_PRUNE_UNARY
+        }
+
+        static void collect_terminator_refs(IrNode const* n, std::unordered_set<IrValue const*>& seen, std::vector<IrGlobalRef const*>& out)
+        {
+            if (!n)
+                return;
+            switch (n->kind)
+            {
+                case IrNodeKind::BrCond:
+                    collect_value_refs(static_cast<IrBrCondInst const*>(n)->condition, seen, out);
+                    return;
+                case IrNodeKind::Ret:
+                    collect_value_refs(static_cast<IrRetInst const*>(n)->value, seen, out);
+                    return;
+                case IrNodeKind::Switch:
+                    collect_value_refs(static_cast<IrSwitchInst const*>(n)->value, seen, out);
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        static void collect_owner_refs(IrValue const* owner, std::vector<IrGlobalRef const*>& out)
+        {
+            if (!owner)
+                return;
+            std::unordered_set<IrValue const*> seen;
+            if (owner->kind == IrNodeKind::Global)
+            {
+                collect_value_refs(static_cast<IrGlobal const*>(owner)->init, seen, out);
+                return;
+            }
+            if (owner->kind != IrNodeKind::Function)
+                return;
+            for (auto* bb : static_cast<IrFunction const*>(owner)->blocks)
+            {
+                if (!bb)
+                    continue;
+                for (auto* inst : bb->instructions)
+                    collect_value_refs(inst, seen, out);
+                collect_terminator_refs(bb->terminator, seen, out);
+            }
         }
 
         void prune_unreachable(sema::ModuleInfo const& entry)
@@ -7646,8 +7846,19 @@ export namespace dcc::ir::lower
             };
 
             std::unordered_set<IrGlobalRef const*> claimed;
-            for (auto const& [owner, refs] : m_owner_refs)
-                claimed.insert(refs.begin(), refs.end());
+            std::vector<IrGlobalRef const*> owned_refs;
+            for (auto const* f : m_module->functions)
+            {
+                owned_refs.clear();
+                collect_owner_refs(f, owned_refs);
+                claimed.insert(owned_refs.begin(), owned_refs.end());
+            }
+            for (auto const* g : m_module->globals)
+            {
+                owned_refs.clear();
+                collect_owner_refs(g, owned_refs);
+                claimed.insert(owned_refs.begin(), owned_refs.end());
+            }
             for (auto const* ref : m_ctx.global_refs())
                 if (!claimed.contains(ref))
                     make_live(resolve_ref_target(ref, by_name));
@@ -7685,10 +7896,31 @@ export namespace dcc::ir::lower
             {
                 auto const* owner = work.back();
                 work.pop_back();
-                auto it = m_owner_refs.find(owner);
-                if (it != m_owner_refs.end())
-                    for (auto const* ref : it->second)
-                        make_live(resolve_ref_target(ref, by_name));
+                owned_refs.clear();
+                collect_owner_refs(owner, owned_refs);
+                for (auto const* ref : owned_refs)
+                    make_live(resolve_ref_target(ref, by_name));
+            }
+
+            for (auto const* f : m_module->functions)
+            {
+                if (!live.contains(f))
+                    continue;
+                owned_refs.clear();
+                collect_owner_refs(f, owned_refs);
+                for (auto const* ref : owned_refs)
+                    if (auto const* target = resolve_ref_target(ref, by_name); target && !live.contains(target))
+                        lower_panic(std::format("internal error: function {} references {}, which was dropped as unreachable", f->name, ref->name));
+            }
+            for (auto const* g : m_module->globals)
+            {
+                if (!live.contains(g))
+                    continue;
+                owned_refs.clear();
+                collect_owner_refs(g, owned_refs);
+                for (auto const* ref : owned_refs)
+                    if (auto const* target = resolve_ref_target(ref, by_name); target && !live.contains(target))
+                        lower_panic(std::format("internal error: global {} references {}, which was dropped as unreachable", g->name, ref->name));
             }
 
             std::erase_if(m_module->functions, [&](IrFunction const* f) { return !live.contains(f); });
@@ -7830,7 +8062,6 @@ export namespace dcc::ir::lower
             {
                 auto* ir_global = m_global_map[vd];
                 auto storage = vd->sema.storage;
-                auto first_ref = m_ctx.global_refs().size();
                 if (vd->init && storage != ast::StorageClass::Extern)
                 {
                     auto* init_val = lower_constant_expr(vd->init, get_canonical_type(vd->type));
@@ -7838,7 +8069,6 @@ export namespace dcc::ir::lower
                         lower_panic(vd, std::format("initializer for global `{}` is not type-compatible with its declared type", vd->name));
                     ir_global->init = init_val;
                 }
-                claim_refs(ir_global, first_ref);
 
                 m_module->globals.push_back(ir_global);
             }
