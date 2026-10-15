@@ -76,6 +76,7 @@ export namespace dcc::cli
         std::vector<std::string> linker_args;
         std::string linker_script;
         std::string entry_symbol;
+        bool print_reachability{false};
         bool gc_sections{false};
         std::optional<std::string> link_base;
         std::optional<std::string> stack_reserve;
@@ -496,6 +497,17 @@ export namespace dcc::cli
          "entry symbol",
          "",
          [](Options& o, bool, std::string_view v, char**) { o.entry_symbol = v; }},
+
+        {"--print-reachability",
+         "",
+         {},
+         Arg::None,
+         "",
+         {},
+         Phase::Compile,
+         "print why each whole-program function and global was kept or dropped",
+         "",
+         [](Options& o, bool, std::string_view, char**) { o.print_reachability = true; }},
 
         {"-fbase",
          "",
