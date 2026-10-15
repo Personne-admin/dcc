@@ -2119,10 +2119,13 @@ export namespace dcc::backend::em64t
         }
 
         out += emit_globals(ir_mod, defined_syms, target, module_asm);
+        std::string const generated_prefix = dcc::ir::generated_symbol_prefix(ir_mod.name);
+        out = rename_generated_asm_symbols(out, generated_prefix);
         if (module_asm && !module_asm->empty())
         {
             out += "; module asm\n";
-            out += module_asm_intel_text(*module_asm, target.object_format == dcc::target::ObjectFormat::Coff ? ModuleAsmFormat::Coff : ModuleAsmFormat::Elf);
+            out += module_asm_intel_text(*module_asm, target.object_format == dcc::target::ObjectFormat::Coff ? ModuleAsmFormat::Coff : ModuleAsmFormat::Elf,
+                                         generated_prefix);
         }
         return out;
     }

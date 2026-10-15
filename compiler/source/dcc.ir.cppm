@@ -6,6 +6,18 @@ import dcc.target;
 
 export namespace dcc::ir
 {
+    [[nodiscard]] inline std::string generated_symbol_prefix(std::string_view module_name)
+    {
+        std::string out = "__dcc_";
+        for (char c : module_name)
+        {
+            bool const plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+            out += plain ? c : '_';
+        }
+        out += '_';
+        return out;
+    }
+
     enum class IrTypeKind : std::uint8_t
     {
         Void,

@@ -6,6 +6,57 @@ import dcc.backend.x86.prefix;
 
 export namespace dcc::backend::x86
 {
+    [[nodiscard]] inline bool asm_symbol_char(char c) noexcept
+    {
+        return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.';
+    }
+
+    [[nodiscard]] inline std::string rename_generated_asm_symbols(std::string_view text, std::string_view prefix)
+    {
+        auto match_digits = [](std::string_view rest, std::string_view lead) -> std::optional<std::size_t> {
+            if (!rest.starts_with(lead))
+                return std::nullopt;
+            std::size_t const n = lead.size();
+            std::size_t digits = 0;
+            while (n + digits < rest.size() && rest[n + digits] >= '0' && rest[n + digits] <= '9')
+                ++digits;
+            if (digits == 0)
+                return std::nullopt;
+            std::size_t const end = n + digits;
+            if (end < rest.size() && asm_symbol_char(rest[end]))
+                return std::nullopt;
+            return end;
+        };
+
+        std::string out;
+        out.reserve(text.size());
+        for (std::size_t i = 0; i < text.size();)
+        {
+            if (text[i] == '.' && (i == 0 || !asm_symbol_char(text[i - 1])))
+            {
+                std::string_view const rest = text.substr(i);
+                auto emit = [&](std::string_view lead, std::string_view tag) -> bool {
+                    auto end = match_digits(rest, lead);
+                    if (!end)
+                        return false;
+                    out += prefix;
+                    out += tag;
+                    out.append(rest.data() + lead.size(), *end - lead.size());
+                    i += *end;
+                    return true;
+                };
+                if (emit(".u16str.", "u16str_"))
+                    continue;
+                if (emit(".str.", "str_"))
+                    continue;
+                if (emit(".data.", "data_"))
+                    continue;
+            }
+            out += text[i++];
+        }
+        return out;
+    }
+
     [[nodiscard]] std::string_view intel_register_name(PhysReg r, unsigned bits)
     {
         using namespace std::literals;
