@@ -1,3 +1,71 @@
+# Shared IR scalar replacement (2026-10-15)
+
+This batch validates and extends the random differential generator, then adds scalar replacement before mem2reg in the shared O1/O2 IR pipeline. It does not change O0 or either calling convention. Complete sources, commands, mutation compilers, individual results, per-function measurements and byte proofs are retained in `~/.cache/dcc-sroa-batch/`.
+
+## Mutation validation
+
+Each experiment reintroduced exactly one historical custom-backend defect in a detached scratch worktree, preserving LLVM O0 as an independent oracle. The six fixed seeds plus seeds 1000–1299 ran against each mutant before and after extending the generator.
+
+| Reintroduced defect | Original generator detected | Extended generator detected |
+| --- | ---: | ---: |
+| 7b21368: narrow sign extension before comparison | 0/306 | 306/306 |
+| 5fd0863: aggregate stores to globals | 0/306 | 306/306 |
+| b703926: i8086 GEP on aggregate/array values | 0/306 | 304/306 |
+
+All six fixed seeds detect all three defects. Narrow casts and global stores fail custom em64t O0/O2. Aggregate destructuring fails i8086 small/unreal O0/O2; unreal32 does not expose the same width defect. Seeds 1023 and 1279 mask the aggregate mutant's effect, illustrating that a passing individual seed does not prove absence of a bug. A separate narrow-cast control changed its expected exit 5 to 14/12 with that mutation. No fault was applied to the main checkout or committed.
+
+`b8aefb0 feat: extend differential coverage for narrow casts and aggregate storage` adds negative i8 widening/comparisons, global struct/slice stores and reads, struct-pattern destructuring, internal/C aggregate returns, and branch/loop updates of nonescaping structs, constant-index arrays and slice headers. The generator remains bounded structured generation: no inline asm, atomics/concurrency, generic types, floating point, far/based pointers, arbitrary aliasing, padding inspection, arbitrary CFGs or indirect callbacks. Shared frontend bugs can affect both oracle and target; dedicated expected-result fixtures remain necessary.
+
+## Promotion and limits
+
+The pass follows an entry-block single-instance aggregate alloca through constant GEPs, decomposes accesses into typed scalar slots, then lets mem2reg produce SSA values and merge phis. It handles nested structs, fixed arrays and slice headers, including whole-value loads/stores. Extract/construct folds remove temporary reconstructions; nested unchanged by-value parameters forward directly. Function signatures and call argument/return aggregate types remain intact for internal and C ABIs. Pointer flavor/segment and target-sized slice lengths are preserved.
+
+Limits: at most **64 bytes**, **16 scalar leaves**, **16 elements per array**, and **8 nesting levels**. Overlapping layouts, unions, bitfields, flexible arrays, zero-sized or oversized aggregates remain in memory. Any address escape (including passing a field address), pointer cast/phi, volatile/atomic access or nonconstant index rejects the whole candidate. Slice element storage remains separate: promoting a header does not promote dynamically indexed backing data. Parameter forwarding stays conservative around instruction-valued operands inside unattached constant aggregates.
+
+Backend unit checks cover promotion, nested parameter forwarding, nested constant users, and retention for volatile, dynamic-indexed, large and escaping storage. The extended execution generator covers control-flow merges and calls/returns through both conventions; the existing ABI and QEMU matrices remain required.
+
+## O2 measurements
+
+Same 71 programs and five configurations before/after: 355 successful measurements each and 142 native executions each. QEMU instruction callbacks provide deterministic executed counts; both runs passed calibration, prefix decoding and accounting checks. All builds use `-fwhole-program`. The before compiler is 42a677a; unlike the previous width report, it always retains the built-in assert path. Static totals count emitted copies across all programs, including repeated assert/panic functions. They are not a deduplicated library size or a cycle-speedup claim.
+
+| Configuration | Code bytes | Executed instructions | Spill slots | Summed reserved frame bytes |
+| --- | ---: | ---: | ---: | ---: |
+| small | 93,726 → 83,422 (-11.0%) | 177,068 → 173,416 (-2.1%) | 530 → 405 | 8,320 → 2,040 |
+| unreal | 93,720 → 83,416 (-11.0%) | 177,032 → 173,380 (-2.1%) | 530 → 405 | 8,320 → 2,040 |
+| unreal32 | 107,585 → 89,195 (-17.1%) | 179,054 → 170,970 (-4.5%) | 373 → 391 | 11,552 → 2,070 |
+| custom em64t | 106,473 → 89,064 (-16.4%) | 100,068 → 95,333 (-4.7%) | 22 → 22 | 19,328 → 11,120 |
+| LLVM x86_64 | 38,481 → 36,209 (-5.9%) | 26,775 → 26,775 | 343 → 343 | 13,992 → 10,584 |
+
+Important local tradeoff: unreal32 gains 18 spill slots despite a much smaller total frame. Promotion removes ordinary aggregate slots but can expose more scalar live ranges; spill count alone is not a total-stack metric. Small/unreal `__dcc_divmod64` grows 689 → 778 bytes and executes 1,992 → 2,212 instructions in the i64 matrix; the matrix's `memory(Wide)` grows 105 → 157 bytes and executes 45 → 58. These wide-value register-pressure regressions remain visible rather than being excluded from the totals. No measured em64t function grows or executes more instructions.
+
+Representative executed savings: insertion sort small 22,066 → 18,870 (-14.5%), unreal32 24,178 → 17,197 (-28.9%), em64t 14,193 → 10,003 (-29.5%); FNV small 1,431 → 1,111, unreal32 1,627 → 919, em64t 1,116 → 791. Sort's em64t code shrinks 325 → 231 bytes and frame 32 → 16; its small frame shrinks 20 → 8 even though spills grow 2 → 4. Nested-slice fixture small main shrinks 335 → 221 bytes, 137 → 86 executed instructions. Full before/after rows are in `measurement-diff.json`, `measure-before/functions.csv` and `measure-verified/functions.csv`.
+
+Em64t changes intentionally: nonescaping aggregate memory slots, GEPs and reloads disappear; scalar values/phis and aggregate argument forwarding replace them. Sort/hash improve particularly from keeping slice headers in registers. The existing allocator still spills some promoted values; this pass does not add coalescing, rematerialization or a new ABI. LLVM already removes most executed aggregate traffic, so its executed corpus count is unchanged; emitted panic code and reserved frames still shrink.
+
+## Core5 program (measurement only)
+
+The user's Stage 2 `Main.dc` and imported project files were not modified. Exact requested custom/i8086/unreal/O2/whole-program/loader_entry/include flags were used for `-S`; an additional `-c` invocation supplies function-symbol byte sizes without linking or running the program. Disabling only `sroa` reproduces both original assembly and object byte-for-byte. Main source SHA256 remains `d60c82d8a6df94836fcd4da846d79a0093fa7874ee0542b14b25547eba09a3ec`.
+
+Total function code **941 → 888 bytes (-5.6%)**; five functions:
+
+| Function | Before bytes | After bytes |
+| --- | ---: | ---: |
+| VGA render(character, color) | 370 | 370 |
+| __assert | 233 | 210 |
+| VGA render(slice, color) | 136 | 121 |
+| VGA render(slice) | 129 | 114 |
+| loader_entry | 73 | 73 |
+
+Retained listings, objects and symbol sizes: `real-before/` and `real-verified/`. No program execution or cycle-speedup claim is made for this separate real-program measurement.
+
+## Verification result
+
+The final fixed six seeds and 300 extra healthy seeds (2000–2299) passed all 2,754 executions without mismatches. Backend units passed 823/823; the i8086 differential/QEMU matrices passed 546 executions and 150 byte-identical listing/object linked images at O0/O2. Linux passed 104 OS checks, 176 layout assertions and 25 ABI pairs; Windows passed 105 OS checks, 371 layout assertions and 25 ABI pairs, including both Windows compiler backends. Their snapshot has identical compiler sources to the final commit.
+
+The full gate ran **once**, LLVM enabled, with zero skips: 35/36 suites passed, including dispatcher 2219/2219. Its sole failure was the pass-registry unit still requiring three function passes after this feature added a fourth. The test now explicitly checks `sroa`, `mem2reg`, `dce`, `simplifycfg` and singleton registration; the corrected targeted suite passes **133/133**. All other suites passed in the full run. The full gate was not repeated. This correction changes only a test expectation, not compiler output.
+
+---
+
 # Width-aware i8086 copies and spill slots
 
 The seeded generator and the first approved allocation-width step are complete. The native byte baseline was first brought forward from 4422e5c to b7bbaff by isolated captures at every intervening batch endpoint. All 583 changed and 918 added artifacts are attributed; all 130 changed objects are named with their introducing commits and reasons in `~/.cache/dcc-width-batch/batch-attribution.md` and `.json`. Two independent HEAD directories produced identical 30,773-record, 49,925,327-byte captures. The preserved baseline is `~/.cache/dcc-backend-baseline/baseline-b7bbaff-a`, with independent companion `-b`. The end-of-output-batch baseline adoption rule is recorded in CLAUDE.md.

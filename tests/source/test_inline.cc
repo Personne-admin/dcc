@@ -136,13 +136,14 @@ namespace
         auto functions = manager.function_passes();
         REQUIRE(modules.size() == 1);
         CHECK_EQ(modules[0].name, "inline");
-        REQUIRE(functions.size() == 3);
-        CHECK_EQ(functions[0].name, "mem2reg");
-        CHECK_EQ(functions[1].name, "dce");
-        CHECK_EQ(functions[2].name, "simplifycfg");
+        REQUIRE(functions.size() == 4);
+        CHECK_EQ(functions[0].name, "sroa");
+        CHECK_EQ(functions[1].name, "mem2reg");
+        CHECK_EQ(functions[2].name, "dce");
+        CHECK_EQ(functions[3].name, "simplifycfg");
         CHECK_EQ(&manager, &dcc::ir::pass::global_pass_manager());
         CHECK_EQ(manager.module_passes().size(), 1u);
-        CHECK_EQ(manager.function_passes().size(), 3u);
+        CHECK_EQ(manager.function_passes().size(), 4u);
     }
 
     SECTION("ir: dominance queries");
