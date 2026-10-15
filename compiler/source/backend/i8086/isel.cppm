@@ -1505,9 +1505,9 @@ namespace dcc::backend::i8086
             void lower_call(IrValue const* inst, IrValue const* callee, std::span<IrValue* const> args)
             {
                 auto const* ref = ir_cast<IrGlobalRef>(callee);
-                if (!ref || !ref->function)
+                if (!ref)
                     return unsupported("an indirect call");
-                if (ref->function->name == "__dcc_udivmod32" && args.size() == 3 && wide(inst->type) &&
+                if (ref->function && ref->function->name == "__dcc_udivmod32" && args.size() == 3 && wide(inst->type) &&
                     std::ranges::all_of(args, [](IrValue const* arg) { return scalar_bits(arg->type) == 32; }))
                 {
                     auto high = value(args[0]);
@@ -1538,7 +1538,7 @@ namespace dcc::backend::i8086
                     pairs[inst] = result;
                     return;
                 }
-                bool const c_convention = uses_c_abi(*ref->function);
+                bool const c_convention = ref->function ? uses_c_abi(*ref->function) : false;
                 bool const sret = indirect_return(inst->type);
                 auto registers = classify_arguments(args, c_convention, sret);
                 std::optional<VReg> result;
@@ -1620,7 +1620,7 @@ namespace dcc::backend::i8086
                             copy_to(*registers[i], inputs[i], op_width(value_bits(args[i]->type)));
                         uses |= bit(*registers[i]);
                     }
-                MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->function->name)}, 0);
+                MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->name)}, 0);
                 call.implicit_uses = uses;
                 call.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX) |
                                      bit(PhysReg::ES) | bit(PhysReg::FS) | bit(PhysReg::GS);

@@ -72,4 +72,16 @@ with tempfile.TemporaryDirectory(prefix="dcc-whole-program-") as directory:
     run(compiler, "-flibdcext", "-fwhole-program", entry, "-o", directory / "linked", expect=1,
         contains="-fwhole-program with -flibdcext cannot link an executable or shared library")
 
+    reach = directory / "reach.dc"
+    reach.write_text("module app;\n\n@nomangle public void loader_entry() {\n    reachable();\n}\n\nvoid unreachable_creator() {\n    u8[2] a = {0, 0};\n    [] u8 s = a;\n    s[5] = 1;\n}\n\nvoid reachable() {\n    u8[2] b = {0, 0};\n    [] u8 t = b;\n    t[6] = 2;\n}\n")
+    i8086_reach = directory / "reach-i8086.s"
+    run(*i8086, "-mcmodel", "unreal", "-O2", "-fwhole-program", "-fbounds-check", "-fpartial-eval", "-e", "loader_entry", "-S", reach, "-o", i8086_reach)
+    i8086_text = i8086_reach.read_text()
+    assert "__assert" in i8086_text, "i8086 whole-program dropped __assert:\n" + i8086_text
+    em64t_reach = directory / "reach-em64t.s"
+    run(compiler, "-target", "x86_64-elf", "-O2", "-fbackend", "custom", "-fwhole-program", "-fbounds-check", "-fpartial-eval", "-e", "loader_entry", "-S",
+        reach, "-o", em64t_reach)
+    em64t_text = em64t_reach.read_text()
+    assert "__assert" in em64t_text, "em64t whole-program dropped __assert:\n" + em64t_text
+
 print(f"PASS {checks} whole-program checks")
