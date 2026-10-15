@@ -141,4 +141,30 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-models-") as directory:
                 checks += 1
     else:
         print("  NOTE    no /dev/kvm: structural and TCG wrap checks remain enabled")
+    string_fixture = Path(__file__).resolve().parent.parent / "cases/i8086/early-string-literal-exec.dcc-test"
+    string_source = directory / "early-string.dc"
+    string_source.write_text(string_fixture.read_text().split("=== FILE: main.dc ===\n", 1)[1].split("\n=== EXPECT-I8086-RUN ===", 1)[0])
+    for model in ("small", "unreal"):
+        for level in ("-O0", "-O2"):
+            base = ["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbackend", "custom", level]
+            obj = directory / f"string-{model}{level}.o"
+            listing = obj.with_suffix(".s")
+            reassembled = directory / f"string-{model}{level}-nasm.o"
+            for flag, output in (("-c", obj), ("-S", listing)):
+                result = subprocess.run(base + [flag, str(string_source), "-o", str(output)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+            result = subprocess.run(["timeout", "60", "nasm", "-f", "elf32", str(listing), "-o", str(reassembled)], capture_output=True, text=True)
+            assert result.returncode == 0, result.stderr
+            images = []
+            for linked in (obj, reassembled):
+                image = linked.with_suffix(".bin")
+                result = subprocess.run(["timeout", "60", str(compiler), "-target", "i8086-binary", "-mcmodel", model, "-fbase=1000:0", str(crt0), str(linked),
+                                         "-o", str(image)], capture_output=True, text=True)
+                assert result.returncode == 0, result.stderr
+                images.append(image.read_bytes())
+            assert images[0] == images[1], (model, level)
+            result = subprocess.run([sys.executable, str(Path(__file__).resolve().parent.parent / "i8086/run.py"), str(obj.with_suffix(".bin")),
+                                     "--mode", "real" if model == "small" else "unreal", "--timeout", "30"], capture_output=True, timeout=60)
+            assert result.returncode == 0, (model, level, result.stderr)
+            checks += 1
     print("  RESULT  i8086 model diagnostics and assembly round trips: %d/%d passed" % (checks, checks))

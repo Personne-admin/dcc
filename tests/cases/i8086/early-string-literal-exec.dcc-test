@@ -1,0 +1,19 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+
+@nomangle public i32 early_use() {
+    []const char s = "hello";
+    return s[0] as i32;
+}
+
+@nomangle public i32 middle() {
+    return 1;
+}
+
+@nomangle public i32 dcc_main() {
+    return early_use() - 104;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 0

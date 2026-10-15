@@ -87,7 +87,7 @@ export namespace dcc::backend::x86
     [[nodiscard]] std::expected<ModuleAsmObject, ModuleAsmError> assemble_module_asm(std::span<ir::IrModuleAsm* const> blocks, EncodeMode mode,
                                                                                      ModuleAsmFormat format);
 
-    [[nodiscard]] std::string module_asm_intel_text(ModuleAsmObject const& object, ModuleAsmFormat format);
+    [[nodiscard]] std::string module_asm_intel_text(ModuleAsmObject const& object, ModuleAsmFormat format, std::string_view prefix = "__dcc_");
 
     [[nodiscard]] std::vector<std::string> module_asm_external_references(ModuleAsmObject const& object);
 
@@ -2949,11 +2949,15 @@ namespace dcc::backend::x86
             }
         }
 
-        [[nodiscard]] std::string nasm_name(std::string_view name)
+        [[nodiscard]] std::string nasm_name(std::string_view name, std::string_view prefix)
         {
-            if (name.starts_with('.'))
-                return std::format("..@{}", name.substr(1));
-            return std::string(name);
+            if (!name.starts_with('.'))
+                return std::string(name);
+            std::string out{prefix};
+            out += "asm_";
+            for (char c : name.substr(1))
+                out += ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_') ? c : '_';
+            return out;
         }
 
         [[nodiscard]] std::string signed_term(std::int64_t value)
@@ -2983,7 +2987,7 @@ namespace dcc::backend::x86
         return names;
     }
 
-    std::string module_asm_intel_text(ModuleAsmObject const& object, ModuleAsmFormat format)
+    std::string module_asm_intel_text(ModuleAsmObject const& object, ModuleAsmFormat format, std::string_view prefix)
     {
         std::string out;
         for (std::size_t si = 0; si < object.sections.size(); ++si)
@@ -2996,7 +3000,7 @@ namespace dcc::backend::x86
                 out += std::format("\nsection {} {} align={}\n", s.name, s.exec ? "code" : s.nobits ? "bss" : s.write ? "data" : "rdata", s.alignment);
             for (auto const& sym : object.symbols)
                 if (sym.section == si && sym.binding != ModuleAsmBinding::Local)
-                    out += std::format("{} {}\n", sym.binding == ModuleAsmBinding::Weak ? "weak" : "global", nasm_name(sym.name));
+                    out += std::format("{} {}\n", sym.binding == ModuleAsmBinding::Weak ? "weak" : "global", nasm_name(sym.name, prefix));
             std::set<std::uint64_t> events;
             for (auto const& sym : object.symbols)
                 if (sym.section == si)
@@ -3036,7 +3040,7 @@ namespace dcc::backend::x86
                 emitted_bytes(event);
                 for (auto const& sym : object.symbols)
                     if (sym.section == si && sym.offset == event)
-                        out += nasm_name(sym.name) + ":\n";
+                        out += nasm_name(sym.name, prefix) + ":\n";
                 while (line_index < s.lines.size() && s.lines[line_index].offset <= event)
                 {
                     if (s.lines[line_index].offset == event)
@@ -3048,7 +3052,7 @@ namespace dcc::backend::x86
                     if (r.offset != event)
                         continue;
                     bool const pc = r.kind == Reloc::Kind::Rel32 || r.kind == Reloc::Kind::Rel32_Call || r.kind == Reloc::Kind::Rel16;
-                    out += std::format("    {} {}{}{}\n", reloc_directive(r.kind), nasm_name(r.symbol), signed_term(r.addend), pc ? " - $" : "");
+                    out += std::format("    {} {}{}{}\n", reloc_directive(r.kind), nasm_name(r.symbol, prefix), signed_term(r.addend), pc ? " - $" : "");
                     pos = r.offset + reloc_bytes(r.kind);
                 }
             }

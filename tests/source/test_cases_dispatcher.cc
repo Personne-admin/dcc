@@ -1515,6 +1515,139 @@ namespace
         int skipped = 0;
     };
 
+    [[nodiscard]] std::vector<std::string> asm_label_scope_errors(std::string_view text)
+    {
+        auto is_tok = [](char c) {
+            return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '.' || c == '$' || c == '@';
+        };
+        auto is_local = [](std::string_view s) { return s.size() > 1 && s.front() == '.' && s[1] != '.'; };
+
+        struct Line
+        {
+            std::string code;
+            std::string scope;
+        };
+
+        std::vector<Line> lines;
+        for (std::size_t pos = 0; pos <= text.size();)
+        {
+            auto end = text.find('\n', pos);
+            if (end == std::string_view::npos)
+                end = text.size();
+            std::string_view raw = text.substr(pos, end - pos);
+            std::string cleaned;
+            bool in_string = false;
+            for (char c : raw)
+            {
+                if (in_string)
+                {
+                    if (c == '"')
+                        in_string = false;
+                    cleaned += ' ';
+                    continue;
+                }
+                if (c == '"')
+                {
+                    in_string = true;
+                    cleaned += ' ';
+                    continue;
+                }
+                if (c == ';')
+                    break;
+                cleaned += c;
+            }
+            lines.push_back(Line{std::move(cleaned), {}});
+            pos = end + 1;
+        }
+
+        auto split_tokens = [&](std::string_view s) {
+            std::vector<std::string_view> out;
+            std::size_t i = 0;
+            while (i < s.size())
+            {
+                if (!is_tok(s[i]))
+                {
+                    ++i;
+                    continue;
+                }
+                std::size_t start = i;
+                while (i < s.size() && is_tok(s[i]))
+                    ++i;
+                out.push_back(s.substr(start, i - start));
+            }
+            return out;
+        };
+
+        std::string scope;
+        std::set<std::string> defined;
+        std::set<std::string> externs;
+
+        for (auto& line : lines)
+        {
+            std::string_view code = line.code;
+            auto leading = split_tokens(code.substr(0, code.find_first_of(" \t")));
+            if (!leading.empty() && code.find(':') != std::string_view::npos)
+            {
+                std::string_view const first = leading.front();
+                std::size_t const colon = code.find(':');
+                if (code.find(first) + first.size() == colon)
+                {
+                    if (is_local(first))
+                        defined.insert(scope + std::string{first});
+                    else
+                    {
+                        defined.insert(std::string{first});
+                        if (!first.starts_with("..@"))
+                            scope = std::string{first};
+                    }
+                    code.remove_prefix(colon + 1);
+                    line.code = std::string{code};
+                }
+            }
+            line.scope = scope;
+
+            auto tokens = split_tokens(line.code);
+            if (tokens.empty())
+                continue;
+            if (tokens.front() == "global" || tokens.front() == "extern")
+            {
+                for (std::size_t i = 1; i < tokens.size(); ++i)
+                {
+                    if (tokens.front() == "global")
+                        defined.insert(std::string{tokens[i]});
+                    else
+                        externs.insert(std::string{tokens[i]});
+                }
+            }
+        }
+
+        std::vector<std::string> errors;
+        for (auto const& line : lines)
+        {
+            auto tokens = split_tokens(line.code);
+            if (tokens.empty())
+                continue;
+            if (tokens.front() == "section" || tokens.front() == "global" || tokens.front() == "extern" || tokens.front() == "bits" || tokens.front() == "align" ||
+                tokens.front() == "default")
+                continue;
+
+            for (auto token : tokens)
+            {
+                if (is_local(token))
+                {
+                    if (!defined.contains(line.scope + std::string{token}))
+                        errors.push_back(std::format("local label {} is not defined in scope {}", token, line.scope));
+                }
+                else if (token.starts_with("__dcc_"))
+                {
+                    if (!defined.contains(std::string{token}) && !externs.contains(std::string{token}))
+                        errors.push_back(std::format("generated label {} is not defined", token));
+                }
+            }
+        }
+        return errors;
+    }
+
     bool run_fixture(fs::path const& path, Stats& stats, std::optional<dcc::target::CodeModel> i8086_model = std::nullopt)
     {
         ++stats.checks;
@@ -2874,11 +3007,18 @@ namespace
 
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;
-            backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
+            backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes, dcc::backend::ArtifactKind::AsmText};
             backend_opts.opt_level = static_cast<dcc::ir::pass::OptLevel>(exp.opt_level);
 
             auto backend = dcc::backend::make_em64t_backend();
             auto artifact = backend->emit(*ir_mod, backend_opts);
+
+            if (artifact.asm_text)
+                for (auto const& scope_error : asm_label_scope_errors(*artifact.asm_text))
+                {
+                    ok = false;
+                    std::println(std::cerr, "    FAIL  EXPECT-EM64T-OBJECT: asm label scope: {}  ({}:{})", scope_error, path.string(), exp.base_line);
+                }
 
             if (!artifact.object_bytes)
             {
@@ -3901,8 +4041,11 @@ namespace
                 dcc::backend::BackendOptions backend_opts;
                 backend_opts.target = target;
                 backend_opts.opt_level = opt;
-                backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
+                backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes, dcc::backend::ArtifactKind::AsmText};
                 auto artifact = dcc::backend::make_i8086_backend()->emit(*ir_mod, backend_opts);
+                if (artifact.asm_text)
+                    for (auto const& scope_error : asm_label_scope_errors(*artifact.asm_text))
+                        fail(std::format("{}: asm label scope: {}", level, scope_error));
                 if (!artifact.object_bytes)
                 {
                     fail(std::format("{}: no object: {}", level, artifact.diagnostics.empty() ? std::string{"no diagnostic"} : artifact.diagnostics.front().message));
@@ -4032,6 +4175,12 @@ namespace
             }
 
             auto const& asm_text = *artifact.asm_text;
+
+            for (auto const& scope_error : asm_label_scope_errors(asm_text))
+            {
+                ok = false;
+                std::println(std::cerr, "    FAIL  EXPECT-EM64T-ASM: asm label scope: {}  ({}:{})", scope_error, path.string(), exp.base_line);
+            }
 
             for (auto const& pat : exp.contains)
                 if (asm_text.find(pat) == std::string::npos)

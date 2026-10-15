@@ -584,13 +584,15 @@ namespace dcc::backend::i8086
         if (!p.error.empty())
             return std::unexpected(p.error);
         p.out += data;
+        std::string const generated_prefix = dcc::ir::generated_symbol_prefix(module.name);
+        p.out = rename_generated_asm_symbols(p.out, generated_prefix);
         Printer tables;
         for (auto const& f : functions)
             tables.jump_tables(f);
         if (!tables.out.empty())
             p.out += std::format("\n{}\n{}", section_directive(DataSection::Rodata), tables.out);
         if (module_asm && !module_asm->empty())
-            p.out += "\n; module asm" + module_asm_intel_text(*module_asm, ModuleAsmFormat::Elf);
+            p.out += "\n; module asm" + module_asm_intel_text(*module_asm, ModuleAsmFormat::Elf, generated_prefix);
         return p.out;
     }
 
