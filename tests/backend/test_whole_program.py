@@ -84,4 +84,19 @@ with tempfile.TemporaryDirectory(prefix="dcc-whole-program-") as directory:
     em64t_text = em64t_reach.read_text()
     assert "__assert" in em64t_text, "em64t whole-program dropped __assert:\n" + em64t_text
 
+    entry_shape = directory / "entry.dc"
+    entry_shape.write_text("module app;\n\n@nomangle public void loader_entry() {\n    used();\n}\n\npublic void unused_public() {\n    [] const char s = \"unused-public-literal\";\n    used();\n}\n\n@nomangle public void unused_nomangle() {\n    used();\n}\n\nvoid dropped_literal_user() {\n    [] const char s = \"dropped-literal\";\n    used();\n}\n\nvoid used() {\n}\n")
+    with_e = directory / "entry-with-e.s"
+    result = run(*i8086, "-mcmodel", "unreal", "-O2", "-fwhole-program", "-e", "loader_entry", "--print-reachability", "-S", entry_shape, "-o", with_e)
+    report = result.stdout
+    text = with_e.read_text()
+    assert "unused_nomangle" in text, "with -e the @nomangle definition must stay a root:\n" + text
+    assert "unused_public" not in text, "with -e an unused public entry-module function must be dropped:\n" + text
+    assert "dropped_literal_user" not in text, "with -e a dropped function must not be emitted:\n" + text
+    assert "reachability: dropped function" in report, report
+    assert "reachability: dropped global" in report, report
+    without_e = directory / "entry-without-e.s"
+    run(*i8086, "-mcmodel", "unreal", "-O2", "-fwhole-program", "-S", entry_shape, "-o", without_e)
+    assert "unused_public" in without_e.read_text(), "without -e a public entry-module function is a root"
+
 print(f"PASS {checks} whole-program checks")

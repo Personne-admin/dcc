@@ -29,6 +29,8 @@ export namespace dcc::ir::lower
         }
 
         void set_whole_program(bool enabled) noexcept { m_whole_program = enabled; }
+        void set_entry_symbol(std::string_view symbol) { m_entry_symbol = std::string{symbol}; }
+        void set_print_reachability(bool enabled) noexcept { m_print_reachability = enabled; }
 
         IrModule* lower_module(sema::ModuleInfo const& mod)
         {
@@ -7608,6 +7610,8 @@ export namespace dcc::ir::lower
         bool m_far_pointer_reported{};
 
         bool m_whole_program{false};
+        std::string m_entry_symbol;
+        bool m_print_reachability{false};
         std::vector<sema::ModuleInfo const*> m_defined_modules;
 
         [[nodiscard]] static IrValue const* resolve_ref_target(IrGlobalRef const* ref, std::unordered_map<std::string_view, IrValue const*> const& by_name)
@@ -7840,9 +7844,13 @@ export namespace dcc::ir::lower
 
             std::unordered_set<IrValue const*> live;
             std::vector<IrValue const*> work;
-            auto make_live = [&](IrValue const* v) {
+            std::unordered_map<IrValue const*, IrValue const*> came_from;
+            auto make_live = [&](IrValue const* v, IrValue const* from = nullptr) {
                 if (v && live.insert(v).second)
+                {
+                    came_from[v] = from;
                     work.push_back(v);
+                }
             };
 
             std::unordered_set<IrGlobalRef const*> claimed;
@@ -7863,6 +7871,7 @@ export namespace dcc::ir::lower
                 if (!claimed.contains(ref))
                     make_live(resolve_ref_target(ref, by_name));
 
+            bool const has_entry_symbol = !m_entry_symbol.empty();
             for (auto const* mod : m_defined_modules)
             {
                 if (!mod->tu)
@@ -7872,13 +7881,21 @@ export namespace dcc::ir::lower
                     if (auto* fd = ast::node_cast<ast::FuncDecl>(d))
                     {
                         bool root = fd->body && fd->sema.is_nomangle;
-                        root = root || (mod == &entry && fd->is_public);
+                        if (mod == &entry)
+                        {
+                            if (has_entry_symbol)
+                                root = root || fd->name == m_entry_symbol || (m_func_map.contains(fd) && m_func_map.at(fd)->name == m_entry_symbol);
+                            else
+                                root = root || fd->is_public;
+                        }
                         if (root && m_func_map.contains(fd))
                             make_live(m_func_map.at(fd));
                     }
                     else if (auto* vd = ast::node_cast<ast::VarDecl>(d))
                     {
-                        if (mod == &entry && vd->is_public && m_global_map.contains(vd))
+                        if (mod == &entry && !has_entry_symbol && vd->is_public && m_global_map.contains(vd))
+                            make_live(m_global_map.at(vd));
+                        else if (vd->sema.is_nomangle && m_global_map.contains(vd))
                             make_live(m_global_map.at(vd));
                     }
                 }
@@ -7899,7 +7916,7 @@ export namespace dcc::ir::lower
                 owned_refs.clear();
                 collect_owner_refs(owner, owned_refs);
                 for (auto const* ref : owned_refs)
-                    make_live(resolve_ref_target(ref, by_name));
+                    make_live(resolve_ref_target(ref, by_name), owner);
             }
 
             for (auto const* f : m_module->functions)
@@ -7921,6 +7938,43 @@ export namespace dcc::ir::lower
                 for (auto const* ref : owned_refs)
                     if (auto const* target = resolve_ref_target(ref, by_name); target && !live.contains(target))
                         lower_panic(std::format("internal error: global {} references {}, which was dropped as unreachable", g->name, ref->name));
+            }
+
+            if (m_print_reachability)
+            {
+                auto value_name = [](IrValue const* v) -> std::string_view {
+                    if (v->kind == IrNodeKind::Function)
+                        return static_cast<IrFunction const*>(v)->name;
+                    if (v->kind == IrNodeKind::Global)
+                        return static_cast<IrGlobal const*>(v)->name;
+                    return "<unknown>";
+                };
+                auto print_kept = [&](IrValue const* v) {
+                    std::vector<IrValue const*> chain;
+                    for (auto* p = v; p; p = came_from[p])
+                        chain.push_back(p);
+                    std::ranges::reverse(chain);
+                    std::string path;
+                    for (std::size_t i = 0; i < chain.size(); ++i)
+                    {
+                        if (i)
+                            path += " -> ";
+                        path += value_name(chain[i]);
+                    }
+                    std::println(std::cout, "reachability: {} {} <- {}", v->kind == IrNodeKind::Function ? "function" : "global", value_name(v), path);
+                };
+                for (auto const* f : m_module->functions)
+                    if (live.contains(f))
+                        print_kept(f);
+                for (auto const* g : m_module->globals)
+                    if (live.contains(g))
+                        print_kept(g);
+                for (auto const* f : m_module->functions)
+                    if (!live.contains(f))
+                        std::println(std::cout, "reachability: dropped function {}", f->name);
+                for (auto const* g : m_module->globals)
+                    if (!live.contains(g))
+                        std::println(std::cout, "reachability: dropped global {}", g->name);
             }
 
             std::erase_if(m_module->functions, [&](IrFunction const* f) { return !live.contains(f); });

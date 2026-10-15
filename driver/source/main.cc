@@ -1657,6 +1657,8 @@ auto main(int argc, char** argv) -> int
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
                                                                  &sema->types(), opts.restricted_check, opts.partial_eval, opts.far_check);
         lowerer->set_whole_program(opts.whole_program);
+        lowerer->set_entry_symbol(opts.entry_symbol);
+        lowerer->set_print_reachability(opts.print_reachability);
         auto* ir_mod = lowerer->lower_module(*module);
         if (!lowerer->lower_errors().empty())
         {
