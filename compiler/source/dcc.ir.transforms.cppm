@@ -1475,6 +1475,674 @@ namespace dcc::ir::pass
         return changed;
     }
 
+    static unsigned integer_width(IrType const* type)
+    {
+        if (auto* integer = ir_type_cast<IrIntType>(type))
+            return integer->bits <= 64 ? integer->bits : 0;
+        return type && type->kind == IrTypeKind::Bool ? 1 : 0;
+    }
+
+    static std::uint64_t integer_mask(unsigned width)
+    {
+        return width == 64 ? ~std::uint64_t{} : (std::uint64_t{1} << width) - 1;
+    }
+
+    static std::int64_t signed_integer(std::uint64_t value, unsigned width)
+    {
+        value &= integer_mask(width);
+        if (value & (std::uint64_t{1} << (width - 1)))
+            value |= ~integer_mask(width);
+        return std::bit_cast<std::int64_t>(value);
+    }
+
+    static std::optional<std::uint64_t> integer_literal(IrValue const* value)
+    {
+        if (auto* integer = ir_cast<IrIntConstant>(value); integer && integer_width(integer->type))
+            return static_cast<std::uint64_t>(integer->value) & integer_mask(integer_width(integer->type));
+        if (auto* boolean = ir_cast<IrBoolConstant>(value))
+            return boolean->value;
+        return {};
+    }
+
+    static IrValue* integer_constant(IrContext& ctx, IrType const* type, std::uint64_t value)
+    {
+        if (type->kind == IrTypeKind::Bool)
+            return ctx.bool_const((value & 1) != 0);
+        auto* integer = ir_type_cast<IrIntType>(type);
+        value &= integer_mask(integer->bits);
+        return ctx.int_const(type, integer->is_signed ? signed_integer(value, integer->bits) : std::bit_cast<std::int64_t>(value));
+    }
+
+    struct ConstantState
+    {
+        unsigned level{};
+        std::uint64_t value{};
+        bool operator==(ConstantState const&) const = default;
+    };
+
+    template <typename Lookup> static ConstantState evaluate_integer(IrValue* inst, Lookup lookup)
+    {
+        auto width = integer_width(inst->type);
+        if (!width)
+            return {2};
+        auto unary = [&](IrValue* operand, auto operation) -> ConstantState {
+            auto state = lookup(operand);
+            if (state.level == 1)
+                state.value = operation(state.value) & integer_mask(width);
+            return state;
+        };
+        switch (inst->kind)
+        {
+            case IrNodeKind::Zext:
+                return unary(static_cast<IrZextInst*>(inst)->operand, [](auto v) { return v; });
+            case IrNodeKind::Trunc:
+                return unary(static_cast<IrTruncInst*>(inst)->operand, [](auto v) { return v; });
+            case IrNodeKind::Sext: {
+                auto* operand = static_cast<IrSextInst*>(inst)->operand;
+                auto bits = integer_width(operand->type);
+                return bits ? unary(operand, [&](auto v) { return static_cast<std::uint64_t>(signed_integer(v, bits)); }) : ConstantState{2};
+            }
+            case IrNodeKind::Bitcast: {
+                auto* operand = static_cast<IrBitcastInst*>(inst)->operand;
+                return integer_width(operand->type) == width ? unary(operand, [](auto v) { return v; }) : ConstantState{2};
+            }
+            case IrNodeKind::Neg:
+                return unary(static_cast<IrNegInst*>(inst)->operand, [](auto v) { return std::uint64_t{} - v; });
+            case IrNodeKind::Not:
+                return unary(static_cast<IrNotInst*>(inst)->operand, [](auto v) { return ~v; });
+            case IrNodeKind::Extract: {
+                auto* extract = static_cast<IrExtractInst*>(inst);
+                auto* aggregate = ir_cast<IrAggregateInst>(extract->aggregate);
+                return aggregate && extract->field_index < aggregate->values.size() ? lookup(aggregate->values[extract->field_index]) : ConstantState{2};
+            }
+            default:
+                break;
+        }
+        IrValue* lhs{};
+        IrValue* rhs{};
+        switch (inst->kind)
+        {
+#define INTEGER_OPERANDS(kind)                                                                                                                                 \
+    case IrNodeKind::kind:                                                                                                                                     \
+        lhs = static_cast<Ir##kind##Inst*>(inst)->lhs;                                                                                                         \
+        rhs = static_cast<Ir##kind##Inst*>(inst)->rhs;                                                                                                         \
+        break
+            INTEGER_OPERANDS(Add);
+            INTEGER_OPERANDS(Sub);
+            INTEGER_OPERANDS(Mul);
+            INTEGER_OPERANDS(UDiv);
+            INTEGER_OPERANDS(SDiv);
+            INTEGER_OPERANDS(URem);
+            INTEGER_OPERANDS(SRem);
+            INTEGER_OPERANDS(And);
+            INTEGER_OPERANDS(Or);
+            INTEGER_OPERANDS(Xor);
+            INTEGER_OPERANDS(Shl);
+            INTEGER_OPERANDS(LShr);
+            INTEGER_OPERANDS(AShr);
+            INTEGER_OPERANDS(CmpEq);
+            INTEGER_OPERANDS(CmpNe);
+            INTEGER_OPERANDS(CmpLt);
+            INTEGER_OPERANDS(CmpLe);
+            INTEGER_OPERANDS(CmpGt);
+            INTEGER_OPERANDS(CmpGe);
+            INTEGER_OPERANDS(CmpULt);
+            INTEGER_OPERANDS(CmpULe);
+            INTEGER_OPERANDS(CmpUGt);
+            INTEGER_OPERANDS(CmpUGe);
+#undef INTEGER_OPERANDS
+            default:
+                return {2};
+        }
+        auto bits = integer_width(lhs->type);
+        if (!bits || !integer_width(rhs->type))
+            return {2};
+        auto a = lookup(lhs);
+        auto b = lookup(rhs);
+        if ((inst->kind == IrNodeKind::And || inst->kind == IrNodeKind::Mul) && ((a.level == 1 && a.value == 0) || (b.level == 1 && b.value == 0)))
+            return {1, 0};
+        if (a.level == 2 || b.level == 2)
+            return {2};
+        if (a.level == 0 || b.level == 0)
+            return {};
+        std::uint64_t result{};
+        auto sa = signed_integer(a.value, bits);
+        auto sb = signed_integer(b.value, integer_width(rhs->type));
+        switch (inst->kind)
+        {
+            case IrNodeKind::Add:
+                result = a.value + b.value;
+                break;
+            case IrNodeKind::Sub:
+                result = a.value - b.value;
+                break;
+            case IrNodeKind::Mul:
+                result = a.value * b.value;
+                break;
+            case IrNodeKind::And:
+                result = a.value & b.value;
+                break;
+            case IrNodeKind::Or:
+                result = a.value | b.value;
+                break;
+            case IrNodeKind::Xor:
+                result = a.value ^ b.value;
+                break;
+            case IrNodeKind::Shl:
+            case IrNodeKind::LShr:
+            case IrNodeKind::AShr:
+                if (b.value >= bits)
+                    return {2};
+                if (inst->kind == IrNodeKind::Shl)
+                    result = a.value << b.value;
+                else if (inst->kind == IrNodeKind::LShr)
+                    result = a.value >> b.value;
+                else
+                {
+                    result = a.value >> b.value;
+                    if (sa < 0 && b.value)
+                        result |= integer_mask(bits) ^ (integer_mask(bits) >> b.value);
+                }
+                break;
+            case IrNodeKind::UDiv:
+            case IrNodeKind::URem:
+                if (!b.value)
+                    return {2};
+                result = inst->kind == IrNodeKind::UDiv ? a.value / b.value : a.value % b.value;
+                break;
+            case IrNodeKind::SDiv:
+            case IrNodeKind::SRem:
+                if (!sb || (a.value == (std::uint64_t{1} << (bits - 1)) && sb == -1))
+                    return {2};
+                result = static_cast<std::uint64_t>(inst->kind == IrNodeKind::SDiv ? sa / sb : sa % sb);
+                break;
+            case IrNodeKind::CmpEq:
+                result = a.value == b.value;
+                break;
+            case IrNodeKind::CmpNe:
+                result = a.value != b.value;
+                break;
+            case IrNodeKind::CmpLt:
+                result = sa < sb;
+                break;
+            case IrNodeKind::CmpLe:
+                result = sa <= sb;
+                break;
+            case IrNodeKind::CmpGt:
+                result = sa > sb;
+                break;
+            case IrNodeKind::CmpGe:
+                result = sa >= sb;
+                break;
+            case IrNodeKind::CmpULt:
+                result = a.value < b.value;
+                break;
+            case IrNodeKind::CmpULe:
+                result = a.value <= b.value;
+                break;
+            case IrNodeKind::CmpUGt:
+                result = a.value > b.value;
+                break;
+            case IrNodeKind::CmpUGe:
+                result = a.value >= b.value;
+                break;
+            default:
+                return {2};
+        }
+        return {1, result & integer_mask(width)};
+    }
+
+    struct IntegerRewriter
+    {
+        IrFunction& function;
+        std::unordered_set<IrValue const*> external;
+        std::vector<IrAggregateInst*> aggregates;
+        explicit IntegerRewriter(FunctionPassContext& ctx) : function(*ctx.func)
+        {
+            std::unordered_set<IrValue const*> owned;
+            for (auto* block : function.blocks)
+            {
+                for (auto* inst : block->instructions)
+                    owned.insert(inst);
+                if (auto* ret = ir_cast<IrRetInst>(block->terminator))
+                    if (auto* aggregate = ir_cast<IrAggregateInst>(ret->value))
+                        aggregates.push_back(aggregate);
+            }
+            for (auto const& [value, users] : ctx.get_use_def().uses)
+                if (auto* aggregate = ir_cast<IrAggregateInst>(const_cast<IrValue*>(value)))
+                    aggregates.push_back(aggregate);
+            std::unordered_set<IrAggregateInst*> seen;
+            for (std::size_t i = 0; i < aggregates.size(); ++i)
+                if (seen.insert(aggregates[i]).second)
+                    for (auto* member : aggregates[i]->values)
+                    {
+                        if (!owned.contains(aggregates[i]))
+                            external.insert(member);
+                        if (auto* nested = ir_cast<IrAggregateInst>(member); nested && !seen.contains(nested))
+                            aggregates.push_back(nested);
+                    }
+        }
+        bool replace(IrValue* from, IrValue* to)
+        {
+            if (!to || from == to || (external.contains(from) && to->kind > IrNodeKind::GlobalRef))
+                return false;
+            replace_value_uses(function, from, to);
+            for (auto* aggregate : aggregates)
+                for (auto*& member : aggregate->values)
+                    if (member == from)
+                        member = to;
+            return true;
+        }
+    };
+
+    static std::uint64_t possible_integer_bits(IrValue* value, unsigned depth = 8)
+    {
+        auto width = integer_width(value->type);
+        if (!width)
+            return ~std::uint64_t{};
+        if (auto constant = integer_literal(value))
+            return *constant;
+        auto mask = integer_mask(width);
+        if (!depth)
+            return mask;
+        if (auto* extension = ir_cast<IrZextInst>(value))
+            return possible_integer_bits(extension->operand, depth - 1) & mask;
+        if (auto* truncation = ir_cast<IrTruncInst>(value))
+            return possible_integer_bits(truncation->operand, depth - 1) & mask;
+        if (auto* conjunction = ir_cast<IrAndInst>(value))
+            return possible_integer_bits(conjunction->lhs, depth - 1) & possible_integer_bits(conjunction->rhs, depth - 1);
+        if (auto* disjunction = ir_cast<IrOrInst>(value))
+            return possible_integer_bits(disjunction->lhs, depth - 1) | possible_integer_bits(disjunction->rhs, depth - 1);
+        return mask;
+    }
+
+    static bool combine_impl(FunctionPassContext& ctx)
+    {
+        IntegerRewriter rewriter(ctx);
+        bool changed = false;
+        auto resize = [&](IrValue* value, IrType const* type) -> IrValue* {
+            if (value->type == type)
+                return value;
+            auto from = integer_width(value->type);
+            auto to = integer_width(type);
+            return from == to  ? static_cast<IrValue*>(ctx.ctx->bitcast(type, value))
+                   : from < to ? static_cast<IrValue*>(ctx.ctx->zext(type, value))
+                               : ctx.ctx->trunc(type, value);
+        };
+        auto lookup = [](IrValue* value) -> ConstantState {
+            if (auto constant = integer_literal(value))
+                return {1, *constant};
+            return {2};
+        };
+        for (auto* block : ctx.func->blocks)
+            for (auto it = block->instructions.begin(); it != block->instructions.end();)
+            {
+                auto* inst = *it;
+                IrValue* replacement{};
+                bool fresh = false;
+                auto width = integer_width(inst->type);
+                if (width)
+                {
+                    auto folded = evaluate_integer(inst, lookup);
+                    if (folded.level == 1)
+                        replacement = integer_constant(*ctx.ctx, inst->type, folded.value);
+                    auto binary = [&](IrValue* lhs, IrValue* rhs) {
+                        auto constant = integer_literal(rhs);
+                        if (!constant && (inst->kind == IrNodeKind::Add || inst->kind == IrNodeKind::Mul || inst->kind == IrNodeKind::And ||
+                                          inst->kind == IrNodeKind::Or || inst->kind == IrNodeKind::Xor))
+                        {
+                            std::swap(lhs, rhs);
+                            constant = integer_literal(rhs);
+                        }
+                        if (lhs == rhs)
+                        {
+                            if (inst->kind == IrNodeKind::Sub || inst->kind == IrNodeKind::Xor)
+                                replacement = integer_constant(*ctx.ctx, inst->type, 0);
+                            if (inst->kind == IrNodeKind::And || inst->kind == IrNodeKind::Or)
+                                replacement = lhs;
+                        }
+                        if (!constant)
+                            return;
+                        if ((*constant == 0 &&
+                             (inst->kind == IrNodeKind::Add || inst->kind == IrNodeKind::Sub || inst->kind == IrNodeKind::Or || inst->kind == IrNodeKind::Xor ||
+                              inst->kind == IrNodeKind::Shl || inst->kind == IrNodeKind::LShr || inst->kind == IrNodeKind::AShr)) ||
+                            (*constant == 1 && inst->kind == IrNodeKind::Mul))
+                            replacement = lhs;
+                        if (inst->kind == IrNodeKind::And)
+                        {
+                            if ((possible_integer_bits(lhs) & ~*constant) == 0)
+                                replacement = lhs;
+                            else if (auto* previous = ir_cast<IrAndInst>(lhs))
+                            {
+                                auto first = integer_literal(previous->rhs);
+                                auto* source = previous->lhs;
+                                if (!first)
+                                {
+                                    first = integer_literal(previous->lhs);
+                                    source = previous->rhs;
+                                }
+                                if (first)
+                                {
+                                    auto mask = *first & *constant;
+                                    replacement = ctx.ctx->and_(inst->type, source, integer_constant(*ctx.ctx, inst->type, mask));
+                                    fresh = true;
+                                }
+                            }
+                        }
+                    };
+                    switch (inst->kind)
+                    {
+#define COMBINE_BINARY(kind)                                                                                                                                   \
+    case IrNodeKind::kind:                                                                                                                                     \
+        binary(static_cast<Ir##kind##Inst*>(inst)->lhs, static_cast<Ir##kind##Inst*>(inst)->rhs);                                                              \
+        break
+                        COMBINE_BINARY(Add);
+                        COMBINE_BINARY(Sub);
+                        COMBINE_BINARY(Mul);
+                        COMBINE_BINARY(And);
+                        COMBINE_BINARY(Or);
+                        COMBINE_BINARY(Xor);
+                        COMBINE_BINARY(Shl);
+                        COMBINE_BINARY(LShr);
+                        COMBINE_BINARY(AShr);
+#undef COMBINE_BINARY
+                        case IrNodeKind::Neg:
+                            if (auto* inner = ir_cast<IrNegInst>(static_cast<IrNegInst*>(inst)->operand))
+                                replacement = inner->operand;
+                            break;
+                        case IrNodeKind::Not:
+                            if (auto* inner = ir_cast<IrNotInst>(static_cast<IrNotInst*>(inst)->operand))
+                                replacement = inner->operand;
+                            break;
+                        case IrNodeKind::Zext: {
+                            auto* operand = static_cast<IrZextInst*>(inst)->operand;
+                            if (auto* inner = ir_cast<IrZextInst>(operand))
+                            {
+                                replacement = ctx.ctx->zext(inst->type, inner->operand);
+                                fresh = true;
+                            }
+                            if (auto* inner = ir_cast<IrTruncInst>(operand);
+                                inner && (possible_integer_bits(inner->operand) & ~integer_mask(integer_width(operand->type))) == 0)
+                            {
+                                replacement = resize(inner->operand, inst->type);
+                                fresh = replacement != inner->operand;
+                            }
+                            break;
+                        }
+                        case IrNodeKind::Trunc: {
+                            auto* operand = static_cast<IrTruncInst*>(inst)->operand;
+                            if (auto* inner = ir_cast<IrZextInst>(operand))
+                            {
+                                replacement = resize(inner->operand, inst->type);
+                                fresh = replacement != inner->operand;
+                            }
+                            else if (auto* truncated = ir_cast<IrTruncInst>(operand))
+                            {
+                                replacement = ctx.ctx->trunc(inst->type, truncated->operand);
+                                fresh = true;
+                            }
+                            else if (auto* masked = ir_cast<IrAndInst>(operand))
+                            {
+                                auto mask = integer_literal(masked->rhs);
+                                auto* source = masked->lhs;
+                                if (!mask)
+                                {
+                                    mask = integer_literal(masked->lhs);
+                                    source = masked->rhs;
+                                }
+                                if (mask && (*mask & integer_mask(width)) == integer_mask(width))
+                                {
+                                    replacement = ctx.ctx->trunc(inst->type, source);
+                                    fresh = true;
+                                }
+                            }
+                            break;
+                        }
+                        default:
+                            break;
+                    }
+                    if (!replacement && inst->kind >= IrNodeKind::CmpEq && inst->kind <= IrNodeKind::CmpUGe)
+                    {
+                        IrValue* lhs{};
+                        IrValue* rhs{};
+                        switch (inst->kind)
+                        {
+#define SELF_COMPARE(kind)                                                                                                                                     \
+    case IrNodeKind::kind:                                                                                                                                     \
+        lhs = static_cast<Ir##kind##Inst*>(inst)->lhs;                                                                                                         \
+        rhs = static_cast<Ir##kind##Inst*>(inst)->rhs;                                                                                                         \
+        break
+                            SELF_COMPARE(CmpEq);
+                            SELF_COMPARE(CmpNe);
+                            SELF_COMPARE(CmpLt);
+                            SELF_COMPARE(CmpLe);
+                            SELF_COMPARE(CmpGt);
+                            SELF_COMPARE(CmpGe);
+                            SELF_COMPARE(CmpULt);
+                            SELF_COMPARE(CmpULe);
+                            SELF_COMPARE(CmpUGt);
+                            SELF_COMPARE(CmpUGe);
+#undef SELF_COMPARE
+                            default:
+                                break;
+                        }
+                        if (lhs && lhs == rhs && integer_width(lhs->type))
+                            replacement =
+                                ctx.ctx->bool_const(inst->kind == IrNodeKind::CmpEq || inst->kind == IrNodeKind::CmpLe || inst->kind == IrNodeKind::CmpGe ||
+                                                    inst->kind == IrNodeKind::CmpULe || inst->kind == IrNodeKind::CmpUGe);
+                    }
+                }
+                if (rewriter.replace(inst, replacement))
+                {
+                    if (fresh)
+                        *it++ = replacement;
+                    else
+                        it = block->instructions.erase(it);
+                    changed = true;
+                }
+                else
+                    ++it;
+            }
+        if (changed)
+            ctx.invalidate_use_def();
+        return changed;
+    }
+
+    static bool sccp_impl(FunctionPassContext& ctx)
+    {
+        if (!ctx.func->entry_block)
+            return false;
+        auto const& uses = ctx.get_use_def();
+        IntegerRewriter rewriter(ctx);
+        std::unordered_map<IrValue const*, ConstantState> states;
+        std::unordered_map<IrValue const*, IrBasicBlock*> homes;
+        std::unordered_map<IrValue const*, std::vector<IrBasicBlock*>> conditions;
+        std::unordered_map<IrBasicBlock*, std::unordered_set<IrBasicBlock*>> edges;
+        std::unordered_set<IrBasicBlock*> executable;
+        std::vector<std::pair<IrBasicBlock*, IrValue*>> work;
+        std::unordered_set<IrNode*> queued;
+        auto enqueue = [&](IrBasicBlock* block, IrValue* value) {
+            IrNode* key = value ? static_cast<IrNode*>(value) : block->terminator;
+            if (key && queued.insert(key).second)
+                work.emplace_back(block, value);
+        };
+        for (auto* block : ctx.func->blocks)
+        {
+            for (auto* parameter : block->params)
+            {
+                homes[parameter] = block;
+                states[parameter] = {2};
+            }
+            for (auto* inst : block->instructions)
+                homes[inst] = block;
+            if (auto* branch = ir_cast<IrBrCondInst>(block->terminator))
+                conditions[branch->condition].push_back(block);
+            if (auto* branch = ir_cast<IrSwitchInst>(block->terminator))
+                conditions[branch->value].push_back(block);
+        }
+        auto lookup = [&](IrValue* value) -> ConstantState {
+            if (auto constant = integer_literal(value))
+                return {1, *constant};
+            if (auto found = states.find(value); found != states.end())
+                return found->second;
+            return homes.contains(value) ? ConstantState{} : ConstantState{2};
+        };
+        auto update = [&](IrValue* value, ConstantState next) {
+            auto& current = states[value];
+            if (current.level == 2 || next.level == 0)
+                return;
+            if (current.level == 1 && next.level == 1 && current.value != next.value)
+                next = {2};
+            if (next == current)
+                return;
+            current = next;
+            for (auto* user : uses.uses_of(value))
+                if (auto found = homes.find(user); found != homes.end() && executable.contains(found->second))
+                    enqueue(found->second, user);
+            if (auto found = conditions.find(value); found != conditions.end())
+                for (auto* block : found->second)
+                    if (executable.contains(block))
+                        enqueue(block, nullptr);
+        };
+        auto mark_edge = [&](IrBasicBlock* from, IrBasicBlock* to) {
+            if (!to || !edges[to].insert(from).second)
+                return;
+            if (executable.insert(to).second)
+            {
+                for (auto* inst : to->instructions)
+                    enqueue(to, inst);
+                enqueue(to, nullptr);
+            }
+            else
+                for (auto* inst : to->instructions)
+                    if (inst->kind == IrNodeKind::Phi)
+                        enqueue(to, inst);
+        };
+        auto switch_target = [&](IrSwitchInst* branch, std::uint64_t value) {
+            auto* integer = ir_type_cast<IrIntType>(branch->value->type);
+            for (auto const& item : branch->cases)
+            {
+                bool match = integer && integer->is_signed
+                                 ? signed_integer(value, integer->bits) >= item.start && signed_integer(value, integer->bits) <= item.end
+                                 : value >= static_cast<std::uint64_t>(item.start) && value <= static_cast<std::uint64_t>(item.end);
+                if (match)
+                    return item.target;
+            }
+            return branch->default_target;
+        };
+        mark_edge(nullptr, ctx.func->entry_block);
+        bool force_unknown = true;
+        while (force_unknown)
+        {
+            for (std::size_t cursor = 0; cursor < work.size(); ++cursor)
+            {
+                auto [block, inst] = work[cursor];
+                queued.erase(inst ? static_cast<IrNode*>(inst) : block->terminator);
+                if (!inst)
+                {
+                    if (auto* branch = ir_cast<IrBrInst>(block->terminator))
+                        mark_edge(block, branch->target);
+                    else if (auto* conditional = ir_cast<IrBrCondInst>(block->terminator))
+                    {
+                        auto condition = lookup(conditional->condition);
+                        if (condition.level == 1)
+                            mark_edge(block, condition.value ? conditional->true_target : conditional->false_target);
+                        else if (condition.level == 2)
+                        {
+                            mark_edge(block, conditional->true_target);
+                            mark_edge(block, conditional->false_target);
+                        }
+                    }
+                    else if (auto* selection = ir_cast<IrSwitchInst>(block->terminator))
+                    {
+                        auto condition = lookup(selection->value);
+                        if (condition.level == 1)
+                            mark_edge(block, switch_target(selection, condition.value));
+                        else if (condition.level == 2)
+                        {
+                            mark_edge(block, selection->default_target);
+                            for (auto const& item : selection->cases)
+                                mark_edge(block, item.target);
+                        }
+                    }
+                    continue;
+                }
+                if (auto* phi = ir_cast<IrPhiInst>(inst))
+                {
+                    ConstantState next;
+                    for (auto const& incoming : phi->incoming)
+                        if (edges[block].contains(incoming.block))
+                        {
+                            auto state = lookup(incoming.value);
+                            if (next.level == 0)
+                                next = state;
+                            else if (state.level == 2 || (state.level == 1 && next.level == 1 && state.value != next.value))
+                                next = {2};
+                        }
+                    update(phi, integer_width(phi->type) ? next : ConstantState{2});
+                }
+                else
+                    update(inst, evaluate_integer(inst, lookup));
+            }
+            work.clear();
+            force_unknown = false;
+            for (auto* block : ctx.func->blocks)
+                if (executable.contains(block))
+                    for (auto* inst : block->instructions)
+                        if (states[inst].level == 0)
+                        {
+                            update(inst, {2});
+                            force_unknown = true;
+                        }
+        }
+        bool changed = false;
+        bool cfg_changed = false;
+        for (auto* block : ctx.func->blocks)
+            if (executable.contains(block))
+            {
+                for (auto* inst : block->instructions)
+                {
+                    auto state = lookup(inst);
+                    if (state.level == 1 && integer_width(inst->type))
+                        changed |= rewriter.replace(inst, integer_constant(*ctx.ctx, inst->type, state.value));
+                }
+                IrBasicBlock* target{};
+                if (auto* branch = ir_cast<IrBrCondInst>(block->terminator))
+                {
+                    auto condition = lookup(branch->condition);
+                    if (condition.level == 1)
+                        target = condition.value ? branch->true_target : branch->false_target;
+                }
+                if (auto* branch = ir_cast<IrSwitchInst>(block->terminator))
+                {
+                    auto condition = lookup(branch->value);
+                    if (condition.level == 1)
+                        target = switch_target(branch, condition.value);
+                }
+                if (target)
+                {
+                    block->terminator = ctx.ctx->br(target);
+                    cfg_changed = true;
+                }
+            }
+        if (cfg_changed)
+        {
+            std::ignore = remove_unreachable(ctx);
+            auto predecessors = analysis::build_pred_map(*ctx.func);
+            for (auto* block : ctx.func->blocks)
+                for (auto* inst : block->instructions)
+                    if (auto* phi = ir_cast<IrPhiInst>(inst))
+                        std::erase_if(phi->incoming, [&](auto const& incoming) {
+                            auto const& pred = predecessors[block];
+                            return std::ranges::find(pred, incoming.block) == pred.end();
+                        });
+            ctx.invalidate_cfg();
+        }
+        else if (changed)
+            ctx.invalidate_use_def();
+        return changed || cfg_changed;
+    }
+
 } // namespace dcc::ir::pass
 
 namespace dcc::ir::pass
@@ -3872,6 +4540,8 @@ export namespace dcc::ir::pass
         pm.add_module_pass({.name = "inline", .min_level = OptLevel::O1, .run = inline_detail::inline_impl});
         pm.add_function_pass({.name = "sroa", .min_level = OptLevel::O1, .run = sroa_impl});
         pm.add_function_pass({.name = "mem2reg", .min_level = OptLevel::O1, .run = mem2reg_impl});
+        pm.add_function_pass({.name = "combine", .min_level = OptLevel::O2, .run = combine_impl});
+        pm.add_function_pass({.name = "sccp", .min_level = OptLevel::O2, .run = sccp_impl});
         pm.add_function_pass({.name = "dce", .min_level = OptLevel::O1, .run = dce_impl});
         pm.add_function_pass({.name = "simplifycfg", .min_level = OptLevel::O1, .run = simplifycfg_impl});
     }

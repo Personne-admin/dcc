@@ -1,3 +1,69 @@
+# O2 integer combining and SCCP (2026-10-15)
+
+Two changes complete this approved step: `d9e723c fix: avoid clearing fully overwritten i8086 aggregate temporaries`, followed by an O2-only shared integer combining/SCCP pass. Evidence, exact commands, full per-function rows, MIR and disassembly: `~/.cache/dcc-combine-batch/`. No project source was modified and nothing was pushed.
+
+## Division-helper regression investigation
+
+The pre-SROA and post-SROA MIR are retained as `pre-sroa-divmod.mir`, `sroa-divmod.mir` and `divmod-mir.diff`. The signed helper's generated source is in `compiler/source/dcc.vfs.cppm` (`__dcc_divmod64`, around line 446); its two u64 result fields are conditionally negated. SROA changes the result from an in-place memory update into four live dword halves and phi-edge copies. That increases pressure across both sign branches and the eventual aggregate return.
+
+There is also a local lowering defect: `compiler/source/backend/i8086/isel.cppm`, `memory_value` (around line 965), cleared every aggregate temporary before writing its fields. The reconstructed 16-byte DivResult has no padding and both runtime members overwrite every byte. Its unnecessary `REPSTOSW` clobbers AX/CX/DI, triggering additional saves/reloads while the four halves are live. Before SROA, MIR had three memory-copy operations and no reconstruction clear; afterwards it had `REPSTOSW`, one final copy and additional phi/spill transfers. MOV32 stores/reloads grew from 13/29 to 22/38, and COPYs from 6 to 14.
+
+The local fix skips the clear only when every member has an explicit store rather than a known-zero initializer, the ranges are contiguous, and together they cover the entire object. Padded/partial/zero initializers retain the old clear. The regression unit checks both a complete pair and a padded aggregate; the existing far-pointer store explicitly clears its padding, and memory/QEMU matrices exercise those layouts.
+
+| Signed helper | Bytes | Executed instructions in i64 matrix | Spill slots | Frame bytes |
+| --- | ---: | ---: | ---: | ---: |
+| pre-SROA small/unreal | 689 | 1,992 | 11 | 84 |
+| SROA baseline small/unreal | 778 | 2,212 | 17 | 90 |
+| local fix and final small/unreal | 724 | 1,996 | 15 | 84 |
+| SROA baseline unreal32 | 770 | 2,080 | 15 | 86 |
+| local fix and final unreal32 | 756 | 2,020 | 15 | 86 |
+
+The fix recovers 216 of the 220 additional executed instructions on small/unreal. The remaining +35 bytes/+4 executed instructions versus pre-SROA are phi-copy/spill and aggregate return materialization costs, not a redundant-clear problem. They remain for the allocator/isel step: coalescing dword halves and phi edges, shortening live ranges, avoiding spill-to-spill copies, and improving result materialization. No register-allocator change was made here. The final combining pass does not change this helper further.
+
+## Shared IR change and correctness boundaries
+
+Two function passes, `combine` then `sccp`, run after mem2reg and before DCE/simplifycfg at **O2 only**. Combining handles integer identities, constant arithmetic, double negation/complement, redundant masks, extension/truncation chains and self-comparisons. Known bit masks justify removing redundant narrowing round trips; required result types remain intact. Floating-point identities are not inferred, so NaNs and signed zero are unaffected.
+
+SCCP uses unknown/constant/overdefined values, sparse def-use worklists and executable predecessor edges. Phis meet only executable inputs. Value changes enqueue their users and conditional terminators; constant branches/switches become direct edges, unreachable blocks are removed and surviving phi predecessor lists are pruned. Residual unknown values in reachable cycles are conservatively overdefined. It does not infer constants from memory or across calls.
+
+Integer evaluation uses unsigned bit patterns and explicit width masks for wrapping add/subtract/multiply/negation. Signed comparisons and extensions use explicit sign interpretation. Zero divisors, signed minimum/-1 division, and out-of-range shifts are left unfolded rather than evaluated with C++ undefined behavior. Volatile/atomic loads, stores, calls and inline asm remain unknown/effectful; only genuinely unreachable CFG paths disappear. Dedicated IR tests retain volatile, atomic and asm instructions, emit that test with both backends, exercise all eight integer types, O1 exclusion, masks/casts and constant phi joins. The new execution fixture runs on LLVM/custom O0/O2 and all three guests O0/O2.
+
+## Measurements before and after
+
+Same 71 programs in all five configurations at O2, with multi-module `-fwhole-program`: 355 measurements and 142 native execution checks per run, all passed. Both runs passed QEMU instruction-count calibration and accounting checks. Counts are deterministic executed instructions, not cycles. Static totals sum independently emitted programs, including repeated rooted assert/panic code.
+
+| Configuration | Code bytes | Executed instructions | Spill slots | Summed reserved frame bytes |
+| --- | ---: | ---: | ---: | ---: |
+| small | 83,422 → 73,620 (-11.75%) | 173,416 → 168,921 (-2.59%) | 405 → 371 | 2,040 → 1,916 |
+| unreal | 83,416 → 73,614 (-11.75%) | 173,380 → 168,885 (-2.59%) | 405 → 371 | 2,040 → 1,916 |
+| unreal32 | 89,195 → 79,144 (-11.27%) | 170,970 → 166,498 (-2.62%) | 391 → 359 | 2,070 → 1,950 |
+| custom em64t | 89,064 → 78,259 (-12.13%) | 95,333 → 92,191 (-3.30%) | 22 → 22 | 11,120 → 11,112 |
+| LLVM x86_64 | 36,209 → 36,209 | 26,775 → 26,775 | 343 → 343 | 10,584 → 10,584 |
+
+Representative savings: small `control-flow-switch-exec` main executes 49,691 → 47,284; unsigned division helper 40,758 → 40,494; bitfield-ops main 345 → 86 and 1,954 → 545 bytes. Em64t switch main executes 47,413 → 46,162; bitfield-ops main 484 → 106 and 2,292 → 592 bytes. Narrow-ALU main collapses to a constant result (em64t 1,436 → 14 bytes), matching behavior already obtained by LLVM. Full changed-function rows are in `measurement-diff.json`; complete rows and categories in `measure-before/functions.csv` and `measure-after/functions.csv`.
+
+Core5 stage 2 was compiled read-only with the exact requested custom/i8086/unreal/O2/whole-program/loader_entry/include flags for -S, plus -c to obtain function-symbol sizes. Its code shrinks **888 → 867 bytes (-2.36%)**. Largest functions: character render 370 unchanged; __assert 210 → 196; render(slice,color) 121 unchanged; render(slice) 114 unchanged; loader_entry 73 → 66. Main SHA256 remains `d60c82d8a6df94836fcd4da846d79a0093fa7874ee0542b14b25547eba09a3ec`. Listings, objects and complete names are in real-before/ and real-after/. No real-program execution was performed.
+
+## Remaining gap and revised priorities
+
+Em64t is **2.16× LLVM code bytes** (78,259/36,209) and **3.44× executed instructions** (92,191/26,775). Excluding the dominant control-flow-switch program, the executed ratio is still 3.59×, so this is not just one fixture. Realistic program execution totals (custom/LLVM): sort 10,837/3,538; hash 1,397/296; memory 2,298/656; state machine 769/314; math 299/166. LLVM's measured output is unchanged by these passes because its existing optimizer already performs these transformations.
+
+Inspection: custom sort still stores its incoming slice registers into a backend-created 16-byte slot and reloads them before the loop; scalar replacement removed front-end copies, not all backend ABI materialization. It emits immediate values into registers followed by ADD/COPY, and a zero-index GEP still becomes materialize-zero/IMUL/ADD. LLVM uses immediate/LEA forms, folded scaled addresses and hoisted bases. In control-flow-switch, LLVM uses small value lookup tables, four-way loop unrolling and vectorized fixed-trip bands; custom retains scalar case blocks and per-iteration moves/branches. LLVM also vectorizes sort's initialization loop; its insertion routine itself remains scalar. These observations are in retained program.s/program.mir files, not inferred solely from totals.
+
+Estimated gains below are investigation ranges, not promises; they overlap and must not be added. Correctness and a newly approved byte baseline remain prerequisites for each implementation step.
+
+| Rank | Opportunity and evidence | Where | Estimated code / executed instruction gain | em64t benefit | Risk |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Allocation/coalescing/rematerialization/live-range splitting; DI is permanently excluded from the five-register i8086 allocation pool. Small still executes 54,256 spill stores/reloads (32.1%) and 24,820 register copies (14.7%). The signed-helper residual is a concrete phi/pair case. | shared backend/x86/regalloc.cppm; i8086/registers.cppm policy; pair-aware isel | i8086 3–10% / 8–18%; em64t 2–5% / 2–6% | yes; em64t has fewer spills but 11,813 copies | high: pair interference, flags, scratch/ABI clobbers and mixed widths |
+| 2 | Immediate/address folding and ABI-boundary materialization; remove zero GEP arithmetic and redundant parameter-header stores/reloads. Native sort provides direct examples. | backend/i8086/isel.cppm and backend/em64t/isel.cppm; shared MIR cleanup where genuinely common | 3–8% / 3–10% | yes | medium: 16-bit addressing/segments, carry chains and memory access widths |
+| 3 | CSE/GVN, loop-invariant code motion and ordinary load/store elimination with alias/effect analysis. Repeated address formation remains in hash/sort loops; promotion exposes more scalar opportunities. | shared dcc.ir.transforms.cppm plus IR analyses; isel for introduced redundant loads | 2–5% / 3–10% | yes | medium/high: volatile/atomic/asm barriers, aliases and increased register pressure |
+| 4 | Loop strength reduction and switch-result tables/range simplification. Switch workload alone executes 47,284 small and 46,162 em64t instructions versus 13,937 LLVM; LLVM also unrolls and vectorizes, so this is not all attributable to one technique. | shared loop/CFG analyses; target switch isel; later em64t vectorization | 1–5% / 3–12% on this corpus; unrolling can grow code | yes; SIMD is host-only, not an i8086 proposal | medium/high: wrapping induction, trip counts, signedness, code growth |
+| 5 | Branch layout, conditional inversion and redundant jump removal. Small still executes 17,231 branches; em64t 22,224. Adjacent conditional-plus-unconditional patterns remain. | MIR layout/peephole and backend branch emission | 1–3% / 1–5% | yes | low/medium: fallthrough, flags and displacement relaxation |
+
+Width-aware narrow copies/slots and basic scalar replacement/combining/SCCP are now implemented; do not rank their original projected savings again. Remaining width work should be justified by concrete MIR cases. Full CSE/LICM, register allocation changes, fastestcall, strict -farch 8086 and SIMD are not implemented by this batch.
+
+---
+
 # Shared IR scalar replacement (2026-10-15)
 
 This batch validates and extends the random differential generator, then adds scalar replacement before mem2reg in the shared O1/O2 IR pipeline. It does not change O0 or either calling convention. Complete sources, commands, mutation compilers, individual results, per-function measurements and byte proofs are retained in `~/.cache/dcc-sroa-batch/`.
