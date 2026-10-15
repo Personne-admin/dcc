@@ -2149,7 +2149,7 @@ namespace dcc::backend::x86
                         fail(std::format("indirect '{}' through this register is not supported", m));
                         return std::nullopt;
                     }
-                    mi.opc = is_64() ? (is_call ? MOpc::CALL_r64 : MOpc::JMP_r64) : (is_call ? MOpc::CALL : MOpc::JMP16r);
+                    mi.opc = is_64() ? (is_call ? MOpc::CALL_r64 : MOpc::JMP_r64) : (is_call ? MOpc::CALL16r : MOpc::JMP16r);
                     mi.num_ops = 1;
                     mi.ops[0] = reg_op(target.reg);
                     return sel;
@@ -2159,7 +2159,7 @@ namespace dcc::backend::x86
                     auto mem = make_mem(target.mem, st.addr32);
                     if (!mem)
                         return std::nullopt;
-                    mi.opc = is_64() ? (is_call ? MOpc::CALLm : MOpc::JMPm) : (is_call ? MOpc::CALLm : MOpc::JMP16m);
+                    mi.opc = is_64() ? (is_call ? MOpc::CALLm : MOpc::JMPm) : (is_call ? MOpc::CALL16m : MOpc::JMP16m);
                     mi.num_ops = 1;
                     mi.ops[0] = MOp::from_mem(*mem);
                     return sel;

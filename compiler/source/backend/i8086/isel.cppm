@@ -1502,12 +1502,29 @@ namespace dcc::backend::i8086
 
             [[nodiscard]] static PhysReg segment_argument_register(PhysReg offset) { return *(std::ranges::find(register_arguments, offset) + 1); }
 
+            [[nodiscard]] static bool call_uses_c_abi(IrValue const* inst)
+            {
+                if (auto* call = ir_cast<IrCallInst>(inst))
+                    return call->c_abi || call->cc != CallingConv::Cdecl;
+                if (auto* call = ir_cast<IrCallTailInst>(inst))
+                    return call->c_abi || call->cc != CallingConv::Cdecl;
+                return false;
+            }
+
             void lower_call(IrValue const* inst, IrValue const* callee, std::span<IrValue* const> args)
             {
                 auto const* ref = ir_cast<IrGlobalRef>(callee);
-                if (!ref)
-                    return unsupported("an indirect call");
-                if (ref->function && ref->function->name == "__dcc_udivmod32" && args.size() == 3 && wide(inst->type) &&
+                bool const indirect = ref == nullptr;
+                if (indirect && far(callee->type))
+                    return unsupported("an indirect call through a far function pointer");
+                std::optional<VReg> target_reg;
+                if (indirect)
+                {
+                    target_reg = value(callee);
+                    if (!target_reg)
+                        return;
+                }
+                if (ref && ref->function && ref->function->name == "__dcc_udivmod32" && args.size() == 3 && wide(inst->type) &&
                     std::ranges::all_of(args, [](IrValue const* arg) { return scalar_bits(arg->type) == 32; }))
                 {
                     auto high = value(args[0]);
@@ -1538,7 +1555,7 @@ namespace dcc::backend::i8086
                     pairs[inst] = result;
                     return;
                 }
-                bool const c_convention = ref->function ? uses_c_abi(*ref->function) : false;
+                bool const c_convention = !indirect ? (ref->function ? uses_c_abi(*ref->function) : false) : call_uses_c_abi(inst);
                 bool const sret = indirect_return(inst->type);
                 auto registers = classify_arguments(args, c_convention, sret);
                 std::optional<VReg> result;
@@ -1620,7 +1637,11 @@ namespace dcc::backend::i8086
                             copy_to(*registers[i], inputs[i], op_width(value_bits(args[i]->type)));
                         uses |= bit(*registers[i]);
                     }
-                MInstr call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->name)}, 0);
+                MInstr call;
+                if (indirect)
+                    call = make_instr(MOpc::CALL16r, {MOp::from_reg(*target_reg)}, 0);
+                else
+                    call = make_instr(MOpc::CALL, {MOp::from_symbol(ref->name)}, 0);
                 call.implicit_uses = uses;
                 call.implicit_defs = bit(PhysReg::RAX) | bit(PhysReg::RBX) | bit(PhysReg::RCX) | bit(PhysReg::RDX) |
                                      bit(PhysReg::ES) | bit(PhysReg::FS) | bit(PhysReg::GS);

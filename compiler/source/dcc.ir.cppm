@@ -1136,6 +1136,7 @@ export namespace dcc::ir
         std::pmr::vector<IrValue*> args;
         CallingConv cc{CallingConv::Cdecl};
         bool is_noinline : 1 {};
+        bool c_abi : 1 {};
 
         IrCallInst(IrType const* result_t, IrValue* callee, std::pmr::polymorphic_allocator<> a) : IrValue(Kind), callee(callee), args(a) { type = result_t; }
     };
@@ -1148,6 +1149,7 @@ export namespace dcc::ir
         std::pmr::vector<IrValue*> args;
         CallingConv cc{CallingConv::Cdecl};
         bool is_noinline : 1 {};
+        bool c_abi : 1 {};
 
         IrCallTailInst(IrType const* result_t, IrValue* callee, std::pmr::polymorphic_allocator<> a) : IrValue(Kind), callee(callee), args(a)
         {

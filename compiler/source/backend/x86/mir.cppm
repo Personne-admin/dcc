@@ -616,6 +616,8 @@ export namespace dcc::backend::x86
         LGS16rm,
         LGS32rm,
         CALL_rel16,
+        CALL16r,
+        CALL16m,
         JMP16r,
         JMP16m,
         REPMOVSW,
@@ -1074,6 +1076,8 @@ export namespace dcc::backend::x86
                 case MOpc::LGS16rm:
                 case MOpc::LGS32rm:
                 case MOpc::CALL_rel16:
+                case MOpc::CALL16r:
+                case MOpc::CALL16m:
                 case MOpc::JMP16r:
                 case MOpc::JMP16m:
                 case MOpc::REPMOVSW:
@@ -2084,6 +2088,10 @@ export namespace dcc::backend::x86
                 return "LGS32rm"sv;
             case MOpc::CALL_rel16:
                 return "CALL_rel16"sv;
+            case MOpc::CALL16r:
+                return "CALL16r"sv;
+            case MOpc::CALL16m:
+                return "CALL16m"sv;
             case MOpc::JMP16r:
                 return "JMP16r"sv;
             case MOpc::JMP16m:

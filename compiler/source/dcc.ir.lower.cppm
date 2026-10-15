@@ -3167,6 +3167,21 @@ export namespace dcc::ir::lower
             auto* call_inst = m_ctx.call(ir_ret_type, callee_value);
             if (direct_target)
                 call_inst->cc = calling_conv_from_string(direct_target->sema.calling_conv);
+            else if (callee_expr)
+            {
+                if (auto* vd = ast::node_cast<ast::VarDecl>(callee_expr->sema.resolved_decl))
+                {
+                    if (!vd->sema.calling_conv.empty())
+                        call_inst->cc = calling_conv_from_string(vd->sema.calling_conv);
+                    call_inst->c_abi = vd->sema.is_nomangle;
+                }
+                else if (auto* fd = ast::node_cast<ast::FuncDecl>(callee_expr->sema.resolved_decl))
+                {
+                    if (!fd->sema.calling_conv.empty())
+                        call_inst->cc = calling_conv_from_string(fd->sema.calling_conv);
+                    call_inst->c_abi = fd->sema.is_nomangle;
+                }
+            }
 
             if (call->sema.is_runtime || (direct_target && direct_target->sema.is_runtime))
                 call_inst->is_noinline = true;
