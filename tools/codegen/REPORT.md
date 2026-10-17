@@ -1,3 +1,88 @@
+# Shared register allocation, part 1 (2026-10-17)
+
+This step changes allocation in `compiler/source/backend/x86/regalloc.cppm` for both custom backends, at O0 and O2. It does not change shared IR, calling conventions, fixed-register policies, or LLVM. Complete measurement rows, commands, before/after MIR and listings, seeded execution results and byte attribution are retained in `~/.cache/dcc-regalloc-batch/`. Core5 was compiled read-only; nothing was pushed.
+
+## Allocation changes and boundaries
+
+Spill cost counts definitions once and uses twice, multiplies by 10 per natural-loop nesting level (capped at four), and weights unreachable-ending blocks and their exclusively terminating predecessors by 0.001. A logarithmic interval-length penalty balances frequent uses against long occupancy. Dominators identify natural backedges; nested loops contribute separate levels. The cheapest eligible interval is spilled, with end position breaking equal-cost ties. Constants and static address recipes receive a lower cost because they need no stack traffic.
+
+Liveness now retains separate block segments. Previously, an interval reserved a register through every block between its first definition and final use, including unrelated cold assertion blocks. Call crossings, fixed-register clobbers and interference now consult the actual segments. This matters both for the guiding example and for safely recognizing non-interfering copies. A value still receives one register for its entire lifetime: this is lifetime-hole handling, **not live-range splitting**.
+
+Single-definition integer immediates and LEA frame/global addresses with no register dependencies can be rematerialized when selected for spilling. Their original definition disappears, no spill slot is allocated, and the same flag-preserving recipe is emitted into the constrained scratch register at each use. Mutable memory loads, computed addresses, multiple definitions/phi destinations and instructions with implicit register dependencies are excluded.
+
+Copy affinities prefer the already assigned source/destination register for non-interfering virtual ranges and physical incoming/outgoing copies. Allocation still checks every fixed-register clobber, incoming physical read, call-preserved restriction, shift destination, byte-register subset and 16-bit address-register subset. Phi copies use the existing parallel-copy resolver; mixed-width cycle preservation is unchanged. Redundant full-width and i8086 word self-copies disappear, while x86-64 dword self-copies that clear upper bits remain.
+
+After parallel-copy resolution, callee-save insertion and physical legalization, block-local tracking removes a repeated spill reload only when the same physical register still contains the same slot with the same load opcode. Explicit/implicit register definitions and writes to that slot invalidate the record. Slots are compiler-private, nonescaping spill storage. No reuse crosses a block boundary. DI remains the permanently reserved i8086 scratch register.
+
+Focused MIR units cover rematerialized constants/frame/global addresses, incoming/dying copy elimination, repeated reloads, a hot loop value under pressure, and a cold terminal call beside a hot use. The width test now loads runtime values to force genuine spills; constants no longer do so.
+
+The full gate exposed a pre-existing test defect, fixed separately in `986270a fix: correct clobber fixture intel operand order`. The Intel-syntax template in `asm_multi_exec` used `mov input, output`, leaving the declared output unwritten; the old allocation accidentally retained the input in that output register. It now uses `mov output, input`. The corrected entire fixture passes LLVM/custom O0/O2 under both the original and new compiler (eight executions). The allocator did not miscompile a correctly constrained asm operation. Existing spill-only units now use non-rematerializable runtime loads, and three listing fixtures retain their width/segment/offset assertions with the new chosen registers.
+
+## Measurements
+
+The same 71-program corpus runs in all five O2 configurations, with whole-program compilation for imported programs: 355 measurements and 142 native executions in each run, all passed. The deterministic QEMU instruction plugin and calibration/accounting checks are unchanged. Counts are instructions rather than cycles; static totals include repeated rooted assert/panic implementations in separately compiled programs.
+
+| Configuration | Code bytes | Executed instructions | Spill slots | Summed frame bytes |
+| --- | ---: | ---: | ---: | ---: |
+| small | 73,620 → 62,693 (-14.8%) | 168,921 → 130,392 (-22.8%) | 371 → 257 | 1,916 → 1,684 |
+| unreal | 73,614 → 62,681 (-14.9%) | 168,885 → 130,346 (-22.8%) | 371 → 257 | 1,916 → 1,684 |
+| unreal32 | 79,144 → 68,246 (-13.8%) | 166,498 → 129,155 (-22.4%) | 359 → 256 | 1,950 → 1,726 |
+| custom em64t | 78,259 → 73,863 (-5.6%) | 92,191 → 87,074 (-5.6%) | 22 → 1 | 11,112 → 10,936 |
+| LLVM x86_64 | 36,209 → 36,209 | 26,775 → 26,775 | 343 → 343 | 10,584 → 10,584 |
+
+Small executes 54,256 → 14,410 spill stores/reloads (-73.4%). Its register copies rise 24,820 → 26,126: retaining values and resolving their physical constraints sometimes substitutes copies for much more expensive spill sequences. Em64t executes 1,748 → 72 spill stores/reloads and 11,813 → 8,396 register copies. Em64t is now **2.04× LLVM code bytes and 3.25× executed instructions**, compared with 2.16×/3.44× before. LLVM output/metrics are unchanged.
+
+| Representative function | Bytes before → after | Executed before → after | Spills before → after | Frame before → after |
+| --- | ---: | ---: | ---: | ---: |
+| small/unreal unsigned i64 helper, i64 matrix | 1,410 → 1,107 | 40,494 → 31,748 | 30 → 16 | 154 → 106 |
+| small/unreal signed i64 helper, i64 matrix | 724 → 656 | 1,996 → 1,842 | 15 → 11 | 84 → 70 |
+| unreal32 signed i64 helper, i64 matrix | 756 → 675 | 2,020 → 1,838 | 15 → 10 | 86 → 68 |
+| small insertion sort | 212 → 174 | 18,870 → 13,789 | 4 → 3 | 8 → 8 |
+| em64t insertion sort | 231 → 222 | 10,003 → 9,505 | 0 → 0 | 16 → 16 |
+
+All measured regressions remain included. Small `calls-internal-exec` main grows 580 → 589 bytes, 158 → 161 instructions and frame 8 → 32 as whole-range choices exchange reloads for stores around calls. Its pressure function grows three bytes/one copy. The small realistic `divide` wrapper grows 165 → 178 bytes and 56 → 60 instructions: an i64 argument occupies SI, while rematerializing its constrained frame address through DI needs AX preservation around loads. These are concrete reasons to pursue splitting and a cost model that accounts for constrained rematerialization, rather than assuming every spill reduction wins locally. No em64t function grows in this corpus. Full changes: `measurement-diff.json`.
+
+## Core5 stage 2
+
+Commands retain the requested Main.dc/custom/i8086-binary/unreal/O2/whole-program/loader_entry/include flags for `-S`; `-c` supplies symbol sizes and `-fdump-mir` supplies allocation evidence. Main source SHA256 remains `d60c82d8a6df94836fcd4da846d79a0093fa7874ee0542b14b25547eba09a3ec`. No Core5 file was modified and the program was not executed.
+
+| Function | Code bytes before → after |
+| --- | ---: |
+| character/color render | **370 → 290** |
+| __assert | 196 → 188 |
+| slice/color render | 121 → 94 |
+| slice render | 114 → 87 |
+| loader_entry | 66 → 66 |
+| Total executable function code | **867 → 725 (-16.4%)** |
+
+Character render's frame shrinks 8 → 2 bytes and spills 4 → 1. `self` stays in SI, its eleven former reloads through DI disappear, and ordinary field accesses directly use SI. The remaining two-byte spill holds color; the one load from the same numeric frame offset is consequently not a self reload. The requested current Main.dc produces no calls inside this character overload, despite the original report mentioning a cold __assert call; its starting size does match 370 bytes. Its self spill is explained by the old farthest-end policy and coarse interference, rather than a call in this emitted function. Cold-call interference is independently covered by the focused MIR regression. Before/after listings, MIR, objects and symbol tables are in `real-before/` and `real-after/`.
+
+## Next opportunities and live-range splitting
+
+These are overlapping investigation ranges, not additive promises or implemented changes.
+
+| Rank | Opportunity and evidence | Location | Estimated further code / executed gain | em64t | Risk |
+| --- | --- | --- | --- | --- | --- |
+| 1 | Fold immediates/addresses and remove backend ABI-boundary materialization. Slice headers still get forced stack slots; zero-GEP arithmetic and register-immediate-copy sequences remain. Copies are now 20.0% of small executed instructions. | mode-specific isel, shared MIR cleanup | 3–8% / 3–10% | yes | medium: widths, segmented addressing and carry chains |
+| 2 | CSE/GVN, LICM and alias-aware ordinary load/store elimination. Sort/hash still repeat address and bounds work that LLVM folds or hoists. | shared IR analyses/transforms | 2–5% / 3–10% | yes | medium/high: effects, aliases and increased pressure |
+| 3 | Live-range splitting and constrained-rematerialization cost, then reconsider permanent DI reservation. One assigned register or whole-range spill remains; small still executes 14,410 spill operations (11.1%), mainly wide helpers. Call-heavy main's frame regression identifies the need to spill only near calls and reload outside hot loops; dividing SI occupancy between wide arguments and address uses could fix the wrapper regression. | shared allocator; i8086 policy; pair-aware isel | 1–4% / 2–6% overall; greater in selected wide helpers | modest corpus-wide: only 72 executed spill operations remain, but calls/copies can benefit | high: split edges, pair halves, scratch constraints and ABI saves |
+| 4 | Switch-result tables, loop strength reduction and later em64t vectorization. Small switch main still executes 33,767 instructions; em64t 45,177 versus LLVM's 13,937. | shared loop/CFG work, target switch isel | 1–5% / 3–12%; unrolling can grow code | yes; SIMD only on suitable targets | medium/high: wrapping induction, trip counts and growth |
+| 5 | Branch layout/inversion and redundant jump elimination. Conditional-plus-unconditional sequences remain, including in render. | MIR layout/peephole | 1–3% / 1–5% | yes | low/medium: flags, fallthrough and relaxation |
+
+Lifetime holes solve the false interference exposed by render, but do not let a value change register, live in memory only across a call, rematerialize selectively on one edge, or share a spill slot with a non-interfering spilled value. Those remain for a separate approved step. Fastestcall and strict -farch 8086 remain later roadmap work.
+
+## Verification and baseline
+
+The six fixed seeds plus seeds 4000–4299 pass: **306 seeds / 2,754 executions**, zero mismatches across LLVM O0, custom em64t O0/O2 and all three i8086 models O0/O2. Targeted i8086 differential/QEMU matrices pass **546 executions and 150 byte-identical object/listing linked images**. Both complete measurement runs and deterministic instruction accounting/calibration pass. The corrected asm fixture adds eight successful old/new-compiler LLVM/custom O0/O2 executions.
+
+The end-of-batch full gate ran **once**, with LLVM enabled and zero skips. It passed 33 suites and exposed three suites with stale expectations: the reversed Intel fixture, register-specific listing expectations and spill units whose constants now rematerialize. After correcting those tests, only the affected suites were rebuilt/rerun: em64t **607/607**, real16 **896/896**, dispatcher **2,220/2,220**, all passed. The other 33 suites were not repeated; shared backend units passed **931/931** in the original gate. No compiler change was made after the measured/platform-tested version.
+
+Linux passed in **243 s**: 104 OS checks, 176 layout assertions, 25 SysV ABI pairs and ELF/COFF O0/O2 unwind checks. Windows passed in **523 s**: 105 OS checks, 371 layout assertions, 25 Win64 ABI pairs and both Windows compiler backends. Snapshot `0afefb8ac0ff359a9eae5fbfd739a6b9a60d2e39` has the final compiler sources; later differences are regression-test corrections/additions and this report. The measured compiler SHA256 is `1f317b253acd1aae07446a47e5c96eedc9f84322a628c1cd53ffe69c3f39205f`.
+
+The preview against baseline-016131b attributes 3,573 objects and 3,573 matching listings to the allocator changes at O0/O2, with no added/removed records, status changes or immutable data-section changes. The separate asm-fixture correction additionally changes its eight object/listing records relative to that preview. Final independent-capture attribution and adoption are recorded in AGENTS.md and `final-baseline-adoption.json`; every changed artifact is named in `artifact-attribution.json` and `changed-artifacts.txt`. Native capture policy is unchanged; i8086 bytes remain covered by the measurements and QEMU/listing matrices. Previous baselines are preserved.
+
+---
+
 # O2 integer combining and SCCP (2026-10-15)
 
 Two changes complete this approved step: `d9e723c fix: avoid clearing fully overwritten i8086 aggregate temporaries`, followed by an O2-only shared integer combining/SCCP pass. Evidence, exact commands, full per-function rows, MIR and disassembly: `~/.cache/dcc-combine-batch/`. No project source was modified and nothing was pushed.

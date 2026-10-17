@@ -11,8 +11,8 @@ module main;
 }
 
 === EXPECT-EM64T-ASM ===
-CONTAINS: movzx rax, word [rax]
-CONTAINS: movzx rax, byte [rax]
+CONTAINS: movzx rax, word [rdi]
+CONTAINS: movzx rax, byte [rdi]
 
 === EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
 RUN-EXIT: 0

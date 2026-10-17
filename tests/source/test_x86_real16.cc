@@ -777,11 +777,12 @@ TEST_CASE("real16 register constraints survive allocation and spilling")
     MFunction func;
     func.owned_name = "memory_constraints";
     auto& block = func.create_block("entry");
+    auto input = func.new_frame_slot(2, 2);
     std::array<VReg, 6> addresses;
     for (auto& address : addresses)
     {
         address = func.new_vreg();
-        block.instrs.push_back(make_instr(MOpc::MOV16ri, {MOp::from_reg(address), I(1234)}, 1));
+        block.instrs.push_back(make_instr(MOpc::MOV16rm, {MOp::from_reg(address), MOp::from_frame_slot(input)}, 1));
     }
     auto byte = func.new_vreg();
     block.instrs.push_back(make_instr(MOpc::MOV16ri, {MOp::from_reg(byte), I(42)}, 1));
