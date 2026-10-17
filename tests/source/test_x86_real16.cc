@@ -1,6 +1,7 @@
 #include <sys/wait.h>
 
 import std;
+import dcc.backend.object.coff;
 import dcc.ir;
 import dcc.target;
 import dcc.backend.x86.mir;
@@ -855,4 +856,31 @@ TEST_CASE("long mode byte immediate compares retain byte width")
         expected.push_back(0xff);
         CHECK(result.bytes == expected);
     }
+}
+
+TEST_CASE("COFF function relocations preserve nonzero implicit addends")
+{
+    using namespace dcc::backend::x86;
+    dcc::ir::IrContext context;
+    auto* ir_module = context.module("relocations");
+    MModule module;
+    module.functions.emplace_back();
+    module.functions.back().owned_name = "relocations";
+    EncodeResult encoded;
+    encoded.bytes.resize(8);
+    encoded.relocs.push_back({0, "external", Reloc::Kind::Rel32, 12});
+    encoded.relocs.push_back({4, "external", Reloc::Kind::Rel32, -8});
+    dcc::target::TargetConfig target;
+    auto bytes = dcc::backend::object::write_coff(*ir_module, module, {encoded}, target, dcc::backend::object::coff_x86_64_policy);
+    auto word = [&](std::size_t offset) {
+        std::uint32_t value = 0;
+        for (unsigned byte = 0; byte < 4; ++byte)
+            value |= static_cast<std::uint32_t>(bytes.at(offset + byte)) << (8 * byte);
+        return value;
+    };
+    REQUIRE(bytes.size() > 60);
+    CHECK(std::string_view(reinterpret_cast<char const*>(bytes.data() + 20), 5) == ".text");
+    auto text = word(40);
+    CHECK(word(text) == 16);
+    CHECK(word(text + 4) == static_cast<std::uint32_t>(-4));
 }

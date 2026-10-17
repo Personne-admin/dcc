@@ -140,6 +140,13 @@ export namespace dcc::backend::object
         for (auto const& er : encoded)
         {
             func_codes.push_back(er.bytes);
+            for (auto const& relocation : er.relocs)
+                if (relocation.kind == Reloc::Kind::Rel32 || relocation.kind == Reloc::Kind::Rel32_Got || relocation.kind == Reloc::Kind::Rel32_Call)
+                {
+                    auto implicit = static_cast<std::uint32_t>(relocation.addend + 4);
+                    for (unsigned byte = 0; byte < 4; ++byte)
+                        func_codes.back().at(relocation.offset + byte) = static_cast<std::uint8_t>(implicit >> (8 * byte));
+                }
             func_relocs.push_back(er.relocs);
         }
 
