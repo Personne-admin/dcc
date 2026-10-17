@@ -42,11 +42,11 @@ public u64 fs_base_slot() {
 }
 
 === EXPECT-EM64T-ASM ===
-CONTAINS: qword [fs:rax]
-CONTAINS: qword [gs:rax], rcx
-CONTAINS: [gs:rax + rcx*8]
-CONTAINS: [fs:rax + 8]
-CONTAINS: [gs:rax + 8]
+CONTAINS: qword [fs:rdi]
+CONTAINS: qword [gs:rdi], rsi
+CONTAINS: [gs:rdi + rsi*8]
+CONTAINS: [fs:rdi + 8]
+CONTAINS: [gs:rdi + 8]
 
 === EXPECT-EM64T-ASM FLAGS: -O2 ===
 CONTAINS: qword [gs:48]

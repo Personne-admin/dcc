@@ -12,7 +12,7 @@ public i32 probe(u64^FS p) {
 }
 
 === EXPECT-EM64T-ASM FLAGS: -O2 ===
-CONTAINS: qword [fs:rax]
-CONTAINS: cmp rax
+CONTAINS: qword [fs:rdi]
+CONTAINS: cmp rdi
 CONTAINS: je .if.then1
 CONTAINS: mov eax, 11

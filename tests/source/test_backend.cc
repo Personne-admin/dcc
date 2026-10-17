@@ -64,8 +64,9 @@ TEST_CASE("i8086 spill slots follow transfer width")
         for (unsigned i = 0; i < 12; ++i)
         {
             auto value = function.new_vreg();
-            block.instrs.push_back(bits == 8 ? make_instr(MOpc::MOVZX16rm8, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1)
-                                             : make_instr(bits == 16 ? MOpc::MOV16ri : MOpc::MOV32ri, {MOp::from_reg(value), MOp::from_imm(i + 1)}, 1));
+            block.instrs.push_back(
+                bits == 8 ? make_instr(MOpc::MOVZX16rm8, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1)
+                          : make_instr(bits == 16 ? MOpc::MOV16rm : MOpc::MOV32rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
             values.push_back(value);
         }
         for (auto value : values)
@@ -92,6 +93,154 @@ TEST_CASE("i8086 spill slots follow transfer width")
                 CHECK(instruction.opc != MOpc::MOV32mr);
             }
     }
+}
+
+TEST_CASE("allocation rematerializes constants and static addresses under pressure")
+{
+    using namespace dcc::backend::x86;
+    for (auto kind : {0, 1, 2})
+    {
+        MFunction function;
+        auto& block = function.create_block();
+        function.entry_block_id = block.id;
+        auto slot = function.new_frame_slot(2, 2);
+        std::vector<VReg> values;
+        for (unsigned i = 0; i < 12; ++i)
+        {
+            auto value = function.new_vreg();
+            block.instrs.push_back(
+                kind == 0 ? make_instr(MOpc::MOV32ri, {MOp::from_reg(value), MOp::from_imm(i + 1)}, 1)
+                          : make_instr(MOpc::LEA16rm,
+                                       {MOp::from_reg(value), kind == 1 ? MOp::from_frame_slot(slot) : MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+            values.push_back(value);
+        }
+        for (auto value : values)
+            block.instrs.push_back(
+                make_instr(kind == 0 ? MOpc::MOV32mr : MOpc::MOV16mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+        block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+        dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+        CHECK(std::ranges::none_of(function.frame_slots, [](auto const& frame) { return frame.is_spill; }));
+        CHECK(std::ranges::count_if(function.blocks.front().instrs,
+                                    [kind](auto const& instr) { return instr.opc == (kind == 0 ? MOpc::MOV32ri : MOpc::LEA16rm); }) == 12);
+    }
+}
+
+TEST_CASE("allocation coalesces incoming and dying virtual copies")
+{
+    using namespace dcc::backend::x86;
+    MFunction function;
+    auto& block = function.create_block();
+    function.entry_block_id = block.id;
+    auto first = function.new_vreg();
+    auto second = function.new_vreg();
+    block.instrs.push_back(make_copy(first, VReg::phys(dcc::backend::x86::PhysReg::RDX)));
+    block.instrs.push_back(make_copy(second, first));
+    block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(second)}, 0));
+    block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+    CHECK(std::ranges::none_of(function.blocks.front().instrs,
+                               [](auto const& instr) { return instr.opc == MOpc::COPY || instr.opc == MOpc::MOV16rr || instr.opc == MOpc::MOV32rr; }));
+}
+
+TEST_CASE("allocation reuses a spill reload until its register changes")
+{
+    using namespace dcc::backend::x86;
+    MFunction function;
+    auto& block = function.create_block();
+    function.entry_block_id = block.id;
+    std::vector<VReg> values;
+    for (unsigned i = 0; i < 12; ++i)
+    {
+        auto value = function.new_vreg();
+        block.instrs.push_back(make_instr(MOpc::MOV32rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+        values.push_back(value);
+    }
+    for (auto value : values)
+        for (unsigned use = 0; use < 3; ++use)
+            block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+    block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+    unsigned loads = 0;
+    unsigned spills = 0;
+    for (auto const& frame : function.frame_slots)
+        spills += frame.is_spill;
+    for (auto const& instr : function.blocks.front().instrs)
+        loads += instr.opc == MOpc::MOV32rm && instr.ops[1].kind == MOpKind::FrameSlot;
+    REQUIRE(spills > 0);
+    CHECK(loads == spills);
+}
+
+TEST_CASE("loop uses keep a hot value in a register under pressure")
+{
+    using namespace dcc::backend::x86;
+    using dcc::backend::x86::PhysReg;
+    MFunction function;
+    for (unsigned i = 0; i < 3; ++i)
+        std::ignore = function.create_block();
+    auto& entry = function.blocks[0];
+    auto& loop = function.blocks[1];
+    auto& exit = function.blocks[2];
+    function.entry_block_id = entry.id;
+    entry.succs = {loop.id};
+    loop.preds = {entry.id, loop.id};
+    loop.succs = {loop.id, exit.id};
+    exit.preds = {loop.id};
+    auto hot = function.new_vreg();
+    entry.instrs.push_back(make_instr(MOpc::MOV32rm, {MOp::from_reg(hot), MOp::from_mem(MMem::make_sym_reloc("hot"))}, 1));
+    std::vector<VReg> values;
+    for (unsigned i = 0; i < 5; ++i)
+    {
+        auto value = function.new_vreg();
+        entry.instrs.push_back(make_instr(MOpc::MOV32rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+        values.push_back(value);
+    }
+    for (auto value : values)
+        for (unsigned i = 0; i < 4; ++i)
+            entry.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+    entry.instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(loop.id)}, 0));
+    for (unsigned i = 0; i < 3; ++i)
+        loop.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(hot)}, 0));
+    loop.instrs.push_back(make_instr(MOpc::JNE, {MOp::from_label(loop.id)}, 0));
+    loop.instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(exit.id)}, 0));
+    exit.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+    auto load = std::ranges::find_if(function.blocks[0].instrs, [](auto const& instr) {
+        return instr.opc == MOpc::MOV32rm && instr.ops[1].kind == MOpKind::Mem && instr.ops[1].mem.symbol == "hot";
+    });
+    REQUIRE(load != function.blocks[0].instrs.end());
+    CHECK(load->ops[0].reg != VReg::phys(PhysReg::RDI));
+}
+
+TEST_CASE("cold terminal calls do not interfere with values live on another branch")
+{
+    using namespace dcc::backend::x86;
+    using dcc::backend::x86::PhysReg;
+    MFunction function;
+    auto value = function.new_vreg();
+    std::ignore = function.create_block();
+    std::ignore = function.create_block();
+    std::ignore = function.create_block();
+    function.entry_block_id = function.blocks[0].id;
+    auto& entry = function.blocks[0];
+    auto& cold = function.blocks[1];
+    auto& hot = function.blocks[2];
+    entry.succs = {cold.id, hot.id};
+    cold.preds = {entry.id};
+    hot.preds = {entry.id};
+    entry.instrs.push_back(make_copy(value, VReg::phys(PhysReg::RAX)));
+    entry.instrs.push_back(make_instr(MOpc::JE, {MOp::from_label(cold.id)}, 0));
+    entry.instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(hot.id)}, 0));
+    auto call = make_instr(MOpc::CALL, {MOp::from_symbol("panic")}, 0);
+    call.implicit_defs = (1ULL << static_cast<unsigned>(PhysReg::RAX)) | (1ULL << static_cast<unsigned>(PhysReg::RCX)) |
+                         (1ULL << static_cast<unsigned>(PhysReg::RDX)) | (1ULL << static_cast<unsigned>(PhysReg::RBX));
+    cold.instrs.push_back(call);
+    cold.instrs.push_back(make_instr(MOpc::UD2, {}, 0));
+    hot.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+    hot.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+    CHECK(function.frame_slots.empty());
+    CHECK(std::ranges::none_of(function.blocks.front().instrs, [](auto const& instr) { return instr.opc == MOpc::PUSH32r; }));
+    CHECK(function.blocks[2].instrs[0].ops[1].reg == VReg::phys(PhysReg::RAX));
 }
 
 TEST_CASE("i8086 parallel copy cycles preserve mixed widths")

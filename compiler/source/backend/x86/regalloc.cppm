@@ -455,6 +455,9 @@ namespace dcc::backend::x86
             std::uint32_t spill_slot = (std::numeric_limits<std::uint32_t>::max)();
             bool spilled = false;
             bool crosses_call = false;
+            std::vector<std::pair<std::uint32_t, std::uint32_t>> segments;
+            double weight = 0;
+            std::optional<MInstr> rematerialize;
             std::uint8_t bits = 0;
         };
 
@@ -749,6 +752,49 @@ namespace dcc::backend::x86
                 ranges.push_back(lr);
             }
 
+            std::unordered_map<VReg, LiveRange*> by_reg;
+            for (auto& range : ranges)
+                by_reg[range.vreg] = &range;
+            for (auto const& block : func.blocks)
+            {
+                std::unordered_map<VReg, std::pair<std::uint32_t, std::uint32_t>> bounds;
+                auto touch = [&](VReg reg, std::uint32_t point) {
+                    if (!reg.is_virtual())
+                        return;
+                    auto [it, added] = bounds.try_emplace(reg, point, point);
+                    if (!added)
+                    {
+                        it->second.first = std::min(it->second.first, point);
+                        it->second.second = std::max(it->second.second, point);
+                    }
+                };
+                auto base = block.id * kBlockStride;
+                for (auto reg : block.live_in)
+                    touch(reg, base ? base - 1 : 0);
+                for (std::size_t i = 0; i < block.instrs.size(); ++i)
+                {
+                    auto const& instr = block.instrs[i];
+                    auto point = base + static_cast<std::uint32_t>(i);
+                    for (std::uint8_t j = 0; j < instr.num_ops; ++j)
+                        if (auto const& op = instr.ops[j]; op.kind == MOpKind::Reg)
+                        {
+                            bool delayed = j >= instr.num_defs && (instr.opc == MOpc::SUB64rr || instr.opc == MOpc::SUB32rr || instr.opc == MOpc::SUB16rr ||
+                                                                   instr.opc == MOpc::SBB32rr);
+                            touch(op.reg, point + delayed);
+                        }
+                        else if (op.kind == MOpKind::Mem)
+                        {
+                            touch(op.mem.base, point);
+                            touch(op.mem.index, point);
+                        }
+                }
+                for (auto reg : block.live_out)
+                    touch(reg, base + static_cast<std::uint32_t>(block.instrs.size()));
+                for (auto const& [reg, bound] : bounds)
+                    if (by_reg.contains(reg))
+                        by_reg.at(reg)->segments.push_back(bound);
+            }
+
             for (std::size_t bi = 0; bi < func.blocks.size(); ++bi)
             {
                 auto const& blk = func.blocks[bi];
@@ -773,11 +819,10 @@ namespace dcc::backend::x86
 
                     if (!is_call)
                         continue;
-
                     std::uint32_t call_point = base_pp + static_cast<std::uint32_t>(ii);
 
                     for (auto& lr : ranges)
-                        if (lr.start < call_point && lr.end > call_point)
+                        if (std::ranges::any_of(lr.segments, [&](auto const& segment) { return segment.first < call_point && segment.second > call_point; }))
                             lr.crosses_call = true;
                 }
             }
@@ -809,6 +854,166 @@ namespace dcc::backend::x86
                             constrain(op.reg, regs.byte_registers);
                     }
             return masks;
+        }
+
+        void reuse_reloads(MFunction& func)
+        {
+            for (auto& block : func.blocks)
+            {
+                struct Cached
+                {
+                    std::uint32_t slot;
+                    MOpc load;
+                };
+                std::unordered_map<PhysReg, Cached> cached;
+                std::vector<MInstr> result;
+                for (auto const& instr : block.instrs)
+                {
+                    bool load = instr.num_defs == 1 && instr.num_ops == 2 && instr.ops[0].kind == MOpKind::Reg && instr.ops[0].reg.is_physical() &&
+                                instr.ops[1].kind == MOpKind::FrameSlot &&
+                                (instr.opc == MOpc::MOV16rm || instr.opc == MOpc::MOV32rm || instr.opc == MOpc::MOV64rm || instr.opc == MOpc::MOVSD_rm ||
+                                 instr.opc == MOpc::MOVSDrm || instr.opc == MOpc::MOVAPSrm);
+                    if (load)
+                    {
+                        auto found = cached.find(instr.ops[0].reg.phys_reg());
+                        if (found != cached.end() && found->second.slot == instr.ops[1].frame_slot && found->second.load == instr.opc)
+                            continue;
+                    }
+                    for (std::uint8_t i = 0; i < instr.num_defs; ++i)
+                        if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg.is_physical())
+                            cached.erase(instr.ops[i].reg.phys_reg());
+                    std::erase_if(cached, [&](auto const& entry) { return (instr.implicit_defs & (1ULL << static_cast<unsigned>(entry.first))) != 0; });
+                    if (instr.num_defs == 0)
+                        for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+                            if (instr.ops[i].kind == MOpKind::FrameSlot)
+                                std::erase_if(cached, [&](auto const& entry) { return entry.second.slot == instr.ops[i].frame_slot; });
+                    if (load && instr.ops[1].frame_slot < func.frame_slots.size() && func.frame_slots[instr.ops[1].frame_slot].is_spill)
+                        cached[instr.ops[0].reg.phys_reg()] = {instr.ops[1].frame_slot, instr.opc};
+                    result.push_back(instr);
+                }
+                block.instrs = std::move(result);
+            }
+        }
+
+        void allocation_costs(MFunction const& func, std::vector<LiveRange>& ranges)
+        {
+            std::unordered_map<std::uint32_t, std::size_t> indices;
+            for (std::size_t i = 0; i < func.blocks.size(); ++i)
+                indices[func.blocks[i].id] = i;
+            auto n = func.blocks.size();
+            std::vector<std::unordered_set<std::size_t>> dom(n);
+            for (std::size_t i = 0; i < n; ++i)
+                if (func.blocks[i].id == func.entry_block_id)
+                    dom[i].insert(i);
+                else
+                    for (std::size_t j = 0; j < n; ++j)
+                        dom[i].insert(j);
+            bool changed = true;
+            while (changed)
+            {
+                changed = false;
+                for (std::size_t i = 0; i < n; ++i)
+                {
+                    if (func.blocks[i].id == func.entry_block_id)
+                        continue;
+                    std::unordered_set<std::size_t> next;
+                    bool first = true;
+                    for (auto pred : func.blocks[i].preds)
+                        if (auto it = indices.find(pred); it != indices.end())
+                        {
+                            if (first)
+                                next = dom[it->second];
+                            else
+                                std::erase_if(next, [&](auto v) { return !dom[it->second].contains(v); });
+                            first = false;
+                        }
+                    next.insert(i);
+                    if (next != dom[i])
+                    {
+                        dom[i] = std::move(next);
+                        changed = true;
+                    }
+                }
+            }
+            std::vector<unsigned> depth(n);
+            for (std::size_t head = 0; head < n; ++head)
+            {
+                std::unordered_set<std::size_t> loop;
+                std::vector<std::size_t> work;
+                for (std::size_t tail = 0; tail < n; ++tail)
+                    if (dom[tail].contains(head) && std::ranges::find(func.blocks[tail].succs, func.blocks[head].id) != func.blocks[tail].succs.end())
+                    {
+                        loop.insert(head);
+                        if (loop.insert(tail).second)
+                            work.push_back(tail);
+                    }
+                for (std::size_t j = 0; j < work.size(); ++j)
+                    for (auto pred : func.blocks[work[j]].preds)
+                        if (auto it = indices.find(pred); it != indices.end() && loop.insert(it->second).second)
+                            work.push_back(it->second);
+                for (auto member : loop)
+                    ++depth[member];
+            }
+            std::vector<bool> cold(n);
+            for (std::size_t i = 0; i < n; ++i)
+                cold[i] = !func.blocks[i].instrs.empty() && func.blocks[i].instrs.back().opc == MOpc::UD2;
+            changed = true;
+            while (changed)
+            {
+                changed = false;
+                for (std::size_t i = 0; i < n; ++i)
+                    if (!cold[i] && !func.blocks[i].succs.empty() &&
+                        std::ranges::all_of(func.blocks[i].succs, [&](auto id) { return indices.contains(id) && cold[indices.at(id)]; }))
+                    {
+                        cold[i] = true;
+                        changed = true;
+                    }
+            }
+            std::unordered_map<VReg, LiveRange*> by_reg;
+            std::unordered_map<VReg, unsigned> definitions;
+            for (auto& range : ranges)
+                by_reg[range.vreg] = &range;
+            for (std::size_t bi = 0; bi < n; ++bi)
+                for (auto const& instr : func.blocks[bi].instrs)
+                {
+                    auto cost = cold[bi] ? 0.001 : std::pow(10.0, std::min(4u, depth[bi]));
+                    auto charge = [&](VReg reg, bool def) {
+                        if (auto it = by_reg.find(reg); it != by_reg.end())
+                        {
+                            it->second->weight += cost * (def ? 1 : 2);
+                            if (def)
+                                ++definitions[reg];
+                        }
+                    };
+                    for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+                        if (auto const& op = instr.ops[i]; op.kind == MOpKind::Reg)
+                            charge(op.reg, i < instr.num_defs);
+                        else if (op.kind == MOpKind::Mem)
+                        {
+                            charge(op.mem.base, false);
+                            charge(op.mem.index, false);
+                        }
+                }
+            for (auto const& block : func.blocks)
+                for (auto const& instr : block.instrs)
+                    if (instr.num_defs == 1 && instr.num_ops == 2 && instr.implicit_defs == 0 && instr.implicit_uses == 0 &&
+                        instr.ops[0].kind == MOpKind::Reg && definitions[instr.ops[0].reg] == 1)
+                    {
+                        bool immediate = (instr.opc == MOpc::MOV64ri || instr.opc == MOpc::MOV64ri32 || instr.opc == MOpc::MOV32ri ||
+                                          instr.opc == MOpc::MOV16ri || instr.opc == MOpc::MOV8ri) &&
+                                         instr.ops[1].kind == MOpKind::Imm64;
+                        bool address = (instr.opc == MOpc::LEA64rm || instr.opc == MOpc::LEA32rm || instr.opc == MOpc::LEA16rm) &&
+                                       (instr.ops[1].kind == MOpKind::FrameSlot ||
+                                        (instr.ops[1].kind == MOpKind::Mem && !instr.ops[1].mem.base.is_valid() && !instr.ops[1].mem.index.is_valid()));
+                        if ((immediate || address) && by_reg.contains(instr.ops[0].reg))
+                        {
+                            auto& range = *by_reg.at(instr.ops[0].reg);
+                            range.rematerialize = instr;
+                            range.weight *= 0.25;
+                        }
+                    }
+            for (auto& range : ranges)
+                range.weight /= 1.0 + std::log2(1.0 + range.end - range.start);
         }
 
         void linear_scan(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange>& ranges)
@@ -867,6 +1072,25 @@ namespace dcc::backend::x86
                 }
             }
 
+            std::unordered_map<VReg, LiveRange*> by_reg;
+            std::unordered_map<VReg, std::vector<VReg>> affinities;
+            for (auto& range : ranges)
+                by_reg[range.vreg] = &range;
+            for (auto const& block : func.blocks)
+                for (auto const& instr : block.instrs)
+                    if ((is_gpr_copy(instr.opc) || instr.opc == MOpc::MOVSDrr || instr.opc == MOpc::MOVSSrr || instr.opc == MOpc::MOVAPSrr) &&
+                        instr.num_ops == 2 && instr.num_defs == 1 && instr.ops[0].kind == MOpKind::Reg && instr.ops[1].kind == MOpKind::Reg)
+                    {
+                        affinities[instr.ops[0].reg].push_back(instr.ops[1].reg);
+                        affinities[instr.ops[1].reg].push_back(instr.ops[0].reg);
+                    }
+            auto interfere = [](LiveRange const& a, LiveRange const& b) {
+                for (auto const& left : a.segments)
+                    for (auto const& right : b.segments)
+                        if (left.first < right.second && right.first < left.second)
+                            return true;
+                return false;
+            };
             std::vector<LiveRange*> active;
 
             for (auto& range : ranges)
@@ -888,17 +1112,21 @@ namespace dcc::backend::x86
                         return false;
 
                     auto it = clobbers.find(reg);
-                    if (it != clobbers.end() && !std::ranges::none_of(it->second, [&](std::uint32_t pp) { return pp > range.start && pp < range.end; }))
+                    if (it != clobbers.end() && !std::ranges::none_of(it->second, [&](std::uint32_t pp) {
+                            return std::ranges::any_of(range.segments, [&](auto const& segment) { return pp > segment.first && pp < segment.second; });
+                        }))
                         return false;
                     auto rd = phys_reads.find(reg);
                     if (rd == phys_reads.end())
                         return true;
-                    return std::ranges::none_of(rd->second, [&](std::uint32_t pp) { return pp > range.start && pp < range.end; });
+                    return std::ranges::none_of(rd->second, [&](std::uint32_t pp) {
+                        return std::ranges::any_of(range.segments, [&](auto const& segment) { return pp > segment.first && pp < segment.second; });
+                    });
                 };
 
                 std::unordered_set<PhysReg> occupied;
                 for (auto* a : active)
-                    if (a->reg_class == range.reg_class && a->assigned != PhysReg::None)
+                    if (a->reg_class == range.reg_class && a->assigned != PhysReg::None && interfere(*a, range))
                         occupied.insert(a->assigned);
 
                 PhysReg free_reg = PhysReg::None;
@@ -926,6 +1154,19 @@ namespace dcc::backend::x86
                         }
                 }
 
+                for (auto partner : affinities[range.vreg])
+                {
+                    auto candidate = partner.is_physical() ? partner.phys_reg() : PhysReg::None;
+                    if (auto found = by_reg.find(partner); found != by_reg.end() && !interfere(*found->second, range) && !found->second->spilled)
+                        candidate = found->second->assigned;
+                    if (candidate != PhysReg::None && std::ranges::find(avail, candidate) != avail.end() && !occupied.contains(candidate) &&
+                        reg_is_allowed(candidate) &&
+                        (!range.crosses_call || (range.reg_class == RegClass::GPR && std::ranges::find(callee_gpr_span, candidate) != callee_gpr_span.end())))
+                    {
+                        free_reg = candidate;
+                        break;
+                    }
+                }
                 if (free_reg != PhysReg::None)
                 {
                     range.assigned = free_reg;
@@ -938,7 +1179,9 @@ namespace dcc::backend::x86
                     LiveRange* spill_candidate = nullptr;
                     for (auto* a : active)
                     {
-                        if (a->reg_class != range.reg_class)
+                        if (a->reg_class != range.reg_class || !interfere(*a, range))
+                            continue;
+                        if (std::ranges::any_of(active, [&](auto* other) { return other != a && other->assigned == a->assigned && interfere(*other, range); }))
                             continue;
                         if (!reg_is_allowed(a->assigned))
                             continue;
@@ -953,13 +1196,14 @@ namespace dcc::backend::x86
                                 continue;
                         }
 
-                        if (!spill_candidate || a->end > spill_candidate->end)
+                        if (!spill_candidate || a->weight < spill_candidate->weight || (a->weight == spill_candidate->weight && a->end > spill_candidate->end))
                             spill_candidate = a;
                     }
 
-                    if (spill_candidate && spill_candidate->end > range.end)
+                    if (spill_candidate &&
+                        (spill_candidate->weight < range.weight || (spill_candidate->weight == range.weight && spill_candidate->end > range.end)))
                     {
-                        if (spill_candidate->spill_slot == (std::numeric_limits<std::uint32_t>::max)())
+                        if (!spill_candidate->rematerialize && spill_candidate->spill_slot == (std::numeric_limits<std::uint32_t>::max)())
                             spill_candidate->spill_slot =
                                 func.new_frame_slot(spill_access(regs, *spill_candidate).size, spill_access(regs, *spill_candidate).align, true);
 
@@ -978,7 +1222,7 @@ namespace dcc::backend::x86
                     }
                     else
                     {
-                        if (range.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
+                        if (!range.rematerialize && range.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
                             range.spill_slot = func.new_frame_slot(spill_access(regs, range).size, spill_access(regs, range).align, true);
 
                         range.spilled = true;
@@ -1016,6 +1260,9 @@ namespace dcc::backend::x86
 
                     if (instr.opc == MOpc::PHI)
                         continue;
+                    if (instr.num_defs == 1 && instr.ops[0].kind == MOpKind::Reg)
+                        if (auto it = range_map.find(instr.ops[0].reg); it != range_map.end() && it->second->spilled && it->second->rematerialize)
+                            continue;
 
                     if (instr.opc == MOpc::IMPLICIT_DEF)
                     {
@@ -1276,7 +1523,7 @@ namespace dcc::backend::x86
                             continue;
 
                         auto const& lr = *rit->second;
-                        if (lr.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
+                        if (!lr.rematerialize && lr.spill_slot == (std::numeric_limits<std::uint32_t>::max)())
                             continue;
 
                         VReg scratch = (lr.reg_class == RegClass::XMM)            ? pick_xmm_scratch(rl.spilled_vreg)
@@ -1300,6 +1547,11 @@ namespace dcc::backend::x86
                             reload.num_defs = 1;
                             reload.ops[0] = MOp::from_reg(scratch);
                             reload.ops[1] = MOp::from_frame_slot(lr.spill_slot);
+                        }
+                        if (lr.rematerialize)
+                        {
+                            reload = *lr.rematerialize;
+                            reload.ops[0] = MOp::from_reg(scratch);
                         }
                         new_instrs.push_back(reload);
                     }
@@ -2120,6 +2372,8 @@ export namespace dcc::backend::x86
             for (auto& range : ranges)
                 range.bits = std::max<std::uint8_t>(16, widths[range.vreg]);
 
+        allocation_costs(func, ranges);
+
         linear_scan(func, regs, ranges);
 
         rewrite_function(func, regs, ranges);
@@ -2129,6 +2383,8 @@ export namespace dcc::backend::x86
         insert_callee_saves(func, regs, ranges);
 
         post_check_and_fix(func, regs);
+
+        reuse_reloads(func);
 
         remove_redundant_moves(func, regs);
     }

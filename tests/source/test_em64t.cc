@@ -127,9 +127,9 @@ TEST_CASE("spilled memory base index and value use distinct scratch registers")
     auto base = func.new_vreg();
     auto index = func.new_vreg();
     auto value = func.new_vreg();
-    block.instrs.push_back(make_mov_ri(base, 4096, 64));
-    block.instrs.push_back(make_mov_ri(index, 2, 64));
-    block.instrs.push_back(make_mov_ri(value, 73, 64));
+    block.instrs.push_back(make_instr(MOpc::MOV64rm, {MOp::from_reg(base), MOp::from_mem(MMem::make_sym_reloc("base"))}, 1));
+    block.instrs.push_back(make_instr(MOpc::MOV64rm, {MOp::from_reg(index), MOp::from_mem(MMem::make_sym_reloc("index"))}, 1));
+    block.instrs.push_back(make_instr(MOpc::MOV64rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("value"))}, 1));
     MInstr clobber;
     clobber.opc = MOpc::NOP;
     clobber.implicit_defs = 0xffff;
@@ -165,7 +165,7 @@ TEST_CASE("a copy between two spilled values is a load into the scratch register
     func.entry_block_id = block.id;
     auto source = func.new_vreg();
     auto destination = func.new_vreg();
-    block.instrs.push_back(make_mov_ri(source, 73, 64));
+    block.instrs.push_back(make_instr(MOpc::MOV64rm, {MOp::from_reg(source), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
     MInstr clobber;
     clobber.opc = MOpc::NOP;
     clobber.implicit_defs = 0xffff;
