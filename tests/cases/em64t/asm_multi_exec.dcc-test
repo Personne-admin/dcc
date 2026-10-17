@@ -24,7 +24,7 @@ u64 push_pop(u64 x) {
 }
 
 u64 with_clobber(u64 x) {
-    u64 y = asm @[intel, output(u64), inputs(v = x), clobbers(rcx, rdx)] { "mov %[v], %0" };
+    u64 y = asm @[intel, output(u64), inputs(v = x), clobbers(rcx, rdx)] { "mov %0, %[v]" };
     return y;
 }
 
