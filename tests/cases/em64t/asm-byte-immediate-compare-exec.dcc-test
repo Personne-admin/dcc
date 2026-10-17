@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module main;
+
+@nomangle public i32 dcc_main() {
+    u32 result = asm @[intel, output(u32 in eax)] { "mov eax, 256; cmp al, 0" };
+    return if result == 256 { 0 } else { 1 };
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-ASM ===
+CONTAINS: cmp al, 0

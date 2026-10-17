@@ -836,3 +836,23 @@ TEST_CASE("real16 subtract with borrow keeps its right operand live")
         if (instruction.opc == MOpc::SBB32rr)
             CHECK(instruction.ops[0].reg != instruction.ops[2].reg || instruction.ops[0].reg == instruction.ops[1].reg);
 }
+
+TEST_CASE("long mode byte immediate compares retain byte width")
+{
+    for (auto reg : {PhysReg::RAX, PhysReg::RSI, PhysReg::R8})
+    {
+        MFunction function;
+        function.create_block().instrs.push_back(make_instr(MOpc::CMP8ri, {R(reg), I(255)}, 0));
+        auto result = encode_function(function, EncodeMode::Long64);
+        REQUIRE(result.warnings.empty());
+        std::vector<std::uint8_t> expected;
+        if (reg == PhysReg::RSI)
+            expected.push_back(0x40);
+        if (reg == PhysReg::R8)
+            expected.push_back(0x41);
+        expected.push_back(0x80);
+        expected.push_back(reg == PhysReg::RSI ? 0xfe : 0xf8);
+        expected.push_back(0xff);
+        CHECK(result.bytes == expected);
+    }
+}

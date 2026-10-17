@@ -1594,8 +1594,20 @@ namespace
                     goto ud2_lbl;
                 break;
             }
-            case MOpc::CMP64ri:
             case MOpc::CMP8ri: {
+                if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Imm64)
+                {
+                    auto d = resolve_phys_reg(ops[0], wrn, "CMP8ri");
+                    emit_rex_8bit(buf, PhysReg::RAX, d);
+                    emit_u8(buf, 0x80);
+                    emit_modrm(buf, 3, 7, reg_low3(d));
+                    emit_u8(buf, static_cast<std::uint8_t>(ops[1].imm));
+                }
+                else
+                    goto ud2_lbl;
+                break;
+            }
+            case MOpc::CMP64ri: {
                 bool w64 = is_64bit_opc(instr.opc);
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Imm64)
                 {
