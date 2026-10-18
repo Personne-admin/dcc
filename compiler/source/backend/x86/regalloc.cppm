@@ -915,13 +915,16 @@ namespace dcc::backend::x86
             for (std::size_t i = 0; i < func.blocks.size(); ++i)
                 indices[func.blocks[i].id] = i;
             auto n = func.blocks.size();
-            std::vector<std::unordered_set<std::size_t>> dom(n);
+            auto words = (n + 63) / 64;
+            std::vector<std::vector<std::uint64_t>> dom(n, std::vector<std::uint64_t>(words, ~std::uint64_t{0}));
             for (std::size_t i = 0; i < n; ++i)
                 if (func.blocks[i].id == func.entry_block_id)
-                    dom[i].insert(i);
-                else
-                    for (std::size_t j = 0; j < n; ++j)
-                        dom[i].insert(j);
+                {
+                    std::ranges::fill(dom[i], 0);
+                    dom[i][i / 64] = 1ULL << (i % 64);
+                }
+                else if (n % 64)
+                    dom[i].back() &= (1ULL << (n % 64)) - 1;
             bool changed = true;
             while (changed)
             {
@@ -930,7 +933,7 @@ namespace dcc::backend::x86
                 {
                     if (func.blocks[i].id == func.entry_block_id)
                         continue;
-                    std::unordered_set<std::size_t> next;
+                    std::vector<std::uint64_t> next(words);
                     bool first = true;
                     for (auto pred : func.blocks[i].preds)
                         if (auto it = indices.find(pred); it != indices.end())
@@ -938,10 +941,11 @@ namespace dcc::backend::x86
                             if (first)
                                 next = dom[it->second];
                             else
-                                std::erase_if(next, [&](auto v) { return !dom[it->second].contains(v); });
+                                for (std::size_t word = 0; word < words; ++word)
+                                    next[word] &= dom[it->second][word];
                             first = false;
                         }
-                    next.insert(i);
+                    next[i / 64] |= 1ULL << (i % 64);
                     if (next != dom[i])
                     {
                         dom[i] = std::move(next);
@@ -955,7 +959,8 @@ namespace dcc::backend::x86
                 std::unordered_set<std::size_t> loop;
                 std::vector<std::size_t> work;
                 for (std::size_t tail = 0; tail < n; ++tail)
-                    if (dom[tail].contains(head) && std::ranges::find(func.blocks[tail].succs, func.blocks[head].id) != func.blocks[tail].succs.end())
+                    if ((dom[tail][head / 64] & (1ULL << (head % 64))) &&
+                        std::ranges::find(func.blocks[tail].succs, func.blocks[head].id) != func.blocks[tail].succs.end())
                     {
                         loop.insert(head);
                         if (loop.insert(tail).second)
@@ -989,9 +994,8 @@ namespace dcc::backend::x86
             return costs;
         }
 
-        void allocation_costs(MFunction const& func, std::vector<LiveRange>& ranges)
+        void allocation_costs(MFunction const& func, std::vector<LiveRange>& ranges, std::span<double const> costs)
         {
-            auto costs = block_costs(func);
             auto n = func.blocks.size();
             std::unordered_map<VReg, LiveRange*> by_reg;
             std::unordered_map<VReg, unsigned> definitions;
@@ -2770,9 +2774,8 @@ namespace dcc::backend::x86
             compact_spill_slots(func);
         }
 
-        std::pair<double, double> allocation_score(MFunction const& func, RegisterPolicy const& regs)
+        std::pair<double, double> allocation_score(MFunction const& func, RegisterPolicy const& regs, std::span<double const> weights)
         {
-            auto weights = block_costs(func);
             double dynamic = 0, size = 0;
             for (std::size_t b = 0; b < func.blocks.size(); ++b)
                 for (auto const& instr : func.blocks[b].instrs)
@@ -2800,7 +2803,8 @@ export namespace dcc::backend::x86
             for (auto& range : ranges)
                 range.bits = std::max<std::uint8_t>(16, widths[range.vreg]);
 
-        allocation_costs(func, ranges);
+        auto costs = block_costs(func);
+        allocation_costs(func, ranges, costs);
 
         auto frame_count = func.frame_slots.size();
         linear_scan(func, regs, ranges);
@@ -2831,11 +2835,11 @@ export namespace dcc::backend::x86
             if (regs.narrow_gpr)
                 for (auto& range : ranges)
                     range.bits = std::max<std::uint8_t>(16, split_widths[range.vreg]);
-            allocation_costs(func, ranges);
+            allocation_costs(func, ranges, costs);
             linear_scan(func, regs, ranges, true);
             finish_allocation(func, regs, ranges);
-            auto candidate = allocation_score(func, regs);
-            auto baseline = allocation_score(whole, regs);
+            auto candidate = allocation_score(func, regs, costs);
+            auto baseline = allocation_score(whole, regs, costs);
             if ((candidate.first < baseline.first && candidate.second <= baseline.second) ||
                 (candidate.first <= baseline.first && candidate.second < baseline.second))
                 return;

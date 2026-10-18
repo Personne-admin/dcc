@@ -263,6 +263,35 @@ TEST_CASE("wide pair pressure does not evict an equally used narrow value")
     }
 }
 
+TEST_CASE("allocator costs handle a large reverse-ordered control flow graph")
+{
+    using namespace dcc::backend::x86;
+    MFunction function;
+    constexpr unsigned count = 1024;
+    for (unsigned i = 0; i < count; ++i)
+        std::ignore = function.create_block();
+    function.entry_block_id = count - 1;
+    for (unsigned i = 0; i < count; ++i)
+    {
+        auto& block = function.blocks[i];
+        if (i + 1 < count)
+            block.preds.push_back(i + 1);
+        if (i)
+        {
+            block.succs.push_back(i - 1);
+            block.instrs.push_back(make_instr(MOpc::JMP, {MOp::from_label(i - 1)}, 0));
+        }
+        else
+            block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    }
+    auto started = std::chrono::steady_clock::now();
+    dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+    CHECK(std::chrono::steady_clock::now() - started < std::chrono::seconds{30});
+    CHECK(function.blocks.size() == count);
+    CHECK(function.frame_slots.empty());
+    CHECK(function.blocks.front().instrs.back().opc == MOpc::RET);
+}
+
 TEST_CASE("allocation rematerializes constants and static addresses under pressure")
 {
     using namespace dcc::backend::x86;
