@@ -37,11 +37,18 @@ namespace dcc::backend::em64t
         constexpr PhysReg kWin64IntArgRegs[4] = {PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9};
         constexpr PhysReg kWin64FloatArgRegs[4] = {PhysReg::XMM0, PhysReg::XMM1, PhysReg::XMM2, PhysReg::XMM3};
 
-        constexpr PhysReg kCallerSavedSysV_GPR[10] = {
+        constexpr PhysReg kCallerSavedSysV_GPR[9] = {
             PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::RSI, PhysReg::RDI, PhysReg::R8, PhysReg::R9, PhysReg::R10, PhysReg::R11,
         };
-        constexpr PhysReg kCallerSavedWin64_GPR[5] = {
-            PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9,
+        constexpr PhysReg kCallerSavedWin64_GPR[7] = {
+            PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9, PhysReg::R10, PhysReg::R11,
+        };
+        constexpr PhysReg kCallerSavedSysV_XMM[] = {
+            PhysReg::XMM0, PhysReg::XMM1, PhysReg::XMM2, PhysReg::XMM3, PhysReg::XMM4, PhysReg::XMM5, PhysReg::XMM6, PhysReg::XMM7,
+            PhysReg::XMM8, PhysReg::XMM9, PhysReg::XMM10, PhysReg::XMM11, PhysReg::XMM12, PhysReg::XMM13, PhysReg::XMM14, PhysReg::XMM15,
+        };
+        constexpr PhysReg kCallerSavedWin64_XMM[] = {
+            PhysReg::XMM0, PhysReg::XMM1, PhysReg::XMM2, PhysReg::XMM3, PhysReg::XMM4, PhysReg::XMM5,
         };
 
         [[nodiscard]] std::string_view make_imp_name(MFunction& mfunc, std::string_view name)
@@ -1958,12 +1965,12 @@ namespace dcc::backend::em64t
             if (ctx.cc == CallConvKind::SysV)
             {
                 ctx.add_implicit_defs(call_instr, kCallerSavedSysV_GPR);
-                ctx.add_implicit_defs(call_instr, kSysVFloatArgRegs);
+                ctx.add_implicit_defs(call_instr, kCallerSavedSysV_XMM);
             }
             else
             {
                 ctx.add_implicit_defs(call_instr, kCallerSavedWin64_GPR);
-                ctx.add_implicit_defs(call_instr, kSysVFloatArgRegs);
+                ctx.add_implicit_defs(call_instr, kCallerSavedWin64_XMM);
             }
 
             ctx.append_instr(call_instr);

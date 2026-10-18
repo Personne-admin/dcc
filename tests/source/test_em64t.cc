@@ -237,3 +237,35 @@ TEST_CASE("redundant self moves are removed after allocation")
     CHECK(!has_self_copy);
     CHECK(has_real_copy);
 }
+
+TEST_CASE("call clobbers describe every caller saved register for each ABI")
+{
+    for (bool windows : {false, true})
+    {
+        auto target = *dcc::target::TargetConfig::parse_triple(windows ? "x86_64-coff" : "x86_64-elf");
+        IrContext ctx;
+        auto* type = ir_type_cast<IrFuncType>(ctx.func_t(ctx.void_t(), {}));
+        auto* callee = ctx.function("callee", type);
+        auto* function = ctx.function("caller", type);
+        auto* entry = ctx.basic_block("entry", 0);
+        entry->instructions.push_back(ctx.call(ctx.void_t(), ctx.func_ref(callee)));
+        entry->terminator = ctx.ret(nullptr);
+        function->entry_block = entry;
+        function->blocks.push_back(entry);
+        auto machine = isel_function(*function, target);
+        bool found = false;
+        for (auto const& instruction : machine.blocks.front().instrs)
+            if (instruction.opc == MOpc::CALL_rel32)
+            {
+                found = true;
+                for (unsigned i = 0; i < 16; ++i)
+                {
+                    auto reg = static_cast<unsigned>(PhysReg::XMM0) + i;
+                    CHECK_EQ((instruction.implicit_defs & (1ULL << reg)) != 0, !windows || i < 6);
+                }
+                for (auto reg : {PhysReg::RAX, PhysReg::RCX, PhysReg::RDX, PhysReg::R8, PhysReg::R9, PhysReg::R10, PhysReg::R11})
+                    CHECK((instruction.implicit_defs & (1ULL << static_cast<unsigned>(reg))) != 0);
+            }
+        CHECK(found);
+    }
+}
