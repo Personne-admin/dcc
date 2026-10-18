@@ -64,7 +64,7 @@
         "strings": {
             "name": "string.quoted.double.dc",
             "begin": "\"",
-            "end": "\"",
+            "end": "\"|$",
             "patterns": [
                 {
                     "name": "constant.character.escape.dc",

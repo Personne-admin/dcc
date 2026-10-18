@@ -122,3 +122,10 @@ test('nested block comments remain nested after line comment markers', async () 
     assert.ok(lines.get('*/ still_inside')!.every((token) => token.scope === 'comment.block.dc'));
     assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
 });
+
+test('unterminated strings recover at the next line like the lexer', async () => {
+    for (const newline of ['\n', '\r\n']) {
+        const lines = await tokenizeSample(`const char* s = "café 😀${newline}i32 after = 1;`);
+        assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
+    }
+});
