@@ -792,10 +792,13 @@ export namespace dccd::protocol
     struct TextDocumentContentChangeEvent
     {
         std::string text;
+        std::optional<LspRange> range;
 
         [[nodiscard]] static TextDocumentContentChangeEvent from_json(JsonValue const& v)
         {
             TextDocumentContentChangeEvent ev;
+            if (auto const* range = v.find_member("range"))
+                ev.range = LspRange::from_json(*range);
             if (auto s = v.get_string("text"))
                 ev.text = std::move(*s);
 
@@ -1676,7 +1679,7 @@ export namespace dccd::protocol
     [[nodiscard]] JsonValue make_initialize_result(std::string_view position_encoding = PositionEncoding::Utf16)
     {
         auto caps = JsonValue::empty_object();
-        caps.set("textDocumentSync", JsonValue::integer(1));
+        caps.set("textDocumentSync", JsonValue::integer(2));
         caps.set("hoverProvider", JsonValue::boolean(true));
         caps.set("definitionProvider", JsonValue::boolean(true));
         caps.set("referencesProvider", JsonValue::boolean(true));

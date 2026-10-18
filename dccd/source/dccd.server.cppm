@@ -574,9 +574,40 @@ export namespace dccd
                 return;
             }
 
-            auto const& last_change = params.contentChanges.back();
+            auto& sm = m_session->source_manager();
+            auto existing = sm.find_by_uri(params.textDocument.uri);
+            auto const* file = existing ? sm.get(*existing) : nullptr;
+            if (!file || file->is_closed())
+            {
+                std::println(m_log, "[dccd] didChange: document is not open: {}", params.textDocument.uri);
+                m_stale_uris.insert(params.textDocument.uri);
+                return;
+            }
 
-            auto result = m_session->update_in_memory(params.textDocument.uri, last_change.text, params.textDocument.version);
+            dcc::sm::SourceManager edits;
+            edits.set_position_encoding(sm.position_encoding());
+            auto scratch = edits.open_in_memory(params.textDocument.uri, std::string{file->text()});
+            for (auto const& change : params.contentChanges)
+            {
+                auto text = std::string{edits.get(scratch)->text()};
+                if (change.range)
+                {
+                    auto begin = edits.lsp_position_to_location(scratch, protocol_position_to_sm_position(change.range->start));
+                    auto end = edits.lsp_position_to_location(scratch, protocol_position_to_sm_position(change.range->end));
+                    if (!begin || !end || begin->offset > end->offset)
+                    {
+                        std::println(m_log, "[dccd] didChange: invalid edit range for {}", params.textDocument.uri);
+                        m_stale_uris.insert(params.textDocument.uri);
+                        return;
+                    }
+                    text.replace(begin->offset, end->offset - begin->offset, change.text);
+                }
+                else
+                    text = change.text;
+                std::ignore = edits.update_in_memory(params.textDocument.uri, std::move(text));
+            }
+
+            auto result = m_session->update_in_memory(params.textDocument.uri, std::string{edits.get(scratch)->text()}, params.textDocument.version);
             if (!result)
             {
                 std::println(m_log, "[dccd] update_in_memory failed for {}: {}", params.textDocument.uri, dcc::sm::to_string(result.error()));

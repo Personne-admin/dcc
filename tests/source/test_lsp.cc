@@ -6462,3 +6462,173 @@ TEST_CASE("compile command arch gates FS and GS based pointers")
         CHECK(publishes[0].diagnostics[0].message.find("the 8086 has no FS or GS") != std::string::npos);
     }
 }
+
+namespace
+{
+    struct EditDeadline
+    {
+        std::mutex mutex;
+        std::condition_variable ready;
+        bool done{false};
+        std::thread worker;
+
+        EditDeadline(unsigned seed, int iteration)
+            : worker([this, seed, iteration] {
+                  std::unique_lock lock{mutex};
+                  if (!ready.wait_for(lock, std::chrono::seconds{5}, [this] { return done; }))
+                  {
+                      std::println(std::cerr, "edit timeout seed={} iteration={}", seed, iteration);
+                      std::abort();
+                  }
+              })
+        {
+        }
+
+        ~EditDeadline()
+        {
+            {
+                std::lock_guard lock{mutex};
+                done = true;
+            }
+            ready.notify_one();
+            worker.join();
+        }
+    };
+
+    JsonValue edit_position(std::string_view text, std::size_t end)
+    {
+        std::uint32_t line = 0;
+        std::uint32_t column = 0;
+        for (std::size_t i = 0; i < end; ++i)
+        {
+            auto c = static_cast<unsigned char>(text[i]);
+            if (c == '\r' || c == '\n')
+            {
+                if (c == '\r' && i + 1 < end && text[i + 1] == '\n')
+                    ++i;
+                ++line;
+                column = 0;
+            }
+            else if ((c & 0xc0) != 0x80)
+                column += c >= 0xf0 ? 2 : 1;
+        }
+        return make_position(line, column);
+    }
+
+    JsonValue incremental_edit(std::string_view text, std::size_t begin, std::size_t end, std::string_view replacement)
+    {
+        auto range = JsonValue::empty_object();
+        range.set("start", edit_position(text, begin));
+        range.set("end", edit_position(text, end));
+        auto change = JsonValue::empty_object();
+        change.set("range", std::move(range));
+        change.set("text", JsonValue::string_val(std::string{replacement}));
+        return change;
+    }
+
+}
+
+TEST_CASE("incremental batches use negotiated units and sequential CRLF ranges")
+{
+    for (auto encoding : {std::string_view{"utf-8"}, std::string_view{"utf-16"}, std::string_view{"utf-32"}})
+    {
+        Sink sink;
+        dccd::LanguageServer server{&sink.stream};
+        initialize_server(server, sink, {}, {encoding});
+        auto uri = std::string{"file:///tmp/dccd_incremental_regression.dc"};
+        std::string text = "module m;\r\n// \xc3\xa9\xf0\x9f\x98\x80tail\r\ni32 x=1;\r\n";
+        std::ignore = send_and_collect_publishes(server, sink, make_did_open(uri, 1, text));
+        auto changes = JsonValue::parse(std::format(
+            R"([{{"range":{{"start":{{"line":1,"character":3}},"end":{{"line":1,"character":{}}}}},"text":"z"}},{{"range":{{"start":{{"line":1,"character":4}},"end":{{"line":2,"character":0}}}},"text":""}},{{"range":{{"start":{{"line":2,"character":0}},"end":{{"line":2,"character":0}}}},"text":"i32 y=2;"}}])",
+            encoding == "utf-8" ? 9 : encoding == "utf-16" ? 6 : 5));
+        REQUIRE(changes.has_value());
+        auto params = JsonValue::empty_object();
+        params.set("textDocument", text_document(uri, 2, ""));
+        params.set("contentChanges", std::move(*changes));
+        std::ignore = send_and_collect_publishes(server, sink, dccd::protocol::build_notification("textDocument/didChange", std::move(params)));
+        auto fid = server.source_manager().find_by_uri(uri);
+        REQUIRE(fid.has_value());
+        CHECK_EQ(server.source_manager().get(*fid)->text(), "module m;\r\n// zi32 x=1;\r\ni32 y=2;");
+        auto deletion = JsonValue::parse(R"({"textDocument":{"uri":"file:///tmp/dccd_incremental_regression.dc","version":3},"contentChanges":[{"range":{"start":{"line":0,"character":0},"end":{"line":2,"character":8}},"text":""}]})");
+        REQUIRE(deletion.has_value());
+        std::ignore = send_and_collect_publishes(server, sink, dccd::protocol::build_notification("textDocument/didChange", std::move(*deletion)));
+        CHECK(server.source_manager().get(*fid)->text().empty());
+    }
+}
+
+TEST_CASE("incremental edits preserve document text and fresh semantic tokens")
+{
+    auto uri = std::string{"file:///tmp/dccd_edit_fuzz.dc"};
+    std::array fragments = {"/*", "*/", "//", "//!", "///", "\"", "\\", "\n", "\r\n", "caf\xc3\xa9", "\xf0\x9f\x98\x80", "x", "", " ", ";", "}"};
+    auto root = std::filesystem::current_path();
+    while (!std::filesystem::exists(root / "tests/stdlib/conditional-return-loop.dc") && root != root.parent_path())
+        root = root.parent_path();
+
+    std::vector<std::string> sources;
+    for (auto path : {root / "vscode/src/test/fixtures/grammar-sample.dc", root / "tests/stdlib/conditional-return-loop.dc"})
+    {
+        std::ifstream input{path};
+        REQUIRE(input.good());
+        sources.emplace_back(std::istreambuf_iterator<char>{input}, std::istreambuf_iterator<char>{});
+    }
+    sources.emplace_back(
+        "module edit;\r\n/// documentation caf\xc3\xa9 \xf0\x9f\x98\x80\r\ni32 f() {\r\n  /* block */\r\n  \"hello\";\r\n  return 1;\r\n}\r\n");
+
+    for (unsigned seed : {42u, 8086u, 20261018u})
+    {
+        std::mt19937 rng{seed};
+        Sink sink;
+        dccd::LanguageServer server{&sink.stream};
+        initialize_server(server, sink);
+        auto text = sources[seed % sources.size()];
+        std::ignore = send_and_collect_publishes(server, sink, make_did_open(uri, 1, text));
+        for (int iteration = 0; iteration < 500; ++iteration)
+        {
+            EditDeadline deadline{seed, iteration};
+            auto changes = JsonValue::empty_array();
+            for (unsigned n = 0; n < 1 + rng() % 3; ++n)
+            {
+                std::vector<std::size_t> boundaries;
+                for (std::size_t i = 0; i <= text.size(); ++i)
+                    if ((i == text.size() || (static_cast<unsigned char>(text[i]) & 0xc0) != 0x80) &&
+                        !(i > 0 && i < text.size() && text[i - 1] == '\r' && text[i] == '\n'))
+                        boundaries.push_back(i);
+                auto a = rng() % boundaries.size();
+                auto b = std::min(boundaries.size() - 1, a + rng() % 12);
+                auto replacement = std::string{fragments[rng() % fragments.size()]};
+                if (iteration % 25 == 0)
+                {
+                    a = 0;
+                    b = boundaries.size() - 1;
+                    replacement = sources[static_cast<std::size_t>(iteration / 25) % sources.size()];
+                }
+                else if (iteration % 13 == 0)
+                {
+                    a = boundaries.size() - 1;
+                    b = a;
+                }
+                changes.push_back(incremental_edit(text, boundaries[a], boundaries[b], replacement));
+                text.replace(boundaries[a], boundaries[b] - boundaries[a], replacement);
+            }
+            auto params = JsonValue::empty_object();
+            params.set("textDocument", text_document(uri, iteration + 2, ""));
+            params.set("contentChanges", std::move(changes));
+            std::ignore = send_and_collect_publishes(server, sink, dccd::protocol::build_notification("textDocument/didChange", std::move(params)));
+            auto fid = server.source_manager().find_by_uri(uri);
+            REQUIRE(fid.has_value());
+            CHECK_EQ(server.source_manager().get(*fid)->text(), text);
+            CHECK_EQ(server.source_manager().get(*fid)->version().value_or(-1), iteration + 2);
+            auto actual = send_request(server, sink, make_semantic_tokens_request(uri));
+            Sink fresh_sink;
+            dccd::LanguageServer fresh{&fresh_sink.stream};
+            initialize_server(fresh, fresh_sink);
+            std::ignore = send_and_collect_publishes(fresh, fresh_sink, make_did_open(uri, 1, text));
+            auto expected = send_request(fresh, fresh_sink, make_semantic_tokens_request(uri));
+            REQUIRE(actual.has_value());
+            REQUIRE(expected.has_value());
+            if (actual->serialize() != expected->serialize())
+                std::println(std::cerr, "edit mismatch seed={} iteration={} text={}", seed, iteration, text);
+            CHECK_EQ(actual->serialize(), expected->serialize());
+        }
+    }
+}

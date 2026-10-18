@@ -87,6 +87,7 @@ test-i8086:
 
 test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_edit_fuzzer.py $(BUILD_DIR)/bin/dccd
 
 test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_custom_debug_warning.py $(BUILD_DIR)/bin/dcc
