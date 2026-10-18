@@ -47,6 +47,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(...watchers);
 
     const clientOptions: LanguageClientOptions = {
+        outputChannelName: 'DCC Language Server',
         documentSelector: [
             { scheme: 'file', language: 'dc' },
         ],

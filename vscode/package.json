@@ -126,6 +126,16 @@
                     "type": "boolean",
                     "default": true,
                     "description": "Suppress a parameter hint when the argument is a simple identifier that already equals the parameter name."
+                },
+                "dccd.trace.server": {
+                    "type": "string",
+                    "enum": [
+                        "off",
+                        "messages",
+                        "verbose"
+                    ],
+                    "default": "off",
+                    "description": "Log language server protocol traffic in the DCC Language Server Output channel."
                 }
             }
         }

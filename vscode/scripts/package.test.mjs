@@ -48,3 +48,11 @@ test('production bundle loads without node_modules', () => {
     assert.equal(typeof module.exports.activate, 'function');
     assert.equal(typeof module.exports.deactivate, 'function');
 });
+
+test('traffic tracing is exposed under the language client configuration section', () => {
+    const manifest = JSON.parse(readFileSync('package.json', 'utf8'));
+    const trace = manifest.contributes.configuration.properties['dccd.trace.server'];
+    assert.equal(trace.type, 'string');
+    assert.equal(trace.default, 'off');
+    assert.deepEqual(trace.enum, ['off', 'messages', 'verbose']);
+});
