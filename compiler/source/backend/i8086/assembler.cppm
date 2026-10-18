@@ -191,7 +191,7 @@ namespace dcc::backend::i8086
             void instruction(MInstr const& mi)
             {
                 if (auto jcc = jcc_mnemonic(mi.opc))
-                    return line(std::format("{} near .bb{}", *jcc, mi.ops[0].label));
+                    return line(std::format("{} {} .bb{}", *jcc, mi.short_branch ? "short" : "near", mi.ops[0].label));
                 if (auto setcc = setcc_mnemonic(mi.opc))
                     return line(std::format("{} {}", *setcc, operand(mi.ops[0], 8)));
                 switch (mi.opc)
@@ -259,7 +259,7 @@ namespace dcc::backend::i8086
                     case MOpc::NOP:
                         return line("nop");
                     case MOpc::JMP:
-                        return line(std::format("jmp near .bb{}", mi.ops[0].label));
+                        return line(std::format("jmp {} .bb{}", mi.short_branch ? "short" : "near", mi.ops[0].label));
                     case MOpc::CALL:
                         if (mi.ops[0].kind == MOpKind::Symbol)
                             return line(std::format("call {}", mi.ops[0].symbol));

@@ -970,6 +970,7 @@ export namespace dcc::backend::x86
         std::uint64_t implicit_uses = 0;
         std::uint32_t src_line = 0;
         std::uint32_t copy_group = 0;
+        bool short_branch = false;
 
         [[nodiscard]] bool has_side_effects() const noexcept
         {

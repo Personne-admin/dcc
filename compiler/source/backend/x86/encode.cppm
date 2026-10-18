@@ -32,6 +32,7 @@ export namespace dcc::backend::x86
     };
 
     [[nodiscard]] EncodeResult encode_function(MFunction const& func, EncodeMode mode);
+    void relax_real16_branches(MFunction& func);
 
     [[nodiscard]] std::expected<std::vector<std::uint8_t>, std::string> encode_single_instruction(MInstr const& instr, EncodeMode mode);
 
@@ -4292,6 +4293,13 @@ namespace
         {
             if (!has(1))
                 return fail("expected a branch target");
+            if (m_instr.short_branch && op(0).kind == MOpKind::Label && opcode != 0xE8)
+            {
+                emit_u8(m_buf, conditional ? static_cast<std::uint8_t>(opcode - 0x10) : 0xEB);
+                m_branches.push_back({m_buf.size(), op(0).label, 1});
+                emit_u8(m_buf, 0);
+                return;
+            }
             if (conditional)
                 emit_u8(m_buf, 0x0F);
             emit_u8(m_buf, opcode);
@@ -4936,6 +4944,48 @@ export namespace dcc::backend::x86
         return out;
     }
 
+    void relax_real16_branches(MFunction& func)
+    {
+        auto eligible = [](MInstr const& instruction) {
+            return instruction.num_ops == 1 && instruction.ops[0].kind == MOpKind::Label &&
+                   (instruction.opc == MOpc::JMP || instruction.opc == MOpc::JMP_rel32 || (instruction.opc >= MOpc::JE && instruction.opc <= MOpc::JNP));
+        };
+        for (auto& block : func.blocks)
+            for (auto& instruction : block.instrs)
+                instruction.short_branch = eligible(instruction);
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            std::vector<std::uint8_t> bytes;
+            std::vector<BranchPatch> branches;
+            std::vector<Reloc> relocs;
+            std::vector<std::string> warnings;
+            std::unordered_map<std::uint32_t, std::size_t> labels;
+            std::vector<std::pair<MInstr*, std::size_t>> candidates;
+            for (auto& block : func.blocks)
+            {
+                labels[block.id] = bytes.size();
+                for (auto& instruction : block.instrs)
+                {
+                    encode_instr(instruction, EncodeMode::Real16, bytes, branches, relocs, warnings);
+                    if (instruction.short_branch)
+                        candidates.emplace_back(&instruction, bytes.size());
+                }
+            }
+            for (auto [instruction, end] : candidates)
+            {
+                auto target = labels.find(instruction->ops[0].label);
+                auto displacement = target == labels.end() ? 128 : static_cast<std::int64_t>(target->second) - static_cast<std::int64_t>(end);
+                if (displacement < -128 || displacement > 127)
+                {
+                    instruction->short_branch = false;
+                    changed = true;
+                }
+            }
+        }
+    }
+
     [[nodiscard]] EncodeResult encode_function(MFunction const& func, EncodeMode mode)
     {
         EncodeResult r;
@@ -4968,6 +5018,15 @@ export namespace dcc::backend::x86
             }
             std::size_t to = it->second;
             std::size_t po = bp.patch_offset;
+            if (bp.width == 1)
+            {
+                auto displacement = static_cast<std::int64_t>(to) - static_cast<std::int64_t>(po + 1);
+                if (displacement < -128 || displacement > 127 || po >= r.bytes.size())
+                    r.warnings.push_back("short branch out of range");
+                else
+                    r.bytes[po] = static_cast<std::uint8_t>(displacement);
+                continue;
+            }
             if (bp.width == 2)
             {
                 auto const relative = static_cast<std::uint16_t>(to - (po + 2));

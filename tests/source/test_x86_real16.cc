@@ -884,3 +884,42 @@ TEST_CASE("COFF function relocations preserve nonzero implicit addends")
     CHECK(word(text) == 16);
     CHECK(word(text + 4) == static_cast<std::uint32_t>(-4));
 }
+
+TEST_CASE("real16 branch relaxation handles signed byte boundaries")
+{
+    for (auto opcode : {MOpc::JMP, MOpc::JE, MOpc::JNP})
+        for (bool backward : {false, true})
+            for (int padding : {125, 126, 127, 128})
+            {
+                MFunction function;
+                function.blocks.resize(2);
+                function.blocks[0].id = 0;
+                function.blocks[1].id = 1;
+                MInstr branch;
+                branch.opc = opcode;
+                branch.num_ops = 1;
+                branch.ops[0] = MOp::from_label(backward ? 0 : 1);
+                if (!backward)
+                    function.blocks[0].instrs.push_back(branch);
+                for (int i = 0; i < padding; ++i)
+                    function.blocks[0].instrs.push_back(MInstr{.opc = MOpc::NOP});
+                if (backward)
+                    function.blocks[0].instrs.push_back(branch);
+                relax_real16_branches(function);
+                auto const& relaxed = backward ? function.blocks[0].instrs.back() : function.blocks[0].instrs.front();
+                bool fits = backward ? padding <= 126 : padding <= 127;
+                CHECK(relaxed.short_branch == fits);
+                auto encoded = encode_function(function, EncodeMode::Real16);
+                CHECK(encoded.warnings.empty());
+                CHECK(encoded.bytes.size() == static_cast<std::size_t>(padding + (fits ? 2 : opcode == MOpc::JMP ? 3 : 4)));
+                auto mnemonic = opcode == MOpc::JMP ? "jmp" : opcode == MOpc::JE ? "je" : "jnp";
+                auto jump = std::format("{} {} target\n", mnemonic, fits ? "short" : "near");
+                auto filler = std::format("times {} nop\n", padding);
+                auto assembly = backward ? "target:\n" + filler + jump : jump + filler + "target:\n";
+                auto assembled = nasm16(assembly);
+                REQUIRE(assembled.has_value());
+                CHECK(*assembled == encoded.bytes);
+                auto offset = static_cast<std::size_t>(backward ? padding : 0);
+                CHECK(encoded.bytes[offset] == (fits ? opcode == MOpc::JMP ? 0xEB : opcode == MOpc::JE ? 0x74 : 0x7B : opcode == MOpc::JMP ? 0xE9 : 0x0F));
+            }
+}
