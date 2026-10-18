@@ -11,6 +11,7 @@ import dcc.backend.em64t;
 import dcc.backend.i8086;
 import dcc.backend.i8086.registers;
 import dcc.backend.x86.mir;
+import dcc.backend.x86.folding;
 import dcc.backend.object.layout;
 
 #include "harness.hh"
@@ -1932,4 +1933,79 @@ TEST_CASE("O2 identities retain volatile atomic and inline asm operations")
     }
     dcc::ir::pass::IrVerifier verifier(target);
     CHECK(verifier.verify(*optimized).empty());
+}
+
+TEST_CASE("operand folding uses encodable immediates and displacements")
+{
+    using namespace dcc::backend::x86;
+    for (auto bits : {16u, 32u, 64u})
+    {
+        MFunction function;
+        auto& block = function.create_block();
+        auto base = function.new_vreg();
+        auto constant = function.new_vreg();
+        auto address = function.new_vreg();
+        auto value = function.new_vreg();
+        block.instrs.push_back(make_instr(MOpc::IMPLICIT_DEF, {MOp::from_reg(base)}, 1));
+        block.instrs.push_back(make_instr(bits == 16   ? MOpc::MOV16ri
+                                          : bits == 32 ? MOpc::MOV32ri
+                                                       : MOpc::MOV64ri,
+                                          {MOp::from_reg(constant), MOp::from_imm(12)}, 1));
+        block.instrs.push_back(make_instr(bits == 16   ? MOpc::ADD16rr
+                                          : bits == 32 ? MOpc::ADD32rr
+                                                       : MOpc::ADD64rr,
+                                          {MOp::from_reg(address), MOp::from_reg(base), MOp::from_reg(constant)}, 1));
+        auto memory = MMem::make_base_disp(address, 4);
+        memory.address_bits = static_cast<std::uint8_t>(bits);
+        block.instrs.push_back(make_instr(bits == 16   ? MOpc::MOV16rm
+                                          : bits == 32 ? MOpc::MOV32rm
+                                                       : MOpc::MOV64rm,
+                                          {MOp::from_reg(value), MOp::from_mem(memory)}, 1));
+        fold_operands(function, bits, {});
+        auto const& load = block.instrs.back();
+        CHECK(load.ops[1].mem.base == base);
+        CHECK(load.ops[1].mem.disp == 16);
+        CHECK(std::ranges::none_of(block.instrs,
+                                   [](auto const& instr) { return instr.opc == MOpc::MOV16ri || instr.opc == MOpc::MOV32ri || instr.opc == MOpc::MOV64ri; }));
+    }
+}
+
+TEST_CASE("load folding respects stores and the eligible load whitelist")
+{
+    using namespace dcc::backend::x86;
+    for (auto barrier : {false, true})
+        for (auto eligible : {false, true})
+        {
+            MFunction function;
+            auto& block = function.create_block();
+            auto lhs = function.new_vreg();
+            auto loaded = function.new_vreg();
+            auto result = function.new_vreg();
+            block.instrs.push_back(make_instr(MOpc::IMPLICIT_DEF, {MOp::from_reg(lhs)}, 1));
+            block.instrs.push_back(make_instr(MOpc::MOV64rm, {MOp::from_reg(loaded), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+            if (barrier)
+                block.instrs.push_back(make_instr(MOpc::MOV64mi32, {MOp::from_mem(MMem::make_sym_reloc("source")), MOp::from_imm(9)}, 0));
+            block.instrs.push_back(make_instr(MOpc::ADD64rr, {MOp::from_reg(result), MOp::from_reg(lhs), MOp::from_reg(loaded)}, 1));
+            fold_operands(function, 64, eligible ? std::unordered_set<VReg>{loaded} : std::unordered_set<VReg>{});
+            CHECK((block.instrs.back().opc == MOpc::ADD64rm) == (eligible && !barrier));
+            CHECK(std::ranges::count_if(block.instrs, [](auto const& instr) { return instr.opc == MOpc::MOV64rm; }) == (eligible && !barrier ? 0 : 1));
+        }
+}
+
+TEST_CASE("operand folding retains register-based locked addresses")
+{
+    using namespace dcc::backend::x86;
+    MFunction function;
+    auto& block = function.create_block();
+    auto address = function.new_vreg();
+    auto value = function.new_vreg();
+    block.instrs.push_back(make_instr(MOpc::LEA64rm, {MOp::from_reg(address), MOp::from_mem(MMem::make_sym_reloc("atomic"))}, 1));
+    block.instrs.push_back(make_instr(MOpc::MOV32ri, {MOp::from_reg(value), MOp::from_imm(7)}, 1));
+    block.instrs.push_back(make_instr(MOpc::LOCK_XCHG32mr, {MOp::from_mem(MMem::make_base_disp(address)), MOp::from_reg(value)}, 0));
+    block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("old_value")), MOp::from_reg(value)}, 0));
+    fold_operands(function, 64, {});
+    auto const& locked = block.instrs[block.instrs.size() - 2];
+    CHECK(locked.ops[0].mem.base == address);
+    CHECK(locked.ops[0].mem.symbol.empty());
+    CHECK(block.instrs.back().opc == MOpc::MOV32mr);
 }

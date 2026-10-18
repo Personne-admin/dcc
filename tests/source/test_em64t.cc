@@ -99,7 +99,7 @@ TEST_CASE("byte address arithmetic folds only legal scales and displacements")
                 unsigned multiplies = 0;
                 for (auto const& inst : machine.blocks.front().instrs)
                 {
-                    if (inst.opc == MOpc::IMUL64rr)
+                    if (inst.opc == MOpc::IMUL64rr || inst.opc == MOpc::IMUL64rri32)
                         ++multiplies;
                     if (inst.opc == (store ? MOpc::MOV64mr : MOpc::MOV64rm))
                         memory = &inst.ops[store ? 0 : 1].mem;

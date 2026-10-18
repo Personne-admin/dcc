@@ -267,6 +267,8 @@ namespace dcc::backend::i8086
                     case MOpc::CALL16r:
                     case MOpc::CALL16m:
                         return line(std::format("call {}", operand(mi.ops[0], 16)));
+                    case MOpc::PUSH32i:
+                        return line(std::format("push dword {}", static_cast<std::int32_t>(mi.ops[0].imm)));
                     case MOpc::PUSH16i:
                         return line(std::format("push word {}", mi.ops[0].imm));
                     case MOpc::JUMP_TABLE: {
@@ -310,13 +312,17 @@ namespace dcc::backend::i8086
                     case MOpc::POP32r:
                         return line(std::format("pop {}", operand(mi.ops[0], operand_bits(mi.opc))));
                     case MOpc::ADD16ri:
+                    case MOpc::ADD16rm:
                     case MOpc::ADD16rr:
                     case MOpc::ADD32ri:
+                    case MOpc::ADD32rm:
                     case MOpc::ADD32rr:
                         return tied("add", mi, operand_bits(mi.opc), true);
                     case MOpc::SUB16ri:
+                    case MOpc::SUB16rm:
                     case MOpc::SUB16rr:
                     case MOpc::SUB32ri:
+                    case MOpc::SUB32rm:
                     case MOpc::SUB32rr:
                         return tied("sub", mi, operand_bits(mi.opc));
                     case MOpc::ADC32rr:
@@ -332,18 +338,24 @@ namespace dcc::backend::i8086
                         return line(std::format("{} {}, {}, {}", mi.opc == MOpc::SHLD32rri8 || mi.opc == MOpc::SHLD32rrCL ? "shld" : "shrd",
                                                 operand(mi.ops[0], 32), operand(mi.ops[1], 32), operand(mi.ops[2], mi.ops[2].kind == MOpKind::Reg ? 8 : 32)));
                     case MOpc::AND16ri:
+                    case MOpc::AND16rm:
                     case MOpc::AND16rr:
                     case MOpc::AND32ri:
+                    case MOpc::AND32rm:
                     case MOpc::AND32rr:
                         return tied("and", mi, operand_bits(mi.opc), true);
                     case MOpc::OR16ri:
+                    case MOpc::OR16rm:
                     case MOpc::OR16rr:
                     case MOpc::OR32ri:
+                    case MOpc::OR32rm:
                     case MOpc::OR32rr:
                         return tied("or", mi, operand_bits(mi.opc), true);
                     case MOpc::XOR16ri:
+                    case MOpc::XOR16rm:
                     case MOpc::XOR16rr:
                     case MOpc::XOR32ri:
+                    case MOpc::XOR32rm:
                     case MOpc::XOR32rr:
                         return tied("xor", mi, operand_bits(mi.opc), true);
                     case MOpc::IMUL16rr:
@@ -369,13 +381,22 @@ namespace dcc::backend::i8086
                     case MOpc::SAR32ri8:
                     case MOpc::SAR32rCL:
                         return shift("sar", mi);
+                    case MOpc::CMP8rr:
+                    case MOpc::CMP8ri:
+                    case MOpc::CMP16rm:
+                    case MOpc::CMP32rm:
                     case MOpc::CMP16rr:
                     case MOpc::CMP16ri:
                     case MOpc::CMP32rr:
                     case MOpc::CMP32ri:
                         return line(std::format("cmp {}, {}", operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], operand_bits(mi.opc))));
+                    case MOpc::TEST8ri:
+                    case MOpc::TEST8rr:
+                    case MOpc::TEST16rr:
+                    case MOpc::TEST32rr:
+                    case MOpc::TEST32ri:
                     case MOpc::TEST16ri:
-                        return line(std::format("test {}, {}", operand(mi.ops[0], 16), operand(mi.ops[1], 16)));
+                        return line(std::format("test {}, {}", operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], operand_bits(mi.opc))));
                     case MOpc::NEG16r:
                     case MOpc::NEG32r:
                         return unary("neg", mi, operand_bits(mi.opc));

@@ -534,10 +534,13 @@ namespace
             case MOpc::SUB64rm:
             case MOpc::SUB32rm:
                 return 0x2B;
+            case MOpc::AND32rm:
             case MOpc::AND64rm:
                 return 0x23;
+            case MOpc::OR32rm:
             case MOpc::OR64rm:
                 return 0x0B;
+            case MOpc::XOR32rm:
             case MOpc::XOR64rm:
                 return 0x33;
             case MOpc::CMP64rm:
@@ -869,28 +872,6 @@ namespace
                     goto ud2_lbl;
                 break;
             }
-            case MOpc::MOV64mi32: {
-                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Imm64)
-                {
-                    auto const& m = ops[0].mem;
-                    auto v = static_cast<std::int32_t>(ops[1].imm & 0xFFFFFFFF);
-                    if (m.base.is_physical())
-                    {
-                        auto b = m.base.phys_reg();
-                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
-                        bool be = reg_is_extended(b);
-                        emit_rex(buf, true, false, ie, be);
-                        emit_u8(buf, 0xC7);
-                        emit_mem(buf, m, 0, wrn, "MOV64mi32");
-                        emit_u32_le(buf, static_cast<std::uint32_t>(v));
-                    }
-                    else
-                        goto ud2_lbl;
-                }
-                else
-                    goto ud2_lbl;
-                break;
-            }
 
             case MOpc::MOV32rr: {
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg)
@@ -914,29 +895,6 @@ namespace
                         emit_rex(buf, false, false, false, true);
                     emit_u8(buf, static_cast<std::uint8_t>(0xB8 + reg_low3(d)));
                     emit_u32_le(buf, v);
-                }
-                else
-                    goto ud2_lbl;
-                break;
-            }
-            case MOpc::MOV32mi: {
-                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Imm64)
-                {
-                    auto const& m = ops[0].mem;
-                    auto v = static_cast<std::int32_t>(ops[1].imm & 0xFFFFFFFF);
-                    if (m.base.is_physical())
-                    {
-                        auto b = m.base.phys_reg();
-                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
-                        bool be = reg_is_extended(b);
-                        if (ie || be)
-                            emit_rex(buf, false, false, ie, be);
-                        emit_u8(buf, 0xC7);
-                        emit_mem(buf, m, 0, wrn, "MOV32mi");
-                        emit_u32_le(buf, static_cast<std::uint32_t>(v));
-                    }
-                    else
-                        goto ud2_lbl;
                 }
                 else
                     goto ud2_lbl;
@@ -1024,29 +982,6 @@ namespace
                             emit_rex(buf, false, se, ie, be);
                         emit_u8(buf, 0x88);
                         emit_mem(buf, m, reg_low3(s), wrn, "MOV8mr");
-                    }
-                    else
-                        goto ud2_lbl;
-                }
-                else
-                    goto ud2_lbl;
-                break;
-            }
-            case MOpc::MOV8mi: {
-                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Imm64)
-                {
-                    auto const& m = ops[0].mem;
-                    auto v = static_cast<std::uint8_t>(ops[1].imm & 0xFF);
-                    if (m.base.is_physical())
-                    {
-                        auto b = m.base.phys_reg();
-                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
-                        bool be = reg_is_extended(b);
-                        if (ie || be)
-                            emit_rex(buf, false, false, ie, be);
-                        emit_u8(buf, 0xC6);
-                        emit_mem(buf, m, 0, wrn, "MOV8mi");
-                        emit_u8(buf, v);
                     }
                     else
                         goto ud2_lbl;
@@ -1392,38 +1327,51 @@ namespace
             case MOpc::ADD32rm:
             case MOpc::SUB64rm:
             case MOpc::SUB32rm:
+            case MOpc::AND32rm:
             case MOpc::AND64rm:
+            case MOpc::OR32rm:
             case MOpc::OR64rm:
+            case MOpc::XOR32rm:
             case MOpc::XOR64rm:
             case MOpc::CMP64rm:
             case MOpc::CMP32rm: {
                 bool w64 = is_64bit_opc(instr.opc);
-                if (np >= 3 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Reg && ops[2].kind == MOpKind::Mem)
+                auto memory_index = np >= 3 ? 2u : 1u;
+                if (np < 2 || ops[0].kind != MOpKind::Reg || ops[memory_index].kind != MOpKind::Mem)
+                    goto ud2_lbl;
+                auto d = resolve_phys_reg(ops[0], wrn, "ALUrm");
+                auto l = np >= 3 ? resolve_phys_reg(ops[1], wrn, "ALUrm") : d;
+                auto const& m = ops[memory_index].mem;
+                if (d != l)
                 {
-                    auto d = resolve_phys_reg(ops[0], wrn, "ALUr_m");
-                    auto l = resolve_phys_reg(ops[1], wrn, "ALUr_m");
-                    auto const& m = ops[2].mem;
-                    if (d != l)
-                    {
-                        emit_rex_if_extended(buf, true, l, d);
-                        emit_u8(buf, 0x89);
-                        emit_modrm(buf, 3, reg_low3(l), reg_low3(d));
-                    }
-                    if (m.base.is_physical())
-                    {
-                        auto b = m.base.phys_reg();
-                        bool de = reg_is_extended(d);
-                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
-                        bool be = reg_is_extended(b);
-                        emit_rex(buf, w64, de, ie, be);
-                        emit_u8(buf, alu_r_rm(instr.opc));
-                        emit_mem(buf, m, reg_low3(d), wrn, "ALUrm");
-                    }
-                    else
-                        goto ud2_lbl;
+                    emit_rex_if_extended(buf, w64, l, d);
+                    emit_u8(buf, 0x89);
+                    emit_modrm(buf, 3, reg_low3(l), reg_low3(d));
+                }
+                bool de = reg_is_extended(d);
+                if (!m.symbol.empty())
+                {
+                    if (w64 || de)
+                        emit_rex(buf, w64, de, false, false);
+                    emit_u8(buf, alu_r_rm(instr.opc));
+                    emit_modrm(buf, 0, reg_low3(d), 5);
+                    Reloc rel;
+                    rel.offset = static_cast<std::uint32_t>(buf.size());
+                    rel.symbol = m.symbol;
+                    rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
+                    rel.addend = m.disp - 4;
+                    relocs.push_back(rel);
+                    emit_u32_le(buf, 0);
                 }
                 else
-                    goto ud2_lbl;
+                {
+                    bool ie = m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                    bool be = m.base.is_physical() && reg_is_extended(m.base.phys_reg());
+                    if (w64 || de || ie || be)
+                        emit_rex(buf, w64, de, ie, be);
+                    emit_u8(buf, alu_r_rm(instr.opc));
+                    emit_mem(buf, m, reg_low3(d), wrn, "ALUrm");
+                }
                 break;
             }
 
@@ -1651,15 +1599,23 @@ namespace
                     goto ud2_lbl;
                 break;
             }
+            case MOpc::TEST8ri:
+            case MOpc::TEST32ri:
             case MOpc::TEST64ri: {
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[1].kind == MOpKind::Imm64)
                 {
                     auto d = resolve_phys_reg(ops[0], wrn, "TESTri");
                     auto v = ops[1].imm;
-                    emit_rex_if_extended(buf, true, PhysReg::RAX, d);
-                    emit_u8(buf, 0xF7);
+                    if (instr.opc == MOpc::TEST8ri)
+                        emit_rex_8bit(buf, PhysReg::RAX, d);
+                    else
+                        emit_rex_if_extended(buf, instr.opc == MOpc::TEST64ri, PhysReg::RAX, d);
+                    emit_u8(buf, instr.opc == MOpc::TEST8ri ? 0xF6 : 0xF7);
                     emit_modrm(buf, 3, 0, reg_low3(d));
-                    emit_u32_le(buf, static_cast<std::uint32_t>(static_cast<std::int32_t>(v)));
+                    if (instr.opc == MOpc::TEST8ri)
+                        emit_u8(buf, static_cast<std::uint8_t>(v));
+                    else
+                        emit_u32_le(buf, static_cast<std::uint32_t>(v));
                 }
                 else
                     goto ud2_lbl;
@@ -3438,27 +3394,41 @@ namespace
                     goto ud2_lbl;
                 break;
             }
-            case MOpc::MOV16mi: {
-                if (np >= 2 && ops[0].kind == MOpKind::Mem && ops[1].kind == MOpKind::Imm64)
+            case MOpc::MOV8mi:
+            case MOpc::MOV16mi:
+            case MOpc::MOV32mi:
+            case MOpc::MOV64mi32: {
+                if (np < 2 || ops[0].kind != MOpKind::Mem || ops[1].kind != MOpKind::Imm64)
+                    goto ud2_lbl;
+                auto const& m = ops[0].mem;
+                auto bits = operand_bits(instr.opc);
+                auto immediate_bytes = bits == 64 ? 4u : bits / 8;
+                if (bits == 16)
+                    emit_u8(buf, 0x66);
+                bool ie = m.index.is_physical() && reg_is_extended(m.index.phys_reg());
+                bool be = m.base.is_physical() && reg_is_extended(m.base.phys_reg());
+                if (bits == 64 || ie || be)
+                    emit_rex(buf, bits == 64, false, ie, be);
+                emit_u8(buf, bits == 8 ? 0xC6 : 0xC7);
+                if (!m.symbol.empty())
                 {
-                    auto const& m = ops[0].mem;
-                    auto v = static_cast<std::uint16_t>(ops[1].imm & 0xFFFF);
-                    if (m.base.is_physical())
-                    {
-                        auto b = m.base.phys_reg();
-                        bool ie = m.index.is_valid() && m.index.is_physical() && reg_is_extended(m.index.phys_reg());
-                        bool be = reg_is_extended(b);
-                        if (ie || be)
-                            emit_rex(buf, false, false, ie, be);
-                        emit_u8(buf, 0xC7);
-                        emit_mem(buf, m, 0, wrn, "MOV16mi");
-                        emit_u16_le(buf, v);
-                    }
-                    else
-                        goto ud2_lbl;
+                    emit_modrm(buf, 0, 0, 5);
+                    Reloc rel;
+                    rel.offset = static_cast<std::uint32_t>(buf.size());
+                    rel.symbol = m.symbol;
+                    rel.kind = m.is_got_indirect ? Reloc::Kind::Rel32_Got : Reloc::Kind::Rel32;
+                    rel.addend = static_cast<std::int64_t>(m.disp) - 4 - immediate_bytes;
+                    relocs.push_back(rel);
+                    emit_u32_le(buf, 0);
                 }
                 else
-                    goto ud2_lbl;
+                    emit_mem(buf, m, 0, wrn, "MOVmi");
+                if (immediate_bytes == 1)
+                    emit_u8(buf, static_cast<std::uint8_t>(ops[1].imm));
+                else if (immediate_bytes == 2)
+                    emit_u16_le(buf, static_cast<std::uint16_t>(ops[1].imm));
+                else
+                    emit_u32_le(buf, static_cast<std::uint32_t>(ops[1].imm));
                 break;
             }
 
@@ -4731,12 +4701,14 @@ namespace
                     emit_u8(m_buf, static_cast<std::uint8_t>((push ? 0x50 : 0x58) + r));
                     return;
                 }
+                case MOpc::PUSH32i:
                 case MOpc::PUSH16i: {
                     if (!is_imm(0))
                         return fail("expected an immediate operand");
                     auto const value = op(0).imm;
-                    emit_u8(m_buf, fits8(value, 16) ? 0x6A : 0x68);
-                    imm(value, fits8(value, 16) ? 8 : 16);
+                    prefixes(width(), nullptr);
+                    emit_u8(m_buf, fits8(value, width()) ? 0x6A : 0x68);
+                    imm(value, fits8(value, width()) ? 8 : width());
                     return;
                 }
                 case MOpc::PUSHSEG:

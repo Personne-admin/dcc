@@ -8,6 +8,7 @@ import std;
 import dcc.ir;
 import dcc.ir.analysis;
 import dcc.backend.x86.mir;
+import dcc.backend.x86.folding;
 import dcc.backend.inline_asm;
 import dcc.target;
 
@@ -79,6 +80,7 @@ namespace dcc::backend::em64t
             bool uses_sret = false;
             VReg sret_ptr_vreg;
             std::unordered_map<dcc::ir::IrValue const*, std::vector<VReg>> asm_result_regs;
+            std::unordered_map<dcc::ir::IrValue const*, std::vector<VReg>> register_fields;
             std::vector<dcc::backend::InlineAsmDiag>* asm_diags = nullptr;
 
             IselCtx(MFunction& f, dcc::target::TargetConfig const& t) : mfunc(f), target(t), cc(detect_cc(t)) {}
@@ -3458,6 +3460,12 @@ namespace dcc::backend::em64t
                         break;
                     }
 
+                    if (auto found = ctx.register_fields.find(e->aggregate); found != ctx.register_fields.end())
+                    {
+                        ctx.set_vreg(inst, found->second.at(e->field_index));
+                        break;
+                    }
+
                     auto* agg_type = e->aggregate ? e->aggregate->type : nullptr;
                     VReg agg_vreg = is_memory_type(agg_type) ? memory_value_addr(ctx, e->aggregate) : ctx.try_materialize(e->aggregate);
                     if (!agg_vreg.is_valid())
@@ -4518,6 +4526,30 @@ namespace dcc::backend::em64t
 
                 if (is_memory_type(param_ty) && loc.num_pieces > 0)
                 {
+                    auto users = use_def.uses.find(param);
+                    bool extracted_only =
+                        users != use_def.uses.end() && std::ranges::all_of(users->second, [](auto* user) { return user->kind == IrNodeKind::Extract; });
+                    std::vector<VReg> fields;
+                    if (extracted_only && param_ty->kind == IrTypeKind::Slice && loc.num_pieces == 2 && loc.pieces[0].cls == ArgClass::Integer &&
+                        loc.pieces[1].cls == ArgClass::Integer)
+                        fields = {param_piece_regs[param_idx][0], param_piece_regs[param_idx][1]};
+                    if (extracted_only && param_ty->kind == IrTypeKind::Aggregate)
+                    {
+                        auto* aggregate = static_cast<IrAggregateType const*>(param_ty);
+                        bool complete = aggregate->members.size() == loc.num_pieces;
+                        for (std::size_t i = 0; complete && i < aggregate->members.size(); ++i)
+                            if (aggregate->member_offsets[i] != i * 8 || aggregate->members[i]->byte_size != 8 || is_memory_type(aggregate->members[i]) ||
+                                (ctx.is_float_type(aggregate->members[i]) ? ArgClass::Sse : ArgClass::Integer) != loc.pieces[i].cls)
+                                complete = false;
+                        if (complete)
+                            for (unsigned i = 0; i < loc.num_pieces; ++i)
+                                fields.push_back(param_piece_regs[param_idx][i]);
+                    }
+                    if (!fields.empty() && std::ranges::all_of(fields, [](auto reg) { return reg.is_valid(); }))
+                    {
+                        ctx.register_fields[param] = std::move(fields);
+                        continue;
+                    }
                     std::uint32_t slot_align = param_ty ? static_cast<std::uint32_t>(std::min<std::uint64_t>(param_ty->byte_align, 16)) : 8u;
                     std::uint32_t slot_size = param_ty ? static_cast<std::uint32_t>(align_up_i32(static_cast<std::int32_t>(param_ty->byte_size), 8)) : 8u;
                     auto slot = mfunc.new_frame_slot(std::max(slot_size, 8u), std::max(slot_align, 8u));
@@ -4621,6 +4653,11 @@ namespace dcc::backend::em64t
             }
 
         fold_addresses(mfunc);
+        std::unordered_set<VReg> foldable_loads;
+        for (auto const& [value, reg] : ctx.value_map)
+            if (value->kind == IrNodeKind::Load)
+                foldable_loads.insert(reg);
+        fold_operands(mfunc, 64, foldable_loads);
         return mfunc;
     }
 

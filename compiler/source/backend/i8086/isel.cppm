@@ -6,6 +6,7 @@ import dcc.ir.analysis;
 import dcc.target;
 import dcc.backend.inline_asm;
 import dcc.backend.x86.mir;
+import dcc.backend.x86.folding;
 
 using namespace dcc::backend::x86;
 
@@ -2553,6 +2554,11 @@ namespace dcc::backend::i8086
     {
         Isel isel{func, target, diags};
         isel.run();
+        std::unordered_set<VReg> foldable_loads;
+        for (auto const& [value, reg] : isel.values)
+            if (value->kind == IrNodeKind::Load)
+                foldable_loads.insert(reg);
+        fold_operands(isel.mfunc, target.pointer_bits, foldable_loads);
         return std::move(isel.mfunc);
     }
 } // namespace dcc::backend::i8086

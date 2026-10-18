@@ -599,6 +599,7 @@ export namespace dcc::backend::x86
         PUSH32r,
         POP32r,
         PUSH16i,
+        PUSH32i,
         PUSHSEG,
         POPSEG,
         PUSHF16,
@@ -817,6 +818,7 @@ export namespace dcc::backend::x86
             case MOpc::MOVSX32rm8:
             case MOpc::CWDE:
             case MOpc::LEA32rm:
+            case MOpc::PUSH32i:
             case MOpc::PUSH32r:
             case MOpc::POP32r:
             case MOpc::LES32rm:
@@ -1059,6 +1061,7 @@ export namespace dcc::backend::x86
                 case MOpc::POP16r:
                 case MOpc::PUSH32r:
                 case MOpc::POP32r:
+                case MOpc::PUSH32i:
                 case MOpc::PUSH16i:
                 case MOpc::PUSHSEG:
                 case MOpc::POPSEG:
@@ -2052,6 +2055,8 @@ export namespace dcc::backend::x86
                 return "PUSH32r"sv;
             case MOpc::POP32r:
                 return "POP32r"sv;
+            case MOpc::PUSH32i:
+                return "PUSH32i"sv;
             case MOpc::PUSH16i:
                 return "PUSH16i"sv;
             case MOpc::PUSHSEG:

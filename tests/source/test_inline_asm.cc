@@ -161,9 +161,9 @@ TEST_CASE("register destination alu operations with memory sources load from mem
     CHECK(encode(MOpc::OR64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x0b, 0x01}));
     CHECK(encode(MOpc::XOR64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x33, 0x01}));
     CHECK(encode(MOpc::CMP64rm, PhysReg::RAX) == (std::vector<std::uint8_t>{0x48, 0x3b, 0x01}));
-    CHECK(encode(MOpc::ADD32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x03, 0x11}));
-    CHECK(encode(MOpc::SUB32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x2b, 0x11}));
-    CHECK(encode(MOpc::CMP32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x40, 0x3b, 0x11}));
+    CHECK(encode(MOpc::ADD32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x03, 0x11}));
+    CHECK(encode(MOpc::SUB32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x2b, 0x11}));
+    CHECK(encode(MOpc::CMP32rm, PhysReg::RDX) == (std::vector<std::uint8_t>{0x3b, 0x11}));
 }
 
 TEST_CASE("three-address memory alu operations keep the segment override on the memory instruction")
@@ -182,7 +182,7 @@ TEST_CASE("three-address memory alu operations keep the segment override on the 
     auto fs = [](PhysReg base, std::int32_t disp = 0) { return MMem::make_base_disp(VReg::phys(base), disp).with_segment(SegmentOverride::FS); };
     auto gs = [](PhysReg base, std::int32_t disp = 0) { return MMem::make_base_disp(VReg::phys(base), disp).with_segment(SegmentOverride::GS); };
     CHECK(encode(MOpc::ADD64rm, PhysReg::RAX, PhysReg::RDI, fs(PhysReg::RSI)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xf8, 0x64, 0x48, 0x03, 0x06}));
-    CHECK(encode(MOpc::SUB32rm, PhysReg::RDX, PhysReg::RCX, gs(PhysReg::RBX, 8)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xca, 0x65, 0x40, 0x2b, 0x53, 0x08}));
+    CHECK(encode(MOpc::SUB32rm, PhysReg::RDX, PhysReg::RCX, gs(PhysReg::RBX, 8)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xca, 0x65, 0x2b, 0x53, 0x08}));
     CHECK(encode(MOpc::CMP64rm, PhysReg::RAX, PhysReg::RCX, fs(PhysReg::RDX)) == (std::vector<std::uint8_t>{0x48, 0x89, 0xc8, 0x64, 0x48, 0x3b, 0x02}));
     CHECK(encode(MOpc::XOR64rm, PhysReg::R9, PhysReg::R10, gs(PhysReg::R11, 0x30)) == (std::vector<std::uint8_t>{0x4d, 0x89, 0xd1, 0x65, 0x4d, 0x33, 0x4b, 0x30}));
     CHECK(encode(MOpc::ADD64rm, PhysReg::RAX, PhysReg::RAX, fs(PhysReg::RSI)) == (std::vector<std::uint8_t>{0x64, 0x48, 0x03, 0x06}));

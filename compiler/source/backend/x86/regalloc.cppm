@@ -625,14 +625,15 @@ namespace dcc::backend::x86
                         auto const& op = instr.ops[oi];
                         if (op.kind == MOpKind::Mem)
                         {
+                            auto memory_point = pp + (instr.num_defs != 0 && instr.num_ops >= 3);
                             if (op.mem.base.is_virtual())
                             {
                                 if (!bldef.contains(op.mem.base))
                                     bluse.insert(op.mem.base);
 
                                 auto it = last_use.find(op.mem.base);
-                                if (it == last_use.end() || pp > it->second)
-                                    last_use[op.mem.base] = pp;
+                                if (it == last_use.end() || memory_point > it->second)
+                                    last_use[op.mem.base] = memory_point;
                             }
                             if (op.mem.index.is_virtual())
                             {
@@ -640,8 +641,8 @@ namespace dcc::backend::x86
                                     bluse.insert(op.mem.index);
 
                                 auto it = last_use.find(op.mem.index);
-                                if (it == last_use.end() || pp > it->second)
-                                    last_use[op.mem.index] = pp;
+                                if (it == last_use.end() || memory_point > it->second)
+                                    last_use[op.mem.index] = memory_point;
                             }
                         }
                     }
@@ -784,8 +785,9 @@ namespace dcc::backend::x86
                         }
                         else if (op.kind == MOpKind::Mem)
                         {
-                            touch(op.mem.base, point);
-                            touch(op.mem.index, point);
+                            auto memory_point = point + (instr.num_defs != 0 && instr.num_ops >= 3);
+                            touch(op.mem.base, memory_point);
+                            touch(op.mem.index, memory_point);
                         }
                 }
                 for (auto reg : block.live_out)

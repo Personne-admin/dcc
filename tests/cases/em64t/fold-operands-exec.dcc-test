@@ -1,0 +1,50 @@
+=== FILE: main.dc ===
+module main;
+
+struct Cell { u16 a; u16 b; u32 c; }
+volatile u32 input = 11;
+volatile Cell stored;
+volatile u64 wide;
+
+@noinline void write_constants() { stored.a = 3; stored.b = 5; stored.c = 7; wide = 19; }
+
+@noinline u32 add_loaded(u32* p, u32 n) { return n + *p; }
+@noinline u32 alias_loaded(u32* p, u32* q, u32 n) {
+    u32 old = *p;
+    *q = 99;
+    return old + n;
+}
+@noinline u32 call_barrier(u32* p) { *p = 71; return 3; }
+@noinline u32 across_call(u32* p) {
+    u32 old = *p;
+    u32 other = call_barrier(p);
+    return old + other;
+}
+@noinline u32 fields(Cell* p) { return (p.a as u32) + (p.b as u32) + p.c; }
+@noinline u32 slice_sum([]u16 values) {
+    u32 sum = 0;
+    for value in values { sum += value as u32; }
+    return sum;
+}
+@noinline u64 masks(u64 n) { return ((n + 7) ^ 0x80000000) & 0xffffffff; }
+
+@nomangle public i32 dcc_main() {
+    u32 x = input;
+    if add_loaded(&x, 5) != 16 { return 1; }
+    if alias_loaded(&x, &x, 7) != 18 || x != 99 { return 2; }
+    if across_call(&x) != 102 || x != 71 { return 3; }
+    Cell cell = {a = 2, b = 3, c = input};
+    if fields(&cell) != 16 { return 4; }
+    u16[4] items = {2, 3, 5, 7};
+    if slice_sum(items[0..4]) != 17 { return 5; }
+    if masks(input as u64) != 0x80000012 { return 6; }
+    write_constants();
+    if stored.a != 3 || stored.b != 5 || stored.c != 7 || wide != 19 { return 7; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

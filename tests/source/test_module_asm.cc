@@ -341,8 +341,6 @@ TEST_CASE("module asm reports unsupported input with its line")
         {".text\n    jmp .Lmissing", EncodeMode::Long64, true, ModuleAsmFormat::Elf, "undefined local label '.Lmissing'"},
         {".code32", EncodeMode::Real16, false, ModuleAsmFormat::Elf, "'.code32' does not match the target's code mode"},
         {".data\n    nop", EncodeMode::Long64, false, ModuleAsmFormat::Elf, "instruction in non-executable section '.data'"},
-        {".text\n    add rax, qword ptr [rip + value]", EncodeMode::Long64, true, ModuleAsmFormat::Elf,
-         "'add' with a rip-relative operand is not supported by the custom backend"},
         {".text\n    mov rax, qword ptr [value]", EncodeMode::Long64, true, ModuleAsmFormat::Elf,
          "absolute symbol addresses are not supported in 64-bit module asm; use rip-relative addressing"},
         {".type f, @function", EncodeMode::Long64, false, ModuleAsmFormat::Coff, "'.type' is only supported for ELF targets"},
@@ -364,4 +362,17 @@ TEST_CASE("module asm reports unsupported input with its line")
             std::println(std::cerr, "      expected '{}' in '{}'", c.message, object.error().message);
         }
     }
+}
+
+TEST_CASE("module asm encodes alu rip-relative memory sources")
+{
+    auto object = assemble(".text\n    add rax, qword ptr [rip + value]", EncodeMode::Long64, true);
+    REQUIRE(object.has_value());
+    auto const* text = find_section(*object, ".text");
+    REQUIRE(text != nullptr);
+    CHECK_EQ(hex(text->data), std::string{"48 03 05 00 00 00 00 "});
+    REQUIRE(text->relocations.size() == 1);
+    CHECK_EQ(text->relocations[0].symbol, std::string{"value"});
+    CHECK(text->relocations[0].kind == Reloc::Kind::Rel32);
+    CHECK_EQ(text->relocations[0].addend, std::int64_t{-4});
 }

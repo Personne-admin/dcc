@@ -172,10 +172,13 @@ namespace
             case MOpc::DIV32r:
             case MOpc::NEG32r:
             case MOpc::NOT32r:
+            case MOpc::AND32rm:
             case MOpc::AND32rr:
             case MOpc::AND32ri:
+            case MOpc::OR32rm:
             case MOpc::OR32rr:
             case MOpc::OR32ri:
+            case MOpc::XOR32rm:
             case MOpc::XOR32rr:
             case MOpc::XOR32ri:
             case MOpc::SHL32rCL:
@@ -187,6 +190,7 @@ namespace
             case MOpc::CMP32rr:
             case MOpc::CMP32ri:
             case MOpc::CMP32rm:
+            case MOpc::TEST32ri:
             case MOpc::TEST32rr:
             case MOpc::CDQ:
             case MOpc::MOVSX32_16rr:
@@ -604,8 +608,11 @@ namespace
             case MOpc::ADD32rm:
             case MOpc::SUB64rm:
             case MOpc::SUB32rm:
+            case MOpc::AND32rm:
             case MOpc::AND64rm:
+            case MOpc::OR32rm:
             case MOpc::OR64rm:
+            case MOpc::XOR32rm:
             case MOpc::XOR64rm:
             case MOpc::IMUL64rm: {
                 std::string mnem;
@@ -613,11 +620,11 @@ namespace
                     mnem = "add";
                 else if (opc == MOpc::SUB64rm || opc == MOpc::SUB32rm)
                     mnem = "sub";
-                else if (opc == MOpc::AND64rm)
+                else if (opc == MOpc::AND64rm || opc == MOpc::AND32rm)
                     mnem = "and";
-                else if (opc == MOpc::OR64rm)
+                else if (opc == MOpc::OR64rm || opc == MOpc::OR32rm)
                     mnem = "or";
-                else if (opc == MOpc::XOR64rm)
+                else if (opc == MOpc::XOR64rm || opc == MOpc::XOR32rm)
                     mnem = "xor";
                 else
                     mnem = "imul";
@@ -799,9 +806,15 @@ namespace
                     out += "; testrr unrecognized\n";
                 break;
 
+            case MOpc::TEST8ri:
+            case MOpc::TEST32ri:
             case MOpc::TEST64ri:
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Imm64)
-                    out += "test " + std::string{reg64(ops[0].reg.phys_reg())} + ", " + std::to_string(ops[1].imm) + "\n";
+                    out += "test " +
+                           std::string{opc == MOpc::TEST8ri    ? reg8(ops[0].reg.phys_reg())
+                                       : opc == MOpc::TEST32ri ? reg32(ops[0].reg.phys_reg())
+                                                               : reg64(ops[0].reg.phys_reg())} +
+                           ", " + std::to_string(ops[1].imm) + "\n";
                 else
                     out += "; testri unrecognized\n";
                 break;
