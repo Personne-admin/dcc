@@ -1941,7 +1941,10 @@ namespace dcc::ir::pass
                 if (rewriter.replace(inst, replacement))
                 {
                     if (fresh)
+                    {
+                        replacement->debug_loc = inst->debug_loc;
                         *it++ = replacement;
+                    }
                     else
                         it = block->instructions.erase(it);
                     changed = true;
@@ -4854,6 +4857,7 @@ namespace dcc::ir::pass
             auto* block = ctx.ctx->basic_block(inline_detail::inline_fresh_name(*ctx.ctx, "loop.preheader.", id), id);
             block->parent = ctx.func;
             block->terminator = ctx.ctx->br(loop.header);
+            block->terminator->debug_loc = loop.header->terminator->debug_loc;
             for (auto* inst : loop.header->instructions)
                 if (auto* phi = ir_cast<IrPhiInst>(inst))
                 {
@@ -4867,6 +4871,7 @@ namespace dcc::ir::pass
                     if (outside.size() > 1)
                     {
                         auto* merged = ctx.ctx->phi(phi->type);
+                        merged->debug_loc = phi->debug_loc;
                         for (auto const& item : outside)
                             merged->incoming.push_back(item);
                         block->instructions.push_back(merged);
@@ -5090,6 +5095,9 @@ namespace dcc::ir::pass
                         initial = ctx.ctx->mul(expression->type, initial_value, integer_constant(*ctx.ctx, expression->type, *scale));
                         next = ctx.ctx->add(expression->type, phi, integer_constant(*ctx.ctx, expression->type, *step * *scale));
                     }
+                    initial->debug_loc = expression->debug_loc;
+                    phi->debug_loc = expression->debug_loc;
+                    next->debug_loc = expression->debug_loc;
                     before->instructions.push_back(initial);
                     phi->incoming.push_back({initial, before});
                     phi->incoming.push_back({next, latch});

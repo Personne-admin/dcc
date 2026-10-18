@@ -2320,6 +2320,7 @@ TEST_CASE("LICM splits an entry edge and retains conditional loads and division"
     auto* header_load = ctx.load(type, address);
     header->instructions = {index, header_load, condition};
     header->terminator = ctx.br_cond(condition, body, exit);
+    header->terminator->debug_loc = {1, 20, 4, 1};
     auto* product = ctx.mul(type, value, ctx.int_const(type, 9));
     auto* loaded = ctx.load(type, address);
     auto* division = ctx.udiv(type, product, value);
@@ -2331,6 +2332,7 @@ TEST_CASE("LICM splits an entry edge and retains conditional loads and division"
     CHECK(run_loop_pass("licm", ctx, function));
     REQUIRE(function->blocks.size() == 5);
     auto* before = function->blocks.back();
+    CHECK_EQ(before->terminator->debug_loc.line, 20u);
     CHECK(std::ranges::find(before->instructions, product) != before->instructions.end());
     CHECK(std::ranges::find(before->instructions, header_load) != before->instructions.end());
     CHECK(std::ranges::find(body->instructions, loaded) != body->instructions.end());
@@ -2364,6 +2366,7 @@ TEST_CASE("index strength reduction preserves wrapping induction and its other u
         header->instructions = {index, condition};
         header->terminator = ctx.br_cond(condition, body, exit);
         auto* product = ctx.mul(type, index, ctx.int_const(type, 3));
+        product->debug_loc = {1, 41, 3, 1};
         auto* gep = ctx.gep(pointer, address);
         gep->indices.push_back({IrGepInst::IndexKind::Array, product, 0});
         auto* loaded = ctx.load(ctx.int_t(16, false), gep);
@@ -2376,6 +2379,9 @@ TEST_CASE("index strength reduction preserves wrapping induction and its other u
         auto* recurrence = ir_cast<IrPhiInst>(gep->indices[0].dynamic_index);
         REQUIRE(recurrence);
         CHECK(recurrence != index);
+        CHECK_EQ(recurrence->debug_loc.line, 41u);
+        for (auto const& incoming : recurrence->incoming)
+            CHECK_EQ(incoming.value->debug_loc.line, 41u);
         REQUIRE(recurrence->incoming.size() == 2);
         auto* increment = ir_cast<IrAddInst>(recurrence->incoming[1].value);
         REQUIRE(increment);
@@ -2438,4 +2444,32 @@ TEST_CASE("scalar replacement preserves aggregate load and store source location
         }
     CHECK(extracted);
     CHECK(assembled);
+}
+
+TEST_CASE("integer combining preserves the replaced expression source location")
+{
+    IrContext input;
+    auto* type = input.int_t(32, false);
+    IrType const* parameters[] = {type};
+    auto* module = input.module("combine_locations");
+    auto* function = input.function("combine", ir_type_cast<IrFuncType>(input.func_t(type, parameters)));
+    auto* block = input.basic_block("entry", 0);
+    auto* argument = input.local("value", 0, type);
+    block->params.push_back(argument);
+    auto* first = input.and_(type, argument, input.int_const(type, 0xf3));
+    auto* second = input.and_(type, first, input.int_const(type, 0x3f));
+    first->debug_loc = {1, 10, 2, 1};
+    second->debug_loc = {1, 25, 7, 1};
+    block->instructions = {first, second};
+    block->terminator = input.ret(second);
+    function->entry_block = block;
+    function->blocks.push_back(block);
+    module->functions.push_back(function);
+    IrContext output;
+    auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+    auto* returned = ir_cast<IrRetInst>(optimized->functions.front()->entry_block->terminator);
+    REQUIRE(returned);
+    REQUIRE(returned->value->kind == IrNodeKind::And);
+    CHECK_EQ(returned->value->debug_loc.line, 25u);
+    CHECK_EQ(returned->value->debug_loc.column, 7u);
 }
