@@ -3615,6 +3615,26 @@ namespace dcc::backend::em64t
                                     }
                                 }
                             }
+                            if (!val.is_valid() && ir_cast<IrFloatConstant>(inc.value))
+                            {
+                                auto predecessor = ctx.ir_bb_to_mblock.find(inc.block);
+                                if (predecessor != ctx.ir_bb_to_mblock.end())
+                                {
+                                    auto* block = ctx.mfunc.block_by_id(predecessor->second);
+                                    auto insert = block->instrs.size();
+                                    while (insert > 0 && is_mblock_branch(block->instrs[insert - 1].opc))
+                                        --insert;
+                                    auto end = block->instrs.size();
+                                    auto saved = ctx.current_block_id;
+                                    ctx.current_block_id = predecessor->second;
+                                    ctx.evict_rematerialized();
+                                    val = ctx.try_materialize(inc.value);
+                                    ctx.evict_rematerialized();
+                                    ctx.current_block_id = saved;
+                                    std::rotate(block->instrs.begin() + static_cast<std::ptrdiff_t>(insert),
+                                                block->instrs.begin() + static_cast<std::ptrdiff_t>(end), block->instrs.end());
+                                }
+                            }
                             if (!val.is_valid())
                                 val = ctx.try_materialize(inc.value);
                             if (!val.is_valid())

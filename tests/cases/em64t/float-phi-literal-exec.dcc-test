@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module main;
+i32 limit = 3;
+@nomangle public i32 dcc_main() {
+    f64 wide = 2.25;
+    f32 narrow = 3.5;
+    i32 index = 0;
+    while index < limit {
+        wide = wide + 1.0;
+        narrow = narrow + 0.5;
+        index = index + 1;
+    }
+    if wide != 5.25 { return 1; }
+    if narrow != 5.0 { return 2; }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 0

@@ -269,3 +269,41 @@ TEST_CASE("call clobbers describe every caller saved register for each ABI")
         CHECK(found);
     }
 }
+
+TEST_CASE("floating phi literals are materialized in both forward and backward predecessors")
+{
+    for (unsigned bits : {32u, 64u})
+    {
+        IrContext ctx;
+        auto* type = ctx.float_t(static_cast<std::uint8_t>(bits));
+        IrType const* params[] = {ctx.bool_t()};
+        auto* function = ctx.function("float_loop", ir_type_cast<IrFuncType>(ctx.func_t(type, params)));
+        auto* entry = ctx.basic_block("entry", 0);
+        auto* header = ctx.basic_block("header", 1);
+        auto* body = ctx.basic_block("body", 2);
+        auto* exit = ctx.basic_block("exit", 3);
+        auto* condition = ctx.local("condition", 0, ctx.bool_t());
+        entry->params.push_back(condition);
+        entry->terminator = ctx.br(header);
+        auto* phi = ctx.phi(type);
+        phi->incoming = {{ctx.float_const(type, 2.25), entry}, {ctx.float_const(type, 3.5), body}};
+        header->instructions.push_back(phi);
+        header->terminator = ctx.br_cond(condition, body, exit);
+        body->terminator = ctx.br(header);
+        exit->terminator = ctx.ret(phi);
+        function->entry_block = entry;
+        function->blocks = {entry, header, body, exit};
+        auto machine = isel_function(*function, dcc::target::TargetConfig::host_default());
+        for (auto const& block : machine.blocks)
+            for (auto const& instruction : block.instrs)
+                if (instruction.opc == MOpc::PHI)
+                    for (unsigned i = 1; i + 1 < instruction.num_ops; i += 2)
+                    {
+                        auto* predecessor = machine.block_by_id(instruction.ops[i + 1].label);
+                        REQUIRE(predecessor);
+                        CHECK(std::ranges::any_of(predecessor->instrs, [&](auto const& definition) {
+                            return definition.opc == MOpc::MOVQ64rr && definition.ops[0].reg == instruction.ops[i].reg;
+                        }));
+                    }
+    }
+}
