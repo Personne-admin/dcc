@@ -1,0 +1,33 @@
+=== TARGET: x86_64-elf ===
+=== FILE: Platform.dc ===
+module Platform;
+
+@nominal
+public using FileHandle = i32;
+
+public using FileHandle INVALID_HANDLE = -1 as FileHandle;
+
+=== FILE: main.dc ===
+module m;
+import Platform;
+
+using FileHandle = Platform::FileHandle;
+using FileHandle LOCAL_INVALID = Platform::INVALID_HANDLE;
+
+@nomangle
+i32 direct() {
+    FileHandle source = Platform::INVALID_HANDLE;
+    return source as i32;
+}
+
+@nomangle
+i32 through_local() {
+    FileHandle source = LOCAL_INVALID;
+    return source as i32;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: define i32 @direct()
+CONTAINS: define i32 @through_local()
+CONTAINS: ret i32 -1

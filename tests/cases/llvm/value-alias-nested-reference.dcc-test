@@ -1,0 +1,21 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+@nominal
+using Handle = i32;
+
+using Handle INVALID = -1 as Handle;
+using Handle ALIAS = INVALID;
+
+@nomangle
+i32 take() {
+    Handle h = ALIAS;
+    return h as i32;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: define i32 @take()
+CONTAINS: store i32 -1, ptr
+CONTAINS: ret i32 -1

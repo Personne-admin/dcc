@@ -1,0 +1,19 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+using Percent = u8 { 0..100 };
+
+using Percent FULL = 100 as Percent;
+
+@nomangle
+u8 take() {
+    Percent p = FULL;
+    return p as u8;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: define i8 @take()
+CONTAINS: store i8 100, ptr
+CONTAINS: ret i8 100

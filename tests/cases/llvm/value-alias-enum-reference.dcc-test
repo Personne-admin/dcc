@@ -1,0 +1,22 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+enum Color : u8 {
+    Red,
+    Blue,
+}
+
+using Color FAVORITE = Color::Blue;
+
+@nomangle
+u8 take() {
+    Color c = FAVORITE;
+    return c as u8;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: define i8 @take()
+CONTAINS: store i8 1, ptr
+CONTAINS: ret i8 1

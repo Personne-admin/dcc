@@ -11212,7 +11212,6 @@ export namespace dcc::sema
                     {
                         out.constant = ud->value;
                         out.is_constant = true;
-                        out.type = ud->value->type ? ud->value->type : out.type;
                     }
                 }
             }
@@ -11448,7 +11447,6 @@ export namespace dcc::sema
                     {
                         out.constant = ud->value;
                         out.is_constant = true;
-                        out.type = ud->value->type ? ud->value->type : out.type;
                     }
                 }
             }

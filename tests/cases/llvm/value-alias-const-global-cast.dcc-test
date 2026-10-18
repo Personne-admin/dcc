@@ -1,0 +1,42 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+@nominal
+using FileHandle = i32;
+
+using FileHandle INVALID_HANDLE = -1 as FileHandle;
+using Handle = FileHandle;
+using Handle NESTED_HANDLE = INVALID_HANDLE;
+
+enum Color : u8 {
+    Red,
+    Blue,
+}
+
+using Percent = u8 { 0..100 };
+
+const FileHandle GLOBAL_INVALID = INVALID_HANDLE;
+const FileHandle GLOBAL_DIRECT = 2 as FileHandle;
+const Handle GLOBAL_NESTED = NESTED_HANDLE;
+const Color GLOBAL_COLOR = 1 as Color;
+const Percent GLOBAL_PERCENT = 50 as Percent;
+
+@nomangle
+i32 take() {
+    FileHandle a = GLOBAL_INVALID;
+    FileHandle b = GLOBAL_DIRECT;
+    Handle c = GLOBAL_NESTED;
+    Color d = GLOBAL_COLOR;
+    Percent e = GLOBAL_PERCENT;
+    return ((a as i32) + (b as i32) + (c as i32) + (d as i32) + (e as i32));
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: = constant i32 -1
+CONTAINS: = constant i32 2
+CONTAINS: = constant i8 1
+CONTAINS: = constant i8 50
+CONTAINS: define i32 @take()
+CONTAINS: ret i32 51

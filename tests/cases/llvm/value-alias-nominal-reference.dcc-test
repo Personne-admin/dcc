@@ -1,0 +1,20 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+@nominal
+using FileHandle = i32;
+
+using FileHandle INVALID_HANDLE = -1 as FileHandle;
+
+@nomangle
+i32 take() {
+    FileHandle source = INVALID_HANDLE;
+    return source as i32;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -verify ===
+CONTAINS: define i32 @take()
+CONTAINS: store i32 -1, ptr
+CONTAINS: ret i32 -1
