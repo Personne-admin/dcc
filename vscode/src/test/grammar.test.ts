@@ -14,7 +14,7 @@ interface Tok {
     scope: string;
 }
 
-async function tokenizeSample(): Promise<Map<string, Tok[]>> {
+async function tokenizeSample(source = fs.readFileSync(SAMPLE, 'utf8')): Promise<Map<string, Tok[]>> {
     const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm')).buffer as ArrayBuffer;
     await onig.loadWASM(wasm);
     const registry = new vsctm.Registry({
@@ -29,7 +29,7 @@ async function tokenizeSample(): Promise<Map<string, Tok[]>> {
     assert.ok(grammar);
     const lines = new Map<string, Tok[]>();
     let state = vsctm.INITIAL;
-    for (const line of fs.readFileSync(SAMPLE, 'utf8').split('\n')) {
+    for (const line of source.split('\n')) {
         const result = grammar.tokenizeLine(line, state);
         state = result.ruleStack;
         lines.set(
@@ -107,4 +107,18 @@ test('registers stay identifiers elsewhere and xor and paths are unaffected', as
     assert.deepEqual(words(lines.get('u32 e = x ^ y;')!, '^'), ['keyword.operator']);
     assert.deepEqual(words(lines.get('u32 f = x^y;')!, '^'), ['keyword.operator']);
     assert.deepEqual(words(lines.get('u8^ c = 0xB800:0;')!, '0xB800'), ['constant.numeric.hex']);
+});
+
+
+test('line comment markers inside block comments cannot swallow the closing delimiter', async () => {
+    for (const marker of ['//', '//!', '///']) {
+        const lines = await tokenizeSample(`/* ${marker} café 😀 */\ni32 after = 1;`);
+        assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
+    }
+});
+
+test('nested block comments remain nested after line comment markers', async () => {
+    const lines = await tokenizeSample('/* // /* nested\n */ still_inside\n */\ni32 after = 1;');
+    assert.ok(lines.get('*/ still_inside')!.every((token) => token.scope === 'comment.block.dc'));
+    assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
 });

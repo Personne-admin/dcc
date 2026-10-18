@@ -57,14 +57,7 @@
                     "match": "//.*$"
                 },
                 {
-                    "name": "comment.block.dc",
-                    "begin": "/\\*",
-                    "end": "\\*/",
-                    "patterns": [
-                        {
-                            "include": "#comments"
-                        }
-                    ]
+                    "include": "#block_comment"
                 }
             ]
         },
@@ -269,6 +262,16 @@
         "segment_construct": {
             "match": "(?<![.:\\w])(CS|DS|ES|SS|FS|GS)\\b(?=\\s*:(?!:))",
             "name": "constant.language.segment-register.dc"
+        },
+        "block_comment": {
+            "name": "comment.block.dc",
+            "begin": "/\\*",
+            "end": "\\*/",
+            "patterns": [
+                {
+                    "include": "#block_comment"
+                }
+            ]
         }
     }
 }
