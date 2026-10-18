@@ -96,6 +96,70 @@ TEST_CASE("i8086 spill slots follow transfer width")
     }
 }
 
+TEST_CASE("spill expansion preserves a live string destination register")
+{
+    using namespace dcc::backend::x86;
+    using PhysReg = dcc::backend::x86::PhysReg;
+    MFunction function;
+    auto& block = function.create_block();
+    function.entry_block_id = block.id;
+    block.instrs.push_back(make_instr(MOpc::MOV16ri, {MOp::from_reg(VReg::phys(PhysReg::RDI)), MOp::from_imm(0x1234)}, 1));
+    std::vector<VReg> values;
+    for (unsigned i = 0; i < 12; ++i)
+    {
+        auto value = function.new_vreg();
+        values.push_back(value);
+        block.instrs.push_back(make_instr(MOpc::MOV32rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+    }
+    std::vector<VReg> copies;
+    for (auto value : values)
+    {
+        auto copy = function.new_vreg();
+        copies.push_back(copy);
+        block.instrs.push_back(make_copy(copy, value));
+    }
+    for (auto value : copies)
+        block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+    for (auto value : values)
+        block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_base_disp(VReg::phys(PhysReg::RDI))), MOp::from_reg(value)}, 0));
+    auto repeat = make_instr(MOpc::REPSTOS, {}, 0);
+    repeat.implicit_uses = 1ULL << static_cast<unsigned>(PhysReg::RDI);
+    repeat.implicit_defs = repeat.implicit_uses;
+    block.instrs.push_back(repeat);
+    block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
+    std::array<std::uint64_t, static_cast<unsigned>(PhysReg::Count)> registers{};
+    std::unordered_map<std::uint32_t, std::uint64_t> slots;
+    bool reached = false;
+    for (auto const& instr : function.blocks.front().instrs)
+    {
+        if (instr.opc == MOpc::REPSTOS)
+        {
+            CHECK(registers[static_cast<unsigned>(PhysReg::RDI)] == 0x1234);
+            reached = true;
+            break;
+        }
+        if (instr.num_ops != 2)
+            continue;
+        if (instr.ops[0].kind == MOpKind::Mem && instr.ops[0].mem.base == VReg::phys(PhysReg::RDI))
+            CHECK(registers[static_cast<unsigned>(PhysReg::RDI)] == 0x1234);
+        auto read = [&](MOp const& op) -> std::uint64_t {
+            if (op.kind == MOpKind::Reg)
+                return registers[static_cast<unsigned>(op.reg.phys_reg())];
+            if (op.kind == MOpKind::FrameSlot)
+                return slots[op.frame_slot];
+            if (op.kind == MOpKind::Imm64)
+                return static_cast<std::uint64_t>(op.imm);
+            return 7;
+        };
+        if (instr.ops[0].kind == MOpKind::Reg)
+            registers[static_cast<unsigned>(instr.ops[0].reg.phys_reg())] = read(instr.ops[1]);
+        else if (instr.ops[0].kind == MOpKind::FrameSlot)
+            slots[instr.ops[0].frame_slot] = read(instr.ops[1]);
+    }
+    CHECK(reached);
+}
+
 TEST_CASE("allocation rematerializes constants and static addresses under pressure")
 {
     using namespace dcc::backend::x86;

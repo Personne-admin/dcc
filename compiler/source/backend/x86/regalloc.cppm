@@ -1018,6 +1018,64 @@ namespace dcc::backend::x86
                 range.weight /= 1.0 + std::log2(1.0 + range.end - range.start);
         }
 
+        std::vector<std::vector<std::uint64_t>> physical_liveness(MFunction const& func)
+        {
+            std::vector<std::vector<std::uint64_t>> result(func.blocks.size());
+            std::unordered_map<std::uint32_t, std::size_t> indices;
+            for (std::size_t i = 0; i < func.blocks.size(); ++i)
+            {
+                indices[func.blocks[i].id] = i;
+                result[i].resize(func.blocks[i].instrs.size() + 1);
+            }
+            bool changed;
+            do
+            {
+                changed = false;
+                for (std::size_t b = func.blocks.size(); b-- > 0;)
+                {
+                    auto const& block = func.blocks[b];
+                    std::uint64_t live = 0;
+                    for (auto successor : block.succs)
+                        if (indices.contains(successor))
+                            live |= result[indices.at(successor)][0];
+                    result[b].back() = live;
+                    for (auto i = block.instrs.size(); i-- > 0;)
+                    {
+                        auto const& instr = block.instrs[i];
+                        auto defs = instr.implicit_defs;
+                        auto uses = instr.implicit_uses;
+                        auto use = [&](VReg reg) {
+                            if (reg.is_physical())
+                                uses |= 1ULL << static_cast<unsigned>(reg.phys_reg());
+                        };
+                        for (std::uint8_t j = 0; j < instr.num_ops; ++j)
+                        {
+                            auto const& op = instr.ops[j];
+                            if (op.kind == MOpKind::Reg && op.reg.is_physical())
+                            {
+                                if (j < instr.num_defs)
+                                    defs |= 1ULL << static_cast<unsigned>(op.reg.phys_reg());
+                                else
+                                    use(op.reg);
+                            }
+                            else if (op.kind == MOpKind::Mem)
+                            {
+                                use(op.mem.base);
+                                use(op.mem.index);
+                            }
+                        }
+                        live = (live & ~defs) | uses;
+                        if (result[b][i] != live)
+                        {
+                            result[b][i] = live;
+                            changed = true;
+                        }
+                    }
+                }
+            } while (changed);
+            return result;
+        }
+
         void linear_scan(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange>& ranges)
         {
             auto constraints = register_constraints(func, regs);
@@ -1239,6 +1297,8 @@ namespace dcc::backend::x86
         void rewrite_function(MFunction& func, RegisterPolicy const& regs, std::vector<LiveRange> const& ranges)
         {
             auto constraints = register_constraints(func, regs);
+            auto fixed = physical_liveness(func);
+            std::size_t block_index = 0;
             std::unordered_map<VReg, LiveRange const*> range_map;
             for (auto const& r : ranges)
                 range_map[r.vreg] = &r;
@@ -1334,10 +1394,25 @@ namespace dcc::backend::x86
                                 auto source_access = spill_access(regs, *src->second);
                                 auto destination_access = spill_access(regs, *dst->second);
                                 VReg scratch = regs.scratch(dst->second->reg_class);
+                                auto preserve = fixed[block_index][ii] & fixed[block_index][ii + 1] & (1ULL << static_cast<unsigned>(scratch.phys_reg()));
+                                std::uint32_t saved_slot = 0;
+                                if (preserve)
+                                {
+                                    auto& slots = src->second->reg_class == RegClass::GPR ? scratch_slots : xmm_scratch_slots;
+                                    auto access = regs.of(src->second->reg_class).spill;
+                                    auto [slot, fresh] = slots.try_emplace(scratch.phys_reg(), 0);
+                                    if (fresh)
+                                        slot->second = func.new_frame_slot(access.size, access.align, true);
+                                    saved_slot = slot->second;
+                                    new_instrs.push_back(make_instr(access.store, {MOp::from_frame_slot(saved_slot), MOp::from_reg(scratch)}, 0));
+                                }
                                 new_instrs.push_back(
                                     make_instr(source_access.load, {MOp::from_reg(scratch), MOp::from_frame_slot(src->second->spill_slot)}, 1));
                                 new_instrs.push_back(
                                     make_instr(destination_access.store, {MOp::from_frame_slot(dst->second->spill_slot), MOp::from_reg(scratch)}, 0));
+                                if (preserve)
+                                    new_instrs.push_back(
+                                        make_instr(regs.of(src->second->reg_class).spill.load, {MOp::from_reg(scratch), MOp::from_frame_slot(saved_slot)}, 1));
                             }
                             continue;
                         }
@@ -1397,6 +1472,29 @@ namespace dcc::backend::x86
                     std::vector<std::pair<PhysReg, std::uint32_t>> saved_scratch;
                     std::unordered_map<VReg, VReg> xmm_scratch;
                     std::vector<std::pair<PhysReg, std::uint32_t>> saved_xmm_scratch;
+                    auto preserve = fixed[block_index][ii] & fixed[block_index][ii + 1] & ~instr.implicit_defs;
+                    for (std::uint8_t i = 0; i < instr.num_defs; ++i)
+                        if (instr.ops[i].kind == MOpKind::Reg && instr.ops[i].reg.is_physical())
+                            preserve &= ~(1ULL << static_cast<unsigned>(instr.ops[i].reg.phys_reg()));
+                    if (!reloads_needed.empty() || !spilled_def_indices.empty())
+                    {
+                        for (auto cls : {RegClass::GPR, RegClass::XMM})
+                        {
+                            auto scratch = regs.scratch(cls);
+                            if (!scratch.is_physical() || !(preserve & (1ULL << static_cast<unsigned>(scratch.phys_reg()))))
+                                continue;
+                            auto& slots = cls == RegClass::GPR ? scratch_slots : xmm_scratch_slots;
+                            auto access = regs.of(cls).spill;
+                            auto [slot, fresh] = slots.try_emplace(scratch.phys_reg(), 0);
+                            if (fresh)
+                                slot->second = func.new_frame_slot(access.size, access.align, true);
+                            new_instrs.push_back(make_instr(access.store, {MOp::from_frame_slot(slot->second), MOp::from_reg(scratch)}, 0));
+                            if (cls == RegClass::GPR)
+                                saved_scratch.emplace_back(scratch.phys_reg(), slot->second);
+                            else
+                                saved_xmm_scratch.emplace_back(scratch.phys_reg(), slot->second);
+                        }
+                    }
                     bool has_memory = false;
                     std::uint64_t occupied = instr.implicit_defs | instr.implicit_uses;
                     auto occupy = [&](VReg reg) {
@@ -1488,7 +1586,7 @@ namespace dcc::backend::x86
                             auto const* range = range_map.at(rl.spilled_vreg);
                             if (range->reg_class != RegClass::GPR || memory_scratch.contains(rl.spilled_vreg))
                                 continue;
-                            if (constraints.contains(rl.spilled_vreg))
+                            if (constraints.contains(rl.spilled_vreg) || (occupied & (1ULL << static_cast<unsigned>(scratch_gpr.phys_reg()))))
                             {
                                 std::ignore = pick_gpr_scratch(rl.spilled_vreg);
                                 continue;
@@ -1713,6 +1811,7 @@ namespace dcc::backend::x86
                 }
 
                 blk.instrs = std::move(new_instrs);
+                ++block_index;
             }
         }
 
