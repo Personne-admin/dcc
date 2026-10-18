@@ -1222,6 +1222,8 @@ export namespace dcc::backend::x86
         std::vector<MBlock> blocks;
         std::vector<MFrameSlot> frame_slots;
         std::uint32_t next_vreg_id{1};
+        std::vector<std::pair<VReg, VReg>> register_pairs;
+        std::unordered_map<std::uint32_t, std::uint32_t> split_spill_homes;
         std::uint32_t next_block_id{0};
         std::vector<MJumpTable> jump_tables;
         std::uint32_t next_jump_table_id{0};

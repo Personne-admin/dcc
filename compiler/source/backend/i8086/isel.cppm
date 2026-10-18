@@ -2554,6 +2554,12 @@ namespace dcc::backend::i8086
     {
         Isel isel{func, target, diags};
         isel.run();
+        for (auto const& [value, pair] : isel.pairs)
+            if (Isel::wide(value->type) && pair.low.is_virtual() && pair.high.is_virtual() && pair.low != pair.high)
+                isel.mfunc.register_pairs.emplace_back(pair.low, pair.high);
+        std::ranges::sort(isel.mfunc.register_pairs, {}, [](auto const& pair) { return std::pair{pair.first.id, pair.second.id}; });
+        auto duplicate_pairs = std::ranges::unique(isel.mfunc.register_pairs);
+        isel.mfunc.register_pairs.erase(duplicate_pairs.begin(), duplicate_pairs.end());
         std::unordered_set<VReg> foldable_loads;
         for (auto const& [value, reg] : isel.values)
             if (value->kind == IrNodeKind::Load)

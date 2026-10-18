@@ -12,6 +12,7 @@ import dcc.backend.i8086;
 import dcc.backend.i8086.registers;
 import dcc.backend.x86.mir;
 import dcc.backend.x86.folding;
+import dcc.backend.x86.regalloc;
 import dcc.backend.object.layout;
 
 #include "harness.hh"
@@ -160,6 +161,108 @@ TEST_CASE("spill expansion preserves a live string destination register")
     CHECK(reached);
 }
 
+TEST_CASE("allocation splits a call crossing value at region boundaries")
+{
+    using namespace dcc::backend::x86;
+    using PhysReg = dcc::backend::x86::PhysReg;
+    std::array registers{PhysReg::RAX, PhysReg::RBX};
+    std::array scratch{PhysReg::RDI};
+    RegisterPolicy policy{};
+    policy.gpr = {.cls = RegClass::GPR,
+                  .bits = 32,
+                  .allocatable = registers,
+                  .callee_saved = {},
+                  .scratch_order = scratch,
+                  .spill = {4, 2, MOpc::MOV32mr, MOpc::MOV32rm},
+                  .cycle_temp = {4, 2, MOpc::MOV32mr, MOpc::MOV32rm},
+                  .move = MOpc::COPY};
+    policy.gpr_save = MOpc::PUSH32r;
+    policy.gpr_restore = MOpc::POP32r;
+    policy.jump_table_scratch = PhysReg::RDI;
+    MFunction function;
+    auto& block = function.create_block();
+    function.entry_block_id = block.id;
+    auto value = function.new_vreg();
+    block.instrs.push_back(make_instr(MOpc::MOV32rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+    for (unsigned i = 0; i < 3; ++i)
+        block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+    auto call = make_instr(MOpc::CALL_rel32, {MOp::from_symbol("clobber")}, 0);
+    call.implicit_defs =
+        (1ULL << static_cast<unsigned>(PhysReg::RAX)) | (1ULL << static_cast<unsigned>(PhysReg::RBX)) | (1ULL << static_cast<unsigned>(PhysReg::RDI));
+    block.instrs.push_back(call);
+    for (unsigned i = 0; i < 3; ++i)
+        block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
+    block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+    allocate_registers(function, policy);
+    unsigned loads = 0, stores = 0;
+    bool called = false;
+    for (auto const& instr : function.blocks.front().instrs)
+    {
+        if (instr.opc == MOpc::CALL_rel32)
+            called = true;
+        if (instr.num_ops == 2 && instr.ops[1].kind == MOpKind::FrameSlot)
+        {
+            CHECK(called);
+            ++loads;
+        }
+        if (instr.num_ops == 2 && instr.ops[0].kind == MOpKind::FrameSlot)
+        {
+            CHECK(!called);
+            ++stores;
+        }
+        for (std::uint8_t i = 0; i < instr.num_ops; ++i)
+            if (instr.ops[i].kind == MOpKind::Reg)
+                CHECK(!instr.ops[i].reg.is_virtual());
+    }
+    CHECK(loads == 1);
+    CHECK(stores == 1);
+}
+
+TEST_CASE("wide pair pressure does not evict an equally used narrow value")
+{
+    using namespace dcc::backend::x86;
+    using PhysReg = dcc::backend::x86::PhysReg;
+    for (bool paired : {false, true})
+    {
+        std::array registers{PhysReg::RAX, PhysReg::RBX};
+        std::array scratch{PhysReg::RDI};
+        RegisterPolicy policy{};
+        policy.gpr = {.cls = RegClass::GPR,
+                      .bits = 32,
+                      .allocatable = registers,
+                      .callee_saved = {},
+                      .scratch_order = scratch,
+                      .spill = {4, 2, MOpc::MOV32mr, MOpc::MOV32rm},
+                      .cycle_temp = {4, 2, MOpc::MOV32mr, MOpc::MOV32rm},
+                      .move = MOpc::COPY};
+        policy.jump_table_scratch = PhysReg::RDI;
+        MFunction function;
+        auto& block = function.create_block();
+        function.entry_block_id = block.id;
+        auto narrow = function.new_vreg();
+        auto low = function.new_vreg();
+        auto high = function.new_vreg();
+        for (auto value : {narrow, low, high})
+            block.instrs.push_back(make_instr(MOpc::MOV32rm, {MOp::from_reg(value), MOp::from_mem(MMem::make_sym_reloc("source"))}, 1));
+        for (auto value : {low, high, narrow})
+            for (unsigned i = 0; i < 3; ++i)
+                block.instrs.push_back(
+                    make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc(value == narrow ? "narrow_sink" : "wide_sink")), MOp::from_reg(value)}, 0));
+        block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
+        if (paired)
+            function.register_pairs.emplace_back(low, high);
+        allocate_registers(function, policy);
+        unsigned checked = 0;
+        for (auto const& instr : function.blocks.front().instrs)
+            if (instr.opc == MOpc::MOV32mr && instr.ops[0].kind == MOpKind::Mem && instr.ops[0].mem.symbol == "narrow_sink")
+            {
+                CHECK((instr.ops[1].reg != VReg::phys(PhysReg::RDI)) == paired);
+                ++checked;
+            }
+        CHECK(checked == 3);
+    }
+}
+
 TEST_CASE("allocation rematerializes constants and static addresses under pressure")
 {
     using namespace dcc::backend::x86;
@@ -225,14 +328,26 @@ TEST_CASE("allocation reuses a spill reload until its register changes")
             block.instrs.push_back(make_instr(MOpc::MOV32mr, {MOp::from_mem(MMem::make_sym_reloc("sink")), MOp::from_reg(value)}, 0));
     block.instrs.push_back(make_instr(MOpc::RET, {}, 0));
     dcc::backend::i8086::regalloc(function, *TargetConfig::parse_triple("i8086-binary"));
-    unsigned loads = 0;
     unsigned spills = 0;
     for (auto const& frame : function.frame_slots)
         spills += frame.is_spill;
-    for (auto const& instr : function.blocks.front().instrs)
-        loads += instr.opc == MOpc::MOV32rm && instr.ops[1].kind == MOpKind::FrameSlot;
     REQUIRE(spills > 0);
-    CHECK(loads == spills);
+    unsigned stored = 0;
+    VReg last;
+    for (auto const& instr : function.blocks.front().instrs)
+    {
+        bool sink = instr.opc == MOpc::MOV32mr && instr.ops[0].kind == MOpKind::Mem && instr.ops[0].mem.symbol == "sink";
+        if (sink)
+        {
+            if (stored % 3)
+                CHECK(instr.ops[1].reg == last);
+            last = instr.ops[1].reg;
+            ++stored;
+        }
+        else if (stored % 3 && instr.opc == MOpc::MOV32rm && instr.ops[1].kind == MOpKind::FrameSlot)
+            CHECK(instr.ops[0].reg != last);
+    }
+    CHECK(stored == 36);
 }
 
 TEST_CASE("loop uses keep a hot value in a register under pressure")
