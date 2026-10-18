@@ -149,6 +149,11 @@ def generate(seed, keep=None):
     for u16 i = 0; i < trips; i += 1 {{ result += *read; *write += 3; result ^= *read; }}
     return result;
 }}
+@noinline @runtime u32 backedge_alias(u32* pointer, u16 trips) {{
+    u32 result = *pointer;
+    for u16 i = 0; i < trips; i += 1 {{ result += *pointer; *pointer += 3; }}
+    return result;
+}}
 @noinline @runtime u32 zero_trip(u32* pointer, u32 divisor, u16 trips) {{
     u32 result = 0;
     for u16 i = 0; i < trips; i += 1 {{ result += *pointer + (19 / divisor); }}
@@ -162,6 +167,7 @@ def generate(seed, keep=None):
     u32 result = invariant_loops(x, trips, &first);
     result ^= invariant_alias(&first, &second, trips);
     result ^= invariant_alias(&first, &first, trips);
+    result ^= backedge_alias(&first, trips);
     result ^= zero_trip(null, 0, 0);
     result ^= zero_trip(&second, 3, trips);
     return result ^ first ^ second;

@@ -22,6 +22,11 @@ volatile u32 initial = 3;
     for u16 i = 0; i < 3; i += 1 { total += *p; *q += 3; total ^= *p; }
     return total;
 }
+@noinline @runtime u32 backedge(u32* p, u16 count) {
+    u32 total = *p;
+    for u16 i = 0; i < count; i += 1 { total += *p; *p += 3; }
+    return total;
+}
 @nomangle public i32 dcc_main() {
     u16[32] values;
     for usize i = 0; i < 32; i += 1 { values[i] = i as u16; }
@@ -31,6 +36,8 @@ volatile u32 initial = 3;
     if guarded(null, 0, 0) != 0 { return 3; }
     u32 value = initial;
     if mutate(&value, &value) != 7 || value != 12 { return 4; }
+    value = initial;
+    if backedge(&value, 3) != 21 || value != 12 { return 5; }
     return 0;
 }
 

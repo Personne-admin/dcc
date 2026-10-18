@@ -4718,18 +4718,18 @@ namespace dcc::ir::pass
             std::unordered_map<std::string, std::vector<Entry>> available;
             std::unordered_set<IrValue*> removed;
             auto clear_path = [&](Entry const& earlier, IrBasicBlock* block, IrValue* current) {
-                std::vector<IrBasicBlock*> work{block};
+                std::vector<std::pair<IrBasicBlock*, bool>> work{{block, true}};
                 std::unordered_set<IrBasicBlock*> seen;
                 while (!work.empty())
                 {
-                    auto* next = work.back();
+                    auto [next, initial] = work.back();
                     work.pop_back();
-                    if (!seen.insert(next).second)
+                    if (!initial && !seen.insert(next).second)
                         continue;
                     bool after = next != earlier.block;
                     for (auto* inst : next->instructions)
                     {
-                        if (inst == current && next == block)
+                        if (inst == current && initial)
                             break;
                         if (inst == earlier.value)
                         {
@@ -4745,7 +4745,7 @@ namespace dcc::ir::pass
                     if (found == preds.end() || found->second.empty())
                         return false;
                     for (auto* pred : found->second)
-                        work.push_back(pred);
+                        work.emplace_back(pred, false);
                 }
                 return true;
             };

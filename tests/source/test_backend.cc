@@ -2062,6 +2062,33 @@ TEST_CASE("dominator CSE reuses pure expressions and rejects loads across a poss
     }
 }
 
+TEST_CASE("load CSE checks memory writes after a use on a loop backedge")
+{
+    IrContext ctx;
+    auto* type = ctx.int_t(32, false);
+    auto* pointer = ctx.pointer_to(type);
+    IrType const* parameters[] = {pointer, ctx.bool_t()};
+    auto* function = ctx.function("load_backedge", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+    auto* entry = ctx.basic_block("entry", 0);
+    auto* body = ctx.basic_block("body", 1);
+    auto* exit = ctx.basic_block("exit", 2);
+    auto* address = ctx.local("address", 0, pointer);
+    auto* choose = ctx.local("choose", 1, ctx.bool_t());
+    entry->params = {address, choose};
+    auto* first = ctx.load(type, address);
+    entry->instructions = {first};
+    entry->terminator = ctx.br(body);
+    auto* repeated = ctx.load(type, address);
+    auto* sum = ctx.add(type, first, repeated);
+    body->instructions = {repeated, sum, ctx.store(ctx.int_const(type, 99), address)};
+    body->terminator = ctx.br_cond(choose, body, exit);
+    exit->terminator = ctx.ret(sum);
+    function->entry_block = entry;
+    function->blocks = {entry, body, exit};
+    CHECK(!run_loop_pass("cse", ctx, function));
+    CHECK(sum->rhs == repeated);
+}
+
 TEST_CASE("LICM splits an entry edge and retains conditional loads and division")
 {
     IrContext ctx;
