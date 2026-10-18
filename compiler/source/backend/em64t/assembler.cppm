@@ -310,6 +310,31 @@ namespace
         return r;
     }
 
+    void emit_scalar_binop(std::string& out, std::string_view operation, std::string_view move, PhysReg destination, PhysReg left, PhysReg right)
+    {
+        auto emit_move = [&](PhysReg to, PhysReg from) {
+            out += std::string{move} + " " + std::string{phys_reg_name(to)} + ", " + std::string{phys_reg_name(from)} + "\n    ";
+        };
+        if (destination == right && destination != left)
+        {
+            if (operation.starts_with("add") || operation.starts_with("mul"))
+                std::swap(left, right);
+            else
+            {
+                for (auto temporary : {PhysReg::XMM15, PhysReg::XMM14, PhysReg::XMM13})
+                    if (temporary != destination && temporary != left)
+                    {
+                        emit_move(temporary, right);
+                        right = temporary;
+                        break;
+                    }
+            }
+        }
+        if (destination != left)
+            emit_move(destination, left);
+        out += std::string{operation} + " " + std::string{phys_reg_name(destination)} + ", " + std::string{phys_reg_name(right)} + "\n";
+    }
+
     void emit_instr(AsmContext& ctx, MInstr const& mi)
     {
         auto& out = ctx.out;
@@ -1180,9 +1205,7 @@ namespace
                     auto d = ops[0].reg.phys_reg();
                     auto l = ops[1].reg.phys_reg();
                     auto r = ops[2].reg.phys_reg();
-                    if (d != l)
-                        out += "movsd " + std::string{phys_reg_name(d)} + ", " + std::string{phys_reg_name(l)} + "\n    ";
-                    out += mnem + " " + std::string{phys_reg_name(d)} + ", " + std::string{phys_reg_name(r)} + "\n";
+                    emit_scalar_binop(out, mnem, "movsd", d, l, r);
                 }
                 else
                     out += "; ssesd unrecognized\n";
@@ -1305,9 +1328,7 @@ namespace
                     auto d = ops[0].reg.phys_reg();
                     auto l = ops[1].reg.phys_reg();
                     auto r = ops[2].reg.phys_reg();
-                    if (d != l)
-                        out += "movss " + std::string{phys_reg_name(d)} + ", " + std::string{phys_reg_name(l)} + "\n    ";
-                    out += mnem + " " + std::string{phys_reg_name(d)} + ", " + std::string{phys_reg_name(r)} + "\n";
+                    emit_scalar_binop(out, mnem, "movss", d, l, r);
                 }
                 else
                     out += "; sses unrecognized\n";
