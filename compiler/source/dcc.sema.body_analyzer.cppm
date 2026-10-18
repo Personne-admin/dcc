@@ -16173,6 +16173,7 @@ export namespace dcc::sema
                 else if (si.else_branch)
                 {
                     out = analyze_stmt(mod, fn, scope, *si.else_branch, loop_depth, next_off, const_env);
+                    resolve_ambiguous_slot(si.else_branch);
                     if (auto* es = ast::node_cast<ast::ExprStmt>(si.else_branch))
                     {
                         if (es->expr && es->expr->sema.is_diverging)
@@ -16217,6 +16218,7 @@ export namespace dcc::sema
             else if (si.else_branch)
             {
                 out = analyze_stmt(mod, fn, scope, *si.else_branch, loop_depth, next_off, const_env);
+                resolve_ambiguous_slot(si.else_branch);
                 if (auto* es = ast::node_cast<ast::ExprStmt>(si.else_branch))
                 {
                     if (es->expr && es->expr->sema.is_diverging)
@@ -16383,7 +16385,10 @@ export namespace dcc::sema
                     auto* inner = make_scope(ScopeKind::Block, &scope);
                     auto* inner_consts = make_const_env(const_env);
                     if (f.init)
+                    {
                         std::ignore = analyze_stmt(mod, fn, *inner, *f.init, loop_depth, next_off, inner_consts);
+                        resolve_ambiguous_slot(f.init);
+                    }
                     invalidate_loop_writes(&f, inner_consts);
                     auto cond = f.cond ? analyze_expr(mod, fn, *inner, *f.cond, loop_depth, next_off, nullptr, inner_consts) : detail::ExprResult{};
                     if (f.update)
@@ -16501,21 +16506,24 @@ export namespace dcc::sema
                     out.foldable = false;
                     return out;
                 }
-                case ast::StmtKind::Defer:
+                case ast::StmtKind::Defer: {
                     if (m_defer_depth)
                     {
                         error(s.range, "defer is not allowed inside a deferred statement");
                         return {.foldable = false};
                     }
-                    if (static_cast<ast::DeferStmt&>(s).body)
+                    auto& defer_stmt = static_cast<ast::DeferStmt&>(s);
+                    if (defer_stmt.body)
                     {
                         ++m_defer_depth;
-                        std::ignore = analyze_stmt(mod, fn, scope, *static_cast<ast::DeferStmt&>(s).body, loop_depth, next_off, const_env);
+                        std::ignore = analyze_stmt(mod, fn, scope, *defer_stmt.body, loop_depth, next_off, const_env);
+                        resolve_ambiguous_slot(defer_stmt.body);
                         --m_defer_depth;
                     }
                     m_active_defers.push_back(s.range);
                     out.foldable = false;
                     return out;
+                }
                 case ast::StmtKind::StaticIf: {
                     auto& si = static_cast<ast::StaticIfStmt&>(s);
                     if (si.is_type_if)
@@ -16548,6 +16556,7 @@ export namespace dcc::sema
                     else if (si.else_branch)
                     {
                         out = analyze_stmt(mod, fn, scope, *si.else_branch, loop_depth, next_off, const_env);
+                        resolve_ambiguous_slot(si.else_branch);
                         if (auto* es = ast::node_cast<ast::ExprStmt>(si.else_branch))
                             if (es->expr && es->expr->sema.is_diverging)
                                 out.falls_through = false;
@@ -17504,6 +17513,27 @@ export namespace dcc::sema
             return true;
         }
 
+        void resolve_ambiguous_slot(ast::Stmt*& slot)
+        {
+            if (!slot || slot->kind != ast::StmtKind::Ambiguous)
+                return;
+
+            auto& ambiguous = static_cast<ast::AmbiguousStmt&>(*slot);
+            if (ambiguous.resolution == ast::AmbiguousStmt::Resolution::AsDecl && ambiguous.as_decl)
+            {
+                slot = m_ast_ctx.make<ast::DeclStmt>(ambiguous.range, ambiguous.as_decl);
+                return;
+            }
+
+            if (ambiguous.resolution == ast::AmbiguousStmt::Resolution::AsExpr && ambiguous.as_expr)
+            {
+                slot = m_ast_ctx.make<ast::ExprStmt>(ambiguous.range, ambiguous.as_expr);
+                return;
+            }
+
+            error(slot->range, "ambiguous statement could not be resolved as a declaration or expression");
+        }
+
         detail::StmtResult analyze_block(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Block& block, int loop_depth, std::uint32_t& next_off,
                                          types::TypePtr expected_type, ConstEnv const* const_env, bool tail_result_discarded = false)
         {
@@ -17526,14 +17556,7 @@ export namespace dcc::sema
 
                 auto r = analyze_stmt(mod, fn, scope, *s, loop_depth, next_off, const_env);
 
-                if (s->kind == ast::StmtKind::Ambiguous)
-                {
-                    auto& ambig = static_cast<ast::AmbiguousStmt&>(*s);
-                    if (ambig.resolution == ast::AmbiguousStmt::Resolution::AsDecl && ambig.as_decl)
-                        block.stmts[i] = m_ast_ctx.make<ast::DeclStmt>(ambig.range, ambig.as_decl);
-                    else if (ambig.resolution == ast::AmbiguousStmt::Resolution::AsExpr && ambig.as_expr)
-                        block.stmts[i] = m_ast_ctx.make<ast::ExprStmt>(ambig.range, ambig.as_expr);
-                }
+                resolve_ambiguous_slot(block.stmts[i]);
 
                 if (!r.falls_through)
                     reachable = false;

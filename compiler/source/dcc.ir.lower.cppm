@@ -32,6 +32,11 @@ export namespace dcc::ir::lower
         void set_entry_symbol(std::string_view symbol) { m_entry_symbol = std::string{symbol}; }
         void set_print_reachability(bool enabled) noexcept { m_print_reachability = enabled; }
 
+        struct LowerDiagnostic final : std::runtime_error
+        {
+            using std::runtime_error::runtime_error;
+        };
+
         IrModule* lower_module(sema::ModuleInfo const& mod)
         {
             m_failure_range = {};
@@ -78,13 +83,18 @@ export namespace dcc::ir::lower
             if (m_partial_eval && std::getenv("DCC_BENCH_STATS"))
                 emit_specialize_stats();
             }
+            catch (LowerDiagnostic const& error)
+            {
+                m_lower_errors.emplace_back(error.what());
+            }
             catch (std::exception const& error)
             {
                 std::string message = error.what();
                 if (message.find("_kind=") == std::string::npos)
                     message += std::format(" construct_kind={}", m_failure_kind.empty() ? m_active_kind : m_failure_kind);
-                if (message.find(" at file=") == std::string::npos)
-                    message += fmt_loc(m_failure_range.begin.valid() ? m_failure_range : m_active_range);
+                auto const location = fmt_loc(m_failure_range.begin.valid() ? m_failure_range : m_active_range);
+                if (!location.empty() && message.find(location) == std::string::npos)
+                    message += location;
                 m_lower_errors.emplace_back(std::format("internal error during IR lowering: {}", message));
             }
             catch (...)
@@ -1294,15 +1304,26 @@ export namespace dcc::ir::lower
             return dcc::types::Qual::None;
         }
 
-        static std::string fmt_loc(sm::SourceRange range)
+        std::string fmt_loc(sm::SourceRange range) const
         {
             if (!range.valid())
                 return {};
 
-            return std::format(" at file={},offset={}", static_cast<std::uint32_t>(range.begin.fileId), range.begin.offset);
+            auto const location = range.begin;
+            if (m_source_manager)
+            {
+                if (auto const* file = m_source_manager->get(location.fileId))
+                {
+                    auto const line_col = m_source_manager->line_col(location);
+                    if (line_col)
+                        return std::format(" at {}:{}:{}", file->path().string(), line_col->line, line_col->column);
+                }
+            }
+
+            return std::format(" at file={},offset={}", static_cast<std::uint32_t>(location.fileId), location.offset);
         }
 
-        static std::string fmt_ctx(ast::Decl const* decl)
+        std::string fmt_ctx(ast::Decl const* decl) const
         {
             if (!decl)
                 return {};
@@ -1315,7 +1336,7 @@ export namespace dcc::ir::lower
             return s;
         }
 
-        static std::string fmt_ctx(ast::Expr const* expr)
+        std::string fmt_ctx(ast::Expr const* expr) const
         {
             if (!expr)
                 return {};
@@ -1328,7 +1349,7 @@ export namespace dcc::ir::lower
             return s;
         }
 
-        static std::string fmt_ctx(ast::Stmt const* stmt)
+        std::string fmt_ctx(ast::Stmt const* stmt) const
         {
             if (!stmt)
                 return {};
@@ -1343,37 +1364,37 @@ export namespace dcc::ir::lower
             throw std::runtime_error(std::format("{} {}{}", msg, m_active_kind, fmt_loc(m_active_range)));
         }
 
-        [[noreturn]] static void lower_panic(ast::Decl const* decl, std::string_view msg)
+        [[noreturn]] void lower_panic(ast::Decl const* decl, std::string_view msg) const
         {
             throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(decl)));
         }
 
-        [[noreturn]] static void lower_panic(ast::Expr const* expr, std::string_view msg)
+        [[noreturn]] void lower_panic(ast::Expr const* expr, std::string_view msg) const
         {
             throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(expr)));
         }
 
-        [[noreturn]] static void lower_panic(ast::Stmt const* stmt, std::string_view msg)
+        [[noreturn]] void lower_panic(ast::Stmt const* stmt, std::string_view msg) const
         {
             throw std::runtime_error(std::format("{}{}", msg, fmt_ctx(stmt)));
         }
 
-        [[noreturn]] static void lower_unimplemented(ast::Decl const* decl, std::string_view feature)
+        [[noreturn]] void lower_unimplemented(ast::Decl const* decl, std::string_view feature) const
         {
             throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_ctx(decl)));
         }
 
-        [[noreturn]] static void lower_unimplemented(ast::Expr const* expr, std::string_view feature)
+        [[noreturn]] void lower_unimplemented(ast::Expr const* expr, std::string_view feature) const
         {
             throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_ctx(expr)));
         }
 
-        [[noreturn]] static void lower_unimplemented(ast::Stmt const* stmt, std::string_view feature)
+        [[noreturn]] void lower_unimplemented(ast::Stmt const* stmt, std::string_view feature) const
         {
             throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_ctx(stmt)));
         }
 
-        [[noreturn]] static void lower_unimplemented(sm::SourceRange range, std::string_view feature)
+        [[noreturn]] void lower_unimplemented(sm::SourceRange range, std::string_view feature) const
         {
             throw std::runtime_error(std::format("unimplemented {}{}", feature, fmt_loc(range)));
         }
@@ -2614,7 +2635,7 @@ export namespace dcc::ir::lower
                 }
 
                 case ast::StmtKind::Ambiguous: {
-                    lower_panic(stmt, "unresolved ambiguous statement reached IR lowering");
+                    throw LowerDiagnostic{std::format("ambiguous statement could not be resolved as a declaration or expression{}", fmt_loc(stmt->range))};
                 }
 
                 case ast::StmtKind::Asm: {

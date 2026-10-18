@@ -143,6 +143,7 @@ namespace
         bool position_independent_code{false};
         std::optional<dcc::target::CodeModel> code_model;
         bool omit_frame_pointer{true};
+        std::optional<int> run_exit_code;
     };
 
     struct RequiredRela
@@ -1074,6 +1075,27 @@ namespace
                             auto sp = after.find(' ');
                             auto mcmodel_val = (sp != std::string::npos) ? after.substr(0, sp) : after;
                             e.code_model = dcc::target::TargetConfig::parse_code_model(trim(mcmodel_val));
+                        }
+                    }
+                }
+                if (!e.is_error)
+                {
+                    std::istringstream body_stream{sec.body};
+                    std::string line;
+                    while (std::getline(body_stream, line))
+                    {
+                        auto tl = trim(line);
+                        if (!starts_with(tl, "RUN-EXIT:"))
+                            continue;
+
+                        auto val = trim(std::string_view{tl}.substr(9));
+                        try
+                        {
+                            e.run_exit_code = std::stoi(std::string{val});
+                        }
+                        catch (...)
+                        {
+                            return std::nullopt;
                         }
                     }
                 }
@@ -2932,6 +2954,39 @@ namespace
 
                 if (!elf_valid)
                     ok = false;
+
+#ifndef _WIN32
+                if (elf_valid && exp.run_exit_code)
+                {
+                    std::error_code run_ec;
+                    auto run_dir = fs::temp_directory_path(run_ec) / std::format("dcc-llvm-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
+                    if (run_ec || !fs::create_directories(run_dir, run_ec))
+                    {
+                        ok = false;
+                        std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE: cannot create temp dir  ({}:{})", path.string(), exp.base_line);
+                    }
+                    else
+                    {
+                        auto exe_path = run_dir / "test";
+                        {
+                            std::ofstream out{exe_path, std::ios::binary};
+                            out.write(reinterpret_cast<char const*>(exe.data()), static_cast<std::streamsize>(exe.size()));
+                        }
+                        fs::permissions(exe_path, fs::perms::owner_exec, fs::perm_options::add, run_ec);
+
+                        int run_rc = std::system(std::format("{} >/dev/null 2>&1", exe_path.string()).c_str());
+                        int actual_exit = WIFEXITED(run_rc) ? WEXITSTATUS(run_rc) : (WIFSIGNALED(run_rc) ? 128 + WTERMSIG(run_rc) : -1);
+                        if (actual_exit != *exp.run_exit_code)
+                        {
+                            ok = false;
+                            std::println(std::cerr, "    FAIL  EXPECT-EXECUTABLE: expected exit code {}, got {}  ({}:{})", *exp.run_exit_code, actual_exit,
+                                         path.string(), exp.base_line);
+                        }
+
+                        fs::remove_all(run_dir, run_ec);
+                    }
+                }
+#endif
             }
 #else
             std::println("  SKIP  LLVM backend not available");

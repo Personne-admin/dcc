@@ -1,0 +1,33 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Region {
+    Region* next;
+    usize size;
+}
+
+Region* g_regions = null;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+@nomangle
+public i32 dcc_main() {
+    Region region;
+    region.next = null;
+    region.size = 42;
+    g_regions = &region;
+
+    usize total = 0;
+    for Region* r = g_regions; r != null; r = r.next {
+        total += r.size;
+    }
+    return total as i32;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM FLAGS: -verify ===
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 42

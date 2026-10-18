@@ -1,0 +1,33 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+struct Region {
+    Region* next;
+}
+
+Region* g_regions = null;
+i32 a = 3;
+i32 b = 4;
+i32 observed = 0;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+void deferred() {
+    defer a * b;
+    defer Region* p = g_regions;
+    observed = a + b;
+}
+
+@nomangle
+public i32 dcc_main() {
+    deferred();
+    return observed;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM FLAGS: -verify ===
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 7

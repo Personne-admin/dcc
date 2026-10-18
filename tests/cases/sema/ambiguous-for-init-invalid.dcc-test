@@ -1,0 +1,19 @@
+=== FILE: main.dc ===
+module m;
+
+struct Region {
+    Region* next;
+}
+
+void for_init() {
+    for Region* r = 42; r != null; r = r.next {
+    }
+}
+
+void defer_body() {
+    defer Region* p = 42;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:8: initializer type mismatch: declared `Region*`, initializer `i32`
+main.dc:13: initializer type mismatch: declared `Region*`, initializer `i32`
