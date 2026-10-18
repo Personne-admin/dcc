@@ -2383,3 +2383,59 @@ TEST_CASE("index strength reduction preserves wrapping induction and its other u
         CHECK(ir_cast<IrRetInst>(exit->terminator)->value == index);
     }
 }
+
+TEST_CASE("scalar replacement preserves aggregate load and store source locations")
+{
+    auto target = *TargetConfig::parse_triple("x86_64-elf");
+    IrContext input(262144, &target);
+    auto* scalar = input.int_t(32, false);
+    IrType const* members[] = {scalar, scalar};
+    std::uint64_t offsets[] = {0, 4};
+    auto* type = input.aggregate_t(members, offsets, 8, 4);
+    auto* module = input.module("aggregate_locations");
+    IrType const* parameters[] = {type, scalar};
+    auto* function = input.function("replace", ir_type_cast<IrFuncType>(input.func_t(type, parameters)));
+    auto* block = input.basic_block("entry", 0);
+    auto* argument = input.local("argument", 0, type);
+    auto* replacement = input.local("replacement", 1, scalar);
+    block->params = {argument, replacement};
+    auto* slot = input.alloca(input.pointer_to(type), type);
+    auto* store = input.store(argument, slot);
+    auto* field = input.gep(input.pointer_to(scalar), slot);
+    field->indices.push_back({IrGepInst::IndexKind::Field, nullptr, 0});
+    auto* update = input.store(replacement, field);
+    auto* load = input.load(type, slot);
+    slot->debug_loc = {1, 10, 2, 1};
+    store->debug_loc = {1, 20, 3, 1};
+    field->debug_loc = {1, 30, 4, 1};
+    update->debug_loc = {1, 40, 5, 1};
+    load->debug_loc = {1, 60, 6, 1};
+    block->instructions = {slot, store, field, update, load};
+    block->terminator = input.ret(load);
+    function->entry_block = block;
+    function->blocks.push_back(block);
+    module->functions.push_back(function);
+    IrContext output(262144, &target);
+    auto* optimized = dcc::ir::pass::global_pass_manager().run(*module, output, dcc::ir::pass::OptLevel::O2);
+    REQUIRE(optimized);
+    bool extracted = false;
+    bool assembled = false;
+    for (auto* bb : optimized->functions.front()->blocks)
+        for (auto* instruction : bb->instructions)
+        {
+            if (instruction->kind == IrNodeKind::Extract)
+            {
+                extracted = true;
+                CHECK_EQ(instruction->debug_loc.line, 20u);
+                CHECK_EQ(instruction->debug_loc.column, 3u);
+            }
+            if (instruction->kind == IrNodeKind::Aggregate)
+            {
+                assembled = true;
+                CHECK_EQ(instruction->debug_loc.line, 60u);
+                CHECK_EQ(instruction->debug_loc.column, 6u);
+            }
+        }
+    CHECK(extracted);
+    CHECK(assembled);
+}

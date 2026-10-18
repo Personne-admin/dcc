@@ -638,11 +638,16 @@ namespace dcc::ir::pass
             for (auto* bb : ctx.func->blocks)
             {
                 std::vector<IrValue*> rewritten;
+                auto source_loc = root->debug_loc;
+                auto append = [&](IrValue* value) {
+                    value->debug_loc = source_loc;
+                    rewritten.push_back(value);
+                };
                 auto read = [&](auto&& self, Path const& path) -> IrValue* {
                     if (auto found = slots.find(path); found != slots.end())
                     {
                         auto* load = ctx.ctx->load(types.at(path), found->second);
-                        rewritten.push_back(load);
+                        append(load);
                         return load;
                     }
                     auto* aggregate = ctx.ctx->aggregate(types.at(path));
@@ -653,13 +658,13 @@ namespace dcc::ir::pass
                         child.push_back(i);
                         aggregate->values.push_back(self(self, child));
                     }
-                    rewritten.push_back(aggregate);
+                    append(aggregate);
                     return aggregate;
                 };
                 auto write = [&](auto&& self, Path const& path, IrValue* value) -> void {
                     if (auto found = slots.find(path); found != slots.end())
                     {
-                        rewritten.push_back(ctx.ctx->store(value, found->second));
+                        append(ctx.ctx->store(value, found->second));
                         return;
                     }
                     auto const& members = children.at(path);
@@ -673,13 +678,14 @@ namespace dcc::ir::pass
                         else
                         {
                             member = ctx.ctx->extract(members[i], value, i);
-                            rewritten.push_back(member);
+                            append(member);
                         }
                         self(self, child, member);
                     }
                 };
                 for (auto* inst : bb->instructions)
                 {
+                    source_loc = inst->debug_loc;
                     if (inst == root)
                     {
                         for (auto const& leaf : leaves)
