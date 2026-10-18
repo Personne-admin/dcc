@@ -1667,6 +1667,8 @@ export namespace dcc::backend::object
                 serialize_rel(out, rel, arch);
         }
 
+        while (out.size() < symtab_off)
+            out.push_back(0);
         for (auto const& sym : syms)
             serialize_sym(out, sym, arch);
 

@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module main;
+@nomangle extern i32 answer();
+asm @[intel] { ".text\n.globl answer\nanswer:\n mov eax, 42\n ret\n" };
+@nomangle public i32 dcc_main() { return answer(); }
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 42
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 42
