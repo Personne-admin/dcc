@@ -119,6 +119,54 @@ def generate(seed, keep=None):
 }}''')
     blocks.extend(('mix(&checksum, signed_casts(negative_input));', 'mix(&checksum, aggregate_globals(input));',
                    'mix(&checksum, scalar_shapes(input, (input & 1) != 0));', 'mix(&checksum, destructure(input));'))
+    loop_trips = rng.randrange(6)
+    loop_scale = rng.choice((3, 5, 7, 9))
+    wide_index_type = 'i64' if seed & 1 else 'u64'
+    functions.append(f'''@noinline @runtime u32 wide_index([]u16 data, {wide_index_type} count) {{
+    u32 sum = 0;
+    for {wide_index_type} i = 0; i < count; i += 1 {{
+        sum ^= data[((i * 3) as usize)] as u32;
+        sum += i as u32;
+    }}
+    return sum;
+}}
+@noinline @runtime u32 invariant_loops(u32 x, u16 trips, u32* settings) {{
+    u16[32] data;
+    for usize i = 0; i < 32; i += 1 {{ data[i] = (i as u16) + ((x & 15) as u16); }}
+    u32 result = 0;
+    for usize i = 0; i < (trips as usize); i += 1 {{
+        u32 value = (x * {loop_scale} + 17) ^ (x >> 2);
+        result += value + *settings;
+        if (i & 1) == 0 {{ result ^= (x * {loop_scale} + 17) ^ (x >> 2); }}
+        result += data[i * 3] as u32;
+        result ^= data[(i << 1) + 1] as u32;
+        for usize j = 0; j < 2; j += 1 {{ result += value + (data[i * 3 + j] as u32); }}
+    }}
+    return result ^ wide_index(data[0..32], trips as {wide_index_type});
+}}
+@noinline @runtime u32 invariant_alias(u32* read, u32* write, u16 trips) {{
+    u32 result = 0;
+    for u16 i = 0; i < trips; i += 1 {{ result += *read; *write += 3; result ^= *read; }}
+    return result;
+}}
+@noinline @runtime u32 zero_trip(u32* pointer, u32 divisor, u16 trips) {{
+    u32 result = 0;
+    for u16 i = 0; i < trips; i += 1 {{ result += *pointer + (19 / divisor); }}
+    return result;
+}}
+@noinline @runtime u32 loop_shapes(u32 x) {{
+    u32 first = x + 13;
+    u32 second = x + 29;
+    u16 trips = ((x & 3) as u16) + {loop_trips};
+    if trips > 5 {{ trips = 5; }}
+    u32 result = invariant_loops(x, trips, &first);
+    result ^= invariant_alias(&first, &second, trips);
+    result ^= invariant_alias(&first, &first, trips);
+    result ^= zero_trip(null, 0, 0);
+    result ^= zero_trip(&second, 3, trips);
+    return result ^ first ^ second;
+}}''')
+    blocks.append('mix(&checksum, loop_shapes(input));')
     header = f'''module main;
 struct Record {{ u8 tag; u16 small; u32 word; u64 wide; }}
 public struct Small {{ u32 first; u16 second; }}
