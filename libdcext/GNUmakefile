@@ -66,6 +66,7 @@ ASM_OBJS := $(call objs-from-srcs,$(ASM_SRCS))
 ALL_OBJS := $(DC_OBJS) $(ASM_OBJS)
 
 LIBDCEXT_A := $(BUILD_DIR)/lib/libdcext-$(TARGET_OS)-$(BACKEND).a
+LIBDCEXT_RUNTIME_A := $(BUILD_DIR)/lib/libdcext-runtime-$(TARGET_OS)-$(BACKEND).a
 HEADER_SRC := $(TOPLEVEL)/libdcext/std
 STD_SRC := $(TOPLEVEL)/libdcext/std.dc
 ASSERT_SRC := $(TOPLEVEL)/libdcext/assert.dc
@@ -73,7 +74,7 @@ HEADER_DST := $(BUILD_DIR)/include/std
 
 .PHONY: all install uninstall clean headers
 
-all: $(LIBDCEXT_A) headers
+all: $(LIBDCEXT_A) $(LIBDCEXT_RUNTIME_A) headers
 
 headers:
 	@rm -rf $(HEADER_DST)
@@ -104,6 +105,11 @@ $(eval $(call track-archive-inputs,$(LIBDCEXT_A),$(ALL_OBJS)))
 
 $(LIBDCEXT_A): $(ALL_OBJS) $(DCC) $(TARGET_STAMP)
 	$(call create-archive,$@,$(ALL_OBJS))
+
+$(eval $(call track-archive-inputs,$(LIBDCEXT_RUNTIME_A),$(ASM_OBJS)))
+
+$(LIBDCEXT_RUNTIME_A): $(ASM_OBJS) $(TARGET_STAMP)
+	$(call create-archive,$@,$(ASM_OBJS))
 
 $(DC_OBJS): $(DC_SRCS)
 
@@ -147,14 +153,18 @@ install: all
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A)))
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
 	$(Q)$(INSTALL) -m 644 $(LIBDCEXT_A) $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A))
+	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A)))
+	$(Q)$(INSTALL) -m 644 $(LIBDCEXT_RUNTIME_A) $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A))
 	$(call MSG,INSTALL,$(DESTDIR)$(INCLUDEDIR)/std/)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/std
 	$(Q)cp -r $(HEADER_DST)/* $(DESTDIR)$(INCLUDEDIR)/std/
 
 uninstall:
 	rm -f $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A))
+	rm -f $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A))
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
 
 clean:
 	rm -f $(DC_OBJS) $(ASM_OBJS) $(LIBDCEXT_A) $(LIBDCEXT_A).objects $(LIBDCEXT_A).objects.tmp $(LIBDCEXT_A).tmp $(TARGET_STAMP)
+	rm -f $(LIBDCEXT_RUNTIME_A) $(LIBDCEXT_RUNTIME_A).objects $(LIBDCEXT_RUNTIME_A).objects.tmp $(LIBDCEXT_RUNTIME_A).tmp
 	rm -rf $(HEADER_DST)

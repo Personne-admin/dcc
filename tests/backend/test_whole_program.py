@@ -69,8 +69,35 @@ with tempfile.TemporaryDirectory(prefix="dcc-whole-program-") as directory:
     run(compiler, "-fbackend", "custom", "-c", entry, "-o", plain)
     run(cc, "-o", directory / "plain", directory / "main.c", plain, expect=1)
 
-    run(compiler, "-flibdcext", "-fwhole-program", entry, "-o", directory / "linked", expect=1,
-        contains="-fwhole-program with -flibdcext cannot link an executable or shared library")
+    hosted = directory / "hosted.dc"
+    hosted.write_text("module main;\n\npublic i32 main() {\n    return 0;\n}\n")
+    hosted_exe = directory / "hosted"
+    run(compiler, "-flibdcext", "linux", "-fwhole-program", "-target", "x86_64-elf", "-O2", hosted, "-o", hosted_exe)
+    run(hosted_exe, expect=0)
+
+    freestanding = directory / "freestanding.dc"
+    freestanding.write_text(
+        "module app;\n\n"
+        "asm @[intel, arch(\"x86_64\")] {\n"
+        "    \".text\\n.global _start\\n_start:\\nmov rdi, [rsp]\\nand rsp, -16\\ncall app_main\\nmov edi, eax\\nmov eax, 60\\nsyscall\\nud2\\n\"\n"
+        "};\n\n"
+        "void clear(u8* p, usize n) {\n"
+        "    usize i = 0;\n"
+        "    while i < n { p[i] = 0; i = i + 1; }\n"
+        "}\n\n"
+        "@nomangle\n"
+        "public i32 app_main(usize n) {\n"
+        "    u8[256] buffer;\n"
+        "    clear(&buffer[0], n);\n"
+        "    return 0;\n"
+        "}\n"
+    )
+    freestanding_exe = directory / "freestanding"
+    run(compiler, "-flibdcext", "freestanding", "-fwhole-program", "-target", "x86_64-elf", "-O2", freestanding, "-o", freestanding_exe)
+    run(freestanding_exe, expect=0)
+
+    run(compiler, "-flibdcext", "linux", "-shared", "-fwhole-program", "-target", "x86_64-elf", entry, "-o", directory / "linked", expect=1,
+        contains="-fwhole-program with -flibdcext cannot link a shared library")
 
     reach = directory / "reach.dc"
     reach.write_text("module app;\n\n@nomangle public void loader_entry() {\n    reachable();\n}\n\nvoid unreachable_creator() {\n    u8[2] a = {0, 0};\n    [] u8 s = a;\n    s[5] = 1;\n}\n\nvoid reachable() {\n    u8[2] b = {0, 0};\n    [] u8 t = b;\n    t[6] = 2;\n}\n")

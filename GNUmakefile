@@ -90,6 +90,10 @@ msi: tools-windows
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-custom.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-freestanding-llvm.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-freestanding-custom.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-windows-llvm.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-windows-custom.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-freestanding-llvm.a $(MSI_STAGE_DIR)/lib/
+	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-freestanding-custom.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp -r $(NATIVE_BUILD_DIR)/include $(MSI_STAGE_DIR)/include
 	$(Q)cp $(TOPLEVEL)/LICENSE $(MSI_STAGE_DIR)/
 	@mkdir -p $(dir $(MSI_OUT))

@@ -1125,15 +1125,15 @@ namespace
         return {bytes.find(float_enabled_marker) != std::string::npos, bytes.find(float_disabled_marker) != std::string::npos};
     }
 
-    [[nodiscard]] std::string libdcext_library_name(dcc::target::TargetConfig const& target, std::string_view backend_name)
+    [[nodiscard]] std::string libdcext_library_name(dcc::target::TargetConfig const& target, std::string_view backend_name, bool runtime_only = false)
     {
-        return std::format("dcext-{}-{}", dcc::target::os_name(target.os), backend_name);
+        return std::format("dcext-{}{}-{}", runtime_only ? "runtime-" : "", dcc::target::os_name(target.os), backend_name);
     }
 
     [[nodiscard]] bool require_libdcext_archive(Options const& opts, dcc::target::TargetConfig const& target, std::filesystem::path const& prefix,
-                                                std::optional<bool> source_float = std::nullopt)
+                                                std::optional<bool> source_float = std::nullopt, bool runtime_only = false)
     {
-        auto filename = std::format("lib{}.a", libdcext_library_name(target, opts.backend_name));
+        auto filename = std::format("lib{}.a", libdcext_library_name(target, opts.backend_name, runtime_only));
         std::vector<std::filesystem::path> paths;
         for (auto const& path : opts.library_paths)
             paths.emplace_back(path);
@@ -1145,6 +1145,9 @@ namespace
             std::error_code ec;
             if (std::filesystem::is_regular_file(path / filename, ec) && !ec)
             {
+                if (runtime_only)
+                    return true;
+
                 auto [enabled, disabled] = libdcext_markers(path / filename);
                 bool need_enabled = source_float == true;
                 bool need_disabled = source_float == false;
@@ -1621,6 +1624,8 @@ auto main(int argc, char** argv) -> int
 
     compile_opts.inject_libdcext_prelude = opts.libdcext;
     compile_opts.inject_assert_import = opts.whole_program;
+    compile_opts.inject_runtime_support_imports =
+        opts.whole_program && opts.libdcext && compile_opts.target.os != dcc::target::Os::Freestanding;
     compile_opts.restricted_check = opts.restricted_check;
 
     bool const measure = std::getenv("DCC_BENCH_STATS") != nullptr;
@@ -1677,7 +1682,7 @@ auto main(int argc, char** argv) -> int
             return 1;
         }
 
-        if (opts.libdcext && need_backend)
+        if (opts.libdcext && need_backend && !opts.whole_program)
             add_libdcext_abi_guard(ir_ctx, *ir_mod, compile_opts.target);
 
         phase("lowering");
@@ -1758,13 +1763,19 @@ auto main(int argc, char** argv) -> int
                 kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes);
             if (opts.whole_program && opts.libdcext && links_output)
             {
-                std::println(std::cerr, "dcc: error: -fwhole-program with -flibdcext cannot link an executable or shared library: the libdcext archive's "
-                                        "compiled std modules would duplicate the whole-program definitions; compile with -c or -S and link only "
-                                        "libdcext's assembly objects (memory.asm.o, crt0.asm.o, syscall.asm.o) yourself");
-                return 1;
-            }
+                if (!kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes))
+                {
+                    std::println(std::cerr, "dcc: error: -fwhole-program with -flibdcext cannot link a shared library: the libdcext archive's "
+                                            "compiled std modules would duplicate the whole-program definitions");
+                    return 1;
+                }
 
-            if (opts.libdcext && links_output)
+                if (!require_libdcext_archive(opts, target, prefix, std::nullopt, true))
+                    return 1;
+                backend_opts.library_paths.push_back((prefix / "lib").string());
+                backend_opts.libraries.push_back(libdcext_library_name(target, opts.backend_name, true));
+            }
+            else if (opts.libdcext && links_output)
             {
                 if (!require_libdcext_archive(opts, target, prefix, target.float_available()))
                     return 1;
