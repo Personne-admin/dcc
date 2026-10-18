@@ -103,11 +103,11 @@ ifeq ($(CROSS),windows)
   CMARK_LIBS := -lcmark
 else ifeq ($(STATIC_LINK),1)
   BASE_LDFLAGS := $(SAN_FLAGS) -nostdlib++ -static-libgcc
-  LINK_TAIL_LDFLAGS := -Wl,-Bstatic -lc++ -lc++abi -Wl,-Bdynamic
+  LINK_TAIL_LDFLAGS := -Wl,-Bstatic -lc++ -lc++abi -Wl,-lstdc++ -Wl,-Bdynamic
   CMARK_LIBS := -l:libcmark.a
 else
   BASE_LDFLAGS := $(SAN_FLAGS) $(STDLIB_FLAGS) -lc++abi
-  LINK_TAIL_LDFLAGS :=
+  LINK_TAIL_LDFLAGS := -Wl,-lstdc++
   CMARK_LIBS := -lcmark
 endif
 

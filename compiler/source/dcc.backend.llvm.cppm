@@ -12,6 +12,8 @@ module;
 #include <llvm-c/Transforms/PassBuilder.h>
 
 extern "C" void dcc_llvm_set_sections(LLVMTargetMachineRef machine, bool functions, bool data);
+extern "C" int dcc_llvm_run_passes(LLVMModuleRef module, LLVMTargetMachineRef machine, char const* pipeline, int restrict_library, char* error_text,
+                                   unsigned long error_size);
 
 #ifdef _WIN32
 #define popen _popen
@@ -2049,16 +2051,37 @@ namespace dcc::backend
 
                     if (pipeline)
                     {
-                        auto* pass_opts = LLVMCreatePassBuilderOptions();
-                        auto err = LLVMRunPasses(llvm_mod, pipeline, tm, pass_opts);
-                        LLVMDisposePassBuilderOptions(pass_opts);
+                        bool pass_failed = false;
+                        std::string pass_error;
 
-                        if (err)
+                        if (opts.restrict_library_functions)
                         {
-                            char* err_msg = LLVMGetErrorMessage(err);
-                            add_diag(diags, {}, std::format("LLVM pass pipeline failed: {}", err_msg ? err_msg : "unknown error"));
-                            if (err_msg)
-                                LLVMDisposeErrorMessage(err_msg);
+                            char pass_message[512]{};
+                            if (dcc_llvm_run_passes(llvm_mod, tm, pipeline, 1, pass_message, sizeof(pass_message)) != 0)
+                            {
+                                pass_failed = true;
+                                pass_error = pass_message;
+                            }
+                        }
+                        else
+                        {
+                            auto* pass_opts = LLVMCreatePassBuilderOptions();
+                            auto err = LLVMRunPasses(llvm_mod, pipeline, tm, pass_opts);
+                            LLVMDisposePassBuilderOptions(pass_opts);
+
+                            if (err)
+                            {
+                                char* err_msg = LLVMGetErrorMessage(err);
+                                pass_failed = true;
+                                pass_error = err_msg ? err_msg : "unknown error";
+                                if (err_msg)
+                                    LLVMDisposeErrorMessage(err_msg);
+                            }
+                        }
+
+                        if (pass_failed)
+                        {
+                            add_diag(diags, {}, std::format("LLVM pass pipeline failed: {}", pass_error.empty() ? "unknown error" : pass_error));
 
                             if (tm_created)
                                 LLVMDisposeTargetMachine(tm);

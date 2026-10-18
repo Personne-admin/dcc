@@ -1176,6 +1176,15 @@ namespace
         return false;
     }
 
+    [[nodiscard]] bool links_hosted_libc(Options const& opts)
+    {
+        for (auto const& lib : opts.libraries)
+            if (lib == "c" || lib == "libc" || lib == "libc.a" || lib.starts_with("libc.so"))
+                return true;
+
+        return false;
+    }
+
     [[nodiscard]] std::vector<std::string> explicit_linker_args(Options const& opts)
     {
         std::vector<std::string> args;
@@ -1733,6 +1742,7 @@ auto main(int argc, char** argv) -> int
             backend_opts.debug_format = opts.debug_format;
             backend_opts.omit_frame_pointer = opts.omit_frame_pointer;
             backend_opts.opt_level = opts.opt_level;
+            backend_opts.restrict_library_functions = !links_hosted_libc(opts);
             backend_opts.source_manager = &session.source_manager();
 
             for (auto const& dir : opts.library_paths)

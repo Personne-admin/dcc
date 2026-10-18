@@ -115,6 +115,7 @@ namespace
         bool bounds_check{false};
         bool restricted_check{false};
         bool partial_eval{false};
+        int opt_level{0};
     };
 
     struct ExpectRegistry
@@ -553,6 +554,11 @@ namespace
                         e.omit_frame_pointer = false;
                     else if (flags_str.find("-fomit-frame-pointer") != std::string::npos)
                         e.omit_frame_pointer = true;
+
+                    if (flags_str.find("-O2") != std::string::npos)
+                        e.opt_level = 2;
+                    else if (flags_str.find("-O1") != std::string::npos)
+                        e.opt_level = 1;
 
                     auto mcmodel_pos = flags_str.find("-mcmodel=");
                     if (mcmodel_pos != std::string::npos)
@@ -2687,6 +2693,7 @@ namespace
             dcc::backend::BackendOptions backend_opts;
             backend_opts.target = target;
             backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::LlvmIrText};
+            backend_opts.opt_level = static_cast<dcc::ir::pass::OptLevel>(exp.opt_level);
             backend_opts.omit_frame_pointer = exp.omit_frame_pointer;
             backend_opts.emit_debug_info = exp.emit_debug_info;
             backend_opts.debug_format = exp.debug_format;

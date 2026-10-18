@@ -58,6 +58,7 @@ export namespace dcc::backend
         bool omit_frame_pointer{true};
         sm::SourceManager const* source_manager{};
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
+        bool restrict_library_functions{true};
     };
 
     [[nodiscard]] inline std::string_view artifact_kind_name(ArtifactKind kind)

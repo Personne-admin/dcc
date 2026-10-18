@@ -1,0 +1,20 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+@nomangle
+bool equal(const u8* a, const u8* b, usize n) {
+    usize i = 0;
+    while i < n {
+        if a[i] != b[i] { return false; }
+        i = i + 1;
+    }
+    return true;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -O2 -verify ===
+CONTAINS: @equal(
+CONTAINS: icmp eq i8
+FORBID: @bcmp
+FORBID: @strlen

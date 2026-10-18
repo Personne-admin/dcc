@@ -1,0 +1,15 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+@nomangle
+void clear(u8* p, usize n) {
+    usize i = 0;
+    while i < n { p[i] = 0; i = i + 1; }
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -O2 -verify ===
+CONTAINS: @clear(
+CONTAINS: @llvm.memset.p0.i64(
+FORBID: @strlen

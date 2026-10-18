@@ -1,0 +1,16 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+@nomangle
+usize count(const char* p) {
+    usize n = 0;
+    while p[n] != '\0' { n = n + 1; }
+    return n;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-LLVM-PATTERNS FLAGS: -O2 -verify ===
+CONTAINS: @count(
+CONTAINS: load i8, ptr
+FORBID: @strlen
