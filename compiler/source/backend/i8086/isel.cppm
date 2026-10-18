@@ -17,6 +17,7 @@ export namespace dcc::backend::i8086
     [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target, std::vector<std::string>& diags);
 
     void remove_fallthrough_jumps(MFunction& func);
+    void simplify_output(MFunction& func);
 
 } // namespace dcc::backend::i8086
 
@@ -2520,6 +2521,126 @@ namespace dcc::backend::i8086
     {
         return std::ranges::any_of(func.attrs,
                                    [](IrFuncAttribute const& attr) { return attr.kind == IrFuncAttr::NoMangle || attr.kind == IrFuncAttr::CallingConv; });
+    }
+
+    void simplify_output(MFunction& func)
+    {
+        auto flags = [](MInstr const& instruction) -> std::pair<unsigned, unsigned> {
+            auto name = opc_name(instruction.opc);
+            switch (instruction.opc)
+            {
+                case MOpc::JB:
+                case MOpc::JAE:
+                case MOpc::SETBr:
+                case MOpc::SETAEr:
+                    return {1, 0};
+                case MOpc::JA:
+                case MOpc::JBE:
+                case MOpc::SETAr:
+                case MOpc::SETBEr:
+                    return {5, 0};
+                case MOpc::JE:
+                case MOpc::JNE:
+                case MOpc::JL:
+                case MOpc::JLE:
+                case MOpc::JG:
+                case MOpc::JGE:
+                case MOpc::JP:
+                case MOpc::JNP:
+                case MOpc::JS:
+                case MOpc::JNS:
+                case MOpc::SETEr:
+                case MOpc::SETNEr:
+                case MOpc::SETLr:
+                case MOpc::SETLEr:
+                case MOpc::SETGr:
+                case MOpc::SETGEr:
+                    return {4, 0};
+                case MOpc::RET:
+                case MOpc::UD2:
+                    return {0, 7};
+                default:
+                    break;
+            }
+            if (name.starts_with("ADC") || name.starts_with("SBB"))
+                return {1, 7};
+            if (name.starts_with("INC") || name.starts_with("DEC"))
+                return {0, 6};
+            for (auto prefix : {"CMP", "TEST", "ADD", "SUB", "AND", "OR", "XOR", "NEG", "IMUL", "MUL"})
+                if (name.starts_with(prefix))
+                    return {0, 7};
+            for (auto prefix : {"MOV", "LEA", "NOT", "PUSH16", "PUSH32", "POP16", "POP32", "REPMOV", "REPSTOS"})
+                if (name.starts_with(prefix))
+                    return {0, 0};
+            if (instruction.opc == MOpc::NOP || instruction.opc == MOpc::JMP || instruction.opc == MOpc::JMP_rel32 || instruction.opc == MOpc::CLD ||
+                instruction.opc == MOpc::COPY)
+                return {0, 0};
+            return {7, 7};
+        };
+        std::unordered_map<std::uint32_t, std::size_t> indices;
+        for (std::size_t i = 0; i < func.blocks.size(); ++i)
+            indices[func.blocks[i].id] = i;
+        std::vector<unsigned> live_in(func.blocks.size()), live_out(func.blocks.size());
+        bool changed = true;
+        while (changed)
+        {
+            changed = false;
+            for (std::size_t i = func.blocks.size(); i-- > 0;)
+            {
+                unsigned out = 0;
+                for (auto successor : func.blocks[i].succs)
+                    out |= indices.contains(successor) ? live_in[indices.at(successor)] : 7;
+                auto live = out;
+                for (auto const& instruction : func.blocks[i].instrs | std::views::reverse)
+                {
+                    auto [reads, writes] = flags(instruction);
+                    live = reads | (live & ~writes);
+                }
+                changed |= live != live_in[i] || out != live_out[i];
+                live_in[i] = live;
+                live_out[i] = out;
+            }
+        }
+        for (std::size_t b = 0; b < func.blocks.size(); ++b)
+        {
+            auto live = live_out[b];
+            for (auto& instruction : func.blocks[b].instrs | std::views::reverse)
+            {
+                auto& op = instruction.ops;
+                bool word = operand_bits(instruction.opc) == 16;
+                if ((instruction.opc == MOpc::MOV16ri || instruction.opc == MOpc::MOV32ri) && op[1].kind == MOpKind::Imm64 && op[1].imm == 0 && live == 0)
+                {
+                    instruction.opc = word ? MOpc::XOR16rr : MOpc::XOR32rr;
+                    instruction.num_ops = 3;
+                    instruction.num_defs = 1;
+                    op[1] = op[2] = op[0];
+                }
+                else if ((instruction.opc == MOpc::ADD16ri || instruction.opc == MOpc::ADD32ri || instruction.opc == MOpc::SUB16ri ||
+                          instruction.opc == MOpc::SUB32ri) &&
+                         instruction.num_ops == 3 && op[0].kind == MOpKind::Reg && op[1].kind == MOpKind::Reg && op[0].reg == op[1].reg &&
+                         op[2].kind == MOpKind::Imm64 && (op[2].imm == 1 || (op[2].imm == -1 && !(live & 2))) && !(live & 1))
+                {
+                    bool decrement = (instruction.opc == MOpc::SUB16ri || instruction.opc == MOpc::SUB32ri) == (op[2].imm == 1);
+                    instruction.opc = decrement ? (word ? MOpc::DEC16r : MOpc::DEC32r) : (word ? MOpc::INC16r : MOpc::INC32r);
+                    instruction.num_ops = 1;
+                    instruction.num_defs = 1;
+                }
+                else if ((instruction.opc == MOpc::CMP8ri || instruction.opc == MOpc::CMP16ri || instruction.opc == MOpc::CMP32ri) &&
+                         op[0].kind == MOpKind::Reg && op[1].kind == MOpKind::Imm64 && op[1].imm == 0 && !(live & 2))
+                {
+                    instruction.opc = instruction.opc == MOpc::CMP8ri ? MOpc::TEST8rr : word ? MOpc::TEST16rr : MOpc::TEST32rr;
+                    op[1] = op[0];
+                }
+                auto [reads, writes] = flags(instruction);
+                live = reads | (live & ~writes);
+            }
+            std::erase_if(func.blocks[b].instrs, [](MInstr const& instruction) {
+                return (instruction.opc == MOpc::MOV8rr || instruction.opc == MOpc::MOV16rr || instruction.opc == MOpc::MOV32rr ||
+                        instruction.opc == MOpc::COPY) &&
+                       instruction.num_ops == 2 && instruction.ops[0].reg == instruction.ops[1].reg;
+            });
+        }
+        remove_fallthrough_jumps(func);
     }
 
     void remove_fallthrough_jumps(MFunction& func)

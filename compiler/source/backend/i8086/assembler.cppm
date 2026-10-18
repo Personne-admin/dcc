@@ -397,6 +397,12 @@ namespace dcc::backend::i8086
                     case MOpc::TEST32ri:
                     case MOpc::TEST16ri:
                         return line(std::format("test {}, {}", operand(mi.ops[0], operand_bits(mi.opc)), operand(mi.ops[1], operand_bits(mi.opc))));
+                    case MOpc::INC16r:
+                    case MOpc::INC32r:
+                        return unary("inc", mi, operand_bits(mi.opc));
+                    case MOpc::DEC16r:
+                    case MOpc::DEC32r:
+                        return unary("dec", mi, operand_bits(mi.opc));
                     case MOpc::NEG16r:
                     case MOpc::NEG32r:
                         return unary("neg", mi, operand_bits(mi.opc));

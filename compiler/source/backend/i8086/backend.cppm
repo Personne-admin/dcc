@@ -134,7 +134,7 @@ namespace dcc::backend
                                 if (address32)
                                     return fail(std::format("i8086 backend: 32-bit address in small-model function `{}`", func->name));
                             }
-                    i8086::remove_fallthrough_jumps(mfunc);
+                    i8086::simplify_output(mfunc);
                     relax_real16_branches(mfunc);
                     functions.push_back(std::move(mfunc));
                 }

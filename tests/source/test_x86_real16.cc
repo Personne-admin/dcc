@@ -10,6 +10,7 @@ import dcc.backend.x86.prefix;
 import dcc.backend.object.elf32;
 import dcc.backend.i8086.registers;
 import dcc.backend.i8086.framelay;
+import dcc.backend.i8086.isel;
 
 #include "harness.hh"
 
@@ -922,4 +923,62 @@ TEST_CASE("real16 branch relaxation handles signed byte boundaries")
                 auto offset = static_cast<std::size_t>(backward ? padding : 0);
                 CHECK(encoded.bytes[offset] == (fits ? opcode == MOpc::JMP ? 0xEB : opcode == MOpc::JE ? 0x74 : 0x7B : opcode == MOpc::JMP ? 0xE9 : 0x0F));
             }
+}
+
+TEST_CASE("i8086 output peepholes preserve live flags across blocks")
+{
+    for (bool carry_live : {false, true})
+        for (auto operation : {MOpc::MOV16ri, MOpc::ADD16ri, MOpc::SUB32ri, MOpc::CMP16ri})
+        {
+            MFunction function;
+            function.blocks.resize(2);
+            function.blocks[0].id = 0;
+            function.blocks[0].succs = {1};
+            function.blocks[1].id = 1;
+            function.blocks[1].preds = {0};
+            MInstr instruction;
+            if (operation == MOpc::MOV16ri || operation == MOpc::CMP16ri)
+                instruction = X(operation, {R(PhysReg::RAX), I(0)}, operation == MOpc::MOV16ri ? 1 : 0);
+            else
+                instruction = X(operation, {R(PhysReg::RAX), R(PhysReg::RAX), I(1)}, 1);
+            function.blocks[0].instrs = {instruction};
+            function.blocks[1].instrs = carry_live ? std::vector<MInstr>{X(MOpc::ADC32rr, {R(PhysReg::RBX), R(PhysReg::RBX), R(PhysReg::RDX)}, 1), X(MOpc::RET)}
+                                                   : std::vector<MInstr>{X(MOpc::RET)};
+            dcc::backend::i8086::simplify_output(function);
+            auto const& result = function.blocks[0].instrs.front();
+            auto expected = operation == MOpc::CMP16ri   ? MOpc::TEST16rr
+                            : carry_live                 ? operation
+                            : operation == MOpc::MOV16ri ? MOpc::XOR16rr
+                            : operation == MOpc::ADD16ri ? MOpc::INC16r
+                                                         : MOpc::DEC32r;
+            CHECK(result.opc == expected);
+            CHECK(encode_function(function, EncodeMode::Real16).warnings.empty());
+        }
+    MFunction opaque;
+    opaque.blocks.resize(1);
+    opaque.blocks[0].instrs = {X(MOpc::CMP16ri, {R(PhysReg::RAX), I(0)}), X(MOpc::CALL, {MOp::from_symbol("unknown")})};
+    dcc::backend::i8086::simplify_output(opaque);
+    CHECK(opaque.blocks[0].instrs[0].opc == MOpc::CMP16ri);
+}
+
+TEST_CASE("real16 branch relaxation repeats after an intervening jump grows")
+{
+    MFunction function;
+    function.blocks.resize(3);
+    for (std::size_t i = 0; i < 3; ++i)
+        function.blocks[i].id = static_cast<std::uint32_t>(i);
+    function.blocks[0].instrs = {X(MOpc::JMP, {MOp::from_label(1)}), X(MOpc::JMP, {MOp::from_label(2)})};
+    for (int i = 0; i < 125; ++i)
+        function.blocks[0].instrs.push_back(X(MOpc::NOP));
+    for (int i = 0; i < 100; ++i)
+        function.blocks[1].instrs.push_back(X(MOpc::NOP));
+    function.blocks[2].instrs.push_back(X(MOpc::RET));
+    relax_real16_branches(function);
+    CHECK(!function.blocks[0].instrs[0].short_branch);
+    CHECK(!function.blocks[0].instrs[1].short_branch);
+    auto encoded = encode_function(function, EncodeMode::Real16);
+    CHECK(encoded.warnings.empty());
+    auto assembled = nasm16("jmp near first\njmp near second\ntimes 125 nop\nfirst:\ntimes 100 nop\nsecond:\nret");
+    REQUIRE(assembled.has_value());
+    CHECK(*assembled == encoded.bytes);
 }
