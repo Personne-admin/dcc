@@ -1,0 +1,41 @@
+=== FILE: main.dc ===
+module main;
+volatile u32 initial = 3;
+@noinline @runtime u32 compute(u32 x, []u16 data, u16 count) {
+    u32 sum = 0;
+    for usize i = 0; i < (count as usize); i += 1 {
+        u32 invariant = (x * 7 + 13) ^ (x >> 1);
+        sum += invariant;
+        if (i & 1) == 0 { sum ^= (x * 7 + 13) ^ (x >> 1); }
+        sum += data[i * 3] as u32;
+        sum ^= data[(i << 1) + 1] as u32;
+    }
+    return sum;
+}
+@noinline @runtime u32 guarded(u32* pointer, u32 divisor, u16 count) {
+    u32 sum = 0;
+    for u16 i = 0; i < count; i += 1 { sum += *pointer + 17 / divisor; }
+    return sum;
+}
+@noinline @runtime u32 mutate(u32* p, u32* q) {
+    u32 total = 0;
+    for u16 i = 0; i < 3; i += 1 { total += *p; *q += 3; total ^= *p; }
+    return total;
+}
+@nomangle public i32 dcc_main() {
+    u16[32] values;
+    for usize i = 0; i < 32; i += 1 { values[i] = i as u16; }
+    u32 result = compute(initial, values[0..32], 5);
+    if result != 161 { return 1; }
+    if compute(initial, values[0..32], 0) != 0 { return 2; }
+    if guarded(null, 0, 0) != 0 { return 3; }
+    u32 value = initial;
+    if mutate(&value, &value) != 7 || value != 12 { return 4; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

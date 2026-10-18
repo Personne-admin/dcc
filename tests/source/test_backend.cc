@@ -2009,3 +2009,142 @@ TEST_CASE("operand folding retains register-based locked addresses")
     CHECK(locked.ops[0].mem.symbol.empty());
     CHECK(block.instrs.back().opc == MOpc::MOV32mr);
 }
+
+namespace
+{
+    bool run_loop_pass(std::string_view name, IrContext& context, IrFunction* function)
+    {
+        dcc::ir::pass::FunctionPassContext input;
+        input.ctx = &context;
+        input.func = function;
+        for (auto const& pass : dcc::ir::pass::global_pass_manager().function_passes())
+            if (pass.name == name)
+                return pass.run(input);
+        return false;
+    }
+}
+
+TEST_CASE("dominator CSE reuses pure expressions and rejects loads across a possible write")
+{
+    for (bool writes : {false, true})
+    {
+        IrContext ctx;
+        auto* type = ctx.int_t(32, false);
+        auto* pointer = ctx.pointer_to(type);
+        IrType const* parameters[] = {type, pointer, ctx.bool_t()};
+        auto* function = ctx.function("cse_paths", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+        auto* entry = ctx.basic_block("entry", 0);
+        auto* left = ctx.basic_block("left", 1);
+        auto* right = ctx.basic_block("right", 2);
+        auto* join = ctx.basic_block("join", 3);
+        auto* value = ctx.local("value", 0, type);
+        auto* address = ctx.local("address", 1, pointer);
+        auto* choose = ctx.local("choose", 2, ctx.bool_t());
+        entry->params = {value, address, choose};
+        auto* first = ctx.mul(type, value, ctx.int_const(type, 7));
+        auto* loaded = ctx.load(type, address);
+        entry->instructions = {first, loaded};
+        entry->terminator = ctx.br_cond(choose, left, right);
+        if (writes)
+            left->instructions.push_back(ctx.store(ctx.int_const(type, 99), address));
+        left->terminator = ctx.br(join);
+        right->terminator = ctx.br(join);
+        auto* repeated = ctx.mul(type, value, ctx.int_const(type, 7));
+        auto* reloaded = ctx.load(type, address);
+        auto* sum = ctx.add(type, repeated, reloaded);
+        join->instructions = {repeated, reloaded, sum};
+        join->terminator = ctx.ret(sum);
+        function->entry_block = entry;
+        function->blocks = {entry, left, right, join};
+        CHECK(run_loop_pass("cse", ctx, function));
+        CHECK(sum->lhs == first);
+        CHECK(sum->rhs == (writes ? static_cast<IrValue*>(reloaded) : loaded));
+    }
+}
+
+TEST_CASE("LICM splits an entry edge and retains conditional loads and division")
+{
+    IrContext ctx;
+    auto* type = ctx.int_t(32, false);
+    auto* pointer = ctx.pointer_to(type);
+    IrType const* parameters[] = {type, pointer, ctx.bool_t()};
+    auto* function = ctx.function("invariant", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+    auto* entry = ctx.basic_block("entry", 0);
+    auto* header = ctx.basic_block("header", 1);
+    auto* body = ctx.basic_block("body", 2);
+    auto* exit = ctx.basic_block("exit", 3);
+    auto* value = ctx.local("value", 0, type);
+    auto* address = ctx.local("address", 1, pointer);
+    auto* choose = ctx.local("choose", 2, ctx.bool_t());
+    entry->params = {value, address, choose};
+    entry->terminator = ctx.br_cond(choose, header, exit);
+    auto* index = ctx.phi(type);
+    auto* next = ctx.add(type, index, ctx.int_const(type, 1));
+    index->incoming = {{ctx.int_const(type, 0), entry}, {next, body}};
+    auto* condition = ctx.cmp_lt(index, value);
+    auto* header_load = ctx.load(type, address);
+    header->instructions = {index, header_load, condition};
+    header->terminator = ctx.br_cond(condition, body, exit);
+    auto* product = ctx.mul(type, value, ctx.int_const(type, 9));
+    auto* loaded = ctx.load(type, address);
+    auto* division = ctx.udiv(type, product, value);
+    body->instructions = {product, loaded, division, next};
+    body->terminator = ctx.br(header);
+    exit->terminator = ctx.ret(value);
+    function->entry_block = entry;
+    function->blocks = {entry, header, body, exit};
+    CHECK(run_loop_pass("licm", ctx, function));
+    REQUIRE(function->blocks.size() == 5);
+    auto* before = function->blocks.back();
+    CHECK(std::ranges::find(before->instructions, product) != before->instructions.end());
+    CHECK(std::ranges::find(before->instructions, header_load) != before->instructions.end());
+    CHECK(std::ranges::find(body->instructions, loaded) != body->instructions.end());
+    CHECK(std::ranges::find(body->instructions, division) != body->instructions.end());
+    CHECK(index->incoming.front().block == body || index->incoming.front().block == before);
+    CHECK(std::ranges::any_of(index->incoming, [&](auto const& incoming) { return incoming.block == before; }));
+}
+
+TEST_CASE("index strength reduction preserves wrapping induction and its other uses")
+{
+    for (auto triple : {"i8086-binary", "x86_64-elf"})
+    {
+        auto target = *TargetConfig::parse_triple(triple);
+        IrContext ctx(262144, &target);
+        auto* type = ctx.usize_t();
+        auto* pointer = ctx.pointer_to(ctx.int_t(16, false));
+        IrType const* parameters[] = {pointer, type};
+        auto* function = ctx.function("stepping", ir_type_cast<IrFuncType>(ctx.func_t(type, parameters)));
+        auto* entry = ctx.basic_block("entry", 0);
+        auto* header = ctx.basic_block("header", 1);
+        auto* body = ctx.basic_block("body", 2);
+        auto* exit = ctx.basic_block("exit", 3);
+        auto* address = ctx.local("address", 0, pointer);
+        auto* limit = ctx.local("limit", 1, type);
+        entry->params = {address, limit};
+        entry->terminator = ctx.br(header);
+        auto* index = ctx.phi(type);
+        auto* next = ctx.add(type, index, ctx.int_const(type, 1));
+        index->incoming = {{ctx.int_const(type, -2), entry}, {next, body}};
+        auto* condition = ctx.cmp_ne(index, limit);
+        header->instructions = {index, condition};
+        header->terminator = ctx.br_cond(condition, body, exit);
+        auto* product = ctx.mul(type, index, ctx.int_const(type, 3));
+        auto* gep = ctx.gep(pointer, address);
+        gep->indices.push_back({IrGepInst::IndexKind::Array, product, 0});
+        auto* loaded = ctx.load(ctx.int_t(16, false), gep);
+        body->instructions = {product, gep, loaded, next};
+        body->terminator = ctx.br(header);
+        exit->terminator = ctx.ret(index);
+        function->entry_block = entry;
+        function->blocks = {entry, header, body, exit};
+        CHECK(run_loop_pass("strength", ctx, function));
+        auto* recurrence = ir_cast<IrPhiInst>(gep->indices[0].dynamic_index);
+        REQUIRE(recurrence);
+        CHECK(recurrence != index);
+        REQUIRE(recurrence->incoming.size() == 2);
+        auto* increment = ir_cast<IrAddInst>(recurrence->incoming[1].value);
+        REQUIRE(increment);
+        CHECK(ir_cast<IrIntConstant>(increment->rhs)->value == 3);
+        CHECK(ir_cast<IrRetInst>(exit->terminator)->value == index);
+    }
+}

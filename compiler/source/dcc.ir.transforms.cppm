@@ -4531,6 +4531,582 @@ namespace dcc::ir::pass
 
     } // namespace inline_detail
 
+    namespace loop_detail
+    {
+        static std::vector<IrValue*> operands(IrValue* inst)
+        {
+            switch (inst->kind)
+            {
+#define LOOP_BINARY(k)                                                                                                                                         \
+    case IrNodeKind::k: {                                                                                                                                      \
+        auto* op = static_cast<Ir##k##Inst*>(inst);                                                                                                            \
+        return {op->lhs, op->rhs};                                                                                                                             \
+    }
+                LOOP_BINARY(Add);
+                LOOP_BINARY(Sub);
+                LOOP_BINARY(Mul);
+                LOOP_BINARY(UDiv);
+                LOOP_BINARY(SDiv);
+                LOOP_BINARY(URem);
+                LOOP_BINARY(SRem);
+                LOOP_BINARY(And);
+                LOOP_BINARY(Or);
+                LOOP_BINARY(Xor);
+                LOOP_BINARY(Shl);
+                LOOP_BINARY(LShr);
+                LOOP_BINARY(AShr);
+                LOOP_BINARY(CmpEq);
+                LOOP_BINARY(CmpNe);
+                LOOP_BINARY(CmpLt);
+                LOOP_BINARY(CmpLe);
+                LOOP_BINARY(CmpGt);
+                LOOP_BINARY(CmpGe);
+                LOOP_BINARY(CmpULt);
+                LOOP_BINARY(CmpULe);
+                LOOP_BINARY(CmpUGt);
+                LOOP_BINARY(CmpUGe);
+#undef LOOP_BINARY
+#define LOOP_UNARY(k)                                                                                                                                          \
+    case IrNodeKind::k:                                                                                                                                        \
+        return {static_cast<Ir##k##Inst*>(inst)->operand}
+                LOOP_UNARY(Neg);
+                LOOP_UNARY(Not);
+                LOOP_UNARY(Zext);
+                LOOP_UNARY(Sext);
+                LOOP_UNARY(Trunc);
+                LOOP_UNARY(PtrToI);
+                LOOP_UNARY(IToPtr);
+                LOOP_UNARY(Bitcast);
+#undef LOOP_UNARY
+                case IrNodeKind::Gep: {
+                    auto* gep = static_cast<IrGepInst*>(inst);
+                    std::vector<IrValue*> result{gep->base};
+                    for (auto const& index : gep->indices)
+                        if (index.kind == IrGepInst::IndexKind::Array)
+                            result.push_back(index.dynamic_index);
+                    return result;
+                }
+                case IrNodeKind::Load:
+                    return {static_cast<IrLoadInst*>(inst)->pointer};
+                case IrNodeKind::MakePointer: {
+                    auto* pointer = static_cast<IrMakePointerInst*>(inst);
+                    return {pointer->offset, pointer->segment};
+                }
+                case IrNodeKind::PointerOffset:
+                    return {static_cast<IrPointerOffsetInst*>(inst)->pointer};
+                case IrNodeKind::PointerSegment:
+                    return {static_cast<IrPointerSegmentInst*>(inst)->pointer};
+                case IrNodeKind::Extract:
+                    return {static_cast<IrExtractInst*>(inst)->aggregate};
+                default:
+                    return {};
+            }
+        }
+
+        static bool pure(IrValue* inst)
+        {
+            auto values = operands(inst);
+            return !values.empty() && inst->kind != IrNodeKind::Load && inst->type && inst->type->kind != IrTypeKind::Float &&
+                   std::ranges::none_of(values, [](auto* value) { return value && value->type && value->type->kind == IrTypeKind::Float; });
+        }
+
+        static bool cheap_address(IrValue* inst)
+        {
+            auto* gep = ir_cast<IrGepInst>(inst);
+            return gep && std::ranges::all_of(gep->indices, [](auto const& index) {
+                       return index.kind == IrGepInst::IndexKind::Field || integer_literal(index.dynamic_index).has_value();
+                   });
+        }
+
+        static bool speculatable(IrValue* inst)
+        {
+            if (!pure(inst) || cheap_address(inst))
+                return false;
+            switch (inst->kind)
+            {
+                case IrNodeKind::UDiv:
+                case IrNodeKind::SDiv:
+                case IrNodeKind::URem:
+                case IrNodeKind::SRem:
+                    return false;
+                case IrNodeKind::Shl:
+                case IrNodeKind::LShr:
+                case IrNodeKind::AShr: {
+                    auto values = operands(inst);
+                    auto count = integer_literal(values[1]);
+                    return count && *count < integer_width(values[0]->type);
+                }
+                default:
+                    return true;
+            }
+        }
+
+        static bool barrier(IrValue* inst)
+        {
+            switch (inst->kind)
+            {
+                case IrNodeKind::Store:
+                case IrNodeKind::StoreVolatile:
+                case IrNodeKind::LoadVolatile:
+                case IrNodeKind::AtomicLoad:
+                case IrNodeKind::AtomicStore:
+                case IrNodeKind::AtomicRmw:
+                case IrNodeKind::AtomicCmpXchg:
+                case IrNodeKind::Fence:
+                case IrNodeKind::InlineAsm:
+                case IrNodeKind::Call:
+                case IrNodeKind::CallTail:
+                    return true;
+                default:
+                    return false;
+            }
+        }
+
+        static std::string key(IrValue* inst)
+        {
+            std::string result;
+            auto number = [&](std::uint64_t value) { result.append(reinterpret_cast<char const*>(&value), sizeof(value)); };
+            number(static_cast<unsigned>(inst->kind));
+            number(reinterpret_cast<std::uintptr_t>(inst->type));
+            auto values = operands(inst);
+            number(values.size());
+            for (auto* value : values)
+            {
+                if (auto bits = integer_literal(value))
+                {
+                    number(1);
+                    number(reinterpret_cast<std::uintptr_t>(value->type));
+                    number(*bits);
+                }
+                else if (auto* global = ir_cast<IrGlobalRef>(value))
+                {
+                    number(2);
+                    number(reinterpret_cast<std::uintptr_t>(global->type));
+                    number(global->name.size());
+                    result.append(global->name);
+                    number(static_cast<std::uint64_t>(global->addend));
+                }
+                else
+                {
+                    number(0);
+                    number(reinterpret_cast<std::uintptr_t>(value));
+                }
+            }
+            if (auto* gep = ir_cast<IrGepInst>(inst))
+                for (auto const& index : gep->indices)
+                {
+                    number(static_cast<unsigned>(index.kind));
+                    number(index.field_index);
+                }
+            if (auto* extract = ir_cast<IrExtractInst>(inst))
+                number(extract->field_index);
+            if (auto* load = ir_cast<IrLoadInst>(inst))
+                number(load->alignment);
+            return result;
+        }
+
+        static bool cse(FunctionPassContext& ctx)
+        {
+            IntegerRewriter rewriter(ctx);
+            auto const& dom = ctx.get_dom_tree();
+            auto const& preds = ctx.get_pred_map();
+            struct Entry
+            {
+                IrValue* value;
+                IrBasicBlock* block;
+            };
+            std::unordered_map<std::string, std::vector<Entry>> available;
+            std::unordered_set<IrValue*> removed;
+            auto clear_path = [&](Entry const& earlier, IrBasicBlock* block, IrValue* current) {
+                std::vector<IrBasicBlock*> work{block};
+                std::unordered_set<IrBasicBlock*> seen;
+                while (!work.empty())
+                {
+                    auto* next = work.back();
+                    work.pop_back();
+                    if (!seen.insert(next).second)
+                        continue;
+                    bool after = next != earlier.block;
+                    for (auto* inst : next->instructions)
+                    {
+                        if (inst == current && next == block)
+                            break;
+                        if (inst == earlier.value)
+                        {
+                            after = true;
+                            continue;
+                        }
+                        if (after && !removed.contains(inst) && barrier(inst))
+                            return false;
+                    }
+                    if (next == earlier.block)
+                        continue;
+                    auto found = preds.find(next);
+                    if (found == preds.end() || found->second.empty())
+                        return false;
+                    for (auto* pred : found->second)
+                        work.push_back(pred);
+                }
+                return true;
+            };
+            auto visit = [&](auto&& self, IrBasicBlock* block) -> void {
+                std::vector<std::string> inserted;
+                for (auto* inst : block->instructions)
+                {
+                    if (!pure(inst) && inst->kind != IrNodeKind::Load)
+                        continue;
+                    auto identity = key(inst);
+                    auto& entries = available[identity];
+                    Entry* replacement = nullptr;
+                    for (auto it = entries.rbegin(); it != entries.rend(); ++it)
+                        if (inst->kind != IrNodeKind::Load || clear_path(*it, block, inst))
+                        {
+                            replacement = &*it;
+                            break;
+                        }
+                    if (replacement && cheap_address(inst) && replacement->block != block)
+                        replacement = nullptr;
+                    if (replacement && rewriter.replace(inst, replacement->value))
+                    {
+                        removed.insert(inst);
+                    }
+                    else
+                    {
+                        entries.push_back({inst, block});
+                        inserted.push_back(std::move(identity));
+                    }
+                }
+                if (auto children = dom.children.find(block); children != dom.children.end())
+                    for (auto* child : children->second)
+                        self(self, const_cast<IrBasicBlock*>(child));
+                for (auto const& identity : inserted)
+                    available[identity].pop_back();
+            };
+            if (ctx.func->entry_block)
+                visit(visit, ctx.func->entry_block);
+            for (auto* block : ctx.func->blocks)
+                std::erase_if(block->instructions, [&](auto* inst) { return removed.contains(inst); });
+            if (!removed.empty())
+                ctx.invalidate_use_def();
+            return !removed.empty();
+        }
+
+        struct Loop
+        {
+            IrBasicBlock* header{};
+            std::unordered_set<IrBasicBlock*> blocks;
+        };
+
+        static std::vector<Loop> loops(FunctionPassContext& ctx)
+        {
+            auto const& dom = ctx.get_dom_tree();
+            auto const& preds = ctx.get_pred_map();
+            std::vector<Loop> result;
+            for (auto* header : ctx.get_rpo())
+            {
+                Loop loop{header, {header}};
+                bool found = false;
+                if (auto incoming = preds.find(header); incoming != preds.end())
+                    for (auto* latch : incoming->second)
+                        if (dom.dominates(header, latch))
+                        {
+                            found = true;
+                            std::vector<IrBasicBlock*> work{latch};
+                            while (!work.empty())
+                            {
+                                auto* block = work.back();
+                                work.pop_back();
+                                if (!loop.blocks.insert(block).second)
+                                    continue;
+                                if (auto back = preds.find(block); back != preds.end())
+                                    for (auto* pred : back->second)
+                                        work.push_back(pred);
+                            }
+                        }
+                if (found && std::ranges::all_of(loop.blocks, [&](auto* block) { return dom.dominates(header, block); }))
+                    result.push_back(std::move(loop));
+            }
+            std::stable_sort(result.begin(), result.end(), [](auto const& a, auto const& b) { return a.blocks.size() < b.blocks.size(); });
+            return result;
+        }
+
+        static IrBasicBlock* preheader(FunctionPassContext& ctx, Loop const& loop)
+        {
+            auto preds = analysis::build_pred_map(*ctx.func);
+            std::vector<IrBasicBlock*> incoming;
+            for (auto* block : preds[loop.header])
+                if (!loop.blocks.contains(block) && std::ranges::find(incoming, block) == incoming.end())
+                    incoming.push_back(block);
+            if (incoming.empty())
+                return nullptr;
+            if (incoming.size() == 1)
+                if (auto* branch = ir_cast<IrBrInst>(incoming[0]->terminator); branch && branch->target == loop.header)
+                    return incoming[0];
+            std::uint32_t id = 0;
+            for (auto* block : ctx.func->blocks)
+                id = std::max(id, block->id + 1);
+            auto* block = ctx.ctx->basic_block(inline_detail::inline_fresh_name(*ctx.ctx, "loop.preheader.", id), id);
+            block->parent = ctx.func;
+            block->terminator = ctx.ctx->br(loop.header);
+            for (auto* inst : loop.header->instructions)
+                if (auto* phi = ir_cast<IrPhiInst>(inst))
+                {
+                    std::vector<IrPhiInst::Pred> outside;
+                    for (auto const& item : phi->incoming)
+                        if (!loop.blocks.contains(item.block))
+                            outside.push_back(item);
+                    if (outside.empty())
+                        continue;
+                    IrValue* value = outside.front().value;
+                    if (outside.size() > 1)
+                    {
+                        auto* merged = ctx.ctx->phi(phi->type);
+                        for (auto const& item : outside)
+                            merged->incoming.push_back(item);
+                        block->instructions.push_back(merged);
+                        value = merged;
+                    }
+                    std::erase_if(phi->incoming, [&](auto const& item) { return !loop.blocks.contains(item.block); });
+                    phi->incoming.push_back({value, block});
+                }
+            for (auto* before : incoming)
+            {
+                if (auto* branch = ir_cast<IrBrInst>(before->terminator))
+                    branch->target = block;
+                else if (auto* conditional = ir_cast<IrBrCondInst>(before->terminator))
+                {
+                    if (conditional->true_target == loop.header)
+                        conditional->true_target = block;
+                    if (conditional->false_target == loop.header)
+                        conditional->false_target = block;
+                }
+                else if (auto* selection = ir_cast<IrSwitchInst>(before->terminator))
+                {
+                    if (selection->default_target == loop.header)
+                        selection->default_target = block;
+                    for (auto& item : selection->cases)
+                        if (item.target == loop.header)
+                            item.target = block;
+                }
+            }
+            ctx.func->blocks.push_back(block);
+            ctx.invalidate_cfg();
+            return block;
+        }
+
+        static bool licm(FunctionPassContext& ctx)
+        {
+            bool changed = false;
+            for (auto const& loop : loops(ctx))
+            {
+                std::unordered_set<IrValue*> inside;
+                bool writes = false;
+                for (auto* block : loop.blocks)
+                    for (auto* inst : block->instructions)
+                    {
+                        inside.insert(inst);
+                        writes |= barrier(inst);
+                    }
+                auto invariant = [&](IrValue* value) { return !value || !inside.contains(value); };
+                auto use_def = analysis::UseDef::build(*ctx.func);
+                auto affordable = [&](IrValue* candidate) {
+                    unsigned live = 0;
+                    for (auto const& [value, users] : use_def.uses)
+                    {
+                        if (inside.contains(const_cast<IrValue*>(value)) && value != candidate)
+                            continue;
+                        if (!value || !value->type ||
+                            (value->type->kind != IrTypeKind::Int && value->type->kind != IrTypeKind::Bool && value->type->kind != IrTypeKind::Pointer))
+                            continue;
+                        if (integer_literal(value) || ir_cast<IrGlobalRef>(value) || value->kind == IrNodeKind::NullConstant)
+                            continue;
+                        if (std::ranges::any_of(users, [&](auto* user) { return user != candidate && inside.contains(user); }))
+                            ++live;
+                    }
+                    return live <= (ctx.ctx->pointer_bits() <= 32 ? 2u : 4u);
+                };
+                IrBasicBlock* before = nullptr;
+                bool progress;
+                do
+                {
+                    progress = false;
+                    std::vector<IrBasicBlock*> ordered(ctx.func->blocks.begin(), ctx.func->blocks.end());
+                    for (auto* block : ordered)
+                        if (loop.blocks.contains(block))
+                        {
+                            bool safe_prefix = true;
+                            std::vector<IrValue*> move;
+                            for (auto* inst : block->instructions)
+                            {
+                                auto values = operands(inst);
+                                bool ordinary_load = inst->kind == IrNodeKind::Load && block == loop.header && !writes && safe_prefix;
+                                if ((speculatable(inst) || ordinary_load) && std::ranges::all_of(values, invariant) && affordable(inst))
+                                {
+                                    move.push_back(inst);
+                                    inside.erase(inst);
+                                }
+                                else if (inst->kind != IrNodeKind::Phi && !speculatable(inst))
+                                    safe_prefix = false;
+                            }
+                            if (!move.empty())
+                            {
+                                if (!before)
+                                    before = preheader(ctx, loop);
+                                if (!before)
+                                    return changed;
+                                progress = changed = true;
+                                for (auto* inst : move)
+                                    before->instructions.push_back(inst);
+                                std::erase_if(block->instructions, [&](auto* inst) { return std::ranges::find(move, inst) != move.end(); });
+                            }
+                        }
+                } while (progress);
+                if (changed)
+                {
+                    ctx.invalidate_cfg();
+                    return true;
+                }
+            }
+            return changed;
+        }
+
+        static bool strength(FunctionPassContext& ctx)
+        {
+            IntegerRewriter rewriter(ctx);
+            bool changed = false;
+            for (auto const& loop : loops(ctx))
+            {
+                std::unordered_set<IrValue*> inside;
+                for (auto* block : loop.blocks)
+                    for (auto* inst : block->instructions)
+                        inside.insert(inst);
+                auto use_def = analysis::UseDef::build(*ctx.func);
+                auto indexing = [&](auto&& self, IrValue* value, unsigned depth) -> bool {
+                    if (depth == 0)
+                        return false;
+                    for (auto* user : use_def.uses_of(value))
+                    {
+                        if (user->kind == IrNodeKind::Gep)
+                            return true;
+                        if ((user->kind == IrNodeKind::Add || user->kind == IrNodeKind::Zext || user->kind == IrNodeKind::Trunc ||
+                             user->kind == IrNodeKind::Sext) &&
+                            self(self, user, depth - 1))
+                            return true;
+                    }
+                    return false;
+                };
+                std::vector<IrValue*> expressions;
+                for (auto* block : ctx.func->blocks)
+                    if (loop.blocks.contains(block))
+                        for (auto* inst : block->instructions)
+                            if ((inst->kind == IrNodeKind::Mul || inst->kind == IrNodeKind::Shl) && integer_width(inst->type) && indexing(indexing, inst, 4))
+                                expressions.push_back(inst);
+                std::unordered_set<IrValue*> original_phis;
+                for (auto* inst : loop.header->instructions)
+                    if (inst->kind == IrNodeKind::Phi)
+                        original_phis.insert(inst);
+                for (auto* block : ctx.func->blocks)
+                    if (loop.blocks.contains(block))
+                        for (auto* inst : block->instructions)
+                            if (auto* gep = ir_cast<IrGepInst>(inst);
+                                gep && gep->indices.size() == 1 && gep->indices[0].kind == IrGepInst::IndexKind::Array && !inside.contains(gep->base))
+                                expressions.push_back(gep);
+                unsigned reduced = 0;
+                for (auto* expression : expressions)
+                {
+                    if (reduced == 4)
+                        break;
+                    if (rewriter.external.contains(expression))
+                        continue;
+                    auto values = operands(expression);
+                    auto* gep = ir_cast<IrGepInst>(expression);
+                    IrPointerType const* pointer = gep ? ir_type_cast<IrPointerType>(gep->type) : nullptr;
+                    if (gep &&
+                        (!pointer || pointer->flavor != PointerFlavor::Near || pointer->pointee->kind == IrTypeKind::Array || pointer->pointee->byte_size <= 4))
+                        continue;
+                    if (gep && ctx.ctx->pointer_bits() == 64 &&
+                        (pointer->pointee->byte_size == 2 || pointer->pointee->byte_size == 4 || pointer->pointee->byte_size == 8))
+                        continue;
+                    auto* induction = ir_cast<IrPhiInst>(values[gep ? 1 : 0]);
+                    auto scale = gep ? std::optional<std::uint64_t>{1} : integer_literal(values[1]);
+                    if (gep && (!original_phis.contains(induction) || integer_width(induction->type) != ctx.ctx->pointer_bits()))
+                        continue;
+                    if (!induction && expression->kind == IrNodeKind::Mul)
+                    {
+                        induction = ir_cast<IrPhiInst>(values[1]);
+                        scale = integer_literal(values[0]);
+                    }
+                    if (!induction || !scale || (!gep && induction->type != expression->type) || induction->incoming.size() != 2 ||
+                        std::ranges::find(loop.header->instructions, induction) == loop.header->instructions.end())
+                        continue;
+                    auto width = integer_width(induction->type);
+                    if (expression->kind == IrNodeKind::Shl)
+                    {
+                        if (*scale >= width)
+                            continue;
+                        scale = std::uint64_t{1} << *scale;
+                    }
+                    if (!gep && *scale <= 1)
+                        continue;
+                    IrPhiInst::Pred const* start = nullptr;
+                    IrPhiInst::Pred const* back = nullptr;
+                    for (auto const& item : induction->incoming)
+                        (loop.blocks.contains(item.block) ? back : start) = &item;
+                    if (!start || !back)
+                        continue;
+                    auto* update = ir_cast<IrAddInst>(back->value);
+                    if (!update)
+                        continue;
+                    auto step = update->lhs == induction   ? integer_literal(update->rhs)
+                                : update->rhs == induction ? integer_literal(update->lhs)
+                                                           : std::nullopt;
+                    if (!step || inside.contains(start->value))
+                        continue;
+                    auto* initial_value = start->value;
+                    auto* latch = back->block;
+                    auto* before = preheader(ctx, loop);
+                    if (!before)
+                        continue;
+                    IrValue* initial = nullptr;
+                    auto* phi = ctx.ctx->phi(expression->type);
+                    IrValue* next = nullptr;
+                    if (gep)
+                    {
+                        auto* start_address = ctx.ctx->gep(expression->type, gep->base);
+                        start_address->indices.push_back({IrGepInst::IndexKind::Array, initial_value, 0});
+                        auto* next_address = ctx.ctx->gep(expression->type, phi);
+                        next_address->indices.push_back({IrGepInst::IndexKind::Array, integer_constant(*ctx.ctx, induction->type, *step), 0});
+                        initial = start_address;
+                        next = next_address;
+                    }
+                    else
+                    {
+                        initial = ctx.ctx->mul(expression->type, initial_value, integer_constant(*ctx.ctx, expression->type, *scale));
+                        next = ctx.ctx->add(expression->type, phi, integer_constant(*ctx.ctx, expression->type, *step * *scale));
+                    }
+                    before->instructions.push_back(initial);
+                    phi->incoming.push_back({initial, before});
+                    phi->incoming.push_back({next, latch});
+                    loop.header->instructions.insert(loop.header->instructions.begin(), phi);
+                    latch->instructions.push_back(next);
+                    rewriter.replace(expression, phi);
+                    for (auto* block : ctx.func->blocks)
+                        std::erase(block->instructions, expression);
+                    changed = true;
+                    ++reduced;
+                }
+                if (changed)
+                {
+                    ctx.invalidate_cfg();
+                    return true;
+                }
+            }
+            if (changed)
+                ctx.invalidate_cfg();
+            return changed;
+        }
+    }
+
 } // namespace dcc::ir::pass
 
 export namespace dcc::ir::pass
@@ -4542,6 +5118,9 @@ export namespace dcc::ir::pass
         pm.add_function_pass({.name = "mem2reg", .min_level = OptLevel::O1, .run = mem2reg_impl});
         pm.add_function_pass({.name = "combine", .min_level = OptLevel::O2, .run = combine_impl});
         pm.add_function_pass({.name = "sccp", .min_level = OptLevel::O2, .run = sccp_impl});
+        pm.add_function_pass({.name = "cse", .min_level = OptLevel::O2, .run = loop_detail::cse});
+        pm.add_function_pass({.name = "licm", .min_level = OptLevel::O2, .run = loop_detail::licm});
+        pm.add_function_pass({.name = "strength", .min_level = OptLevel::O2, .run = loop_detail::strength});
         pm.add_function_pass({.name = "dce", .min_level = OptLevel::O1, .run = dce_impl});
         pm.add_function_pass({.name = "simplifycfg", .min_level = OptLevel::O1, .run = simplifycfg_impl});
     }
