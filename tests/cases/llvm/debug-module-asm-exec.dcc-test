@@ -1,0 +1,11 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+@nomangle public i32 dcc_main() {
+    return 42;
+}
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 42

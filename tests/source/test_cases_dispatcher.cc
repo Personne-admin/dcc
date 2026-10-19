@@ -3957,13 +3957,14 @@ namespace
                 bool partial_eval{false};
                 bool pic{false};
                 std::size_t base_line{};
+                bool llvm_only{false};
             };
 
             std::vector<DebugInput> debug_inputs;
             auto add_debug_input = [&](DebugInput input) {
                 if (std::ranges::find_if(debug_inputs, [&](DebugInput const& d) {
                         return d.triple == input.triple && d.bounds_check == input.bounds_check && d.restricted_check == input.restricted_check &&
-                               d.partial_eval == input.partial_eval && d.pic == input.pic;
+                               d.partial_eval == input.partial_eval && d.pic == input.pic && d.llvm_only == input.llvm_only;
                     }) == debug_inputs.end())
                     debug_inputs.push_back(std::move(input));
             };
@@ -3972,7 +3973,7 @@ namespace
                     add_debug_input({exp.target_triple, exp.bounds_check, exp.restricted_check, exp.partial_eval, exp.pic, exp.base_line});
             for (auto const& exp : fx.executable_blocks)
                 if (!exp.is_error)
-                    add_debug_input({exp.target_triple, false, false, false, exp.position_independent_code, exp.base_line});
+                    add_debug_input({exp.target_triple, false, false, false, exp.position_independent_code, exp.base_line, true});
 
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             for (auto const& input : debug_inputs)
@@ -3994,6 +3995,8 @@ namespace
 
                 for (bool const llvm : {true, false})
                 {
+                    if (!llvm && input.llvm_only)
+                        continue;
                     for (auto const level : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
                     {
                         dcc::ir::IrContext ir_ctx{256 * 1024, &target};
