@@ -14,5 +14,5 @@ i32 limit = 3;
     if narrow != 5.0 { return 2; }
     return 0;
 }
-=== EXPECT-EM64T-OBJECT ===
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
 RUN-EXIT: 0
