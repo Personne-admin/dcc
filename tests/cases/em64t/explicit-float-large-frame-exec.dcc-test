@@ -3,7 +3,7 @@ module main;
 @nomangle @calling_conv("Win64") @noinline @runtime public f64 large(f64 x) {
     volatile u8[16384] data;
     for usize i = 0; i < 16384; i += 1 { data[i] = i as u8; }
-    return x + (data[0] as f64) + (data[16383] as f64);
+    return x + (*(&data[0]) as f64) + (*(&data[16383]) as f64);
 }
 @nomangle public i32 dcc_main() {
     if large(0.25) != 255.25 { return 1; }
