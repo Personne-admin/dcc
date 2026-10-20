@@ -103,7 +103,7 @@ export namespace dcc::backend::em64t
                     break;
             }
 
-            if (w64 && frame_size >= 4096)
+            if ((target.os == dcc::target::Os::Windows || target.object_format == dcc::target::ObjectFormat::Coff) && frame_size >= 4096)
             {
                 MInstr probe_size = make_instr(MOpc::MOV64ri32, {phys_operand(PhysReg::RAX), MOp::from_imm(frame_size)}, 1);
                 MInstr probe = make_instr(MOpc::CALL_rel32, {MOp::from_symbol("__chkstk")}, 0);

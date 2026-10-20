@@ -143,6 +143,7 @@ class Case:
         self.args = args
         self.ret = ret
         self.cc = cc
+        self.large_stack = False
         self.values = []
         for j, t in enumerate(args):
             base = (index * 31 + j * 7) % 97 + 1
@@ -202,6 +203,10 @@ def build_cases():
         for ret in ("f32", "f64", "FS", "F2", "MX", "S24"):
             cases.append(Case("ret", len(cases) + 1,
                               ["i64", "f64", "i32", "f32", "u64", "f64"], ret, cc))
+    for cc in ("SystemV", "Win64"):
+        case = Case("param", len(cases) + 1, ["u64"], cc=cc)
+        case.large_stack = True
+        cases.append(case)
     return cases
 
 
@@ -468,6 +473,8 @@ def gen_dc_callee(cases):
                 "    h = mix(h, %s);\n" % dc_contrib_expr(t, "a%d" % j)
                 for j, t in enumerate(c.args)
             )
+            if c.large_stack:
+                body = "    volatile u8[16384] data;\n    for usize i = 0; i < 16384; i += 1 { data[i] = i as u8; }\n" + body
             out.append(
                 "@nomangle\npublic u64 abi_p%d(%s) {\n%s    return h;\n}\n"
                 % (c.index, params, body)
@@ -574,6 +581,8 @@ def gen_c_callee(cases):
                 "    h = mix(h, %s);\n" % c_contrib_expr(t, "a%d" % j)
                 for j, t in enumerate(c.args)
             )
+            if c.large_stack:
+                body = "    volatile uint8_t data[16384];\n    for (unsigned i = 0; i < 16384; ++i) data[i] = (uint8_t)i;\n" + body
             out.append(
                 "uint64_t abi_p%d(%s) {\n%s    return h;\n}\n" % (c.index, params, body)
             )
@@ -976,6 +985,15 @@ def main():
                         str(work / ("abi_%s.dc" % side)),
                     ]
                 )
+            if side == "callee" and v.startswith("custom-"):
+                listing = work / (v + "-callee.s")
+                run(timeout + [str(dcc), "-target", triple, "-fbackend", "custom", "-" + v.split("-")[1],
+                               "-I", str(work), "-S", "-o", str(listing), str(work / "abi_callee.dc")])
+                text = listing.read_text()
+                for case in cases:
+                    if case.large_stack:
+                        body = re.search(rf"(?ms)^abi_p{case.index}:\n(.*?)(?=^[A-Za-z_][A-Za-z_0-9.]*:|\Z)", text)
+                        assert body and ("call __chkstk" in body[1]) == windows, (v, case.cc, windows)
             objs[(side, v)] = obj
     main_obj = work / "main.o"
     run(
