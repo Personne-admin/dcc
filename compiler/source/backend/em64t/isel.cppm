@@ -3399,6 +3399,8 @@ namespace dcc::backend::em64t
                             }
                             else if (src_bits > 32 || (src_bits == 32 && !int_is_signed(src_ty)))
                                 conv = (dst_bits == 32) ? MOpc::CVTSI2SS64rr : MOpc::CVTSI2SD64rr;
+                            if (src_bits == 32 && !int_is_signed(src_ty))
+                                src = emit_unary_op(ctx, MOpc::MOVZX64_32rr, src);
                             VReg unsigned_high;
                             if (src_bits == 64 && !int_is_signed(src_ty))
                             {

@@ -1,0 +1,18 @@
+=== FILE: main.dc ===
+module main;
+asm @[intel, arch("x86_64")] { ".text\n.global dirty\ndirty:\nmov rax, 0x12345678c0000000\nret\n" };
+@nomangle extern u32 dirty();
+@noinline @runtime f64 wide(u32 x) { return x as f64; }
+@noinline @runtime f32 narrow(u32 x) { return x as f32; }
+@nomangle public i32 dcc_main() {
+    if wide(dirty()) != 3221225472.0 { return 1; }
+    if narrow(dirty()) != 3221225472.0 { return 2; }
+    return 0;
+}
+asm @[intel, arch("x86_64")] { ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n" };
+
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0
