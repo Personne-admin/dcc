@@ -148,6 +148,7 @@ namespace
             case MOpc::CMOV64Arr:
             case MOpc::XCHG64rr:
             case MOpc::MOVQ64rr:
+            case MOpc::MOVQ64rr_rev:
             case MOpc::LOCK_XADD64mr:
             case MOpc::LOCK_XCHG64mr:
             case MOpc::LOCK_AND64mi32:
@@ -1176,8 +1177,9 @@ namespace
                 break;
 
             case MOpc::MOVQ64rr:
+            case MOpc::MOVQ64rr_rev:
                 if (np >= 2 && ops[0].kind == MOpKind::Reg && ops[0].reg.is_physical() && ops[1].kind == MOpKind::Reg && ops[1].reg.is_physical())
-                    out += "movq " + std::string{phys_reg_name(ops[0].reg.phys_reg())} + ", " + std::string{reg64(ops[1].reg.phys_reg())} + "\n";
+                    out += "movq " + std::string{phys_reg_name(ops[0].reg.phys_reg())} + ", " + std::string{phys_reg_name(ops[1].reg.phys_reg())} + "\n";
                 else
                     out += "; movq unrecognized\n";
                 break;
