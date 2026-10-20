@@ -3347,14 +3347,36 @@ namespace dcc::backend::em64t
                             else if (src_bits == 32)
                                 conv = MOpc::CVTSS2SI64rr;
 
+                            VReg conversion_input = op_vreg;
+                            VReg high_bit;
+                            if (inst->kind == IrNodeKind::FpToI && !int_is_signed(inst->type) && ctx.type_bits(inst->type) == 64)
+                            {
+                                VReg threshold_bits = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, threshold_bits, src_bits == 32 ? 0x5f000000LL : 0x43e0000000000000LL, 64);
+                                VReg threshold = emit_unary_op(ctx, MOpc::MOVQ64rr, threshold_bits);
+                                ctx.append_instr(make_instr(src_bits == 32 ? MOpc::UCOMISSrr : MOpc::UCOMISDrr,
+                                                            {MOp::from_reg(op_vreg), MOp::from_reg(threshold)}, 0));
+                                VReg high = emit_setcc(ctx, MOpc::SETAEr);
+                                VReg zero = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, zero, 0, 64);
+                                VReg mask = emit_binary_op(ctx, MOpc::SUB64rr, zero, high);
+                                VReg offset_bits = emit_binary_op(ctx, MOpc::AND64rr, threshold_bits, mask);
+                                VReg offset = emit_unary_op(ctx, MOpc::MOVQ64rr, offset_bits);
+                                conversion_input = emit_binary_op(ctx, src_bits == 32 ? MOpc::SUBSSrr : MOpc::SUBSDrr, op_vreg, offset);
+                                VReg sign = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, sign, std::numeric_limits<std::int64_t>::min(), 64);
+                                high_bit = emit_binary_op(ctx, MOpc::AND64rr, mask, sign);
+                            }
                             VReg dst = ctx.mfunc.new_vreg();
                             MInstr mi;
                             mi.opc = conv;
                             mi.num_ops = 2;
                             mi.num_defs = 1;
                             mi.ops[0] = MOp::from_reg(dst);
-                            mi.ops[1] = MOp::from_reg(op_vreg);
+                            mi.ops[1] = MOp::from_reg(conversion_input);
                             ctx.append_instr(mi);
+                            if (high_bit.is_valid())
+                                dst = emit_binary_op(ctx, MOpc::XOR64rr, dst, high_bit);
                             if (inst->kind == IrNodeKind::FpToI)
                             {
                                 if (unsigned const fptoi_narrow = narrow_bits(inst->type); fptoi_narrow != 0)
@@ -3377,6 +3399,16 @@ namespace dcc::backend::em64t
                             }
                             else if (src_bits > 32 || (src_bits == 32 && !int_is_signed(src_ty)))
                                 conv = (dst_bits == 32) ? MOpc::CVTSI2SS64rr : MOpc::CVTSI2SD64rr;
+                            VReg unsigned_high;
+                            if (src_bits == 64 && !int_is_signed(src_ty))
+                            {
+                                VReg shift = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, shift, 63, 64);
+                                unsigned_high = emit_shift(ctx, MOpc::SHR64rcl, src, shift);
+                                VReg sticky = emit_binary_op(ctx, MOpc::AND64rr, src, unsigned_high);
+                                VReg reduced = emit_shift(ctx, MOpc::SHR64rcl, src, unsigned_high);
+                                src = emit_binary_op(ctx, MOpc::OR64rr, reduced, sticky);
+                            }
                             VReg dst = ctx.mfunc.new_vreg();
                             MInstr mi;
                             mi.opc = conv;
@@ -3385,6 +3417,15 @@ namespace dcc::backend::em64t
                             mi.ops[0] = MOp::from_reg(dst);
                             mi.ops[1] = MOp::from_reg(src);
                             ctx.append_instr(mi);
+                            if (unsigned_high.is_valid())
+                            {
+                                VReg bits = emit_unary_op(ctx, MOpc::MOVQ64rr_rev, dst);
+                                VReg shift = ctx.mfunc.new_vreg();
+                                emit_mov_ri(ctx, shift, dst_bits == 32 ? 23 : 52, 64);
+                                VReg exponent = emit_shift(ctx, MOpc::SHL64rcl, unsigned_high, shift);
+                                bits = emit_binary_op(ctx, MOpc::ADD64rr, bits, exponent);
+                                dst = emit_unary_op(ctx, MOpc::MOVQ64rr, bits);
+                            }
                             ctx.set_vreg(inst, dst);
                             break;
                         }
