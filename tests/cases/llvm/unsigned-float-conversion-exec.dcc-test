@@ -1,0 +1,34 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+volatile u64 wide = 10376293541461622784;
+volatile u32 narrow = 3221225472;
+@noinline @runtime u64 round_wide(u64 x) { return (x as f64) as u64; }
+@noinline @runtime u64 round_single(u64 x) { return (x as f32) as u64; }
+@noinline @runtime u32 round_narrow(u32 x) { return (x as f32) as u32; }
+@noinline @runtime f64 convert_wide(u64 x) { return x as f64; }
+@noinline @runtime f32 convert_single(u64 x) { return x as f32; }
+@noinline @runtime u64 truncate_wide(f64 x) { return x as u64; }
+@noinline @runtime u64 truncate_single(f32 x) { return x as u64; }
+@nomangle public i32 dcc_main() {
+    if round_wide(wide) != wide { return 1; }
+    if round_single(wide) != wide { return 2; }
+    if round_narrow(narrow) != narrow { return 3; }
+    if convert_wide(wide) != 10376293541461622784.0 { return 4; }
+    if convert_single(wide) != 10376293541461622784.0 { return 5; }
+    if truncate_wide(3.75) != 3 { return 6; }
+    if truncate_single(3.75) != 3 { return 7; }
+    if truncate_wide(0.0) != 0 { return 8; }
+    if truncate_single(0.0) != 0 { return 9; }
+    if convert_wide(18446744073709551615) != 18446744073709551616.0 { return 10; }
+    if convert_single(18446744073709551615) != 18446744073709551616.0 { return 11; }
+    if convert_wide(9223372036854776833) != 9223372036854777856.0 { return 12; }
+    return 0;
+}
+asm @[intel, arch("x86_64")] { ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n" };
+
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 0
+
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0

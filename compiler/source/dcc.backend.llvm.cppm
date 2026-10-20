@@ -4301,7 +4301,9 @@ namespace dcc::backend
                         if (!op || !dst_ty)
                             return false;
 
-                        auto* r = LLVMBuildFPToSI(builder, op, dst_ty, "");
+                        auto* r = f->type->kind == IrTypeKind::Int && !static_cast<IrIntType const*>(f->type)->is_signed
+                                      ? LLVMBuildFPToUI(builder, op, dst_ty, "")
+                                      : LLVMBuildFPToSI(builder, op, dst_ty, "");
                         set_name(r);
                         val_map[inst] = r;
                         break;
