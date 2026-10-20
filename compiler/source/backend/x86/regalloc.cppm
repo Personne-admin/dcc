@@ -197,6 +197,7 @@ namespace dcc::backend::x86
         [[nodiscard]] std::unordered_set<VReg> infer_reg_classes(MFunction const& func)
         {
             std::unordered_set<VReg> xmm;
+            std::unordered_map<VReg, std::vector<VReg>> copies;
             for (auto const& blk : func.blocks)
             {
                 for (auto const& instr : blk.instrs)
@@ -223,6 +224,12 @@ namespace dcc::backend::x86
                         }
                     }
 
+                    if (is_gpr_copy(instr.opc) && instr.num_ops >= 2 && instr.ops[0].kind == MOpKind::Reg && instr.ops[1].kind == MOpKind::Reg &&
+                        instr.ops[0].reg.is_virtual() && instr.ops[1].reg.is_virtual())
+                    {
+                        copies[instr.ops[0].reg].push_back(instr.ops[1].reg);
+                        copies[instr.ops[1].reg].push_back(instr.ops[0].reg);
+                    }
                     if (is_gpr_copy(instr.opc))
                         for (std::uint8_t i = 0; i < instr.num_ops; ++i)
                             if (instr.ops[i].kind == MOpKind::Reg)
@@ -258,6 +265,12 @@ namespace dcc::backend::x86
                     }
                 }
             }
+            std::vector<VReg> pending(xmm.begin(), xmm.end());
+            for (std::size_t i = 0; i < pending.size(); ++i)
+                if (auto it = copies.find(pending[i]); it != copies.end())
+                    for (auto reg : it->second)
+                        if (xmm.insert(reg).second)
+                            pending.push_back(reg);
             return xmm;
         }
 
