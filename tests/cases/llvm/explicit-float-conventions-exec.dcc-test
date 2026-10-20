@@ -1,0 +1,24 @@
+=== FILE: main.dc ===
+module main;
+volatile u32 input = 3;
+@noinline @runtime f64 helper(f64 x) { return x + 0.5; }
+@nomangle @calling_conv("Win64") @noinline @runtime public f64 win(u32 a, f32 b, u64 c, f64 d, f32 e) {
+    f64 first = (a as f64) + (b as f64) + (c as f64) + d + (e as f64);
+    return first + helper(d);
+}
+@nomangle @calling_conv("SystemV") @noinline @runtime public f64 sys(u32 a, f32 b, u64 c, f64 d, f32 e) {
+    f64 first = (a as f64) + (b as f64) + (c as f64) + d + (e as f64);
+    return first + helper(d);
+}
+@nomangle public i32 dcc_main() {
+    if win(input, 1.25, 7, 2.5, 4.0) != 20.75 { return 1; }
+    if sys(input, 1.25, 7, 2.5, 4.0) != 20.75 { return 2; }
+    return 0;
+}
+asm @[intel, arch("x86_64")] { ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n" };
+
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0

@@ -13,6 +13,8 @@ namespace dcc::backend::em64t
     {
         [[nodiscard]] bool is_win64(MFunction const& func, target::TargetConfig const& target)
         {
+            if (func.conv == ir::CallingConv::SystemV)
+                return false;
             if (target.os == dcc::target::Os::Windows)
                 return true;
 

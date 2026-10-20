@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -136,11 +137,12 @@ def c_lit(t, v):
 
 
 class Case:
-    def __init__(self, kind, index, args, ret=None):
+    def __init__(self, kind, index, args, ret=None, cc=None):
         self.kind = kind
         self.index = index
         self.args = args
         self.ret = ret
+        self.cc = cc
         self.values = []
         for j, t in enumerate(args):
             base = (index * 31 + j * 7) % 97 + 1
@@ -192,6 +194,14 @@ def build_cases():
         Case("ret", len(cases) + 3, ["i64", "f64", "i32", "f64", "i64"], "BFS"),
         Case("ret", len(cases) + 4, ["i64", "f64", "i32", "f64", "i64"], "BGS"),
     ]
+    for cc in ("SystemV", "Win64"):
+        for signature in (["i32", "f32", "i64", "f64", "f32"],
+                          ["f32", "f64"] * 10,
+                          ["i32", "f32", "u64", "f64"] * 6):
+            cases.append(Case("param", len(cases) + 1, signature, cc=cc))
+        for ret in ("f32", "f64", "FS", "F2", "MX", "S24"):
+            cases.append(Case("ret", len(cases) + 1,
+                              ["i64", "f64", "i32", "f32", "u64", "f64"], ret, cc))
     return cases
 
 
@@ -433,6 +443,22 @@ def clobber_expected(seed):
     return mix(h, int(acc * 4.0))
 
 
+def apply_case_conventions(source, cases, c_source):
+    for case in cases:
+        if not case.cc:
+            continue
+        name = f"abi_{'p' if case.kind == 'param' else 'r'}{case.index}"
+        if c_source:
+            attribute = "sysv_abi" if case.cc == "SystemV" else "ms_abi"
+            result = "uint64_t" if case.kind == "param" else c_type(case.ret)
+            source = source.replace(f"{result} {name}(",
+                                    f"__attribute__(({attribute})) {result} {name}(")
+        else:
+            source = re.sub(rf"(?m)^(public [^\n]+)\b{name}\(",
+                            rf'@calling_conv("{case.cc}")\n\1{name}(', source)
+    return source
+
+
 def gen_dc_callee(cases):
     out = ["module abi_callee;\nimport core::seg;\n", gen_dc_types(), gen_dc_contribs()]
     for c in cases:
@@ -536,7 +562,7 @@ public u64 abi_clobber(u64 seed) {
     return mix(h, (acc * 4.0) as u64);
 }
 """)
-    return "\n".join(out)
+    return apply_case_conventions("\n".join(out), cases, False)
 
 
 def gen_c_callee(cases):
@@ -602,7 +628,7 @@ uint64_t abi_clobber(uint64_t seed) {
     return mix(h, (uint64_t)(acc * 4.0));
 }
 """)
-    return "".join(out)
+    return apply_case_conventions("".join(out), cases, True)
 
 
 def ret_struct_fields(t, seed):
@@ -808,7 +834,7 @@ int abi_pressure(void) {
             pressure_id + 1,
         )
     )
-    return "".join(out)
+    return apply_case_conventions("".join(out), cases, True)
 
 
 def gen_main(cases):

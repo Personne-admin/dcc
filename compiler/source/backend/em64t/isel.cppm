@@ -24,8 +24,12 @@ namespace dcc::backend::em64t
             Win64,
         };
 
-        [[nodiscard]] CallConvKind detect_cc(dcc::target::TargetConfig const& target)
+        [[nodiscard]] CallConvKind detect_cc(dcc::target::TargetConfig const& target, dcc::ir::CallingConv conv = dcc::ir::CallingConv::Cdecl)
         {
+            if (conv == dcc::ir::CallingConv::SystemV)
+                return CallConvKind::SysV;
+            if (conv == dcc::ir::CallingConv::Win64)
+                return CallConvKind::Win64;
             return (target.os == dcc::target::Os::Windows || target.object_format == dcc::target::ObjectFormat::Coff) ? CallConvKind::Win64
                                                                                                                       : CallConvKind::SysV;
         }
@@ -1566,12 +1570,12 @@ namespace dcc::backend::em64t
         }
 
         [[nodiscard]] std::vector<ArgLoc> classify_args(IselCtx const& ctx, std::span<dcc::ir::IrValue* const> args, bool has_sret,
-                                                        std::int32_t& out_stack_bytes)
+                                                        std::int32_t& out_stack_bytes, CallConvKind cc)
         {
             std::vector<ArgLoc> locs(args.size());
             out_stack_bytes = 0;
 
-            bool sysv = (ctx.cc == CallConvKind::SysV);
+            bool sysv = (cc == CallConvKind::SysV);
             unsigned max_int = sysv ? 6u : 4u;
             unsigned max_float = sysv ? 8u : 4u;
 
@@ -1587,7 +1591,7 @@ namespace dcc::backend::em64t
 
                 if (!sysv)
                 {
-                    loc.by_reference = memory_arg_by_reference(ty, ctx.cc);
+                    loc.by_reference = memory_arg_by_reference(ty, cc);
                     loc.stack_size = 8;
                     if (win_slot < max_int)
                     {
@@ -1727,9 +1731,10 @@ namespace dcc::backend::em64t
         };
 
         [[nodiscard]] CallLowering lower_call(IselCtx& ctx, dcc::ir::IrValue const* callee, std::span<dcc::ir::IrValue* const> args,
-                                              dcc::ir::IrType const* result_type)
+                                              dcc::ir::IrType const* result_type, dcc::ir::CallingConv conv)
         {
             CallLowering cl;
+            auto cc = detect_cc(ctx.target, conv);
 
             std::uint32_t callee_slot = std::numeric_limits<std::uint32_t>::max();
             if (!dcc::ir::ir_cast<dcc::ir::IrGlobalRef>(callee))
@@ -1750,7 +1755,7 @@ namespace dcc::backend::em64t
             ReturnPlan ret_plan;
             if (is_memory_type(result_type))
             {
-                ret_plan = make_return_plan(ctx, result_type, ctx.cc);
+                ret_plan = make_return_plan(ctx, result_type, cc);
 
                 if (ret_plan.uses_sret())
                 {
@@ -1773,8 +1778,8 @@ namespace dcc::backend::em64t
             }
 
             std::int32_t stack_bytes = 0;
-            auto arg_locs = classify_args(ctx, args, cl.has_sret, stack_bytes);
-            ctx.mfunc.outgoing_args_size = std::max(ctx.mfunc.outgoing_args_size, stack_bytes);
+            auto arg_locs = classify_args(ctx, args, cl.has_sret, stack_bytes, cc);
+            ctx.mfunc.outgoing_args_size = std::max(ctx.mfunc.outgoing_args_size, stack_bytes + (cc == CallConvKind::Win64 && ctx.cc != CallConvKind::Win64 ? 32 : 0));
 
             std::vector<std::array<VReg, 2>> arg_piece_vregs(args.size());
             std::vector<VReg> arg_mem_addr(args.size());
@@ -1836,8 +1841,8 @@ namespace dcc::backend::em64t
             }
 
             using PhysRegSpan = std::span<PhysReg const>;
-            auto const& int_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVIntArgRegs} : PhysRegSpan{kWin64IntArgRegs};
-            auto const& float_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVFloatArgRegs} : PhysRegSpan{kWin64FloatArgRegs};
+            auto const& int_regs = (cc == CallConvKind::SysV) ? PhysRegSpan{kSysVIntArgRegs} : PhysRegSpan{kWin64IntArgRegs};
+            auto const& float_regs = (cc == CallConvKind::SysV) ? PhysRegSpan{kSysVFloatArgRegs} : PhysRegSpan{kWin64FloatArgRegs};
 
             VReg rsp = VReg::phys(PhysReg::RSP);
 
@@ -1962,7 +1967,7 @@ namespace dcc::backend::em64t
                 call_instr.ops[0] = MOp::from_reg(callee_vreg);
             }
 
-            if (ctx.cc == CallConvKind::SysV)
+            if (cc == CallConvKind::SysV)
             {
                 ctx.add_implicit_defs(call_instr, kCallerSavedSysV_GPR);
                 ctx.add_implicit_defs(call_instr, kCallerSavedSysV_XMM);
@@ -3712,7 +3717,7 @@ namespace dcc::backend::em64t
                     if (!c)
                         break;
 
-                    auto cl = lower_call(ctx, c->callee, c->args, c->type);
+                    auto cl = lower_call(ctx, c->callee, c->args, c->type, c->cc);
                     if (cl.return_vreg.is_valid())
                         ctx.set_vreg(inst, cl.return_vreg);
 
@@ -3727,7 +3732,7 @@ namespace dcc::backend::em64t
                     if (!ct)
                         break;
 
-                    auto cl = lower_call(ctx, ct->callee, ct->args, ct->type);
+                    auto cl = lower_call(ctx, ct->callee, ct->args, ct->type, ct->cc);
                     if (cl.return_vreg.is_valid())
                         ctx.set_vreg(inst, cl.return_vreg);
 
@@ -4395,8 +4400,10 @@ namespace dcc::backend::em64t
         mfunc.owned_name = func.name.empty() ? "<unnamed>" : std::string{func.name};
         mfunc.src_line = static_cast<std::int32_t>(func.decl_line);
         mfunc.linkage = func.linkage;
+        mfunc.conv = func.conv;
 
         IselCtx ctx(mfunc, target);
+        ctx.cc = detect_cc(target, func.conv);
         ctx.asm_diags = diags;
         auto use_def = analysis::UseDef::build(func);
         std::unordered_map<IrValue const*, std::size_t> terminator_uses;
@@ -4485,7 +4492,7 @@ namespace dcc::backend::em64t
             }
 
             std::int32_t in_stack_bytes = 0;
-            auto param_locs = classify_args(ctx, func.entry_block->params, has_sret, in_stack_bytes);
+            auto param_locs = classify_args(ctx, func.entry_block->params, has_sret, in_stack_bytes, ctx.cc);
 
             using PhysRegSpan = std::span<PhysReg const>;
             auto const& in_int_regs = (ctx.cc == CallConvKind::SysV) ? PhysRegSpan{kSysVIntArgRegs} : PhysRegSpan{kWin64IntArgRegs};
