@@ -949,6 +949,7 @@ def main():
         else ["timeout", os.environ["DCC_TIMEOUT"]]
     )
 
+    compiler_builtins = run(cc + ["-print-libgcc-file-name"], timeout=60).stdout.strip() if windows else None
     cases = build_cases()
     work = Path(args.work) if args.work else Path(tempfile.mkdtemp(prefix="dcc-abi-"))
     work.mkdir(parents=True, exist_ok=True)
@@ -1045,6 +1046,7 @@ def main():
                 + objects
                 + [
                     str(build / "lib/libdcext-windows-llvm.a"),
+                    compiler_builtins,
                     "-lkernel32",
                     "-lws2_32",
                     "-ladvapi32",
