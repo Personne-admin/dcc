@@ -39,6 +39,7 @@ import dcc.backend.llvm;
 import dcc.backend.em64t;
 import dcc.backend.i8086;
 import dcc.backend.i8086.link;
+import dcc.backend.i8086.place;
 
 namespace
 {
@@ -4071,26 +4072,9 @@ namespace
             std::error_code ec;
             auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
             fs::create_directories(run_dir, ec);
-            std::vector<std::string> extra_objects;
-            bool assembled = true;
-            for (auto const& file : fx.files)
+            if (std::ranges::any_of(fx.files, [](VirtualFile const& file) { return file.path.ends_with(".asm"); }))
             {
-                if (!file.path.ends_with(".asm"))
-                    continue;
-                auto source = run_dir / fs::path{file.path}.filename();
-                auto object = fs::path{source}.replace_extension(".o");
-                std::ofstream{source} << file.contents;
-                if (std::system(std::format("nasm -f elf32 '{}' -o '{}' > '{}' 2>&1", source.string(), object.string(), (run_dir / "nasm.log").string()).c_str()) != 0)
-                {
-                    std::ifstream log_in{run_dir / "nasm.log"};
-                    fail(std::format("cannot assemble {}: {}", file.path, std::string{std::istreambuf_iterator<char>(log_in), {}}));
-                    assembled = false;
-                    break;
-                }
-                extra_objects.push_back(object.string());
-            }
-            if (!assembled)
-            {
+                fail(".asm FILE blocks are no longer accepted for i8086 run fixtures; use module asm in the DC sources");
                 fs::remove_all(run_dir, ec);
                 continue;
             }
@@ -4123,42 +4107,67 @@ namespace
                     fail(std::format("{}: no object: {}", level, artifact.diagnostics.empty() ? std::string{"no diagnostic"} : artifact.diagnostics.front().message));
                     continue;
                 }
-                auto object = run_dir / std::format("main-{}.o", level);
                 auto binary = run_dir / std::format("main-{}.bin", level);
+                if (exp.gc_sections || !exp.forbidden_linked_symbols.empty())
                 {
-                    std::ofstream out{object, std::ios::binary};
-                    out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
+                    if (!artifact.object_bytes)
+                    {
+                        fail(std::format("{}: no object", level));
+                        continue;
+                    }
+                    auto object = run_dir / std::format("main-{}.o", level);
+                    {
+                        std::ofstream out{object, std::ios::binary};
+                        out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
+                    }
+                    dcc::backend::i8086::LinkOptions link{.base = *base, .stack_reserve = 4096, .model = target.code_model};
+                    auto map = run_dir / std::format("linked-{}.map", level);
+                    std::vector<std::string> link_arguments;
+                    if (exp.gc_sections)
+                        link_arguments.push_back("--gc-sections");
+                    if (!exp.forbidden_linked_symbols.empty())
+                        link_arguments.push_back("-Map=" + map.string());
+                    auto linked = dcc::backend::i8086::link_flat_binary({object.string()}, binary.string(), link, link_arguments);
+                    if (!linked)
+                    {
+                        fail(std::format("{}: linking failed: {}", level, linked.error()));
+                        continue;
+                    }
+                    if (!exp.forbidden_linked_symbols.empty())
+                    {
+                        std::ifstream map_input{map};
+                        std::string linked_map{std::istreambuf_iterator<char>{map_input}, {}};
+                        if (linked_map.empty())
+                            fail(std::format("{}: no linker map", level));
+                        for (auto const& symbol : exp.forbidden_linked_symbols)
+                            if (linked_map.contains(symbol))
+                                fail(std::format("{}: discarded symbol {} is still in the linked image", level, symbol));
+                    }
                 }
-                dcc::backend::i8086::LinkOptions link{.base = *base, .stack_reserve = 4096, .model = target.code_model};
-                std::vector<std::string> inputs;
-                inputs.push_back(object.string());
-                inputs.insert(inputs.end(), extra_objects.begin(), extra_objects.end());
-                auto map = run_dir / std::format("linked-{}.map", level);
-                std::vector<std::string> link_arguments;
-                if (exp.gc_sections)
-                    link_arguments.push_back("--gc-sections");
-                if (!exp.forbidden_linked_symbols.empty())
-                    link_arguments.push_back("-Map=" + map.string());
-                auto linked = dcc::backend::i8086::link_flat_binary(inputs, binary.string(), link, link_arguments);
-                if (!linked)
+                else if (artifact.image)
                 {
-                    fail(std::format("{}: linking failed: {}", level, linked.error()));
+                    dcc::backend::i8086::FlatLayoutOptions layout{.segment = base->segment,
+                                                                  .offset = base->offset,
+                                                                  .stack_reserve = 4096,
+                                                                  .model = target.code_model};
+                    auto placed = dcc::backend::i8086::layout_flat_image(*artifact.image, layout);
+                    if (!placed)
+                    {
+                        fail(std::format("{}: image layout failed: {}", level, placed.error()));
+                        continue;
+                    }
+                    std::ofstream out{binary, std::ios::binary};
+                    out.write(reinterpret_cast<char const*>(placed->bytes.data()), static_cast<std::streamsize>(placed->bytes.size()));
+                }
+                else
+                {
+                    fail(std::format("{}: no image description", level));
                     continue;
-                }
-                if (!exp.forbidden_linked_symbols.empty())
-                {
-                    std::ifstream map_input{map};
-                    std::string linked_map{std::istreambuf_iterator<char>{map_input}, {}};
-                    if (linked_map.empty())
-                        fail(std::format("{}: no linker map", level));
-                    for (auto const& symbol : exp.forbidden_linked_symbols)
-                        if (linked_map.contains(symbol))
-                            fail(std::format("{}: discarded symbol {} is still in the linked image", level, symbol));
                 }
                 auto serial = run_dir / std::format("serial-{}.out", level);
                 auto log = run_dir / std::format("run-{}.log", level);
-                int rc = std::system(std::format("python3 '{}' --load {} --mode {} --timeout {} '{}' > '{}' 2> '{}'", DCC_I8086_RUNNER, exp.load, unreal ? "unreal" : "real",
-                                                 exp.timeout, binary.string(), serial.string(), log.string())
+                int rc = std::system(std::format("python3 '{}' --load {} --mode {} --timeout {} '{}' > '{}' 2> '{}'", DCC_I8086_RUNNER, exp.load,
+                                                 unreal ? "unreal" : "real", exp.timeout, binary.string(), serial.string(), log.string())
                                          .c_str());
                 int code = WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
                 if (code == 254 || code == 255 || code < 0)
