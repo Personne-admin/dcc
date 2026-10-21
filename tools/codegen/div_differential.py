@@ -88,15 +88,14 @@ def main():
         assert result.stdout == expected, backend
         records.append({'configuration': backend, 'bytes': len(result.stdout), 'sha256': hashlib.sha256(result.stdout).hexdigest()})
     (directory / 'expected.bin').write_bytes(expected)
-    crt = directory / 'crt.o'
-    measure.run(['nasm', '-f', 'elf32', measure.ROOT / 'tests/i8086/crt0.asm', '-o', crt])
+    with_startup = directory / 'main-startup.dc'
+    with_startup.write_text(dc.read_text() + '\n' + (measure.ROOT / 'tests/i8086/crt0.dc').read_text())
     for model in ('small', 'unreal', 'unreal32'):
         for opt in ('O0', 'O2'):
             stem = directory / (model + '-' + opt)
-            obj = stem.with_suffix('.o')
             binary = stem.with_suffix('.bin')
-            measure.run([measure.ROOT / 'build/bin/dcc', '-target', 'i8086-binary', '-mcmodel', model, '-fbackend', 'custom', '-' + opt, '-c', dc, '-o', obj])
-            measure.run([measure.ROOT / 'build/bin/dcc', '-target', 'i8086-binary', '-mcmodel', model, '-fbase', '1000:0000', crt, obj, '-o', binary])
+            measure.run([measure.ROOT / 'build/bin/dcc', '-target', 'i8086-binary', '-mcmodel', model, '-fbackend', 'custom', '-' + opt,
+                         '-fbase', '1000:0000', with_startup, '-o', binary])
             serial = stem.with_suffix('.serial')
             command = ['python3', measure.ROOT / 'tests/i8086/run.py', binary, '--mode', 'real' if model == 'small' else 'unreal', '--timeout', str(args.run_timeout), '--serial-out', serial]
             result = subprocess.run(list(map(str, command)), capture_output=True, timeout=args.run_timeout + 10)

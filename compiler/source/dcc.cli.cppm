@@ -50,6 +50,7 @@ export namespace dcc::cli
         bool restricted_check{false};
         bool partial_eval{false};
         bool whole_program{false};
+        bool whole_program_explicit{false};
         bool emit_debug_info{false};
         dcc::backend::DebugFormat debug_format{dcc::backend::DebugFormat::Auto};
         bool help{false};
@@ -321,7 +322,10 @@ export namespace dcc::cli
          Phase::Compile,
          "lower the whole import graph into one output, keeping only reachable symbols",
          "off",
-         [](Options& o, bool on, std::string_view, char**) { o.whole_program = on; }},
+         [](Options& o, bool on, std::string_view, char**) {
+             o.whole_program = on;
+             o.whole_program_explicit = true;
+         }},
 
         {"-frestricted-check",
          "-fno-restricted-check",
@@ -538,7 +542,7 @@ export namespace dcc::cli
          "",
          {},
          Phase::Both,
-         "print the generated i8086 linker script for the selected -mcmodel and -fbase",
+         "print the reference i8086 flat linker script for the selected -mcmodel and -fbase; final images use the native writer", 
          "",
          [](Options& o, bool on, std::string_view, char**) { o.print_linker_script = on; }},
 

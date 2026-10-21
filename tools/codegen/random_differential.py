@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / 'tests/i8086'))
 from run import run as run_guest
 
+STARTUP = (ROOT / 'tests/i8086/crt0.dc').read_text()
 FIXED_SEEDS = (0, 1, 17, 42, 65537, 0xC0DEF00D)
 CONFIGS = ('llvm-O0', 'custom-O0', 'custom-O2', 'small-O0', 'small-O2',
            'unreal-O0', 'unreal-O2', 'unreal32-O0', 'unreal32-O2')
@@ -404,7 +405,7 @@ def command(args):
     return result
 
 
-def execute(config, directory, dcc, crt, native):
+def execute(config, directory, dcc, native):
     backend, opt = config.rsplit('-', 1)
     obj = directory / (config + '.o')
     if backend in ('llvm', 'custom'):
@@ -414,9 +415,10 @@ def execute(config, directory, dcc, crt, native):
         result = subprocess.run([binary], capture_output=True, timeout=10)
         return dict(exit=result.returncode, output=result.stdout.hex(), stderr=result.stderr.decode(errors='replace'))
     binary = directory / (config + '.bin')
+    with_startup = directory / (config + '-startup.dc')
+    with_startup.write_text((directory / 'main.dc').read_text() + '\n' + STARTUP)
     command([dcc, '-target', 'i8086-binary', '-mcmodel', backend, '-fbackend', 'custom', '-' + opt,
-             '-c', directory / 'main.dc', '-o', obj])
-    command([dcc, '-target', 'i8086-binary', '-mcmodel', backend, '-fbase', '1000:0000', crt, obj, '-o', binary])
+             '-fbase', '1000:0000', with_startup, '-o', binary])
     result = run_guest(binary.read_bytes(), mode='real' if backend == 'small' else 'unreal', timeout=10,
                        workdir=directory)
     return dict(exit=result.exit_code, output=result.serial.hex(), stderr=result.error or '', timeout=result.timed_out)
@@ -452,7 +454,7 @@ def float_invariants(record, labels):
     return failures
 
 
-def check_program(seed, directory, dcc, crt, native, minimize, family):
+def check_program(seed, directory, dcc, native, minimize, family):
     directory.mkdir()
     generator = generate_float if family == 'float' else generate
     configs = FLOAT_CONFIGS if family == 'float' else CONFIGS
@@ -465,7 +467,7 @@ def check_program(seed, directory, dcc, crt, native, minimize, family):
     records = {}
     for config in configs:
         try:
-            records[config] = execute(config, directory, dcc, crt, native)
+            records[config] = execute(config, directory, dcc, native)
         except (RuntimeError, subprocess.TimeoutExpired) as error:
             records[config] = dict(error=str(error))
     if family == 'float':
@@ -490,8 +492,8 @@ def check_program(seed, directory, dcc, crt, native, minimize, family):
             text, _ = generator(seed, candidate)
             (trial / 'main.dc').write_text(text)
             try:
-                a = execute(configs[0], trial, dcc, crt, native)
-                b = execute(target, trial, dcc, crt, native)
+                a = execute(configs[0], trial, dcc, native)
+                b = execute(target, trial, dcc, native)
                 if a.get('exit') == 0 and (b.get('exit') != 0 or a.get('output') != b.get('output') or
                         (family == 'float' and float_invariants(b, labels))):
                     keep = candidate
@@ -511,10 +513,10 @@ def check_program(seed, directory, dcc, crt, native, minimize, family):
     return report
 
 
-def check_seed(seed, output, dcc, crt, native, minimize, families):
+def check_seed(seed, output, dcc, native, minimize, families):
     directory = output / f'seed-{seed}'
     directory.mkdir()
-    programs = {family: check_program(seed, directory / family, dcc, crt, native, minimize, family) for family in families}
+    programs = {family: check_program(seed, directory / family, dcc, native, minimize, family) for family in families}
     return dict(seed=seed, programs=programs,
                 failed=any(p['failures'] or not p['reference_valid'] for p in programs.values()))
 
@@ -542,11 +544,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     native = output / 'native.c'
     native.write_text('#include <stdio.h>\nint dcc_main(void);\nvoid dcc_putc(unsigned char x) { putchar(x); }\nint main(void) { return dcc_main(); }\n')
-    crt = output / 'crt.o'
-    if 'integer' in args.families:
-        command(['nasm', '-f', 'elf32', ROOT / 'tests/i8086/crt0.asm', '-o', crt])
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as pool:
-        futures = [pool.submit(check_seed, seed, output, args.dcc.resolve(), crt, native, args.minimize, args.families) for seed in seeds]
+        futures = [pool.submit(check_seed, seed, output, args.dcc.resolve(), native, args.minimize, args.families) for seed in seeds]
         reports = [future.result() for future in futures]
     report = dict(configurations={f: FLOAT_CONFIGS if f == 'float' else CONFIGS for f in args.families}, seeds=seeds, failures=[r for r in reports if r['failed']],
                   revision=command(['git', '-C', ROOT, 'rev-parse', 'HEAD']).stdout.decode().strip(),

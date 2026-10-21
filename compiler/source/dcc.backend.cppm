@@ -47,6 +47,14 @@ export namespace dcc::backend
         std::vector<BackendDiagnostic> diagnostics;
     };
 
+    struct I8086ImageOptions
+    {
+        std::optional<std::uint16_t> segment;
+        std::uint16_t offset{};
+        std::uint32_t stack_reserve{4096};
+        std::string entry_symbol;
+    };
+
     struct BackendOptions
     {
         target::TargetConfig target;
@@ -61,6 +69,7 @@ export namespace dcc::backend
         sm::SourceManager const* source_manager{};
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
         bool restrict_library_functions{true};
+        std::optional<I8086ImageOptions> i8086_image;
     };
 
     [[nodiscard]] inline std::string_view artifact_kind_name(ArtifactKind kind)

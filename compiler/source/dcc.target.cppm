@@ -30,6 +30,13 @@ export namespace dcc::target
         Coff,
     };
 
+    enum class BinaryFormat : std::uint8_t
+    {
+        None,
+        Flat,
+        Mz,
+    };
+
     enum class CodeModel : std::uint8_t
     {
         Default,
@@ -53,6 +60,7 @@ export namespace dcc::target
         Arch arch{Arch::X86_64};
         Os os{Os::Linux};
         ObjectFormat object_format{ObjectFormat::Elf};
+        BinaryFormat binary_format{BinaryFormat::None};
         std::uint8_t pointer_bits{64};
         std::uint8_t pointer_align{8};
         bool little_endian{true};
@@ -128,11 +136,16 @@ export namespace dcc::target
 
         [[nodiscard]] std::optional<std::string> configure(CodeModel model, std::string_view instruction_set)
         {
-            code_model = model;
             cpu = instruction_set;
             if (arch == Arch::I8086)
             {
-                if (model != CodeModel::Default && model != CodeModel::Small && model != CodeModel::Unreal && model != CodeModel::Unreal32)
+                if (binary_format == BinaryFormat::Mz)
+                {
+                    if (model != CodeModel::Default && model != CodeModel::Small)
+                        return std::format("-mcmodel={} is not supported for target '{}'", code_model_name(model), triple);
+                    model = CodeModel::Small;
+                }
+                else if (model != CodeModel::Default && model != CodeModel::Small && model != CodeModel::Unreal && model != CodeModel::Unreal32)
                     return std::format("-mcmodel={} is not supported for target '{}'", code_model_name(model), triple);
                 if (cpu.empty())
                     cpu = "i386";
@@ -150,6 +163,7 @@ export namespace dcc::target
                 if (!cpu.empty() && !is_x86_cpu_allowed(cpu))
                     return std::format("unknown CPU '{}' for target arch", cpu);
             }
+            code_model = model;
             return std::nullopt;
         }
 
@@ -221,6 +235,18 @@ export namespace dcc::target
                 cfg.arch = Arch::I8086;
                 cfg.os = Os::Freestanding;
                 cfg.object_format = ObjectFormat::Elf;
+                cfg.binary_format = BinaryFormat::Flat;
+                cfg.pointer_bits = 16;
+                cfg.pointer_align = 2;
+                return cfg;
+            }
+
+            if (triple == "i8086-mz")
+            {
+                cfg.arch = Arch::I8086;
+                cfg.os = Os::Freestanding;
+                cfg.object_format = ObjectFormat::Elf;
+                cfg.binary_format = BinaryFormat::Mz;
                 cfg.pointer_bits = 16;
                 cfg.pointer_align = 2;
                 return cfg;

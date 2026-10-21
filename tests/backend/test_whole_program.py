@@ -17,7 +17,7 @@ MODULES = {
 
 MAIN_C = "int dcc_main(void);\nint main(void) { return dcc_main(); }\n"
 
-I8086_CRT0 = "bits 16\nsection .start progbits alloc exec\nextern dcc_main\n\tcall dcc_main\n\tmov dx, 0xf4\n\tout dx, al\n.hang:\n\tjmp .hang\n"
+I8086_STARTUP = (Path(__file__).resolve().parent.parent / "i8086" / "crt0.dc").read_text()
 
 
 def run(*args, expect=0, contains=None):
@@ -50,12 +50,10 @@ with tempfile.TemporaryDirectory(prefix="dcc-whole-program-") as directory:
     assert "extern _DC" not in text, "imported functions or globals left as extern"
     assert "unused_helper" not in text, "unreferenced imported function was emitted"
     assert "_DC0F1.3.mid7.compute" in text and "_DC0F1.4.leaf9.double_it" in text and "_DC0G1.3.mid4.bias" in text, text
-    startup = directory / "crt0.asm"
-    startup.write_text(I8086_CRT0)
-    run("nasm", "-f", "elf32", startup, "-o", directory / "crt0.o")
-    run("nasm", "-f", "elf32", asm, "-o", directory / "whole.o")
+    startup = directory / "startup.dc"
+    startup.write_text(entry.read_text() + "\n" + I8086_STARTUP)
     binary = directory / "whole.bin"
-    run(*i8086, "-mcmodel=small", "-fbase=1000:0", directory / "crt0.o", directory / "whole.o", "-o", binary)
+    run(*i8086, "-mcmodel=small", "-fbase=1000:0", startup, "-o", binary)
     run(sys.executable, runner, "--load", "1000:0000", "--mode", "real", binary, expect=0)
 
     for backend in ("custom", "llvm"):

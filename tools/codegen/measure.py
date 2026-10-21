@@ -211,10 +211,22 @@ def measure(entry, config, args, plugin, crt):
         runtime_frames = llvm_frames((args.output / 'runtime.s').read_text())
         binary = directory / ('program.bin' if real else 'program.elf')
         if real:
-            link = [args.dcc, '-target', 'i8086-binary', '-mcmodel', config, '-fbase', '1000:0000', crt['real'], obj,
-                    f'-Wl,-Map={directory}/program.map', '-o', binary]
+            with_startup = directory / 'program-startup.dc'
+            with_startup.write_text(source.read_text() + '\n' + (ROOT / 'tests/i8086/crt0.dc').read_text())
+            linked_obj = directory / 'program-startup.o'
+            link = [args.dcc, *flags, '-I', source.parent, '-c', with_startup, '-o', linked_obj]
             commands.append(list(map(str, link)))
             run(link, timeout=args.compile_timeout)
+            script = run([args.dcc, '-target', 'i8086-binary', '-mcmodel', config, '-fbase', '1000:0000', '--print-linker-script'], timeout=args.compile_timeout)
+            script_path = directory / 'i8086.ld'
+            script_path.write_text(script)
+            elf_script = directory / 'i8086-elf.ld'
+            elf_script.write_text('OUTPUT_FORMAT(elf32-i386)' + script[script.find('\n'):])
+            map_file = directory / 'program.map'
+            elf_image = directory / 'program.elf'
+            run(['ld.lld', '-m', 'elf_i386', '--fatal-warnings', '-e', '0', '-T', elf_script, '-o', elf_image,
+                 f'-Map={map_file}', linked_obj], timeout=args.compile_timeout)
+            run(['ld.lld', '-m', 'elf_i386', '--fatal-warnings', '-T', script_path, '-o', binary, linked_obj], timeout=args.compile_timeout)
             addresses = {}
             for line in (directory / 'program.map').read_text().splitlines():
                 match = re.match(r'\s*([0-9a-f]+)\s+[0-9a-f]+\s+[0-9a-f]+\s+\d+\s+(\S+)\s*$', line)
@@ -315,10 +327,9 @@ def main():
     args.dcc = args.dcc.resolve()
     plugin = args.output / 'count.so'
     run(['clang', '-O2', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', *shlex.split(run(['pkg-config', '--cflags', 'glib-2.0'])), HERE / 'count.c', '-o', plugin])
-    crt = {'real': args.output / 'crt16.o', 'flat': args.output / 'crt64.o', 'runtime': args.output / 'runtime.o'}
+    crt = {'flat': args.output / 'crt64.o', 'runtime': args.output / 'runtime.o'}
     run(['clang', '-O2', '-ffreestanding', '-fno-builtin', '-c', HERE / 'runtime.c', '-o', crt['runtime']])
     run(['clang', '-O2', '-ffreestanding', '-fno-builtin', '-S', HERE / 'runtime.c', '-o', args.output / 'runtime.s'])
-    run(['nasm', '-f', 'elf32', ROOT / 'tests/i8086/crt0.asm', '-o', crt['real']])
     flat = args.output / 'crt64.asm'
     flat.write_text('bits 64\nsection .text\nglobal _start\nglobal __assert\nextern dcc_main\n_start:\n call dcc_main\n mov edi,eax\n mov eax,60\n syscall\n__assert:\n mov edi,123\n mov eax,60\n syscall\nsection .note.GNU-stack noalloc noexec nowrite progbits\n')
     run(['nasm', '-f', 'elf64', flat, '-o', crt['flat']])

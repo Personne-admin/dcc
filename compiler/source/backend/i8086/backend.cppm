@@ -15,6 +15,7 @@ import dcc.backend.i8086.assembler;
 import dcc.backend.object.elf32;
 import dcc.backend.i8086.link;
 import dcc.backend.i8086.image;
+import dcc.backend.i8086.place;
 
 using namespace dcc::backend::x86;
 
@@ -34,7 +35,7 @@ namespace dcc::backend
 
             [[nodiscard]] std::set<ArtifactKind> supported_artifacts() const override
             {
-                return {ArtifactKind::MirText, ArtifactKind::AsmText, ArtifactKind::ObjectBytes};
+                return {ArtifactKind::MirText, ArtifactKind::AsmText, ArtifactKind::ObjectBytes, ArtifactKind::ExecutableBytes};
             }
 
             [[nodiscard]] BackendArtifact emit(ir::IrModule const& module, BackendOptions const& opts) override
@@ -168,7 +169,9 @@ namespace dcc::backend
                     artifact.asm_text = std::move(*text);
                 }
 
-                if (opts.requested_artifacts.contains(ArtifactKind::ObjectBytes))
+                bool const wants_object = opts.requested_artifacts.contains(ArtifactKind::ObjectBytes);
+                bool const wants_image = opts.requested_artifacts.contains(ArtifactKind::ExecutableBytes);
+                if (wants_object || wants_image)
                 {
                     MModule mmod;
                     std::vector<EncodeResult> encoded;
@@ -183,10 +186,53 @@ namespace dcc::backend
                     if (!artifact.diagnostics.empty())
                         return artifact;
                     auto image = i8086::collect_image(*input, mmod, encoded, opts.target, asm_object);
-                    auto bytes = object::write_elf32(*input, mmod, encoded, opts.target, object::elf32_i8086_policy, asm_object, &image);
-                    std::vector<std::byte> object_bytes(bytes.size());
-                    std::ranges::transform(bytes, object_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
-                    artifact.object_bytes = std::move(object_bytes);
+                    if (wants_object)
+                    {
+                        auto bytes = object::write_elf32(*input, mmod, encoded, opts.target, object::elf32_i8086_policy, asm_object, &image);
+                        std::vector<std::byte> object_bytes(bytes.size());
+                        std::ranges::transform(bytes, object_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
+                        artifact.object_bytes = std::move(object_bytes);
+                    }
+                    if (wants_image)
+                    {
+                        i8086::FlatLayoutOptions options;
+                        options.model = opts.target.code_model;
+                        if (opts.i8086_image)
+                        {
+                            options.segment = opts.i8086_image->segment;
+                            options.offset = opts.i8086_image->offset;
+                            options.stack_reserve = opts.i8086_image->stack_reserve;
+                        }
+                        auto placed = i8086::layout_flat_image(image, options);
+                        if (!placed)
+                            return fail(std::format("i8086 image: {}", placed.error()));
+                        if (opts.i8086_image && !opts.i8086_image->entry_symbol.empty())
+                        {
+                            auto const* symbol = placed->find_symbol(opts.i8086_image->entry_symbol);
+                            if (!symbol || !symbol->defined || symbol->absolute || symbol->space != object::ImageSpace::Code)
+                                return fail(std::format("i8086 image: entry symbol `{}` is not defined executable code", opts.i8086_image->entry_symbol));
+                            bool reached = symbol->value == placed->entry;
+                            if (!reached && placed->bytes.size() >= 3 && (placed->bytes[0] == 0xE9 || placed->bytes[0] == 0xE8))
+                            {
+                                auto const rel = static_cast<std::int16_t>(static_cast<std::uint16_t>(placed->bytes[1]) |
+                                                                           (static_cast<std::uint16_t>(placed->bytes[2]) << 8));
+                                auto const target = static_cast<std::uint64_t>(static_cast<std::int64_t>(placed->image_start + 3) + static_cast<std::int64_t>(rel));
+                                reached = target == symbol->value;
+                            }
+                            else if (!reached && placed->bytes.size() >= 2 && placed->bytes[0] == 0xEB)
+                            {
+                                auto const rel = static_cast<std::int8_t>(placed->bytes[1]);
+                                auto const target = static_cast<std::uint64_t>(static_cast<std::int64_t>(placed->image_start + 2) + static_cast<std::int64_t>(rel));
+                                reached = target == symbol->value;
+                            }
+                            if (!reached)
+                                return fail(std::format("i8086 flat images execute from the first stored code byte at offset 0x{:X}; entry `{}` at offset 0x{:X} is not reached directly from it",
+                                                        placed->entry, opts.i8086_image->entry_symbol, symbol->value));
+                        }
+                        std::vector<std::byte> image_bytes(placed->bytes.size());
+                        std::ranges::transform(placed->bytes, image_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
+                        artifact.executable_bytes = std::move(image_bytes);
+                    }
                     artifact.image = std::move(image);
                 }
                 return artifact;

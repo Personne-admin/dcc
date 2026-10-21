@@ -1244,54 +1244,60 @@ namespace
         return link;
     }
 
-    [[nodiscard]] std::vector<std::string> i8086_link_args(Options const& opts)
+    [[nodiscard]] bool is_i8086_final_image(Options const& opts)
     {
-        std::vector<std::string> args;
-        for (auto const& dir : opts.library_paths)
-            args.push_back(std::format("-L{}", dir));
-        for (auto const& lib : opts.libraries)
-            args.push_back(std::format("-l{}", lib));
-        for (auto const& extra : explicit_linker_args(opts))
-            args.push_back(extra);
-        return args;
+        return desired_artifacts(opts).contains(dcc::backend::ArtifactKind::ExecutableBytes);
     }
 
-    int run_i8086_link_mode(Options const& opts, dcc::target::TargetConfig const& target)
+    [[nodiscard]] bool apply_i8086_image_policy(Options& opts)
     {
+        auto target = resolve_target_or_exit(opts);
+        bool const i8086 = target.arch == dcc::target::Arch::I8086;
+        bool const final_image = is_i8086_final_image(opts);
+        if (!i8086 || !final_image)
+            return true;
+        if (target.binary_format == dcc::target::BinaryFormat::Mz)
+        {
+            std::println(std::cerr, "dcc: error: target 'i8086-mz' is recognized, but MZ image output is not implemented yet");
+            return false;
+        }
         if (opts.libdcext)
         {
             std::println(std::cerr, "dcc: error: -flibdcext is not available for target 'i8086-binary'");
-            return 1;
+            return false;
         }
-        auto link = i8086_link_options(opts, target);
-        if (!link)
-            return 1;
-        std::error_code ec;
-        std::vector<std::string> objects;
-        for (auto const& in : opts.input_files)
+        if (opts.whole_program_explicit && !opts.whole_program)
         {
-            auto canon = std::filesystem::canonical(in, ec);
-            if (ec)
-            {
-                std::println(std::cerr, "dcc: error: cannot find input file '{}'", in.string());
-                return 1;
-            }
-            objects.push_back(canon.string());
+            std::println(std::cerr, "dcc: error: -fno-whole-program cannot be used with target 'i8086-binary' final images; every final i8086 image is whole-program");
+            return false;
         }
-        std::filesystem::path output = opts.output_file.empty() ? std::filesystem::path{objects.front()}.replace_extension(".bin").filename() : opts.output_file;
-        for (auto const& in : opts.input_files)
-            if (same_file_path(output, in))
-            {
-                std::println(std::cerr, "dcc: error: output file '{}' is the same as an input object file", output.string());
-                return 1;
-            }
-        auto linked = dcc::backend::i8086::link_flat_binary(objects, output.string(), *link, i8086_link_args(opts));
-        if (!linked)
+        opts.whole_program = true;
+        if (!opts.linker_script.empty())
         {
-            std::println(std::cerr, "dcc: error: linking failed:\n{}", linked.error());
-            return 1;
+            std::println(std::cerr, "dcc: error: -T and linker scripts are not supported for i8086 final images");
+            return false;
         }
-        return 0;
+        if (!opts.linker_args.empty())
+        {
+            std::println(std::cerr, "dcc: error: -Wl, linker options are not supported for i8086 final images");
+            return false;
+        }
+        if (!opts.library_paths.empty() || !opts.libraries.empty())
+        {
+            std::println(std::cerr, "dcc: error: library search and library options (-L, -l) are not supported for i8086 final images");
+            return false;
+        }
+        for (auto const& input : opts.input_files)
+        {
+            auto const extension = input.extension().string();
+            if (extension == ".o" || extension == ".obj" || extension == ".a" || extension == ".s" || extension == ".asm")
+            {
+                std::println(std::cerr, "dcc: error: i8086 final images accept only source inputs; '{}' is an external assembly, object or archive input",
+                             input.string());
+                return false;
+            }
+        }
+        return true;
     }
 
     int run_link_mode(Options const& opts, char** argv)
@@ -1335,7 +1341,10 @@ namespace
         }
 
         if (i8086)
-            return run_i8086_link_mode(opts, target);
+        {
+            std::println(std::cerr, "dcc: error: target 'i8086-binary' final images are written by the compiler and cannot link object or archive inputs; compile the source instead (-c remains available for diagnostic objects)");
+            return 1;
+        }
 
         if (!i8086_link_options(opts, target))
             return 1;
@@ -1470,7 +1479,7 @@ auto main(int argc, char** argv) -> int
     if (opts.print_linker_script && !opts.help)
     {
         auto target = resolve_target_or_exit(opts);
-        if (target.arch != dcc::target::Arch::I8086)
+        if (target.arch != dcc::target::Arch::I8086 || target.binary_format != dcc::target::BinaryFormat::Flat)
         {
             std::println(std::cerr, "dcc: error: --print-linker-script applies only to target 'i8086-binary' (target: '{}')", target.triple);
             return 1;
@@ -1487,6 +1496,9 @@ auto main(int argc, char** argv) -> int
         print_usage();
         return opts.help ? 0 : 1;
     }
+
+    if (!apply_i8086_image_policy(opts))
+        return 1;
 
     bool const any_object = std::ranges::any_of(opts.input_files, is_object_file);
     bool const all_objects = std::ranges::all_of(opts.input_files, is_object_file);
@@ -1879,44 +1891,22 @@ auto main(int argc, char** argv) -> int
                 auto link = i8086_link_options(opts, target);
                 if (!link)
                     return 1;
-                bool const link_i8086 =
+                bool const image_i8086 =
                     target.arch == dcc::target::Arch::I8086 && backend_opts.requested_artifacts.contains(dcc::backend::ArtifactKind::ExecutableBytes);
-                if (link_i8086)
+                if (image_i8086)
                 {
-                    backend_opts.requested_artifacts.erase(dcc::backend::ArtifactKind::ExecutableBytes);
-                    backend_opts.requested_artifacts.insert(dcc::backend::ArtifactKind::ObjectBytes);
+                    dcc::backend::I8086ImageOptions image;
+                    image.segment = link->base.segment;
+                    image.offset = link->base.offset;
+                    image.stack_reserve = link->stack_reserve;
+                    image.entry_symbol = opts.entry_symbol;
+                    backend_opts.i8086_image = image;
                 }
 
                 auto backend = target.arch == dcc::target::Arch::I8086 ? dcc::backend::make_i8086_backend() : dcc::backend::make_em64t_backend();
                 auto artifact = backend->emit(*ir_mod, backend_opts);
                 phase("backend");
                 std::ignore = dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact);
-
-                if (link_i8086 && artifact.diagnostics.empty() && artifact.object_bytes)
-                {
-                    auto dir = std::filesystem::temp_directory_path(ec) /
-                               std::format("dcc-i8086-{}", std::chrono::steady_clock::now().time_since_epoch().count());
-                    std::filesystem::create_directories(dir, ec);
-                    auto object_path = dir / "module.o";
-                    auto binary_path = dir / "module.bin";
-                    {
-                        std::ofstream out{object_path, std::ios::binary};
-                        out.write(reinterpret_cast<char const*>(artifact.object_bytes->data()), static_cast<std::streamsize>(artifact.object_bytes->size()));
-                    }
-                    auto linked = dcc::backend::i8086::link_flat_binary({object_path.string()}, binary_path.string(), *link, i8086_link_args(opts));
-                    if (!linked)
-                        artifact.diagnostics.push_back(dcc::backend::BackendDiagnostic{{}, std::format("linking failed:\n{}", linked.error())});
-                    else
-                    {
-                        std::ifstream in{binary_path, std::ios::binary};
-                        std::vector<char> bytes{std::istreambuf_iterator<char>(in), {}};
-                        std::vector<std::byte> binary(bytes.size());
-                        std::ranges::transform(bytes, binary.begin(), [](char c) { return static_cast<std::byte>(c); });
-                        artifact.executable_bytes = std::move(binary);
-                        artifact.object_bytes.reset();
-                    }
-                    std::filesystem::remove_all(dir, ec);
-                }
 
                 if (!artifact.diagnostics.empty())
                 {
