@@ -48,147 +48,142 @@ struct Odd { u8[11] bytes; }
     return 42;
 }
 
-=== FILE: helpers.asm ===
-bits 16
-section .text
-global nasm_big
-global nasm_read
-global nasm_slice
-global nasm_call_dc
-global poison_es
-global nasm_pointer
-extern dc_one
-extern dc_two
-extern dc_four
-extern dc_big
-extern dc_slice
-extern dc_pointer
-poison_es:
-    push 0x1234
-    pop es
-    ret
-nasm_pointer:
-    push bp
-    mov bp, sp
-    mov eax, [bp + 4]
-    xor dx, dx
-    pop bp
-    ret
-nasm_read:
-    push bp
-    mov bp, sp
-    mov ax, [bp + 4]
-    add ax, [bp + 12]
-    add ax, [bp + 14]
-    call poison_es
-    pop bp
-    ret
-nasm_big:
-    push bp
-    mov bp, sp
-    mov ebx, [bp + 4]
-    mov ax, [bp + 8]
-    mov [ebx], ax
-    mov dword [ebx + 2], 0
-    mov word [ebx + 6], 0
-    add ax, 4
-    mov [ebx + 8], ax
-    mov eax, ebx
-    call poison_es
-    pop bp
-    ret
-nasm_slice:
-    push bp
-    mov bp, sp
-    mov ebx, [bp + 4]
-    mov ax, [ebx]
-    add ax, [bp + 8]
-    add ax, [bp + 12]
-    call poison_es
-    pop bp
-    ret
-nasm_call_dc:
-    push bp
-    mov bp, sp
-    push esi
-    push edi
-    sub sp, 18
-    mov esi, 0x12345678
-    mov edi, 0x87654321
-    push word 7
-    call dc_one
-    add sp, 2
-    cmp al, 7
-    jne .fail
-    push word 0x4321
-    call dc_two
-    add sp, 2
-    cmp ax, 0x4321
-    jne .fail
-    push dword 0x12345678
-    call dc_four
-    add sp, 4
-    cmp ax, 0x5678
-    jne .fail
-    cmp dx, 0x1234
-    jne .fail
-    push word 9
-    push word 7
-    lea bx, [bp - 18]
-    movzx ebx, bx
-    push ebx
-    call dc_big
-    add sp, 8
-    lea bx, [bp - 18]
-    movzx ebx, bx
-    cmp eax, ebx
-    jne .fail
-    cmp word [bp - 18], 7
-    jne .fail
-    cmp word [bp - 10], 9
-    jne .fail
-    cmp word [bp - 16], 0
-    jne .fail
-    push dword 3
-    push ebx
-    lea bx, [bp - 26]
-    movzx ebx, bx
-    push ebx
-    call dc_slice
-    add sp, 12
-    lea bx, [bp - 18]
-    movzx ebx, bx
-    cmp [bp - 26], ebx
-    jne .fail
-    cmp dword [bp - 22], 3
-    jne .fail
-    push ebx
-    call dc_pointer
-    add sp, 4
-    lea bx, [bp - 18]
-    cmp ax, bx
-    jne .fail
-    cmp dx, 0
-    jne .fail
-    cmp esi, 0x12345678
-    jne .fail
-    cmp edi, 0x87654321
-    jne .fail
-    lea ax, [bp - 26]
-    cmp sp, ax
-    jne .fail
-    mov ax, 42
-    xor dx, dx
-    jmp .done
-.fail:
-    mov ax, 1
-    xor dx, dx
-.done:
-    add sp, 18
-    pop edi
-    pop esi
-    pop bp
-    ret
 
+asm @[intel] {
+    \\.text
+    \\.globl nasm_big
+    \\.globl nasm_read
+    \\.globl nasm_slice
+    \\.globl nasm_call_dc
+    \\.globl poison_es
+    \\.globl nasm_pointer
+    \\poison_es:
+    \\push 0x1234
+    \\pop es
+    \\ret
+    \\nasm_pointer:
+    \\push bp
+    \\mov bp, sp
+    \\mov eax, [bp + 4]
+    \\xor dx, dx
+    \\pop bp
+    \\ret
+    \\nasm_read:
+    \\push bp
+    \\mov bp, sp
+    \\mov ax, [bp + 4]
+    \\add ax, [bp + 12]
+    \\add ax, [bp + 14]
+    \\call poison_es
+    \\pop bp
+    \\ret
+    \\nasm_big:
+    \\push bp
+    \\mov bp, sp
+    \\mov ebx, [bp + 4]
+    \\mov ax, [bp + 8]
+    \\mov [ebx], ax
+    \\mov dword ptr [ebx + 2], 0
+    \\mov word ptr [ebx + 6], 0
+    \\add ax, 4
+    \\mov [ebx + 8], ax
+    \\mov eax, ebx
+    \\call poison_es
+    \\pop bp
+    \\ret
+    \\nasm_slice:
+    \\push bp
+    \\mov bp, sp
+    \\mov ebx, [bp + 4]
+    \\mov ax, [ebx]
+    \\add ax, [bp + 8]
+    \\add ax, [bp + 12]
+    \\call poison_es
+    \\pop bp
+    \\ret
+    \\nasm_call_dc:
+    \\push bp
+    \\mov bp, sp
+    \\push esi
+    \\push edi
+    \\sub sp, 18
+    \\mov esi, 0x12345678
+    \\mov edi, 0x87654321
+    \\push word 7
+    \\call dc_one
+    \\add sp, 2
+    \\cmp al, 7
+    \\jne Lmem_fail
+    \\push word 0x4321
+    \\call dc_two
+    \\add sp, 2
+    \\cmp ax, 0x4321
+    \\jne Lmem_fail
+    \\push dword 0x12345678
+    \\call dc_four
+    \\add sp, 4
+    \\cmp ax, 0x5678
+    \\jne Lmem_fail
+    \\cmp dx, 0x1234
+    \\jne Lmem_fail
+    \\push word 9
+    \\push word 7
+    \\lea bx, [bp - 18]
+    \\movzx ebx, bx
+    \\push ebx
+    \\call dc_big
+    \\add sp, 8
+    \\lea bx, [bp - 18]
+    \\movzx ebx, bx
+    \\cmp eax, ebx
+    \\jne short Lmem_fail
+    \\cmp word ptr [bp - 18], 7
+    \\jne short Lmem_fail
+    \\cmp word ptr [bp - 10], 9
+    \\jne short Lmem_fail
+    \\cmp word ptr [bp - 16], 0
+    \\jne short Lmem_fail
+    \\push dword 3
+    \\push ebx
+    \\lea bx, [bp - 26]
+    \\movzx ebx, bx
+    \\push ebx
+    \\call dc_slice
+    \\add sp, 12
+    \\lea bx, [bp - 18]
+    \\movzx ebx, bx
+    \\cmp [bp - 26], ebx
+    \\jne short Lmem_fail
+    \\cmp dword ptr [bp - 22], 3
+    \\jne short Lmem_fail
+    \\push ebx
+    \\call dc_pointer
+    \\add sp, 4
+    \\lea bx, [bp - 18]
+    \\cmp ax, bx
+    \\jne short Lmem_fail
+    \\cmp dx, 0
+    \\jne short Lmem_fail
+    \\cmp esi, 0x12345678
+    \\jne short Lmem_fail
+    \\cmp edi, 0x87654321
+    \\jne short Lmem_fail
+    \\lea ax, [bp - 26]
+    \\cmp sp, ax
+    \\jne short Lmem_fail
+    \\mov ax, 42
+    \\xor dx, dx
+    \\jmp short Lmem_done
+    \\Lmem_fail:
+    \\mov ax, 1
+    \\xor dx, dx
+    \\Lmem_done:
+    \\add sp, 18
+    \\pop edi
+    \\pop esi
+    \\pop bp
+    \\ret
+    \\
+};
 === EXPECT-I8086-RUN ===
 RUN-EXIT: 42
