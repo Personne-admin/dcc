@@ -110,51 +110,50 @@ struct StaticHolder { u16 tag; u16^ saved; }
     if *vga != 0x1741 { return 18; }
     return 42;
 }
-=== FILE: start.asm ===
-bits 16
-section .start
-global _start
-extern dcc_main
-extern __bss_start
-extern __bss_end
-_start:
-    cli
-    cld
-    mov ax, cs
-    mov ds, ax
-    mov ss, ax
-    mov sp, 0xfffe
-    mov es, ax
-    mov edi, __bss_start
-    mov ecx, __bss_end
-    sub ecx, edi
-    xor eax, eax
-    a32 rep stosb
-    mov ax, 0x5000
-    mov es, ax
-    mov ax, 0x4000
-    mov fs, ax
-    mov ax, 0x6000
-    mov gs, ax
-    call dcc_main
-    mov dx, 0xf4
-    out dx, al
-stop:
-    jmp stop
-=== FILE: helpers.asm ===
-bits 16
-section .text
-global poison
-poison:
-    mov ax, 0x7000
-    mov es, ax
-    mov fs, ax
-    mov gs, ax
-    mov eax, 0xdeadbeef
-    mov ebx, 0xcafebabe
-    mov ecx, 0xabcdef01
-    mov edx, 0x12345678
-    ret
+
+asm @[intel] {
+    \\.section .start, "ax", @progbits
+    \\.globl _start
+    \\_start:
+    \\cli
+    \\cld
+    \\mov ax, cs
+    \\mov ds, ax
+    \\mov ss, ax
+    \\mov sp, 0xfffe
+    \\mov es, ax
+    \\mov edi, offset __bss_start
+    \\mov ecx, offset __bss_end
+    \\sub ecx, edi
+    \\xor eax, eax
+    \\a32 rep stosb
+    \\mov ax, 0x5000
+    \\mov es, ax
+    \\mov ax, 0x4000
+    \\mov fs, ax
+    \\mov ax, 0x6000
+    \\mov gs, ax
+    \\call dcc_main
+    \\mov dx, 0xf4
+    \\out dx, al
+    \\Ldfstart_stop:
+    \\jmp short Ldfstart_stop
+};
+
+asm @[intel] {
+    \\.text
+    \\.globl poison
+    \\poison:
+    \\mov ax, 0x7000
+    \\mov es, ax
+    \\mov fs, ax
+    \\mov gs, ax
+    \\mov eax, 0xdeadbeef
+    \\mov ebx, 0xcafebabe
+    \\mov ecx, 0xabcdef01
+    \\mov edx, 0x12345678
+    \\ret
+};
 === EXPECT-I8086-RUN ===
 START: none
 RUN-EXIT: 42
