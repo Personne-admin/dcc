@@ -2318,10 +2318,10 @@ namespace dcc::backend::x86
                 }
                 if (op.kind == Operand::Kind::Imm && push)
                 {
-                    unsigned const w = is_64() ? 32 : st.suffix_width ? st.suffix_width : 16;
-                    if (!is_64() && w != 16)
+                    unsigned const w = is_64() ? 32 : st.suffix_width ? st.suffix_width : op.size ? op.size : 16;
+                    if (!is_64() && w != 16 && w != 32)
                         return fail_none(st);
-                    mi.opc = is_64() ? MOpc::PUSH64i : MOpc::PUSH16i;
+                    mi.opc = is_64() ? MOpc::PUSH64i : (w == 32 ? MOpc::PUSH32i : MOpc::PUSH16i);
                     if (!immediate_fits(op.value, w) || !set_immediate(sel, 0, op.value, w))
                         return std::nullopt;
                     return sel;
