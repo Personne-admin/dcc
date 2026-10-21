@@ -12,27 +12,26 @@ module main;
     return 1;
 }
 
-=== FILE: helpers.asm ===
-bits 16
-section .text
-global install_handler
-extern dividend
-extern divisor
-install_handler:
-    push ds
-    xor ax, ax
-    mov ds, ax
-    mov word [0], handler
-    mov ax, cs
-    mov [2], ax
-    pop ds
-    mov dword [dividend], 0xb
-    mov dword [divisor], 0x0
-    ret
-handler:
-    mov al, 42
-    out 0xf4, al
-    hlt
 
+asm @[intel] {
+    \\.text
+    \\.globl install_handler
+    \\install_handler:
+    \\push ds
+    \\xor ax, ax
+    \\mov ds, ax
+    \\mov word ptr [0], offset Ltrap_handler
+    \\mov ax, cs
+    \\mov [2], ax
+    \\pop ds
+    \\mov dword ptr [dividend], 0xb
+    \\mov dword ptr [divisor], 0x0
+    \\ret
+    \\Ltrap_handler:
+    \\mov al, 42
+    \\out 0xf4, al
+    \\hlt
+    \\
+};
 === EXPECT-I8086-RUN ===
 RUN-EXIT: 42
