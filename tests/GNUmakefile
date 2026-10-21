@@ -84,6 +84,7 @@ all: test
 
 test-i8086:
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_dos.py
 
 test-lsp-diagnostics: $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/lsp_diagnostics.py $(BUILD_DIR)/bin/dccd
@@ -121,6 +122,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_bitfield_clang_layout.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tools/codegen/random_differential.py --dcc $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_harness.py
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/i8086/test_dos.py
 	@passed=0; failed=0; \
 	for bin in $(ALL_TEST_BINS); do \
 		name=$$(basename $$bin); \

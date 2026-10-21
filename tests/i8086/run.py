@@ -98,6 +98,11 @@ def run(binary, load="1000:0000", mode="real", timeout=10.0, qemu="qemu-system-i
         accel="tcg", memory_mb=64, cpu=None, ready_marker=None, workdir=None):
     seg, off = parse_load(load) if isinstance(load, str) else load
     image = build_image(binary, seg, off, mode, nasm, workdir)
+    return run_image(image, timeout, qemu, accel, memory_mb, cpu, ready_marker, workdir)
+
+
+def run_image(image, timeout=10.0, qemu="qemu-system-i386", accel="tcg", memory_mb=64,
+              cpu=None, ready_marker=None, workdir=None):
     with tempfile.TemporaryDirectory(prefix="i8086-run-", dir=workdir) as directory:
         disk = Path(directory) / "disk.img"
         serial_path = Path(directory) / "serial.out"
