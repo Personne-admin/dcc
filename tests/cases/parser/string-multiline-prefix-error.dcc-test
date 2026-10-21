@@ -1,0 +1,5 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT = \\bad;
+=== EXPECT-ERRORS ===
+test.dc:2: expected expression, found 'invalid'

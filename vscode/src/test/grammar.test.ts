@@ -137,3 +137,17 @@ test('adjacent plain and UTF-16 literals keep separate string scopes', async () 
     assert.ok(tokens.some(t => t.text.includes('gap') && t.scope === 'comment.block.dc'));
     assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
 });
+
+
+test('multiline strings are verbatim and stop before following code', async () => {
+    for (const newline of ['\n', '\r\n']) {
+        const source = ['[]const char s =', '  \\\\one\\n " // raw', '\t\\\\two', ';', 'i32 after = 1;'].join(newline);
+        const lines = await tokenizeSample(source);
+        for (const line of ['\\\\one\\n " // raw', '\\\\two']) {
+            const tokens = lines.get(line)!;
+            assert.equal(tokens.length, 1);
+            assert.equal(tokens[0].scope, 'string.unquoted.multiline.dc');
+        }
+        assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
+    }
+});

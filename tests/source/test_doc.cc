@@ -408,3 +408,60 @@ TEST_CASE("adjacent strings concatenate trivia and preserve their kind")
     CHECK_EQ(std::get<std::string>(*joined.value), std::string("a\0b", 3));
     CHECK(plain_lexer.next().kind == dcc::lex::TokenKind::Semicolon);
 }
+
+TEST_CASE("multiline strings are one token with verbatim bytes and normalized newlines")
+{
+    dcc::sm::SourceManager mgr;
+    dcc::si::string_interner interner;
+    for (auto newline : {std::string("\n"), std::string("\r\n")})
+    {
+        auto src = "  \\\\a\\n \" // literal" + newline + "\t\\\\" + newline + " \\\\b" + newline + "; i32 after;";
+        auto fid = mgr.open_in_memory("file:///multiline.dc", src, 1);
+        dcc::lex::Lexer lexer{*mgr.get(fid), interner};
+        auto tok = lexer.next();
+        REQUIRE(tok.kind == dcc::lex::TokenKind::StringLiteral);
+        CHECK_EQ(std::get<std::string>(*tok.value), "a\\n \" // literal\n\nb");
+        CHECK_EQ(tok.range.begin.offset, 2u);
+        CHECK_EQ(tok.range.end.offset, src.find(newline + ";"));
+        CHECK(lexer.next().kind == dcc::lex::TokenKind::Semicolon);
+        CHECK(lexer.next().kind == dcc::lex::TokenKind::Kwi32);
+    }
+}
+
+TEST_CASE("blank and comment lines end multiline tokens while adjacency still concatenates")
+{
+    dcc::sm::SourceManager mgr;
+    dcc::si::string_interner interner;
+    for (auto separator : {"\n", " // gap\n", " /* gap */\n"})
+    {
+        auto fid = mgr.open_in_memory("file:///end.dc", std::string("\\\\a\n") + separator + " \\\\b\n\"c\";", 1);
+        dcc::lex::Lexer raw{*mgr.get(fid), interner, false, false};
+        auto first = raw.next();
+        REQUIRE(first.kind == dcc::lex::TokenKind::StringLiteral);
+        CHECK_EQ(std::get<std::string>(*first.value), "a");
+        auto second = raw.next();
+        REQUIRE(second.kind == dcc::lex::TokenKind::StringLiteral);
+        CHECK_EQ(std::get<std::string>(*second.value), "b");
+        dcc::lex::Lexer joined{*mgr.get(fid), interner};
+        CHECK_EQ(std::get<std::string>(*joined.next().value), "abc");
+    }
+}
+
+TEST_CASE("multiline strings require a line prefix and support empty payloads and EOF")
+{
+    dcc::sm::SourceManager mgr;
+    dcc::si::string_interner interner;
+    for (auto text : {"\\\\", "  \\\\"})
+    {
+        auto fid = mgr.open_in_memory("file:///empty.dc", text, 1);
+        dcc::lex::Lexer lexer{*mgr.get(fid), interner};
+        auto tok = lexer.next();
+        REQUIRE(tok.kind == dcc::lex::TokenKind::StringLiteral);
+        CHECK(std::get<std::string>(*tok.value).empty());
+        CHECK(lexer.next().eof());
+    }
+    auto fid = mgr.open_in_memory("file:///prefix.dc", "x \\\\bad", 1);
+    dcc::lex::Lexer lexer{*mgr.get(fid), interner};
+    CHECK(lexer.next().kind == dcc::lex::TokenKind::Identifier);
+    CHECK(!lexer.next().valid());
+}

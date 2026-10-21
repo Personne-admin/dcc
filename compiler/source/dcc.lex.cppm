@@ -34,7 +34,7 @@ export namespace dcc::lex
                 m_retain = false;
                 auto err = skip_trivia();
                 m_retain = retain;
-                if (err || (peek() != '"' && (peek() != 'u' || peek_at(1) != '"')))
+                if (err || (peek() != '"' && (peek() != 'u' || peek_at(1) != '"') && !multiline_start()))
                 {
                     m_pos = saved;
                     break;
@@ -74,6 +74,8 @@ export namespace dcc::lex
                 return lex_line_comment(start);
 
             char c = peek();
+            if (multiline_start())
+                return lex_multiline_string(start);
 
             if (c == 'u' && peek_at(1) == '"')
                 return lex_u16_string(start);
@@ -465,6 +467,48 @@ export namespace dcc::lex
             auto tok = make_token(TokenKind::IntLiteral, start);
             tok.interned = interned;
             tok.value = static_cast<std::int64_t>(val);
+            return tok;
+        }
+
+        bool multiline_start() const noexcept
+        {
+            if (peek() != '\\' || peek_at(1) != '\\')
+                return false;
+            auto pos = m_pos;
+            while (pos > 0 && m_src[pos - 1] != '\n' && m_src[pos - 1] != '\r')
+            {
+                auto c = m_src[--pos];
+                if (c != ' ' && c != '\t')
+                    return false;
+            }
+            return true;
+        }
+
+        Token lex_multiline_string(std::uint32_t start)
+        {
+            std::string val;
+            for (;;)
+            {
+                m_pos += 2;
+                while (!at_end() && peek() != '\r' && peek() != '\n')
+                    val.push_back(advance());
+                auto end = m_pos;
+                if (peek() == '\r')
+                    advance();
+                if (peek() == '\n')
+                    advance();
+                while (peek() == ' ' || peek() == '\t')
+                    advance();
+                if (!multiline_start())
+                {
+                    m_pos = end;
+                    break;
+                }
+                val.push_back('\n');
+            }
+            auto tok = make_token(TokenKind::StringLiteral, start);
+            tok.interned = m_interner.intern(source_text(tok.range));
+            tok.value = std::move(val);
             return tok;
         }
 

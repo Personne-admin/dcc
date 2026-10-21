@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+import core;
+void f() {
+    core::compile_warning(
+        \\raw warning\n
+    );
+    core::compile_error(
+        \\raw error
+        "!"
+    );
+}
+=== EXPECT-ERRORS ===
+test.dc:7: raw error!
+=== EXPECT-WARNINGS ===
+test.dc:4: raw warning\n

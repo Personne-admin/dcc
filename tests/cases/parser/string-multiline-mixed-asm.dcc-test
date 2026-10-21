@@ -1,0 +1,8 @@
+=== FILE: test.dc ===
+module test;
+asm {
+    \\nop
+    u"ret"
+};
+=== EXPECT-ERRORS ===
+test.dc:3: cannot concatenate plain and UTF-16 string literals

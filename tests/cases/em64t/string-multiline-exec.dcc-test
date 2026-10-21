@@ -1,0 +1,44 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT =
+    \\a\n
+    \\
+    \\b" // raw
+    "\0!";
+asm @[intel] {
+    \\.text
+    \\.globl asm_answer
+    \\asm_answer:
+    \\mov eax, 7
+    \\ret
+};
+@nomangle extern i32 asm_answer();
+@nomangle public i32 dcc_main() {
+    []const char s = TEXT;
+    []const char expected = "a\\n\n\nb\" // raw\0!";
+    if s.len != expected.len { return 1; }
+    for usize i = 0; i < s.len; i++ {
+        if s[i] != expected[i] { return 2; }
+    }
+    []const char ended =
+        \\a
+
+        \\b
+
+        \\c
+    ;
+    if ended.len != 3 || ended[0] != 'a' || ended[1] != 'b' || ended[2] != 'c' { return 3; }
+    []const char prefix = "start"
+        \\tail
+    ;
+    if prefix.len != 9 || prefix[4] != 't' || prefix[5] != 't' || prefix[8] != 'l' { return 5; }
+    u32 answer = asm @[intel, output(u32 in eax)] {
+        \\mov %0, 42
+        \\add %0, 1
+    };
+    if answer != 43 { return 4; }
+    if asm_answer() != 7 { return 6; }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0

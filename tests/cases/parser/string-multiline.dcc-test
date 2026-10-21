@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT =
+    \\one
+    \\two\n" // verbatim
+    "three";
+@section(
+    \\.data
+) i32 item;
+void f() {
+    []const char empty =
+        \\
+    ;
+    asm {
+        \\nop
+    };
+}
+asm {
+    \\.text
+    \\nop
+};
+=== EXPECT-ERROR-COUNT: 0 ===

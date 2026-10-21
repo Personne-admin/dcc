@@ -1,0 +1,16 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module main;
+@import @nomangle extern u16 answer();
+asm @[intel] {
+    \\.text
+    \\.globl answer
+    \\answer:
+    \\mov ax, 42
+    \\ret
+};
+@nomangle public i32 dcc_main() {
+    return answer() as i32;
+}
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 42

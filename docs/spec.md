@@ -997,6 +997,23 @@ using []const char MESSAGE = "hello" /* separator */ " world";
 []const u16 wide = u"hello" u" world";
 ```
 
+A line whose first non-whitespace characters are `\\` starts a multiline
+plain string literal. Everything after `\\` on that line is copied verbatim,
+without escape processing. Immediately consecutive lines with this prefix are
+joined with one LF (`\n`), including in CRLF sources. Indentation before the
+prefix is excluded. The last line contributes no trailing newline. An empty
+payload line (`\\` alone) contributes an empty line; a blank source line or a
+comment line ends the multiline literal. Adjacent literals still concatenate
+under the rule above, without adding a newline between literals. A multiline
+literal has the default plain string kind and cannot concatenate with UTF-16.
+
+```dc
+[]const char message =
+    \\first line: \n is literal text
+    \\second line
+    "!";
+```
+
 `char` is a distinct, unsigned 8-bit text code-unit type (size and alignment
 one), not an alias for `u8`. Plain strings contain UTF-8 code units; a
 `char` need not be a complete Unicode character. Non-ASCII code points may

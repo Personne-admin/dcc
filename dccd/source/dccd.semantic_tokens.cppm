@@ -130,8 +130,29 @@ namespace dccd::semantic_tokens
                 dcc::lex::Lexer lexer{*sources.get(fid), interner, false, false};
                 for (auto tok = lexer.next(); !tok.eof(); tok = lexer.next())
                     if (tok.is_one_of(dcc::lex::TokenKind::StringLiteral, dcc::lex::TokenKind::U16StringLiteral))
-                        ranges.push_back({{range.begin.fileId, range.begin.offset + tok.range.begin.offset},
-                                          {range.begin.fileId, range.begin.offset + tok.range.end.offset}});
+                    {
+                        auto raw = lexer.source_text(tok.range);
+                        auto base = range.begin.offset + tok.range.begin.offset;
+                        if (!raw.starts_with("\\\\"))
+                        {
+                            ranges.push_back({{range.begin.fileId, base}, {range.begin.fileId, range.begin.offset + tok.range.end.offset}});
+                            continue;
+                        }
+                        std::uint32_t pos = 0;
+                        while (pos < raw.size())
+                        {
+                            while (pos < raw.size() && (raw[pos] == ' ' || raw[pos] == '\t'))
+                                ++pos;
+                            auto start = pos;
+                            while (pos < raw.size() && raw[pos] != '\r' && raw[pos] != '\n')
+                                ++pos;
+                            ranges.push_back({{range.begin.fileId, base + start}, {range.begin.fileId, base + pos}});
+                            if (pos < raw.size() && raw[pos] == '\r')
+                                ++pos;
+                            if (pos < raw.size() && raw[pos] == '\n')
+                                ++pos;
+                        }
+                    }
 
                 return ranges;
             }

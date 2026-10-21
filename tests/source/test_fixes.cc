@@ -359,3 +359,25 @@ void f() {
     CHECK_EQ(span.raw_range.begin.offset, source.find("%[x]"));
     CHECK_EQ(span.raw_range.end.offset, source.find("%[x]") + 4u);
 }
+
+TEST_CASE("multiline asm placeholder source ranges map to verbatim source bytes")
+{
+    std::string_view source = R"(module main;
+void f() {
+    asm {
+        \\nop
+        \\mov %[x], %%eax
+    };
+}
+)";
+    dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+    auto* tu = parse_asm_source(session, source);
+    REQUIRE(tu != nullptr);
+    auto const* stmt = find_asm_stmt(*tu);
+    REQUIRE(stmt != nullptr);
+    REQUIRE(stmt->placeholder_spans.size() == 2u);
+    auto const& span = stmt->placeholder_spans[0];
+    CHECK_EQ(span.byte_offset, 8u);
+    CHECK_EQ(span.raw_range.begin.offset, source.find("%[x]"));
+    CHECK_EQ(span.raw_range.end.offset, source.find("%[x]") + 4u);
+}

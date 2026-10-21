@@ -2973,6 +2973,28 @@ export namespace dcc::parser
         static bool build_asm_literal_raw_segments(std::string_view raw, std::string_view dec, std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>>& out)
         {
             out.clear();
+            if (raw.starts_with("\\\\"))
+            {
+                std::uint32_t pos = 2;
+                while (pos < raw.size())
+                {
+                    auto start = pos++;
+                    if (raw[start] == '\r' || raw[start] == '\n')
+                    {
+                        if (raw[start] == '\r' && pos < raw.size() && raw[pos] == '\n')
+                            ++pos;
+                        out.push_back({start, pos});
+                        while (pos < raw.size() && (raw[pos] == ' ' || raw[pos] == '\t'))
+                            ++pos;
+                        if (raw.substr(pos, 2) != "\\\\")
+                            return false;
+                        pos += 2;
+                    }
+                    else
+                        out.push_back({start, pos});
+                }
+                return out.size() == dec.size();
+            }
             if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"')
                 return false;
 

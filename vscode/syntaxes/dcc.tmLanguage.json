@@ -10,6 +10,9 @@
             "include": "#comments"
         },
         {
+            "include": "#multiline_strings"
+        },
+        {
             "include": "#strings"
         },
         {
@@ -60,6 +63,14 @@
                     "include": "#block_comment"
                 }
             ]
+        },
+        "multiline_strings": {
+            "match": "^[ \\t]*(\\\\\\\\.*)$",
+            "captures": {
+                "1": {
+                    "name": "string.unquoted.multiline.dc"
+                }
+            }
         },
         "strings": {
             "name": "string.quoted.double.dc",

@@ -6650,3 +6650,34 @@ TEST_CASE("adjacent strings leave intervening comments out of semantic string to
         }
     CHECK_EQ(strings, 2u);
 }
+
+TEST_CASE("multiline literal has only string tokens and highlighting resumes after it")
+{
+    namespace st = dccd::semantic_tokens;
+    for (auto newline : {std::string("\n"), std::string("\r\n")})
+    {
+        dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+        std::string text = "module m;" + newline + "void f() {" + newline + "[]const char s =" + newline +
+                           "  \\\\one\\n" + newline + "  \\\\two // raw" + newline + ";" + newline + "i32 after = 3;" + newline + "}";
+        auto fid = session.open_in_memory("file:///multiline.dc", text, 1);
+        auto* tu = session.parse_file(fid);
+        REQUIRE(tu != nullptr);
+        auto tokens = decode_delta(st::collect_tokens(session.source_manager(), tu, fid));
+        unsigned strings = 0;
+        bool after = false;
+        for (auto const& tok : tokens)
+        {
+            if (tok.type == static_cast<std::uint32_t>(st::TokenType::String))
+            {
+                ++strings;
+                CHECK(tok.line == 3u || tok.line == 4u);
+                CHECK_EQ(tok.character, 2u);
+                CHECK_EQ(tok.character + tok.length, tok.line == 3u ? 9u : 14u);
+            }
+            if (tok.line == 6u && tok.character == 4u && tok.length == 5u)
+                after = tok.type == static_cast<std::uint32_t>(st::TokenType::Variable);
+        }
+        CHECK_EQ(strings, 2u);
+        CHECK(after);
+    }
+}
