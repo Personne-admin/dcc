@@ -5,6 +5,7 @@ import dcc.ir;
 import dcc.ir.pass;
 import dcc.target;
 import dcc.sm;
+import dcc.backend.object.image;
 
 export namespace dcc::backend
 {
@@ -42,6 +43,7 @@ export namespace dcc::backend
         std::optional<std::vector<std::byte>> executable_bytes;
         std::optional<std::vector<std::byte>> shared_library_bytes;
         std::optional<std::vector<std::byte>> archive_bytes;
+        std::optional<object::ImageDescription> image;
         std::vector<BackendDiagnostic> diagnostics;
     };
 

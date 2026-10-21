@@ -92,6 +92,7 @@ export namespace dcc::backend::object
         std::uint32_t source_file_id{};
         std::int32_t source_line{};
         bool alloc{true};
+        bool explicit_section{};
         bool write{};
         bool exec{};
         bool nobits{};

@@ -132,7 +132,10 @@ export namespace dcc::backend::i8086
             definition.binding = binding(function.linkage);
             part.function = definition.function;
             if (part.function)
+            {
                 part.source_file_id = part.function->decl_file_id;
+                part.explicit_section = std::ranges::any_of(part.function->attrs, [](auto const& attr) { return attr.kind == ir::IrFuncAttr::Section; });
+            }
             image.functions.push_back(part.id);
             for (auto const& relocation : code.relocs)
                 fixup(part, relocation.offset, relocation.symbol, relocation.kind, relocation.addend);
@@ -162,6 +165,7 @@ export namespace dcc::backend::i8086
                                                              : ".data";
             auto& part = fragment(std::string{global->name}, section, section_role(section, true, false, kind == DataSection::Bss, !global->is_constant));
             part.global = global;
+            part.explicit_section = !global->section.empty();
             part.retain = global->retain;
             part.write = kind == DataSection::RodataRelRO || !global->is_constant;
             part.nobits = kind == DataSection::Bss;

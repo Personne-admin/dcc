@@ -187,6 +187,7 @@ namespace dcc::backend
                     std::vector<std::byte> object_bytes(bytes.size());
                     std::ranges::transform(bytes, object_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
                     artifact.object_bytes = std::move(object_bytes);
+                    artifact.image = std::move(image);
                 }
                 return artifact;
             }
