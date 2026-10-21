@@ -4839,6 +4839,26 @@ namespace
                 case MOpc::XCHG16mr:
                 case MOpc::XCHG32mr:
                     return xchg_memory();
+                case MOpc::XCHG8rr:
+                case MOpc::XCHG16rr:
+                case MOpc::XCHG32rr: {
+                    if (!is_reg(0) || !is_reg(1))
+                        return fail("expected two registers");
+                    auto const bits = width();
+                    auto const a = gpr(0, bits);
+                    auto const b = gpr(1, bits);
+                    if (!m_ok)
+                        return;
+                    prefixes(bits, nullptr);
+                    if (bits != 8 && (a == 0 || b == 0))
+                    {
+                        emit_u8(m_buf, static_cast<std::uint8_t>(0x90 + (a == 0 ? b : a)));
+                        return;
+                    }
+                    emit_u8(m_buf, bits == 8 ? 0x86 : 0x87);
+                    modrm_reg(a, b);
+                    return;
+                }
                 default:
                     return fail("instruction has no 16-bit encoding");
             }

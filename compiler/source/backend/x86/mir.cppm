@@ -638,6 +638,9 @@ export namespace dcc::backend::x86
         XCHG8mr,
         XCHG16mr,
         XCHG32mr,
+        XCHG8rr,
+        XCHG16rr,
+        XCHG32rr,
         HLT,
         CLD,
         STD,
@@ -836,6 +839,7 @@ export namespace dcc::backend::x86
             case MOpc::LFS32rm:
             case MOpc::LGS32rm:
             case MOpc::XCHG32mr:
+            case MOpc::XCHG32rr:
             case MOpc::IN32ri:
             case MOpc::IN32rr:
             case MOpc::OUT32ir:
@@ -916,6 +920,7 @@ export namespace dcc::backend::x86
             case MOpc::REPMOVSW_A32:
             case MOpc::REPSTOSW_A32:
             case MOpc::XCHG16mr:
+            case MOpc::XCHG16rr:
             case MOpc::IN16ri:
             case MOpc::IN16rr:
             case MOpc::OUT16ir:
@@ -926,6 +931,7 @@ export namespace dcc::backend::x86
             case MOpc::MOV8mi:
             case MOpc::MOV8rm:
             case MOpc::MOV8mr:
+            case MOpc::XCHG8rr:
             case MOpc::CMP8rr:
             case MOpc::CMP8ri:
             case MOpc::CMP8mi:
@@ -1109,6 +1115,9 @@ export namespace dcc::backend::x86
                 case MOpc::XCHG8mr:
                 case MOpc::XCHG16mr:
                 case MOpc::XCHG32mr:
+                case MOpc::XCHG8rr:
+                case MOpc::XCHG16rr:
+                case MOpc::XCHG32rr:
                 case MOpc::HLT:
                 case MOpc::CLD:
                 case MOpc::STD:
@@ -2154,6 +2163,12 @@ export namespace dcc::backend::x86
                 return "XCHG16mr"sv;
             case MOpc::XCHG32mr:
                 return "XCHG32mr"sv;
+            case MOpc::XCHG8rr:
+                return "XCHG8rr"sv;
+            case MOpc::XCHG16rr:
+                return "XCHG16rr"sv;
+            case MOpc::XCHG32rr:
+                return "XCHG32rr"sv;
             case MOpc::HLT:
                 return "HLT"sv;
             case MOpc::CLD:

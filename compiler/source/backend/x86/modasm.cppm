@@ -2079,6 +2079,18 @@ namespace dcc::backend::x86
                         mi.ops[1] = reg_op(ops[1].reg);
                         return sel;
                     }
+                    if (ops[0].kind == Operand::Kind::Reg && ops[1].kind == Operand::Kind::Reg)
+                    {
+                        auto opc = pick(*width, {MOpc::XCHG8rr, MOpc::XCHG16rr, MOpc::XCHG32rr, MOpc::XCHG64rr});
+                        if (!opc)
+                            return fail_none(st);
+                        mi.opc = *opc;
+                        mi.num_ops = 2;
+                        mi.num_defs = 1;
+                        mi.ops[0] = reg_op(ops[0].reg);
+                        mi.ops[1] = reg_op(ops[1].reg);
+                        return sel;
+                    }
                     auto const* mem_op = ops[0].kind == Operand::Kind::Mem ? &ops[0] : ops[1].kind == Operand::Kind::Mem ? &ops[1] : nullptr;
                     auto const* reg = ops[0].kind == Operand::Kind::Reg ? &ops[0] : ops[1].kind == Operand::Kind::Reg ? &ops[1] : nullptr;
                     auto opc = pick(*width, {MOpc::XCHG8mr, MOpc::XCHG16mr, MOpc::XCHG32mr, std::nullopt});
