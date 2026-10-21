@@ -151,29 +151,29 @@ struct Odd { u8[33] bytes; }
     if *zero != 41 { return 9; }
     return 42;
 }
-=== FILE: start.asm ===
-bits 16
-section .start
-global _start
-extern dcc_main
-_start:
-    cli
-    cld
-    mov ax, 0x2000
-    mov ds, ax
-    mov ss, ax
-    mov sp, 0xfffe
-    mov ax, 0x3000
-    mov es, ax
-    mov ax, 0x4000
-    mov fs, ax
-    mov ax, 0x5000
-    mov gs, ax
-    call dcc_main
-    mov dx, 0xf4
-    out dx, al
-stop:
-    jmp stop
+
+asm @[intel] {
+    \\.section .start, "ax", @progbits
+    \\.globl _start
+    \\_start:
+    \\cli
+    \\cld
+    \\mov ax, 0x2000
+    \\mov ds, ax
+    \\mov ss, ax
+    \\mov sp, 0xfffe
+    \\mov ax, 0x3000
+    \\mov es, ax
+    \\mov ax, 0x4000
+    \\mov fs, ax
+    \\mov ax, 0x5000
+    \\mov gs, ax
+    \\call dcc_main
+    \\mov dx, 0xf4
+    \\out dx, al
+    \\Ldistinct_stop:
+    \\jmp short Ldistinct_stop
+};
 === EXPECT-I8086-RUN ===
 START: none
 RUN-EXIT: 42
