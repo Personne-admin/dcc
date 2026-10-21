@@ -52,122 +52,122 @@ public i32 dcc_main() {
     return ok;
 }
 
-=== FILE: helpers.asm ===
-bits 16
 
-section .text
-
-global nasm_mix
-global nasm_ret_i8
-global nasm_ret_u8
-global nasm_ret_i16
-global nasm_ret_u16
-global nasm_ret_i32
-global nasm_ret_u32
-global nasm_ret_bool
-global nasm_call_dc
-extern dc_mix
-
-clobber:
-	mov ebx, 0xdeadbeef
-	mov ecx, 0xcafebabe
-	push 0x1234
-	pop es
-	ret
-
-nasm_mix:
-	push bp
-	mov bp, sp
-	call clobber
-	movsx eax, byte [bp + 4]
-	movzx ecx, byte [bp + 6]
-	add eax, ecx
-	movsx ecx, word [bp + 8]
-	add eax, ecx
-	movzx ecx, word [bp + 10]
-	add eax, ecx
-	add eax, [bp + 12]
-	sub eax, [bp + 16]
-	movzx ecx, byte [bp + 20]
-	imul ecx, ecx, 1000
-	add eax, ecx
-	mov edx, eax
-	shr edx, 16
-	mov ebx, 0x11111111
-	pop bp
-	ret
-
-nasm_ret_i8:
-	call clobber
-	mov ax, 0x77fb
-	mov edx, 0x99999999
-	ret
-
-nasm_ret_u8:
-	call clobber
-	mov ax, 0x55fa
-	ret
-
-nasm_ret_i16:
-	call clobber
-	mov eax, 0x7777f448
-	ret
-
-nasm_ret_u16:
-	call clobber
-	mov eax, 0x1234fde8
-	mov dx, 0x4321
-	ret
-
-nasm_ret_i32:
-	call clobber
-	mov eax, 0x99995678
-	mov edx, 0x88881234
-	ret
-
-nasm_ret_u32:
-	call clobber
-	mov ax, 0xba98
-	mov dx, 0xfedc
-	ret
-
-nasm_ret_bool:
-	call clobber
-	mov ax, 0x6601
-	ret
-
-nasm_call_dc:
-	push bp
-	mov bp, sp
-	push esi
-	push edi
-	mov esi, 0x13579bdf
-	mov edi, 0x2468ace0
-	push word 1
-	push dword 7
-	push dword 100000
-	push word 60000
-	push word -300
-	push word 250
-	push word -7
-	call dc_mix
-	add sp, 18
-	cmp esi, 0x13579bdf
-	jne .bad
-	cmp edi, 0x2468ace0
-	jne .bad
-	lea bx, [bp - 8]
-	cmp sp, bx
-	je .done
-.bad:
-	xor ax, ax
-	xor dx, dx
-.done:
-	pop edi
-	pop esi
-	pop bp
-	ret
-
+asm @[intel] {
+    \\
+    \\.text
+    \\
+    \\.globl nasm_mix
+    \\.globl nasm_ret_i8
+    \\.globl nasm_ret_u8
+    \\.globl nasm_ret_i16
+    \\.globl nasm_ret_u16
+    \\.globl nasm_ret_i32
+    \\.globl nasm_ret_u32
+    \\.globl nasm_ret_bool
+    \\.globl nasm_call_dc
+    \\
+    \\Lcabi_clobber:
+    \\mov ebx, 0xdeadbeef
+    \\mov ecx, 0xcafebabe
+    \\push 0x1234
+    \\pop es
+    \\ret
+    \\
+    \\nasm_mix:
+    \\push bp
+    \\mov bp, sp
+    \\call Lcabi_clobber
+    \\movsx eax, byte ptr [bp + 4]
+    \\movzx ecx, byte ptr [bp + 6]
+    \\add eax, ecx
+    \\movsx ecx, word ptr [bp + 8]
+    \\add eax, ecx
+    \\movzx ecx, word ptr [bp + 10]
+    \\add eax, ecx
+    \\add eax, [bp + 12]
+    \\sub eax, [bp + 16]
+    \\movzx ecx, byte ptr [bp + 20]
+    \\imul ecx, ecx, 1000
+    \\add eax, ecx
+    \\mov edx, eax
+    \\shr edx, 16
+    \\mov ebx, 0x11111111
+    \\pop bp
+    \\ret
+    \\
+    \\nasm_ret_i8:
+    \\call Lcabi_clobber
+    \\mov ax, 0x77fb
+    \\mov edx, 0x99999999
+    \\ret
+    \\
+    \\nasm_ret_u8:
+    \\call Lcabi_clobber
+    \\mov ax, 0x55fa
+    \\ret
+    \\
+    \\nasm_ret_i16:
+    \\call Lcabi_clobber
+    \\mov eax, 0x7777f448
+    \\ret
+    \\
+    \\nasm_ret_u16:
+    \\call Lcabi_clobber
+    \\mov eax, 0x1234fde8
+    \\mov dx, 0x4321
+    \\ret
+    \\
+    \\nasm_ret_i32:
+    \\call Lcabi_clobber
+    \\mov eax, 0x99995678
+    \\mov edx, 0x88881234
+    \\ret
+    \\
+    \\nasm_ret_u32:
+    \\call Lcabi_clobber
+    \\mov ax, 0xba98
+    \\mov dx, 0xfedc
+    \\ret
+    \\
+    \\nasm_ret_bool:
+    \\call Lcabi_clobber
+    \\mov ax, 0x6601
+    \\ret
+    \\
+    \\nasm_call_dc:
+    \\push bp
+    \\mov bp, sp
+    \\push esi
+    \\push edi
+    \\mov esi, 0x13579bdf
+    \\mov edi, 0x2468ace0
+    \\push word 1
+    \\push dword 7
+    \\push dword 100000
+    \\push word 60000
+    \\push word -300
+    \\push word 250
+    \\push word -7
+    \\call dc_mix
+    \\add sp, 18
+    \\cmp esi, 0x13579bdf
+    \\jne short Lcabi_bad
+    \\cmp edi, 0x2468ace0
+    \\jne short Lcabi_bad
+    \\lea bx, [bp - 8]
+    \\cmp sp, bx
+    \\je short Lcabi_done
+    \\Lcabi_bad:
+    \\xor ax, ax
+    \\xor dx, dx
+    \\Lcabi_done:
+    \\pop edi
+    \\pop esi
+    \\pop bp
+    \\ret
+    \\
+};
 === EXPECT-I8086-RUN ===
 RUN-EXIT: 11
 RUN-SERIAL: OK\n
