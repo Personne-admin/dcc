@@ -1801,6 +1801,21 @@ namespace
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
         opts.injected_decls = fx.injected_decls;
+        bool const needs_startup =
+            fixture_target && fixture_target->arch == dcc::target::Arch::I8086 && !fx.i8086_run_blocks.empty() &&
+            std::ranges::any_of(fx.i8086_run_blocks, [](ExpectI8086Run const& run) { return run.default_start; });
+        if (needs_startup)
+        {
+            std::ifstream startup_in{DCC_I8086_STARTUP};
+            std::string startup{std::istreambuf_iterator<char>{startup_in}, {}};
+            if (startup.empty())
+            {
+                ++stats.failed;
+                std::println(std::cerr, "    FAIL  cannot read the i8086 module-asm startup {}  ({}:1)", DCC_I8086_STARTUP, path.string());
+                return false;
+            }
+            opts.injected_decls.push_back(std::move(startup));
+        }
 
         bool const needs_std = std::ranges::any_of(fx.em64t_object_blocks, [](auto const& b) { return b.link_std; });
         if (needs_std)
@@ -4056,14 +4071,6 @@ namespace
             std::error_code ec;
             auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
             fs::create_directories(run_dir, ec);
-            auto crt0 = run_dir / "crt0.o";
-            if (exp.default_start &&
-                std::system(std::format("nasm -f elf32 '{}' -o '{}' > '{}' 2>&1", DCC_I8086_CRT0, crt0.string(), (run_dir / "nasm.log").string()).c_str()) != 0)
-            {
-                fail("cannot assemble tests/i8086/crt0.asm with nasm");
-                fs::remove_all(run_dir, ec);
-                continue;
-            }
             std::vector<std::string> extra_objects;
             bool assembled = true;
             for (auto const& file : fx.files)
@@ -4124,8 +4131,6 @@ namespace
                 }
                 dcc::backend::i8086::LinkOptions link{.base = *base, .stack_reserve = 4096, .model = target.code_model};
                 std::vector<std::string> inputs;
-                if (exp.default_start)
-                    inputs.push_back(crt0.string());
                 inputs.push_back(object.string());
                 inputs.insert(inputs.end(), extra_objects.begin(), extra_objects.end());
                 auto map = run_dir / std::format("linked-{}.map", level);
