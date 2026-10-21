@@ -11,6 +11,8 @@ import dcc.backend.object.elf32;
 import dcc.backend.i8086.registers;
 import dcc.backend.i8086.framelay;
 import dcc.backend.i8086.isel;
+import dcc.backend.i8086.image;
+import dcc.backend.x86.modasm;
 
 #include "harness.hh"
 
@@ -981,4 +983,150 @@ TEST_CASE("real16 branch relaxation repeats after an intervening jump grows")
     auto assembled = nasm16("jmp near first\njmp near second\ntimes 125 nop\nfirst:\ntimes 100 nop\nsecond:\nret");
     REQUIRE(assembled.has_value());
     CHECK(*assembled == encoded.bytes);
+}
+
+TEST_CASE("i8086 image collection retains typed offsets segments and fragment ownership")
+{
+    using namespace dcc::ir;
+    using namespace dcc::backend::object;
+    for (auto model : {dcc::target::CodeModel::Small, dcc::target::CodeModel::Unreal, dcc::target::CodeModel::Unreal32})
+    {
+        auto target = *dcc::target::TargetConfig::parse_triple("i8086-binary");
+        REQUIRE(!target.configure(model, "i386"));
+        IrContext context{256 * 1024, &target};
+        auto* module = context.module("image");
+        auto* u16 = context.int_t(16, false);
+        auto* type = static_cast<IrFuncType const*>(context.func_t(u16, {}));
+        auto* function = context.function("entry", type);
+        function->linkage = Linkage::External;
+        module->functions.push_back(function);
+        auto* global = context.global("value", u16, context.int_const(u16, 19));
+        global->alignment = 8;
+        global->retain = true;
+        auto* far_type = context.pointer_to(u16, Segment::None, PointerFlavor::Far);
+        auto* pointer = context.global("pointer", far_type, context.global_ref(global, far_type, 2), true);
+        auto* far_function_type = context.pointer_to(type, Segment::None, PointerFlavor::Far);
+        auto* function_ref = context.func_ref(function, 3);
+        function_ref->type = far_function_type;
+        auto* callback = context.global("callback", far_function_type, function_ref);
+        auto* scratch = context.global("scratch", context.array_t(u16, 31));
+        auto* array_type = context.array_t(far_type, 2);
+        auto* array_init = context.aggregate(array_type);
+        array_init->values.push_back(context.global_ref(global, far_type, 4));
+        array_init->values.push_back(context.pointer_const(far_type, 9, 0xb800));
+        auto* nested = context.global("nested", array_type, array_init, true);
+        for (auto* value : {global, pointer, callback, scratch, nested})
+            module->globals.push_back(value);
+
+        auto marker_name = model == dcc::target::CodeModel::Small    ? "__dcc_i8086_model_small"
+                           : model == dcc::target::CodeModel::Unreal ? "__dcc_i8086_model_unreal"
+                                                                     : "__dcc_i8086_model_unreal32";
+        auto* marker = context.global(marker_name, u16);
+        marker->is_declaration = true;
+        auto* model_ref = context.global("model_reference", context.pointer_to(u16), context.global_ref(marker, context.pointer_to(u16)), true);
+        model_ref->section = ".dcc.i8086.model";
+        model_ref->retain = true;
+        module->globals.push_back(marker);
+        module->globals.push_back(model_ref);
+
+        MModule machine;
+        machine.functions.emplace_back();
+        auto& main = machine.functions.back();
+        main.owned_name = "entry";
+        main.linkage = Linkage::External;
+        main.create_block("entry").instrs.push_back(X(MOpc::CALL, {MOp::from_symbol("external")}));
+        main.blocks.front().instrs.push_back(X(MOpc::RET));
+        MJumpTable table;
+        table.symbol = "jump_table";
+        table.targets = {main.blocks.front().id};
+        main.jump_tables.push_back(table);
+        std::vector<EncodeResult> encoded{encode_function(main, EncodeMode::Real16)};
+        ModuleAsmObject assembly;
+        ModuleAsmSection startup;
+        startup.name = ".start";
+        startup.alloc = startup.exec = true;
+        startup.alignment = 16;
+        startup.data = {0xe9, 0, 0, 0, 0};
+        startup.relocations.push_back({1, "entry", Reloc::Kind::Rel16, -2});
+        startup.relocations.push_back({3, "value", Reloc::Kind::Abs16, 0});
+        startup.lines.push_back({0, "jmp entry"});
+        assembly.sections.push_back(startup);
+        assembly.symbols.push_back({"_start", 0, 0, ModuleAsmBinding::Weak, ModuleAsmSymbolType::Function});
+        assembly.symbols.push_back({"local_label", 0, 2, ModuleAsmBinding::Local, ModuleAsmSymbolType::None});
+        assembly.symbols.push_back({"value", 0, 2, ModuleAsmBinding::Local, ModuleAsmSymbolType::None});
+        auto image = dcc::backend::i8086::collect_image(*module, machine, encoded, target, &assembly);
+        auto find = [&](std::string_view name) -> ImageSymbol const& {
+            auto found = std::ranges::find(image.symbols, name, &ImageSymbol::name);
+            if (found == image.symbols.end())
+                throw std::runtime_error("missing image symbol");
+            return *found;
+        };
+        CHECK(image.functions.size() == 1);
+        CHECK(image.fragments[image.functions.front()].bytes == encoded.front().bytes);
+        auto const& metadata = image.fragments[*find("model_reference").fragment];
+        CHECK(metadata.role == ImageRole::Metadata);
+        CHECK(!metadata.alloc);
+        CHECK(metadata.retain);
+        auto const& call = image.fragments[image.functions.front()].fixups.front();
+        CHECK(call.expression == ImageExpression::PcRelative);
+        CHECK(call.space == ImageSpace::Code);
+        CHECK(call.width == 2);
+        CHECK(!find("external").fragment.has_value());
+        auto const& data = image.fragments[*find("value").fragment];
+        CHECK(data.alignment == 8);
+        CHECK(data.retain);
+        CHECK(data.bytes == (std::vector<std::uint8_t>{19, 0}));
+        auto const& bss = image.fragments[*find("scratch").fragment];
+        CHECK(bss.nobits);
+        CHECK(bss.bytes.empty());
+        CHECK(bss.memory_size == 62);
+        auto const& table_part = image.fragments[*find("jump_table").fragment];
+        CHECK(table_part.associated_function == image.functions.front());
+        CHECK(table_part.fixups.front().expression == ImageExpression::CodeOffset);
+        CHECK(table_part.fixups.front().space == ImageSpace::Code);
+        CHECK(find("entry.bb0").block == 0);
+        auto offset_width = model == dcc::target::CodeModel::Small ? 2u : 4u;
+        for (auto const& [name, space] : {std::pair{"pointer", ImageSpace::Dgroup}, {"callback", ImageSpace::Code}})
+        {
+            auto const& part = image.fragments[*find(name).fragment];
+            REQUIRE(part.fixups.size() == 2);
+            CHECK(part.fixups[0].width == offset_width);
+            CHECK(part.fixups[0].units == ImageUnits::Bytes);
+            CHECK(part.fixups[1].offset == offset_width);
+            CHECK(part.fixups[1].width == 2);
+            CHECK(part.fixups[1].expression == ImageExpression::SegmentBase);
+            CHECK(part.fixups[1].units == ImageUnits::Paragraphs);
+            CHECK(part.fixups[1].space == space);
+            CHECK(image.symbols[part.fixups[1].target].name == (space == ImageSpace::Code ? "entry" : "value"));
+            CHECK(part.fixups[1].legacy_name == "__dcc_dgroup_segment");
+        }
+        auto const& nested_part = image.fragments[*find("nested").fragment];
+        REQUIRE(nested_part.fixups.size() == 2);
+        CHECK(nested_part.fixups[0].addend == 4);
+        CHECK(nested_part.fixups[1].reference == array_init->values[0]);
+        auto literal_segment = far_type->byte_size + offset_width;
+        CHECK(nested_part.bytes[literal_segment] == 0);
+        CHECK(nested_part.bytes[literal_segment + 1] == 0xb8);
+        CHECK(find("_start").binding == ImageBinding::Weak);
+        CHECK(find("local_label").binding == ImageBinding::Local);
+        auto const& start = image.fragments[*find("_start").fragment];
+        CHECK(start.role == ImageRole::Startup);
+        CHECK(start.opaque);
+        CHECK(start.alignment == 16);
+        CHECK(start.fixups.front().addend == -2);
+        CHECK(start.fixups.front().space == ImageSpace::Code);
+        CHECK(start.fixups[1].target != find("value").id);
+        CHECK(start.fixups[1].space == ImageSpace::Code);
+        CHECK(image.symbols[start.fixups[1].target].binding == ImageBinding::Local);
+        CHECK(image.symbols[start.fixups[1].target].offset == 2);
+        CHECK(image.assembly.sections.front().lines.front().text == "jmp entry");
+        for (bool sections : {false, true})
+        {
+            target.function_sections = target.data_sections = sections;
+            auto collected = dcc::backend::i8086::collect_image(*module, machine, encoded, target, &assembly);
+            auto legacy = write_elf32(*module, machine, encoded, target, elf32_i8086_policy, &assembly);
+            auto adapted = write_elf32(*module, machine, encoded, target, elf32_i8086_policy, &assembly, &collected);
+            CHECK(adapted == legacy);
+        }
+    }
 }

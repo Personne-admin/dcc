@@ -7,6 +7,7 @@ import dcc.backend.x86.encode;
 import dcc.backend.x86.modasm;
 import dcc.target;
 import dcc.backend.object.layout;
+import dcc.backend.object.image;
 
 #define into_u8 static_cast<std::uint8_t>
 
@@ -352,14 +353,23 @@ namespace dcc::backend::object
         }
 
         void serialize_init_value(ElfWriterPolicy const& arch, std::vector<std::uint8_t>& data, ir::IrValue const* val, ir::IrType const* expected_type,
-                                  std::vector<Elf64_Rela>& relas, std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, std::uint64_t base_offset)
+                                  std::vector<Elf64_Rela>& relas, std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, std::uint64_t base_offset,
+                                  ImageDescription const* fragments = nullptr)
         {
             auto size = init_type_size(expected_type);
             if (size == 0 && val && val->type)
                 size = init_type_size(val->type);
             std::vector<std::uint8_t> image(size, 0);
             std::vector<InitReloc> init_relocs;
-            serialize_init_memory(image, init_relocs, val, expected_type, 0, arch.address_width);
+            auto* cached = fragments ? fragments->initializer(val, expected_type) : nullptr;
+            if (cached)
+            {
+                image = cached->bytes;
+                for (auto const& fixup : cached->fixups)
+                    init_relocs.push_back({fixup.offset, fixup.width, fixup.legacy_name, fixup.addend});
+            }
+            else
+                serialize_init_memory(image, init_relocs, val, expected_type, 0, arch.address_width);
             if (data.size() < base_offset)
                 data.resize(base_offset, 0);
             data.resize(base_offset + size, 0);
@@ -378,7 +388,7 @@ namespace dcc::backend::object
         }
 
         void serialize_custom_section_global(ElfWriterPolicy const& arch, ElfCustomSection& section, GlobalLayout& gl,
-                                             std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx)
+                                             std::unordered_map<std::string, std::uint32_t>& sym_name_to_idx, ImageDescription const* fragments = nullptr)
         {
             if (section.type == SHT_NOBITS)
             {
@@ -394,7 +404,7 @@ namespace dcc::backend::object
 
             gl.offset = section.data.size();
             if (gl.g->init)
-                serialize_init_value(arch, section.data, gl.g->init, gl.g->type, section.relas, sym_name_to_idx, section.data.size());
+                serialize_init_value(arch, section.data, gl.g->init, gl.g->type, section.relas, sym_name_to_idx, section.data.size(), fragments);
             else
                 section.data.resize(section.data.size() + (gl.g->type ? gl.g->type->byte_size : 0), 0);
         }
@@ -406,11 +416,11 @@ export namespace dcc::backend::object
 {
     [[nodiscard]] std::vector<std::uint8_t> write_elf_object(ir::IrModule const& ir_mod, MModule const& mod, std::vector<EncodeResult> const& encoded,
                                                              target::TargetConfig const& target, ElfWriterPolicy const& arch,
-                                                             ModuleAsmObject const* asm_object = nullptr)
+                                                             ModuleAsmObject const* asm_object = nullptr, ImageDescription const* fragments = nullptr)
     {
         (void)target;
         ModuleAsmObject const empty_asm;
-        ModuleAsmObject const& asm_code = asm_object ? *asm_object : empty_asm;
+        ModuleAsmObject const& asm_code = fragments ? fragments->assembly : asm_object ? *asm_object : empty_asm;
 
         std::vector<std::string> func_names;
         func_names.reserve(mod.functions.size());
@@ -460,10 +470,22 @@ export namespace dcc::backend::object
         std::vector<std::vector<Reloc>> func_relocs;
         func_codes.reserve(encoded.size());
         func_relocs.reserve(encoded.size());
-        for (auto const& er : encoded)
+        for (std::size_t index = 0; index < encoded.size(); ++index)
         {
-            func_codes.push_back(er.bytes);
-            func_relocs.push_back(er.relocs);
+            if (fragments)
+            {
+                auto const& part = fragments->fragments.at(fragments->functions.at(index));
+                func_codes.push_back(part.bytes);
+                std::vector<Reloc> relocations;
+                for (auto const& fixup : part.fixups)
+                    relocations.push_back({static_cast<std::uint32_t>(fixup.offset), fixup.legacy_name, fixup.encoding, fixup.addend});
+                func_relocs.push_back(std::move(relocations));
+            }
+            else
+            {
+                func_codes.push_back(encoded[index].bytes);
+                func_relocs.push_back(encoded[index].relocs);
+            }
         }
 
         std::vector<std::uint8_t> out;
@@ -506,25 +528,7 @@ export namespace dcc::backend::object
                 continue;
 
             gl.name_str = std::string{g->name};
-            gl.alignment = g->alignment;
-            if (gl.alignment == 0)
-            {
-                gl.alignment = g->type ? g->type->byte_align : 1;
-                if (gl.alignment == 0)
-                {
-                    auto const* agg = dcc::ir::ir_type_cast<dcc::ir::IrAggregateType>(g->type);
-                    if (agg && !agg->members.empty())
-                    {
-                        std::uint64_t max_align = 1;
-                        for (auto const* m : agg->members)
-                            if (m->byte_align > max_align)
-                                max_align = m->byte_align;
-                        gl.alignment = max_align;
-                    }
-                    else
-                        gl.alignment = 1;
-                }
-            }
+            gl.alignment = global_alignment(g);
 
             globals.push_back(std::move(gl));
         }
@@ -654,7 +658,7 @@ export namespace dcc::backend::object
 
             glp->offset = rodata_data.size();
             if (glp->g->init)
-                serialize_init_value(arch, rodata_data, glp->g->init, glp->g->type, rodata_relas, empty_sym_map, rodata_data.size());
+                serialize_init_value(arch, rodata_data, glp->g->init, glp->g->type, rodata_relas, empty_sym_map, rodata_data.size(), fragments);
         }
 
         for (auto const& mf : mod.functions)
@@ -684,7 +688,7 @@ export namespace dcc::backend::object
 
             glp->offset = data_rel_ro_data.size();
             if (glp->g->init)
-                serialize_init_value(arch, data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, empty_sym_map, data_rel_ro_data.size());
+                serialize_init_value(arch, data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, empty_sym_map, data_rel_ro_data.size(), fragments);
         }
 
         std::vector<std::uint8_t> data_data;
@@ -698,7 +702,7 @@ export namespace dcc::backend::object
             glp->offset = data_data.size();
             if (glp->g->init)
             {
-                serialize_init_value(arch, data_data, glp->g->init, glp->g->type, data_relas, empty_sym_map, data_data.size());
+                serialize_init_value(arch, data_data, glp->g->init, glp->g->type, data_relas, empty_sym_map, data_data.size(), fragments);
             }
         }
 
@@ -712,7 +716,7 @@ export namespace dcc::backend::object
 
         for (auto& cs : custom_sections)
             for (auto* glp : cs.globals)
-                serialize_custom_section_global(arch, cs, *glp, empty_sym_map);
+                serialize_custom_section_global(arch, cs, *glp, empty_sym_map, fragments);
 
         struct BlockSymInfo
         {
@@ -1192,7 +1196,7 @@ export namespace dcc::backend::object
 
             glp->offset = rodata_data.size();
             if (glp->g->init)
-                serialize_init_value(arch, rodata_data, glp->g->init, glp->g->type, rodata_relas, name_to_sym_idx, rodata_data.size());
+                serialize_init_value(arch, rodata_data, glp->g->init, glp->g->type, rodata_relas, name_to_sym_idx, rodata_data.size(), fragments);
         }
 
         for (std::size_t fi = 0; fi < mod.functions.size(); ++fi)
@@ -1246,7 +1250,8 @@ export namespace dcc::backend::object
 
             glp->offset = data_rel_ro_data.size();
             if (glp->g->init)
-                serialize_init_value(arch, data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, name_to_sym_idx, data_rel_ro_data.size());
+                serialize_init_value(arch, data_rel_ro_data, glp->g->init, glp->g->type, data_rel_ro_relas, name_to_sym_idx, data_rel_ro_data.size(),
+                                     fragments);
         }
 
         data_data.clear();
@@ -1260,7 +1265,7 @@ export namespace dcc::backend::object
             glp->offset = data_data.size();
             if (glp->g->init)
             {
-                serialize_init_value(arch, data_data, glp->g->init, glp->g->type, data_relas, name_to_sym_idx, data_data.size());
+                serialize_init_value(arch, data_data, glp->g->init, glp->g->type, data_relas, name_to_sym_idx, data_data.size(), fragments);
             }
         }
 
@@ -1270,7 +1275,7 @@ export namespace dcc::backend::object
             cs.relas.clear();
             cs.bss_size = 0;
             for (auto* glp : cs.globals)
-                serialize_custom_section_global(arch, cs, *glp, name_to_sym_idx);
+                serialize_custom_section_global(arch, cs, *glp, name_to_sym_idx, fragments);
         }
 
         std::vector<Elf64_Rela> final_text_relas;

@@ -98,6 +98,18 @@ export namespace dcc::backend::object
         return DataSection::Bss;
     }
 
+    [[nodiscard]] std::uint64_t global_alignment(ir::IrGlobal const* global)
+    {
+        auto alignment = global->alignment ? global->alignment : global->type ? global->type->byte_align : 1;
+        if (alignment != 0)
+            return alignment;
+        alignment = 1;
+        if (auto* aggregate = ir::ir_type_cast<ir::IrAggregateType>(global->type))
+            for (auto* member : aggregate->members)
+                alignment = std::max(alignment, member->byte_align);
+        return alignment;
+    }
+
     [[nodiscard]] std::string global_section(ir::IrGlobal const* g, bool enabled, bool coff = false)
     {
         if (!g->section.empty())
@@ -134,6 +146,8 @@ export namespace dcc::backend::object
         std::uint64_t size{};
         std::string name;
         std::int64_t addend{};
+        ir::IrGlobalRef const* reference{};
+        bool segment{};
     };
 
     [[nodiscard]] std::uint64_t init_type_size(ir::IrType const* type)
@@ -341,8 +355,8 @@ export namespace dcc::backend::object
                     if (offset <= data.size() && sz <= data.size() - offset)
                     {
                         write_addend_field(data, relocs, offset, width, gr->addend);
-                        relocs.push_back({offset, width, std::string{gr->name}, gr->addend});
-                        relocs.push_back({offset + width, 2, "__dcc_dgroup_segment", 0});
+                        relocs.push_back({offset, width, std::string{gr->name}, gr->addend, gr});
+                        relocs.push_back({offset + width, 2, "__dcc_dgroup_segment", 0, gr, true});
                     }
                     break;
                 }
@@ -356,7 +370,7 @@ export namespace dcc::backend::object
                 if (gr->addend != 0 && sz <= data.size() - offset)
                     write_addend_field(data, relocs, offset, sz, gr->addend);
                 if (offset <= data.size() && sz <= data.size() - offset)
-                    relocs.push_back({offset, sz, std::string{gr->name}, gr->addend});
+                    relocs.push_back({offset, sz, std::string{gr->name}, gr->addend, gr});
                 break;
             }
             default:

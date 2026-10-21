@@ -7,6 +7,7 @@ import dcc.backend.x86.encode;
 import dcc.target;
 import dcc.backend.object.elf;
 import dcc.backend.x86.modasm;
+import dcc.backend.object.image;
 
 export namespace dcc::backend::object
 {
@@ -29,7 +30,7 @@ export namespace dcc::backend::object
 
     [[nodiscard]] std::vector<std::uint8_t> write_elf32(ir::IrModule const& ir_mod, x86::MModule const& mod, std::vector<x86::EncodeResult> const& encoded,
                                                         target::TargetConfig const& target, Elf32ArchPolicy const& arch,
-                                                        x86::ModuleAsmObject const* asm_object = nullptr)
+                                                        x86::ModuleAsmObject const* asm_object = nullptr, ImageDescription const* fragments = nullptr)
     {
         ElfWriterPolicy const writer{
             .machine = arch.machine,
@@ -49,6 +50,6 @@ export namespace dcc::backend::object
             .class32 = true,
             .rela = false,
         };
-        return write_elf_object(ir_mod, mod, encoded, target, writer, asm_object);
+        return write_elf_object(ir_mod, mod, encoded, target, writer, asm_object, fragments);
     }
 }

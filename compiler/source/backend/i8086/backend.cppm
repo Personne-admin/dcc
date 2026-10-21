@@ -14,6 +14,7 @@ import dcc.backend.i8086.framelay;
 import dcc.backend.i8086.assembler;
 import dcc.backend.object.elf32;
 import dcc.backend.i8086.link;
+import dcc.backend.i8086.image;
 
 using namespace dcc::backend::x86;
 
@@ -181,7 +182,8 @@ namespace dcc::backend
                     }
                     if (!artifact.diagnostics.empty())
                         return artifact;
-                    auto bytes = object::write_elf32(*input, mmod, encoded, opts.target, object::elf32_i8086_policy, asm_object);
+                    auto image = i8086::collect_image(*input, mmod, encoded, opts.target, asm_object);
+                    auto bytes = object::write_elf32(*input, mmod, encoded, opts.target, object::elf32_i8086_policy, asm_object, &image);
                     std::vector<std::byte> object_bytes(bytes.size());
                     std::ranges::transform(bytes, object_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
                     artifact.object_bytes = std::move(object_bytes);
