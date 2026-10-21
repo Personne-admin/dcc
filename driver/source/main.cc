@@ -1256,14 +1256,14 @@ namespace
         bool const final_image = is_i8086_final_image(opts);
         if (!i8086 || !final_image)
             return true;
-        if (target.binary_format == dcc::target::BinaryFormat::Mz)
+        if (target.binary_format == dcc::target::BinaryFormat::Mz && opts.link_base.has_value())
         {
-            std::println(std::cerr, "dcc: error: target 'i8086-mz' is recognized, but MZ image output is not implemented yet");
+            std::println(std::cerr, "dcc: error: -fbase is not supported for target 'i8086-mz'");
             return false;
         }
         if (opts.libdcext)
         {
-            std::println(std::cerr, "dcc: error: -flibdcext is not available for target 'i8086-binary'");
+            std::println(std::cerr, "dcc: error: -flibdcext is not available for target '{}'", target.triple);
             return false;
         }
         if (opts.whole_program_explicit && !opts.whole_program)

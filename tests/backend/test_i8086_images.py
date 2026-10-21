@@ -62,12 +62,18 @@ with tempfile.TemporaryDirectory(prefix="dcc-i8086-images-") as directory:
     com_big.write_text("module com_big;\n@nomangle u8[0xF000] buffer;\n@nomangle public i32 dcc_main() { return 42; }\n" + startup)
     run(*base, "-fbase=?:0x100", com_big, "-o", directory / "x.bin", expect=1, contains="i8086 small model")
 
-    run(compiler, "-target", "i8086-mz", "-fbackend", "custom", program, "-o", directory / "x.exe", expect=1,
-        contains="MZ image output is not implemented yet")
-    run(compiler, "-target", "i8086-mz", "-fbackend", "custom", "-mcmodel=small", program, "-o", directory / "x.exe", expect=1,
-        contains="MZ image output is not implemented yet")
+    mz_startup = (root / "i8086" / "dos_start.dc").read_text()
+    mz_source = directory / "mz.dc"
+    mz_source.write_text("module mz;\n" + mz_startup + "@nomangle public i32 dcc_main() { return 42; }\n")
+    run(compiler, "-target", "i8086-mz", "-fbackend", "custom", "-O2", mz_source, "-o", directory / "x.exe")
+    assert (directory / "x.exe").read_bytes()[:2] == b"MZ"
+    checks += 1
+    run(compiler, "-target", "i8086-mz", "-fbackend", "custom", "-O2", "-fbase=1000:0", mz_source, "-o", directory / "x.exe", expect=1,
+        contains="-fbase is not supported for target 'i8086-mz'")
     run(compiler, "-target", "i8086-mz", "-fbackend", "custom", "-mcmodel=unreal", plain, "-o", directory / "x.exe", expect=1,
         contains="-mcmodel=unreal is not supported for target 'i8086-mz'")
+    run(compiler, "-target", "i8086-mz", "-fbackend", "custom", "-e", "missing", "-O2", mz_source, "-o", directory / "x.exe", expect=1,
+        contains="entry symbol `missing` is not defined executable code")
     run(compiler, "-target", "i8086-mz", "-fbackend", "custom", "-c", plain, "-o", directory / "plain-mz.o")
 
     run(*base, "-fno-whole-program", "-fbase=1000:0", program, "-o", directory / "x.bin", expect=1,

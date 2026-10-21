@@ -16,6 +16,7 @@ import dcc.backend.object.elf32;
 import dcc.backend.i8086.link;
 import dcc.backend.i8086.image;
 import dcc.backend.i8086.place;
+import dcc.backend.i8086.mz;
 
 using namespace dcc::backend::x86;
 
@@ -98,13 +99,16 @@ namespace dcc::backend
                     module_asm = std::move(*assembled);
                 }
                 ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
+                auto const segment_mode = opts.target.binary_format == target::BinaryFormat::Mz ? i8086::SegmentMode::Mz
+                                          : (opts.i8086_image && !opts.i8086_image->segment)     ? i8086::SegmentMode::Unknown
+                                                                                                : i8086::SegmentMode::Known;
                 std::vector<MFunction> functions;
                 for (auto* func : input->functions)
                 {
                     if (!func || func->blocks.empty())
                         continue;
                     std::vector<std::string> diags;
-                    auto mfunc = i8086::isel_function(*func, opts.target, diags);
+                    auto mfunc = i8086::isel_function(*func, opts.target, diags, segment_mode);
                     if (!diags.empty())
                     {
                         for (auto& message : diags)
@@ -113,6 +117,10 @@ namespace dcc::backend
                     }
                     i8086::regalloc(mfunc, opts.target);
                     i8086::frame_layout(mfunc, opts.target);
+                    if (opts.target.binary_format == target::BinaryFormat::Mz && opts.i8086_image &&
+                        static_cast<std::uint64_t>(std::max<std::int32_t>(mfunc.frame_size, 0)) > opts.i8086_image->stack_reserve)
+                        return fail(std::format("i8086 MZ image: function `{}` needs a {}-byte frame, larger than the {}-byte stack reservation", func->name,
+                                                mfunc.frame_size, opts.i8086_image->stack_reserve));
                     for (auto& block : mfunc.blocks)
                         for (auto& instruction : block.instrs)
                             for (std::uint8_t i = 0; i < instruction.num_ops; ++i)
@@ -193,7 +201,23 @@ namespace dcc::backend
                         std::ranges::transform(bytes, object_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
                         artifact.object_bytes = std::move(object_bytes);
                     }
-                    if (wants_image)
+                    if (wants_image && opts.target.binary_format == target::BinaryFormat::Mz)
+                    {
+                        i8086::MzLayoutOptions options;
+                        options.model = opts.target.code_model;
+                        if (opts.i8086_image)
+                        {
+                            options.stack_reserve = opts.i8086_image->stack_reserve;
+                            options.entry_symbol = opts.i8086_image->entry_symbol.empty() ? "_start" : opts.i8086_image->entry_symbol;
+                        }
+                        auto placed = i8086::layout_mz_image(image, options);
+                        if (!placed)
+                            return fail(std::format("i8086 MZ image: {}", placed.error()));
+                        std::vector<std::byte> image_bytes(placed->file.size());
+                        std::ranges::transform(placed->file, image_bytes.begin(), [](std::uint8_t b) { return static_cast<std::byte>(b); });
+                        artifact.executable_bytes = std::move(image_bytes);
+                    }
+                    else if (wants_image)
                     {
                         i8086::FlatLayoutOptions options;
                         options.model = opts.target.code_model;

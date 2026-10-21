@@ -12,9 +12,17 @@ using namespace dcc::backend::x86;
 
 export namespace dcc::backend::i8086
 {
+    enum class SegmentMode : std::uint8_t
+    {
+        Known,
+        Unknown,
+        Mz,
+    };
+
     [[nodiscard]] bool uses_c_abi(dcc::ir::IrFunction const& func);
 
-    [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target, std::vector<std::string>& diags);
+    [[nodiscard]] MFunction isel_function(dcc::ir::IrFunction const& func, dcc::target::TargetConfig const& target, std::vector<std::string>& diags,
+                                          SegmentMode segment_mode = SegmentMode::Known);
 
     void remove_fallthrough_jumps(MFunction& func);
     void simplify_output(MFunction& func);
@@ -216,6 +224,7 @@ namespace dcc::backend::i8086
             IrFunction const& func;
             target::TargetConfig const& target;
             std::vector<std::string>& diags;
+            SegmentMode segment_mode;
             MFunction mfunc;
             MBlock* block{};
             bool c_abi{};
@@ -244,7 +253,10 @@ namespace dcc::backend::i8086
             };
             std::vector<PendingPhi> pending_phis;
 
-            Isel(IrFunction const& f, target::TargetConfig const& t, std::vector<std::string>& d) : func(f), target(t), diags(d) {}
+            Isel(IrFunction const& f, target::TargetConfig const& t, std::vector<std::string>& d, SegmentMode mode)
+                : func(f), target(t), diags(d), segment_mode(mode)
+            {
+            }
 
             void unsupported(std::string_view what)
             {
@@ -305,10 +317,16 @@ namespace dcc::backend::i8086
                         memory.disp = static_cast<std::int32_t>(reference->addend);
                         memory.address_bits = target.far_offset_bits();
                         auto offset = emit(target.far_offset_bits() == 16 ? MOpc::LEA16rm : MOpc::LEA32rm, {MOp::from_mem(memory)});
-                        MMem segment_address{};
-                        segment_address.symbol = "__dcc_dgroup_segment";
-                        segment_address.address_bits = 16;
-                        auto segment = emit(MOpc::LEA16rm, {MOp::from_mem(segment_address)});
+                        VReg segment;
+                        if (segment_mode == SegmentMode::Unknown)
+                            segment = emit(MOpc::MOV16rs, {phys_operand(PhysReg::DS)});
+                        else
+                        {
+                            MMem segment_address{};
+                            segment_address.symbol = "__dcc_dgroup_segment";
+                            segment_address.address_bits = 16;
+                            segment = emit(MOpc::LEA16rm, {MOp::from_mem(segment_address)});
+                        }
                         Pair result{extend(offset, target.far_offset_bits(), false, 32), extend(segment, 16, false, 32)};
                         pairs[v] = result;
                         return result;
@@ -2671,9 +2689,9 @@ namespace dcc::backend::i8086
         }
     }
 
-    MFunction isel_function(IrFunction const& func, target::TargetConfig const& target, std::vector<std::string>& diags)
+    MFunction isel_function(IrFunction const& func, target::TargetConfig const& target, std::vector<std::string>& diags, SegmentMode segment_mode)
     {
-        Isel isel{func, target, diags};
+        Isel isel{func, target, diags, segment_mode};
         isel.run();
         for (auto const& [value, pair] : isel.pairs)
             if (Isel::wide(value->type) && pair.low.is_virtual() && pair.high.is_virtual() && pair.low != pair.high)
