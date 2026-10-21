@@ -1,0 +1,13 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+asm @[intel] { ".text\n.globl segment_state\nsegment_state:\n    mov ax, cs\n    mov bx, ds\n    cmp ax, bx\n    je short Lfail\n    mov ax, ss\n    cmp ax, bx\n    jne short Lfail\n    mov ax, 1\n    ret\nLfail:\n    xor ax, ax\n    ret\n" };
+@nomangle extern u16 segment_state();
+@nomangle public i32 dcc_main() {
+    if segment_state() == 0 { return 1; }
+    return 42;
+}
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42

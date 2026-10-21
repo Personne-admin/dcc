@@ -1,0 +1,16 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@noinline u16 bump(u16* p) {
+    *p = *p + 5;
+    return *p;
+}
+@nomangle public i32 dcc_main() {
+    u16 value = 37;
+    if bump(&value) != 42 { return 1; }
+    return value as i32;
+}
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42

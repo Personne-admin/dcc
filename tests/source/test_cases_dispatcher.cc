@@ -40,6 +40,8 @@ import dcc.backend.em64t;
 import dcc.backend.i8086;
 import dcc.backend.i8086.link;
 import dcc.backend.i8086.place;
+import dcc.backend.i8086.mz;
+import dcc.backend.object.image;
 
 namespace
 {
@@ -216,15 +218,27 @@ namespace
         std::vector<std::pair<std::string, std::string>> env;
     };
 
+    enum class RunStart : std::uint8_t
+    {
+        Default,
+        None,
+        DosTest,
+    };
+
     struct ExpectI8086Run
     {
         bool far_check{false};
         std::size_t base_line{};
         std::optional<int> exit_code;
         std::optional<std::string> serial;
+        std::optional<std::string> stdout_bytes;
+        std::optional<std::string> stderr_bytes;
         std::string load{"1000:0000"};
         int timeout{10};
-        bool default_start{true};
+        RunStart start{RunStart::Default};
+        std::string entry{"_start"};
+        std::uint32_t stack_reserve{4096};
+        std::string runner;
         bool gc_sections{false};
         std::vector<std::string> forbidden_linked_symbols;
         std::optional<std::string> start_error;
@@ -347,6 +361,30 @@ namespace
             current->body = std::move(buffer);
 
         return out;
+    }
+
+    std::optional<std::string> parse_hex_bytes(std::string_view text)
+    {
+        std::string bytes;
+        int high = -1;
+        for (char c : text)
+        {
+            if (c == ' ' || c == '\t')
+                continue;
+            int value = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
+            if (value < 0)
+                return std::nullopt;
+            if (high < 0)
+                high = value;
+            else
+            {
+                bytes.push_back(static_cast<char>(high * 16 + value));
+                high = -1;
+            }
+        }
+        if (high >= 0)
+            return std::nullopt;
+        return bytes;
     }
 
     std::optional<Fixture> parse_fixture(std::string_view content)
@@ -1006,9 +1044,42 @@ namespace
                     {
                         auto value = trim(std::string_view{tl}.substr(6));
                         if (value == "none")
-                            e.default_start = false;
+                            e.start = RunStart::None;
+                        else if (value == "dos-test")
+                            e.start = RunStart::DosTest;
                         else if (value != "default")
-                            e.start_error = std::format("START must be 'default' or 'none', not '{}'", value);
+                            e.start_error = std::format("START must be 'default', 'none' or 'dos-test', not '{}'", value);
+                    }
+                    else if (starts_with(tl, "ENTRY:"))
+                        e.entry = trim(std::string_view{tl}.substr(6));
+                    else if (starts_with(tl, "STACK-RESERVE:"))
+                    {
+                        try
+                        {
+                            e.stack_reserve = static_cast<std::uint32_t>(std::stoul(trim(std::string_view{tl}.substr(14))));
+                        }
+                        catch (...)
+                        {
+                            e.start_error = "invalid STACK-RESERVE value";
+                        }
+                    }
+                    else if (starts_with(tl, "RUNNER:"))
+                        e.runner = trim(std::string_view{tl}.substr(7));
+                    else if (starts_with(tl, "RUN-STDOUT-HEX:"))
+                    {
+                        auto parsed = parse_hex_bytes(trim(std::string_view{tl}.substr(15)));
+                        if (!parsed)
+                            e.start_error = "invalid RUN-STDOUT-HEX value";
+                        else
+                            e.stdout_bytes = std::move(*parsed);
+                    }
+                    else if (starts_with(tl, "RUN-STDERR-HEX:"))
+                    {
+                        auto parsed = parse_hex_bytes(trim(std::string_view{tl}.substr(15)));
+                        if (!parsed)
+                            e.start_error = "invalid RUN-STDERR-HEX value";
+                        else
+                            e.stderr_bytes = std::move(*parsed);
                     }
                 }
                 fx.i8086_run_blocks.push_back(std::move(e));
@@ -1802,17 +1873,23 @@ namespace
         opts.import_roots.push_back(sb->root);
         opts.interner = &interner;
         opts.injected_decls = fx.injected_decls;
-        bool const needs_startup =
-            fixture_target && fixture_target->arch == dcc::target::Arch::I8086 && !fx.i8086_run_blocks.empty() &&
-            std::ranges::any_of(fx.i8086_run_blocks, [](ExpectI8086Run const& run) { return run.default_start; });
-        if (needs_startup)
+        bool const has_dos_start = std::ranges::any_of(fx.i8086_run_blocks, [](ExpectI8086Run const& run) { return run.start == RunStart::DosTest; });
+        bool const has_bare_start = std::ranges::any_of(fx.i8086_run_blocks, [](ExpectI8086Run const& run) { return run.start == RunStart::Default; });
+        if (fixture_target && fixture_target->arch == dcc::target::Arch::I8086 && has_dos_start && has_bare_start)
         {
-            std::ifstream startup_in{DCC_I8086_STARTUP};
+            ++stats.failed;
+            std::println(std::cerr, "    FAIL  cannot mix bare-metal and DOS-test startups in one fixture  ({}:1)", path.string());
+            return false;
+        }
+        char const* startup_path = has_dos_start ? DCC_I8086_DOS_STARTUP : has_bare_start ? DCC_I8086_STARTUP : nullptr;
+        if (startup_path)
+        {
+            std::ifstream startup_in{startup_path};
             std::string startup{std::istreambuf_iterator<char>{startup_in}, {}};
             if (startup.empty())
             {
                 ++stats.failed;
-                std::println(std::cerr, "    FAIL  cannot read the i8086 module-asm startup {}  ({}:1)", DCC_I8086_STARTUP, path.string());
+                std::println(std::cerr, "    FAIL  cannot read the i8086 module-asm startup {}  ({}:1)", startup_path, path.string());
                 return false;
             }
             opts.injected_decls.push_back(std::move(startup));
@@ -4055,7 +4132,7 @@ namespace
             auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
             if (!fixture_target || fixture_target->arch != dcc::target::Arch::I8086 || !mod)
             {
-                fail("requires TARGET: i8086-binary and an entry module");
+                fail("requires an i8086 target and an entry module");
                 continue;
             }
             if (exp.start_error)
@@ -4063,11 +4140,55 @@ namespace
                 fail(*exp.start_error);
                 continue;
             }
-            auto base = dcc::backend::i8086::parse_link_base(exp.load);
-            if (!base || !base->segment)
+            if (!exp.runner.empty() && exp.runner != "qemu-dos" && exp.runner != "bare")
             {
-                fail(std::format("RUN-LOAD '{}' must be SEG:OFF with a known segment", exp.load));
+                fail(std::format("unsupported RUNNER '{}'", exp.runner));
                 continue;
+            }
+            bool const dos = exp.start == RunStart::DosTest;
+            if (dos && exp.runner == "bare")
+            {
+                fail("RUNNER: bare cannot run a START: dos-test image");
+                continue;
+            }
+            if (!dos && exp.runner == "qemu-dos")
+            {
+                fail("RUNNER: qemu-dos requires START: dos-test");
+                continue;
+            }
+            if (!dos && (exp.stdout_bytes || exp.stderr_bytes))
+            {
+                fail("RUN-STDOUT-HEX and RUN-STDERR-HEX require START: dos-test");
+                continue;
+            }
+            auto const& target = *fixture_target;
+            bool const mz = target.binary_format == dcc::target::BinaryFormat::Mz;
+            bool const unreal = target.code_model == dcc::target::CodeModel::Unreal || target.code_model == dcc::target::CodeModel::Unreal32;
+            if (dos && !mz && unreal)
+            {
+                fail("START: dos-test requires the small model for i8086-binary");
+                continue;
+            }
+            if (dos && (exp.gc_sections || !exp.forbidden_linked_symbols.empty()))
+            {
+                fail("RUN-GC and FORBID-LINKED-SYMBOL are not supported for DOS runs");
+                continue;
+            }
+            if (dos && exp.load != "1000:0000")
+            {
+                fail("RUN-LOAD is not supported for DOS runs");
+                continue;
+            }
+            std::optional<dcc::backend::i8086::LinkBase> base;
+            if (!dos)
+            {
+                auto parsed_base = dcc::backend::i8086::parse_link_base(exp.load);
+                if (!parsed_base || !parsed_base->segment)
+                {
+                    fail(std::format("RUN-LOAD '{}' must be SEG:OFF with a known segment", exp.load));
+                    continue;
+                }
+                base = *parsed_base;
             }
             std::error_code ec;
             auto run_dir = fs::temp_directory_path(ec) / std::format("dcc-i8086-run-{}", std::chrono::steady_clock::now().time_since_epoch().count());
@@ -4078,8 +4199,6 @@ namespace
                 fs::remove_all(run_dir, ec);
                 continue;
             }
-            auto const& target = *fixture_target;
-            bool const unreal = target.code_model == dcc::target::CodeModel::Unreal || target.code_model == dcc::target::CodeModel::Unreal32;
             for (auto opt : {dcc::ir::pass::OptLevel::O0, dcc::ir::pass::OptLevel::O2})
             {
                 auto level = opt == dcc::ir::pass::OptLevel::O0 ? "O0" : "O2";
@@ -4098,6 +4217,18 @@ namespace
                 backend_opts.target = target;
                 backend_opts.opt_level = opt;
                 backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes, dcc::backend::ArtifactKind::AsmText};
+                if (dos)
+                {
+                    dcc::backend::I8086ImageOptions options;
+                    options.stack_reserve = exp.stack_reserve;
+                    options.entry_symbol = exp.entry;
+                    if (!mz)
+                    {
+                        options.segment = std::nullopt;
+                        options.offset = 0x100;
+                    }
+                    backend_opts.i8086_image = options;
+                }
                 auto artifact = dcc::backend::make_i8086_backend()->emit(*ir_mod, backend_opts);
                 if (artifact.asm_text)
                     for (auto const& scope_error : asm_label_scope_errors(*artifact.asm_text))
@@ -4107,7 +4238,7 @@ namespace
                     fail(std::format("{}: no object: {}", level, artifact.diagnostics.empty() ? std::string{"no diagnostic"} : artifact.diagnostics.front().message));
                     continue;
                 }
-                auto binary = run_dir / std::format("main-{}.bin", level);
+                auto binary = run_dir / (dos ? (mz ? "main.exe" : "main.com") : std::format("main-{}.bin", level));
                 if (exp.gc_sections || !exp.forbidden_linked_symbols.empty())
                 {
                     if (!artifact.object_bytes)
@@ -4144,6 +4275,43 @@ namespace
                                 fail(std::format("{}: discarded symbol {} is still in the linked image", level, symbol));
                     }
                 }
+                else if (dos && mz)
+                {
+                    dcc::backend::i8086::MzLayoutOptions layout;
+                    layout.model = target.code_model;
+                    layout.stack_reserve = exp.stack_reserve;
+                    layout.entry_symbol = exp.entry;
+                    auto placed = dcc::backend::i8086::layout_mz_image(*artifact.image, layout);
+                    if (!placed)
+                    {
+                        fail(std::format("{}: MZ layout failed: {}", level, placed.error()));
+                        continue;
+                    }
+                    std::ofstream out{binary, std::ios::binary};
+                    out.write(reinterpret_cast<char const*>(placed->file.data()), static_cast<std::streamsize>(placed->file.size()));
+                }
+                else if (dos)
+                {
+                    dcc::backend::i8086::FlatLayoutOptions layout{.segment = std::nullopt,
+                                                                  .offset = 0x100,
+                                                                  .stack_reserve = exp.stack_reserve,
+                                                                  .model = target.code_model};
+                    auto placed = dcc::backend::i8086::layout_flat_image(*artifact.image, layout);
+                    if (!placed)
+                    {
+                        fail(std::format("{}: COM image layout failed: {}", level, placed.error()));
+                        continue;
+                    }
+                    auto const* entry = placed->find_symbol(exp.entry);
+                    if (!entry || !entry->defined || entry->absolute || entry->space != dcc::backend::object::ImageSpace::Code ||
+                        entry->value != placed->entry)
+                    {
+                        fail(std::format("{}: COM entry `{}` must be the first code byte", level, exp.entry));
+                        continue;
+                    }
+                    std::ofstream out{binary, std::ios::binary};
+                    out.write(reinterpret_cast<char const*>(placed->bytes.data()), static_cast<std::streamsize>(placed->bytes.size()));
+                }
                 else if (artifact.image)
                 {
                     dcc::backend::i8086::FlatLayoutOptions layout{.segment = base->segment,
@@ -4164,27 +4332,82 @@ namespace
                     fail(std::format("{}: no image description", level));
                     continue;
                 }
-                auto serial = run_dir / std::format("serial-{}.out", level);
-                auto log = run_dir / std::format("run-{}.log", level);
-                int rc = std::system(std::format("python3 '{}' --load {} --mode {} --timeout {} '{}' > '{}' 2> '{}'", DCC_I8086_RUNNER, exp.load,
-                                                 unreal ? "unreal" : "real", exp.timeout, binary.string(), serial.string(), log.string())
-                                         .c_str());
-                int code = WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
-                if (code == 254 || code == 255 || code < 0)
+                if (dos)
                 {
-                    std::ifstream log_in{log};
-                    std::string text{std::istreambuf_iterator<char>(log_in), {}};
-                    fail(std::format("{}: qemu harness failure (status {}): {}", level, code, text));
-                    continue;
+                    std::optional<int> common_code;
+                    std::string common_out;
+                    std::string common_err;
+                    bool bad = false;
+                    for (unsigned paragraph : {0x2000u, 0x3456u, 0x7000u})
+                    {
+                        auto out_path = run_dir / std::format("dos-out-{}-{:X}.bin", level, paragraph);
+                        auto err_path = run_dir / std::format("dos-err-{}-{:X}.bin", level, paragraph);
+                        auto log = run_dir / std::format("dos-{}-{:X}.log", level, paragraph);
+                        int rc = std::system(std::format("python3 '{}' '{}' --format {} --paragraph 0x{:X} --timeout {} --stdout-out '{}' --stderr-out '{}' > '{}' 2>&1",
+                                                         DCC_I8086_DOS_RUNNER, binary.string(), mz ? "mz" : "com", paragraph, exp.timeout,
+                                                         out_path.string(), err_path.string(), log.string())
+                                                 .c_str());
+                        int code = WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
+                        if (code == 254 || code < 0)
+                        {
+                            std::ifstream log_in{log};
+                            std::string text{std::istreambuf_iterator<char>(log_in), {}};
+                            fail(std::format("{}: DOS harness failure at paragraph 0x{:X} (status {}): {}", level, paragraph, code, text));
+                            bad = true;
+                            break;
+                        }
+                        std::ifstream out_in{out_path, std::ios::binary};
+                        std::string out_text{std::istreambuf_iterator<char>(out_in), {}};
+                        std::ifstream err_in{err_path, std::ios::binary};
+                        std::string err_text{std::istreambuf_iterator<char>(err_in), {}};
+                        if (!common_code)
+                        {
+                            common_code = code;
+                            common_out = out_text;
+                            common_err = err_text;
+                        }
+                        else if (code != *common_code || out_text != common_out || err_text != common_err)
+                        {
+                            fail(std::format("{}: DOS load paragraph 0x{:X} produced a different result", level, paragraph));
+                            bad = true;
+                            break;
+                        }
+                    }
+                    if (bad)
+                        continue;
+                    if (exp.exit_code && *common_code != *exp.exit_code)
+                        fail(std::format("{}: expected exit code {}, got {}", level, *exp.exit_code, *common_code));
+                    if (exp.serial && common_out != *exp.serial)
+                        fail(std::format("{}: expected stdout {:?}, got {:?}", level, *exp.serial, common_out));
+                    if (exp.stdout_bytes && common_out != *exp.stdout_bytes)
+                        fail(std::format("{}: expected stdout bytes {:?}, got {:?}", level, *exp.stdout_bytes, common_out));
+                    if (exp.stderr_bytes && common_err != *exp.stderr_bytes)
+                        fail(std::format("{}: expected stderr bytes {:?}, got {:?}", level, *exp.stderr_bytes, common_err));
                 }
-                if (exp.exit_code && code != *exp.exit_code)
-                    fail(std::format("{}: expected exit code {}, got {}", level, *exp.exit_code, code));
-                if (exp.serial)
+                else
                 {
-                    std::ifstream serial_in{serial, std::ios::binary};
-                    std::string text{std::istreambuf_iterator<char>(serial_in), {}};
-                    if (text != *exp.serial)
-                        fail(std::format("{}: expected serial output {:?}, got {:?}", level, *exp.serial, text));
+                    auto serial = run_dir / std::format("serial-{}.out", level);
+                    auto log = run_dir / std::format("run-{}.log", level);
+                    int rc = std::system(std::format("python3 '{}' --load {} --mode {} --timeout {} '{}' > '{}' 2> '{}'", DCC_I8086_RUNNER, exp.load,
+                                                     unreal ? "unreal" : "real", exp.timeout, binary.string(), serial.string(), log.string())
+                                             .c_str());
+                    int code = WIFEXITED(rc) ? WEXITSTATUS(rc) : -1;
+                    if (code == 254 || code == 255 || code < 0)
+                    {
+                        std::ifstream log_in{log};
+                        std::string text{std::istreambuf_iterator<char>(log_in), {}};
+                        fail(std::format("{}: qemu harness failure (status {}): {}", level, code, text));
+                        continue;
+                    }
+                    if (exp.exit_code && code != *exp.exit_code)
+                        fail(std::format("{}: expected exit code {}, got {}", level, *exp.exit_code, code));
+                    if (exp.serial)
+                    {
+                        std::ifstream serial_in{serial, std::ios::binary};
+                        std::string text{std::istreambuf_iterator<char>(serial_in), {}};
+                        if (text != *exp.serial)
+                            fail(std::format("{}: expected serial output {:?}, got {:?}", level, *exp.serial, text));
+                    }
                 }
             }
             fs::remove_all(run_dir, ec);

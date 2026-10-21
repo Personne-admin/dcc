@@ -1,0 +1,97 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+struct Single { u32 a : 3; u32 b : 5; }
+struct Several { u32 a : 16; u32 b : 16; u32 c : 16; }
+struct Signed { i32 a : 3; i32 b : 5; }
+struct ZeroSep { u32 a : 3; u32 : 0; u32 b : 5; }
+@packed struct Packed { u8 p; u32 b : 16; u32 c : 16; }
+const Single cs1 = Single { a = 7, b = 31 };
+const Several cs2 = Several { a = 0xABCD, b = 0x1234, c = 0x5678 };
+const Signed cs3 = Signed { a = -3, b = 7 };
+const ZeroSep cs4 = ZeroSep { a = 5, b = 17 };
+const Packed cs5 = Packed { p = 0x12, b = 0xABCD, c = 0x3456 };
+
+struct GdtDescriptor {
+    u64 limit_low : 16;
+    u64 base_low : 16;
+    u64 base_mid : 8;
+    u64 accessed : 1;
+    u64 rw : 1;
+    u64 dc : 1;
+    u64 exec : 1;
+    u64 desc_type : 1;
+    u64 priv : 2;
+    u64 present : 1;
+    u64 limit_high : 4;
+    u64 reserved : 1;
+    u64 long_mode : 1;
+    u64 db : 1;
+    u64 gran : 1;
+    u64 base_high : 8;
+}
+struct PageEntry {
+    u64 present : 1;
+    u64 writable : 1;
+    u64 user : 1;
+    u64 writethrough : 1;
+    u64 cachedisable : 1;
+    u64 accessed : 1;
+    u64 dirty : 1;
+    u64 pagesize : 1;
+    u64 global : 1;
+    u64 avail1 : 3;
+    u64 phys : 40;
+    u64 avail2 : 11;
+    u64 nx : 1;
+}
+const GdtDescriptor gdt = GdtDescriptor {
+    limit_low = 0xFFFF, base_low = 0, base_mid = 0,
+    accessed = 0, rw = 1, dc = 0, exec = 1, desc_type = 1, priv = 0, present = 1,
+    limit_high = 0xF, reserved = 0, long_mode = 1, db = 0, gran = 1,
+    base_high = 0,
+};
+const PageEntry pte = PageEntry {
+    present = 1, writable = 1, user = 0, writethrough = 0, cachedisable = 0,
+    accessed = 0, dirty = 0, pagesize = 0, global = 1,
+    avail1 = 0, phys = 0x12345, avail2 = 0, nx = 1,
+};
+@nomangle
+public i32 dcc_main() {
+    Single r1 = Single { a = 7, b = 31 };
+    Several r2 = Several { a = 0xABCD, b = 0x1234, c = 0x5678 };
+    Signed r3 = Signed { a = -3, b = 7 };
+    ZeroSep r4 = ZeroSep { a = 5, b = 17 };
+    Packed r5 = Packed { p = 0x12, b = 0xABCD, c = 0x3456 };
+    const u32* c1 = &cs1 as const u32*;
+    u32* p1 = &r1 as u32*;
+    if (c1[0] != p1[0]) { return 1; }
+    const u32* c2 = &cs2 as const u32*;
+    u32* p2 = &r2 as u32*;
+    if (c2[0] != p2[0]) { return 2; }
+    if (c2[1] != p2[1]) { return 3; }
+    const u32* c3 = &cs3 as const u32*;
+    u32* p3 = &r3 as u32*;
+    if (c3[0] != p3[0]) { return 4; }
+    const u32* c4 = &cs4 as const u32*;
+    u32* p4 = &r4 as u32*;
+    if (c4[0] != p4[0]) { return 5; }
+    if (c4[1] != p4[1]) { return 6; }
+    const u8* c5 = &cs5 as const u8*;
+    u8* p5 = &r5 as u8*;
+    if (c5[0] != p5[0]) { return 7; }
+    if (c5[1] != p5[1]) { return 8; }
+    if (c5[2] != p5[2]) { return 9; }
+    if (c5[3] != p5[3]) { return 10; }
+    if (c5[4] != p5[4]) { return 11; }
+    const u64* gp = &gdt as const u64*;
+    if (gp[0] != 0x00AF9A000000FFFF) { return 12; }
+    const u64* pp = &pte as const u64*;
+    u64 expected = (1 as u64) | ((1 as u64) << 1) | ((1 as u64) << 8) | ((0x12345 as u64) << 12) | ((1 as u64) << 63);
+    if (pp[0] != expected) { return 13; }
+    return 0;
+}
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 0

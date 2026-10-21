@@ -1,0 +1,11 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+using Callback = i32(*)();
+@nomangle public i32 target_fn() { return 42; }
+@nomangle public Callback handler = &target_fn;
+@nomangle public i32 dcc_main() { return handler(); }
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42

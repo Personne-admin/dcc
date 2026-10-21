@@ -1,0 +1,16 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@nomangle
+extern void dcc_putc(u8 c);
+@nomangle public u16 value = 19;
+@nomangle public u16^ pointer = &value;
+@nomangle public i32 dcc_main() {
+    dcc_putc(65);
+    return *pointer as i32 + 23;
+}
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42
+RUN-SERIAL: A

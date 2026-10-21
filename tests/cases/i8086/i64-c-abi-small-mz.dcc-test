@@ -1,0 +1,88 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@nomangle public u64 dc_value(u64 a, u16 b, u64 c) { return a + c + (b as u64); }
+@nomangle extern u64 asm_value(u64 a, u16 b, u64 c);
+@nomangle extern i32 asm_caller();
+@noinline u64 pressure(u64 a, u64 b, u64 c, u64 d) {
+    u64 result = asm_value(a, 3, b);
+    return result + c + d + a + b;
+}
+@runtime u64 arithmetic_pressure(u64 a, u64 b, u64 c, u64 d, u64 e, u64 f) { return (a + b) * (c - d) + (e + f) + (a - c) + (b - d); }
+@nomangle public i32 dcc_main() {
+    if asm_value(0x123456789abcdef0, 3, 0x1111111122222222) != 0x23456789bcdf0115 { return 1; }
+    if asm_caller() != 42 { return 2; }
+    if pressure(0x100000000, 0xffffffff, 0x200000000, 5) != 0x600000006 { return 3; }
+    if arithmetic_pressure(0x100000000, 0xffffffff, 0x123456789abcdef0, 0x2222222233333333, 0xffffffffffffffff, 0x2) != 0xaaaaaa8aca864220 { return 4; }
+    return 42;
+}
+
+
+asm @[intel] {
+    \\.text
+    \\.globl asm_value
+    \\.globl asm_caller
+    \\asm_value:
+    \\push bp
+    \\mov bp, sp
+    \\mov eax, [bp + 4]
+    \\mov edx, [bp + 8]
+    \\add eax, [bp + 14]
+    \\adc edx, [bp + 18]
+    \\movzx ecx, word ptr [bp + 12]
+    \\add eax, ecx
+    \\adc edx, 0
+    \\mov ecx, eax
+    \\mov ebx, edx
+    \\shr edx, 16
+    \\xchg ax, dx
+    \\shr ecx, 16
+    \\mov sp, bp
+    \\pop bp
+    \\ret
+    \\asm_caller:
+    \\push bp
+    \\mov bp, sp
+    \\push esi
+    \\push edi
+    \\mov esi, 0x12345678
+    \\mov edi, 0x87654321
+    \\push dword 0x11111111
+    \\push dword 0x22222222
+    \\push word 3
+    \\push dword 0x12345678
+    \\push dword 0x9abcdef0
+    \\call dc_value
+    \\add sp, 18
+    \\cmp ax, 0x2345
+    \\jne short Li64_fail
+    \\cmp bx, 0x6789
+    \\jne short Li64_fail
+    \\cmp cx, 0xbcdf
+    \\jne short Li64_fail
+    \\cmp dx, 0x0115
+    \\jne short Li64_fail
+    \\cmp esi, 0x12345678
+    \\jne short Li64_fail
+    \\cmp edi, 0x87654321
+    \\jne short Li64_fail
+    \\lea ax, [bp - 8]
+    \\cmp sp, ax
+    \\jne short Li64_fail
+    \\mov ax, 42
+    \\xor dx, dx
+    \\jmp short Li64_end
+    \\Li64_fail:
+    \\mov ax, 1
+    \\xor dx, dx
+    \\Li64_end:
+    \\pop edi
+    \\pop esi
+    \\pop bp
+    \\ret
+    \\
+};
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42

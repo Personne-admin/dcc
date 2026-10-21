@@ -1,0 +1,18 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@import @nomangle extern u16 answer();
+asm @[intel] {
+    \\.text
+    \\.globl answer
+    \\answer:
+    \\mov ax, 42
+    \\ret
+};
+@nomangle public i32 dcc_main() {
+    return answer() as i32;
+}
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42

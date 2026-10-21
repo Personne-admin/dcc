@@ -1,0 +1,15 @@
+=== TARGET: i8086-mz FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+@nomangle public u8[512] buffer;
+@nomangle public i32 dcc_main() {
+    if buffer[0] != 0 || buffer[511] != 0 { return 1; }
+    buffer[0] = 7;
+    buffer[511] = 9;
+    if buffer[0] != 7 || buffer[511] != 9 { return 2; }
+    return 42;
+}
+=== EXPECT-I8086-RUN ===
+START: dos-test
+ENTRY: _start
+RUN-EXIT: 42
