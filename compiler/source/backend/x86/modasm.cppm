@@ -403,6 +403,13 @@ namespace dcc::backend::x86
             bool indirect{};
         };
 
+        enum class BranchHint : std::uint8_t
+        {
+            None,
+            Short,
+            Near
+        };
+
         struct Statement
         {
             std::string mnemonic;
@@ -410,6 +417,7 @@ namespace dcc::backend::x86
             unsigned suffix_width{};
             bool rep{};
             bool addr32{};
+            BranchHint branch_hint{BranchHint::None};
         };
 
         struct SectionState
@@ -474,7 +482,16 @@ namespace dcc::backend::x86
             std::optional<std::size_t> m_current;
             std::optional<std::size_t> m_previous;
             std::vector<std::size_t> m_section_stack;
+            struct ShortBranch
+            {
+                std::size_t section{};
+                std::uint64_t offset{};
+                std::string symbol;
+                std::size_t line{};
+            };
+
             std::unordered_map<std::string, LocalSymbol> m_defined;
+            std::vector<ShortBranch> m_short_branches;
             std::vector<std::string> m_definition_order;
             std::unordered_set<std::string> m_globals;
             std::unordered_set<std::string> m_weak;
@@ -1674,6 +1691,11 @@ namespace dcc::backend::x86
                     st.mnemonic = word;
                     break;
                 }
+                if (peek().kind == Token::Kind::Ident && (peek().text == "short" || peek().text == "near") && peek(1).kind == Token::Kind::Ident)
+                {
+                    st.branch_hint = peek().text == "short" ? BranchHint::Short : BranchHint::Near;
+                    ++m_pos;
+                }
                 if (!at_end())
                 {
                     do
@@ -2095,6 +2117,45 @@ namespace dcc::backend::x86
                     if (name == m && name != "jmp" && name != "call")
                         return opc;
                 return std::nullopt;
+            }
+
+            [[nodiscard]] static std::optional<std::uint8_t> short_branch_opcode(MOpc opc)
+            {
+                switch (opc)
+                {
+                    case MOpc::JMP:
+                        return std::uint8_t{0xEB};
+                    case MOpc::JE:
+                        return std::uint8_t{0x74};
+                    case MOpc::JNE:
+                        return std::uint8_t{0x75};
+                    case MOpc::JL:
+                        return std::uint8_t{0x7C};
+                    case MOpc::JGE:
+                        return std::uint8_t{0x7D};
+                    case MOpc::JLE:
+                        return std::uint8_t{0x7E};
+                    case MOpc::JG:
+                        return std::uint8_t{0x7F};
+                    case MOpc::JB:
+                        return std::uint8_t{0x72};
+                    case MOpc::JAE:
+                        return std::uint8_t{0x73};
+                    case MOpc::JBE:
+                        return std::uint8_t{0x76};
+                    case MOpc::JA:
+                        return std::uint8_t{0x77};
+                    case MOpc::JP:
+                        return std::uint8_t{0x7A};
+                    case MOpc::JNP:
+                        return std::uint8_t{0x7B};
+                    case MOpc::JS:
+                        return std::uint8_t{0x78};
+                    case MOpc::JNS:
+                        return std::uint8_t{0x79};
+                    default:
+                        return std::nullopt;
+                }
             }
 
             std::optional<Selected> select_branch(Statement& st, Selected& sel)
@@ -2798,6 +2859,23 @@ namespace dcc::backend::x86
                 auto selected = select(st);
                 if (!selected)
                     return false;
+                if (st.branch_hint != BranchHint::None)
+                {
+                    auto const short_opcode = short_branch_opcode(selected->instr.opc);
+                    bool const call = selected->instr.opc == MOpc::CALL || selected->instr.opc == MOpc::CALL_rel16;
+                    if (!short_opcode && !(st.branch_hint == BranchHint::Near && call))
+                        return fail(std::format("'{}' is not a branch that accepts 'short' or 'near'", st.mnemonic));
+                    if (st.branch_hint == BranchHint::Short)
+                    {
+                        if (selected->instr.num_ops != 1 || selected->instr.ops[0].kind != MOpKind::Symbol)
+                            return fail(std::format("'{} short' needs a label target", st.mnemonic));
+                        auto const offset = here();
+                        emit_byte(*short_opcode);
+                        emit_byte(0);
+                        m_short_branches.push_back(ShortBranch{*m_current, offset, std::string{selected->instr.ops[0].symbol}, m_line});
+                        return true;
+                    }
+                }
                 auto encoded = encode_instruction(selected->instr, m_mode);
                 std::optional<ModuleAsmRelocation> rip_field;
                 if (is_64())
@@ -2870,6 +2948,17 @@ namespace dcc::backend::x86
                     auto& data = m_object.sections[fixup.section].data;
                     for (unsigned i = 0; i < fixup.size; ++i)
                         data[fixup.offset + i] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(value) >> (8 * i));
+                }
+                for (auto const& branch : m_short_branches)
+                {
+                    m_line = branch.line;
+                    auto it = m_defined.find(branch.symbol);
+                    if (it == m_defined.end() || it->second.section != branch.section)
+                        return fail(std::format("a short branch target '{}' must be defined in the same module asm section", branch.symbol));
+                    auto const value = static_cast<std::int64_t>(it->second.offset) - static_cast<std::int64_t>(branch.offset) - 2;
+                    if (value < -128 || value > 127)
+                        return fail(std::format("short branch to '{}' is out of range", branch.symbol));
+                    m_object.sections[branch.section].data[branch.offset + 1] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(value) & 0xFF);
                 }
                 m_line = 0;
                 std::unordered_set<std::string> referenced;

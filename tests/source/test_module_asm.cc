@@ -150,6 +150,10 @@ TEST_CASE("16-bit module asm instructions match nasm byte for byte")
                            {"push es", "push es", true},
                            {"pop ds", "pop ds", true},
                            {"push 0x1234", "push 0x1234", true},
+                           {"jmp short done\ndone:", "jmp short done\ndone:", true},
+                           {"jz short done\nnop\ndone:", "jz short done\nnop\ndone:", true},
+                           {"jne short done\nnop\ndone:", "jne short done\nnop\ndone:", true},
+                           {"ja short done\nnop\ndone:", "ja short done\nnop\ndone:", true},
                            {"lea si, [bx + di + 4]", "lea si, [bx+di+4]", true},
                            {"addr32 rep stosb", "a32 rep stosb", true},
                            {"rep movsw", "rep movsw", true},
@@ -351,6 +355,8 @@ TEST_CASE("module asm reports unsupported input with its line")
         {".byte 300", EncodeMode::Long64, false, ModuleAsmFormat::Elf, "value 300 does not fit 1 bytes"},
         {".hidden x", EncodeMode::Long64, false, ModuleAsmFormat::Elf, "directive '.hidden' is not supported by the custom backend"},
         {".text\n    lock add rax, rbx", EncodeMode::Long64, true, ModuleAsmFormat::Elf, "prefix 'lock' is not supported by the custom backend"},
+        {".text\nstart:\n    .zero 200\n    jmp short start", EncodeMode::Real16, true, ModuleAsmFormat::Elf, "short branch to 'start' is out of range"},
+        {".text\n    call short target\ntarget:", EncodeMode::Real16, true, ModuleAsmFormat::Elf, "'call' is not a branch that accepts 'short' or 'near'"},
     };
     for (auto const& c : cases)
     {
