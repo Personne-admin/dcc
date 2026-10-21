@@ -2612,6 +2612,7 @@ namespace dcc::backend::x86
                     ri = {MOpc::CMP8ri, MOpc::CMP16ri, MOpc::CMP32ri, MOpc::CMP64ri32};
                     rm = {MOpc::CMP8rm, MOpc::CMP16rm, MOpc::CMP32rm, MOpc::CMP64rm};
                     mri = {MOpc::CMP8mi, MOpc::CMP16mi, MOpc::CMP32mi, nil};
+                    mr = {MOpc::CMP8mr, MOpc::CMP16mr, MOpc::CMP32mr, nil};
                 }
                 else if (m == "test")
                 {
