@@ -1,0 +1,16 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT = "a\0" "b";
+asm @[intel] { ".text\n.globl asm_answer\nasm_answer:\n" "mov eax, 7\nret\n" };
+@nomangle extern i32 asm_answer();
+@nomangle public i32 dcc_main() {
+    []const char s = TEXT;
+    []const u16 w = u"a\0" u"b";
+    if s.len != 3 || s[0] != 'a' || s[1] != '\0' || s[2] != 'b' { return 1; }
+    if w.len != 3 || w[0] != u'a' || w[1] != 0 || w[2] != u'b' { return 2; }
+    asm { "n" "op" };
+    if asm_answer() != 7 { return 3; }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -O0 -no-section-check ===
+RUN-EXIT: 0

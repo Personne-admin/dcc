@@ -1,0 +1,11 @@
+=== FILE: test.dc ===
+module test;
+import core;
+void f() {
+    core::compile_warning("joined " "warning");
+    core::compile_error("joined " "error");
+}
+=== EXPECT-ERRORS ===
+test.dc:5: joined error
+=== EXPECT-WARNINGS ===
+test.dc:4: joined warning

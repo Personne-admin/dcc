@@ -191,7 +191,10 @@ export namespace dcc::parser
             if (check(k))
                 return advance();
 
-            error_at(single_range(), std::format("expected '{}' {}, found '{}'", lex::to_string(k), ctx, lex::to_string(peek().kind)));
+            if (peek().error_message().starts_with("cannot concatenate "))
+                error_at(single_range(), std::string(peek().error_message()));
+            else
+                error_at(single_range(), std::format("expected '{}' {}, found '{}'", lex::to_string(k), ctx, lex::to_string(peek().kind)));
             return peek();
         }
 
@@ -2946,6 +2949,29 @@ export namespace dcc::parser
 
         static bool build_asm_decoded_raw_segments(std::string_view raw, std::string_view dec, std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>>& out)
         {
+            sm::SourceManager sources;
+            auto fid = sources.open_in_memory("file:///asm.dc", std::string(raw), 1);
+            si::string_interner interner;
+            lex::Lexer lexer{*sources.get(fid), interner, false, false};
+            out.clear();
+            for (auto tok = lexer.next(); !tok.eof(); tok = lexer.next())
+            {
+                if (tok.kind != TK::StringLiteral || !tok.value)
+                    return false;
+
+                std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>> part(out.get_allocator());
+                if (!build_asm_literal_raw_segments(tok.interned, std::get<std::string>(*tok.value), part))
+                    return false;
+
+                for (auto [begin, end] : part)
+                    out.push_back({begin + tok.range.begin.offset, end + tok.range.begin.offset});
+            }
+
+            return out.size() == dec.size();
+        }
+
+        static bool build_asm_literal_raw_segments(std::string_view raw, std::string_view dec, std::pmr::vector<std::pair<std::uint32_t, std::uint32_t>>& out)
+        {
             out.clear();
             if (raw.size() < 2 || raw.front() != '"' || raw.back() != '"')
                 return false;
@@ -4699,7 +4725,9 @@ export namespace dcc::parser
 
                     {
                         auto const& tok = peek();
-                        auto msg = std::format("expected expression, found '{}'", lex::to_string(tok.kind));
+                        auto msg = tok.error_message().starts_with("cannot concatenate ")
+                                       ? std::string(tok.error_message())
+                                       : std::format("expected expression, found '{}'", lex::to_string(tok.kind));
                         auto d = diag::Diagnostic(diag::Severity::Error, std::move(msg)).primary(tok.range);
                         if (!tok.valid())
                             if (auto em = tok.error_message(); !em.empty())

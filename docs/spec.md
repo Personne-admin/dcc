@@ -986,6 +986,17 @@ const u16 wch        = u'\u03A9'; // U+03A9, UTF-16 code unit
 []const u16 wgreeting = u"hi";
 ```
 
+Adjacent string literals separated only by whitespace, line breaks, or comments
+form one literal. This applies everywhere a string literal is accepted,
+including value aliases, attributes, diagnostic messages, and inline and module
+asm templates. Concatenation inserts no bytes or terminators. All parts must
+have the same kind: mixing plain and UTF-16 strings is an error naming both.
+
+```dc
+using []const char MESSAGE = "hello" /* separator */ " world";
+[]const u16 wide = u"hello" u" world";
+```
+
 `char` is a distinct, unsigned 8-bit text code-unit type (size and alignment
 one), not an alias for `u8`. Plain strings contain UTF-8 code units; a
 `char` need not be a complete Unicode character. Non-ASCII code points may

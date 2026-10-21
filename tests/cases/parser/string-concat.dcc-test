@@ -1,0 +1,12 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT = "a" "b";
+@section("." "data") i32 item;
+void f() {
+    []const char s = "one"
+        "two";
+    []const u16 w = u"one" u"two";
+    asm { "n" "op" };
+}
+asm { ".text\n" "nop\n" };
+=== EXPECT-ERROR-COUNT: 0 ===

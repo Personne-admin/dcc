@@ -12,8 +12,8 @@ export namespace dcc::lex
     class Lexer
     {
     public:
-        explicit Lexer(sm::SourceFile const& file, si::string_interner& interner, bool retain_comments = false) noexcept
-            : m_src{file.text()}, m_fid{file.id()}, m_interner{interner}, m_retain{retain_comments}
+        explicit Lexer(sm::SourceFile const& file, si::string_interner& interner, bool retain_comments = false, bool concatenate_strings = true) noexcept
+            : m_src{file.text()}, m_fid{file.id()}, m_interner{interner}, m_retain{retain_comments}, m_concatenate{concatenate_strings}
         {
         }
 
@@ -22,6 +22,46 @@ export namespace dcc::lex
         [[nodiscard]] sm::FileId file_id() const noexcept { return m_fid; }
 
         Token next()
+        {
+            auto tok = next_single();
+            if (!m_concatenate || !tok.is_one_of(TokenKind::StringLiteral, TokenKind::U16StringLiteral))
+                return tok;
+
+            for (;;)
+            {
+                auto saved = m_pos;
+                auto retain = m_retain;
+                m_retain = false;
+                auto err = skip_trivia();
+                m_retain = retain;
+                if (err || (peek() != '"' && (peek() != 'u' || peek_at(1) != '"')))
+                {
+                    m_pos = saved;
+                    break;
+                }
+
+                auto part = next_single();
+                if (!part.valid())
+                    return part;
+
+                if (part.kind != tok.kind)
+                    return make_error(tok.range.begin.offset,
+                                      std::format("cannot concatenate {} and {} string literals", tok.kind == TokenKind::StringLiteral ? "plain" : "UTF-16",
+                                                  part.kind == TokenKind::StringLiteral ? "plain" : "UTF-16"));
+
+                if (tok.kind == TokenKind::StringLiteral)
+                    std::get<std::string>(*tok.value) += std::get<std::string>(*part.value);
+                else
+                    std::get<std::u16string>(*tok.value) += std::get<std::u16string>(*part.value);
+
+                tok.range.end = part.range.end;
+                tok.interned = m_interner.intern(source_text(tok.range));
+            }
+            return tok;
+        }
+
+    private:
+        Token next_single()
         {
             if (auto err = skip_trivia())
                 return *err;
@@ -51,6 +91,7 @@ export namespace dcc::lex
             return lex_punctuation(start);
         }
 
+    public:
         [[nodiscard]] std::string_view source_text(sm::SourceRange range) const noexcept
         {
             if (range.begin.fileId != m_fid || range.end.fileId != m_fid)
@@ -103,6 +144,7 @@ export namespace dcc::lex
         sm::FileId m_fid;
         si::string_interner& m_interner;
         bool m_retain{false};
+        bool m_concatenate{true};
         std::uint32_t m_pos{};
 
         static constexpr bool is_ident_start(char c) noexcept { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; }

@@ -63,7 +63,7 @@
         },
         "strings": {
             "name": "string.quoted.double.dc",
-            "begin": "\"",
+            "begin": "(?:u)?\"",
             "end": "\"|$",
             "patterns": [
                 {

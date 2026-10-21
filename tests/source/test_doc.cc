@@ -385,3 +385,26 @@ TEST_CASE("silent by default and IR identical")
     REQUIRE(t2 != nullptr);
     CHECK_EQ(t1->decls.size(), t2->decls.size());
 }
+
+TEST_CASE("adjacent strings concatenate trivia and preserve their kind")
+{
+    dcc::sm::SourceManager mgr;
+    auto fid = mgr.open_in_memory("file:///strings.dc", "\"a\\0\" /* nested /* comment */ ok */\n\"b\" // line\nu\"c\"", 1);
+    dcc::si::string_interner interner;
+    dcc::lex::Lexer lexer{*mgr.get(fid), interner};
+    auto mixed = lexer.next();
+    CHECK(!mixed.valid());
+    CHECK_EQ(mixed.error_message(), "cannot concatenate plain and UTF-16 string literals");
+    auto wide = mgr.open_in_memory("file:///wide.dc", "u\"a\"\n u\"b\";", 1);
+    dcc::lex::Lexer wide_lexer{*mgr.get(wide), interner};
+    auto tok = wide_lexer.next();
+    REQUIRE(tok.kind == dcc::lex::TokenKind::U16StringLiteral);
+    CHECK(std::get<std::u16string>(*tok.value) == u"ab");
+    CHECK(wide_lexer.next().kind == dcc::lex::TokenKind::Semicolon);
+    auto plain = mgr.open_in_memory("file:///plain.dc", "\"a\\0\" /* gap */ \"\" // gap\n\"b\";", 1);
+    dcc::lex::Lexer plain_lexer{*mgr.get(plain), interner, true};
+    auto joined = plain_lexer.next();
+    REQUIRE(joined.kind == dcc::lex::TokenKind::StringLiteral);
+    CHECK_EQ(std::get<std::string>(*joined.value), std::string("a\0b", 3));
+    CHECK(plain_lexer.next().kind == dcc::lex::TokenKind::Semicolon);
+}

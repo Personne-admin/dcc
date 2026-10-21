@@ -1,0 +1,14 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT = "a\0" "b";
+asm @[intel] { ".text\n.globl _start\n_start:\n" "and rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\n" };
+@nomangle public i32 dcc_main() {
+    []const char s = TEXT;
+    []const u16 w = u"a\0" u"b";
+    if s.len != 3 || s[0] != 'a' || s[1] != '\0' || s[2] != 'b' { return 1; }
+    if w.len != 3 || w[0] != u'a' || w[1] != 0 || w[2] != u'b' { return 2; }
+    asm { "n" "op" };
+    return 0;
+}
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0

@@ -1,0 +1,5 @@
+=== FILE: test.dc ===
+module test;
+using []const char TEXT = "a" u"b";
+=== EXPECT-ERRORS ===
+test.dc:2: cannot concatenate plain and UTF-16 string literals

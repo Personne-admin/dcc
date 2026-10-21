@@ -2,6 +2,8 @@ export module dccd.semantic_tokens;
 
 import std;
 import dcc.sm;
+import dcc.lex;
+import dcc.si;
 import dcc.ast;
 import dcc.sema;
 import dcc.sema.type_helpers;
@@ -112,6 +114,32 @@ namespace dccd::semantic_tokens
                 if ((++visit_count & (kCancelInterval - 1)) == 0)
                     if (cancel())
                         throw TraversalCancelled{};
+            }
+
+            std::vector<dcc::sm::SourceRange> string_literal_ranges(dcc::sm::SourceRange range)
+            {
+                std::vector<dcc::sm::SourceRange> ranges;
+                auto const* file = sm.get(range.begin.fileId);
+                if (!range.valid() || !file || range.end.offset > file->text().size())
+                    return ranges;
+
+                dcc::sm::SourceManager sources;
+                auto fid = sources.open_in_memory("file:///literal.dc",
+                                                  std::string(file->text().substr(range.begin.offset, range.end.offset - range.begin.offset)), 1);
+                dcc::si::string_interner interner;
+                dcc::lex::Lexer lexer{*sources.get(fid), interner, false, false};
+                for (auto tok = lexer.next(); !tok.eof(); tok = lexer.next())
+                    if (tok.is_one_of(dcc::lex::TokenKind::StringLiteral, dcc::lex::TokenKind::U16StringLiteral))
+                        ranges.push_back({{range.begin.fileId, range.begin.offset + tok.range.begin.offset},
+                                          {range.begin.fileId, range.begin.offset + tok.range.end.offset}});
+
+                return ranges;
+            }
+
+            void emit_string_literals(dcc::sm::SourceRange range)
+            {
+                for (auto part : string_literal_ranges(range))
+                    emit(part, TokenType::String);
             }
 
             void emit(dcc::sm::SourceRange range, TokenType type, std::uint32_t modifiers = 0)
@@ -409,11 +437,11 @@ namespace dccd::semantic_tokens
                     break;
                 }
                 case dcc::ast::ExprKind::StringLiteral: {
-                    emit(expr->range, TokenType::String);
+                    emit_string_literals(expr->range);
                     break;
                 }
                 case dcc::ast::ExprKind::U16StringLiteral: {
-                    emit(expr->range, TokenType::String);
+                    emit_string_literals(expr->range);
                     break;
                 }
                 case dcc::ast::ExprKind::CharLiteral: {
@@ -854,16 +882,22 @@ namespace dccd::semantic_tokens
                     emit(dcc::sm::SourceRange{dcc::sm::Location{file_id, gap_begin}, dcc::sm::Location{file_id, gap_end}}, TokenType::String);
             };
 
-            std::uint32_t cursor = begin;
-            for (auto const& in : merged)
+            for (auto part : string_literal_ranges(template_range))
             {
-                emit_string_gap(cursor, in.begin);
-                cursor = in.end;
-            }
-            emit_string_gap(cursor, end);
+                auto cursor = part.begin.offset;
+                for (auto const& in : merged)
+                {
+                    auto first = std::max(in.begin, part.begin.offset);
+                    auto last = std::min(in.end, part.end.offset);
+                    if (last <= first)
+                        continue;
 
-            for (auto const& in : merged)
-                emit(dcc::sm::SourceRange{dcc::sm::Location{file_id, in.begin}, dcc::sm::Location{file_id, in.end}}, in.type);
+                    emit_string_gap(cursor, first);
+                    emit({{file_id, first}, {file_id, last}}, in.type);
+                    cursor = last;
+                }
+                emit_string_gap(cursor, part.end.offset);
+            }
         }
 
     } // anonymous namespace

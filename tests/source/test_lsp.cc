@@ -6632,3 +6632,21 @@ TEST_CASE("incremental edits preserve document text and fresh semantic tokens")
         }
     }
 }
+
+TEST_CASE("adjacent strings leave intervening comments out of semantic string tokens")
+{
+    namespace st = dccd::semantic_tokens;
+    dcc::session::CompilerSession session{{.silent_diagnostics = true}};
+    auto fid = session.open_in_memory("file:///concat.dc", "module m;\nvoid f() { []const char s = \"a\" /* gap */ \"b\"; i32 after = 3; }\n", 1);
+    auto* tu = session.parse_file(fid);
+    REQUIRE(tu != nullptr);
+    auto tokens = decode_delta(st::collect_tokens(session.source_manager(), tu, fid));
+    unsigned strings = 0;
+    for (auto const& tok : tokens)
+        if (tok.type == static_cast<std::uint32_t>(st::TokenType::String))
+        {
+            ++strings;
+            CHECK_EQ(tok.length, 3u);
+        }
+    CHECK_EQ(strings, 2u);
+}

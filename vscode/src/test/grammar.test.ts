@@ -129,3 +129,11 @@ test('unterminated strings recover at the next line like the lexer', async () =>
         assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
     }
 });
+
+test('adjacent plain and UTF-16 literals keep separate string scopes', async () => {
+    const lines = await tokenizeSample('[]const u16 s = u"one" /* gap */ u"two";\ni32 after = 1;');
+    const tokens = lines.get('[]const u16 s = u"one" /* gap */ u"two";')!;
+    assert.equal(tokens.filter(t => t.text === 'u"' && t.scope === 'string.quoted.double.dc').length, 2);
+    assert.ok(tokens.some(t => t.text.includes('gap') && t.scope === 'comment.block.dc'));
+    assert.deepEqual(words(lines.get('i32 after = 1;')!, 'i32'), ['storage.type']);
+});
