@@ -2571,6 +2571,7 @@ namespace dcc::backend::x86
                 T ri{};
                 T rm{};
                 T mr{};
+                T mri{};
                 std::optional<MOpc> nil;
                 if (m == "add")
                 {
@@ -2610,6 +2611,7 @@ namespace dcc::backend::x86
                     rr = {MOpc::CMP8rr, MOpc::CMP16rr, MOpc::CMP32rr, MOpc::CMP64rr};
                     ri = {MOpc::CMP8ri, MOpc::CMP16ri, MOpc::CMP32ri, MOpc::CMP64ri32};
                     rm = {MOpc::CMP8rm, MOpc::CMP16rm, MOpc::CMP32rm, MOpc::CMP64rm};
+                    mri = {MOpc::CMP8mi, MOpc::CMP16mi, MOpc::CMP32mi, nil};
                 }
                 else if (m == "test")
                 {
@@ -2698,6 +2700,23 @@ namespace dcc::backend::x86
                     mi.num_ops = 2;
                     mi.ops[0] = MOp::from_mem(*mem);
                     mi.ops[1] = reg_op(src.reg);
+                    return sel;
+                }
+                if (dst.kind == Operand::Kind::Mem && src.kind == Operand::Kind::Imm)
+                {
+                    auto opc = pick(w, mri);
+                    auto mem = make_mem(dst.mem, st.addr32);
+                    if (!mem)
+                        return std::nullopt;
+                    if (!opc)
+                        return fail_none(st);
+                    mi.opc = *opc;
+                    mi.num_ops = 2;
+                    mi.num_defs = 0;
+                    mi.ops[0] = MOp::from_mem(*mem);
+                    auto const imm_width = w == 64 ? 32u : w;
+                    if (!immediate_fits(src.value, imm_width) || !set_immediate(sel, 1, src.value, imm_width))
+                        return std::nullopt;
                     return sel;
                 }
                 return fail_none(st);

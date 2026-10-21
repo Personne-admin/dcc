@@ -344,8 +344,10 @@ export namespace dcc::backend::x86
         CMP32rr,
         CMP32ri,
         CMP32rm,
+        CMP32mi,
         CMP8rr,
         CMP8ri,
+        CMP8mi,
         CMP64ri,
         TEST64rr,
         TEST32rr,
@@ -532,6 +534,7 @@ export namespace dcc::backend::x86
         CMP16rr,
         CMP16ri,
         CMP16rm,
+        CMP16mi,
         ADC16rr,
         ADC16ri,
         SBB16rr,
@@ -790,6 +793,7 @@ export namespace dcc::backend::x86
             case MOpc::CMP32rr:
             case MOpc::CMP32ri:
             case MOpc::CMP32rm:
+            case MOpc::CMP32mi:
             case MOpc::TEST32rr:
             case MOpc::CDQ:
             case MOpc::LOCK_XADD32mr:
@@ -859,6 +863,7 @@ export namespace dcc::backend::x86
             case MOpc::CMP16rr:
             case MOpc::CMP16ri:
             case MOpc::CMP16rm:
+            case MOpc::CMP16mi:
             case MOpc::ADC16rr:
             case MOpc::ADC16ri:
             case MOpc::SBB16rr:
@@ -914,6 +919,7 @@ export namespace dcc::backend::x86
             case MOpc::MOV8mr:
             case MOpc::CMP8rr:
             case MOpc::CMP8ri:
+            case MOpc::CMP8mi:
             case MOpc::TEST8rr:
             case MOpc::SETEr:
             case MOpc::SETNEr:
@@ -1562,10 +1568,14 @@ export namespace dcc::backend::x86
                 return "CMP32ri"sv;
             case MOpc::CMP32rm:
                 return "CMP32rm"sv;
+            case MOpc::CMP32mi:
+                return "CMP32mi"sv;
             case MOpc::CMP8rr:
                 return "CMP8rr"sv;
             case MOpc::CMP8ri:
                 return "CMP8ri"sv;
+            case MOpc::CMP8mi:
+                return "CMP8mi"sv;
             case MOpc::CMP64ri:
                 return "CMP64ri"sv;
             case MOpc::TEST64rr:
@@ -1926,6 +1936,8 @@ export namespace dcc::backend::x86
                 return "CMP16ri"sv;
             case MOpc::CMP16rm:
                 return "CMP16rm"sv;
+            case MOpc::CMP16mi:
+                return "CMP16mi"sv;
             case MOpc::ADC16rr:
                 return "ADC16rr"sv;
             case MOpc::ADC16ri:

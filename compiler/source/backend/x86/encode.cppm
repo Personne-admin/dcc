@@ -3623,6 +3623,10 @@ namespace
             case MOpc::CMP16rm:
             case MOpc::CMP32rm:
                 return Real16Alu{7, 'm', false, false};
+            case MOpc::CMP8mi:
+            case MOpc::CMP16mi:
+            case MOpc::CMP32mi:
+                return Real16Alu{7, 'M', false, false};
             default:
                 return std::nullopt;
         }
@@ -3945,6 +3949,8 @@ namespace
         void alu(Real16Alu info)
         {
             auto const bits = width();
+            if (info.form == 'M')
+                return alu_mem(info, bits);
             unsigned const source = has(3) ? 2 : 1;
             std::uint8_t d = 0;
             if (info.writes && has(3))
@@ -3961,6 +3967,35 @@ namespace
             if (!m_ok)
                 return;
             alu_with(info, bits, d, source);
+        }
+
+        void alu_mem(Real16Alu info, unsigned bits)
+        {
+            if (!is_mem(0))
+                return fail("expected a memory operand");
+            if (!is_imm(1))
+                return fail("expected an immediate operand");
+            auto const& m = op(0).mem;
+            auto const value = op(1).imm;
+            prefixes(bits, &m);
+            if (bits == 8)
+            {
+                emit_u8(m_buf, 0x80);
+                mem(m, info.ext);
+                imm(value, 8);
+            }
+            else if (fits8(value, bits))
+            {
+                emit_u8(m_buf, 0x83);
+                mem(m, info.ext);
+                imm(value, 8);
+            }
+            else
+            {
+                emit_u8(m_buf, 0x81);
+                mem(m, info.ext);
+                imm(value, bits);
+            }
         }
 
         void alu_with(Real16Alu info, unsigned bits, std::uint8_t d, unsigned source)
