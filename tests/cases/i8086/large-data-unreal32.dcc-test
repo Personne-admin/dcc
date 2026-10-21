@@ -61,31 +61,31 @@ using Block Zero = {bytes = {'\0','\0','\0','\0','\0','\0','\0','\0','\0','\0','
     for (usize i = 0; i < 8; i += 1) { if lookup(i as u16) != (i + 10) as u16 { return 16; } }
     return 42;
 }
-=== FILE: helpers.asm ===
-bits 16
-section .text
-global arena_offset
-global image_offset
-global poison_es
-extern arena
-extern image
-arena_offset:
-    mov eax, arena
-    mov edx, eax
-    shr edx, 16
-    ret
-image_offset:
-    mov eax, image
-    mov edx, eax
-    shr edx, 16
-    ret
-poison_es:
-    mov ax, 0x2000
-    mov es, ax
-    ret
-=== FILE: padding.asm ===
-bits 16
-section .rodata
-times 0x10001 db 0
+
+asm @[intel] {
+    \\.text
+    \\.globl arena_offset
+    \\.globl image_offset
+    \\.globl poison_es
+    \\arena_offset:
+    \\mov eax, offset arena
+    \\mov edx, eax
+    \\shr edx, 16
+    \\ret
+    \\image_offset:
+    \\mov eax, offset image
+    \\mov edx, eax
+    \\shr edx, 16
+    \\ret
+    \\poison_es:
+    \\mov ax, 0x2000
+    \\mov es, ax
+    \\ret
+};
+
+asm @[intel] {
+    \\.section .rodata, "a", @progbits
+    \\.zero 0x10001
+};
 === EXPECT-I8086-RUN ===
 RUN-EXIT: 42
