@@ -138,6 +138,8 @@ TEST_CASE("16-bit module asm instructions match nasm byte for byte")
                            {"mov ax, word ptr [fs:bx]", "mov ax, [fs:bx]", true},
                            {"add ax, cx", "add ax, cx", true},
                            {"add eax, 100000", "add eax, 100000", true},
+                           {"adc edx, dword ptr [bp + 18]", "adc edx, [bp+18]", true},
+                           {"adc ax, word ptr [bx]", "adc ax, [bx]", true},
                            {"sub cx, 1", "sub cx, 1", true},
                            {"xor eax, eax", "xor eax, eax", true},
                            {"cmp ax, word ptr [bx]", "cmp ax, [bx]", true},

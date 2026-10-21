@@ -2622,6 +2622,7 @@ namespace dcc::backend::x86
                 {
                     rr = {nil, MOpc::ADC16rr, MOpc::ADC32rr, nil};
                     ri = {nil, MOpc::ADC16ri, MOpc::ADC32ri, nil};
+                    rm = {nil, MOpc::ADC16rm, MOpc::ADC32rm, nil};
                 }
                 else
                 {

@@ -537,10 +537,12 @@ export namespace dcc::backend::x86
         CMP16mi,
         ADC16rr,
         ADC16ri,
+        ADC16rm,
         SBB16rr,
         SBB16ri,
         ADC32rr,
         ADC32ri,
+        ADC32rm,
         SBB32rr,
         SBB32ri,
         AND32rm,
@@ -804,6 +806,7 @@ export namespace dcc::backend::x86
             case MOpc::LOCK_XOR32mr:
             case MOpc::ADC32rr:
             case MOpc::ADC32ri:
+            case MOpc::ADC32rm:
             case MOpc::SBB32rr:
             case MOpc::SBB32ri:
             case MOpc::AND32rm:
@@ -866,6 +869,7 @@ export namespace dcc::backend::x86
             case MOpc::CMP16mi:
             case MOpc::ADC16rr:
             case MOpc::ADC16ri:
+            case MOpc::ADC16rm:
             case MOpc::SBB16rr:
             case MOpc::SBB16ri:
             case MOpc::TEST16rr:
@@ -1938,6 +1942,8 @@ export namespace dcc::backend::x86
                 return "CMP16rm"sv;
             case MOpc::CMP16mi:
                 return "CMP16mi"sv;
+            case MOpc::ADC16rm:
+                return "ADC16rm"sv;
             case MOpc::ADC16rr:
                 return "ADC16rr"sv;
             case MOpc::ADC16ri:
@@ -1950,6 +1956,8 @@ export namespace dcc::backend::x86
                 return "ADC32rr"sv;
             case MOpc::ADC32ri:
                 return "ADC32ri"sv;
+            case MOpc::ADC32rm:
+                return "ADC32rm"sv;
             case MOpc::SBB32rr:
                 return "SBB32rr"sv;
             case MOpc::SBB32ri:

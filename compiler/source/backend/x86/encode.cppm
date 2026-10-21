@@ -3572,6 +3572,9 @@ namespace
             case MOpc::ADC16ri:
             case MOpc::ADC32ri:
                 return Real16Alu{2, 'i', true, true};
+            case MOpc::ADC16rm:
+            case MOpc::ADC32rm:
+                return Real16Alu{2, 'm', true, true};
             case MOpc::SBB16rr:
             case MOpc::SBB32rr:
                 return Real16Alu{3, 'r', false, true};
