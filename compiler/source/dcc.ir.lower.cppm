@@ -3089,36 +3089,6 @@ export namespace dcc::ir::lower
 
         IrValue* lower_call_expr(ast::CallExpr const* call)
         {
-            if (call->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && call->sema.constructed_variant)
-            {
-                auto* enum_type = get_sema_resolved_type(call);
-                auto* et = types::type_cast<types::EnumType>(enum_type);
-                if (et && et->is_tagged)
-                {
-                    bool has_eff_payload = false;
-                    if (et->tagged_layout)
-                    {
-                        auto const* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
-                        if (ed)
-                        {
-                            auto const* variant = call->sema.constructed_variant;
-                            std::ptrdiff_t idx = variant - ed->variants.data();
-                            if (idx >= 0 && static_cast<std::size_t>(idx) < et->tagged_layout->variant_count)
-                                has_eff_payload = et->tagged_layout->variants[idx].variant_payload_type_or_null != nullptr;
-                        }
-                    }
-
-                    std::vector<IrValue*> payload_args;
-                    if (has_eff_payload)
-                    {
-                        for (std::size_t i = 0; i < call->args.size(); ++i)
-                            payload_args.push_back(lower_expr(call->args[i]));
-                    }
-
-                    return lower_tagged_enum_construction(call->sema.constructed_variant, enum_type, payload_args);
-                }
-            }
-
             auto* resolved_spec = call->sema.resolved_specialization;
             auto* callee_expr = call->callee;
 
@@ -3157,6 +3127,49 @@ export namespace dcc::ir::lower
                     auto* fd = ast::node_cast<ast::FuncDecl>(call->sema.resolved_decl);
                     if (fd)
                         direct_target = fd;
+                }
+            }
+
+            if (call->sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && call->sema.constructed_variant)
+            {
+                auto* callee_type = types::type_cast<types::FuncPtrType>(get_sema_resolved_type(call->callee));
+                auto* payload_type = direct_target ? get_canonical_type(direct_target->return_type) : (callee_type ? callee_type->return_type : nullptr);
+                if (payload_type)
+                {
+                    auto payload_call = *call;
+                    payload_call.sema.construction_kind = ast::ExprSema::ConstructionKind::None;
+                    payload_call.sema.constructed_variant = nullptr;
+                    payload_call.sema.resolved_type = reinterpret_cast<decltype(payload_call.sema.resolved_type)>(payload_type);
+                    if (payload_call.sema.const_value && payload_call.sema.const_value->type != payload_type)
+                        payload_call.sema.const_value = nullptr;
+                    std::array<IrValue*, 1> payload{lower_call_expr(&payload_call)};
+                    return lower_tagged_enum_construction(call->sema.constructed_variant, get_sema_resolved_type(call), payload);
+                }
+                auto* enum_type = get_sema_resolved_type(call);
+                auto* et = types::type_cast<types::EnumType>(enum_type);
+                if (et && et->is_tagged)
+                {
+                    bool has_eff_payload = false;
+                    if (et->tagged_layout)
+                    {
+                        auto const* ed = reinterpret_cast<ast::EnumDecl const*>(et->decl);
+                        if (ed)
+                        {
+                            auto const* variant = call->sema.constructed_variant;
+                            std::ptrdiff_t idx = variant - ed->variants.data();
+                            if (idx >= 0 && static_cast<std::size_t>(idx) < et->tagged_layout->variant_count)
+                                has_eff_payload = et->tagged_layout->variants[idx].variant_payload_type_or_null != nullptr;
+                        }
+                    }
+
+                    std::vector<IrValue*> payload_args;
+                    if (has_eff_payload)
+                    {
+                        for (std::size_t i = 0; i < call->args.size(); ++i)
+                            payload_args.push_back(lower_expr(call->args[i]));
+                    }
+
+                    return lower_tagged_enum_construction(call->sema.constructed_variant, enum_type, payload_args);
                 }
             }
 

@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module main;
+@nomangle const i32 dummy_ro = 0;
+@nomangle i32 dummy_data = 0;
+@nomangle i32 dummy_bss;
+enum Fault : u8 { Other, Overflow }
+enum Outcome(T) { Ok(T), @implicit_construction Err(Fault) }
+struct Source { Fault value; }
+usize calls;
+@runtime Fault get_fault() { calls = calls + 1; return Fault::Overflow; }
+@runtime Fault read(const Source* self, usize increment) { calls = calls + increment; return self.value; }
+@runtime Outcome([]u8) forward() { return get_fault(); }
+@runtime Outcome([]u8) forward_ufcs(const Source* source) { return source.read(2); }
+@nomangle public i32 dcc_main() {
+    Source source = {value = Fault::Overflow};
+    Outcome([]u8) a = forward();
+    Outcome([]u8) b = forward_ufcs(&source);
+    if calls != 3 { return 1; }
+    bool first = match a { Outcome::Err(e) => e == Fault::Overflow, _ => false };
+    bool second = match b { Outcome::Err(e) => e == Fault::Overflow, _ => false };
+    if !first || !second { return 2; }
+    return 42;
+}
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 ===
+RUN-EXIT: 42
