@@ -27,6 +27,7 @@ Module m
     Body
       Var e type=Empty storage=local offset=0
         Block [type=Empty const=agg() constant]
+          Body
       Return
         Ident e [type=Empty const=agg() lvalue constant decl=e]
   Func test_nested_empty diverging=true
@@ -34,6 +35,7 @@ Module m
       Var c type=Container storage=local offset=0
         StructLiteral [type=Container const=agg(1, agg()) constant]
           IntLiteral 1 [type=i32 const=1 constant]
-          StructLiteral [type=Empty const=agg() constant]
+          Block [type=Empty const=agg() constant]
+            Body
       Return
         Ident c [type=Container const=agg(1, agg()) lvalue constant decl=c]

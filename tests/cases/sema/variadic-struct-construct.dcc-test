@@ -39,6 +39,7 @@ Module m
             IntLiteral 9 [type=i64 const=9 constant]
       Var d type=Tuple storage=local offset=48
         Block [type=Tuple const=agg() constant]
+          Body
       Var e type=Tuple(i32) storage=local offset=48
         StructLiteral [type=Tuple(i32) const=agg(5) constant]
           IntLiteral 5 [type=i32 const=5 constant]

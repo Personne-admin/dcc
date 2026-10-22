@@ -145,6 +145,7 @@ namespace
         bool no_x87{false};
         bool position_independent_code{false};
         std::optional<dcc::target::CodeModel> code_model;
+        std::optional<std::string> auto_var_init;
         bool omit_frame_pointer{true};
         std::optional<int> run_exit_code;
     };
@@ -250,6 +251,7 @@ namespace
         std::vector<std::string> contains;
         int opt_level{0};
         std::string target_triple;
+        std::optional<std::string> auto_var_init;
     };
 
     struct Fixture
@@ -1117,6 +1119,13 @@ namespace
                         }
                     }
 
+                    auto auto_var_init_pos = flags_str.find("-ftrivial-auto-var-init=");
+                    if (auto_var_init_pos != std::string::npos)
+                    {
+                        auto after = std::string_view{flags_str}.substr(auto_var_init_pos + 24);
+                        auto sp = after.find(' ');
+                        e.auto_var_init = std::string{trim((sp != std::string::npos) ? after.substr(0, sp) : after)};
+                    }
                     if (flags_str.find("-fno-red-zone") != std::string::npos)
                         e.no_red_zone = true;
                     if (flags_str.find("-fno-simd") != std::string::npos)
@@ -2947,6 +2956,15 @@ namespace
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+            if (exp.auto_var_init)
+            {
+                auto mode = dcc::ir::AutoVarInit::None;
+                if (*exp.auto_var_init == "pattern")
+                    mode = dcc::ir::AutoVarInit::Pattern;
+                else if (*exp.auto_var_init == "zero")
+                    mode = dcc::ir::AutoVarInit::Zero;
+                lowerer->set_auto_var_init(mode);
+            }
             auto* ir_mod = lowerer->lower_module(*mod);
             if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
                 continue;
@@ -4443,6 +4461,15 @@ namespace
 
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), false, &sm, &sema.types());
+            if (exp.auto_var_init)
+            {
+                auto mode = dcc::ir::AutoVarInit::None;
+                if (*exp.auto_var_init == "pattern")
+                    mode = dcc::ir::AutoVarInit::Pattern;
+                else if (*exp.auto_var_init == "zero")
+                    mode = dcc::ir::AutoVarInit::Zero;
+                lowerer->set_auto_var_init(mode);
+            }
             auto* ir_mod = lowerer->lower_module(*mod);
             if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
                 continue;
