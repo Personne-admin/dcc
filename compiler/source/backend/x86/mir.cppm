@@ -514,6 +514,8 @@ export namespace dcc::backend::x86
         SFENCE,
 
         UD2,
+        SYSCALL,
+        INT3,
         NOP,
         XCHG64rr,
         REPMOVS,
@@ -1077,6 +1079,8 @@ export namespace dcc::backend::x86
                 case MOpc::LFENCE:
                 case MOpc::SFENCE:
                 case MOpc::UD2:
+                case MOpc::SYSCALL:
+                case MOpc::INT3:
                 case MOpc::XCHG64rr:
                 case MOpc::REPMOVS:
                 case MOpc::REPSTOS:
@@ -1915,6 +1919,10 @@ export namespace dcc::backend::x86
 
             case MOpc::UD2:
                 return "UD2"sv;
+            case MOpc::SYSCALL:
+                return "SYSCALL"sv;
+            case MOpc::INT3:
+                return "INT3"sv;
             case MOpc::NOP:
                 return "NOP"sv;
             case MOpc::XCHG64rr:

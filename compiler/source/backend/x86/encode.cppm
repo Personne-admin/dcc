@@ -619,6 +619,13 @@ namespace
             case MOpc::STI:
                 emit_u8(buf, 0xFB);
                 return std::nullopt;
+            case MOpc::SYSCALL:
+                emit_u8(buf, 0x0F);
+                emit_u8(buf, 0x05);
+                return std::nullopt;
+            case MOpc::INT3:
+                emit_u8(buf, 0xCC);
+                return std::nullopt;
             case MOpc::HLT:
                 emit_u8(buf, 0xF4);
                 return std::nullopt;
@@ -682,6 +689,8 @@ namespace
             case MOpc::CLI:
             case MOpc::STI:
             case MOpc::HLT:
+            case MOpc::SYSCALL:
+            case MOpc::INT3:
             case MOpc::CLD:
             case MOpc::STD:
             case MOpc::INT:
@@ -4593,6 +4602,7 @@ namespace
                 case MOpc::CLI:
                 case MOpc::STI:
                 case MOpc::HLT:
+                case MOpc::INT3:
                 case MOpc::CLD:
                 case MOpc::STD:
                 case MOpc::INT:

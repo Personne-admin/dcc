@@ -1993,6 +1993,17 @@ namespace dcc::backend::x86
                     return none(MOpc::CLD);
                 if (m == "std")
                     return none(MOpc::STD);
+                if (m == "syscall")
+                {
+                    if (!is_64())
+                    {
+                        fail("syscall requires 64-bit module asm");
+                        return std::nullopt;
+                    }
+                    return none(MOpc::SYSCALL);
+                }
+                if (m == "int3")
+                    return none(MOpc::INT3);
                 if (m == "ud2")
                     return none(MOpc::UD2);
                 if (m == "cbw" || m == "cbtw")

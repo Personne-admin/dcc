@@ -1,0 +1,124 @@
+module main;
+@nomangle extern i32 runtime_probe_check(usize size);
+@runtime @noinline usize fill_stack(usize seed) {
+    u8[131073] buffer;
+    u8* bytes = &buffer[0];
+    for usize i = 0; i < 131073; i++ { bytes[i] = ((i + seed) & 255) as u8; }
+    usize sum = 0;
+    for usize i = 0; i < 131073; i = i + 4096 { sum = sum + bytes[i] as usize; }
+    return sum;
+}
+@nomangle public i32 runtime_entry() {
+    if runtime_probe_check(0) != 0 || runtime_probe_check(1) != 0
+        || runtime_probe_check(4095) != 0 || runtime_probe_check(4096) != 0
+        || runtime_probe_check(4097) != 0 || runtime_probe_check(131073) != 0 { return 1; }
+    if fill_stack(7) != 231 { return 2; }
+    return 0;
+}
+asm {
+    \\.section .text.runtime, "xr"
+    \\.globl __chkstk
+    \\__chkstk:
+    \\    push %%rcx
+    \\    push %%rax
+    \\    lea 24(%%rsp), %%rcx
+    \\1:
+    \\    cmp $4096, %%rax
+    \\    jb 2f
+    \\    sub $4096, %%rcx
+    \\    cmp (%%rcx), %%rax
+    \\    sub $4096, %%rax
+    \\    jmp 1b
+    \\2:
+    \\    sub %%rax, %%rcx
+    \\    cmp (%%rcx), %%rax
+    \\    pop %%rax
+    \\    pop %%rcx
+    \\    ret
+    \\
+    \\.data
+    \\.globl _fltused
+    \\_fltused:
+    \\    .long 0
+    \\
+    \\.section .text.runtime, "xr"
+    \\.globl runtime_probe_check
+    \\runtime_probe_check:
+    \\    push %%rbx
+    \\    push %%rbp
+    \\    push %%rsi
+    \\    push %%rdi
+    \\    push %%r12
+    \\    push %%r13
+    \\    push %%r14
+    \\    push %%r15
+    \\    sub $8, %%rsp
+    \\    mov %%rcx, %%rbx
+    \\    mov %%rcx, %%rax
+    \\    mov $100, %%rcx
+    \\    mov $101, %%rdx
+    \\    mov $102, %%r8
+    \\    mov $103, %%r9
+    \\    mov $104, %%r10
+    \\    mov $105, %%r11
+    \\    mov $106, %%rbp
+    \\    mov $107, %%rsi
+    \\    mov $108, %%rdi
+    \\    mov $109, %%r12
+    \\    mov $110, %%r13
+    \\    mov $111, %%r14
+    \\    mov $112, %%r15
+    \\    call __chkstk
+    \\    cmp %%rbx, %%rax
+    \\    jne 1f
+    \\    cmp $100, %%rcx
+    \\    jne 1f
+    \\    cmp $101, %%rdx
+    \\    jne 1f
+    \\    cmp $102, %%r8
+    \\    jne 1f
+    \\    cmp $103, %%r9
+    \\    jne 1f
+    \\    cmp $104, %%r10
+    \\    jne 1f
+    \\    cmp $105, %%r11
+    \\    jne 1f
+    \\    cmp $106, %%rbp
+    \\    jne 1f
+    \\    cmp $107, %%rsi
+    \\    jne 1f
+    \\    cmp $108, %%rdi
+    \\    jne 1f
+    \\    cmp $109, %%r12
+    \\    jne 1f
+    \\    cmp $110, %%r13
+    \\    jne 1f
+    \\    cmp $111, %%r14
+    \\    jne 1f
+    \\    cmp $112, %%r15
+    \\    jne 1f
+    \\    xor %%eax, %%eax
+    \\    jmp 2f
+    \\1:
+    \\    mov $1, %%eax
+    \\2:
+    \\    add $8, %%rsp
+    \\    pop %%r15
+    \\    pop %%r14
+    \\    pop %%r13
+    \\    pop %%r12
+    \\    pop %%rdi
+    \\    pop %%rsi
+    \\    pop %%rbp
+    \\    pop %%rbx
+    \\    ret
+    \\.globl _start
+    \\_start:
+    \\    sub $40, %%rsp
+    \\    call runtime_entry
+    \\    mov %%eax, %%ecx
+    \\    mov __imp_ExitProcess(%%rip), %%rax
+    \\    call *%%rax
+    \\    int3
+    \\
+};

@@ -1,0 +1,170 @@
+module main;
+import std::slice;
+@nomangle extern isize runtime_syscall0(usize nr);
+@nomangle extern isize runtime_syscall1(usize nr, usize a);
+@nomangle extern isize runtime_syscall2(usize nr, usize a, usize b);
+@nomangle extern isize runtime_syscall3(usize nr, usize a, usize b, usize c);
+@nomangle extern isize runtime_syscall4(usize nr, usize a, usize b, usize c, usize d);
+@nomangle extern isize runtime_syscall5(usize nr, usize a, usize b, usize c, usize d, usize e);
+@nomangle extern isize runtime_syscall6(usize nr, usize a, usize b, usize c, usize d, usize e, usize f);
+@nomangle extern isize runtime_thread_entry(usize flags, usize stack, void* control);
+@nomangle extern i32 runtime_clobbers();
+@nomangle public void runtime_child_main(void* control) { *(control as u32*) = 42; }
+public i32 main() {
+    isize pid = runtime_syscall0(39);
+    if pid <= 0 || runtime_clobbers() != 0 { return 1; }
+    if runtime_syscall1(3, ~(0 as usize)) != -9 { return 2; }
+    if runtime_syscall2(62, pid as usize, 0) != 0 { return 3; }
+    isize memory = runtime_syscall6(9, 0, 8192, 3, 0x21, ~(0 as usize), 0);
+    if memory < 0 { return 4; }
+    u8* base = memory as usize as u8*;
+    u32* result = base as u32*;
+    *result = 0;
+    if runtime_syscall3(10, base as usize, 8192, 3) != 0 { return 5; }
+    isize socket = runtime_syscall3(41, 2, 2, 0);
+    if socket < 0 { return 6; }
+    i32 enabled = 1;
+    if runtime_syscall5(54, socket as usize, 1, 2, &enabled as usize, 4) != 0 { return 7; }
+    if runtime_syscall1(3, socket as usize) != 0 { return 8; }
+    isize child = runtime_thread_entry(17, base as usize + 8192, result as void*);
+    if child <= 0 { return 9; }
+    i32 status = -1;
+    if runtime_syscall4(61, child as usize, &status as usize, 0, 0) != child { return 10; }
+    if status != 0 || *result != 42 { return 11; }
+    *result = 0;
+    isize thread = runtime_thread_entry(0x50F00, base as usize + 8192, result as void*);
+    if thread <= 0 { return 12; }
+    bool exited = false;
+    for usize attempt = 0; attempt < 100000; attempt++ {
+        isize alive = runtime_syscall3(234, pid as usize, thread as usize, 0);
+        if alive == -3 { exited = true; break; }
+        if alive != 0 { return 13; }
+        runtime_syscall0(24);
+    }
+    if !exited || *result != 42 { return 14; }
+    if runtime_syscall2(11, base as usize, 8192) != 0 { return 15; }
+    []const char success = "runtime asm ok\n";
+    if runtime_syscall3(1, 1, success.ptr as usize, success.len) != success.len as isize { return 16; }
+    return 0;
+}
+asm {
+    \\.section .text.runtime, "ax"
+    \\
+    \\.globl runtime_syscall0
+    \\.type runtime_syscall0, @function
+    \\runtime_syscall0:
+    \\    mov %%rdi, %%rax
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall0, . - runtime_syscall0
+    \\
+    \\.globl runtime_syscall1
+    \\.type runtime_syscall1, @function
+    \\runtime_syscall1:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall1, . - runtime_syscall1
+    \\
+    \\.globl runtime_syscall2
+    \\.type runtime_syscall2, @function
+    \\runtime_syscall2:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall2, . - runtime_syscall2
+    \\
+    \\.globl runtime_syscall3
+    \\.type runtime_syscall3, @function
+    \\runtime_syscall3:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    mov %%rcx, %%rdx
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall3, . - runtime_syscall3
+    \\
+    \\.globl runtime_syscall4
+    \\.type runtime_syscall4, @function
+    \\runtime_syscall4:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    mov %%rcx, %%rdx
+    \\    mov %%r8, %%r10
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall4, . - runtime_syscall4
+    \\
+    \\.globl runtime_syscall5
+    \\.type runtime_syscall5, @function
+    \\runtime_syscall5:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    mov %%rcx, %%rdx
+    \\    mov %%r8, %%r10
+    \\    mov %%r9, %%r8
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall5, . - runtime_syscall5
+    \\
+    \\.globl runtime_syscall6
+    \\.type runtime_syscall6, @function
+    \\runtime_syscall6:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    mov %%rcx, %%rdx
+    \\    mov %%r8, %%r10
+    \\    mov %%r9, %%r8
+    \\    mov 8(%%rsp), %%r9
+    \\    syscall
+    \\    ret
+    \\.size runtime_syscall6, . - runtime_syscall6
+    \\
+    \\.globl runtime_thread_entry
+    \\.type runtime_thread_entry, @function
+    \\runtime_thread_entry:
+    \\    mov $56, %%eax
+    \\
+    \\    xor %%r10d, %%r10d
+    \\    xor %%r8d, %%r8d
+    \\    syscall
+    \\    test %%rax, %%rax
+    \\    jnz .thread_parent
+    \\
+    \\    cld
+    \\    mov %%rdx, %%rdi
+    \\    call runtime_child_main
+    \\
+    \\    mov $60, %%eax
+    \\    xor %%edi, %%edi
+    \\    syscall
+    \\    ud2
+    \\
+    \\.thread_parent:
+    \\    ret
+    \\.size runtime_thread_entry, . - runtime_thread_entry
+    \\
+    \\.globl runtime_clobbers
+    \\runtime_clobbers:
+    \\    mov $39, %%eax
+    \\    mov $0x1234, %%ecx
+    \\    mov $0x5678, %%r11d
+    \\    syscall
+    \\    cmp $0x1234, %%rcx
+    \\    je 1f
+    \\    cmp $0x5678, %%r11
+    \\    je 1f
+    \\    xor %%eax, %%eax
+    \\    ret
+    \\1:
+    \\    mov $1, %%eax
+    \\    ret
+    \\
+};

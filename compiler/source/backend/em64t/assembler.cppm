@@ -1530,6 +1530,12 @@ namespace
                 out += "sfence\n";
                 break;
 
+            case MOpc::SYSCALL:
+                out += "syscall\n";
+                break;
+            case MOpc::INT3:
+                out += "int3\n";
+                break;
             case MOpc::UD2:
                 out += "ud2\n";
                 break;

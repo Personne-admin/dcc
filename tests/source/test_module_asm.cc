@@ -191,6 +191,7 @@ TEST_CASE("16-bit module asm instructions match nasm byte for byte")
                            {"movw %es:(%di), %ax", "mov ax, [es:di]", false},
                            {"pushw %es", "push es", false},
                            {"int $0x10", "int 0x10", false},
+                           {"int3", "int3", false},
                            {"addr32 rep stosb", "a32 rep stosb", false},
                        });
 }
@@ -219,6 +220,11 @@ TEST_CASE("64-bit module asm instructions match nasm byte for byte")
                            {"out 0x80, al", "out 0x80, al", true},
                            {"out 0x80, ax", "out 0x80, ax", true},
                            {"int 0x80", "int 0x80", true},
+                           {"syscall", "syscall", true},
+                           {"syscall", "syscall", false},
+                           {"int3", "int3", true},
+                           {"int3", "int3", false},
+                           {"cmpq (%rcx), %rax", "cmp rax, [rcx]", false},
                            {"test rdi, rdi", "test rdi, rdi", true},
                            {"neg rax", "neg rax", true},
                            {"imul rax, rbx", "imul rax, rbx", true},
@@ -416,4 +422,29 @@ TEST_CASE("module asm encodes alu rip-relative memory sources")
     CHECK_EQ(text->relocations[0].symbol, std::string{"value"});
     CHECK(text->relocations[0].kind == Reloc::Kind::Rel32);
     CHECK_EQ(text->relocations[0].addend, std::int64_t{-4});
+}
+
+TEST_CASE("runtime module asm validates system instruction operands and mode")
+{
+    for (auto text : {"syscall %rax", "int3 $3"})
+    {
+        auto object = assemble(text, EncodeMode::Long64);
+        REQUIRE(!object.has_value());
+        CHECK(object.error().message.contains("takes no operands"));
+    }
+    auto object = assemble("syscall", EncodeMode::Real16);
+    REQUIRE(!object.has_value());
+    CHECK_EQ(object.error().message, std::string{"module asm line 1: syscall requires 64-bit module asm"});
+    auto runtime = assemble(".text\nmovq __imp_ExitProcess(%rip), %rax\ncall *%rax\nint3\n", EncodeMode::Long64, false, ModuleAsmFormat::Coff);
+    REQUIRE(runtime.has_value());
+    auto* text = find_section(*runtime, ".text");
+    REQUIRE(text != nullptr);
+    CHECK_EQ(hex(text->data), std::string{"48 8b 05 00 00 00 00 ff d0 cc "});
+    REQUIRE(text->relocations.size() == 1);
+    CHECK_EQ(text->relocations[0].symbol, std::string{"__imp_ExitProcess"});
+    CHECK_EQ(text->relocations[0].kind, Reloc::Kind::Rel32);
+    CHECK_EQ(text->relocations[0].addend, -4);
+    auto listing = module_asm_intel_text(*runtime, ModuleAsmFormat::Coff);
+    CHECK(listing.contains("call *%rax"));
+    CHECK(listing.contains("int3"));
 }

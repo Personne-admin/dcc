@@ -1,0 +1,27 @@
+=== FILE: main.dc ===
+module main;
+@nomangle const i32 dummy_ro = 0;
+@nomangle i32 dummy_data = 0;
+@nomangle i32 dummy_bss;
+@nomangle extern u64 runtime_pid();
+asm {
+    \\.text
+    \\.globl runtime_pid
+    \\runtime_pid:
+    \\mov $39, %%eax
+    \\syscall
+    \\ret
+    \\.globl runtime_breakpoint
+    \\runtime_breakpoint:
+    \\int3
+    \\ret
+    \\
+};
+@nomangle public i32 dcc_main() {
+    if runtime_pid() == 0 { return 1; }
+    return 42;
+}
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 ===
+RUN-EXIT: 42

@@ -279,6 +279,8 @@ namespace dcc::backend::i8086
                         line("shl di, 1");
                         return line(std::format("jmp word [di + {}]", mi.ops[1].symbol));
                     }
+                    case MOpc::INT3:
+                        return line("int3");
                     case MOpc::UD2:
                         return line("ud2");
                     case MOpc::RET:
