@@ -1,0 +1,14 @@
+=== FILE: main.dc ===
+module main;
+@nomangle const i32 dummy_ro = 0;
+@nomangle i32 dummy_data = 0;
+@nomangle i32 dummy_bss;
+struct Inner { usize value; }
+struct Options { Inner inner; }
+Options options() { return {inner = {value = 42}}; }
+usize read(const Inner* self) { return self.value; }
+@nomangle public i32 dcc_main() { return options().inner.read() as i32; }
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 ===
+RUN-EXIT: 42

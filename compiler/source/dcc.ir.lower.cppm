@@ -12223,6 +12223,21 @@ export namespace dcc::ir::lower
                 }
             }
 
+            if (obj_val && obj_val->type && obj_val->type->kind == IrTypeKind::Aggregate)
+            {
+                auto* temp = m_ctx.alloca(m_ctx.pointer_to(obj_val->type), obj_val->type);
+                auto temp_name = ident_name();
+                temp->name = m_name_pool.back();
+                append_inst(temp);
+                append_inst(m_ctx.store(obj_val, temp));
+                auto* gep = gep_preserving_flavor(m_ctx.pointer_to(lvalue_elem_ty), temp);
+                gep->indices.push_back({IrGepInst::IndexKind::Field, nullptr, field_idx});
+                auto gep_name = ident_name();
+                gep->name = m_name_pool.back();
+                append_inst(gep);
+                return wrap_lvalue(gep);
+            }
+
             lower_panic(fa, "cannot lower field lvalue");
         }
 
