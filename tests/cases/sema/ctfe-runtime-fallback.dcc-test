@@ -5,7 +5,6 @@ extern u64 external_call();
 
 u64 forever() {
     while true {}
-    return 0;
 }
 
 u64 recurse(u64 value) {

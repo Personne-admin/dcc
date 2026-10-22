@@ -18,7 +18,7 @@ void diverges() {
 
 === EXPECT-BODY ===
 Module m
-  Func flow diverging=false
+  Func flow diverging=true
     Body
       While
         BoolLiteral true [type=bool const=true constant]

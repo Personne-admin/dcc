@@ -240,14 +240,14 @@ Module test
   Func check_nested diverging=true
     Param r type=Result(i32, i32) storage=param offset=0 index=0
     Body
-      If [type=void const=<none> diverging]
+      If [type=void const=<none>]
         Call [type=bool const=<none> decl=is_err spec=is_err ufcs=is_err]
           FieldAccess is_err [type=<unresolved> const=<none> decl=is_err ufcs=is_err]
             Ident r [type=Result(i32, i32) const=<none> lvalue addr_of decl=r]
         Body
           Return
             IntLiteral 1 [type=i32 const=1 constant]
-      If [type=void const=<none> diverging]
+      If [type=void const=<none>]
         Unary ! [type=bool const=<none> decl=is_ok spec=is_ok ufcs=is_ok]
           Call [type=bool const=<none> decl=is_ok spec=is_ok ufcs=is_ok]
             FieldAccess is_ok [type=<unresolved> const=<none> decl=is_ok ufcs=is_ok]
