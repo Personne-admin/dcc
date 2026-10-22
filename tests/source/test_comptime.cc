@@ -1107,3 +1107,18 @@ TEST_CASE("integer values and folded results are canonical at every supported wi
     REQUIRE(quotient.has_value());
     CHECK_EQ(quotient->get_int(), std::numeric_limits<std::int64_t>::max());
 }
+
+TEST_CASE("unsigned arithmetic can cross the signed storage limit")
+{
+    types::TypeContext ctx;
+    auto high = std::numeric_limits<std::int64_t>::max();
+    auto sum = comptime::Value::fold_int_binary(comptime::BinaryOp::Add, high, 1, u64(ctx));
+    REQUIRE(sum.has_value());
+    CHECK_EQ(sum->get_int(), std::numeric_limits<std::int64_t>::min());
+    auto difference = comptime::Value::fold_int_binary(comptime::BinaryOp::Sub, std::numeric_limits<std::int64_t>::min(), 1, u64(ctx));
+    REQUIRE(difference.has_value());
+    CHECK_EQ(difference->get_int(), high);
+    auto product = comptime::Value::fold_int_binary(comptime::BinaryOp::Mul, std::int64_t{1} << 62, 2, u64(ctx));
+    REQUIRE(product.has_value());
+    CHECK_EQ(product->get_int(), std::numeric_limits<std::int64_t>::min());
+}

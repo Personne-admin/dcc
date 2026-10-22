@@ -629,6 +629,20 @@ export namespace dcc::comptime
                             valid = false;
                             break;
                     }
+                    if (!valid && !integer->is_signed)
+                    {
+                        auto const a = static_cast<std::uint64_t>(lhs);
+                        auto const b = static_cast<std::uint64_t>(rhs);
+                        std::uint64_t bits{};
+                        if (op == BinaryOp::Add)
+                            valid = !__builtin_add_overflow(a, b, &bits);
+                        else if (op == BinaryOp::Sub)
+                            valid = !__builtin_sub_overflow(a, b, &bits);
+                        else if (op == BinaryOp::Mul)
+                            valid = !__builtin_mul_overflow(a, b, &bits);
+                        if (valid)
+                            value = std::bit_cast<std::int64_t>(bits);
+                    }
                     if (valid)
                         return make_int(value, out_type);
                     return std::nullopt;

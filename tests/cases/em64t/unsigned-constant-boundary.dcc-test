@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module main;
+@nomangle const i32 dummy_ro = 0;
+@nomangle i32 dummy_data = 0;
+@nomangle i32 dummy_bss;
+@nomangle public i32 dcc_main() {
+    u64 max = ~(0 as u64);
+    u64 half = max / 2 + 1;
+    u64 product = (1 as u64 << 62) * 2;
+    u64 previous = half - 1;
+    if half != (1 as u64 << 63) || product != half || previous != max / 2 { return 1; }
+    return 42;
+}
+=== EXPECT-EM64T-OBJECT ===
+RUN-EXIT: 42
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 ===
+RUN-EXIT: 42
