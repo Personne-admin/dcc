@@ -1,0 +1,40 @@
+module main;
+import std::map;
+import std::mem;
+import std::result;
+using std::{map, mem};
+using std::result::{Result, Optional};
+struct Tracking { mem::FixedBuffer buffer; usize calls; usize fail; usize live; }
+Result([]u8, mem::AllocError) allocate(void* ctx, usize n, usize alignment) {
+    Tracking* t = ctx as Tracking*;
+    t.calls = t.calls + 1;
+    if t.calls == t.fail { return mem::AllocError::OutOfMemory; }
+    Result([]u8, mem::AllocError) r = t.buffer.allocator().raw_alloc(n, alignment);
+    if r.is_ok() { t.live = t.live + 1; }
+    return r;
+}
+bool resize(void* ctx, []u8 old, usize n, usize alignment) { return false; }
+void free(void* ctx, []u8 old, usize alignment) {
+    Tracking* t = ctx as Tracking*;
+    t.live = t.live - 1;
+    t.buffer.allocator().raw_free(old, alignment);
+}
+@nomangle public i32 dcc_main() {
+    u8[2048] backing = {};
+    for usize failure = 1; failure <= 3; failure++ {
+        Tracking t = {buffer = mem::new_fixed_buffer(backing[0..2048]), calls = 0, fail = 0, live = 0};
+        mem::Allocator a = {ctx = &t as void*, alloc_fn = allocate, resize_fn = resize, free_fn = free};
+        map::Map(u16, u16) m = map::new_map(a);
+        if m.put(7, 19).is_err() { return 1; }
+        usize capacity = m.capacity();
+        u8* control = m.control.ptr;
+        t.fail = t.calls + failure;
+        if m.ensure_capacity(100).is_ok() { return 2; }
+        if t.live != 3 || m.capacity() != capacity || m.control.ptr != control { return 3; }
+        if m.get(7).some_or(0) != 19 || m.len() != 1 { return 4; }
+        m.deinit();
+        if t.live != 0 { return 5; }
+    }
+    return 0;
+}
+public i32 main() { return dcc_main(); }

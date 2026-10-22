@@ -214,10 +214,13 @@ Status(AllocError) rehash_into(K, V)(Map(K, V)* self, usize new_capacity) {
     }
     Result([] K, AllocError) keys_r = alloc.alloc(new_capacity);
     if keys_r.is_err() {
+        alloc.free(control_r.unwrap());
         return keys_r.unwrap_err();
     }
     Result([] V, AllocError) values_r = alloc.alloc(new_capacity);
     if values_r.is_err() {
+        alloc.free(keys_r.unwrap());
+        alloc.free(control_r.unwrap());
         return values_r.unwrap_err();
     }
 

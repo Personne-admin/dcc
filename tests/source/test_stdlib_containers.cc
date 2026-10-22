@@ -11,7 +11,7 @@ namespace
         return std::format("'{}'", path.string());
     }
 
-    [[nodiscard]] int build_and_run(std::string_view source, std::string_view name)
+    [[nodiscard]] int build_and_run(std::string_view source, std::string_view name, std::string_view backend = "llvm", std::string_view opt = "-O0")
     {
         std::error_code ec;
         auto const dcc = std::filesystem::weakly_canonical("/proc/self/exe", ec).parent_path().parent_path() / "dcc";
@@ -24,11 +24,11 @@ namespace
             out << source;
         }
 
-        auto const compile = std::format("{} -flibdcext -target x86_64-elf -o {} {}", shell_quote(dcc), shell_quote(exe), shell_quote(src));
+        auto const compile = std::format("timeout 60 {} -flibdcext -target x86_64-elf -fbackend {} {} -o {} {}", shell_quote(dcc), backend, opt, shell_quote(exe), shell_quote(src));
         if (std::system(compile.c_str()) != 0)
             return -1;
 
-        int const status = std::system(shell_quote(exe).c_str());
+        int const status = std::system(("timeout 30 " + shell_quote(exe)).c_str());
         std::filesystem::remove_all(dir, ec);
         return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
     }
@@ -383,4 +383,15 @@ public i32 main() {
 }
 )";
     CHECK_EQ(build_and_run(source, "mem"), 0);
+}
+
+TEST_CASE("map rehash releases temporary allocations on failure")
+{
+    auto root = std::filesystem::canonical("/proc/self/exe").parent_path().parent_path().parent_path().parent_path();
+    std::ifstream in{root / "tests/stdlib/map-failure.dc"};
+    std::string source{std::istreambuf_iterator<char>{in}, {}};
+    REQUIRE(!source.empty());
+    for (auto backend : {"llvm", "custom"})
+        for (auto opt : {"-O0", "-O2"})
+            CHECK_EQ(build_and_run(source, "map-failure", backend, opt), 0);
 }
