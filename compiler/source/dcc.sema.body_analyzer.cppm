@@ -8638,6 +8638,8 @@ export namespace dcc::sema
                 auto ret_ty = fn.return_type ? get_canonical(fn.return_type->sema) : m_types.m_voidt();
                 auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, nullptr, root_consts, ret_ty == m_types.m_voidt());
                 fn.sema.is_diverging = !res.falls_through;
+                if (fn.sema.is_noreturn && (res.falls_through || res.has_return))
+                    error(fn.range, "noreturn function `{}` can return", fn.name);
                 if (ret_ty && ret_ty != m_types.m_voidt() && res.falls_through && !fn.body->tail)
                     error(fn.range, "missing return in function `{}`", fn.name);
             }
@@ -8829,6 +8831,8 @@ export namespace dcc::sema
                     body_has_error = true;
 
             fd->sema.is_diverging = !body_res.falls_through;
+            if (fd->sema.is_noreturn && fd->body && !body_has_error && (body_res.falls_through || body_res.has_return))
+                error(fd->range, "noreturn function `{}` can return", fd->name);
 
             types::TypePtr ret_ty = m_types.m_voidt();
             if (enforce_expected_ret)
@@ -11096,6 +11100,16 @@ export namespace dcc::sema
                 if (auto const* f = ast::node_cast<ast::FuncDecl>(out.resolved_decl))
                     analyze_diagnostic_intrinsic(*f, static_cast<ast::CallExpr const&>(expr), out);
 
+            if (expr.kind == ast::ExprKind::Call)
+            {
+                auto const* callee_decl =
+                    expr.sema.resolved_specialization ? static_cast<ast::Decl const*>(expr.sema.resolved_specialization) : out.resolved_decl;
+                if (!callee_decl)
+                    callee_decl = out.ufcs_callee;
+                if (callee_decl && callee_decl->sema.is_noreturn)
+                    out.is_diverging = true;
+            }
+
             note_array_decay_escape(expr, out, expected_type, const_env);
 
             if (m_target && m_target->arch == target::Arch::I8086 && !out.constant)
@@ -13342,6 +13356,10 @@ export namespace dcc::sema
             else
                 out.type = m_types.m_voidt();
 
+            if (expected_type && expected_type != m_types.m_voidt() && !has_error(expected_type) &&
+                (!res.falls_through || (b.body.tail && b.body.tail->sema.is_diverging)))
+                out.type = expected_type;
+
             out.is_diverging = !res.falls_through;
             out.has_return = res.has_return;
             if (b.body.tail && res.foldable)
@@ -13486,7 +13504,7 @@ export namespace dcc::sema
             else
             {
                 out.type = m_types.m_voidt();
-                out.is_diverging = then_res.diverges;
+                out.is_diverging = false;
                 out.has_return = then_res.has_return;
             }
             return out;
@@ -13502,6 +13520,7 @@ export namespace dcc::sema
             PatternCoverage coverage{m_alloc};
             comptime::Value const* selected_constant{};
             types::TypePtr unified_type{};
+            bool all_arms_diverge = !m.arms.empty();
             for (auto& arm : m.arms)
             {
                 auto* arm_scope = make_scope(ScopeKind::Block, &scope);
@@ -13545,16 +13564,19 @@ export namespace dcc::sema
                     if (!result_discarded)
                         std::ignore = apply_implicit_enum_conversion(mod, *arm_scope, arm.body->range, arm.body, r, expected_type);
                     out.has_return = out.has_return || r.has_return;
-                    if (!result_discarded && (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt())))
+                    if (!r.is_diverging)
+                        all_arms_diverge = false;
+                    if (!result_discarded && !r.is_diverging &&
+                        (!unified_type || (unified_type == m_types.m_voidt() && r.type && r.type != m_types.m_voidt())))
                         unified_type = r.type ? r.type : m_types.m_voidt();
-                    else if (!result_discarded && r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error && r.type != m_types.m_voidt() &&
-                             unified_type != m_types.m_voidt())
+                    else if (!result_discarded && !r.is_diverging && r.type && r.type != unified_type && r.type->kind != types::TypeKind::Error &&
+                             r.type != m_types.m_voidt() && unified_type != m_types.m_voidt())
                     {
                         error(arm.body->range, "match arm result type mismatch: expected `{}`, got `{}`", format_type_str(unified_type),
                               format_type_str(r.type));
                     }
 
-                    if (!result_discarded && r.type && r.type != m_types.m_voidt())
+                    if (!result_discarded && !r.is_diverging && r.type && r.type != m_types.m_voidt())
                         out.type = r.type;
 
                     if (!selected_constant && operand.constant && arm.pattern && guard_is_true &&
@@ -13575,6 +13597,8 @@ export namespace dcc::sema
 
             if (result_discarded || !out.type)
                 out.type = m_types.m_voidt();
+            if (all_arms_diverge)
+                out.is_diverging = true;
 
             out.constant = selected_constant;
             out.is_constant = out.constant != nullptr;
@@ -16425,7 +16449,17 @@ export namespace dcc::sema
                     {
                         auto const error_actions_before = m_error_action_count;
                         auto result = analyze_expr(mod, fn, scope, *expr, loop_depth, next_off, nullptr, const_env, true);
-                        out.diverges = result.is_diverging && m_error_action_count != error_actions_before;
+                        bool noreturn_call = false;
+                        if (expr->kind == ast::ExprKind::Call)
+                        {
+                            auto const* callee = expr->sema.resolved_specialization
+                                                     ? static_cast<ast::Decl const*>(expr->sema.resolved_specialization)
+                                                     : expr->sema.resolved_decl;
+                            if (!callee)
+                                callee = expr->sema.ufcs_callee;
+                            noreturn_call = callee && callee->sema.is_noreturn;
+                        }
+                        out.diverges = result.is_diverging && (m_error_action_count != error_actions_before || noreturn_call);
                         out.falls_through = !out.diverges;
                         out.has_return = result.has_return;
                     }
@@ -16527,7 +16561,7 @@ export namespace dcc::sema
                         out.falls_through = true;
                         out.diverges = false;
                     }
-                    else if (is_const_true(cond) && (body.diverges || body.has_return))
+                    else if (is_const_true(cond))
                     {
                         out.diverges = true;
                         out.falls_through = false;
@@ -16861,7 +16895,17 @@ export namespace dcc::sema
                         a.resolution = ast::AmbiguousStmt::Resolution::AsExpr;
                         auto const error_actions_before = m_error_action_count;
                         auto result = analyze_expr(mod, fn, scope, *a.as_expr, loop_depth, next_off, nullptr, const_env);
-                        out.diverges = result.is_diverging && m_error_action_count != error_actions_before;
+                        bool noreturn_call = false;
+                        if (a.as_expr->kind == ast::ExprKind::Call)
+                        {
+                            auto const* callee = a.as_expr->sema.resolved_specialization
+                                                     ? static_cast<ast::Decl const*>(a.as_expr->sema.resolved_specialization)
+                                                     : a.as_expr->sema.resolved_decl;
+                            if (!callee)
+                                callee = a.as_expr->sema.ufcs_callee;
+                            noreturn_call = callee && callee->sema.is_noreturn;
+                        }
+                        out.diverges = result.is_diverging && (m_error_action_count != error_actions_before || noreturn_call);
                         out.falls_through = !out.diverges;
                     }
                     out.foldable = false;

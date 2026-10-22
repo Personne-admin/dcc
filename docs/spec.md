@@ -1504,6 +1504,13 @@ attached to individual enum variants (e.g. `@[deprecated("...")] None,`).
 `@intrinsic` marks a declaration as compiler-implemented and is only valid
 inside the `core` module.
 
+`@noreturn` marks a function that never returns. Calls to it end control flow:
+statements after the call in the same block are unreachable, a block or match
+arm whose last statement is such a call is accepted where a value of any type
+is expected, and no return path is emitted after it. A `@noreturn` function
+whose body can return is an error. It is valid on function declarations,
+including `extern` declarations.
+
 `-ffunction-sections` and `-fdata-sections` are off by default. They place each
 function or global in its own section: `.text.<symbol>`, `.data.<symbol>`,
 `.rodata.<symbol>` and `.bss.<symbol>` on ELF, with `.rdata.<symbol>` for COFF

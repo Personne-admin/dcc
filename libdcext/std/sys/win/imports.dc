@@ -376,7 +376,7 @@ using abi::{ Bool, Byte, Dword, Handle, Socket, Wchar, Word };
 //! Process and time
 //!
 
-@[import, nomangle] public extern void ExitProcess(u32 exit_code);
+@[import, nomangle, noreturn] public extern void ExitProcess(u32 exit_code);
 @[import, nomangle] public extern Handle GetCurrentProcess();
 @[import, nomangle] public extern Bool TerminateProcess(
     Handle process,

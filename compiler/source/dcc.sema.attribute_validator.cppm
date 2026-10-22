@@ -79,6 +79,8 @@ namespace
                 d.sema.is_intrinsic = true;
             else if (attr.name == "noinline")
                 d.sema.is_noinline = true;
+            else if (attr.name == "noreturn")
+                d.sema.is_noreturn = true;
             else if (attr.name == "nominal")
                 d.sema.is_nominal = true;
             else if (attr.name == "nomangle")
@@ -218,6 +220,7 @@ export namespace dcc::sema
 
             register_attr("inline", AttributeTarget::Function);
             register_attr("noinline", AttributeTarget::Function);
+            register_attr("noreturn", AttributeTarget::Function);
 
             register_attr("runtime", AttributeTarget::Function | AttributeTarget::Expression);
 

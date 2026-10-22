@@ -1187,7 +1187,7 @@ export namespace dcc::parser
         {
             return name == "packed" || name == "align" || name == "nominal" || name == "import" || name == "export" || name == "nomangle" || name == "inline" ||
                    name == "noinline" || name == "section" || name == "calling_conv" || name == "deprecated" || name == "implicit_construction" ||
-                   name == "intrinsic" || name == "runtime";
+                   name == "intrinsic" || name == "runtime" || name == "noreturn";
         }
 
         void validate_attribute(ast::Attribute const& attr)

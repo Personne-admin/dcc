@@ -945,8 +945,6 @@ Result(Value, JsonError) build_object(
 
         push_member(alloc, &members, Member {key = key, value = value}) ?;
     }
-
-    return JsonError::OutOfMemory;
 }
 
 Result(Value, JsonError) build(

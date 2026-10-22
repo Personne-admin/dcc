@@ -1,0 +1,24 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+@noreturn i32 die() {
+    while true {}
+}
+i32 through_block() {
+    die();
+}
+i32 through_match(i32 value) {
+    return match value {
+        0 => die(),
+        _ => 7,
+    };
+}
+@nomangle public i32 dcc_main() {
+    if through_match(1) != 7 { return 1; }
+    return 42;
+}
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 42

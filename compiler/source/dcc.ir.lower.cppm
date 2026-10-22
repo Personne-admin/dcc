@@ -1224,7 +1224,11 @@ export namespace dcc::ir::lower
         {
             auto* block = frame_slot_block(inst);
             if (!block)
+            {
+                if (current_block_terminated())
+                    return;
                 block = m_current_block;
+            }
 
             inst->debug_loc = make_source_loc(m_active_range, current_scope_id());
             block->instructions.push_back(inst);
@@ -3287,6 +3291,8 @@ export namespace dcc::ir::lower
             }
 
             append_inst(call_inst);
+            if (direct_target && direct_target->sema.is_noreturn)
+                emit_unreachable();
 
             return is_void_result ? nullptr : call_inst;
         }

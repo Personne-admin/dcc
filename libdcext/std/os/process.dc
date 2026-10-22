@@ -38,6 +38,7 @@ using error::Error;
 
 static if core::target::OS != core::target::Os::Freestanding {
     /// ends the process. does not return and does not run any cleanup.
+    @noreturn
     public void exit(i32 status) {
         static if core::target::OS == core::target::Os::Windows {
             win::imports::ExitProcess(status as u32);
@@ -45,8 +46,6 @@ static if core::target::OS != core::target::Os::Freestanding {
             linux::syscall::exit_group(status);
         }
 
-        // unreachable: both calls above diverge.
-        while true {}
     }
 }
 
@@ -54,6 +53,7 @@ public using i32 ABORT_EXIT_STATUS = 134;
 
 static if core::target::OS != core::target::Os::Freestanding {
     /// ends the process abnormally, without flushing anything.
+    @noreturn
     public void abort() {
         static if core::target::OS == core::target::Os::Windows {
             win::imports::TerminateProcess(
@@ -822,8 +822,6 @@ static if core::target::OS != core::target::Os::Freestanding {
                     envp
                 );
                 linux::syscall::exit_group(127);
-
-                while true {}
             }
 
             Child c;

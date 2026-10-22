@@ -18,6 +18,7 @@ public void set_panic_handler(PanicFn handler) {
 }
 
 /// reports an unrecoverable condition and does not return.
+@noreturn
 public void panic(
     [] const char message,
     core::source_location::SourceLocation sl = source_location()

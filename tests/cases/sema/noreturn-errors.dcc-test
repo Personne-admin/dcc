@@ -1,0 +1,19 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+@noreturn void die() {
+    while true {}
+}
+@noreturn void can_return() {
+    return;
+}
+void unreachable_after_call() {
+    die();
+    const i32 x = 1;
+}
+@nomangle public i32 dcc_main() {
+    return 42;
+}
+=== EXPECT-ERRORS ===
+main.dc:5: noreturn function `can_return` can return
+main.dc:10: unreachable statement

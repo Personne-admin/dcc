@@ -1864,8 +1864,6 @@ Result(Value, TomlError) build_inline(
         Value value = build_value(alloc, self, value_event.event) ?;
         set_key(alloc, table, &key, value) ?;
     }
-
-    return TomlError::OutOfMemory;
 }
 
 Result(Value, TomlError) build_value(

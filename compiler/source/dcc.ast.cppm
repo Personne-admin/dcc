@@ -300,6 +300,7 @@ export namespace dcc::ast
         bool is_dll_import : 1 {};
         bool is_dll_export : 1 {};
         bool is_runtime : 1 {};
+        bool is_noreturn : 1 {};
 
         bool layout_resolved : 1 {};
         bool is_diverging : 1 {};

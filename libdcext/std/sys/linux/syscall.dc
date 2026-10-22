@@ -341,12 +341,16 @@ public isize madvise(usize address, usize length, i32 advice) {
 //! Process and time
 //!
 
+@noreturn
 public isize exit_group(i32 status) {
-    return raw1(NR_EXIT_GROUP, arg_i32(status));
+    raw1(NR_EXIT_GROUP, arg_i32(status));
+    while true {}
 }
 
+@noreturn
 public isize exit_thread(i32 status) {
-    return raw1(NR_EXIT, arg_i32(status));
+    raw1(NR_EXIT, arg_i32(status));
+    while true {}
 }
 
 public isize getpid() {

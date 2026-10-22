@@ -43,10 +43,7 @@ public bool is_err(T, E)(const Result(T, E)* self) {
 public T unwrap(T, E)(const Result(T, E)* self, SourceLocation sl = core::source_location::source_location()) {
     return match *self {
         Result::Ok(v) => v,
-        _ => {
-            debug::panic("unwrap on an Err result", sl);
-            default_of()
-        },
+        _ => debug::panic("unwrap on an Err result", sl),
     };
 }
 
@@ -54,10 +51,7 @@ public T unwrap(T, E)(const Result(T, E)* self, SourceLocation sl = core::source
 public E unwrap_err(T, E)(const Result(T, E)* self, SourceLocation sl = core::source_location::source_location()) {
     return match *self {
         Result::Err(e) => e,
-        _ => {
-            debug::panic("unwrap_err on an Ok result", sl);
-            default_of()
-        },
+        _ => debug::panic("unwrap_err on an Ok result", sl),
     };
 }
 
@@ -90,10 +84,7 @@ public void unwrap(E)(const Status(E)* self, SourceLocation sl = core::source_lo
 public E unwrap_err(E)(const Status(E)* self, SourceLocation sl = core::source_location::source_location()) {
     return match *self {
         Status::Err(e) => e,
-        _ => {
-            debug::panic("unwrap_err on an Ok status", sl);
-            default_of()
-        },
+        _ => debug::panic("unwrap_err on an Ok status", sl),
     };
 }
 
@@ -115,10 +106,7 @@ public bool is_none(T)(const Optional(T)* self) {
 public T unwrap_some(T)(const Optional(T)* self, SourceLocation sl = core::source_location::source_location()) {
     return match *self {
         Optional::Some(v) => v,
-        _ => {
-            debug::panic("unwrap on a None optional", sl);
-            default_of()
-        },
+        _ => debug::panic("unwrap on a None optional", sl),
     };
 }
 
@@ -129,9 +117,3 @@ public T some_or(T)(const Optional(T)* self, T fallback) {
     };
 }
 
-/// zero value of any type, used only on panicking paths to satisfy the
-/// return type after control flow has already left.
-T default_of(T)() {
-    T zero;
-    return zero;
-}
