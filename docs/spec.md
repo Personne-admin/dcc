@@ -271,6 +271,38 @@ Unreal models require `-farch i386` or newer; incompatible flags are errors.
 The MVP permits 32-bit registers, arithmetic and addressing using operand
 and address-size prefixes in 16-bit code.
 
+### Image formats on i8086
+
+`-target i8086-binary` writes a whole-program flat image with no header. Its
+load address is chosen by `-fbase=SEG:OFF`; the flat default is an unknown
+base at offset zero. `-fbase=?:0x100` selects a COM-style image: the code must
+fit below 64 KiB, DS is the load segment at run time, and static far pointers
+are rejected because their segment is not known at link time.
+
+`-target i8086-mz` writes an MZ v1 executable for the small model. Code is
+placed at load-relative offset zero; DGROUP follows at a paragraph boundary
+with rodata, data, BSS and the reserved stack, and SS = DS = DGROUP while CS is
+the load segment. `-e` selects the entry symbol (default `_start`), whose
+offset becomes the header entry point; the stack reservation is set with
+`-fstack-reserve` and must be nonzero. The writer emits the canonical 28-byte
+header and a relocation for every segment-valued word, then the stored image.
+`-fbase` is rejected for MZ. Unreal models are rejected; use i8086-binary for
+them.
+
+Both final image targets imply whole-program mode and accept only DC source
+inputs. External objects, archives, assembly sources, linker scripts, `-Wl,`
+options, `-L`/`-l`, shared libraries and `-flibdcext` are rejected. Neither
+target provides a runtime: the program must supply or import a startup that
+sets the segment registers, clears DF and BSS and terminates through the
+platform's exit mechanism. i8086-mz exposes the generic layout symbols
+`__dcc_code_segment`, `__dcc_dgroup_segment`, `__bss_start`, `__bss_end`,
+`__dcc_code_end`, `__image_end`, `__dcc_stack_bottom`, `__dcc_stack_top`,
+`__dcc_initial_sp`, `__dcc_load_bytes` and `__dcc_memory_paragraphs`; flat
+images expose their own corresponding symbols. A future `-flibdcext dos`
+profile may provide a production startup; test startup modules live under
+`tests/i8086` and are not part of the compiler format.
+
+
 - Dynamic `T^` on x86-elf and x86-coff: 8 bytes, offset `u32` at +0, selector
   `u16` at +4, two pad bytes at +6, alignment 4.
 - Based `T^REG`: same size and alignment as the target's offset width

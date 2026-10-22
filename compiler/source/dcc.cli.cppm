@@ -201,7 +201,7 @@ export namespace dcc::cli
          "<triple>",
          {},
          Phase::Both,
-         "target triple (x86_64-elf, x86-elf, x86_64-coff, x86-coff, i8086-binary)",
+         "target triple (x86_64-elf, x86-elf, x86_64-coff, x86-coff, i8086-binary, i8086-mz)",
          "host",
          [](Options& o, bool, std::string_view v, char**) { o.target_triple = v; }},
 
