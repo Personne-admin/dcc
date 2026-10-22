@@ -1683,6 +1683,7 @@ auto main(int argc, char** argv) -> int
         dcc::ir::IrContext ir_ctx{256 * 1024, &compile_opts.target};
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
                                                                  &sema->types(), opts.restricted_check, opts.partial_eval, opts.far_check);
+        lowerer->set_auto_var_init(opts.auto_var_init);
         lowerer->set_whole_program(opts.whole_program);
         lowerer->set_entry_symbol(opts.entry_symbol);
         lowerer->set_print_reachability(opts.print_reachability);
@@ -1757,6 +1758,7 @@ auto main(int argc, char** argv) -> int
             backend_opts.requested_artifacts = kinds;
             backend_opts.emit_debug_info = opts.emit_debug_info;
             backend_opts.debug_format = opts.debug_format;
+            backend_opts.auto_var_init = opts.auto_var_init;
             backend_opts.omit_frame_pointer = opts.omit_frame_pointer;
             backend_opts.opt_level = opts.opt_level;
             backend_opts.restrict_library_functions = !links_hosted_libc(opts);

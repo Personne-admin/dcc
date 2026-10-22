@@ -28,6 +28,7 @@ export namespace dcc::ir::lower
         {
         }
 
+        void set_auto_var_init(ir::AutoVarInit mode) noexcept { m_auto_var_init = mode; }
         void set_whole_program(bool enabled) noexcept { m_whole_program = enabled; }
         void set_entry_symbol(std::string_view symbol) { m_entry_symbol = std::string{symbol}; }
         void set_print_reachability(bool enabled) noexcept { m_print_reachability = enabled; }
@@ -2560,6 +2561,10 @@ export namespace dcc::ir::lower
                     }
 
                     m_value_map[vd] = MapEntry{alloca, true, canon, is_volatile};
+
+                    if (m_auto_var_init != ir::AutoVarInit::None && !vd->init)
+                        if (auto* fill = auto_var_value(ir_alloc_type))
+                            append_inst(m_ctx.store(fill, alloca));
 
                     if (vd->init)
                     {
@@ -7625,6 +7630,7 @@ export namespace dcc::ir::lower
         sm::SourceManager const* m_source_manager{};
         bool m_partial_eval{false};
         bool m_far_check{false};
+        ir::AutoVarInit m_auto_var_init{ir::AutoVarInit::None};
         std::size_t m_specialize_depth{};
         dcc::ctfe::Trace const* m_residual_trace{};
         std::unordered_map<std::size_t, IrValue*> m_residual_memo;
@@ -9540,6 +9546,71 @@ export namespace dcc::ir::lower
                     lower_panic("unknown comptime value cannot be used as a constant");
             }
             lower_panic("unknown comptime value kind");
+        }
+
+        IrValue* auto_var_value(IrType const* ir_type)
+        {
+            if (!ir_type)
+                return nullptr;
+
+            bool const pattern = m_auto_var_init == ir::AutoVarInit::Pattern;
+            switch (ir_type->kind)
+            {
+                case IrTypeKind::Void:
+                    return nullptr;
+                case IrTypeKind::Bool:
+                    return m_ctx.bool_const(pattern);
+                case IrTypeKind::Int: {
+                    std::uint64_t bits_value = 0;
+                    if (pattern)
+                    {
+                        auto* it = static_cast<IrIntType const*>(ir_type);
+                        for (std::uint8_t i = 0; i < it->bits / 8; ++i)
+                            bits_value = (bits_value << 8) | 0xAA;
+                    }
+                    return m_ctx.int_const(ir_type, static_cast<std::int64_t>(bits_value));
+                }
+                case IrTypeKind::Float: {
+                    double v = 0.0;
+                    if (pattern)
+                    {
+                        auto* ft = static_cast<IrFloatType const*>(ir_type);
+                        v = ft->bits == 32 ? static_cast<double>(std::bit_cast<float>(0xAAAAAAAAu)) : std::bit_cast<double>(0xAAAAAAAAAAAAAAAAull);
+                    }
+                    return m_ctx.float_const(ir_type, v);
+                }
+                case IrTypeKind::Pointer:
+                case IrTypeKind::Func:
+                    return m_ctx.null_const(ir_type->kind == IrTypeKind::Func ? m_ctx.pointer_to(ir_type) : ir_type);
+                case IrTypeKind::Array: {
+                    auto* arr = static_cast<IrArrayType const*>(ir_type);
+                    auto* agg = m_ctx.aggregate(ir_type);
+                    for (std::uint64_t i = 0; i < arr->count; ++i)
+                        agg->values.push_back(auto_var_value(arr->element));
+                    return agg;
+                }
+                case IrTypeKind::Aggregate: {
+                    auto* at = static_cast<IrAggregateType const*>(ir_type);
+                    auto* agg = m_ctx.aggregate(ir_type);
+                    for (auto* member : at->members)
+                        agg->values.push_back(auto_var_value(member));
+                    return agg;
+                }
+                case IrTypeKind::Slice: {
+                    auto* ptr_type = m_ctx.pointer_to(m_ctx.int_t(8, false));
+                    auto* null_ptr = m_ctx.null_const(ptr_type);
+                    std::uint64_t len = 0;
+                    if (pattern)
+                        for (std::uint8_t i = 0; i < sizeof(std::uint16_t); ++i)
+                            len = (len << 8) | 0xAA;
+                    auto* zero_len = m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(len));
+                    auto* agg = m_ctx.aggregate(ir_type);
+                    agg->values.push_back(null_ptr);
+                    agg->values.push_back(zero_len);
+                    return agg;
+                }
+            }
+            return nullptr;
         }
 
         IrValue* zero_value(IrType const* ir_type)

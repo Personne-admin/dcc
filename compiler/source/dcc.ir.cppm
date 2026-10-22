@@ -6,6 +6,13 @@ import dcc.target;
 
 export namespace dcc::ir
 {
+    enum class AutoVarInit : std::uint8_t
+    {
+        None,
+        Pattern,
+        Zero,
+    };
+
     [[nodiscard]] inline std::string generated_symbol_prefix(std::string_view module_name)
     {
         std::string out = "__dcc_";

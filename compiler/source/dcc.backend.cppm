@@ -66,6 +66,7 @@ export namespace dcc::backend
         bool emit_debug_info{false};
         DebugFormat debug_format{DebugFormat::Auto};
         bool omit_frame_pointer{true};
+        ir::AutoVarInit auto_var_init{ir::AutoVarInit::None};
         sm::SourceManager const* source_manager{};
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
         bool restrict_library_functions{true};

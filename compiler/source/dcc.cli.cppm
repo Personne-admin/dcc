@@ -7,6 +7,7 @@ export module dcc.cli;
 import std;
 import dcc.target;
 import dcc.backend;
+import dcc.ir;
 import dcc.ir.pass;
 import dcc.config;
 
@@ -68,6 +69,7 @@ export namespace dcc::cli
         std::optional<dcc::target::CodeModel> code_model;
         std::string target_cpu;
         bool omit_frame_pointer{true};
+        dcc::ir::AutoVarInit auto_var_init{dcc::ir::AutoVarInit::None};
         std::vector<std::string> injected_decls;
         std::string backend_name = "llvm";
         dcc::ir::pass::OptLevel opt_level{dcc::ir::pass::OptLevel::O0};
@@ -109,6 +111,7 @@ export namespace dcc::cli
     constexpr std::string_view k_choice_backend[] = {"llvm", "custom"};
     constexpr std::string_view k_choice_libdcext[] = {"linux", "windows", "freestanding"};
     constexpr std::string_view k_choice_opt[] = {"0", "1", "2", "s"};
+    constexpr std::string_view k_choice_auto_init[] = {"none", "pattern", "zero"};
 
     struct CliError
     {
@@ -353,6 +356,24 @@ export namespace dcc::cli
          [](Options& o, bool on, std::string_view, char**) { o.function_sections = on; }},
         {"-fdata-sections", "-fno-data-sections", {}, Arg::None, "", {}, Phase::Compile, "per-global sections", "off",
          [](Options& o, bool on, std::string_view, char**) { o.data_sections = on; }},
+
+        {"-ftrivial-auto-var-init",
+         "",
+         {},
+         Arg::Required,
+         "<mode>",
+         k_choice_auto_init,
+         Phase::Compile,
+         "initialize uninitialized locals (none, pattern, zero)",
+         "none",
+         [](Options& o, bool, std::string_view v, char**) {
+             if (v == "pattern")
+                 o.auto_var_init = dcc::ir::AutoVarInit::Pattern;
+             else if (v == "zero")
+                 o.auto_var_init = dcc::ir::AutoVarInit::Zero;
+             else
+                 o.auto_var_init = dcc::ir::AutoVarInit::None;
+         }},
 
         {"-fsimd", "-fno-simd", {}, Arg::None, "", {}, Phase::Compile, "SIMD", "on", [](Options& o, bool on, std::string_view, char**) { o.simd = on; }},
 

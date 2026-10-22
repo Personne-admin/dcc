@@ -1,0 +1,18 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+struct S { i32 a; i32 b; }
+@nomangle i32 read_uninitialized() {
+    i32 x;
+    S s;
+    return x + s.a + s.b;
+}
+@nomangle public i32 dcc_main() {
+    if read_uninitialized() == 0 { return 42; }
+    return 7;
+}
+=== EXPECT-EXECUTABLE FLAGS: -ftrivial-auto-var-init=pattern ===
+RUN-EXIT: 7
