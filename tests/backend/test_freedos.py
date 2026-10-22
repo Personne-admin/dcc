@@ -97,4 +97,22 @@ with tempfile.TemporaryDirectory(prefix="dcc-freedos-tests-") as directory:
     math = "module main;\n@nomangle public i32 dcc_main() { u32 x = 0x12345678; if x / 3 * 3 + x % 3 != x { return 1; } return 42; }\n"
     check_run(compile_source(directory, "math", math, "EXE", "-O2"), "EXE", 42)
 
+    far_source = "module main;\n" + r'''asm @[intel] { ".text\n.globl segments_ok\nsegments_ok:\n    mov ax, cs\n    mov bx, ds\n    cmp ax, bx\n    je bad\n    mov ax, ss\n    cmp ax, bx\n    jne bad\n    mov ax, 1\n    ret\nbad:\n    xor ax, ax\n    ret\n" };
+@nomangle extern u16 segments_ok();
+@nomangle u8 static_value = 19;
+@nomangle u8^ static_far = &static_value;
+@nomangle public i32 dcc_main() {
+    if segments_ok() == 0 { return 1; }
+    if *static_far != 19 { return 2; }
+    u8[8] local = {1, 2, 3, 4, 5, 6, 7, 8};
+    u8* near = &local[2];
+    u8^ far = near;
+    if *far != 3 { return 3; }
+    return 42;
+}
+''' + "\n"
+    check_run(compile_source(directory, "far_mz", far_source, "EXE", "-O0"), "EXE", 42)
+
+
+
 print(f"  RESULT  FreeDOS realism: {checks}/{checks} passed")
