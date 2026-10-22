@@ -745,7 +745,8 @@ namespace dcc::backend::i8086
                             continue;
                         }
                         value = static_cast<std::int64_t>(symbol_value) + fixup.addend - static_cast<std::int64_t>(patch_linear);
-                        if (value < mz_signed_min(fixup.width) || value > mz_signed_max(fixup.width))
+                        bool const wraps_ip = fixup.width == 2 && fragment.exec && target.fragment && image.fragments[*target.fragment].exec;
+                        if (!wraps_ip && (value < mz_signed_min(fixup.width) || value > mz_signed_max(fixup.width)))
                         {
                             errors.push_back(std::format("PC-relative fixup in {} at offset {} resolves to {}, which does not fit in a signed {}-bit field",
                                                          mz_owner_text(fragment), fixup.offset, value, fixup.width * 8));

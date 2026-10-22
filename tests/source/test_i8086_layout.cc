@@ -5,6 +5,7 @@ import dcc.backend.object.image;
 import dcc.backend.x86.encode;
 import dcc.backend.x86.modasm;
 import dcc.backend.i8086.place;
+import dcc.backend.i8086.mz;
 
 #include "harness.hh"
 
@@ -372,4 +373,27 @@ TEST_CASE("i8086 flat layout keeps zero initialization out of the image")
     CHECK_EQ(placed->bytes.size(), 1u);
     CHECK_EQ(placed->fragments[0].file_offset.value(), 0u);
     CHECK(!placed->fragments[1].file_offset.has_value());
+}
+
+TEST_CASE("i8086 near relative code references wrap the instruction pointer")
+{
+    Builder builder;
+    auto start = builder.fragment("_start", ".start", ImageRole::Startup, {0xE9, 0, 0});
+    builder.fragment("padding", ".text", ImageRole::Code, std::vector<std::uint8_t>(33000, 0x90));
+    auto end = builder.fragment("end", ".text", ImageRole::Code, {0xE9, 0, 0});
+    auto start_symbol = builder.symbol("_start", start, 0, ImageSymbolKind::Code);
+    auto end_symbol = builder.symbol("end", end, 0, ImageSymbolKind::Code);
+    builder.fixup(start, 1, end_symbol, 2, ImageExpression::PcRelative, -2);
+    builder.fixup(end, 1, start_symbol, 2, ImageExpression::PcRelative, -2);
+    auto flat = dcc::backend::i8086::layout_flat_image(builder.image, options(dcc::target::CodeModel::Small));
+    REQUIRE(flat.has_value());
+    CHECK_EQ(u16(flat->bytes[1], flat->bytes[2]), 33000u);
+    CHECK_EQ(u16(flat->bytes[33004], flat->bytes[33005]), 65536u - 33006u);
+    auto mz = dcc::backend::i8086::layout_mz_image(builder.image, {});
+    REQUIRE(mz.has_value());
+    CHECK_EQ(u16(mz->payload[1], mz->payload[2]), 33000u);
+    CHECK_EQ(u16(mz->payload[33004], mz->payload[33005]), 65536u - 33006u);
+    builder.image.fragments[start].fixups[0].width = 1;
+    CHECK(!dcc::backend::i8086::layout_flat_image(builder.image, options(dcc::target::CodeModel::Small)).has_value());
+    CHECK(!dcc::backend::i8086::layout_mz_image(builder.image, {}).has_value());
 }
