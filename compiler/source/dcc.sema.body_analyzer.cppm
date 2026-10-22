@@ -13279,7 +13279,16 @@ export namespace dcc::sema
                                               types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
             auto expected_kind = expected_type ? construction_kind_for_type(expected_type) : ConstructionKind::None;
-            if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && !has_error(expected_type))
+            if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && has_error(expected_type))
+            {
+                error(b.range, "type `{}` has no zero value", format_type_str(expected_type));
+                b.sema.construction_kind = ConstructionKind::Zero;
+                set_resolved_type(b.sema, m_types.m_errort());
+                detail::ExprResult out{};
+                out.type = m_types.m_errort();
+                return out;
+            }
+            if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt())
             {
                 if (contains_template_param(expected_type))
                 {

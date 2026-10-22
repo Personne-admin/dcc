@@ -1,0 +1,14 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+enum Payload { Value(i32) }
+T zero(T)() {
+    T value = {};
+    return value;
+}
+@nomangle public i32 dcc_main() {
+    Payload p = zero!Payload();
+    return 1;
+}
+=== EXPECT-ERRORS ===
+main.dc:4: tagged enum `Payload` has no zero value
