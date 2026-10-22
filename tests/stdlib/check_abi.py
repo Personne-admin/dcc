@@ -167,13 +167,16 @@ with tempfile.TemporaryDirectory(prefix='dcc-abi-') as tmp:
             continue
         source = (root / f'libdcext/std/sys/{platform}/abi.dc').read_text()
         assertions = []
+        constants = re.findall(r'public using \w+ (\w+) = (-?(?:0x[0-9A-Fa-f]+|[0-9]+)|~\(0 as usize\));', source)
         if platform == 'win':
             declared = set(re.findall(r'public using \w+ (\w+) =', source))
-            numeric = set(re.findall(r'public using \w+ (\w+) = -?(?:0x[0-9A-Fa-f]+|[0-9]+);', source))
-            assert declared == numeric, 'uncovered non-numeric Win32 constant'
-        for name, value in re.findall(r'public using \w+ (\w+) = (-?(?:0x[0-9A-Fa-f]+|[0-9]+));', source):
+            covered = {name for name, value in constants}
+            assert declared == covered, 'uncovered Win32 constant'
+        for name, value in constants:
             if name in excluded:
                 continue
+            if value == '~(0 as usize)':
+                value = '~(size_t)0'
             assertions.append(f'_Static_assert((unsigned long long)({name}) == (unsigned long long)({value}), "{name}");')
 
         path = Path(tmp) / f'{platform}.c'

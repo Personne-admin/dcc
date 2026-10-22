@@ -113,25 +113,21 @@ static if core::target::OS != core::target::Os::Freestanding {
 
         if self.queue_count == self.queue.len {
             usize old_capacity = self.queue.len;
-            usize max_capacity = (0xFFFFFFFFFFFFFFFF as usize) / 2;
-            if old_capacity > max_capacity {
+            result::Optional(usize) capacity = thread_pool_checked_mul(old_capacity, 2);
+            if capacity.is_none() {
                 self.guard.unlock();
                 return Error::OutOfMemory;
             }
-            usize new_capacity = if old_capacity == 0 {
-                64
-            } else {
-                old_capacity * 2
-            };
+            usize new_capacity = if old_capacity == 0 { 64 } else { capacity.unwrap_some() };
             Result([] Task, mem::AllocError) grown_r = self.alloc.alloc(new_capacity);
             if grown_r.is_err() {
                 self.guard.unlock();
-                return Error::OutOfMemory;
+                return if grown_r.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] Task grown = grown_r.unwrap();
             for usize i = 0; i < self.queue_count; i++ {
-                grown[i] = self.queue[(self.queue_head + i) % old_capacity];
+                grown[i] = self.queue[if i >= old_capacity - self.queue_head { i - (old_capacity - self.queue_head) } else { self.queue_head + i }];
             }
             if old_capacity != 0 {
                 self.alloc.free(self.queue);
@@ -140,7 +136,7 @@ static if core::target::OS != core::target::Os::Freestanding {
             self.queue_head = 0;
         }
 
-        usize tail = (self.queue_head + self.queue_count) % self.queue.len;
+        usize tail = if self.queue_count >= self.queue.len - self.queue_head { self.queue_count - (self.queue.len - self.queue_head) } else { self.queue_head + self.queue_count };
         self.queue[tail] = Task {entry = entry, context = context};
         self.queue_count++;
         self.work.signal();
@@ -194,4 +190,11 @@ static if core::target::OS != core::target::Os::Freestanding {
         mem::Allocator alloc = self.alloc;
         alloc.destroy(self);
     }
+}
+
+using result::Optional;
+
+Optional(usize) thread_pool_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }

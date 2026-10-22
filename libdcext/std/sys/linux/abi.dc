@@ -200,7 +200,7 @@ public using i32 MADV_FREE = 8;
 
 /// mmap reports failure the same way every other syscall does; this is
 /// the address a caller should never treat as a mapping.
-public using usize MAP_FAILED = 0xFFFFFFFFFFFFFFFF;
+public using usize MAP_FAILED = ~(0 as usize);
 
 //!
 //! Clocks and time

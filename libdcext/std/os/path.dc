@@ -16,7 +16,7 @@ import std::utf8;
 public import std::os::error;
 public import std::result;
 
-using result::{ Result, Status };
+using result::{ Result, Status, Optional };
 using error::Error;
 
 public using usize MAX_BYTES = 4096;
@@ -34,7 +34,7 @@ public struct PathZ {
 
 /// NUL-terminates `path` into `out`.
 public Status(Error) to_pathz([] const char path, PathZ* out) {
-    if path.len + 1 > MAX_BYTES {
+    if path.len >= MAX_BYTES {
         return Error::NameTooLong;
     }
 
@@ -317,11 +317,11 @@ public Result([] char, Error) join(
     }
 
     bool need = !is_separator(base[base.len - 1]);
-    usize total = base.len + tail.len + if need {
-        1
-    } else {
-        0
-    };
+    Optional(usize) combined = path_checked_add(base.len, tail.len);
+    if combined.is_none() { return Error::OutOfMemory; }
+    Optional(usize) extent = path_checked_add(combined.unwrap_some(), if need { 1 } else { 0 });
+    if extent.is_none() { return Error::OutOfMemory; }
+    usize total = extent.unwrap_some();
     if total > out.len {
         return Error::NameTooLong;
     }
@@ -590,4 +590,9 @@ public Result([] char, Error) relative(
     }
 
     return Result::Ok(out[0..n]);
+}
+
+Optional(usize) path_checked_add(usize a, usize b) {
+    if b > (~(0 as usize)) - a { return Optional::None; }
+    return Optional::Some(a + b);
 }

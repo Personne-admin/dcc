@@ -518,7 +518,7 @@ i32 test_heap() {
     static if core::target::OS == core::target::Os::Windows {
         std::sys::win::abi::SystemInfo info;
         std::sys::win::imports::GetSystemInfo(&info);
-        platform_pages_ok = info.page_size as usize == page && info.allocation_granularity as usize == std::sys::win::abi::ALLOCATION_GRANULARITY;
+        platform_pages_ok = info.page_size as usize == page && info.allocation_granularity == std::sys::win::abi::ALLOCATION_GRANULARITY;
     }
 
     if !platform_pages_ok {

@@ -1,0 +1,75 @@
+module main;
+import std::mem;
+import std::math;
+import std::array;
+import std::map;
+import std::slice;
+import std::result;
+using std::{mem, math, array, map, slice};
+using std::result::{Result, Optional};
+struct Calls { usize allocations; usize resizes; usize frees; }
+struct Empty {}
+Result([]u8, mem::AllocError) reject(void* ctx, usize n, usize alignment) {
+    Calls* c = ctx as Calls*;
+    c.allocations = c.allocations + 1;
+    return mem::AllocError::OutOfMemory;
+}
+bool refuse_resize(void* ctx, []u8 old, usize n, usize alignment) {
+    Calls* c = ctx as Calls*;
+    c.resizes = c.resizes + 1;
+    return false;
+}
+void release(void* ctx, []u8 old, usize alignment) {
+    Calls* c = ctx as Calls*;
+    c.frees = c.frees + 1;
+}
+@nomangle public i32 dcc_main() {
+    usize max = (~(0 as usize));
+    if mem::align_up(max - 7, 8) != max - 7 || mem::align_down(max, 8) != max - 7 { return 5; }
+    if mem::align_up(1, 8) != 8 || !mem::is_aligned(16, 8) { return 6; }
+    if math::next_power_of_two(17) != 32 || math::next_power_of_two(1 as u64 << 63) != (1 as u64 << 63) { return 8; }
+    Calls c = {};
+    mem::Allocator a = {ctx = &c as void*, alloc_fn = reject, resize_fn = refuse_resize, free_fn = release};
+    if mem::alloc!u16(&a, max / 2 + 1).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 0 { return 9; }
+    []Empty empty = mem::alloc!Empty(&a, max).unwrap();
+    if empty.len != max || empty.ptr != null || c.allocations != 0 { return 10; }
+    a.free(empty);
+    if c.frees != 0 { return 11; }
+    u8[64] backing = {};
+    mem::FixedBuffer fb = mem::new_fixed_buffer(backing[0..64]);
+    mem::Allocator fixed = fb.allocator();
+    []u8 first = fixed.raw_alloc(8, 1).unwrap();
+    if fixed.raw_alloc(max, 1).unwrap_err() != mem::AllocError::OutOfMemory || fb.offset != 8 || fb.last_offset != 0 { return 12; }
+    []u8 second = fixed.raw_alloc(8, 1).unwrap();
+    if fixed.raw_resize(second, max, 1) || fb.offset != 16 || fb.last_offset != 8 { return 13; }
+    fb.offset = max;
+    if fixed.raw_alloc(1, 1).unwrap_err() != mem::AllocError::OutOfMemory || fb.offset != max { return 14; }
+    mem::Arena arena = mem::new_arena(a);
+    if arena.allocator().raw_alloc(max, 8).unwrap_err() != mem::AllocError::OutOfMemory { return 15; }
+    if arena.head != null || arena.next_chunk_size != mem::ARENA_MIN_CHUNK || c.allocations != 0 { return 16; }
+    arena.next_chunk_size = max / 2 + 1;
+    if arena.allocator().raw_alloc(1, 1).unwrap_err() != mem::AllocError::OutOfMemory || arena.head != null || c.allocations != 0 { return 17; }
+    array::Array(u16) arr = array::new_array(a);
+    if arr.reserve(max).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 0 { return 18; }
+    if arr.count != 0 || arr.storage.ptr != null || arr.storage.len != 0 { return 19; }
+    if arr.reserve(8).unwrap_err() != mem::AllocError::OutOfMemory || c.allocations != 1 { return 20; }
+    if arr.count != 0 || arr.storage.ptr != null || arr.storage.len != 0 { return 21; }
+    u16 value = 0;
+    arr.storage = slice::from_raw(&value, max);
+    arr.count = max;
+    if arr.push(1).unwrap_err() != mem::AllocError::OutOfMemory || arr.count != max || arr.storage.ptr != &value { return 22; }
+    if arr.insert(0, 1).unwrap_err() != mem::AllocError::OutOfMemory { return 23; }
+    if arr.append_slice(slice::from_raw_const(&value as const u16*, 1)).unwrap_err() != mem::AllocError::OutOfMemory { return 24; }
+    arr.count = 1;
+    arr.storage = slice::from_raw(&value, max / 2 + 1);
+    if arr.reserve(max).unwrap_err() != mem::AllocError::OutOfMemory || arr.count != 1 || c.allocations != 1 || c.resizes != 0 { return 25; }
+    map::Map(u8, u8) m = map::new_map(a);
+    if m.ensure_capacity(max).unwrap_err() != mem::AllocError::OutOfMemory || m.control.ptr != null || m.count != 0 { return 26; }
+    usize cap = max / 2 + 1;
+    m.control = slice::from_raw(&backing[0], cap);
+    m.count = cap / 4 * 3;
+    if m.put(1, 2).unwrap_err() != mem::AllocError::OutOfMemory || m.control.len != cap || m.count != cap / 4 * 3 { return 27; }
+    if c.allocations != 1 || c.resizes != 0 || c.frees != 0 { return 28; }
+    return 0;
+}
+public i32 main() { return dcc_main(); }

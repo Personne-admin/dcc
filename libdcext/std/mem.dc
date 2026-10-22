@@ -2,6 +2,7 @@ module std::mem;
 
 public import std::result;
 import std::slice;
+import std::debug;
 
 using result::{ Result, Status, Optional };
 
@@ -58,19 +59,29 @@ public void raw_free(const Allocator* self, [] u8 buf, usize align) {
 }
 
 public [] T raw_as_typed(T)([] u8 raw, usize n) {
-    return (raw as [] T)[0..n];
+    static if sizeof(T) == 0 {
+        return slice::from_raw(raw.ptr as T*, n);
+    } else {
+        return (raw as []T)[0..n];
+    }
 }
 
 /// allocates storage for `n` values of `T`, uninitialized.
 public Result([] T, AllocError) alloc(T)(const Allocator* self, usize n) {
-    usize bytes = sizeof (T) * n;
-    Result([] u8, AllocError) raw_r = self.raw_alloc(bytes, alignof (T));
-    if raw_r.is_err() {
-        return raw_r.unwrap_err();
+    Optional(usize) size = mem_checked_mul(sizeof(T), n);
+    if size.is_none() { return AllocError::OutOfMemory; }
+    static if sizeof(T) == 0 {
+        return Result::Ok(slice::from_raw(null as T*, n));
+    } else {
+        usize bytes = size.unwrap_some();
+        Result([] u8, AllocError) raw_r = self.raw_alloc(bytes, alignof (T));
+        if raw_r.is_err() {
+            return raw_r.unwrap_err();
+        }
+        [] u8 raw = raw_r.unwrap();
+        [] T out = raw_as_typed(raw, n);
+        return result::Result::Ok(out);
     }
-    [] u8 raw = raw_r.unwrap();
-    [] T out = raw_as_typed(raw, n);
-    return result::Result::Ok(out);
 }
 
 /// allocates storage for `n` values of `T` and zeroes it.
@@ -85,12 +96,10 @@ public Result([] T, AllocError) alloc_zeroed(T)(const Allocator* self, usize n) 
 }
 
 public void free(T)(const Allocator* self, [] T items) {
-    [] u8 raw = slice::from_raw!u8(
-        items.ptr as u8*,
-        items.len * sizeof (T)
-    );
-
-    self.raw_free(raw, alignof (T));
+    static if sizeof(T) != 0 {
+        []u8 raw = slice::from_raw!u8(items.ptr as u8*, mem_byte_len!T(items.len));
+        self.raw_free(raw, alignof(T));
+    }
 }
 
 /// allocates a single `T`.
@@ -166,7 +175,7 @@ public void set(T)([] T dst, T value) {
 }
 
 public void zero(T)([] T dst) {
-    [] u8 raw = slice::from_raw!u8(dst.ptr as u8*, dst.len * sizeof (T));
+    [] u8 raw = slice::from_raw!u8(dst.ptr as u8*, mem_byte_len!T(dst.len));
     for usize i = 0; i < raw.len; i++ {
         raw[i] = 0;
     }
@@ -236,7 +245,7 @@ public [] u8 as_bytes_mut(T)(T* value) {
 public [] const u8 slice_as_bytes(T)([] const T items) {
     return slice::from_raw_const!u8(
         items.ptr as const u8*,
-        items.len * sizeof (T)
+        mem_byte_len!T(items.len)
     );
 }
 
@@ -248,16 +257,62 @@ public bool is_power_of_two(usize v) {
     return v != 0 && (v & (v - 1)) == 0;
 }
 
+using usize MAX_SIZE = ~(0 as usize);
+
+Optional(usize) mem_checked_add(usize a, usize b) {
+    if b > MAX_SIZE - a { return Optional::None; }
+    return Optional::Some(a + b);
+}
+
+Optional(usize) mem_checked_mul(usize a, usize b) {
+    if a != 0 && b > MAX_SIZE / a { return Optional::None; }
+    return Optional::Some(a * b);
+}
+
+usize mem_byte_len(T)(usize count) {
+    Optional(usize) size = mem_checked_mul(count, sizeof(T));
+    if size.is_none() { debug::panic("mem::byte_len: size overflow"); }
+    return size.unwrap_some();
+}
+
+Optional(usize) mem_checked_align_up(usize value, usize align) {
+    if !is_power_of_two(align) {
+        debug::panic("mem::checked_align_up: alignment must be a nonzero power of two");
+    }
+    usize padding = (0 as usize - value) & (align - 1);
+    return mem_checked_add(value, padding);
+}
+
 public usize align_up(usize value, usize align) {
-    return (value + align - 1) & ~(align - 1);
+    Optional(usize) rounded = mem_checked_align_up(value, align);
+    if rounded.is_none() { debug::panic("mem::align_up: size overflow"); }
+    return rounded.unwrap_some();
 }
 
 public usize align_down(usize value, usize align) {
+    if !is_power_of_two(align) {
+        debug::panic("mem::align_down: alignment must be a nonzero power of two");
+    }
     return value & ~(align - 1);
 }
 
 public bool is_aligned(usize value, usize align) {
+    if !is_power_of_two(align) {
+        debug::panic("mem::is_aligned: alignment must be a nonzero power of two");
+    }
     return (value & (align - 1)) == 0;
+}
+
+Result(usize, AllocError) allocation_start([]u8 buffer, usize offset, usize len, usize align) {
+    Optional(usize) address = mem_checked_add(buffer.ptr as usize, offset);
+    if address.is_none() { return AllocError::OutOfMemory; }
+    Optional(usize) rounded = mem_checked_align_up(address.unwrap_some(), align);
+    if rounded.is_none() { return AllocError::OutOfMemory; }
+    usize start = rounded.unwrap_some() - (buffer.ptr as usize);
+    Optional(usize) end = mem_checked_add(start, len);
+    if end.is_none() { return AllocError::OutOfMemory; }
+    if end.unwrap_some() > buffer.len { return AllocError::OutOfMemory; }
+    return Result::Ok(start);
 }
 
 public bool is_ptr_aligned(T)(const T* p, usize align) {
@@ -283,12 +338,9 @@ public using FixedBuffer::new = new_fixed_buffer;
 Result([] u8, AllocError) fixed_alloc(void* ctx, usize len, usize align) {
     FixedBuffer* self = ctx as FixedBuffer*;
 
-    usize base = self.buffer.ptr as usize;
-    usize start = align_up(base + self.offset, align) - base;
-
-    if start + len > self.buffer.len {
-        return AllocError::OutOfMemory;
-    }
+    Result(usize, AllocError) got = allocation_start(self.buffer, self.offset, len, align);
+    if got.is_err() { return got.unwrap_err(); }
+    usize start = got.unwrap();
 
     self.last_offset = start;
     self.offset = start + len;
@@ -303,11 +355,10 @@ bool fixed_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
         return new_len <= buf.len;
     }
 
-    if start + new_len > self.buffer.len {
-        return false;
-    }
+    Optional(usize) end = mem_checked_add(start, new_len);
+    if end.is_none() || end.unwrap_some() > self.buffer.len { return false; }
 
-    self.offset = start + new_len;
+    self.offset = end.unwrap_some();
     return true;
 }
 
@@ -357,61 +408,48 @@ public Arena new_arena(Allocator parent) {
     return Arena {parent = parent, head = null, next_chunk_size = ARENA_MIN_CHUNK};
 }
 
-bool arena_push_chunk(Arena* self, usize min_size) {
-    usize size = if self.next_chunk_size > min_size {
-        self.next_chunk_size
-    } else {
-        align_up(min_size, ARENA_MIN_CHUNK)
-    };
-
-    Result([] u8, AllocError) got = self.parent.raw_alloc(
-        size + sizeof (ArenaChunk),
-        alignof (ArenaChunk)
-    );
-    if !got.is_ok() {
-        return false;
+Result([]u8, AllocError) arena_new_chunk(Arena* self, usize len, usize align) {
+    Optional(usize) minimum = mem_checked_add(len, align - 1);
+    if minimum.is_none() { return AllocError::OutOfMemory; }
+    usize size = self.next_chunk_size;
+    if size <= minimum.unwrap_some() {
+        Optional(usize) rounded = mem_checked_align_up(minimum.unwrap_some(), ARENA_MIN_CHUNK);
+        if rounded.is_none() { return AllocError::OutOfMemory; }
+        size = rounded.unwrap_some();
     }
-
-    [] u8 block = got.unwrap();
+    Optional(usize) total = mem_checked_add(size, sizeof(ArenaChunk));
+    Optional(usize) next = mem_checked_mul(size, 2);
+    if total.is_none() || next.is_none() { return AllocError::OutOfMemory; }
+    Result([]u8, AllocError) got = self.parent.raw_alloc(total.unwrap_some(), alignof(ArenaChunk));
+    if got.is_err() { return got.unwrap_err(); }
+    []u8 block = got.unwrap();
+    []u8 memory = slice::from_raw(block.ptr + sizeof(ArenaChunk), size);
+    Result(usize, AllocError) offset = allocation_start(memory, 0, len, align);
+    if offset.is_err() {
+        self.parent.raw_free(block, alignof(ArenaChunk));
+        return offset.unwrap_err();
+    }
+    usize start = offset.unwrap();
     ArenaChunk* chunk = block.ptr as ArenaChunk*;
-
     chunk.next = self.head;
-    chunk.memory = slice::from_raw(
-        block.ptr + sizeof (ArenaChunk),
-        size
-    );
-    chunk.offset = 0;
-
+    chunk.memory = memory;
+    chunk.offset = start + len;
     self.head = chunk;
-    self.next_chunk_size = size * 2;
-    return true;
+    self.next_chunk_size = next.unwrap_some();
+    return Result::Ok(slice::from_raw(memory.ptr + start, len));
 }
 
 Result([] u8, AllocError) arena_alloc(void* ctx, usize len, usize align) {
     Arena* self = ctx as Arena*;
-
-    for u32 attempt = 0; attempt < 2; attempt++ {
-        if self.head != null {
-            usize base = self.head.memory.ptr as usize;
-            usize start = align_up(base + self.head.offset, align) - base;
-
-            if start + len <= self.head.memory.len {
-                self.head.offset = start + len;
-                return Result::Ok(
-                    slice::from_raw(
-                        self.head.memory.ptr + start,
-                        len
-                    )
-                );
-            }
-        }
-
-        if !arena_push_chunk(self, len + align) {
-            break;
+    if self.head != null {
+        Result(usize, AllocError) offset = allocation_start(self.head.memory, self.head.offset, len, align);
+        if offset.is_ok() {
+            usize start = offset.unwrap();
+            self.head.offset = start + len;
+            return Result::Ok(slice::from_raw(self.head.memory.ptr + start, len));
         }
     }
-
-    return Result::Err(AllocError::OutOfMemory);
+    return arena_new_chunk(self, len, align);
 }
 
 bool arena_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
@@ -435,7 +473,9 @@ public void deinit(Arena* self) {
 
     while chunk != null {
         ArenaChunk* next = chunk.next;
-        usize total = chunk.memory.len + sizeof (ArenaChunk);
+        Optional(usize) size = mem_checked_add(chunk.memory.len, sizeof(ArenaChunk));
+        if size.is_none() { debug::panic("mem::Arena: invalid chunk size"); }
+        usize total = size.unwrap_some();
         self.parent.raw_free(
             slice::from_raw(chunk as u8*, total),
             alignof (ArenaChunk)

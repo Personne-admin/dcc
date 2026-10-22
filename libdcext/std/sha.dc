@@ -816,7 +816,7 @@ char hex_digit(u8 nibble, bool uppercase) {
 
 /// writes `digest` as lowercase hex. `out` needs twice as many bytes.
 public Status(ShaError) hex_encode([] const u8 digest, [] char out) {
-    if out.len < digest.len * 2 {
+    if digest.len > out.len / 2 {
         return ShaError::OutputTooSmall;
     }
 

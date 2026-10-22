@@ -74,7 +74,7 @@ public using BufferWriter::new = new_buffer_writer;
 Status(FmtError) buffer_write(void* ctx, [] const char bytes) {
     BufferWriter* self = ctx as BufferWriter*;
 
-    if self.written + bytes.len > self.buffer.len {
+    if bytes.len > self.buffer.len - self.written {
         self.overflowed = true;
         return FmtError::OutOfSpace;
     }
@@ -111,7 +111,9 @@ public using CountingWriter::new = new_counting_writer;
 
 Status(FmtError) counting_write(void* ctx, [] const char bytes) {
     CountingWriter* self = ctx as CountingWriter*;
-    self.count = self.count + bytes.len;
+    Optional(usize) count = fmt_checked_add(self.count, bytes.len);
+    if count.is_none() { return FmtError::BadFormat; }
+    self.count = count.unwrap_some();
     return Status::Ok;
 }
 
@@ -142,7 +144,8 @@ public struct Options {
     usize precision;
 }
 
-public using usize NO_PRECISION = 0xFFFFFFFFFFFFFFFF;
+
+public using usize NO_PRECISION = ~(0 as usize);
 
 public Options default_options() {
     return Options {
@@ -344,11 +347,7 @@ static if core::target::FLOAT_AVAILABLE {
         BufferWriter sink = BufferWriter::new(view);
         Writer inner = sink.writer();
 
-        usize precision = if opts.precision == NO_PRECISION {
-            DEFAULT_PRECISION
-        } else {
-            opts.precision
-        };
+        usize precision = if opts.precision == NO_PRECISION { DEFAULT_PRECISION } else { opts.precision };
 
         f64 v = value;
         if math::signbit(v) {
@@ -465,13 +464,20 @@ public Status(FmtError) format_value(T)(
         } else {
             format_signed(w, value as i64, opts) ?;
         }
-    } else static if T == f32 || T == f64 {
-        static if core::target::FLOAT_AVAILABLE {
+    } else static if core::target::FLOAT_AVAILABLE {
+        static if T == f32 || T == f64 {
             format_float(w, value as f64, opts) ?;
         } else {
-            core::compile_error("floating-point formatting is unavailable without floating-point support");
+            format_other(w, value, opts) ?;
         }
-    } else static if T == [] const char {
+    } else {
+        format_other(w, value, opts) ?;
+    }
+    return Status::Ok;
+}
+
+Status(FmtError) format_other(T)(const Writer* w, T value, const Options* opts) {
+    static if T == [] const char {
         write_padded(w, value as [] const char, opts) ?;
     } else static if compiles (T t, const Writer* q, const Options* o) {
         t.format(q, o);
@@ -533,7 +539,7 @@ Result(Chunk, FmtError) emit_until_placeholder(
 
     while i < fmt.len {
         if fmt[i] == ('{' as char) {
-            if i + 1 < fmt.len && fmt[i + 1] == ('{' as char) {
+            if i < fmt.len && fmt.len - i > 1 && fmt[i + 1] == ('{' as char) {
                 w.write_all(fmt[literal_start..i + 1]) ?;
                 i = i + 2;
                 literal_start = i;
@@ -544,7 +550,7 @@ Result(Chunk, FmtError) emit_until_placeholder(
             return parse_spec(fmt, i + 1);
         }
 
-        if fmt[i] == ('}' as char) && i + 1 < fmt.len && fmt[i + 1] == ('}' as char) {
+        if fmt[i] == ('}' as char) && i < fmt.len && fmt.len - i > 1 && fmt[i + 1] == ('}' as char) {
             w.write_all(fmt[literal_start..i + 1]) ?;
             i = i + 2;
             literal_start = i;
@@ -571,7 +577,7 @@ Result(Chunk, FmtError) parse_spec([] const char fmt, usize from) {
         i++;
     }
 
-    if i + 1 < fmt.len && is_align(fmt[i + 1]) {
+    if i < fmt.len && fmt.len - i > 1 && is_align(fmt[i + 1]) {
         opts.fill = fmt[i];
         opts.align = align_of(fmt[i + 1]);
         i = i + 2;
@@ -591,17 +597,26 @@ Result(Chunk, FmtError) parse_spec([] const char fmt, usize from) {
     }
 
     while i < fmt.len && is_digit(fmt[i]) {
-        opts.width = opts.width * 10 + (fmt[i] as u32 - ('0' as u32)) as usize;
+        Optional(usize) scaled = fmt_checked_mul(opts.width, 10);
+        if scaled.is_none() { return FmtError::BadFormat; }
+        Optional(usize) width = fmt_checked_add(scaled.unwrap_some(), (fmt[i] as u32 - ('0' as u32)) as usize);
+        if width.is_none() { return FmtError::BadFormat; }
+        opts.width = width.unwrap_some();
         i++;
     }
 
     if i < fmt.len && fmt[i] == ('.' as char) {
         i++;
-        opts.precision = 0;
+        usize precision = 0;
         while i < fmt.len && is_digit(fmt[i]) {
-            opts.precision = opts.precision * 10 + (fmt[i] as u32 - ('0' as u32)) as usize;
+            Optional(usize) scaled = fmt_checked_mul(precision, 10);
+            if scaled.is_none() { return FmtError::BadFormat; }
+            Optional(usize) parsed = fmt_checked_add(scaled.unwrap_some(), (fmt[i] as u32 - ('0' as u32)) as usize);
+            if parsed.is_none() { return FmtError::BadFormat; }
+            precision = parsed.unwrap_some();
             i++;
         }
+        opts.precision = precision;
     }
 
     if i < fmt.len && fmt[i] != ('}' as char) {
@@ -712,7 +727,7 @@ public Result([] char, mem::AllocError) format_alloc(T...)(
     Writer probe = counter.writer();
 
     match format(&probe, fmt, args...) {
-        Status::Err(_) => return mem::AllocError::OutOfMemory,
+        Status::Err(e) => return if e == FmtError::BadFormat { mem::AllocError::OutOfMemory } else { mem::AllocError::OutOfMemory },
         _ => {},
     }
 
@@ -721,12 +736,22 @@ public Result([] char, mem::AllocError) format_alloc(T...)(
     Writer w = sink.writer();
 
     match format(&w, fmt, args...) {
-        Status::Err(_) => {
+        Status::Err(e) => {
             alloc.free(buffer);
-            return mem::AllocError::OutOfMemory;
+            return if e == FmtError::BadFormat { mem::AllocError::OutOfMemory } else { mem::AllocError::OutOfMemory };
         },
         _ => {},
     }
 
     return Result::Ok(buffer);
+}
+
+Optional(usize) fmt_checked_add(usize a, usize b) {
+    if b > (~(0 as usize)) - a { return Optional::None; }
+    return Optional::Some(a + b);
+}
+
+Optional(usize) fmt_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }

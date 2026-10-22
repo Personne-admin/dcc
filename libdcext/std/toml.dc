@@ -1455,15 +1455,13 @@ Result(BEntry*, TomlError) reserve_entry(
     [] const char key
 ) {
     if self.len == self.entries.len {
-        usize want = if self.entries.len == 0 {
-            8 as usize
-        } else {
-            self.entries.len * 2
-        };
+        Optional(usize) doubled = toml_checked_mul(self.entries.len, 2);
+        if doubled.is_none() { return TomlError::OutOfMemory; }
+        usize want = if self.entries.len == 0 { 8 as usize } else { doubled.unwrap_some() };
 
         Result([] BEntry, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
-            return TomlError::OutOfMemory;
+            return if grown.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
 
         [] BEntry fresh = grown.unwrap();
@@ -1504,15 +1502,13 @@ Status(TomlError) push_element(
     BTable* element
 ) {
     if self.element_count == self.elements.len {
-        usize want = if self.elements.len == 0 {
-            4 as usize
-        } else {
-            self.elements.len * 2
-        };
+        Optional(usize) doubled = toml_checked_mul(self.elements.len, 2);
+        if doubled.is_none() { return TomlError::OutOfMemory; }
+        usize want = if self.elements.len == 0 { 4 as usize } else { doubled.unwrap_some() };
 
         Result([] TablePtr, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
-            return TomlError::OutOfMemory;
+            return if grown.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
 
         [] TablePtr fresh = grown.unwrap();
@@ -1705,7 +1701,7 @@ Result(Table, TomlError) freeze(const mem::Allocator* alloc, BTable* self) {
             source.element_count
         );
         if elements.is_err() {
-            return TomlError::OutOfMemory;
+            return if elements.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
 
         [] Value frozen = elements.unwrap();
@@ -1734,15 +1730,13 @@ Status(TomlError) push_value(
     Value value
 ) {
     if self.len == self.items.len {
-        usize want = if self.items.len == 0 {
-            8 as usize
-        } else {
-            self.items.len * 2
-        };
+        Optional(usize) doubled = toml_checked_mul(self.items.len, 2);
+        if doubled.is_none() { return TomlError::OutOfMemory; }
+        usize want = if self.items.len == 0 { 8 as usize } else { doubled.unwrap_some() };
 
         Result([] Value, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
-            return TomlError::OutOfMemory;
+            return if grown.unwrap_err() == mem::AllocError::OutOfMemory { TomlError::OutOfMemory } else { TomlError::OutOfMemory };
         }
 
         [] Value fresh = grown.unwrap();
@@ -2005,4 +1999,9 @@ public Optional(Table) as_table(const Value* self) {
         Value::Table(v) => Optional::Some(v),
         _ => Optional::None,
     };
+}
+
+Optional(usize) toml_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }

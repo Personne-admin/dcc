@@ -128,14 +128,15 @@ public Status(AllocError) reserve(T)(Array(T)* self, usize needed) {
         return Status::Ok;
     }
 
-    usize target = math::max(
-        math::max(needed, MIN_CAPACITY),
-        b.storage.len * 2
-    );
+    Optional(usize) doubled = array_checked_mul(b.storage.len, 2);
+    if doubled.is_none() { return AllocError::OutOfMemory; }
+    usize target = math::max(math::max(needed, MIN_CAPACITY), doubled.unwrap_some());
+    Optional(usize) bytes = array_checked_mul(target, sizeof(T));
+    if bytes.is_none() { return AllocError::OutOfMemory; }
 
     bool grown_in_place = b.storage.len > 0 && b.alloc.raw_resize(
         mem::slice_as_bytes(b.storage) as [] u8,
-        target * sizeof (T),
+        bytes.unwrap_some(),
         alignof (T)
     );
     if grown_in_place {
@@ -193,7 +194,9 @@ public Status(AllocError) push(T)(Array(T)* self, T value) {
     Array(T) b = *self;
     usize n = b.count;
     *self = b;
-    Status(AllocError) push_st = self.reserve(n + 1);
+    Optional(usize) needed = array_checked_add(n, 1);
+    if needed.is_none() { return AllocError::OutOfMemory; }
+    Status(AllocError) push_st = self.reserve(needed.unwrap_some());
     if !push_st.is_ok() {
         return push_st.unwrap_err();
     }
@@ -220,7 +223,9 @@ public Status(AllocError) append_slice(T)(Array(T)* self, [] const T source) {
     Array(T) b = *self;
     usize n = b.count;
     *self = b;
-    Status(AllocError) app_st = self.reserve(n + source.len);
+    Optional(usize) needed = array_checked_add(n, source.len);
+    if needed.is_none() { return AllocError::OutOfMemory; }
+    Status(AllocError) app_st = self.reserve(needed.unwrap_some());
     if !app_st.is_ok() {
         return app_st.unwrap_err();
     }
@@ -239,7 +244,9 @@ public Status(AllocError) insert(T)(Array(T)* self, usize index, T value) {
     Array(T) b = *self;
     usize n = b.count;
     *self = b;
-    Status(AllocError) ins_st = self.reserve(n + 1);
+    Optional(usize) needed = array_checked_add(n, 1);
+    if needed.is_none() { return AllocError::OutOfMemory; }
+    Status(AllocError) ins_st = self.reserve(needed.unwrap_some());
     if !ins_st.is_ok() {
         return ins_st.unwrap_err();
     }
@@ -334,4 +341,14 @@ public Result([] T, AllocError) to_owned_slice(T)(Array(T)* self) {
     Array(T) empty = new_array(b.alloc);
     *self = empty;
     return Result::Ok(out);
+}
+
+Optional(usize) array_checked_add(usize a, usize b) {
+    if b > (~(0 as usize)) - a { return Optional::None; }
+    return Optional::Some(a + b);
+}
+
+Optional(usize) array_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }

@@ -544,8 +544,16 @@ bool has_nul([] const char text) {
 //! double; elsewhere they are literal.
 //!
 
+Optional(usize) checked_quote_bound([] const char arg) {
+    Optional(usize) doubled = process_checked_mul(arg.len, 2);
+    if doubled.is_none() { return Optional::None; }
+    return process_checked_add(doubled.unwrap_some(), 3);
+}
+
 usize quote_bound([] const char arg) {
-    return arg.len * 2 + 3;
+    Optional(usize) bound = checked_quote_bound(arg);
+    if bound.is_none() { debug::panic("process::quote_bound: size overflow"); }
+    return bound.unwrap_some();
 }
 
 usize push_quoted([] char out, usize at, [] const char arg) {
@@ -654,14 +662,24 @@ static if core::target::OS != core::target::Os::Freestanding {
         }
 
         static if core::target::OS == core::target::Os::Windows {
-            usize bound = quote_bound(cmd.program);
+            Optional(usize) initial = checked_quote_bound(cmd.program);
+            if initial.is_none() { return Error::OutOfMemory; }
+            usize bound = initial.unwrap_some();
             for usize i = 0; i < cmd.args.len; i++ {
-                bound = bound + quote_bound(cmd.args[i]) + 1;
+                Optional(usize) arg_bound = checked_quote_bound(cmd.args[i]);
+                if arg_bound.is_none() { return Error::OutOfMemory; }
+                Optional(usize) combined = process_checked_add(bound, arg_bound.unwrap_some());
+                if combined.is_none() { return Error::OutOfMemory; }
+                Optional(usize) spaced = process_checked_add(combined.unwrap_some(), 1);
+                if spaced.is_none() { return Error::OutOfMemory; }
+                bound = spaced.unwrap_some();
             }
+            Optional(usize) max_units = process_checked_add(bound, 1);
+            if max_units.is_none() || process_checked_mul(max_units.unwrap_some(), 2).is_none() { return Error::OutOfMemory; }
 
             Result([] u8, mem::AllocError) narrow_slot = alloc.raw_alloc(bound, 1);
             if narrow_slot.is_err() {
-                return Error::OutOfMemory;
+                return if narrow_slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] char narrow = narrow_slot.unwrap() as [] char;
@@ -675,12 +693,16 @@ static if core::target::OS != core::target::Os::Freestanding {
             }
 
             // one UTF-16 unit per UTF-8 byte is always enough, plus the NUL
+            Optional(usize) units = process_checked_add(n, 1);
+            if units.is_none() { return Error::OutOfMemory; }
+            Optional(usize) wide_size = process_checked_mul(units.unwrap_some(), 2);
+            if wide_size.is_none() { return Error::OutOfMemory; }
             Result([] u8, mem::AllocError) wide_slot = alloc.raw_alloc(
-                (n + 1) * 2,
+                wide_size.unwrap_some(),
                 alignof (u16)
             );
             if wide_slot.is_err() {
-                return Error::OutOfMemory;
+                return if wide_slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] u8 wide_bytes = wide_slot.unwrap();
@@ -758,25 +780,35 @@ static if core::target::OS != core::target::Os::Freestanding {
             c.reserved = 0;
             return Result::Ok(c);
         } else {
-            usize blob_len = cmd.program.len + 1;
+            Optional(usize) initial = process_checked_add(cmd.program.len, 1);
+            if initial.is_none() { return Error::OutOfMemory; }
+            usize blob_len = initial.unwrap_some();
             for usize i = 0; i < cmd.args.len; i++ {
-                blob_len = blob_len + cmd.args[i].len + 1;
+                Optional(usize) combined = process_checked_add(blob_len, cmd.args[i].len);
+                if combined.is_none() { return Error::OutOfMemory; }
+                Optional(usize) terminated = process_checked_add(combined.unwrap_some(), 1);
+                if terminated.is_none() { return Error::OutOfMemory; }
+                blob_len = terminated.unwrap_some();
             }
+            Optional(usize) count = process_checked_add(cmd.args.len, 2);
+            if count.is_none() { return Error::OutOfMemory; }
+            Optional(usize) vector_bytes = process_checked_mul(count.unwrap_some(), sizeof(void*));
+            if vector_bytes.is_none() { return Error::OutOfMemory; }
 
             Result([] u8, mem::AllocError) blob_slot = alloc.raw_alloc(blob_len, 1);
             if blob_slot.is_err() {
-                return Error::OutOfMemory;
+                return if blob_slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] char blob = blob_slot.unwrap() as [] char;
             defer alloc.raw_free(blob as [] u8, 1);
 
             Result([] u8, mem::AllocError) vec_slot = alloc.raw_alloc(
-                (cmd.args.len + 2) * sizeof (void*),
+                vector_bytes.unwrap_some(),
                 alignof (void*)
             );
             if vec_slot.is_err() {
-                return Error::OutOfMemory;
+                return if vec_slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
 
             [] u8 vec_bytes = vec_slot.unwrap();
@@ -1015,4 +1047,14 @@ static if core::target::OS != core::target::Os::Freestanding {
             return Status::Ok;
         }
     }
+}
+
+Optional(usize) process_checked_add(usize a, usize b) {
+    if b > (~(0 as usize)) - a { return Optional::None; }
+    return Optional::Some(a + b);
+}
+
+Optional(usize) process_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }

@@ -186,8 +186,13 @@ usize find_insert_slot(K, V)(
 public Status(AllocError) ensure_capacity(K, V)(Map(K, V)* self, usize wanted) {
     Map(K, V) b = *self;
     usize needed = math::max(wanted, MIN_CAPACITY);
-    usize required = needed * LOAD_DEN / LOAD_NUM + 1;
-    usize target = math::next_power_of_two(required as u64) as usize;
+    Optional(usize) extra = map_checked_add(needed / LOAD_NUM, 1);
+    if extra.is_none() { return AllocError::OutOfMemory; }
+    Optional(usize) required = map_checked_add(needed, extra.unwrap_some());
+    if required.is_none() { return AllocError::OutOfMemory; }
+    Optional(u64) rounded = map_checked_next_power_of_two(required.unwrap_some() as u64);
+    if rounded.is_none() || rounded.unwrap_some() > (~(0 as usize)) as u64 { return AllocError::OutOfMemory; }
+    usize target = rounded.unwrap_some() as usize;
 
     if b.control.len >= target && b.control.len > 0 {
         return Status::Ok;
@@ -203,6 +208,8 @@ public Status(AllocError) ensure_capacity(K, V)(Map(K, V)* self, usize wanted) {
 
 Status(AllocError) rehash_into(K, V)(Map(K, V)* self, usize new_capacity) {
     Map(K, V) b = *self;
+    if map_checked_mul(new_capacity, sizeof(K)).is_none()
+        || map_checked_mul(new_capacity, sizeof(V)).is_none() { return AllocError::OutOfMemory; }
     [] u8 old_control = b.control;
     [] K old_keys = b.keys;
     [] V old_values = b.values;
@@ -272,7 +279,8 @@ bool needs_growth(K, V)(const Map(K, V)* self) {
         return true;
     }
 
-    return (b.count + b.tombstones + 1) * LOAD_DEN > b.control.len * LOAD_NUM;
+    usize threshold = b.control.len / LOAD_DEN * LOAD_NUM;
+    return b.count >= threshold || b.tombstones >= threshold - b.count;
 }
 
 //!
@@ -287,11 +295,9 @@ public Result(Optional(V), AllocError) put(K, V)(
 ) {
     Map(K, V) b = *self;
     if needs_growth(&b) {
-        usize target = if b.control.len == 0 {
-            MIN_CAPACITY
-        } else {
-            b.control.len * 2
-        };
+        Optional(usize) grown_capacity = map_checked_mul(b.control.len, 2);
+        if grown_capacity.is_none() { return AllocError::OutOfMemory; }
+        usize target = if b.control.len == 0 { MIN_CAPACITY } else { grown_capacity.unwrap_some() };
         *self = b;
         Status(AllocError) rh_st = rehash_into(self, target);
         if !rh_st.is_ok() {
@@ -441,4 +447,20 @@ public Optional(Entry(K, V)) next(K, V)(Iterator(K, V)* self) {
 
     *self = it;
     return Optional::None;
+}
+
+Optional(usize) map_checked_add(usize a, usize b) {
+    if b > (~(0 as usize)) - a { return Optional::None; }
+    return Optional::Some(a + b);
+}
+
+Optional(usize) map_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
+}
+
+result::Optional(u64) map_checked_next_power_of_two(u64 v) {
+    if v > (1 as u64 << 63) { return result::Optional::None; }
+    if v <= 1 { return result::Optional::Some(1 as u64); }
+    return result::Optional::Some(1 as u64 << (64 - math::leading_zeros(v - 1)) as u64);
 }

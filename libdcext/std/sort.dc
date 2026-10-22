@@ -62,6 +62,7 @@ void sift_down(T)(
     usize parent = root;
 
     while true {
+        if parent >= end / 2 { return; }
         usize child = parent * 2 + 1;
         if child >= end {
             return;
@@ -215,23 +216,17 @@ public void sort_stable_by(T)(
     while width < items.len {
         usize i = 0;
         while i < items.len {
-            usize mid = if i + width < items.len {
-                i + width
-            } else {
-                items.len
-            };
-
-            usize end = if i + 2 * width < items.len {
-                i + 2 * width
-            } else {
-                items.len
-            };
+            usize remaining = items.len - i;
+            usize mid = i + if width < remaining { width } else { remaining };
+            usize tail = items.len - mid;
+            usize end = mid + if width < tail { width } else { tail };
 
             merge_run(items, scratch, i, mid, end, cmp);
-            i = i + 2 * width;
+            i = end;
         }
 
         mem::copy(items, scratch);
+        if width >= items.len - width { return; }
         width = width * 2;
     }
 }

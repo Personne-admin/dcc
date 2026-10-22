@@ -101,7 +101,7 @@ public using Dword PAGE_EXECUTE_READWRITE = 0x40;
 /// VirtualAlloc rounds commits to the page size but reservations to the
 /// allocation granularity, which is coarser.
 public using usize PAGE_SIZE = 4096;
-public using usize ALLOCATION_GRANULARITY = 65536;
+public using u32 ALLOCATION_GRANULARITY = 65536;
 
 //!
 //! Error codes
@@ -199,7 +199,7 @@ public struct ByHandleFileInformation {
 //!
 
 public using Socket = usize;
-public using usize INVALID_SOCKET = 0xFFFFFFFFFFFFFFFF;
+public using usize INVALID_SOCKET = ~(0 as usize);
 public using i32 SOCKET_ERROR = -1;
 
 public using Dword AF_UNSPEC = 0;

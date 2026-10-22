@@ -58,7 +58,7 @@ public u64 hash_bytes([] const u8 bytes) {
     u64 h = FNV_OFFSET ^ (bytes.len as u64);
     usize i = 0;
 
-    while i + 8 <= bytes.len {
+    while bytes.len - i >= 8 {
         u64 block = 0;
         for usize k = 0; k < 8; k++ {
             block = block | ((bytes[i + k] as u64) << (k * 8) as u64);

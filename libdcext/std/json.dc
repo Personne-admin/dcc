@@ -812,15 +812,13 @@ Status(JsonError) push_value(
     Value value
 ) {
     if self.len == self.items.len {
-        usize want = if self.items.len == 0 {
-            VEC_MIN
-        } else {
-            self.items.len * 2
-        };
+        Optional(usize) doubled = json_checked_mul(self.items.len, 2);
+        if doubled.is_none() { return JsonError::OutOfMemory; }
+        usize want = if self.items.len == 0 { VEC_MIN } else { doubled.unwrap_some() };
 
         Result([] Value, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
-            return JsonError::OutOfMemory;
+            return if grown.unwrap_err() == mem::AllocError::OutOfMemory { JsonError::OutOfMemory } else { JsonError::OutOfMemory };
         }
 
         [] Value fresh = grown.unwrap();
@@ -846,15 +844,13 @@ Status(JsonError) push_member(
     Member member
 ) {
     if self.len == self.items.len {
-        usize want = if self.items.len == 0 {
-            VEC_MIN
-        } else {
-            self.items.len * 2
-        };
+        Optional(usize) doubled = json_checked_mul(self.items.len, 2);
+        if doubled.is_none() { return JsonError::OutOfMemory; }
+        usize want = if self.items.len == 0 { VEC_MIN } else { doubled.unwrap_some() };
 
         Result([] Member, mem::AllocError) grown = alloc.alloc(want);
         if grown.is_err() {
-            return JsonError::OutOfMemory;
+            return if grown.unwrap_err() == mem::AllocError::OutOfMemory { JsonError::OutOfMemory } else { JsonError::OutOfMemory };
         }
 
         [] Member fresh = grown.unwrap();
@@ -1408,4 +1404,9 @@ public Status(fmt::FmtError) write(
 ) {
     Emitter e = Emitter::new(w, indent);
     return value(&e, item);
+}
+
+Optional(usize) json_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }

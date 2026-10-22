@@ -1,0 +1,21 @@
+module main;
+import std::mem;
+import std::os::heap;
+import std::os::path;
+import std::slice;
+using std::{mem, slice};
+using std::os::{heap, path};
+public i32 main() {
+    mem::Allocator a = heap::allocator();
+    if a.raw_alloc((~(0 as usize)), 1).unwrap_err() != mem::AllocError::OutOfMemory { return 1; }
+    []u8 block = a.raw_alloc(64, 1).unwrap();
+    block[0] = 42;
+    if a.raw_resize(block, (~(0 as usize)), 1) || block[0] != 42 { return 2; }
+    a.raw_free(block, 1);
+    char[16] storage = {};
+    storage[0] = 'a';
+    []const char tail = slice::from_raw_const(&storage[0] as const char*, (~(0 as usize)));
+    if path::join("a", tail, storage[0..16]).unwrap_err() != path::Error::OutOfMemory { return 3; }
+    if storage[0] != 'a' { return 4; }
+    return 0;
+}

@@ -21,7 +21,7 @@ public import std::result;
 
 using sys::linux;
 using sys::win;
-using result::Result;
+using result::{Result, Optional};
 using mem::{ Allocator, AllocError };
 
 public usize page_size() {
@@ -51,11 +51,9 @@ static if core::target::OS != core::target::Os::Freestanding {
             return Result::Ok(slice::from_raw(null as u8*, 0));
         }
 
-        if len > 0xFFFFFFFFFFFFFFFF - (page_size() - 1) {
-            return AllocError::OutOfMemory;
-        }
-
-        usize total = rounded(len);
+        Optional(usize) size = heap_checked_align_up(len, page_size());
+        if size.is_none() { return AllocError::OutOfMemory; }
+        usize total = size.unwrap_some();
 
         static if core::target::OS == core::target::Os::Windows {
             void* got = win::imports::VirtualAlloc(
@@ -98,14 +96,11 @@ static if core::target::OS != core::target::Os::Freestanding {
             return new_len == 0;
         }
 
-        // Overflow must fail without changing the original mapping. Otherwise a
-        // huge grow request wraps to zero and becomes a successful full shrink.
-        if new_len > 0xFFFFFFFFFFFFFFFF - (page_size() - 1) {
-            return false;
-        }
-
-        usize have = rounded(buf.len);
-        usize want = rounded(new_len);
+        Optional(usize) have_size = heap_checked_align_up(buf.len, page_size());
+        Optional(usize) want_size = heap_checked_align_up(new_len, page_size());
+        if have_size.is_none() || want_size.is_none() { return false; }
+        usize have = have_size.unwrap_some();
+        usize want = want_size.unwrap_some();
 
         if want == have {
             return true;
@@ -179,3 +174,18 @@ static if core::target::OS != core::target::Os::Freestanding {
         return mem::new_arena(allocator());
     }
 }
+
+Optional(usize) heap_checked_add(usize a, usize b) {
+    if b > (~(0 as usize)) - a { return Optional::None; }
+    return Optional::Some(a + b);
+}
+
+Optional(usize) heap_checked_align_up(usize value, usize align) {
+    if !mem::is_power_of_two(align) {
+        debug::panic("mem::checked_align_up: alignment must be a nonzero power of two");
+    }
+    usize padding = (0 as usize - value) & (align - 1);
+    return heap_checked_add(value, padding);
+}
+
+import std::debug;

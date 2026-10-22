@@ -1,6 +1,8 @@
 module std::math;
 
 import core::target;
+import std::result;
+import std::debug;
 
 //!
 //! Bit-level float access
@@ -735,12 +737,16 @@ public u32 log2_floor(u64 v) {
 }
 
 /// smallest power of two greater than or equal to `v`.
-public u64 next_power_of_two(u64 v) {
-    if v <= 1 {
-        return 1;
-    }
+result::Optional(u64) math_checked_next_power_of_two(u64 v) {
+    if v > (1 as u64 << 63) { return result::Optional::None; }
+    if v <= 1 { return result::Optional::Some(1 as u64); }
+    return result::Optional::Some(1 as u64 << (64 - leading_zeros(v - 1)) as u64);
+}
 
-    return 1 as u64 << (64 - leading_zeros(v - 1)) as u64;
+public u64 next_power_of_two(u64 v) {
+    result::Optional(u64) rounded = math_checked_next_power_of_two(v);
+    if rounded.is_none() { debug::panic("math::next_power_of_two: size overflow"); }
+    return rounded.unwrap_some();
 }
 
 public u64 rotl64(u64 v, u32 n) {

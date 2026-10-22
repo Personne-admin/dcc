@@ -15,11 +15,13 @@ WINE ?= $(shell command -v wine64 2>/dev/null || command -v wine 2>/dev/null)
 
 .PHONY: test-linux test-win
 test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py linux
 	$(Q)$<
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/cross_backend.py linux --build $(BUILD_DIR)
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/abi/unwind.py
 test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
+	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py win
 	$(Q)DCC_TEST_WINDOWS=1 WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $<
@@ -107,6 +109,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_libdcext_abi.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_compdb_output.py $(BUILD_DIR)/bin/dcc $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_dccd_project_layout.py $(BUILD_DIR)/bin/dcc $(BUILD_DIR)/bin/dccd
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_os_gating.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_freestanding.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_float_gating.py $(BUILD_DIR)/bin/dcc

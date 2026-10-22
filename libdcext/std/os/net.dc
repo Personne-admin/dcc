@@ -567,12 +567,14 @@ static if core::target::OS != core::target::Os::Freestanding {
 
         static if core::target::OS == core::target::Os::Windows {
             usize n = fds.len;
+            result::Optional(usize) bytes = net_checked_mul(n, sizeof(win::abi::Wsapollfd));
+            if bytes.is_none() { return Error::OutOfMemory; }
             Result([] u8, AllocError) slot = alloc.raw_alloc(
-                n * sizeof (win::abi::Wsapollfd),
+                bytes.unwrap_some(),
                 8
             );
             if slot.is_err() {
-                return Error::OutOfMemory;
+                return if slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
             [] u8 mem = slot.unwrap();
             win::abi::Wsapollfd* native = mem.ptr as win::abi::Wsapollfd*;
@@ -598,12 +600,14 @@ static if core::target::OS != core::target::Os::Freestanding {
             return Result::Ok(ready as usize);
         } else {
             usize n = fds.len;
+            result::Optional(usize) bytes = net_checked_mul(n, sizeof(linux::abi::Pollfd));
+            if bytes.is_none() { return Error::OutOfMemory; }
             Result([] u8, AllocError) slot = alloc.raw_alloc(
-                n * sizeof (linux::abi::Pollfd),
+                bytes.unwrap_some(),
                 8
             );
             if slot.is_err() {
-                return Error::OutOfMemory;
+                return if slot.unwrap_err() == mem::AllocError::OutOfMemory { Error::OutOfMemory } else { Error::OutOfMemory };
             }
             [] u8 mem = slot.unwrap();
             linux::abi::Pollfd* native = mem.ptr as linux::abi::Pollfd*;
@@ -671,4 +675,9 @@ static if core::target::OS != core::target::Os::Freestanding {
 
         self.handle = INVALID_HANDLE;
     }
+}
+
+Optional(usize) net_checked_mul(usize a, usize b) {
+    if a != 0 && b > (~(0 as usize)) / a { return Optional::None; }
+    return Optional::Some(a * b);
 }
