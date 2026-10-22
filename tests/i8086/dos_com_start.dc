@@ -1,0 +1,46 @@
+asm @[intel] {
+    \\.section .start, "ax", @progbits
+    \\.globl _start
+    \\.globl dcc_putc
+    \\.globl dcc_exit
+    \\_start:
+    \\cld
+    \\mov di, offset __bss_start
+    \\mov cx, offset __bss_end
+    \\sub cx, di
+    \\xor al, al
+    \\rep stosb
+    \\call dcc_main
+    \\mov cl, al
+    \\mov ax, 0x4c00
+    \\mov al, cl
+    \\int 0x21
+    \\dcc_putc:
+    \\push bp
+    \\mov bp, sp
+    \\push bx
+    \\push cx
+    \\push dx
+    \\mov al, byte ptr [bp + 4]
+    \\mov byte ptr [dcc_putc_buffer], al
+    \\mov ax, 0x4000
+    \\mov bx, 1
+    \\mov cx, 1
+    \\mov dx, offset dcc_putc_buffer
+    \\int 0x21
+    \\pop dx
+    \\pop cx
+    \\pop bx
+    \\pop bp
+    \\ret
+    \\dcc_exit:
+    \\mov bp, sp
+    \\mov al, byte ptr [bp + 2]
+    \\mov cl, al
+    \\mov ax, 0x4c00
+    \\mov al, cl
+    \\int 0x21
+    \\.data
+    \\dcc_putc_buffer:
+    \\.byte 0
+};

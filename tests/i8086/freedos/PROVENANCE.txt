@@ -1,0 +1,17 @@
+FreeDOS test image provenance
+================================
+
+Distribution: FreeDOS 1.4 Floppy Edition
+Source: https://download.freedos.org/1.4/FD14-FloppyEdition.zip
+Archive sha256: 45b1fa7c52dd996c3bfa5e352ffcd410781b952a6ad629f15a4c9ec4bbaefc5a
+Base image inside archive: 144m/x86BOOT.img
+Image sha256: 552f7cbb0625960c050a3e682a4d2121cc2ffdfa9dc9d592ccd49edf179333dc
+
+The image is used read-only as a base; every run copies it and boots the copy.
+The repository does not redistribute the image. The CI job image downloads the
+archive from the official FreeDOS download site and verifies both checksums.
+
+License: FreeDOS is free software, distributed under the GNU General Public
+License version 2 or later (GPLv2+). The distribution contains third-party
+programs under their own compatible licenses; the image is used only as a test
+fixture and is not redistributed by this repository.

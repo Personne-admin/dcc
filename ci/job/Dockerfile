@@ -11,6 +11,9 @@ ARG NASM_VERSION=3.02
 ARG NASM_SHA256=87336eba53b4acfe917424ab5d500d2b0054d9f5148d35c2273ccf2cfb712f0d
 ARG ACTIONLINT_VERSION=1.7.12
 ARG ACTIONLINT_SHA256=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+ARG FREEDOS_VERSION=1.4
+ARG FREEDOS_ZIP_SHA256=45b1fa7c52dd996c3bfa5e352ffcd410781b952a6ad629f15a4c9ec4bbaefc5a
+ARG FREEDOS_IMAGE_SHA256=552f7cbb0625960c050a3e682a4d2121cc2ffdfa9dc9d592ccd49edf179333dc
 
 ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 LC_ALL=C.UTF-8
 
@@ -23,7 +26,7 @@ RUN set -eux; \
     echo "deb [arch=amd64,i386 signed-by=/usr/share/keyrings/winehq.gpg] https://dl.winehq.org/wine-builds/ubuntu/ noble main" > /etc/apt/sources.list.d/winehq.list; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        git binutils libcmark-dev msitools wixl dpkg-dev fakeroot zstd unzip qemu-system-x86 \
+        git binutils libcmark-dev msitools wixl dpkg-dev fakeroot zstd unzip qemu-system-x86 mtools \
         "winehq-devel=${WINE_VERSION}" "wine-devel=${WINE_VERSION}" "wine-devel-amd64=${WINE_VERSION}" "wine-devel-i386=${WINE_VERSION}"; \
     rm -rf /var/lib/apt/lists/*; \
     curl -fsSL -o /tmp/node.tar.xz "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz"; \
@@ -39,4 +42,10 @@ RUN set -eux; \
     echo "${ACTIONLINT_SHA256}  /tmp/actionlint.tar.gz" | sha256sum -c -; \
     tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint; \
     rm /tmp/actionlint.tar.gz; \
-    node --version; npm --version; wine --version; wixl --version; nasm -v; qemu-system-i386 --version; actionlint --version
+    mkdir -p /usr/share/freedos; \
+    curl -fsSL -o /tmp/freedos.zip "https://download.freedos.org/${FREEDOS_VERSION}/FD14-FloppyEdition.zip"; \
+    echo "${FREEDOS_ZIP_SHA256}  /tmp/freedos.zip" | sha256sum -c -; \
+    unzip -p /tmp/freedos.zip 144m/x86BOOT.img > /usr/share/freedos/x86BOOT.img; \
+    echo "${FREEDOS_IMAGE_SHA256}  /usr/share/freedos/x86BOOT.img" | sha256sum -c -; \
+    rm /tmp/freedos.zip; \
+    node --version; npm --version; wine --version; wixl --version; nasm -v; qemu-system-i386 --version; actionlint --version; mcopy --version
