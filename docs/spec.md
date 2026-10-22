@@ -382,9 +382,8 @@ Conversions mirror the pointer rules:
 - Dynamic to based, near to based, and based to based with a different
   register are errors. A based slice never converts to a near slice.
 - Adding `const` to the element type is implicit; removing it never is.
-- There is no `null` slice. A default-initialized far or based slice has a
-  zero pointer part and length 0, which is the empty slice; the pointer part
-  of an empty slice is never dereferenced.
+- There is no `null` slice. An empty far or based slice has a zero pointer
+  part and length 0; the pointer part of an empty slice is never dereferenced.
 - Slice literals (`[^]T s = {...}`) cannot construct far or based slices.
   Build a near slice and convert it, or assign `.ptr` and `.len`.
 
@@ -1234,6 +1233,13 @@ far or based pointer of the matching type. Pattern operands are unary
 expressions; parenthesize anything more complex.
 
 ---
+
+### 9.7 Uninitialized locals
+
+A local variable (automatic storage) declared without an initializer is not
+initialized. Reading it before it is written is undefined behavior. Globals
+and statics are zero-initialized, and a global without an explicit initializer
+has its type's zero value.
 
 ## 10. Match Expressions
 

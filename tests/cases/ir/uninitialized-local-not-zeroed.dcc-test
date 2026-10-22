@@ -1,0 +1,16 @@
+=== TARGET: x86_64-elf ===
+=== FILE: test.dc ===
+module test;
+@nomangle public i32 f() {
+    i32 x;
+    return x;
+}
+=== EXPECT-IR ===
+module "test"
+@nomangle
+i32@f() {
+%entry:
+  %0 = alloca i32
+  %1 = load i32, ptr<i32> %0
+  ret i32 %1
+}
