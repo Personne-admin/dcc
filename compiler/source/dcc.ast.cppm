@@ -240,6 +240,7 @@ export namespace dcc::ast
             Array,
             Slice,
             Enum,
+            Zero,
         };
 
         ConstructionKind construction_kind{ConstructionKind::None};

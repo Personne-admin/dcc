@@ -1234,12 +1234,39 @@ expressions; parenthesize anything more complex.
 
 ---
 
-### 9.7 Uninitialized locals
+### 9.7 Uninitialized locals and zero values
 
 A local variable (automatic storage) declared without an initializer is not
 initialized. Reading it before it is written is undefined behavior. Globals
 and statics are zero-initialized, and a global without an explicit initializer
 has its type's zero value.
+
+`{}` is a contextually typed zero value. It is valid wherever an expression of
+a known non-void type is expected, including variable initializers,
+assignments, returns, call arguments, default parameter values, struct literal
+fields, array and slice literal elements, value aliases and const globals
+(compile-time evaluated), if/match expression branches, and generic code.
+Its meaning follows the expected type:
+
+- integers and floats: 0 (+0.0)
+- bool: false
+- pointers: near and dynamic far pointers are null (dynamic 0:0); based
+  pointers have offset 0
+- slices: the empty slice, with a zero pointer part and length 0
+- structs, unions, arrays, bitfield structs and nominal aliases: all zero bytes
+  recursively
+- enums: the enumerator with value 0
+- restricted integer types: 0, which must be inside the type's domain
+
+It is an error to use `{}` for a type with no zero value, for an enum with no
+enumerator equal to 0, or for a restricted type whose domain excludes 0.
+
+In statement position `{}` is an empty block. Where a block and a zero value
+would both parse, the expected type decides: with a non-void expected type the
+expression is a zero value, otherwise it is an empty block. This applies to an
+empty if or else branch and to an empty lambda body; an empty block statement,
+including the body of a while or for loop, stays an empty block. A braced block
+whose last statement is `{};` is still a block, not a zero value.
 
 ## 10. Match Expressions
 

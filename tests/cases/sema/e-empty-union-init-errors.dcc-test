@@ -9,5 +9,3 @@ void test_empty_union_literal() {
 
 === ENTRY: main.dc ===
 
-=== EXPECT-ERRORS ===
-main.dc:6: union literal must initialize at least one field

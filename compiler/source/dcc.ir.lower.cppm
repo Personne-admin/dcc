@@ -2899,9 +2899,13 @@ export namespace dcc::ir::lower
                 }
 
                 case ast::ExprKind::Block: {
-                    if (expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Struct && expr->sema.const_value)
+                    auto const* block = static_cast<ast::BlockExpr const*>(expr);
+                    bool const empty_block = block->body.stmts.empty() && !block->body.tail;
+                    if (expr->sema.const_value &&
+                        (expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Struct ||
+                         expr->sema.construction_kind == ast::ExprSema::ConstructionKind::Zero || empty_block))
                         return materialize_comptime(*expr->sema.const_value, get_sema_resolved_type(expr));
-                    return lower_block_expr(static_cast<ast::BlockExpr const*>(expr));
+                    return lower_block_expr(block);
                 }
 
                 case ast::ExprKind::Call: {

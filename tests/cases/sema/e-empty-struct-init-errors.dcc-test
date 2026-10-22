@@ -9,6 +9,3 @@ void test_empty_struct_literal() {
 
 === ENTRY: main.dc ===
 
-=== EXPECT-ERRORS ===
-main.dc:6: missing initializer for field `x` in struct literal
-main.dc:6: missing initializer for field `y` in struct literal

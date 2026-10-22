@@ -1,0 +1,33 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module main;
+struct S { i32 a; u8 b; }
+union U { i32 a; u16 b; }
+enum Z { None = 0, One = 1 }
+struct B { u8 a : 3; u8 b : 5; }
+using R = u8{0..10};
+@nomangle public i32 dcc_main() {
+    i32 x = {};
+    bool bo = {};
+    u8* p = {};
+    []i32 sl = {};
+    u16^ fp = {};
+    S s = {};
+    U u = {};
+    i32[3] a = {};
+    B bf = {};
+    Z z = {};
+    R r = {};
+    i32 m = match 0 { 0 => {}, _ => 1 };
+    i32 v = if true {} else { 1 };
+    if x != 0 || bo || p != null || sl.len != 0 || fp != null { return 1; }
+    if s.a != 0 || s.b != 0 || a[0] != 0 || a[2] != 0 { return 2; }
+    if bf.a != 0 || bf.b != 0 { return 3; }
+    if z != Z::None || r != 0 { return 4; }
+    if u.a != 0 || u.b != 0 { return 5; }
+    if m != 0 || v != 0 { return 6; }
+    return 42;
+}
+=== EXPECT-I8086-RUN ===
+ENTRY: _start
+RUN-EXIT: 42

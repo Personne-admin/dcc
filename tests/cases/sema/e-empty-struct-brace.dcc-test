@@ -26,7 +26,7 @@ Module m
   Func test_empty_struct diverging=true
     Body
       Var e type=Empty storage=local offset=0
-        StructLiteral [type=Empty const=agg() constant]
+        Block [type=Empty const=agg() constant]
       Return
         Ident e [type=Empty const=agg() lvalue constant decl=e]
   Func test_nested_empty diverging=true

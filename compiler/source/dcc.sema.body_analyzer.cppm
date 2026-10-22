@@ -2075,6 +2075,127 @@ export namespace dcc::sema
             }
         }
 
+        [[nodiscard]] std::optional<comptime::Value> zero_constant(types::TypePtr ty, std::string& why)
+        {
+            if (!ty)
+            {
+                why = "type has no zero value";
+                return std::nullopt;
+            }
+
+            if (auto const* nominal = types::type_cast<types::NominalType>(ty))
+            {
+                auto value = zero_constant(nominal->underlying, why);
+                if (!value)
+                    return std::nullopt;
+                value->type = ty;
+                return value;
+            }
+
+            switch (ty->kind)
+            {
+                case types::TypeKind::Bool:
+                    return comptime::Value::make_bool(false, ty);
+                case types::TypeKind::Int:
+                    return comptime::Value::make_int(0, ty);
+                case types::TypeKind::Restricted: {
+                    auto const* restricted = static_cast<types::RestrictedType const*>(ty);
+                    bool const contains_zero = std::ranges::any_of(restricted->intervals, [](types::RestrictionInterval const& interval) {
+                        return interval.lo == 0;
+                    });
+                    if (!contains_zero)
+                    {
+                        why = std::format("restricted type `{}` does not include 0, so `{{}}` has no value", format_type_str(ty));
+                        return std::nullopt;
+                    }
+                    return comptime::Value::make_int(0, restricted->underlying);
+                }
+                case types::TypeKind::Float:
+                    return comptime::Value::make_float(0.0, ty);
+                case types::TypeKind::Char:
+                    return comptime::Value::make_char(0, ty);
+                case types::TypeKind::NullT:
+                    return comptime::Value::make_null(ty);
+                case types::TypeKind::Pointer: {
+                    auto const* pointer = static_cast<types::PointerType const*>(ty);
+                    if (pointer->flavor == types::PointerFlavor::Far)
+                        return comptime::Value::make_far_address(0, 0, ty);
+                    return comptime::Value::make_pointer(ty);
+                }
+                case types::TypeKind::FuncPtr:
+                case types::TypeKind::Lambda:
+                    return comptime::Value::make_null(ty);
+                case types::TypeKind::Slice:
+                    return comptime::Value::make_slice({}, ty);
+                case types::TypeKind::Array: {
+                    auto const* array = static_cast<types::ArrayType const*>(ty);
+                    if (array->count > 1u << 20)
+                    {
+                        why = std::format("array type `{}` is too large for a compile-time zero value", format_type_str(ty));
+                        return std::nullopt;
+                    }
+                    std::vector<comptime::Value> elements;
+                    elements.reserve(static_cast<std::size_t>(array->count));
+                    for (std::uint64_t i = 0; i < array->count; ++i)
+                    {
+                        auto element = zero_constant(array->element, why);
+                        if (!element)
+                            return std::nullopt;
+                        elements.push_back(std::move(*element));
+                    }
+                    return comptime::Value::make_aggregate(std::move(elements), ty);
+                }
+                case types::TypeKind::Struct:
+                case types::TypeKind::Union: {
+                    auto fields = record_fields(ty, nullptr);
+                    std::vector<comptime::Value> elements;
+                    elements.reserve(fields.size());
+                    for (auto const& field : fields)
+                    {
+                        if (field.name.empty() && field.type && types::type_cast<types::IntType>(field.type))
+                        {
+                            elements.push_back(comptime::Value::make_int(0, field.type));
+                            continue;
+                        }
+                        auto element = zero_constant(field.type, why);
+                        if (!element)
+                            return std::nullopt;
+                        elements.push_back(std::move(*element));
+                    }
+                    return comptime::Value::make_aggregate(std::move(elements), ty);
+                }
+                case types::TypeKind::Enum: {
+                    auto const* enumeration = static_cast<types::EnumType const*>(ty);
+                    if (enumeration->is_tagged)
+                    {
+                        why = std::format("tagged enum `{}` has no zero value", format_type_str(ty));
+                        return std::nullopt;
+                    }
+                    auto const& declaration = *reinterpret_cast<ast::EnumDecl const*>(enumeration->decl);
+                    for (auto const& variant : declaration.variants)
+                    {
+                        if (variant.discriminant == 0 && !variant.discriminant_is_negative)
+                            return comptime::Value::make_int(0, enumeration->backing);
+                    }
+                    why = std::format("enum `{}` has no enumerator with value 0", format_type_str(ty));
+                    return std::nullopt;
+                }
+                case types::TypeKind::Nominal:
+                case types::TypeKind::Void:
+                case types::TypeKind::Error:
+                case types::TypeKind::Fam:
+                case types::TypeKind::RuntimeArray:
+                case types::TypeKind::TypePack:
+                case types::TypeKind::TemplateParam:
+                case types::TypeKind::Range:
+                case types::TypeKind::RangeInclusive:
+                    why = std::format("type `{}` has no zero value", format_type_str(ty));
+                    return std::nullopt;
+            }
+            why = std::format("type `{}` has no zero value", format_type_str(ty));
+            return std::nullopt;
+        }
+
         [[nodiscard]] Scope* make_probe_scope(Scope const& scope)
         {
             auto* probe = make_scope(scope.kind(), scope.parent());
@@ -5159,6 +5280,8 @@ export namespace dcc::sema
                         return CallRank::SliceContextualExact;
                     case ConstructionKind::Enum:
                         return CallRank::EnumContextualExact;
+                    case ConstructionKind::Zero:
+                        return CallRank::ConcreteExact;
                     case ConstructionKind::None:
                         break;
                 }
@@ -13156,6 +13279,38 @@ export namespace dcc::sema
                                               types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
             auto expected_kind = expected_type ? construction_kind_for_type(expected_type) : ConstructionKind::None;
+            if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && !has_error(expected_type))
+            {
+                if (contains_template_param(expected_type))
+                {
+                    b.sema.construction_kind = ConstructionKind::Zero;
+                    set_resolved_type(b.sema, expected_type);
+                    detail::ExprResult out{};
+                    out.type = expected_type;
+                    return out;
+                }
+                std::string why;
+                auto zero = zero_constant(expected_type, why);
+                if (!zero)
+                {
+                    error(b.range, "{}", why);
+                    b.sema.construction_kind = ConstructionKind::Zero;
+                    set_resolved_type(b.sema, m_types.m_errort());
+                    detail::ExprResult out{};
+                    out.type = m_types.m_errort();
+                    return out;
+                }
+                auto* value = make_value(std::move(*zero));
+                b.sema.construction_kind = ConstructionKind::Zero;
+                b.sema.const_value = value;
+                b.sema.is_constant = true;
+                set_resolved_type(b.sema, expected_type);
+                detail::ExprResult out{};
+                out.type = expected_type;
+                out.constant = value;
+                out.is_constant = true;
+                return out;
+            }
             bool has_single_non_struct_tail = b.body.tail && b.body.tail->kind != ast::ExprKind::StructLiteral;
             if (b.body.stmts.empty() && (has_single_non_struct_tail || !b.body.tail) && expected_kind != ConstructionKind::None)
             {
@@ -13192,9 +13347,21 @@ export namespace dcc::sema
             return out;
         }
 
+        void make_empty_branch_zero(ast::Block& block, types::TypePtr expected_type)
+        {
+            if (!expected_type || expected_type == m_types.m_voidt() || has_error(expected_type))
+                return;
+            if (!block.stmts.empty() || block.tail)
+                return;
+            auto* zero = m_ast_ctx.make<ast::BlockExpr>(block.range, ast::Block{m_ast_ctx.allocator()});
+            zero->body.range = block.range;
+            block.tail = zero;
+        }
+
         detail::ExprResult analyze_if_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::IfExpr& i, int loop_depth, std::uint32_t& next_off,
                                            types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
+            make_empty_branch_zero(i.then_block, expected_type);
             auto cond = analyze_expr_or_error(mod, fn, scope, i.condition, loop_depth, next_off, nullptr, const_env);
             auto* then_scope = make_scope(ScopeKind::Block, &scope);
             auto* then_consts = make_const_env(const_env);
@@ -13205,6 +13372,7 @@ export namespace dcc::sema
             {
                 if (auto* else_block = ast::node_cast<ast::BlockExpr>(i.else_branch))
                 {
+                    make_empty_branch_zero(else_block->body, expected_type);
                     auto* else_scope = make_scope(ScopeKind::Block, &scope);
                     auto* else_consts = make_const_env(const_env);
                     auto else_stmt = analyze_block(mod, fn, *else_scope, else_block->body, loop_depth, next_off, expected_type, else_consts, result_discarded);
@@ -13971,6 +14139,9 @@ export namespace dcc::sema
                         return out;
                     }
                     maybe_construct = analyze_enum(static_cast<types::EnumType const*>(target));
+                    break;
+                case ConstructionKind::Zero:
+                    break;
                     break;
                 case ConstructionKind::None:
                     break;

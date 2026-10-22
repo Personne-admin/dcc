@@ -1,0 +1,13 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+enum E { A = 1, B = 2 }
+using R = u8{1..10};
+@nomangle public i32 dcc_main() {
+    E e = {};
+    R r = {};
+    return 1;
+}
+=== EXPECT-ERRORS ===
+main.dc:5: enum `E` has no enumerator with value 0
+main.dc:6: restricted type `u8{1..10}` does not include 0, so `{}` has no value

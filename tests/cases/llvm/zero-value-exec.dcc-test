@@ -1,0 +1,55 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+struct S { i32 a; u8 b; }
+struct S2 { i32 a; i32 b; }
+union U { i32 a; u16 b; }
+enum Z { None = 0, One = 1 }
+struct B { u8 a : 3; u8 b : 5; }
+using R = u8{0..10};
+using i32 ZERO = {};
+const i32 GI = {};
+const S GS = {};
+void take(i32 a, []i32 s) {
+    if a != 0 || s.len != 1 || s[0] != 0 { return; }
+}
+i32 def(i32 value = {}) { return value; }
+@nomangle public i32 dcc_main() {
+    i32 x = {};
+    f64 fl = {};
+    bool bo = {};
+    u8* p = {};
+    []i32 sl = {};
+    S s = {};
+    U u = {};
+    i32[3] a = {};
+    B bf = {};
+    Z z = {};
+    R r = {};
+    i32 m = match 0 { 0 => {}, _ => 1 };
+    i32 v = if true {} else { 1 };
+    i32 w = ZERO;
+    S2 s2 = { a = {}, b = {} };
+    i32[2] ea = { {}, {} };
+    []i32 es = { {}, {} };
+    take({}, { {}, });
+    if def() != 0 || s2.a != 0 || s2.b != 0 || ea[1] != 0 || es.len != 2 || es[0] != 0 { return 8; }
+    if GI != 0 || GS.a != 0 || GS.b != 0 { return 9; }
+    i32(*)() lf = | -> {};
+    if lf() != 0 { return 10; }
+    if x != 0 || fl != 0.0 || bo || p != null || sl.len != 0 { return 1; }
+    if s.a != 0 || s.b != 0 || a[0] != 0 || a[2] != 0 { return 2; }
+    if bf.a != 0 || bf.b != 0 { return 3; }
+    if z != Z::None || r != 0 { return 4; }
+    if u.a != 0 || u.b != 0 { return 5; }
+    if m != 0 || v != 0 || w != 0 { return 6; }
+    i32 y = 5;
+    y = {};
+    if y != 0 { return 7; }
+    return 42;
+}
+=== EXPECT-EXECUTABLE ===
+RUN-EXIT: 42
