@@ -730,6 +730,11 @@ namespace dcc::backend::x86
                 {
                     auto name = peek().text;
                     ++m_pos;
+                    if (auto modifier = name.find('@'); modifier != std::string::npos)
+                    {
+                        fail(std::format("relocation modifier '{}' is not supported by the custom backend", name.substr(modifier)));
+                        return std::nullopt;
+                    }
                     if (auto it = m_constants.find(name); it != m_constants.end())
                         return Value{it->second, {}, {}};
                     auto resolved = resolve_name(name);

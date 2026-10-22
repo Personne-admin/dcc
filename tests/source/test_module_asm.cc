@@ -386,6 +386,25 @@ TEST_CASE("module asm reports unsupported input with its line")
     }
 }
 
+TEST_CASE("module asm rejects unsupported relocation modifiers")
+{
+    for (auto modifier : {"GOTPCREL", "GOTPCRELX", "REX_GOTPCRELX", "PLT", "GOT", "GOTOFF", "GOTPC", "TPOFF", "DTPOFF", "TLSGD", "TLSLD", "GOTTPOFF", "TLSDESC"})
+        for (auto format : {ModuleAsmFormat::Elf, ModuleAsmFormat::Coff})
+            for (auto const& text : {std::format(".text\nmov sym@{}(%rip), %rax", modifier),
+                                     std::format(".text\ncall sym@{}", modifier), std::format(".data\n.quad sym@{}", modifier),
+                                     std::format(".intel_syntax noprefix\n.text\nmov rax, qword ptr [rip + sym@{}]", modifier)})
+            {
+                auto object = assemble(text, EncodeMode::Long64, false, format);
+                REQUIRE(!object.has_value());
+                auto const line = text.starts_with(".intel_syntax") ? 3 : 2;
+                CHECK_EQ(object.error().message,
+                         std::format("module asm line {}: relocation modifier '@{}' is not supported by the custom backend", line, modifier));
+            }
+    auto object = assemble(".text\nmov ax, word ptr [sym@TPOFF]", EncodeMode::Real16, true);
+    REQUIRE(!object.has_value());
+    CHECK_EQ(object.error().message, std::string{"module asm line 3: relocation modifier '@TPOFF' is not supported by the custom backend"});
+}
+
 TEST_CASE("module asm encodes alu rip-relative memory sources")
 {
     auto object = assemble(".text\n    add rax, qword ptr [rip + value]", EncodeMode::Long64, true);
