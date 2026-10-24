@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+@nomangle public i32 probe() { return 0; }
+asm {
+    \\.text
+    \\.globl relocation_entry
+    \\relocation_entry:
+    \\mov external_data+8(%%rip), %%rax
+    \\call external_call
+    \\mov __imp_ExitProcess(%%rip), %%rax
+    \\call *%%rax
+    \\ret
+    \\.data
+    \\.globl relocation_words
+    \\relocation_words:
+    \\.quad external_data+13
+    \\.quad external_call+17
+    \\
+};
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+TARGET: x86_64-coff
+REQUIRE-COFF-UNDEFINED: external_data
+REQUIRE-COFF-UNDEFINED: external_call
+REQUIRE-COFF-UNDEFINED: __imp_ExitProcess
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 external_data
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 external_call
+REQUIRE-COFF-RELOC: .text IMAGE_REL_AMD64_REL32 __imp_ExitProcess
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 external_data
+REQUIRE-COFF-RELOC: .data IMAGE_REL_AMD64_ADDR64 external_call
