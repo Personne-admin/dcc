@@ -1,0 +1,13 @@
+=== FILE: provider.dc ===
+module provider;
+public using Callback = i32(*)(i32);
+public struct Table { Callback callback; }
+public i32 triple(i32 value) { return value * 3; }
+public Table table = {callback = triple};
+=== FILE: test.dc ===
+module test;
+import provider;
+@nomangle public i32 dcc_main() {
+    return provider::table.callback(14);
+}
+=== ENTRY: test.dc ===

@@ -14663,6 +14663,12 @@ export namespace dcc::sema
                     return decl_type(*sym->decl);
                 }
 
+                if (auto* path = ast::node_cast<ast::PathExpr>(object))
+                {
+                    auto const* symbol = mod.own_scope ? resolve_value_path_with_fallback(*mod.own_scope, path->path) : nullptr;
+                    return symbol && symbol->decl ? decl_type(*symbol->decl) : nullptr;
+                }
+
                 if (auto* inner_fa = ast::node_cast<ast::FieldAccessExpr>(object))
                 {
                     auto base_type = get_receiver_type(inner_fa->object);
