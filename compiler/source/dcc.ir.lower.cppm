@@ -13,6 +13,9 @@ import dcc.sema.scope;
 import dcc.sema.importer;
 import dcc.sema.instantiator;
 import dcc.target;
+import dcc.library;
+import dcc.backend.x86.modasm;
+import dcc.backend.x86.encode;
 import dcc.ctfe;
 
 export namespace dcc::ir::lower
@@ -26,6 +29,13 @@ export namespace dcc::ir::lower
             : m_ctx(ctx), m_spec_reg(spec_reg), m_module_graph(module_graph), m_type_ctx(type_ctx), m_bounds_check(bounds_check),
               m_restricted_check(restricted_check), m_source_manager(source_manager), m_partial_eval(partial_eval), m_far_check(far_check)
         {
+        }
+
+        void set_library_manifest(library::Manifest manifest, target::TargetConfig const& target, bool main_thunk)
+        {
+            m_library = std::move(manifest);
+            m_library_target = target;
+            m_generate_main_thunk = main_thunk;
         }
 
         void set_auto_var_init(ir::AutoVarInit mode) noexcept { m_auto_var_init = mode; }
@@ -78,6 +88,34 @@ export namespace dcc::ir::lower
             for (auto const* defined : m_defined_modules)
                 lower_module_asms(*defined);
 
+            if (m_generate_main_thunk && !library_module(mod))
+                lower_main_thunk(mod);
+            for (auto const& record : m_library.records)
+                for (auto* global : m_module->globals)
+                    if (global->name == record.symbol && !global->is_declaration)
+                    {
+                        m_name_pool.push_back(record.section);
+                        global->section = m_name_pool.back();
+                        global->retain = true;
+                    }
+            if (m_library_target.object_format == target::ObjectFormat::Coff)
+            {
+                std::string directives;
+                for (auto* global : m_module->globals)
+                    if (global->retain && !global->is_declaration)
+                        directives += std::format(" /include:{} ", global->name);
+                if (!directives.empty())
+                {
+                    auto* type = m_ctx.array_t(m_ctx.int_t(8, false), directives.size());
+                    auto* value = m_ctx.aggregate(type);
+                    for (char character : directives)
+                        value->values.push_back(m_ctx.int_const(m_ctx.int_t(8, false), static_cast<unsigned char>(character)));
+                    auto* global = m_ctx.global("__dcc_library_records", type, value, true);
+                    global->section = ".drectve";
+                    global->retain = true;
+                    m_module->globals.push_back(global);
+                }
+            }
             if (m_whole_program)
                 prune_unreachable(mod);
 
@@ -7674,13 +7712,26 @@ export namespace dcc::ir::lower
         std::vector<std::string> m_lower_errors;
         bool m_far_pointer_reported{};
 
+        library::Manifest m_library;
+        target::TargetConfig m_library_target;
+        bool m_generate_main_thunk{};
+        IrFunction* m_main_thunk{};
+        std::unordered_set<IrModuleAsm*> m_library_asms;
         bool m_whole_program{false};
         std::string m_entry_symbol;
         bool m_print_reachability{false};
         std::vector<sema::ModuleInfo const*> m_defined_modules;
 
+        [[nodiscard]] static bool has_ir_definition(IrValue const* value)
+        {
+            return value && ((value->kind == IrNodeKind::Function && !static_cast<IrFunction const*>(value)->blocks.empty()) ||
+                             (value->kind == IrNodeKind::Global && !static_cast<IrGlobal const*>(value)->is_declaration));
+        }
+
         [[nodiscard]] static IrValue const* resolve_ref_target(IrGlobalRef const* ref, std::unordered_map<std::string_view, IrValue const*> const& by_name)
         {
+            if (auto it = by_name.find(ref->name); it != by_name.end() && has_ir_definition(it->second))
+                return it->second;
             if (ref->function)
                 return ref->function;
             if (ref->global)
@@ -7899,13 +7950,120 @@ export namespace dcc::ir::lower
             }
         }
 
+        bool library_module(sema::ModuleInfo const& mod) const
+        {
+            if (!m_source_manager)
+                return false;
+            auto const* file = m_source_manager->get(mod.file_id);
+            return file && m_library.owns(mod.canonical_path.str(), file->path());
+        }
+
+        void lower_main_thunk(sema::ModuleInfo const& mod)
+        {
+            ast::FuncDecl const* chosen = nullptr;
+            bool takes_args = false;
+            for (auto* decl : mod.tu->decls)
+            {
+                auto* function = ast::node_cast<ast::FuncDecl>(decl);
+                if (!function || function->name != "main" || !function->body || is_template_func(function))
+                    continue;
+                auto* result = get_canonical_type(function->return_type);
+                if (!result || result->kind != types::TypeKind::Int)
+                    continue;
+                auto* integer = static_cast<types::IntType const*>(result);
+                if (integer->bits != 32 || !integer->is_signed)
+                    continue;
+                bool args = false;
+                if (function->params.size() == 1)
+                {
+                    auto* parameter = get_canonical_type(function->params[0].type);
+                    if (!parameter || parameter->kind != types::TypeKind::Slice)
+                        continue;
+                    auto* slice = static_cast<types::SliceType const*>(parameter);
+                    if (slice->flavor != types::PointerFlavor::Near || slice->element->kind != types::TypeKind::Pointer)
+                        continue;
+                    auto* pointer = static_cast<types::PointerType const*>(slice->element);
+                    if (pointer->flavor != types::PointerFlavor::Near || pointer->pointee->kind != types::TypeKind::Char ||
+                        !types::has_qual(pointer->pointee_quals, types::Qual::Const) || slice->element_quals != types::Qual::None)
+                        continue;
+                    args = true;
+                }
+                else if (!function->params.empty())
+                    continue;
+                if (chosen)
+                    throw LowerDiagnostic(std::format("ambiguous program main: {}{} and {}{} are both defined",
+                                                      takes_args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(chosen->range),
+                                                      args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(function->range)));
+                chosen = function;
+                takes_args = args;
+            }
+            if (!chosen)
+                return;
+            auto* target_function = m_func_map.at(chosen);
+            auto* count_type = m_ctx.usize_t();
+            auto* argv_type = m_ctx.pointer_to(m_ctx.pointer_to(m_ctx.int_t(8, false)));
+            std::array<IrType const*, 2> parameters{count_type, argv_type};
+            m_name_pool.push_back(m_library.main.empty() ? "__dc_main" : m_library.main);
+            auto* type = static_cast<IrFuncType const*>(m_ctx.func_t(target_function->func_type->return_type, parameters));
+            for (auto* function : m_module->functions)
+                if (function->name == m_name_pool.back())
+                {
+                    if (function->entry_block || function->func_type != type)
+                        throw LowerDiagnostic(std::format("canonical main thunk '{}' already has a definition or incompatible declaration", function->name));
+                    m_main_thunk = function;
+                    break;
+                }
+            if (!m_main_thunk)
+            {
+                m_main_thunk = m_ctx.function(m_name_pool.back(), type);
+                m_main_thunk->attrs.push_back({IrFuncAttr::NoMangle, {}});
+                m_module->functions.push_back(m_main_thunk);
+            }
+            m_main_thunk->linkage = Linkage::External;
+            auto* block = m_ctx.basic_block("entry", 0);
+            m_main_thunk->entry_block = block;
+            m_main_thunk->blocks.push_back(block);
+            auto* count = m_ctx.local("argc", 0, count_type);
+            auto* argv = m_ctx.local("argv", 1, argv_type);
+            block->params.push_back(count);
+            block->params.push_back(argv);
+            auto* call = m_ctx.call(target_function->func_type->return_type, m_ctx.func_ref(target_function));
+            call->c_abi = chosen->sema.is_nomangle;
+            call->cc = target_function->conv;
+            if (takes_args)
+            {
+                auto* slice = m_ctx.aggregate(target_function->func_type->params[0]);
+                bool windows = m_library_target.os == target::Os::Windows;
+                slice->values.push_back(windows ? static_cast<IrValue*>(m_ctx.null_const(argv_type)) : argv);
+                slice->values.push_back(windows ? static_cast<IrValue*>(m_ctx.int_const(count_type, 0)) : count);
+                block->instructions.push_back(slice);
+                call->args.push_back(slice);
+            }
+            block->instructions.push_back(call);
+            block->terminator = m_ctx.ret(call);
+        }
+
         void prune_unreachable(sema::ModuleInfo const& entry)
         {
             std::unordered_map<std::string_view, IrValue const*> by_name;
+            auto remember = [&](IrValue const* value) {
+                auto name = value->kind == IrNodeKind::Function ? static_cast<IrFunction const*>(value)->name : static_cast<IrGlobal const*>(value)->name;
+                auto [it, inserted] = by_name.emplace(name, value);
+                if (!inserted && !has_ir_definition(it->second) && has_ir_definition(value))
+                    it->second = value;
+            };
             for (auto const* f : m_module->functions)
-                by_name.emplace(f->name, f);
+                remember(f);
             for (auto const* g : m_module->globals)
-                by_name.emplace(g->name, g);
+                remember(g);
+            for (auto* ref : m_ctx.global_refs())
+                if (auto* target = resolve_ref_target(ref, by_name); has_ir_definition(target))
+                {
+                    if (target->kind == IrNodeKind::Function)
+                        ref->function = static_cast<IrFunction const*>(target);
+                    else if (target->kind == IrNodeKind::Global)
+                        ref->global = static_cast<IrGlobal const*>(target);
+                }
 
             std::unordered_set<IrValue const*> live;
             std::vector<IrValue const*> work;
@@ -7945,7 +8103,7 @@ export namespace dcc::ir::lower
                 {
                     if (auto* fd = ast::node_cast<ast::FuncDecl>(d))
                     {
-                        bool root = fd->body && fd->sema.is_nomangle;
+                        bool root = fd->body && fd->sema.is_nomangle && !library_module(*mod);
                         if (mod == &entry)
                         {
                             if (has_entry_symbol)
@@ -7960,38 +8118,98 @@ export namespace dcc::ir::lower
                     {
                         if (mod == &entry && !has_entry_symbol && vd->is_public && m_global_map.contains(vd))
                             make_live(m_global_map.at(vd));
-                        else if (vd->sema.is_nomangle && m_global_map.contains(vd))
+                        else if (vd->sema.is_nomangle && !library_module(*mod) && m_global_map.contains(vd))
                             make_live(m_global_map.at(vd));
                     }
                 }
             }
 
-            for (auto const* mod : m_defined_modules)
+            std::unordered_map<std::string_view, IrModuleAsm*> assembly_definitions;
+            std::unordered_map<IrModuleAsm*, std::vector<std::string>> assembly_references;
+            std::unordered_set<IrModuleAsm*> live_assembly;
+            std::vector<IrModuleAsm*> assembly_work;
+            auto keep_assembly = [&](IrModuleAsm* block) {
+                if (block && live_assembly.insert(block).second)
+                    assembly_work.push_back(block);
+            };
+            for (auto* block : m_module->module_asms)
             {
-                if (mod->canonical_path.str() != "assert" || !mod->tu)
+                if (m_library_asms.contains(block))
+                {
+                    std::array<IrModuleAsm*, 1> blocks{block};
+                    auto object =
+                        backend::x86::assemble_module_asm(blocks, backend::x86::EncodeMode::Long64,
+                                                          m_library_target.object_format == target::ObjectFormat::Coff ? backend::x86::ModuleAsmFormat::Coff
+                                                                                                                       : backend::x86::ModuleAsmFormat::Elf);
+                    if (!object)
+                        throw LowerDiagnostic(object.error().message);
+                    for (auto const& symbol : object->symbols)
+                        if (symbol.binding != backend::x86::ModuleAsmBinding::Local)
+                        {
+                            m_name_pool.push_back(symbol.name);
+                            if (!assembly_definitions.emplace(m_name_pool.back(), block).second)
+                                throw LowerDiagnostic(std::format("duplicate library assembly symbol '{}'", symbol.name));
+                        }
+                    for (auto const& section : object->sections)
+                        for (auto const& relocation : section.relocations)
+                            assembly_references[block].push_back(relocation.symbol);
+                }
+                else
+                {
+                    keep_assembly(block);
+                    std::string text(block->template_str);
+                    static std::regex const token(R"([A-Za-z_.$][A-Za-z_0-9.$]*)");
+                    for (std::sregex_iterator it(text.begin(), text.end(), token), end; it != end; ++it)
+                        assembly_references[block].push_back(it->str());
+                }
+            }
+            auto keep_symbol = [&](std::string_view symbol) {
+                if (auto it = by_name.find(symbol); it != by_name.end())
+                    make_live(it->second);
+                if (auto it = assembly_definitions.find(symbol); it != assembly_definitions.end())
+                    keep_assembly(it->second);
+            };
+            make_live(m_main_thunk);
+            for (auto const& edge : m_library.edges)
+                if (edge.first == m_library.startup)
+                    keep_symbol(edge.second);
+            for (auto const* global : m_module->globals)
+                if (global->retain)
+                    make_live(global);
+            for (auto const& record : m_library.records)
+                keep_symbol(record.symbol);
+            while (!work.empty() || !assembly_work.empty())
+            {
+                while (!assembly_work.empty())
+                {
+                    auto* block = assembly_work.back();
+                    assembly_work.pop_back();
+                    for (auto* function : block->funcs)
+                        make_live(function);
+                    for (auto* global : block->globals)
+                        make_live(global);
+                    for (auto const& symbol : assembly_references[block])
+                        keep_symbol(symbol);
+                }
+                if (work.empty())
                     continue;
-                for (auto* d : mod->tu->decls)
-                    if (auto* fd = ast::node_cast<ast::FuncDecl>(d); fd && fd->name == "__assert" && m_func_map.contains(fd))
-                        make_live(m_func_map.at(fd));
-            }
-
-            for (auto* md : m_module->module_asms)
-            {
-                for (auto* f : md->funcs)
-                    make_live(f);
-                for (auto* g : md->globals)
-                    make_live(g);
-            }
-
-            while (!work.empty())
-            {
                 auto const* owner = work.back();
                 work.pop_back();
+                for (auto const& edge : m_library.edges)
+                    if (edge.first == owner->name)
+                        keep_symbol(edge.second);
+                if (auto it = assembly_definitions.find(owner->name); it != assembly_definitions.end())
+                    keep_assembly(it->second);
                 owned_refs.clear();
                 collect_owner_refs(owner, owned_refs);
                 for (auto const* ref : owned_refs)
+                {
                     make_live(resolve_ref_target(ref, by_name), owner);
+                    if (auto it = assembly_definitions.find(ref->name); it != assembly_definitions.end())
+                        keep_assembly(it->second);
+                }
             }
+            std::erase_if(m_module->module_asms, [&](auto* block) { return !live_assembly.contains(block); });
 
             for (auto const* f : m_module->functions)
             {
@@ -8135,6 +8353,8 @@ export namespace dcc::ir::lower
                 entry->globals = std::move(globals);
                 entry->funcs = std::move(funcs);
                 m_module->module_asms.push_back(entry);
+                if (library_module(mod))
+                    m_library_asms.insert(entry);
             }
         }
 

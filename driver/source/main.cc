@@ -11,6 +11,7 @@ import dcc.sema;
 import dcc.ir;
 import dcc.ir.pass;
 import dcc.ir.lower;
+import dcc.library;
 
 import dcc.target;
 import dcc.config;
@@ -1179,6 +1180,37 @@ namespace
         return false;
     }
 
+    [[nodiscard]] std::expected<std::vector<std::string>, std::string> library_linker_roots(Options const& opts, dcc::target::TargetConfig const& target,
+                                                                                            std::filesystem::path const& prefix)
+    {
+        std::vector<std::string> result;
+        if (!opts.libdcext || opts.shared_library)
+            return result;
+        std::vector<std::filesystem::path> roots;
+        for (auto const& path : opts.import_paths)
+            roots.push_back(path);
+        roots.push_back(prefix / "include");
+        for (auto const& root : roots)
+            if (std::filesystem::exists(root / "libdcext.manifest"))
+            {
+                dcc::library::Manifest manifest;
+                try
+                {
+                    manifest = dcc::library::read_manifest(root / "libdcext.manifest", target.os);
+                }
+                catch (std::exception const& error)
+                {
+                    return std::unexpected(error.what());
+                }
+                if (!manifest.startup.empty() && (opts.entry_symbol.empty() || opts.entry_symbol == manifest.startup))
+                    result.push_back(std::format("--undefined={}", manifest.startup));
+                for (auto const& record : manifest.records)
+                    result.push_back(std::format("--undefined={}", record.symbol));
+                break;
+            }
+        return result;
+    }
+
     [[nodiscard]] bool links_hosted_libc(Options const& opts)
     {
         for (auto const& lib : opts.libraries)
@@ -1421,6 +1453,15 @@ namespace
             cmd += " ";
             cmd += shell_quote(extra);
         }
+
+        auto library_roots = library_linker_roots(opts, target, prefix);
+        if (!library_roots)
+        {
+            std::println(std::cerr, "dcc: error: {}", library_roots.error());
+            return 1;
+        }
+        for (auto const& root : *library_roots)
+            cmd += " " + shell_quote(root);
 
         if (opts.libdcext)
         {
@@ -1683,6 +1724,28 @@ auto main(int argc, char** argv) -> int
         dcc::ir::IrContext ir_ctx{256 * 1024, &compile_opts.target};
         auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema->spec_registry(), &sema->graph(), opts.bounds_check, &session.source_manager(),
                                                                  &sema->types(), opts.restricted_check, opts.partial_eval, opts.far_check);
+        if (opts.libdcext)
+        {
+            dcc::library::Manifest manifest;
+            for (auto const& root : compile_opts.import_roots)
+            {
+                auto path = root / "libdcext.manifest";
+                if (!std::filesystem::exists(path))
+                    continue;
+                try
+                {
+                    manifest = dcc::library::read_manifest(path, compile_opts.target.os);
+                }
+                catch (std::exception const& error)
+                {
+                    std::println(std::cerr, "dcc: error: {}", error.what());
+                    return 1;
+                }
+                break;
+            }
+            lowerer->set_library_manifest(std::move(manifest), compile_opts.target,
+                                          compile_opts.target.os != dcc::target::Os::Freestanding && !opts.shared_library);
+        }
         lowerer->set_auto_var_init(opts.auto_var_init);
         lowerer->set_whole_program(opts.whole_program);
         lowerer->set_entry_symbol(opts.entry_symbol);
@@ -1772,6 +1835,14 @@ auto main(int argc, char** argv) -> int
 
             for (auto const& extra : explicit_linker_args(opts))
                 backend_opts.linker_args.push_back(extra);
+            auto library_roots = library_linker_roots(opts, target, prefix);
+            if (!library_roots)
+            {
+                std::println(std::cerr, "dcc: error: {}", library_roots.error());
+                return 1;
+            }
+            for (auto const& root : *library_roots)
+                backend_opts.linker_args.push_back(root);
 
             bool const links_output =
                 kinds.contains(dcc::backend::ArtifactKind::ExecutableBytes) || kinds.contains(dcc::backend::ArtifactKind::SharedLibraryBytes);

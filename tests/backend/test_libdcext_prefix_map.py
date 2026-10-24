@@ -27,6 +27,7 @@ def main():
             (root / "libdcext/common").mkdir()
             shutil.copyfile(repo / "libdcext/common/abi.dc", root / "libdcext/common/abi.dc")
             shutil.copyfile(repo / "mk/llvm.mk", root / "mk/llvm.mk")
+            (root / "libdcext/libdcext.manifest").write_text("dcc-libdcext-manifest 1\nsource all assert assert.dc\nsource all dcext_abi common/abi.dc\n")
             (root / "libdcext/std.dc").write_text("module std;\n")
             (root / "libdcext/assert.dc").write_text("module assert; import core::source_location; const core::source_location::SourceLocation LOC = core::source_location::source_location(); @nomangle public []const char file() { return LOC.file; }\n")
         for backend in ("custom", "llvm"):

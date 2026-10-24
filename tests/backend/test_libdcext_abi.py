@@ -74,6 +74,23 @@ def main():
                     link = ["lld-link", "/entry:_start", "/subsystem:native", "/nodefaultlib", "/opt:ref", "/out:" + str(root / "coff.exe"), coff]
                     invoke([*link, coff_archives[mode]])
                     assert marker in invoke([*link, coff_archives[not mode]], False)
+            whole_source = root / "coff-whole.dc"
+            whole_source.write_text("module coff_whole; @nomangle public void _start() {}\n")
+            for opt in ("-O0", "-O2"):
+                for marker, flags in ((ENABLED, []), (DISABLED, ["-fno-simd", "-fno-x87"])):
+                    whole = root / "whole.obj"
+                    invoke([dcc, "-c", "-flibdcext", "freestanding", "-fwhole-program", "-e", "_start",
+                            "-target", "x86_64-coff", "-fbackend", backend, opt, *flags, whole_source, "-o", whole])
+                    assert ("/include:" + marker).encode() in whole.read_bytes()
+                    for gc in ("--gc-sections", "--no-gc-sections"):
+                        image = root / "whole.exe"
+                        invoke(["ld.lld", "-m", "i386pep", "--entry", "_start", "--subsystem", "native", gc,
+                                whole, "-o", image])
+                        assert marker in invoke(["nm", "--defined-only", image])
+                    mapping = root / "whole.map"
+                    invoke(["lld-link", "/entry:_start", "/subsystem:native", "/nodefaultlib", "/opt:ref",
+                            "/map:" + str(mapping), "/out:" + str(image), whole])
+                    assert marker in mapping.read_text()
         tags = root / "tags.dc"
         tags.write_text("""module tags;
 import std::json;

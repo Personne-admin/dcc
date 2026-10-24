@@ -48,17 +48,15 @@ ASM_ABI_FLAGS := $(if $(filter windows,$(TARGET_OS)),-DDCC_WINDOWS_MEMORY)
 
 OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)-$(BACKEND)
 
-FREESTANDING_EXCLUDE := $(TOPLEVEL)/libdcext/std/sys/linux/syscall.dc $(TOPLEVEL)/libdcext/std/sys/win/imports.dc
-
-TOPLEVEL_SRCS := $(TOPLEVEL)/libdcext/assert.dc $(TOPLEVEL)/libdcext/common/abi.dc
-
+MANIFEST := $(TOPLEVEL)/libdcext/libdcext.manifest
+ifeq ($(wildcard $(MANIFEST)),)
+  $(error missing libdcext source manifest $(MANIFEST))
+endif
+MANIFEST_PROFILES := all $(TARGET_OS) $(if $(filter freestanding,$(TARGET_OS)),,hosted)
+DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "source" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
+ASM_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "assembly" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
 ifeq ($(TARGET),x86_64-freestanding)
   LIBDCEXT_TARGET_FLAGS += -ffunction-sections -fdata-sections
-  DC_SRCS := $(filter-out $(FREESTANDING_EXCLUDE),$(call find-sources,$(TOPLEVEL)/libdcext/std,dc)) $(TOPLEVEL_SRCS)
-  ASM_SRCS := $(TOPLEVEL)/libdcext/common/memory.asm
-else
-  DC_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/std,dc) $(TOPLEVEL_SRCS)
-  ASM_SRCS := $(call find-sources,$(TOPLEVEL)/libdcext/$(PLATFORM_DIR),asm) $(TOPLEVEL)/libdcext/common/memory.asm
 endif
 
 DC_OBJS := $(call objs-from-srcs,$(DC_SRCS))
@@ -77,6 +75,8 @@ HEADER_DST := $(BUILD_DIR)/include/std
 all: $(LIBDCEXT_A) $(LIBDCEXT_RUNTIME_A) headers
 
 headers:
+	@mkdir -p $(BUILD_DIR)/include
+	$(Q)cp $(MANIFEST) $(BUILD_DIR)/include/libdcext.manifest
 	@rm -rf $(HEADER_DST)
 	@mkdir -p $(BUILD_DIR)/include
 	$(Q)cp -r $(HEADER_SRC) $(BUILD_DIR)/include/
@@ -90,7 +90,7 @@ $(PATH_FLAGS_STAMP): FORCE
 	@printf '%s\n' "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS)" > $@.tmp
 	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
 
-$(DC_OBJS) $(ASM_OBJS): $(PATH_FLAGS_STAMP)
+$(DC_OBJS) $(ASM_OBJS): $(PATH_FLAGS_STAMP) $(MANIFEST)
 
 TARGET_STAMP := $(BUILD_DIR)/lib/.libdcext-target-stamp
 
@@ -158,8 +158,10 @@ install: all
 	$(call MSG,INSTALL,$(DESTDIR)$(INCLUDEDIR)/std/)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/std
 	$(Q)cp -r $(HEADER_DST)/* $(DESTDIR)$(INCLUDEDIR)/std/
+	$(Q)$(INSTALL) -m 644 $(MANIFEST) $(DESTDIR)$(INCLUDEDIR)/libdcext.manifest
 
 uninstall:
+	rm -f $(DESTDIR)$(INCLUDEDIR)/libdcext.manifest
 	rm -f $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A))
 	rm -f $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A))
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
