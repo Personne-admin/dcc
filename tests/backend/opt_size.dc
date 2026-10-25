@@ -1,0 +1,2 @@
+module opt_size;
+@nomangle public u32 size_optimized(u32 value) { return value + 1; }

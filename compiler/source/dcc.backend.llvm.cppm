@@ -2047,7 +2047,7 @@ namespace dcc::backend
                     else if (opts.opt_level == dcc::ir::pass::OptLevel::O2)
                         pipeline = "default<O2>";
                     else if (opts.opt_level == dcc::ir::pass::OptLevel::Os)
-                        pipeline = "default<Os>";
+                        pipeline = "default<O2>";
 
                     if (pipeline)
                     {
@@ -2723,6 +2723,13 @@ namespace dcc::backend
                 auto const uwtable_kind = LLVMGetEnumAttributeKindForName("uwtable", 7);
                 auto* uwtable = LLVMCreateEnumAttribute(ctx, uwtable_kind, 2);
                 LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), uwtable);
+
+                if (opts.opt_level == dcc::ir::pass::OptLevel::Os)
+                {
+                    auto kind = LLVMGetEnumAttributeKindForName("optsize", 7);
+                    auto* attribute = LLVMCreateEnumAttribute(ctx, kind, 0);
+                    LLVMAddAttributeAtIndex(llvm_func, static_cast<LLVMAttributeIndex>(LLVMAttributeFunctionIndex), attribute);
+                }
 
                 auto add_indirect_attr = [&](unsigned index, IrType const* type, const char* name) {
                     auto kind = LLVMGetEnumAttributeKindForName(name, static_cast<unsigned>(std::strlen(name)));
