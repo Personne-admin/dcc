@@ -19,6 +19,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_runtime_asm.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_linux_runtime.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_windows_runtime.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc
@@ -29,6 +30,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_runtime_asm.py $(BUILD_DIR)/bin/dcc --windows
+	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_windows_runtime.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc --windows
@@ -122,6 +124,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_runtime_asm.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_linux_runtime.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_windows_runtime.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc

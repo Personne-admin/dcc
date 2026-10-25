@@ -20,8 +20,11 @@ def audit_sources():
         assert expected in decoded
     windows = (ROOT / 'tests/backend/runtime_windows.dc').read_text()
     decoded = '\n'.join(line.strip()[2:].replace('%%', '%') for line in windows.splitlines() if line.strip().startswith('\\\\'))
-    expected = (ROOT / 'libdcext/windows/runtime.asm').read_text().replace('test %rax, (%rcx)', 'cmp (%rcx), %rax')
-    assert expected.strip() in re.sub(r'\.section \.text\.runtime, "(?:ax|xr)"', '.text', decoded)
+    for name in ('chkstk', 'fltused'):
+        source = (ROOT / 'libdcext/windows' / (name + '.dc')).read_text()
+        body = '\n'.join(line.strip()[2:].replace('%%', '%') for line in source.splitlines() if line.strip().startswith('\\\\'))
+        expected = body[body.index('.globl '):].strip()
+        assert expected in decoded
 
 
 def flags(dcc, windows, backend, opt, whole):

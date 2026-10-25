@@ -5,9 +5,6 @@ BACKEND ?= llvm
 LIBDCEXT_OPT ?= O2
 DCC ?= $(NATIVE_BUILD_DIR)/bin/dcc
 DCC_WRAPPER ?=
-MINGW_SYSROOT ?= /opt/llvm-mingw
-MINGW_TARGET ?= x86_64-w64-mingw32
-MINGW_CC := $(wildcard $(MINGW_SYSROOT)/bin/$(MINGW_TARGET)-clang)
 
 ifeq ($(TARGET),x86_64-elf)
   override TARGET := x86_64-linux
@@ -36,14 +33,6 @@ ifeq ($(filter $(BACKEND),llvm custom),)
   $(error libdcext does not yet support backend $(BACKEND); expected llvm or custom)
 endif
 
-ifeq ($(TARGET_OS),windows)
-  ASM_CC := $(if $(MINGW_CC),$(MINGW_CC),$(CC))
-  ASM_TARGET := $(if $(MINGW_CC),$(MINGW_TARGET),$(DCC_TARGET))
-else
-  ASM_CC := $(CC)
-  ASM_TARGET := $(DCC_TARGET)
-endif
-
 OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)-$(BACKEND)
 
 MANIFEST := $(TOPLEVEL)/libdcext/libdcext.manifest
@@ -53,16 +42,14 @@ endif
 MANIFEST_PROFILES := all $(TARGET_OS) $(if $(filter freestanding,$(TARGET_OS)),,hosted)
 DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '($$1 == "source" || $$1 == "runtime") && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
 RUNTIME_DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "runtime" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
-ASM_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "assembly" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
 ifeq ($(TARGET),x86_64-freestanding)
   LIBDCEXT_TARGET_FLAGS += -ffunction-sections -fdata-sections
 endif
 
 DC_OBJS := $(call objs-from-srcs,$(DC_SRCS))
-ASM_OBJS := $(call objs-from-srcs,$(ASM_SRCS))
 RUNTIME_DC_OBJS := $(call objs-from-srcs,$(RUNTIME_DC_SRCS))
-RUNTIME_OBJS := $(ASM_OBJS) $(RUNTIME_DC_OBJS)
-ALL_OBJS := $(DC_OBJS) $(ASM_OBJS)
+RUNTIME_OBJS := $(RUNTIME_DC_OBJS)
+ALL_OBJS := $(DC_OBJS)
 
 LIBDCEXT_A := $(BUILD_DIR)/lib/libdcext-$(TARGET_OS)-$(BACKEND).a
 LIBDCEXT_RUNTIME_A := $(BUILD_DIR)/lib/libdcext-runtime-$(TARGET_OS)-$(BACKEND).a
@@ -91,7 +78,7 @@ $(PATH_FLAGS_STAMP): FORCE
 	@printf '%s\n' "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS)" > $@.tmp
 	@if ! cmp -s $@.tmp $@; then mv $@.tmp $@; else rm $@.tmp; fi
 
-$(DC_OBJS) $(ASM_OBJS): $(PATH_FLAGS_STAMP) $(MANIFEST)
+$(DC_OBJS): $(PATH_FLAGS_STAMP) $(MANIFEST)
 
 TARGET_STAMP := $(BUILD_DIR)/lib/.libdcext-target-stamp
 
@@ -124,11 +111,6 @@ $(RUNTIME_DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	$(call MSG,DCC,$<)
 	$(Q)$(DCC_WRAPPER) $(DCC) $(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
 
-$(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
-	@mkdir -p $(dir $@)
-	$(call MSG,ASM,$<)
-	$(Q)$(ASM_CC) $(FILE_PREFIX_MAP_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
-
 COMPDB_TARGETS ?= x86_64-linux x86_64-windows
 COMPDB_SCRIPT := $(TOPLEVEL)/mk/gen_compdb.py
 COMPDB_FRAGMENTS_DIR := $(BUILD_DIR)/compdb
@@ -142,6 +124,7 @@ compdb-fragment:
 	done
 
 compdb-fragment-one:
+	$(Q)rm -f $(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-asm.json
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
 		--cxx "$(DCC)" \
 		--cxxflags "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
@@ -154,12 +137,6 @@ compdb-fragment-one:
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-runtime-dc.json" \
 		$(RUNTIME_DC_SRCS)
-	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
-		--cxx "$(ASM_CC)" \
-		--cxxflags "-c -target $(ASM_TARGET) -x assembler-with-cpp" \
-		--toplevel "$(TOPLEVEL)" \
-		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-asm.json" \
-		$(ASM_SRCS)
 
 install: all
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A)))
@@ -179,6 +156,6 @@ uninstall:
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
 
 clean:
-	rm -f $(DC_OBJS) $(ASM_OBJS) $(LIBDCEXT_A) $(LIBDCEXT_A).objects $(LIBDCEXT_A).objects.tmp $(LIBDCEXT_A).tmp $(TARGET_STAMP)
+	rm -f $(DC_OBJS) $(LIBDCEXT_A) $(LIBDCEXT_A).objects $(LIBDCEXT_A).objects.tmp $(LIBDCEXT_A).tmp $(TARGET_STAMP)
 	rm -f $(LIBDCEXT_RUNTIME_A) $(LIBDCEXT_RUNTIME_A).objects $(LIBDCEXT_RUNTIME_A).objects.tmp $(LIBDCEXT_RUNTIME_A).tmp
 	rm -rf $(HEADER_DST)

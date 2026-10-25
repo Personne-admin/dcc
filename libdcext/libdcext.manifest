@@ -48,10 +48,11 @@ runtime linux dcext::linux::syscall4 linux/syscall4.dc
 runtime linux dcext::linux::syscall5 linux/syscall5.dc
 runtime linux dcext::linux::syscall6 linux/syscall6.dc
 runtime linux dcext::linux::clone linux/clone.dc
-assembly windows startup windows/crt0.asm
-assembly windows runtime windows/runtime.asm
+runtime windows dcext::windows::startup windows/startup.dc
+runtime windows dcext::windows::chkstk windows/chkstk.dc
+runtime windows dcext::windows::fltused windows/fltused.dc
 startup linux _start __dc_main
 startup windows _start __dc_main
 edge hosted _start __dc_rt_init
 edge linux __thread_entry thread_child_main
-edge linux _start __dc_main
+edge hosted _start __dc_main

@@ -1,0 +1,24 @@
+module dcext::windows::startup;
+
+@nomangle extern void __dc_rt_init(i32 argc, void** argv);
+@nomangle extern i32 __dc_main(usize argc, const char** argv);
+@nomangle @noreturn public extern void _start();
+
+asm {
+    \\.section .text.windows.startup, "xr"
+    \\.globl _start
+    \\_start:
+    \\    sub $40, %%rsp
+    \\    cld
+    \\    xor %%ecx, %%ecx
+    \\    xor %%edx, %%edx
+    \\    call __dc_rt_init
+    \\    xor %%ecx, %%ecx
+    \\    xor %%edx, %%edx
+    \\    call __dc_main
+    \\    mov %%eax, %%ecx
+    \\    mov __imp_ExitProcess(%%rip), %%rax
+    \\    call *%%rax
+    \\    int3
+    \\
+};

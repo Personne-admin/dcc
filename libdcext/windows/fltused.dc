@@ -1,0 +1,9 @@
+module dcext::windows::fltused;
+
+asm {
+    \\.section .data.windows.fltused, "dw"
+    \\.globl _fltused
+    \\_fltused:
+    \\    .long 0
+    \\
+};

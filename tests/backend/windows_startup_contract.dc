@@ -1,0 +1,52 @@
+module startup_contract;
+asm {
+    \\.section .data.startup_contract, "dw"
+    \\initialized:
+    \\    .long 0
+    \\.section .text.startup_contract, "xr"
+    \\.globl __dc_rt_init
+    \\__dc_rt_init:
+    \\    lea 8(%%rsp), %%rax
+    \\    and $15, %%rax
+    \\    jne 1f
+    \\    test %%ecx, %%ecx
+    \\    jne 1f
+    \\    test %%rdx, %%rdx
+    \\    jne 1f
+    \\    movq $11, 8(%%rsp)
+    \\    movq $12, 16(%%rsp)
+    \\    movq $13, 24(%%rsp)
+    \\    movq $14, 32(%%rsp)
+    \\    mov $1, %%eax
+    \\    mov %%eax, initialized(%%rip)
+    \\1:
+    \\    mov $99, %%ecx
+    \\    mov $98, %%edx
+    \\    ret
+    \\.globl __dc_main
+    \\__dc_main:
+    \\    lea 8(%%rsp), %%rax
+    \\    and $15, %%rax
+    \\    jne 2f
+    \\    pushfq
+    \\    pop %%rax
+    \\    test $0x400, %%rax
+    \\    jne 2f
+    \\    mov initialized(%%rip), %%eax
+    \\    cmp $1, %%eax
+    \\    jne 2f
+    \\    test %%rcx, %%rcx
+    \\    jne 2f
+    \\    test %%rdx, %%rdx
+    \\    jne 2f
+    \\    movq $21, 8(%%rsp)
+    \\    movq $22, 16(%%rsp)
+    \\    movq $23, 24(%%rsp)
+    \\    movq $24, 32(%%rsp)
+    \\    mov $37, %%eax
+    \\    ret
+    \\2:
+    \\    mov $42, %%eax
+    \\    ret
+    \\
+};
