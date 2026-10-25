@@ -1,0 +1,32 @@
+module dcext::linux::clone;
+
+@nomangle public extern isize __thread_entry(usize flags, usize stack, void* control);
+
+asm {
+    \\.section .text.linux.clone, "ax"
+    \\.globl __thread_entry
+    \\.type __thread_entry, @function
+    \\__thread_entry:
+    \\    mov $56, %%eax
+    \\
+    \\    xor %%r10d, %%r10d
+    \\    xor %%r8d, %%r8d
+    \\    syscall
+    \\    test %%rax, %%rax
+    \\    jnz .thread_parent
+    \\
+    \\    cld
+    \\    mov %%rdx, %%rdi
+    \\    call thread_child_main
+    \\
+    \\    mov $60, %%eax
+    \\    xor %%edi, %%edi
+    \\    syscall
+    \\    ud2
+    \\
+    \\.thread_parent:
+    \\    ret
+    \\.size __thread_entry, . - __thread_entry
+    \\.section .note.GNU-stack,"",@progbits
+    \\
+};

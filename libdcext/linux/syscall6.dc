@@ -1,0 +1,22 @@
+module dcext::linux::syscall6;
+
+@nomangle public extern isize __syscall6(usize nr, usize a0, usize a1, usize a2, usize a3, usize a4, usize a5);
+
+asm {
+    \\.section .text.linux.syscall6, "ax"
+    \\.globl __syscall6
+    \\.type __syscall6, @function
+    \\__syscall6:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    mov %%rcx, %%rdx
+    \\    mov %%r8, %%r10
+    \\    mov %%r9, %%r8
+    \\    mov 8(%%rsp), %%r9
+    \\    syscall
+    \\    ret
+    \\.size __syscall6, . - __syscall6
+    \\.section .note.GNU-stack,"",@progbits
+    \\
+};

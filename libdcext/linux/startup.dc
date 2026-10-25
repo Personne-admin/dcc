@@ -1,0 +1,29 @@
+module dcext::linux::startup;
+
+@nomangle extern void __dc_rt_init(i32 argc, void** argv);
+@nomangle extern i32 __dc_main(usize argc, const char** argv);
+@nomangle @noreturn public extern void _start();
+
+asm {
+    \\.section .text.linux.startup, "ax"
+    \\.globl _start
+    \\.type _start, @function
+    \\_start:
+    \\    cld
+    \\    mov (%%rsp), %%r14
+    \\    lea 8(%%rsp), %%r15
+    \\    and $-16, %%rsp
+    \\    mov %%r14, %%rdi
+    \\    mov %%r15, %%rsi
+    \\    call __dc_rt_init
+    \\    mov %%r14, %%rdi
+    \\    mov %%r15, %%rsi
+    \\    call __dc_main
+    \\    movslq %%eax, %%rdi
+    \\    mov $231, %%eax
+    \\    syscall
+    \\    ud2
+    \\.size _start, . - _start
+    \\.section .note.GNU-stack,"",@progbits
+    \\
+};

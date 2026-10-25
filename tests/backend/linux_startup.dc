@@ -1,0 +1,48 @@
+module startup_application;
+import std::os::process;
+import std::result;
+
+@nomangle extern usize startup_alignment();
+
+bool same([] const char left, [] const char right) {
+    if left.len != right.len { return false; }
+    for usize i = 0; i < left.len; i++ { if left[i] != right[i] { return false; } }
+    return true;
+}
+
+i32 check_startup() {
+    if startup_alignment() != 0 { return 1; }
+    if std::os::process::arg_count() != 3 { return 2; }
+    if !same(std::os::process::arg(1).unwrap_some(), "hello space") { return 3; }
+    if std::os::process::arg(2).unwrap_some().len != 0 { return 4; }
+    std::os::process::Vars vars = std::os::process::vars();
+    bool found = false;
+    while true {
+        std::result::Optional(std::os::process::Var) item = std::os::process::next(&vars);
+        if item.is_none() { break; }
+        std::os::process::Var entry = item.unwrap_some();
+        if same(entry.name, "DCC_STARTUP_TEST") {
+            if !same(entry.value, "environment value") { return 5; }
+            found = true;
+        }
+    }
+    std::os::process::close(&vars);
+    return if found { 0 } else { 6 };
+}
+
+public i32 main() { return check_startup(); }
+
+asm {
+    \\.section .text.startup_alignment, "ax"
+    \\.globl startup_alignment
+    \\startup_alignment:
+    \\lea 8(%%rsp), %%rax
+    \\and $15, %%rax
+    \\pushfq
+    \\pop %%rdx
+    \\and $0x400, %%rdx
+    \\or %%rdx, %%rax
+    \\ret
+    \\.section .note.GNU-stack,"",@progbits
+    \\
+};

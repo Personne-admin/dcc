@@ -18,6 +18,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_runtime_asm.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_linux_runtime.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc
@@ -120,6 +121,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/test_dccd_project_layout.py $(BUILD_DIR)/bin/dcc $(BUILD_DIR)/bin/dccd
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_runtime_asm.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_linux_runtime.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc

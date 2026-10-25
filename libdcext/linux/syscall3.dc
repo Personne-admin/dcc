@@ -1,0 +1,19 @@
+module dcext::linux::syscall3;
+
+@nomangle public extern isize __syscall3(usize nr, usize a0, usize a1, usize a2);
+
+asm {
+    \\.section .text.linux.syscall3, "ax"
+    \\.globl __syscall3
+    \\.type __syscall3, @function
+    \\__syscall3:
+    \\    mov %%rdi, %%rax
+    \\    mov %%rsi, %%rdi
+    \\    mov %%rdx, %%rsi
+    \\    mov %%rcx, %%rdx
+    \\    syscall
+    \\    ret
+    \\.size __syscall3, . - __syscall3
+    \\.section .note.GNU-stack,"",@progbits
+    \\
+};

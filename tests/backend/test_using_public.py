@@ -35,7 +35,8 @@ def main():
                     objects = []
                     for index, source in enumerate(sources):
                         obj = root / (backend + "-" + opt + "-" + target + "-" + str(index) + ".o")
-                        run([dcc, "-fbackend", backend, "-target", target, "-I", root, "-" + opt, "-c", "-o", obj, source])
+                        run([dcc, "-fbackend", backend, "-target", target,
+                             *(["-flibdcext", "linux"] if target == "x86_64-elf" else []), "-I", root, "-" + opt, "-c", "-o", obj, source])
                         objects.append(obj)
                     if target == "x86_64-elf":
                         output = root / (backend + "-" + opt)

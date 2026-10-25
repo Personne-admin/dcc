@@ -12,8 +12,12 @@ ROOT = Path(__file__).resolve().parents[2]
 def audit_sources():
     linux = (ROOT / 'tests/backend/runtime_linux.dc').read_text()
     decoded = '\n'.join(line.strip()[2:].replace('%%', '%') for line in linux.splitlines() if line.strip().startswith('\\\\'))
-    expected = (ROOT / 'libdcext/linux/syscall.asm').read_text().replace('__syscall', 'runtime_syscall').replace('__thread_entry', 'runtime_thread_entry').replace('thread_child_main', 'runtime_child_main')
-    assert expected.strip() in re.sub(r'\.section \.text\.runtime, "(?:ax|xr)"', '.text', decoded)
+    for name in [*[f'syscall{i}' for i in range(7)], 'clone']:
+        source = (ROOT / 'libdcext/linux' / (name + '.dc')).read_text()
+        body = '\n'.join(line.strip()[2:].replace('%%', '%') for line in source.splitlines() if line.strip().startswith('\\\\'))
+        body = body[body.index('.globl '):].split('.section .note.GNU-stack')[0].strip()
+        expected = body.replace('__syscall', 'runtime_syscall').replace('__thread_entry', 'runtime_thread_entry').replace('thread_child_main', 'runtime_child_main')
+        assert expected in decoded
     windows = (ROOT / 'tests/backend/runtime_windows.dc').read_text()
     decoded = '\n'.join(line.strip()[2:].replace('%%', '%') for line in windows.splitlines() if line.strip().startswith('\\\\'))
     expected = (ROOT / 'libdcext/windows/runtime.asm').read_text().replace('test %rax, (%rcx)', 'cmp (%rcx), %rax')
