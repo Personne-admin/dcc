@@ -64,7 +64,7 @@ export namespace dcc::library
                 throw std::runtime_error(std::format("invalid library manifest profile '{}'", profile));
             if (profile != "all" && profile != variant && !(profile == "hosted" && os != target::Os::Freestanding))
                 continue;
-            if (kind == "source")
+            if (kind == "source" || kind == "runtime")
             {
                 auto source_path = std::filesystem::path(second);
                 if (source_path.is_absolute() || std::ranges::any_of(source_path, [](auto const& component) { return component == ".."; }) ||

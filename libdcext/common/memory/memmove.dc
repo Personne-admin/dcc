@@ -1,0 +1,73 @@
+module dcext::memory::memmove;
+
+import core::target;
+
+@nomangle public extern void* memmove(void* dst, const void* src, usize count);
+
+static if core::target::OS == core::target::Os::Windows {
+    asm {
+        \\.section .text.memory.memmove, "xr"
+        \\.globl memmove
+        \\memmove:
+        \\    push %%rdi
+        \\    push %%rsi
+        \\    mov %%rcx, %%rdi
+        \\    mov %%rdx, %%rsi
+        \\    mov %%r8, %%rdx
+        \\    mov %%rdi, %%rax
+        \\    test %%rdx, %%rdx
+        \\    je .Lmove_done
+        \\    cmp %%rsi, %%rdi
+        \\    jbe .Lmove_forward
+        \\    mov %%rdi, %%r10
+        \\    sub %%rsi, %%r10
+        \\    cmp %%rdx, %%r10
+        \\    jae .Lmove_forward
+        \\.Lmove_backward:
+        \\    dec %%rdx
+        \\    mov (%%rsi,%%rdx), %%r10b
+        \\    mov %%r10b, (%%rdi,%%rdx)
+        \\    test %%rdx, %%rdx
+        \\    jne .Lmove_backward
+        \\    jmp .Lmove_done
+        \\.Lmove_forward:
+        \\    mov %%rdx, %%rcx
+        \\    rep movsb
+        \\.Lmove_done:
+        \\    pop %%rsi
+        \\    pop %%rdi
+        \\    ret
+        \\
+    };
+} else {
+    asm {
+        \\.section .text.memory.memmove, "ax"
+        \\.globl memmove
+        \\.type memmove, @function
+        \\memmove:
+        \\    mov %%rdi, %%rax
+        \\    test %%rdx, %%rdx
+        \\    je .Lmove_done
+        \\    cmp %%rsi, %%rdi
+        \\    jbe .Lmove_forward
+        \\    mov %%rdi, %%r10
+        \\    sub %%rsi, %%r10
+        \\    cmp %%rdx, %%r10
+        \\    jae .Lmove_forward
+        \\.Lmove_backward:
+        \\    dec %%rdx
+        \\    mov (%%rsi,%%rdx), %%r10b
+        \\    mov %%r10b, (%%rdi,%%rdx)
+        \\    test %%rdx, %%rdx
+        \\    jne .Lmove_backward
+        \\    jmp .Lmove_done
+        \\.Lmove_forward:
+        \\    mov %%rdx, %%rcx
+        \\    rep movsb
+        \\.Lmove_done:
+        \\    ret
+        \\.size memmove, . - memmove
+        \\.section .note.GNU-stack,"",@progbits
+        \\
+    };
+}

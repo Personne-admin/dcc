@@ -1,0 +1,39 @@
+module dcext::memory::memset;
+
+import core::target;
+
+@nomangle public extern void* memset(void* dst, i32 value, usize count);
+
+static if core::target::OS == core::target::Os::Windows {
+    asm {
+        \\.section .text.memory.memset, "xr"
+        \\.globl memset
+        \\memset:
+        \\    push %%rdi
+        \\    mov %%rcx, %%rdi
+        \\    mov %%edx, %%eax
+        \\    mov %%r8, %%rcx
+        \\    mov %%rdi, %%r11
+        \\    rep stosb
+        \\    mov %%r11, %%rax
+        \\    pop %%rdi
+        \\    ret
+        \\
+    };
+} else {
+    asm {
+        \\.section .text.memory.memset, "ax"
+        \\.globl memset
+        \\.type memset, @function
+        \\memset:
+        \\    mov %%rdx, %%rcx
+        \\    mov %%esi, %%eax
+        \\    mov %%rdi, %%r11
+        \\    rep stosb
+        \\    mov %%r11, %%rax
+        \\    ret
+        \\.size memset, . - memset
+        \\.section .note.GNU-stack,"",@progbits
+        \\
+    };
+}

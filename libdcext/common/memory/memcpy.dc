@@ -1,0 +1,39 @@
+module dcext::memory::memcpy;
+
+import core::target;
+
+@nomangle public extern void* memcpy(void* dst, const void* src, usize count);
+
+static if core::target::OS == core::target::Os::Windows {
+    asm {
+        \\.section .text.memory.memcpy, "xr"
+        \\.globl memcpy
+        \\memcpy:
+        \\    push %%rdi
+        \\    push %%rsi
+        \\    mov %%rcx, %%rdi
+        \\    mov %%rdx, %%rsi
+        \\    mov %%r8, %%rdx
+        \\    mov %%rdi, %%rax
+        \\    mov %%rdx, %%rcx
+        \\    rep movsb
+        \\    pop %%rsi
+        \\    pop %%rdi
+        \\    ret
+        \\
+    };
+} else {
+    asm {
+        \\.section .text.memory.memcpy, "ax"
+        \\.globl memcpy
+        \\.type memcpy, @function
+        \\memcpy:
+        \\    mov %%rdi, %%rax
+        \\    mov %%rdx, %%rcx
+        \\    rep movsb
+        \\    ret
+        \\.size memcpy, . - memcpy
+        \\.section .note.GNU-stack,"",@progbits
+        \\
+    };
+}

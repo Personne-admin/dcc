@@ -19,10 +19,19 @@ def check_memory(archive, scratch):
     for name in ("memcpy", "memmove", "memset", "memcmp"):
         assert len(re.findall(r"\bT " + name + r"$", symbols, re.M)) == 1, (archive, name)
     members = run(["ar", "t", archive]).splitlines()
-    memory = [member for member in members if member == "memory.asm.o"]
-    assert len(memory) == 1, (archive, memory)
-    obj = scratch / "memory.o"
-    obj.write_bytes(subprocess.check_output(["ar", "p", archive, memory[0]], timeout=60))
+    assert "memory.asm.o" not in members, (archive, members)
+    for name in ("memcpy", "memmove", "memset", "memcmp"):
+        member = name + ".dc.o"
+        assert members.count(member) == 1, (archive, member, members)
+        obj = scratch / member
+        obj.write_bytes(subprocess.check_output(["ar", "p", archive, member], timeout=60))
+        check_leaf(obj, name)
+
+
+def check_leaf(obj, name):
+    symbols = run(["nm", "-g", "--defined-only", obj])
+    assert re.findall(r"\bT (\S+)$", symbols, re.M) == [name], (obj, symbols)
+    assert not run(["nm", "-u", obj]).strip(), obj
     dis = run(["objdump", "-dr", obj])
     assert not re.search(r"\bcall\w*\b", dis), dis
     assert not re.search(r"%(?:xmm|ymm|zmm|mm)\d+", dis), dis
@@ -42,18 +51,52 @@ def main():
         calls = scratch / "calls.o"
         run([cc, "-c", "-x", "assembler-with-cpp", source.with_name("memory_calls.asm"), "-o", calls])
         for backend in ("llvm", "custom"):
-            check_memory(lib / ("libdcext-" + os_name + "-" + backend + ".a"), scratch)
+            for prefix in ("libdcext-", "libdcext-runtime-"):
+                check_memory(lib / (prefix + os_name + "-" + backend + ".a"), scratch)
+            reference = {}
             for opt in ("O0", "O2"):
-                exe = scratch / (backend + opt + (".exe" if windows else ""))
-                obj = scratch / "test.o"
-                run([dcc, "-target", target, "-flibdcext", os_name, "-fbackend", backend, "-" + opt, "-c", source, "-o", obj])
-                if windows:
-                    run([cc, "-nostdlib", "-Wl,--entry,_start", "-Wl,--subsystem,console", obj, calls,
-                         lib / ("libdcext-windows-" + backend + ".a"), "-lkernel32", "-lws2_32", "-ladvapi32", "-lshell32", "-o", exe])
-                    run([os.environ.get("WINE", "wine"), exe])
-                else:
-                    run([dcc, "-flibdcext", "linux", "-fbackend", backend, obj, calls, "-o", exe])
-                    run([exe])
+                runtime = scratch / ("libmemory-" + backend + opt + ".a")
+                runtime.write_bytes((lib / ("libdcext-runtime-" + os_name + "-" + backend + ".a")).read_bytes())
+                for name in ("memcpy", "memmove", "memset", "memcmp"):
+                    obj = scratch / (name + ".dc.o")
+                    source_leaf = Path(__file__).resolve().parents[2] / 'libdcext/common/memory' / (name + '.dc')
+                    run([dcc, '-target', target, '-fbackend', backend, '-' + opt, '-c', source_leaf, '-o', obj])
+                    check_leaf(obj, name)
+                    data = scratch / 'leaf.bin'
+                    run(['objcopy', '-O', 'binary', '--only-section=.text.memory.' + name, obj, data])
+                    assert data.stat().st_size > 0
+                    if name in reference:
+                        assert data.read_bytes() == reference[name], (backend, name, 'O0/O2 differ')
+                    reference[name] = data.read_bytes()
+                    run(['ar', 'rcs', runtime, obj])
+                for whole in (False, True):
+                    exe = scratch / (backend + opt + str(whole) + (".exe" if windows else ""))
+                    obj = scratch / "test.o"
+                    run([dcc, "-target", target, "-flibdcext", os_name, "-fbackend", backend, "-" + opt,
+                         *(['-fwhole-program', '-e', 'main'] if whole else []), '-c', source, '-o', obj])
+                    if windows:
+                        run([cc, "-nostdlib", "-Wl,--entry,_start", "-Wl,--undefined=_start", "-Wl,--subsystem,console", obj, calls,
+                             runtime, *([] if whole else [lib / ("libdcext-windows-" + backend + ".a")]),
+                             "-lkernel32", "-lws2_32", "-ladvapi32", "-lshell32", "-o", exe])
+                        run([os.environ.get("WINE", "wine"), exe])
+                    else:
+                        run(['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start', obj, calls,
+                             runtime, *([] if whole else [lib / ('libdcext-linux-' + backend + '.a')]), '-o', exe])
+                        run([exe])
+                    production = scratch / ('production.exe' if windows else 'production')
+                    if windows:
+                        archive = lib / (('libdcext-runtime-' if whole else 'libdcext-') + os_name + '-' + backend + '.a')
+                        run([cc, '-nostdlib', '-Wl,--entry,_start', '-Wl,--undefined=_start', '-Wl,--subsystem,console',
+                             obj, calls, archive, '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', production])
+                        run([os.environ.get('WINE', 'wine'), production])
+                    elif whole:
+                        run(['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start', obj, calls,
+                             lib / ('libdcext-runtime-linux-' + backend + '.a'), '-o', production])
+                        run([production])
+                    else:
+                        run([dcc, '-flibdcext', 'linux', '-fbackend', backend, obj, calls, '-o', production])
+                        run([production])
+                    print('  PASS memory', os_name, backend, opt, 'whole' if whole else 'separate', flush=True)
         if not windows:
             source = source.with_name("hosted_memmove.dc")
             obj = scratch / "hosted.o"

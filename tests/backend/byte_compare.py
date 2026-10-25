@@ -80,15 +80,17 @@ def capture_abi(tree, output, log, jobs):
 
 def capture_libdcext(tree, output, log, jobs):
     sources = sorted((tree / "libdcext/std").rglob("*.dc")) + [tree / "libdcext/assert.dc"]
+    manifest = [line.split() for line in (tree / 'libdcext/libdcext.manifest').read_text().splitlines()]
     tasks = []
     for target, os_name in (("x86_64-elf", "linux"), ("x86_64-coff", "windows")):
+        runtime = [tree / 'libdcext' / row[3] for row in manifest if row[0] == 'runtime' and row[1] in ('all', 'hosted', os_name)]
         for opt in ("O0", "O2"):
-            for source in sources:
+            for source in sources + runtime:
                 relative = source.relative_to(tree / "libdcext")
                 for kind, flag, suffix in (("object", "-c", ".o"), ("asm", "-S", ".s")):
                     artifact = output / "libdcext" / target / opt / kind / (str(relative) + suffix)
                     artifact.parent.mkdir(parents=True, exist_ok=True)
-                    tasks.append((["-flibdcext", os_name, "-target", target, "-fbackend", "custom", "-" + opt, "-I", str(tree / "libdcext"), flag, "-o", str(artifact), str(source)], artifact))
+                    tasks.append(([*(["-flibdcext", os_name] if source not in runtime else []), "-target", target, "-fbackend", "custom", "-" + opt, "-I", str(tree / "libdcext"), flag, "-o", str(artifact), str(source)], artifact))
     run_tasks(tree, tasks, log, jobs)
 
 

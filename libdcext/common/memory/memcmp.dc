@@ -1,0 +1,59 @@
+module dcext::memory::memcmp;
+
+import core::target;
+
+@nomangle public extern i32 memcmp(const void* left, const void* right, usize count);
+
+static if core::target::OS == core::target::Os::Windows {
+    asm {
+        \\.section .text.memory.memcmp, "xr"
+        \\.globl memcmp
+        \\memcmp:
+        \\    push %%rdi
+        \\    push %%rsi
+        \\    mov %%rcx, %%rdi
+        \\    mov %%rdx, %%rsi
+        \\    mov %%r8, %%rdx
+        \\    xor %%eax, %%eax
+        \\    test %%rdx, %%rdx
+        \\    je .Lcompare_done
+        \\.Lcompare_next:
+        \\    movzbl (%%rdi), %%eax
+        \\    movzbl (%%rsi), %%r10d
+        \\    sub %%r10d, %%eax
+        \\    jne .Lcompare_done
+        \\    inc %%rdi
+        \\    inc %%rsi
+        \\    dec %%rdx
+        \\    jne .Lcompare_next
+        \\.Lcompare_done:
+        \\    pop %%rsi
+        \\    pop %%rdi
+        \\    ret
+        \\
+    };
+} else {
+    asm {
+        \\.section .text.memory.memcmp, "ax"
+        \\.globl memcmp
+        \\.type memcmp, @function
+        \\memcmp:
+        \\    xor %%eax, %%eax
+        \\    test %%rdx, %%rdx
+        \\    je .Lcompare_done
+        \\.Lcompare_next:
+        \\    movzbl (%%rdi), %%eax
+        \\    movzbl (%%rsi), %%r10d
+        \\    sub %%r10d, %%eax
+        \\    jne .Lcompare_done
+        \\    inc %%rdi
+        \\    inc %%rsi
+        \\    dec %%rdx
+        \\    jne .Lcompare_next
+        \\.Lcompare_done:
+        \\    ret
+        \\.size memcmp, . - memcmp
+        \\.section .note.GNU-stack,"",@progbits
+        \\
+    };
+}

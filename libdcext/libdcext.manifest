@@ -35,7 +35,10 @@ source hosted std::sys::win::imports std/sys/win/imports.dc
 source all std::toml std/toml.dc
 source all std::tuple std/tuple.dc
 source all std::utf8 std/utf8.dc
-assembly all memory common/memory.asm
+runtime all dcext::memory::memcpy common/memory/memcpy.dc
+runtime all dcext::memory::memmove common/memory/memmove.dc
+runtime all dcext::memory::memset common/memory/memset.dc
+runtime all dcext::memory::memcmp common/memory/memcmp.dc
 assembly linux startup linux/crt0.asm
 assembly linux syscalls linux/syscall.asm
 assembly windows startup windows/crt0.asm

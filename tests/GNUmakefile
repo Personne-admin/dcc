@@ -15,6 +15,7 @@ WINE ?= $(shell command -v wine64 2>/dev/null || command -v wine 2>/dev/null)
 
 .PHONY: test-linux test-win
 test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_size_arithmetic.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_runtime_asm.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc

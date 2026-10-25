@@ -44,8 +44,6 @@ else
   ASM_TARGET := $(DCC_TARGET)
 endif
 
-ASM_ABI_FLAGS := $(if $(filter windows,$(TARGET_OS)),-DDCC_WINDOWS_MEMORY)
-
 OBJ_DIR := $(OBJ_DIR)/libdcext-$(TARGET)-$(BACKEND)
 
 MANIFEST := $(TOPLEVEL)/libdcext/libdcext.manifest
@@ -53,7 +51,8 @@ ifeq ($(wildcard $(MANIFEST)),)
   $(error missing libdcext source manifest $(MANIFEST))
 endif
 MANIFEST_PROFILES := all $(TARGET_OS) $(if $(filter freestanding,$(TARGET_OS)),,hosted)
-DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "source" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
+DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '($$1 == "source" || $$1 == "runtime") && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
+RUNTIME_DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "runtime" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
 ASM_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "assembly" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
 ifeq ($(TARGET),x86_64-freestanding)
   LIBDCEXT_TARGET_FLAGS += -ffunction-sections -fdata-sections
@@ -61,6 +60,8 @@ endif
 
 DC_OBJS := $(call objs-from-srcs,$(DC_SRCS))
 ASM_OBJS := $(call objs-from-srcs,$(ASM_SRCS))
+RUNTIME_DC_OBJS := $(call objs-from-srcs,$(RUNTIME_DC_SRCS))
+RUNTIME_OBJS := $(ASM_OBJS) $(RUNTIME_DC_OBJS)
 ALL_OBJS := $(DC_OBJS) $(ASM_OBJS)
 
 LIBDCEXT_A := $(BUILD_DIR)/lib/libdcext-$(TARGET_OS)-$(BACKEND).a
@@ -106,22 +107,27 @@ $(eval $(call track-archive-inputs,$(LIBDCEXT_A),$(ALL_OBJS)))
 $(LIBDCEXT_A): $(ALL_OBJS) $(DCC) $(TARGET_STAMP)
 	$(call create-archive,$@,$(ALL_OBJS))
 
-$(eval $(call track-archive-inputs,$(LIBDCEXT_RUNTIME_A),$(ASM_OBJS)))
+$(eval $(call track-archive-inputs,$(LIBDCEXT_RUNTIME_A),$(RUNTIME_OBJS)))
 
-$(LIBDCEXT_RUNTIME_A): $(ASM_OBJS) $(TARGET_STAMP)
-	$(call create-archive,$@,$(ASM_OBJS))
+$(LIBDCEXT_RUNTIME_A): $(RUNTIME_OBJS) $(TARGET_STAMP)
+	$(call create-archive,$@,$(RUNTIME_OBJS))
 
 $(DC_OBJS): $(DC_SRCS)
 
-$(DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
+$(filter-out $(RUNTIME_DC_OBJS),$(DC_OBJS)): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
 	@mkdir -p $(dir $@)
 	$(call MSG,DCC,$<)
 	$(Q)$(DCC_WRAPPER) $(DCC) $(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
 
+$(RUNTIME_DC_OBJS): $(OBJ_DIR)/%.dc.o: $(TOPLEVEL)/%.dc $(DCC)
+	@mkdir -p $(dir $@)
+	$(call MSG,DCC,$<)
+	$(Q)$(DCC_WRAPPER) $(DCC) $(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -target $(DCC_TARGET) -fbackend $(BACKEND) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext -o $@ $<
+
 $(ASM_OBJS): $(OBJ_DIR)/%.asm.o: $(TOPLEVEL)/%.asm
 	@mkdir -p $(dir $@)
 	$(call MSG,ASM,$<)
-	$(Q)$(ASM_CC) $(FILE_PREFIX_MAP_FLAGS) $(ASM_ABI_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
+	$(Q)$(ASM_CC) $(FILE_PREFIX_MAP_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp -o $@ $<
 
 COMPDB_TARGETS ?= x86_64-linux x86_64-windows
 COMPDB_SCRIPT := $(TOPLEVEL)/mk/gen_compdb.py
@@ -141,10 +147,16 @@ compdb-fragment-one:
 		--cxxflags "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -flibdcext $(TARGET_OS) -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-dc.json" \
-		$(DC_SRCS)
+		$(filter-out $(RUNTIME_DC_SRCS),$(DC_SRCS))
+	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
+		--cxx "$(DCC)" \
+		--cxxflags "$(FILE_PREFIX_MAP_FLAGS) $(LIBDCEXT_TARGET_FLAGS) -c -target $(DCC_TARGET) -$(LIBDCEXT_OPT) -I$(TOPLEVEL)/libdcext" \
+		--toplevel "$(TOPLEVEL)" \
+		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-runtime-dc.json" \
+		$(RUNTIME_DC_SRCS)
 	$(Q)$(PYTHON) $(COMPDB_SCRIPT) fragment --mode plain \
 		--cxx "$(ASM_CC)" \
-		--cxxflags "$(ASM_ABI_FLAGS) -c -target $(ASM_TARGET) -x assembler-with-cpp" \
+		--cxxflags "-c -target $(ASM_TARGET) -x assembler-with-cpp" \
 		--toplevel "$(TOPLEVEL)" \
 		--output "$(COMPDB_FRAGMENTS_DIR)/libdcext-$(TARGET)-asm.json" \
 		$(ASM_SRCS)

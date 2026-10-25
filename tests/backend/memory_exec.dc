@@ -5,6 +5,8 @@ module main;
 @nomangle extern void* test_memset(void* dst, i32 value, usize count);
 @nomangle extern i32 test_memcmp(const void* left, const void* right, usize count);
 
+@nomangle extern i32 test_memory_abi();
+
 @nomangle public i32 memory_test() {
     u8[32] a;
     u8[32] b;
@@ -39,6 +41,28 @@ module main;
     if test_memcpy(null as void*, null as const void*, 0) != null { return 24; }
     if test_memmove(null as void*, null as const void*, 0) != null { return 25; }
     if test_memset(null as void*, 3, 0) != null { return 26; }
+    if test_memory_abi() != 0 { return 27; }
+    u8[80] source = {};
+    u8[80] actual = {};
+    u8[80] expected = {};
+    for usize count = 0; count <= 64; count++ {
+        for usize offset = 0; offset < 8; offset++ {
+            for usize i = 0; i < 80; i++ {
+                source[i] = (i * 37 + 13) as u8;
+                actual[i] = source[i];
+                expected[i] = source[i];
+            }
+            for usize i = 0; i < count; i++ { expected[i + offset + 1] = source[i + offset]; }
+            if test_memmove(&actual[offset + 1] as void*, &actual[offset] as const void*, count) != &actual[offset + 1] as void* { return 28; }
+            for usize i = 0; i < 80; i++ { if actual[i] != expected[i] { return 29; } }
+            for usize i = 0; i < 80; i++ { actual[i] = source[i]; expected[i] = source[i]; }
+            for usize i = 0; i < count; i++ { expected[i + offset] = source[i + offset + 1]; }
+            test_memmove(&actual[offset] as void*, &actual[offset + 1] as const void*, count);
+            for usize i = 0; i < 80; i++ { if actual[i] != expected[i] { return 30; } }
+            test_memcpy(&actual[0] as void*, &source[0] as const void*, 80);
+            if test_memcmp(&actual[0] as const void*, &source[0] as const void*, 80) != 0 { return 31; }
+        }
+    }
     return 0;
 }
 
