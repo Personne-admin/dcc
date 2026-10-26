@@ -21,13 +21,14 @@ if grep -E '^\./lib/' "$work/installed.txt" | grep -vE '/libdcext-(windows|frees
     exit 1
 fi
 
-wine "$inst/bin/dcc.exe" --version | tr -d '\r' | tee "$version_out"
+timeout 60 wine "$inst/bin/dcc.exe" --version | tr -d '\r' | tee "$version_out"
 cp "$here/smoke/hello.dc" "$work/"
 cd "$work"
 for backend in llvm custom; do
-    wine "$inst/bin/dcc.exe" "-ffile-prefix-map=$(winepath -w "$work")=dcc-smoke" -flibdcext windows -target x86_64-coff -fbackend "$backend" -c -o "hello-$backend.obj" hello.dc
-    "$mingw/bin/x86_64-w64-mingw32-clang" -nostdlib -Wl,--entry,_start -Wl,--subsystem,console -o "hello-$backend.exe" \
-        "hello-$backend.obj" "$inst/lib/libdcext-windows-$backend.a" -lkernel32 -lws2_32 -ladvapi32 -lshell32
+    timeout 60 wine "$inst/bin/dcc.exe" "-ffile-prefix-map=$(winepath -w "$work")=dcc-smoke" -flibdcext windows -target x86_64-coff -fbackend "$backend" -c -o "hello-$backend.obj" hello.dc
+    timeout 60 "${DCC_HOST:-$here/../../build/bin/dcc}" -flibdcext windows -target x86_64-coff -fbackend "$backend" \
+        -I "$inst/include" -L "$inst/lib" -L "$mingw/x86_64-w64-mingw32/lib" \
+        "hello-$backend.obj" -lkernel32 -lws2_32 -ladvapi32 -lshell32 -o "hello-$backend.exe"
     set +e
     output="$(wine "./hello-$backend.exe" | tr -d '\r')"
     rc=$?

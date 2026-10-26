@@ -83,7 +83,8 @@ def ensure_deps(root, work):
 
 def compile_and_run(compiler, program, backend, opt, extra, work, root, runtime, stub):
     exe = work / (program.stem + "." + backend + "." + opt)
-    base = [compiler, "-flibdcext", "linux", "-target", "x86_64-elf", "-fbackend=" + backend, "-" + opt]
+    common = [compiler, "-flibdcext", "linux", "-target", "x86_64-elf", "-fbackend=" + backend]
+    base = [*common, "-" + opt]
 
     if any(flag in CHECK_FLAGS for flag in extra):
         obj = work / (program.stem + "." + backend + "." + opt + ".o")
@@ -91,9 +92,7 @@ def compile_and_run(compiler, program, backend, opt, extra, work, root, runtime,
         if code:
             return ("compile-fail", code, out, err)
 
-        lib = root / ("build/lib/libdcext-linux-" + backend + ".a")
-        code, out, err = run(["ld.lld", "-e", "_start", "-u", "_start", obj, stub, runtime, lib, "-o", exe],
-                             cwd=work, timeout=300)
+        code, out, err = run([*common, obj, stub, runtime, "-o", exe], cwd=work, timeout=300)
         if code:
             return ("link-fail", code, out, err)
 

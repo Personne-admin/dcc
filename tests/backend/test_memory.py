@@ -72,20 +72,15 @@ def main():
                     obj = scratch / "test.o"
                     run([dcc, "-target", target, "-flibdcext", os_name, "-fbackend", backend, "-" + opt,
                          *(['-fwhole-program'] if whole else []), '-c', source, '-o', obj])
-                    if windows:
-                        run([cc, "-nostdlib", "-Wl,--entry,_start", "-Wl,--undefined=_start", "-Wl,--subsystem,console", obj, calls,
-                             runtime, *([] if whole else [lib / ("libdcext-windows-" + backend + ".a")]),
-                             "-lkernel32", "-lws2_32", "-ladvapi32", "-lshell32", "-o", exe])
-                        run([os.environ.get("WINE", "wine"), exe])
-                    else:
-                        run(['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start', obj, calls,
-                             runtime, *([] if whole else [lib / ('libdcext-linux-' + backend + '.a')]), '-o', exe])
-                        run([exe])
+                    system = Path(os.environ.get("MINGW_SYSROOT", "/opt/llvm-mingw")) / 'x86_64-w64-mingw32/lib'
+                    system_flags = ['-L', system, '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if windows else []
+                    run([dcc, '-target', target, '-flibdcext', os_name, '-fbackend', backend,
+                         *(['-fwhole-program'] if whole else []), obj, calls, '-L', scratch, '-lmemory-' + backend + opt, *system_flags, '-o', exe])
+                    run([*([os.environ.get("WINE", "wine")] if windows else []), exe])
                     production = scratch / ('production.exe' if windows else 'production')
                     if windows:
-                        archive = lib / ('libdcext-' + os_name + '-' + backend + '.a')
-                        run([cc, '-nostdlib', '-Wl,--entry,_start', '-Wl,--undefined=_start', '-Wl,--subsystem,console',
-                             obj, calls, *([] if whole else [archive]), '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', production])
+                        run([dcc, '-target', target, '-flibdcext', os_name, '-fbackend', backend,
+                             *(['-fwhole-program'] if whole else []), obj, calls, *system_flags, '-o', production])
                         run([os.environ.get('WINE', 'wine'), production])
                     elif whole:
                         run(['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start', obj, calls, '-o', production])

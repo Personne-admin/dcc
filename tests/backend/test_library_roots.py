@@ -41,10 +41,17 @@ def native_mains(dcc, scratch, windows):
                     source.write_text(f'module main;\n@nomangle extern i32 __dc_main(usize argc, const char** argv);\npublic i32 main({signature}) {{ return {expression}; }}\n')
                     obj, exe = scratch / 'main.o', scratch / 'main.exe'
                     run([*flags, '-c', source, '-o', obj])
-                    assert '__dc_main' in run(['nm', '--defined-only', obj])
-                    run([linker(windows), *([] if windows else ['-no-pie']), harness, obj, *archives,
-                         *(['-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if windows else []), '-o', exe])
-                    execute(exe, windows)
+                    assert ('__dc_main' in run(['nm', '--defined-only', obj])) == whole
+                    if whole:
+                        run([linker(windows), *([] if windows else ['-no-pie']), harness, obj, *archives,
+                             *(['-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if windows else []), '-o', exe])
+                        execute(exe, windows)
+                    else:
+                        system = Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw')) / 'x86_64-w64-mingw32/lib'
+                        run([dcc, '-flibdcext', variant, '-target', target, '-fbackend', backend, obj,
+                             *(['-L', system, '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if windows else []), '-o', exe])
+                        result = subprocess.run(['timeout', '60', *([os.environ.get('WINE', 'wine')] if windows else []), str(exe), 'one'], capture_output=True, timeout=65)
+                        assert result.returncode == 42, (result.returncode, result.stderr)
                 source.write_text('module main;\npublic i32 main() { return 0; }\npublic i32 main([] const char* args) { return args.len as i32; }\n')
                 failed([*flags, '-c', source, '-o', obj], 'ambiguous program main', 'i32 main()', 'i32 main([] const char*)', 'main.dc:2', 'main.dc:3')
                 print('  PASS main thunk', variant, backend, opt, 'whole' if whole else 'separate', flush=True)

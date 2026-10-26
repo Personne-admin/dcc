@@ -25,6 +25,7 @@ import dcc.backend.em64t;
 import dcc.backend.i8086;
 import dcc.backend.i8086.link;
 import dcc.backend.object.archive;
+import dcc.backend.object.inspect;
 
 #ifndef _WIN32
 #include <cerrno>
@@ -1021,7 +1022,7 @@ namespace
 
     [[nodiscard]] bool is_object_file(std::filesystem::path const& p)
     {
-        return p.extension() == ".o";
+        return p.extension() == ".o" || p.extension() == ".obj" || p.extension() == ".a";
     }
 
     [[nodiscard]] std::string shell_quote(std::string const& s)
@@ -1208,6 +1209,130 @@ namespace
         return result;
     }
 
+    [[nodiscard]] std::vector<std::byte> final_main_thunk(Options const& opts, dcc::target::TargetConfig target, std::span<std::string const> objects,
+                                                          std::string const& thunk_name)
+    {
+        struct Main
+        {
+            bool args{};
+            bool c_abi{};
+            dcc::ir::CallingConv conv{};
+            std::string symbol;
+            std::string location;
+        };
+        std::vector<Main> mains;
+        for (auto const& object : objects)
+        {
+            if (std::filesystem::path(object).extension() == ".a")
+                continue;
+            for (auto const& section : dcc::backend::object::object_sections(object, ".dccmain"))
+            {
+                std::string_view bytes(section);
+                while (!bytes.empty())
+                {
+                    if (bytes.front() == '\0')
+                    {
+                        bytes.remove_prefix(1);
+                        continue;
+                    }
+                    if (!bytes.starts_with("DCCMAIN1:"))
+                        throw std::runtime_error(std::format("invalid main metadata in '{}'", object));
+                    bytes.remove_prefix(9);
+                    auto number = [&]() {
+                        auto end = bytes.find(':');
+                        unsigned value{};
+                        if (end == std::string_view::npos)
+                            throw std::runtime_error(std::format("invalid main metadata in '{}'", object));
+                        auto parsed = std::from_chars(bytes.data(), bytes.data() + end, value);
+                        if (parsed.ec != std::errc{} || parsed.ptr != bytes.data() + end)
+                            throw std::runtime_error(std::format("invalid main metadata in '{}'", object));
+                        bytes.remove_prefix(end + 1);
+                        return value;
+                    };
+                    auto text = [&]() {
+                        auto end = bytes.find('\0');
+                        if (end == std::string_view::npos)
+                            throw std::runtime_error(std::format("unterminated main metadata in '{}'", object));
+                        std::string value(bytes.substr(0, end));
+                        bytes.remove_prefix(end + 1);
+                        return value;
+                    };
+                    auto args = number(), c_abi = number(), conv = number();
+                    if (args > 1 || c_abi > 1 || conv > static_cast<unsigned>(dcc::ir::CallingConv::Win64))
+                        throw std::runtime_error(std::format("invalid main ABI metadata in '{}'", object));
+                    mains.push_back({args != 0, c_abi != 0, static_cast<dcc::ir::CallingConv>(conv), text(), text() + " in " + object});
+                }
+            }
+        }
+        auto signature = [](Main const& main) { return main.args ? "i32 main([] const char*)" : "i32 main()"; };
+        if (mains.empty())
+            throw std::runtime_error("missing program main: expected i32 main() or i32 main([] const char*)");
+        if (mains.size() != 1)
+            throw std::runtime_error(std::format("ambiguous program main: {}{} and {}{} are both defined", signature(mains[0]), mains[0].location,
+                                                 signature(mains[1]), mains[1].location));
+        auto const& main = mains.front();
+        dcc::ir::IrContext ctx{4096, &target};
+        auto* module = ctx.module("main_thunk");
+        auto* result = ctx.int_t(32, true);
+        auto* count_type = ctx.usize_t();
+        auto* argv_type = ctx.pointer_to(ctx.pointer_to(ctx.int_t(8, false)));
+        auto* slice_type = ctx.slice_t(ctx.pointer_to(ctx.int_t(8, false)));
+        std::array<dcc::ir::IrType const*, 1> main_parameters{slice_type};
+        auto* callee = ctx.function(main.symbol, static_cast<dcc::ir::IrFuncType const*>(
+                                                     ctx.func_t(result, main.args ? std::span(main_parameters) : std::span<dcc::ir::IrType const*>{})));
+        callee->linkage = dcc::ir::Linkage::External;
+        callee->conv = main.conv;
+        if (main.c_abi)
+            callee->attrs.push_back({dcc::ir::IrFuncAttr::NoMangle, {}});
+        module->functions.push_back(callee);
+        std::array<dcc::ir::IrType const*, 2> parameters{count_type, argv_type};
+        auto* thunk = ctx.function(thunk_name, static_cast<dcc::ir::IrFuncType const*>(ctx.func_t(result, parameters)));
+        thunk->linkage = dcc::ir::Linkage::External;
+        thunk->attrs.push_back({dcc::ir::IrFuncAttr::NoMangle, {}});
+        module->functions.push_back(thunk);
+        auto* block = ctx.basic_block("entry", 0);
+        thunk->entry_block = block;
+        thunk->blocks.push_back(block);
+        auto* count = ctx.local("argc", 0, count_type);
+        auto* argv = ctx.local("argv", 1, argv_type);
+        block->params.push_back(count);
+        block->params.push_back(argv);
+        auto* call = ctx.call(result, ctx.func_ref(callee));
+        call->c_abi = main.c_abi;
+        call->cc = main.conv;
+        if (main.args)
+        {
+            auto* slice = ctx.aggregate(slice_type);
+            bool windows = target.os == dcc::target::Os::Windows;
+            slice->values.push_back(windows ? static_cast<dcc::ir::IrValue*>(ctx.null_const(argv_type)) : argv);
+            slice->values.push_back(windows ? static_cast<dcc::ir::IrValue*>(ctx.int_const(count_type, 0)) : count);
+            block->instructions.push_back(slice);
+            call->args.push_back(slice);
+        }
+        block->instructions.push_back(call);
+        block->terminator = ctx.ret(call);
+        dcc::backend::BackendOptions backend_opts;
+        backend_opts.target = target;
+        backend_opts.target.function_sections = true;
+        backend_opts.requested_artifacts = {dcc::backend::ArtifactKind::ObjectBytes};
+        backend_opts.opt_level = dcc::ir::pass::OptLevel::O2;
+        std::unique_ptr<dcc::backend::Backend> backend;
+        if (opts.backend_name == "custom")
+            backend = dcc::backend::make_em64t_backend();
+#if DCC_ENABLE_LLVM
+        else
+            backend = dcc::backend::make_llvm_backend();
+#endif
+        if (!backend)
+            throw std::runtime_error("selected backend is unavailable for main thunk generation");
+        auto artifact = backend->emit(*module, backend_opts);
+        if (!dcc::backend::validate_requested_artifacts(backend_opts.requested_artifacts, artifact))
+            throw std::runtime_error(std::format("main thunk generation failed: {}", artifact.diagnostics.front().message));
+        if (opts.print_reachability)
+            std::println("reachability: {} <- final link main {}{}", thunk_name, main.symbol, main.location);
+        return std::move(*artifact.object_bytes);
+    }
+
     [[nodiscard]] bool links_hosted_libc(Options const& opts)
     {
         for (auto const& lib : opts.libraries)
@@ -1227,8 +1352,8 @@ namespace
         if (!opts.entry_symbol.empty())
             args.push_back(std::format("--entry={}", opts.entry_symbol));
 
-        if (opts.gc_sections)
-            args.emplace_back("--gc-sections");
+        if (opts.gc_sections_explicit || !opts.shared_library)
+            args.emplace_back((opts.gc_sections_explicit ? opts.gc_sections : true) ? "--gc-sections" : "--no-gc-sections");
 
         for (auto const& extra : opts.linker_args)
             args.push_back(extra);
@@ -1378,15 +1503,7 @@ namespace
         if (!i8086_link_options(opts, target))
             return 1;
 
-        if (target.object_format == dcc::target::ObjectFormat::Coff)
-        {
-            std::println(std::cerr,
-                         "dcc: error: link mode does not support COFF targets (target: '{}'); executable linking is currently only supported for x86_64-elf",
-                         target.triple);
-            return 1;
-        }
-
-        if (target.triple != "x86_64-elf")
+        if (target.triple != "x86_64-elf" && target.triple != "x86_64-coff")
         {
             std::println(std::cerr, "dcc: error: executable linking is currently only supported for x86_64-elf (target: '{}')", target.triple);
             return 1;
@@ -1401,6 +1518,12 @@ namespace
             if (ec)
             {
                 std::println(std::cerr, "dcc: error: cannot find input file '{}'", in.string());
+                return 1;
+            }
+            if (canon.extension() != ".a" && !dcc::backend::object::object_matches_target(canon, target.object_format == dcc::target::ObjectFormat::Coff))
+            {
+                std::println(std::cerr, "dcc: error: incompatible input '{}': not an {} object for target '{}'", in.string(),
+                             target.object_format == dcc::target::ObjectFormat::Coff ? "x86_64 COFF" : "x86_64 ELF", target.triple);
                 return 1;
             }
             objects.push_back(canon.string());
@@ -1425,7 +1548,52 @@ namespace
         if (opts.libdcext && !opts.whole_program && !require_libdcext_archive(opts, target, prefix))
             return 1;
 
-        std::string cmd = "ld.lld --static --no-dynamic-linker --fatal-warnings -o ";
+        struct ThunkCleanup
+        {
+            std::filesystem::path path;
+            ~ThunkCleanup()
+            {
+                std::error_code error;
+                if (!path.empty())
+                    std::filesystem::remove(path, error);
+            }
+        } cleanup;
+        if (opts.libdcext && !opts.whole_program && target.os != dcc::target::Os::Freestanding)
+        {
+            try
+            {
+                std::vector<std::filesystem::path> roots(opts.import_paths.begin(), opts.import_paths.end());
+                roots.push_back(prefix / "include");
+                for (auto const& root : roots)
+                    if (std::filesystem::exists(root / "libdcext.manifest"))
+                    {
+                        auto manifest = dcc::library::read_manifest(root / "libdcext.manifest", target.os);
+                        if (!manifest.startup.empty() && (opts.entry_symbol.empty() || opts.entry_symbol == manifest.startup) &&
+                            !std::ranges::any_of(objects, [&](auto const& object) {
+                                return std::filesystem::path(object).extension() != ".a" && dcc::backend::object::object_defines(object, manifest.startup);
+                            }))
+                        {
+                            auto bytes = final_main_thunk(opts, target, objects, manifest.main);
+                            cleanup.path = std::filesystem::temp_directory_path() /
+                                           std::format("dcc-main-{}.o", std::chrono::steady_clock::now().time_since_epoch().count());
+                            std::ofstream output(cleanup.path, std::ios::binary);
+                            output.write(reinterpret_cast<char const*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+                            output.close();
+                            if (!output)
+                                throw std::runtime_error("cannot write main thunk object");
+                            objects.push_back(cleanup.path.string());
+                        }
+                        break;
+                    }
+            }
+            catch (std::exception const& error)
+            {
+                std::println(std::cerr, "dcc: error: {}", error.what());
+                return 1;
+            }
+        }
+        bool const windows = target.object_format == dcc::target::ObjectFormat::Coff;
+        std::string cmd = windows ? "ld.lld -m i386pep --subsystem console --entry _start -o " : "ld.lld --static --no-dynamic-linker --fatal-warnings -o ";
         cmd += shell_quote(output_path.string());
         for (auto const& obj : objects)
         {
@@ -1754,8 +1922,11 @@ auto main(int argc, char** argv) -> int
                                                                  &sema->types(), opts.restricted_check, opts.partial_eval, opts.far_check);
         if (opts.libdcext)
         {
-            lowerer->set_library_manifest(manifest, compile_opts.target, compile_opts.target.os != dcc::target::Os::Freestanding && !opts.shared_library);
+            lowerer->set_library_manifest(manifest, compile_opts.target,
+                                          compile_opts.target.os != dcc::target::Os::Freestanding && !opts.shared_library &&
+                                              (opts.whole_program || (!opts.compile_only && !opts.emit_asm_only)));
         }
+        lowerer->set_emit_main_metadata(opts.compile_only || opts.emit_asm_only);
         lowerer->set_auto_var_init(opts.auto_var_init);
         lowerer->set_whole_program(opts.whole_program);
         lowerer->set_entry_symbol(opts.entry_symbol);

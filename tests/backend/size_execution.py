@@ -34,9 +34,8 @@ def native(dcc, scratch, windows, source):
                 if windows:
                     run([*flags, '-c', source, '-o', obj])
                     mingw = Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw'))
-                    archives = [] if whole else [dcc.parent.parent / 'lib' / ('libdcext-' + variant + '-' + backend + '.a')]
-                    run([mingw / 'bin/x86_64-w64-mingw32-clang', '-nostdlib', '-Wl,--entry,_start',
-                         '-Wl,--subsystem,console', obj, *archives,
+                    run([dcc, '-target', target, '-flibdcext', variant, '-fbackend', backend,
+                         *(['-fwhole-program'] if whole else []), '-L', mingw / 'x86_64-w64-mingw32/lib', obj,
                          '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', exe])
                     run([os.environ.get('WINE', 'wine'), exe])
                 else:

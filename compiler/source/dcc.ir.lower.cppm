@@ -38,6 +38,7 @@ export namespace dcc::ir::lower
             m_generate_main_thunk = main_thunk;
         }
 
+        void set_emit_main_metadata(bool enabled) noexcept { m_emit_main_metadata = enabled; }
         void set_auto_var_init(ir::AutoVarInit mode) noexcept { m_auto_var_init = mode; }
         void set_whole_program(bool enabled) noexcept { m_whole_program = enabled; }
         void set_entry_symbol(std::string_view symbol) { m_entry_symbol = std::string{symbol}; }
@@ -88,7 +89,7 @@ export namespace dcc::ir::lower
             for (auto const* defined : m_defined_modules)
                 lower_module_asms(*defined);
 
-            if (m_generate_main_thunk && !library_module(mod))
+            if ((m_generate_main_thunk || (m_emit_main_metadata && !m_whole_program)) && !library_module(mod))
                 lower_main_thunk(mod);
             if (m_whole_program && !m_library.sources.empty())
                 for (auto* global : m_module->globals)
@@ -7719,6 +7720,7 @@ export namespace dcc::ir::lower
         library::Manifest m_library;
         target::TargetConfig m_library_target;
         bool m_generate_main_thunk{};
+        bool m_emit_main_metadata{};
         IrFunction* m_main_thunk{};
         std::unordered_set<IrModuleAsm*> m_library_asms;
         bool m_whole_program{false};
@@ -7994,14 +7996,39 @@ export namespace dcc::ir::lower
                 }
                 else if (!function->params.empty())
                     continue;
-                if (chosen)
+                if (m_emit_main_metadata && !m_whole_program)
+                {
+                    auto* target_function = m_func_map.at(function);
+                    target_function->linkage = Linkage::External;
+                    auto location = fmt_loc(function->range);
+                    if (m_source_manager)
+                        if (auto const* file = m_source_manager->get(function->range.begin.fileId))
+                            location = std::format(" at {}:{}", m_source_manager->map_output_path(file->path().string()), target_function->decl_line);
+                    auto record =
+                        std::format("DCCMAIN1:{}:{}:{}:", args ? 1 : 0, function->sema.is_nomangle ? 1 : 0, static_cast<unsigned>(target_function->conv));
+                    record += target_function->name;
+                    record.push_back('\0');
+                    record += location;
+                    record.push_back('\0');
+                    auto* type = m_ctx.array_t(m_ctx.int_t(8, false), record.size());
+                    auto* value = m_ctx.aggregate(type);
+                    for (char c : record)
+                        value->values.push_back(m_ctx.int_const(m_ctx.int_t(8, false), static_cast<unsigned char>(c)));
+                    m_name_pool.push_back(std::format("__dcc_main_info_{}", target_function->name));
+                    auto* info = m_ctx.global(m_name_pool.back(), type, value, true);
+                    info->linkage = Linkage::External;
+                    info->section = ".dccmain";
+                    info->alignment = 1;
+                    m_module->globals.push_back(info);
+                }
+                if (chosen && (m_generate_main_thunk || !m_library.sources.empty()))
                     throw LowerDiagnostic(std::format("ambiguous program main: {}{} and {}{} are both defined",
                                                       takes_args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(chosen->range),
                                                       args ? "i32 main([] const char*)" : "i32 main()", fmt_loc(function->range)));
                 chosen = function;
                 takes_args = args;
             }
-            if (!chosen)
+            if (!chosen || !m_generate_main_thunk)
                 return;
             auto* target_function = m_func_map.at(chosen);
             auto* count_type = m_ctx.usize_t();

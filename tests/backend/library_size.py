@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import struct
 import sys
+from process_output import run_output
 
 ROOT = Path(__file__).resolve().parents[2]
 PROGRAMS = ROOT / 'tests/stdlib/library-size'
@@ -163,8 +164,15 @@ def main():
             command = ['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start',
                        '--gc-sections' if gc else '--no-gc-sections', '-Map=' + str(link_map), obj,
                        *([] if whole else [archive]), '-o', exe]
-        run(command)
-        stdout = run(['timeout', '60', *([os.environ.get('WINE', 'wine')] if args.windows else []), exe], cwd=work)
+        if not whole:
+            command = [dcc, '-target', target, '-flibdcext', variant, '-fbackend', backend,
+                       '-L', archive.parent, obj, '--gc-sections' if gc else '--no-gc-sections',
+                       '-Wl,-Map,' + str(link_map), '--print-reachability',
+                       *(['-L', Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw')) / 'x86_64-w64-mingw32/lib',
+                          '-Wl,--no-insert-timestamp', '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if args.windows else []), '-o', exe]
+        linked = run(command)
+        (work / 'link-reachability.log').write_text(linked)
+        stdout = run_output(['timeout', '60', *([os.environ.get('WINE', 'wine')] if args.windows else []), exe], cwd=work)
         expected = {'hello': 'hello\n', 'integer': '12345:-17\n'}.get(program.stem, '')
         assert stdout == expected, (key, repr(stdout), repr(expected))
         data = inspect(exe)

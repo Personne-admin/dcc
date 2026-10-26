@@ -49,8 +49,9 @@ namespace os_test
             std::ofstream f{src};
             f << source;
         }
-        std::string command = quote(root / "bin/dcc") + " -flibdcext " + (windows ? "windows -target x86_64-coff -c" : "linux -target x86_64-elf") + " -o " +
-                              quote(windows ? obj : exe) + " " + quote(src) + " " + std::string(flags);
+        std::string command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext " +
+                              (windows ? "windows -target x86_64-coff -c" : "linux -target x86_64-elf") + " -o " + quote(windows ? obj : exe) + " " +
+                              quote(src) + " " + std::string(flags);
 
         if (std::system(command.c_str()) != 0)
             return {-1, {}, "compilation failed"};
@@ -59,8 +60,8 @@ namespace os_test
         {
             auto env = std::getenv("MINGW_SYSROOT");
             auto mingw = std::filesystem::path{env ? env : "/opt/llvm-mingw"};
-            command = quote(mingw / "bin/x86_64-w64-mingw32-clang") + " -nostdlib -Wl,--entry,_start -Wl,--subsystem,console -o " + quote(exe) + " " +
-                      quote(obj) + " " + quote(root / "lib/libdcext-windows-llvm.a") + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
+            command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext windows -target x86_64-coff -o " + quote(exe) + " " + quote(obj) + " -L" +
+                      quote(mingw / "x86_64-w64-mingw32/lib") + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
 
             if (std::system(command.c_str()) != 0)
                 return {-1, {}, "link failed"};
@@ -114,8 +115,8 @@ namespace os_test
             }
             auto obj = dir / (module.name + ".o");
             std::string const module_backend = module.backend.empty() ? std::string(backend) : module.backend;
-            std::string command = quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + module_backend + " " + module.flags +
-                                  " -I" + quote(dir) + " -c -o " + quote(obj) + " " + quote(src);
+            std::string command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext " + os + " -target " + target + " -fbackend " + module_backend + " " +
+                                  module.flags + " -I" + quote(dir) + " -c -o " + quote(obj) + " " + quote(src);
             if (module.name.ends_with(".c"))
             {
                 auto env = std::getenv("MINGW_SYSROOT");
@@ -134,11 +135,12 @@ namespace os_test
         {
             auto env = std::getenv("MINGW_SYSROOT");
             auto mingw = std::filesystem::path{env ? env : "/opt/llvm-mingw"};
-            command = quote(mingw / "bin/x86_64-w64-mingw32-clang") + " -nostdlib -Wl,--entry,_start -Wl,--subsystem,console -o " + quote(exe) + objects + " " +
-                      quote(root / std::format("lib/libdcext-windows-{}.a", backend)) + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
+            command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext windows -target x86_64-coff -fbackend " + std::string(backend) + " -o " +
+                      quote(exe) + objects + " -L" + quote(mingw / "x86_64-w64-mingw32/lib") + " -lkernel32 -lws2_32 -ladvapi32 -lshell32";
         }
         else
-            command = quote(root / "bin/dcc") + " -flibdcext linux -target x86_64-elf -fbackend " + std::string(backend) + " -o " + quote(exe) + objects;
+            command = "timeout 60 " + quote(root / "bin/dcc") + " -flibdcext linux -target x86_64-elf -fbackend " + std::string(backend) + " -o " + quote(exe) +
+                      objects;
 
         if (std::system(command.c_str()) != 0)
             return {-1, {}, "link failed"};

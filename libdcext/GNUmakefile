@@ -42,9 +42,7 @@ endif
 MANIFEST_PROFILES := all $(TARGET_OS) $(if $(filter freestanding,$(TARGET_OS)),,hosted)
 DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '($$1 == "source" || $$1 == "runtime") && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
 RUNTIME_DC_SRCS := $(addprefix $(TOPLEVEL)/libdcext/,$(shell awk '$$1 == "runtime" && index(" $(MANIFEST_PROFILES) ", " " $$2 " ") {print $$4}' $(MANIFEST)))
-ifeq ($(TARGET),x86_64-freestanding)
-  LIBDCEXT_TARGET_FLAGS += -ffunction-sections -fdata-sections
-endif
+override LIBDCEXT_TARGET_FLAGS += -ffunction-sections -fdata-sections
 
 DC_OBJS := $(call objs-from-srcs,$(DC_SRCS))
 RUNTIME_DC_OBJS := $(call objs-from-srcs,$(RUNTIME_DC_SRCS))

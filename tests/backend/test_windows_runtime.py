@@ -133,9 +133,14 @@ def main():
                             if args.windows:
                                 library = no_float_lib if no_float else dcc.parent.parent / 'lib'
                                 archives = [] if whole else [library / ('libdcext-windows-' + backend + '.a')]
-                                run([mingw / 'bin/x86_64-w64-mingw32-clang', '-nostdlib', '-Wl,--entry,_start',
-                                     '-Wl,--undefined,_start', '-Wl,--subsystem,console', obj, *archives,
-                                     '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', exe])
+                                if whole:
+                                    run([mingw / 'bin/x86_64-w64-mingw32-clang', '-nostdlib', '-Wl,--entry,_start',
+                                         '-Wl,--undefined,_start', '-Wl,--subsystem,console', obj,
+                                         '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', exe])
+                                else:
+                                    run([dcc, '-flibdcext', 'windows', '-target', 'x86_64-coff', '-fbackend', backend,
+                                         '-L', library, '-L', mingw / 'x86_64-w64-mingw32/lib', obj,
+                                         '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', exe])
                                 execute(exe, 0)
                     print('  PASS Windows runtime', backend, opt, 'whole' if whole else 'separate', 'execution' if args.windows else 'COFF', flush=True)
     print('  RESULT Windows DC runtime, startup contract, production probe, both mains and float profiles passed')

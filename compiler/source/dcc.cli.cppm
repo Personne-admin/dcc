@@ -81,6 +81,7 @@ export namespace dcc::cli
         std::string entry_symbol;
         bool print_reachability{false};
         bool gc_sections{false};
+        bool gc_sections_explicit{false};
         std::optional<std::string> link_base;
         std::optional<std::string> stack_reserve;
         bool print_linker_script{false};
@@ -529,8 +530,8 @@ export namespace dcc::cli
          Arg::None,
          "",
          {},
-         Phase::Compile,
-         "print why each whole-program function and global was kept or dropped",
+         Phase::Both,
+         "print whole-program reachability or final-link main selection",
          "",
          [](Options& o, bool, std::string_view, char**) { o.print_reachability = true; }},
 
@@ -575,8 +576,8 @@ export namespace dcc::cli
          {},
          Phase::Both,
          "discard unreferenced sections",
-         "off",
-         [](Options& o, bool on, std::string_view, char**) { o.gc_sections = on; }},
+         "on for executables",
+         [](Options& o, bool on, std::string_view, char**) { o.gc_sections = on; o.gc_sections_explicit = true; }},
 
         {"-Wl,",
          "",

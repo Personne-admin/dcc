@@ -1034,25 +1034,12 @@ def main():
             str(objs[("callee", callee)]),
         ]
         if windows:
-            link = (
-                cc
-                + [
-                    "-nostdlib",
-                    "-Wl,--entry,_start",
-                    "-Wl,--subsystem,console",
-                    "-o",
-                    str(exe),
-                ]
-                + objects
-                + [
-                    str(build / "lib/libdcext-windows-llvm.a"),
-                    compiler_builtins,
-                    "-lkernel32",
-                    "-lws2_32",
-                    "-ladvapi32",
-                    "-lshell32",
-                ]
-            )
+            link = [
+                str(dcc), "-flibdcext", "windows", "-target", "x86_64-coff",
+                "-L", str(mingw / "x86_64-w64-mingw32/lib"), "-o", str(exe),
+                *objects, "-Wl," + compiler_builtins,
+                "-lkernel32", "-lws2_32", "-ladvapi32", "-lshell32",
+            ]
             cmd = [wine, str(exe)]
         else:
             link = [
@@ -1066,7 +1053,7 @@ def main():
             ] + objects
             cmd = [str(exe)]
         try:
-            run(link)
+            run(["timeout", "60", *link])
             r = subprocess.run(
                 ["timeout", "60"] + cmd,
                 capture_output=True,

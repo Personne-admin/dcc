@@ -154,11 +154,9 @@ public i32 main([] const char* args) {
         for backend in ('llvm', 'custom'):
             obj, exe = root / 'separate.o', root / ('separate.exe' if args.windows else 'separate')
             run([dcc, '-target', target, '-flibdcext', variant, '-fbackend', backend, '-O2', '-c', source, '-o', obj])
-            if args.windows:
-                run([cc, '-nostdlib', '-Wl,--entry,_start', '-Wl,--undefined,_start', '-Wl,--subsystem,console', obj,
-                     root / 'lib' / ('libdcext-windows-' + backend + '.a'), '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', exe])
-            else:
-                run([dcc, '-flibdcext', variant, '-fbackend', backend, obj, '-o', exe])
+            system = Path(os.environ.get('MINGW_SYSROOT', '/opt/llvm-mingw')) / 'x86_64-w64-mingw32/lib'
+            run([dcc, '-flibdcext', variant, '-target', target, '-fbackend', backend, obj,
+                 *(['-L', system, '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if args.windows else []), '-o', exe])
             execute(exe, args.windows)
     print('  RESULT installed source-only and archive-only runtime consumers passed')
 
