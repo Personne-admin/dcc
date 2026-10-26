@@ -1,0 +1,22 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+struct Tuple(T...) { T... items; }
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+Tuple(T, T) pair(T)(T a, T b) { return {(a), (b)}; }
+Tuple(A, B) mixed(A, B)(A a, B b) { return {(a), (b)}; }
+@nomangle
+public i32 dcc_main() {
+    if pair(4, 5).items.1 != 5 { return 1; }
+    Tuple(i32, bool) m = mixed(4 as i32, true);
+    if m.items.0 != 4 || !m.items.1 { return 2; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0

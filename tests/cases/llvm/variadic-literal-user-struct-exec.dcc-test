@@ -1,0 +1,21 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+struct Tuple(T...) { T... items; }
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+struct Mine(T...) { u8 k; T... v; }
+Mine(i32, i64) make() { return {1, 2, 3}; }
+@nomangle
+public i32 dcc_main() {
+    Mine(i32, i64) m = make();
+    if m.k != 1 || m.v.0 != 2 || m.v.1 != 3 { return 1; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0

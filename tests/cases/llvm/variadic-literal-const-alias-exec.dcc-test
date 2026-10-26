@@ -1,0 +1,19 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+struct Tuple(T...) { T... items; }
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+const Tuple(i32, i32) CT = {11, 12};
+@nomangle
+public i32 dcc_main() {
+    if CT.items.0 != 11 || CT.items.1 != 12 { return 1; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0

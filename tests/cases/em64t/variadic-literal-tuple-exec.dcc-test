@@ -1,0 +1,20 @@
+=== FILE: test.dc ===
+module test;
+import std::tuple;
+using std::tuple::Tuple;
+
+Tuple([]const char, bool) make([]const char s) {
+    return {s, true};
+}
+
+@nomangle
+public i32 dcc_main() {
+    Tuple([]const char, bool) t = make("abc");
+    if t.items.0.len != 3 || !t.items.1 { return 1; }
+    Tuple(i32, i64) u = {3, 4};
+    if u.items.0 != 3 || u.items.1 != 4 { return 2; }
+    return 0;
+}
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+LINK-STD: true

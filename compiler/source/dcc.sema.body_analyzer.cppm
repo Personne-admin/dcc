@@ -7093,7 +7093,13 @@ export namespace dcc::sema
             switch (ty->kind)
             {
                 case types::TypeKind::Struct: {
-                    auto const* st = static_cast<types::StructType const*>(ty);
+                    auto* st = static_cast<types::StructType*>(const_cast<types::Type*>(ty));
+                    if (!st->has_expansion && (!st->template_args.empty() || st->is_specialization))
+                    {
+                        auto const* sd = reinterpret_cast<ast::StructDecl const*>(st->decl);
+                        if (sd && !sd->template_params.empty() && sd->template_params.back().is_pack)
+                            complete_templated_struct(m_types, m_alloc, st);
+                    }
                     if (st->has_expansion)
                     {
                         fields.reserve(st->expanded_field_count);

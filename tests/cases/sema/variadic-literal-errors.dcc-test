@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module m;
+struct Tuple(T...) { T... items; }
+
+struct Mine(T...) { u8 k; T... v; }
+
+Tuple(i32, i64) few() { return {1}; }
+Tuple(i32, i64) many() { return {1, 2, 3}; }
+Tuple(i32, i64) bad() { return {1, "x"}; }
+Mine(i32) mfew() { return {1}; }
+Mine(i32) mmany() { return {1, 2, 3}; }
+Mine(i32) mbad() { return {1, true}; }
+
+=== EXPECT-ERRORS ===
+:6: missing initializer for field `items` in struct literal
+:7: too many positional fields in brace literal
+:8: field `items` type mismatch: expected `i64`, got `[]const char`
+:9: missing initializer for field `v` in struct literal
+:10: too many positional fields in brace literal
+:11: field `v` type mismatch: expected `i32`, got `bool`

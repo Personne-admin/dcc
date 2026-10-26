@@ -1,0 +1,21 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+
+struct Tuple(T...) { T... items; }
+
+Tuple(i16, u8) make(i16 a) {
+    return {a, 7};
+}
+
+@nomangle
+public i32 dcc_main() {
+    Tuple(i16, u8) t = make(5);
+    if t.items.0 != 5 || t.items.1 != 7 { return 1; }
+    t = {9, 2};
+    if t.items.0 != 9 || t.items.1 != 2 { return 2; }
+    return 0;
+}
+
+=== EXPECT-I8086-RUN ===
+RUN-EXIT: 0
