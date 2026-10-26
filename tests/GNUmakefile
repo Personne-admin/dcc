@@ -24,6 +24,7 @@ test-linux: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_opt_size.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_process_output.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py linux
 	$(Q)$<
@@ -37,6 +38,7 @@ test-win: $(BUILD_DIR)/bin/tests/test_stdlib_os_integration
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_opt_size.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_process_output.py
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)WINEDEBUG=-all WINE="$(WINE)" MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/backend/test_memory.py $(BUILD_DIR)/bin/dcc --windows
 	$(Q)MINGW_SYSROOT="$(MINGW_SYSROOT)" $(PYTHON) $(TOPLEVEL)/tests/stdlib/check_abi.py win
@@ -133,6 +135,7 @@ test: $(ALL_TEST_BINS) test-lsp-diagnostics
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_module_relocations.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_opt_size.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_nomangle_reachability.py $(BUILD_DIR)/bin/dcc
+	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_process_output.py
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_library_roots.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_os_gating.py $(BUILD_DIR)/bin/dcc
 	$(Q)$(PYTHON) $(TOPLEVEL)/tests/backend/test_freestanding.py $(BUILD_DIR)/bin/dcc

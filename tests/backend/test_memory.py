@@ -5,13 +5,11 @@ import os
 import subprocess
 import sys
 import tempfile
+from process_output import run_output
 
 
 def run(command):
-    result = subprocess.run(["timeout", "60", *map(str, command)], capture_output=True, text=True, timeout=65)
-    if result.returncode:
-        raise RuntimeError("%s\n%s%s" % (command, result.stdout, result.stderr))
-    return result.stdout
+    return run_output(["timeout", "60", *map(str, command)])
 
 
 def check_memory(archive, scratch):
