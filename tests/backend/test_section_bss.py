@@ -21,6 +21,16 @@ with tempfile.TemporaryDirectory(prefix='dcc-section-bss-') as temporary:
             for opt in ('O0', 'O2'):
                 obj, exe = root / 'test.o', root / 'test.exe'
                 run([args.dcc, '-target', target, '-fbackend', backend, '-' + opt, '-fdata-sections', '-c', source, '-o', obj])
+                whole_obj = root / 'whole.o'
+                run([args.dcc, '-target', target, '-fbackend', backend, '-' + opt,
+                     '-fwhole-program', '-c', source, '-o', whole_obj])
+                sections = run(['objdump', '-h', whole_obj])
+                assert '.text.' in sections or '.text$' in sections, sections
+                assert '.bss.' in sections or '.bss$' in sections or (target.endswith('coff') and sections.count('.bss ') >= 2), sections
+                run([args.dcc, '-target', target, '-fbackend', backend, '-' + opt,
+                     '-fwhole-program', '-fno-function-sections', '-fno-data-sections', '-c', source, '-o', whole_obj])
+                sections = run(['objdump', '-h', whole_obj])
+                assert '.text.address' not in sections, sections
                 assert obj.stat().st_size < 8192, (target, backend, obj.stat().st_size)
                 if target.endswith('coff'):
                     data = obj.read_bytes()

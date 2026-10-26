@@ -1823,8 +1823,9 @@ auto main(int argc, char** argv) -> int
     compile_opts.injected_decls = std::move(opts.injected_decls);
 
     compile_opts.target = resolve_target_or_exit(opts);
-    compile_opts.target.function_sections = opts.function_sections;
-    compile_opts.target.data_sections = opts.data_sections;
+    bool const whole_program_sections = opts.whole_program && compile_opts.target.arch == dcc::target::Arch::X86_64;
+    compile_opts.target.function_sections = opts.function_sections_explicit ? opts.function_sections : whole_program_sections;
+    compile_opts.target.data_sections = opts.data_sections_explicit ? opts.data_sections : whole_program_sections;
     compile_opts.target.no_simd = !opts.simd;
     compile_opts.target.no_x87 = !opts.x87;
 
@@ -1954,8 +1955,8 @@ auto main(int argc, char** argv) -> int
             phase_start = std::chrono::steady_clock::now();
             dcc::target::TargetConfig target = resolve_target_or_exit(opts);
 
-            target.function_sections = opts.function_sections;
-            target.data_sections = opts.data_sections;
+            target.function_sections = compile_opts.target.function_sections;
+            target.data_sections = compile_opts.target.data_sections;
             target.no_red_zone = !opts.red_zone;
             target.no_simd = !opts.simd;
             target.no_x87 = !opts.x87;

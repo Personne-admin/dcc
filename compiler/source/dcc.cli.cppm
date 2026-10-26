@@ -59,7 +59,9 @@ export namespace dcc::cli
         dcc::target::LibdcextOs libdcext_os{dcc::target::LibdcextOs::Host};
         std::string target_triple;
         bool function_sections{false};
+        bool function_sections_explicit{false};
         bool data_sections{false};
+        bool data_sections_explicit{false};
         bool red_zone{true};
         bool simd{true};
         bool x87{true};
@@ -354,9 +356,9 @@ export namespace dcc::cli
          [](Options& o, bool on, std::string_view, char**) { o.red_zone = on; }},
 
         {"-ffunction-sections", "-fno-function-sections", {}, Arg::None, "", {}, Phase::Compile, "per-function sections", "off",
-         [](Options& o, bool on, std::string_view, char**) { o.function_sections = on; }},
+         [](Options& o, bool on, std::string_view, char**) { o.function_sections = on; o.function_sections_explicit = true; }},
         {"-fdata-sections", "-fno-data-sections", {}, Arg::None, "", {}, Phase::Compile, "per-global sections", "off",
-         [](Options& o, bool on, std::string_view, char**) { o.data_sections = on; }},
+         [](Options& o, bool on, std::string_view, char**) { o.data_sections = on; o.data_sections_explicit = true; }},
 
         {"-ftrivial-auto-var-init",
          "",
