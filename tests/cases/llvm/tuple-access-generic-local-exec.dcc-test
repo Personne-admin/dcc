@@ -1,0 +1,29 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+struct Tuple(T...) { T... items; }
+i32 acc = 0;
+Tuple(i32, i64) pair(i32 s) { return {s, 2}; }
+i32 first(Tuple(i32, i64) t) { return t.0; }
+i32 viaptr(Tuple(i32, i64)* t) { return t.0 + (t.1 as i32); }
+void run(Args...)(i32 s, Args args) {
+    static for arg in args {
+        Tuple(i32, i64) r = pair(s);
+        acc += r.0 + (r.1 as i32);
+    }
+}
+@nomangle
+public i32 dcc_main() {
+    run(5, 1, 2);
+    if acc != 14 { return 1; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0

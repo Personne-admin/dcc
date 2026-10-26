@@ -8548,6 +8548,22 @@ export namespace dcc::sema
             return callee_body_within_fold_budget(*fn);
         }
 
+        void report_unresolved_pack_accesses(ast::Block const& body)
+        {
+            struct Finder : ast::RecursiveAstVisitor
+            {
+                BodyAnalyzer& ba;
+                explicit Finder(BodyAnalyzer& b) : ba(b) {}
+                void visitPackAccessExpr(ast::PackAccessExpr const* e) override
+                {
+                    if (!e->has_resolved_field_index)
+                        ba.error(e->range, "pack element access could not be resolved");
+                    ast::RecursiveAstVisitor::visitPackAccessExpr(e);
+                }
+            } finder{*this};
+            finder.visitBlock(body);
+        }
+
         void analyze_function(ModuleInfo& mod, ast::FuncDecl& fn)
         {
             if (fn.sema.storage != ast::StorageClass::Unresolved)
@@ -8635,6 +8651,7 @@ export namespace dcc::sema
 
             if (fn.body)
             {
+                auto const errors_before = m_diag.error_count();
                 auto ret_ty = fn.return_type ? get_canonical(fn.return_type->sema) : m_types.m_voidt();
                 auto res = analyze_block(mod, &fn, *root, *fn.body, 0, frame_off, nullptr, root_consts, ret_ty == m_types.m_voidt());
                 fn.sema.is_diverging = !res.falls_through;
@@ -8642,6 +8659,8 @@ export namespace dcc::sema
                     error(fn.range, "noreturn function `{}` can return", fn.name);
                 if (ret_ty && ret_ty != m_types.m_voidt() && res.falls_through && !fn.body->tail)
                     error(fn.range, "missing return in function `{}`", fn.name);
+                if (fn.template_params.empty() && m_diag.error_count() == errors_before)
+                    report_unresolved_pack_accesses(*fn.body);
             }
 
             fn.sema.storage = ast::StorageClass::ModuleGlobal;

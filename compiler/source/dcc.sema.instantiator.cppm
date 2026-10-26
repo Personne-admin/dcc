@@ -4140,10 +4140,6 @@ export namespace dcc::sema
                 {
                     if (!e)
                         return;
-                    if (e->kind == ast::ExprKind::PackAccess && !static_cast<ast::PackAccessExpr const*>(e)->has_resolved_field_index &&
-                        (!static_cast<ast::PackAccessExpr const*>(e)->object ||
-                         static_cast<ast::PackAccessExpr const*>(e)->object->kind != ast::ExprKind::FieldAccess))
-                        d->error(e->range, "internal error: PackAccessExpr survived into lowerable code");
                     check_canon(e->range, get_resolved_type(e->sema), "expr type");
                     switch (e->kind)
                     {
