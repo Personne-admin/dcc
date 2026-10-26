@@ -23,9 +23,9 @@ export namespace dcc::session
     struct CompileOptions
     {
         std::vector<std::filesystem::path> import_roots;
+        std::vector<std::pair<std::string, std::filesystem::path>> library_sources;
         bool inject_libdcext_prelude{false};
         bool inject_assert_import{false};
-        bool inject_runtime_support_imports{false};
         std::size_t arena_initial_size{256 * 1024};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
         std::vector<std::string> injected_decls;
@@ -135,25 +135,6 @@ export namespace dcc::session
                 }
             }
 
-            if (m_runtime_imports_enabled && tu && file->path() == m_entry_path)
-            {
-                auto inject_runtime_import = [&](std::string_view first, std::string_view second, std::string_view third) {
-                    auto expected = std::format("{}::{}::{}", first, second, third);
-                    for (auto* imp : tu->imports)
-                        if (auto* import = ast::node_cast<ast::ImportDecl>(imp); import && sema::ModulePath::from_ast(import->module_path).str() == expected)
-                            return;
-
-                    auto alloc = ast.allocator();
-                    ast::Path path{alloc};
-                    path.segments.push_back({m_interner.intern(first), sm::SourceRange{}});
-                    path.segments.push_back({m_interner.intern(second), sm::SourceRange{}});
-                    path.segments.push_back({m_interner.intern(third), sm::SourceRange{}});
-                    tu->imports.push_back(ast.make<ast::ImportDecl>(sm::SourceRange{}, std::move(path), sm::SourceRange{}, alloc));
-                };
-
-                inject_runtime_import("std", "os", "process");
-                inject_runtime_import("std", "os", "thread");
-            }
 
             return tu;
         }
@@ -164,7 +145,6 @@ export namespace dcc::session
             m_entry_path = entry_path;
             m_prelude_enabled = opts.inject_libdcext_prelude;
             m_assert_import_enabled = opts.inject_assert_import;
-            m_runtime_imports_enabled = opts.inject_runtime_support_imports;
 
             m_sema.reset();
             m_ast_ctx = std::make_unique<ast::AstContext>(opts.arena_initial_size);
@@ -173,6 +153,7 @@ export namespace dcc::session
             sema::SemaOptions sopts;
             sopts.arena_initial_size = opts.arena_initial_size;
             sopts.import_roots = opts.import_roots;
+            sopts.library_sources = opts.library_sources;
             sopts.interner = &m_interner;
             sopts.target = opts.target;
             sopts.injected_decls = opts.injected_decls;
@@ -205,7 +186,6 @@ export namespace dcc::session
             m_entry_path.clear();
             m_prelude_enabled = opts.inject_libdcext_prelude;
             m_assert_import_enabled = opts.inject_assert_import;
-            m_runtime_imports_enabled = opts.inject_runtime_support_imports;
 
             m_sema.reset();
             m_ast_ctx = std::make_unique<ast::AstContext>(opts.arena_initial_size);
@@ -214,6 +194,7 @@ export namespace dcc::session
             sema::SemaOptions sopts;
             sopts.arena_initial_size = opts.arena_initial_size;
             sopts.import_roots = opts.import_roots;
+            sopts.library_sources = opts.library_sources;
             sopts.interner = &m_interner;
             sopts.target = opts.target;
             sopts.injected_decls = opts.injected_decls;
@@ -251,7 +232,6 @@ export namespace dcc::session
         std::filesystem::path m_entry_path;
         bool m_prelude_enabled{false};
         bool m_assert_import_enabled{false};
-        bool m_runtime_imports_enabled{false};
         bool m_enable_doc{false};
         double m_bench_parse_seconds{0};
     };

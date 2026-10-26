@@ -1323,6 +1323,7 @@ export namespace dcc::ir
 
     struct IrModuleAsm
     {
+        std::string_view deferred_symbol;
         std::pmr::string template_str;
         IrAsmDialect dialect{IrAsmDialect::Att};
         sm::SourceRange range;

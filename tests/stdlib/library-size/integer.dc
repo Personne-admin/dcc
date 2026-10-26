@@ -1,0 +1,9 @@
+module size_integer;
+import std::fmt;
+import std::os::file;
+public i32 main() {
+    char[64] buffer = {};
+    [] char text = std::fmt::format_buf(buffer[0..64], "{}:{}\n", 12345 as u32, -17 as i32).unwrap();
+    std::os::file::File out = std::os::file::stdout();
+    return if out.write_all(text as [] const u8).is_ok() { 0 } else { 1 };
+}

@@ -55,7 +55,7 @@ def no_float_library(dcc, scratch, backend):
          'NATIVE_BUILD_DIR=' + str(dcc.parent.parent), 'DCC=' + str(dcc), 'DCC_WRAPPER=timeout 60',
          'TARGET=x86_64-windows', 'BACKEND=' + backend, 'LIBDCEXT_TARGET_FLAGS=-fno-simd -fno-x87',
          'AR=ar', 'CXX=clang++', 'CC=clang', 'Q=@'])
-    for prefix in ('libdcext-', 'libdcext-runtime-'):
+    for prefix in ('libdcext-',):
         check_archive(build / 'lib' / (prefix + 'windows-' + backend + '.a'), scratch)
     return build / 'lib'
 
@@ -87,7 +87,7 @@ def main():
         contract = ROOT / 'tests/backend/windows_startup_contract.dc'
         for backend in ('llvm', 'custom'):
             if args.windows:
-                for prefix in ('libdcext-', 'libdcext-runtime-'):
+                for prefix in ('libdcext-',):
                     check_archive(dcc.parent.parent / 'lib' / (prefix + 'windows-' + backend + '.a'), scratch)
             no_float_lib = no_float_library(dcc, scratch, backend) if args.windows else None
             reference = {}
@@ -127,12 +127,14 @@ def main():
                             source.write_text(body)
                             run([*flags, '-c', source, '-o', obj])
                             undefined = run(['nm', '-u', obj])
-                            assert ('_fltused' in undefined) == (not no_float), undefined
+                            defined = run(['nm', '-g', '--defined-only', obj])
+                            assert bool(re.search(r'\b_fltused$', undefined, re.M)) == (not no_float and not whole), undefined
+                            assert bool(re.search(r'\b_fltused$', defined, re.M)) == (not no_float and whole), defined
                             if args.windows:
                                 library = no_float_lib if no_float else dcc.parent.parent / 'lib'
-                                archive = library / (('libdcext-runtime-' if whole else 'libdcext-') + 'windows-' + backend + '.a')
+                                archives = [] if whole else [library / ('libdcext-windows-' + backend + '.a')]
                                 run([mingw / 'bin/x86_64-w64-mingw32-clang', '-nostdlib', '-Wl,--entry,_start',
-                                     '-Wl,--undefined,_start', '-Wl,--subsystem,console', obj, archive,
+                                     '-Wl,--undefined,_start', '-Wl,--subsystem,console', obj, *archives,
                                      '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', exe])
                                 execute(exe, 0)
                     print('  PASS Windows runtime', backend, opt, 'whole' if whole else 'separate', 'execution' if args.windows else 'COFF', flush=True)

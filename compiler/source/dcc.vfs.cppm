@@ -354,12 +354,18 @@ public const Os OS = Os::{};
 public const Arch ARCH = Arch::{};
 public const bool IS_64_BIT = {};
 public const bool FLOAT_AVAILABLE = {};
+public const bool WINDOWS_ABI = {};
 
 )dc",
-                           target.code_model == dcc::target::CodeModel::Unreal ? "Unreal" : target.code_model == dcc::target::CodeModel::Unreal32 ? "Unreal32" :
-                           target.code_model == dcc::target::CodeModel::Small ? "Small" : target.code_model == dcc::target::CodeModel::Kernel ? "Kernel" :
-                           target.code_model == dcc::target::CodeModel::Medium ? "Medium" : target.code_model == dcc::target::CodeModel::Large ? "Large" : "Default",
-                           os, arch, target.pointer_bits == 64, float_available);
+                           target.code_model == dcc::target::CodeModel::Unreal     ? "Unreal"
+                           : target.code_model == dcc::target::CodeModel::Unreal32 ? "Unreal32"
+                           : target.code_model == dcc::target::CodeModel::Small    ? "Small"
+                           : target.code_model == dcc::target::CodeModel::Kernel   ? "Kernel"
+                           : target.code_model == dcc::target::CodeModel::Medium   ? "Medium"
+                           : target.code_model == dcc::target::CodeModel::Large    ? "Large"
+                                                                                   : "Default",
+                           os, arch, target.pointer_bits == 64, float_available,
+                           target.os == dcc::target::Os::Windows || target.object_format == dcc::target::ObjectFormat::Coff);
     }
 
     [[nodiscard]] std::string generate_core_seg_source(dcc::target::TargetConfig const& target)

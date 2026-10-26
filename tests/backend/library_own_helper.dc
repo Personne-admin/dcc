@@ -1,0 +1,15 @@
+module own_helper;
+@nomangle public void* memcpy(void* destination, const void* source, usize count) {
+    u8* out = destination as u8*;
+    const u8* input = source as const u8*;
+    for usize i = 0; i < count; i++ { out[i] = input[i]; }
+    return destination;
+}
+@nomangle extern void* call_own_memcpy(void* destination, const void* source, usize count);
+@nomangle public i32 run_probe() {
+    u8 input = 77;
+    u8 output = 0;
+    call_own_memcpy(&output as void*, &input as const void*, 1);
+    return if output == 77 { 0 } else { 1 };
+}
+asm { ".text\n.globl call_own_memcpy\ncall_own_memcpy:\njmp memcpy\n.globl _start\n_start:\nand $-16, %%rsp\ncall run_probe\nmov %%eax, %%edi\nmov $60, %%eax\nsyscall\nud2\n.section .note.GNU-stack,\"\",@progbits\n" };

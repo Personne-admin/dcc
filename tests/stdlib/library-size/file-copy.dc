@@ -1,0 +1,22 @@
+module size_file_copy;
+import std::os::file;
+public i32 main() {
+    std::os::file::File source = std::os::file::create("size-source.bin").unwrap();
+    if !source.write_all("copy payload\n").is_ok() { return 1; }
+    source.close();
+    source = std::os::file::open("size-source.bin", std::os::file::read_only()).unwrap();
+    std::os::file::File destination = std::os::file::create("size-copy.bin").unwrap();
+    u8[8] buffer = {};
+    usize total = 0;
+    while true {
+        usize count = source.read(buffer[0..8]).unwrap();
+        if count == 0 { break; }
+        if !destination.write_all(buffer[0..count]).is_ok() { return 2; }
+        total = total + count;
+    }
+    source.close();
+    destination.close();
+    std::os::file::delete_file("size-source.bin").unwrap();
+    std::os::file::delete_file("size-copy.bin").unwrap();
+    return if total == 13 { 0 } else { 3 };
+}

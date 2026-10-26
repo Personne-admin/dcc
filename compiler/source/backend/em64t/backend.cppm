@@ -214,25 +214,6 @@ namespace dcc::backend
                     artifact.diagnostics.push_back(BackendDiagnostic{{}, std::format("custom backend: malformed initializer for global `{}`", *mismatch)});
                     return artifact;
                 }
-                std::optional<x86::ModuleAsmObject> module_asm;
-                if (!input_module->module_asms.empty())
-                {
-                    bool const coff = opts.target.object_format == dcc::target::ObjectFormat::Coff;
-                    auto assembled = x86::assemble_module_asm(input_module->module_asms, x86::EncodeMode::Long64,
-                                                              coff ? x86::ModuleAsmFormat::Coff : x86::ModuleAsmFormat::Elf);
-                    if (!assembled)
-                    {
-                        artifact.diagnostics.push_back(BackendDiagnostic{assembled.error().range, "custom backend: " + assembled.error().message});
-                        return artifact;
-                    }
-                    if (auto problem = check_module_asm(*input_module, *assembled, coff))
-                    {
-                        artifact.diagnostics.push_back(BackendDiagnostic{input_module->module_asms.front()->range, "custom backend: " + *problem});
-                        return artifact;
-                    }
-                    module_asm = std::move(*assembled);
-                }
-                x86::ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
 
                 std::vector<x86::MFunction> mfuncs;
                 mfuncs.reserve(input_module->functions.size());
@@ -268,6 +249,38 @@ namespace dcc::backend
                     mfuncs.push_back(std::move(mfunc));
                 }
 
+                std::unordered_set<std::string_view> references;
+                if (std::ranges::any_of(input_module->module_asms, [](auto* block) { return !block->deferred_symbol.empty(); }))
+                    for (auto const& function : mfuncs)
+                        for (auto const& relocation : x86::encode_function(function, x86::EncodeMode::Long64).relocs)
+                            references.insert(relocation.symbol);
+                std::vector<ir::IrModuleAsm*> selected_assembly;
+                for (auto* block : input_module->module_asms)
+                    if (block->deferred_symbol.empty() || references.contains(block->deferred_symbol))
+                    {
+                        selected_assembly.push_back(block);
+                        if (opts.print_reachability && !block->deferred_symbol.empty())
+                            std::println(std::cout, "reachability: runtime {} <- code generation", block->deferred_symbol);
+                    }
+                std::optional<x86::ModuleAsmObject> module_asm;
+                if (!selected_assembly.empty())
+                {
+                    bool const coff = opts.target.object_format == dcc::target::ObjectFormat::Coff;
+                    auto assembled =
+                        x86::assemble_module_asm(selected_assembly, x86::EncodeMode::Long64, coff ? x86::ModuleAsmFormat::Coff : x86::ModuleAsmFormat::Elf);
+                    if (!assembled)
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{assembled.error().range, "custom backend: " + assembled.error().message});
+                        return artifact;
+                    }
+                    if (auto problem = check_module_asm(*input_module, *assembled, coff))
+                    {
+                        artifact.diagnostics.push_back(BackendDiagnostic{input_module->module_asms.front()->range, "custom backend: " + *problem});
+                        return artifact;
+                    }
+                    module_asm = std::move(*assembled);
+                }
+                x86::ModuleAsmObject const* asm_object = module_asm ? &*module_asm : nullptr;
                 if (want_mir)
                 {
                     std::string mir_out;

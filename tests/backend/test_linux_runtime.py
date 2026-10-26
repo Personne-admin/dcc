@@ -75,7 +75,7 @@ def main():
         startup = (ROOT / 'tests/backend/linux_startup.dc').read_text()
         for backend in ('llvm', 'custom'):
             lib = dcc.parent.parent / 'lib'
-            for prefix in ('libdcext-', 'libdcext-runtime-'):
+            for prefix in ('libdcext-',):
                 check_archive(lib / (prefix + 'linux-' + backend + '.a'), scratch)
             for opt in ('O0', 'O2'):
                 objects = []
@@ -104,7 +104,7 @@ def main():
                     run([dcc, '-target', 'x86_64-elf', '-fbackend', backend, '-' + opt,
                          *(['-fwhole-program', '-e', 'production_runtime_test'] if whole else []), '-c', direct, '-o', obj])
                     run(['ld.lld', '--static', '--fatal-warnings', '--entry=_start', obj, *objects,
-                         lib / ('libdcext-runtime-freestanding-' + backend + '.a'), '-o', exe])
+                         lib / ('libdcext-freestanding-' + backend + '.a'), '-o', exe])
                     assert execute(exe) == 'runtime asm ok\n'
                     exit_source = ROOT / 'tests/stdlib/process-exit-with-thread.dc'
                     if whole:

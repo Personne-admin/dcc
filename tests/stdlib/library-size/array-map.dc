@@ -1,0 +1,18 @@
+module size_collections;
+import std::array;
+import std::map;
+import std::mem;
+import std::os::heap;
+public i32 main() {
+    std::mem::Allocator alloc = std::os::heap::allocator();
+    std::array::Array(u32) values = std::array::new_array(alloc);
+    std::map::Map(u32, u32) lookup = std::map::new_map(alloc);
+    for u32 i = 0; i < 20; i++ {
+        if !values.push(i).is_ok() { return 1; }
+        if lookup.put(i, i * 3).is_err() { return 2; }
+    }
+    bool valid = values.len() == 20 && lookup.get(7).unwrap_some() == 21;
+    values.deinit();
+    lookup.deinit();
+    return if valid { 0 } else { 3 };
+}

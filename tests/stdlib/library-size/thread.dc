@@ -1,0 +1,9 @@
+module size_thread;
+import std::os::thread;
+void worker(u32* value) { *value = 42; }
+public i32 main() {
+    u32 value = 0;
+    std::os::thread::Thread thread = std::os::thread::spawn(worker, &value).unwrap();
+    if !thread.join().is_ok() { return 1; }
+    return if value == 42 { 0 } else { 2 };
+}

@@ -48,11 +48,9 @@ endif
 
 DC_OBJS := $(call objs-from-srcs,$(DC_SRCS))
 RUNTIME_DC_OBJS := $(call objs-from-srcs,$(RUNTIME_DC_SRCS))
-RUNTIME_OBJS := $(RUNTIME_DC_OBJS)
 ALL_OBJS := $(DC_OBJS)
 
 LIBDCEXT_A := $(BUILD_DIR)/lib/libdcext-$(TARGET_OS)-$(BACKEND).a
-LIBDCEXT_RUNTIME_A := $(BUILD_DIR)/lib/libdcext-runtime-$(TARGET_OS)-$(BACKEND).a
 HEADER_SRC := $(TOPLEVEL)/libdcext/std
 STD_SRC := $(TOPLEVEL)/libdcext/std.dc
 ASSERT_SRC := $(TOPLEVEL)/libdcext/assert.dc
@@ -60,7 +58,7 @@ HEADER_DST := $(BUILD_DIR)/include/std
 
 .PHONY: all install uninstall clean headers
 
-all: $(LIBDCEXT_A) $(LIBDCEXT_RUNTIME_A) headers
+all: $(LIBDCEXT_A) headers
 
 headers:
 	@mkdir -p $(BUILD_DIR)/include
@@ -70,6 +68,7 @@ headers:
 	$(Q)cp -r $(HEADER_SRC) $(BUILD_DIR)/include/
 	$(Q)cp $(STD_SRC) $(BUILD_DIR)/include/
 	$(Q)cp $(ASSERT_SRC) $(BUILD_DIR)/include/
+	$(Q)for dir in common linux windows; do if [ -d $(TOPLEVEL)/libdcext/$$dir ]; then rm -rf $(BUILD_DIR)/include/$$dir; cp -r $(TOPLEVEL)/libdcext/$$dir $(BUILD_DIR)/include/; fi; done
 
 PATH_FLAGS_STAMP := $(OBJ_DIR)/.file-prefix-map-flags
 
@@ -94,10 +93,6 @@ $(eval $(call track-archive-inputs,$(LIBDCEXT_A),$(ALL_OBJS)))
 $(LIBDCEXT_A): $(ALL_OBJS) $(DCC) $(TARGET_STAMP)
 	$(call create-archive,$@,$(ALL_OBJS))
 
-$(eval $(call track-archive-inputs,$(LIBDCEXT_RUNTIME_A),$(RUNTIME_OBJS)))
-
-$(LIBDCEXT_RUNTIME_A): $(RUNTIME_OBJS) $(TARGET_STAMP)
-	$(call create-archive,$@,$(RUNTIME_OBJS))
 
 $(DC_OBJS): $(DC_SRCS)
 
@@ -142,20 +137,18 @@ install: all
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A)))
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
 	$(Q)$(INSTALL) -m 644 $(LIBDCEXT_A) $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A))
-	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A)))
-	$(Q)$(INSTALL) -m 644 $(LIBDCEXT_RUNTIME_A) $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A))
 	$(call MSG,INSTALL,$(DESTDIR)$(INCLUDEDIR)/std/)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)/std
 	$(Q)cp -r $(HEADER_DST)/* $(DESTDIR)$(INCLUDEDIR)/std/
+	$(Q)$(INSTALL) -m 644 $(STD_SRC) $(ASSERT_SRC) $(DESTDIR)$(INCLUDEDIR)/
+	$(Q)for dir in common linux windows; do if [ -d $(BUILD_DIR)/include/$$dir ]; then cp -r $(BUILD_DIR)/include/$$dir $(DESTDIR)$(INCLUDEDIR)/; fi; done
 	$(Q)$(INSTALL) -m 644 $(MANIFEST) $(DESTDIR)$(INCLUDEDIR)/libdcext.manifest
 
 uninstall:
 	rm -f $(DESTDIR)$(INCLUDEDIR)/libdcext.manifest
 	rm -f $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_A))
-	rm -f $(DESTDIR)$(LIBDIR)/$(notdir $(LIBDCEXT_RUNTIME_A))
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
 
 clean:
 	rm -f $(DC_OBJS) $(LIBDCEXT_A) $(LIBDCEXT_A).objects $(LIBDCEXT_A).objects.tmp $(LIBDCEXT_A).tmp $(TARGET_STAMP)
-	rm -f $(LIBDCEXT_RUNTIME_A) $(LIBDCEXT_RUNTIME_A).objects $(LIBDCEXT_RUNTIME_A).objects.tmp $(LIBDCEXT_RUNTIME_A).tmp
 	rm -rf $(HEADER_DST)

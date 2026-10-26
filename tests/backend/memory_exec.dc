@@ -67,3 +67,12 @@ module main;
 }
 
 public i32 main() { return memory_test(); }
+
+asm {
+    \\.data
+    \\.quad memcpy
+    \\.quad memmove
+    \\.quad memset
+    \\.quad memcmp
+    \\
+};

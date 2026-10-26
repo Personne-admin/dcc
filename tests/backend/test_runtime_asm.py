@@ -30,7 +30,7 @@ def audit_sources():
 def flags(dcc, windows, backend, opt, whole):
     return [dcc, '-target', 'x86_64-coff' if windows else 'x86_64-elf', '-fbackend', backend, '-' + opt,
             '-I', ROOT / 'libdcext', *(['-flibdcext', 'linux'] if not windows else []),
-            *(['-fwhole-program', '-e', 'runtime_entry' if windows else 'main'] if whole else [])]
+            *(['-fwhole-program', '-e', 'runtime_entry' if windows else '_start'] if whole else [])]
 
 
 def main():

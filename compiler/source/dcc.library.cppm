@@ -83,7 +83,7 @@ export namespace dcc::library
                 result.edges.emplace_back(first, second);
             else if (kind == "record")
                 result.records.push_back({first, second, third});
-            else if (kind != "assembly")
+            else
                 throw std::runtime_error(std::format("unknown library manifest entry '{}'", kind));
         }
         return result;

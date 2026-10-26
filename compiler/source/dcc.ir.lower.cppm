@@ -90,6 +90,10 @@ export namespace dcc::ir::lower
 
             if (m_generate_main_thunk && !library_module(mod))
                 lower_main_thunk(mod);
+            if (m_whole_program && !m_library.sources.empty())
+                for (auto* global : m_module->globals)
+                    if (global->name == "__dcc_libdcext_abi_requires_float_enabled" || global->name == "__dcc_libdcext_abi_requires_float_disabled")
+                        global->retain = true;
             for (auto const& record : m_library.records)
                 for (auto* global : m_module->globals)
                     if (global->name == record.symbol && !global->is_declaration)
@@ -8124,6 +8128,15 @@ export namespace dcc::ir::lower
                 }
             }
 
+            std::unordered_set<std::string> application_assembly_symbols;
+            static std::regex const assembly_label(R"((?:^|\n)[\t ]*\.(?:globl|global)[\t ]+([A-Za-z_.$][A-Za-z_0-9.$]*))");
+            for (auto* block : m_module->module_asms)
+                if (!m_library_asms.contains(block))
+                {
+                    std::string text(block->template_str);
+                    for (std::sregex_iterator it(text.begin(), text.end(), assembly_label), end; it != end; ++it)
+                        application_assembly_symbols.insert((*it)[1].str());
+                }
             std::unordered_map<std::string_view, IrModuleAsm*> assembly_definitions;
             std::unordered_map<IrModuleAsm*, std::vector<std::string>> assembly_references;
             std::unordered_set<IrModuleAsm*> live_assembly;
@@ -8137,14 +8150,14 @@ export namespace dcc::ir::lower
                 if (m_library_asms.contains(block))
                 {
                     std::array<IrModuleAsm*, 1> blocks{block};
-                    auto object =
-                        backend::x86::assemble_module_asm(blocks, backend::x86::EncodeMode::Long64,
-                                                          m_library_target.object_format == target::ObjectFormat::Coff ? backend::x86::ModuleAsmFormat::Coff
-                                                                                                                       : backend::x86::ModuleAsmFormat::Elf);
+                    auto object = backend::x86::assemble_module_asm(
+                        blocks, m_library_target.arch == target::Arch::I8086 ? backend::x86::EncodeMode::Real16 : backend::x86::EncodeMode::Long64,
+                        m_library_target.object_format == target::ObjectFormat::Coff ? backend::x86::ModuleAsmFormat::Coff
+                                                                                     : backend::x86::ModuleAsmFormat::Elf);
                     if (!object)
                         throw LowerDiagnostic(object.error().message);
                     for (auto const& symbol : object->symbols)
-                        if (symbol.binding != backend::x86::ModuleAsmBinding::Local)
+                        if (symbol.binding != backend::x86::ModuleAsmBinding::Local && !application_assembly_symbols.contains(symbol.name))
                         {
                             m_name_pool.push_back(symbol.name);
                             if (!assembly_definitions.emplace(m_name_pool.back(), block).second)
@@ -8165,14 +8178,20 @@ export namespace dcc::ir::lower
             }
             auto keep_symbol = [&](std::string_view symbol) {
                 if (auto it = by_name.find(symbol); it != by_name.end())
+                {
                     make_live(it->second);
+                    if ((it->second->kind == IrNodeKind::Function && !static_cast<IrFunction const*>(it->second)->blocks.empty()) ||
+                        (it->second->kind == IrNodeKind::Global && !static_cast<IrGlobal const*>(it->second)->is_declaration))
+                        return;
+                }
                 if (auto it = assembly_definitions.find(symbol); it != assembly_definitions.end())
                     keep_assembly(it->second);
             };
+            if (!m_library.startup.empty() && (m_entry_symbol.empty() || m_entry_symbol == m_library.startup))
+                keep_symbol(m_library.startup);
+            for (auto symbol : {"__dcc_libdcext_abi_requires_float_enabled", "__dcc_libdcext_abi_requires_float_disabled"})
+                keep_symbol(symbol);
             make_live(m_main_thunk);
-            for (auto const& edge : m_library.edges)
-                if (edge.first == m_library.startup)
-                    keep_symbol(edge.second);
             for (auto const* global : m_module->globals)
                 if (global->retain)
                     make_live(global);
@@ -8198,18 +8217,27 @@ export namespace dcc::ir::lower
                 for (auto const& edge : m_library.edges)
                     if (edge.first == owner->name)
                         keep_symbol(edge.second);
-                if (auto it = assembly_definitions.find(owner->name); it != assembly_definitions.end())
+                if (auto it = assembly_definitions.find(owner->name);
+                    it != assembly_definitions.end() && !(owner->kind == IrNodeKind::Function && !static_cast<IrFunction const*>(owner)->blocks.empty()))
                     keep_assembly(it->second);
                 owned_refs.clear();
                 collect_owner_refs(owner, owned_refs);
                 for (auto const* ref : owned_refs)
                 {
                     make_live(resolve_ref_target(ref, by_name), owner);
-                    if (auto it = assembly_definitions.find(ref->name); it != assembly_definitions.end())
-                        keep_assembly(it->second);
+                    keep_symbol(ref->name);
                 }
             }
-            std::erase_if(m_module->module_asms, [&](auto* block) { return !live_assembly.contains(block); });
+            for (auto symbol : {"memcpy", "memmove", "memset", "memcmp", "__chkstk", "_fltused"})
+                if (auto it = assembly_definitions.find(symbol); it != assembly_definitions.end() && !live_assembly.contains(it->second))
+                {
+                    auto existing = by_name.find(symbol);
+                    if (existing != by_name.end() && existing->second->kind == IrNodeKind::Function &&
+                        !static_cast<IrFunction const*>(existing->second)->blocks.empty())
+                        continue;
+                    it->second->deferred_symbol = symbol;
+                }
+            std::erase_if(m_module->module_asms, [&](auto* block) { return !live_assembly.contains(block) && block->deferred_symbol.empty(); });
 
             for (auto const* f : m_module->functions)
             {

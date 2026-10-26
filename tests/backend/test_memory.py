@@ -51,12 +51,12 @@ def main():
         calls = scratch / "calls.o"
         run([cc, "-c", "-x", "assembler-with-cpp", source.with_name("memory_calls.asm"), "-o", calls])
         for backend in ("llvm", "custom"):
-            for prefix in ("libdcext-", "libdcext-runtime-"):
+            for prefix in ("libdcext-",):
                 check_memory(lib / (prefix + os_name + "-" + backend + ".a"), scratch)
             reference = {}
             for opt in ("O0", "O2"):
                 runtime = scratch / ("libmemory-" + backend + opt + ".a")
-                runtime.write_bytes((lib / ("libdcext-runtime-" + os_name + "-" + backend + ".a")).read_bytes())
+                runtime.write_bytes((lib / ("libdcext-" + os_name + "-" + backend + ".a")).read_bytes())
                 for name in ("memcpy", "memmove", "memset", "memcmp"):
                     obj = scratch / (name + ".dc.o")
                     source_leaf = Path(__file__).resolve().parents[2] / 'libdcext/common/memory' / (name + '.dc')
@@ -73,7 +73,7 @@ def main():
                     exe = scratch / (backend + opt + str(whole) + (".exe" if windows else ""))
                     obj = scratch / "test.o"
                     run([dcc, "-target", target, "-flibdcext", os_name, "-fbackend", backend, "-" + opt,
-                         *(['-fwhole-program', '-e', 'main'] if whole else []), '-c', source, '-o', obj])
+                         *(['-fwhole-program'] if whole else []), '-c', source, '-o', obj])
                     if windows:
                         run([cc, "-nostdlib", "-Wl,--entry,_start", "-Wl,--undefined=_start", "-Wl,--subsystem,console", obj, calls,
                              runtime, *([] if whole else [lib / ("libdcext-windows-" + backend + ".a")]),
@@ -85,13 +85,12 @@ def main():
                         run([exe])
                     production = scratch / ('production.exe' if windows else 'production')
                     if windows:
-                        archive = lib / (('libdcext-runtime-' if whole else 'libdcext-') + os_name + '-' + backend + '.a')
+                        archive = lib / ('libdcext-' + os_name + '-' + backend + '.a')
                         run([cc, '-nostdlib', '-Wl,--entry,_start', '-Wl,--undefined=_start', '-Wl,--subsystem,console',
-                             obj, calls, archive, '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', production])
+                             obj, calls, *([] if whole else [archive]), '-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32', '-o', production])
                         run([os.environ.get('WINE', 'wine'), production])
                     elif whole:
-                        run(['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start', obj, calls,
-                             lib / ('libdcext-runtime-linux-' + backend + '.a'), '-o', production])
+                        run(['ld.lld', '--static', '--no-dynamic-linker', '--fatal-warnings', '--undefined=_start', obj, calls, '-o', production])
                         run([production])
                     else:
                         run([dcc, '-flibdcext', 'linux', '-fbackend', backend, obj, calls, '-o', production])

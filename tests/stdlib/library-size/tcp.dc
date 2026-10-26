@@ -1,0 +1,16 @@
+module size_tcp;
+import std::os::net;
+public i32 main() {
+    std::os::net::SocketAddrV4 endpoint = {};
+    endpoint.ip = std::os::net::IPV4_LOOPBACK;
+    std::os::net::TcpListener listener = std::os::net::bind(endpoint).unwrap();
+    std::os::net::TcpStream client = std::os::net::connect(listener.local_addr().unwrap()).unwrap();
+    std::os::net::TcpStream server = listener.accept().unwrap();
+    if !client.write_all("ping").is_ok() { return 1; }
+    u8[4] data = {};
+    if server.read_all(data[0..4]).unwrap() != 4 { return 2; }
+    if !server.write_all(data[0..4]).is_ok() { return 3; }
+    if client.read_all(data[0..4]).unwrap() != 4 { return 4; }
+    client.close(); server.close(); listener.close();
+    return if data[0] == ('p' as u8) && data[3] == ('g' as u8) { 0 } else { 5 };
+}

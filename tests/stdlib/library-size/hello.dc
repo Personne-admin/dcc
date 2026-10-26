@@ -1,0 +1,6 @@
+module size_hello;
+import std::os::file;
+public i32 main() {
+    std::os::file::File out = std::os::file::stdout();
+    return if out.write_all("hello\n").is_ok() { 0 } else { 1 };
+}

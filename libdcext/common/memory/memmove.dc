@@ -4,7 +4,7 @@ import core::target;
 
 @nomangle public extern void* memmove(void* dst, const void* src, usize count);
 
-static if core::target::OS == core::target::Os::Windows {
+static if core::target::WINDOWS_ABI {
     asm {
         \\.section .text.memory.memmove, "xr"
         \\.globl memmove

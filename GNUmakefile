@@ -90,10 +90,6 @@ msi: tools-windows
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-windows-custom.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-freestanding-llvm.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-freestanding-custom.a $(MSI_STAGE_DIR)/lib/
-	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-windows-llvm.a $(MSI_STAGE_DIR)/lib/
-	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-windows-custom.a $(MSI_STAGE_DIR)/lib/
-	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-freestanding-llvm.a $(MSI_STAGE_DIR)/lib/
-	$(Q)cp $(NATIVE_BUILD_DIR)/lib/libdcext-runtime-freestanding-custom.a $(MSI_STAGE_DIR)/lib/
 	$(Q)cp -r $(NATIVE_BUILD_DIR)/include $(MSI_STAGE_DIR)/include
 	$(Q)cp $(TOPLEVEL)/LICENSE $(MSI_STAGE_DIR)/
 	@mkdir -p $(dir $(MSI_OUT))
@@ -137,7 +133,7 @@ install: driver dccd dcdoc libdcext
 
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext-*.a)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
-	$(Q)$(INSTALL) -m 644 $(BUILD_DIR)/lib/libdcext-*.a $(DESTDIR)$(LIBDIR)/
+	$(Q)$(INSTALL) -m 644 $(foreach variant,linux windows freestanding,$(wildcard $(BUILD_DIR)/lib/libdcext-$(variant)-*.a)) $(DESTDIR)$(LIBDIR)/
 	$(call MSG,INSTALL,$(DESTDIR)$(INCLUDEDIR)/)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(INCLUDEDIR)
 	$(Q)cp -r $(BUILD_DIR)/include/* $(DESTDIR)$(INCLUDEDIR)/

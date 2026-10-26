@@ -7,6 +7,7 @@ module;
 #include <llvm-c/Core.h>
 #include <llvm-c/DebugInfo.h>
 #include <llvm-c/Error.h>
+#include <llvm-c/Object.h>
 #include <llvm-c/Target.h>
 #include <llvm-c/TargetMachine.h>
 #include <llvm-c/Transforms/PassBuilder.h>
@@ -1860,7 +1861,7 @@ namespace dcc::backend
 
                 for (auto* ma : input_module->module_asms)
                 {
-                    if (!ma)
+                    if (!ma || !ma->deferred_symbol.empty())
                         continue;
                     LLVMAppendModuleInlineAsm(llvm_mod, ma->template_str.data(), ma->template_str.size());
                 }
@@ -2088,6 +2089,62 @@ namespace dcc::backend
                             LLVMDisposeModule(llvm_mod);
                             return artifact;
                         }
+                    }
+                }
+
+                if (need_codegen && tm_created && std::ranges::any_of(input_module->module_asms, [](auto* block) { return !block->deferred_symbol.empty(); }))
+                {
+                    LLVMMemoryBufferRef buffer = nullptr;
+                    char* error = nullptr;
+                    auto probe_module = LLVMCloneModule(llvm_mod);
+                    bool const probe_failed = LLVMTargetMachineEmitToMemoryBuffer(tm, probe_module, LLVMObjectFile, &error, &buffer);
+                    LLVMDisposeModule(probe_module);
+                    if (probe_failed)
+                    {
+                        add_diag(diags, {}, std::format("LLVM runtime dependency probe failed: {}", error ? error : "unknown error"));
+                        if (error)
+                            LLVMDisposeMessage(error);
+                    }
+                    else
+                    {
+                        auto binary = LLVMCreateBinary(buffer, ctx, &error);
+                        if (!binary)
+                        {
+                            add_diag(diags, {}, std::format("LLVM runtime dependency object is invalid: {}", error ? error : "unknown error"));
+                            if (error)
+                                LLVMDisposeMessage(error);
+                        }
+                        else
+                        {
+                            std::unordered_set<std::string> undefined;
+                            auto symbols = LLVMObjectFileCopySymbolIterator(binary);
+                            while (symbols && !LLVMObjectFileIsSymbolIteratorAtEnd(binary, symbols))
+                            {
+                                bool defined = false;
+                                auto sections = LLVMObjectFileCopySectionIterator(binary);
+                                while (sections && !LLVMObjectFileIsSectionIteratorAtEnd(binary, sections))
+                                {
+                                    defined |= LLVMGetSectionContainsSymbol(sections, symbols);
+                                    LLVMMoveToNextSection(sections);
+                                }
+                                if (sections)
+                                    LLVMDisposeSectionIterator(sections);
+                                if (!defined)
+                                    undefined.insert(LLVMGetSymbolName(symbols));
+                                LLVMMoveToNextSymbol(symbols);
+                            }
+                            if (symbols)
+                                LLVMDisposeSymbolIterator(symbols);
+                            for (auto* block : input_module->module_asms)
+                                if (!block->deferred_symbol.empty() && undefined.contains(std::string(block->deferred_symbol)))
+                                {
+                                    LLVMAppendModuleInlineAsm(llvm_mod, block->template_str.data(), block->template_str.size());
+                                    if (opts.print_reachability)
+                                        std::println(std::cout, "reachability: runtime {} <- code generation", block->deferred_symbol);
+                                }
+                            LLVMDisposeBinary(binary);
+                        }
+                        LLVMDisposeMemoryBuffer(buffer);
                     }
                 }
 

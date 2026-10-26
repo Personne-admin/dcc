@@ -4,7 +4,7 @@ import core::target;
 
 @nomangle public extern i32 memcmp(const void* left, const void* right, usize count);
 
-static if core::target::OS == core::target::Os::Windows {
+static if core::target::WINDOWS_ABI {
     asm {
         \\.section .text.memory.memcmp, "xr"
         \\.globl memcmp

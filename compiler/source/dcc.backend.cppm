@@ -64,6 +64,7 @@ export namespace dcc::backend
         std::vector<std::string> libraries;
         std::vector<std::string> linker_args;
         bool emit_debug_info{false};
+        bool print_reachability{false};
         DebugFormat debug_format{DebugFormat::Auto};
         bool omit_frame_pointer{true};
         ir::AutoVarInit auto_var_init{ir::AutoVarInit::None};

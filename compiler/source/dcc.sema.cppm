@@ -24,6 +24,7 @@ export namespace dcc::sema
     struct SemaOptions
     {
         std::vector<std::filesystem::path> import_roots;
+        std::vector<std::pair<std::string, std::filesystem::path>> library_sources;
         std::size_t arena_initial_size{256 * 1024};
         dcc::si::string_interner* interner{nullptr};
         dcc::target::TargetConfig target{dcc::target::TargetConfig::host_default()};
@@ -58,10 +59,23 @@ export namespace dcc::sema
             if (!root)
                 return nullptr;
 
+            std::vector<ModuleInfo*> candidates;
+            for (auto const& [name, path] : m_opts.library_sources)
+                if (auto* candidate = m_importer.load_entry(path))
+                {
+                    if (candidate->canonical_path.str() != name ||
+                        std::filesystem::weakly_canonical(candidate->file_path) != std::filesystem::weakly_canonical(path))
+                        m_diag.error("library source '{}' declares module '{}', expected '{}'", path.string(), candidate->canonical_path.str(), name);
+                    candidates.push_back(candidate);
+                }
             prepare_injected_sources();
             load_transitively(
                 m_importer, *root, [this](ModuleInfo& module) { inject_decls(module); },
                 [this](ast::ImportDecl const& decl) { return m_injected_imports.contains(&decl); });
+            for (auto* candidate : candidates)
+                load_transitively(
+                    m_importer, *candidate, [this](ModuleInfo& module) { inject_decls(module); },
+                    [this](ast::ImportDecl const& decl) { return m_injected_imports.contains(&decl); });
 
             std::vector<sm::SourceRange> parser_recovery_ranges;
             for (auto const& module : m_graph.all())

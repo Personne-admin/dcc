@@ -34,7 +34,7 @@ def native_mains(dcc, scratch, windows):
             for whole in (False, True):
                 flags = [dcc, '-flibdcext', variant, '-target', target, '-fbackend', backend, '-' + opt,
                          *(['-fwhole-program', '-e', 'main'] if whole else [])]
-                archive = dcc.parent.parent / 'lib' / (('libdcext-runtime-' if whole else 'libdcext-') + variant + '-' + backend + '.a')
+                archives = [] if whole else [dcc.parent.parent / 'lib' / ('libdcext-' + variant + '-' + backend + '.a')]
                 for arguments in (False, True):
                     signature = '[] const char* args' if arguments else ''
                     expression = ('args.len as i32 + ' + ('42' if windows else '40')) if arguments else '42'
@@ -42,7 +42,7 @@ def native_mains(dcc, scratch, windows):
                     obj, exe = scratch / 'main.o', scratch / 'main.exe'
                     run([*flags, '-c', source, '-o', obj])
                     assert '__dc_main' in run(['nm', '--defined-only', obj])
-                    run([linker(windows), *([] if windows else ['-no-pie']), harness, obj, archive,
+                    run([linker(windows), *([] if windows else ['-no-pie']), harness, obj, *archives,
                          *(['-lkernel32', '-lws2_32', '-ladvapi32', '-lshell32'] if windows else []), '-o', exe])
                     execute(exe, windows)
                 source.write_text('module main;\npublic i32 main() { return 0; }\npublic i32 main([] const char* args) { return args.len as i32; }\n')
@@ -66,6 +66,7 @@ def graph(dcc, scratch, windows):
         if child.name != 'prelude.dc':
             (include / 'std' / child.name).symlink_to(child, target_is_directory=child.is_dir())
     (include / 'std/prelude.dc').write_text('module std::prelude;\n')
+    (include / 'common').symlink_to(original_dcc.parent.parent / 'include/common', target_is_directory=True)
     (include / 'assert.dc').symlink_to(original_dcc.parent.parent / 'include/assert.dc')
     manifest = (ROOT / 'libdcext/libdcext.manifest').read_text()
     manifest += 'source all leaves leaves.dc\nsource all dead_leaves dead_leaves.dc\nsource all registry registry.dc\nrecord all registry registration .dcc.registry\n'
@@ -129,8 +130,9 @@ import app_exports;
                     unused_archive.unlink(missing_ok=True)
                     run(['ar', 'rcs', unused_archive, unused_object])
                     inputs = [obj, leaf, unused_archive, archive]
-                library_name = ('libdcext-runtime-windows-' if windows else ('libdcext-runtime-' if whole else 'libdcext-') + 'freestanding-') + backend + '.a'
-                libs = [dcc.parent.parent / 'lib' / library_name]
+                library_name = ('libdcext-windows-' if windows else 'libdcext-freestanding-') + backend + '.a'
+                libs = [] if whole else [dcc.parent.parent / 'lib' / library_name]
+                harness.write_text(('const unsigned char __dcc_libdcext_abi_requires_float_disabled = 0;\n' if windows and not whole else '') + 'extern int run_probe(void);\nint main(void) { return run_probe() == 42 ? 0 : 1; }\n')
                 run([linker(windows), *([] if windows else ['-no-pie']), '-Wl,--gc-sections', '-Wl,--undefined=registration', harness, *inputs, *libs, '-o', exe])
                 execute(exe, windows)
                 symbols = run(['nm', exe])
@@ -148,7 +150,7 @@ import app_exports;
                     startup_object = scratch / 'startup.o'
                     run([*flags, '-c', startup, '-o', startup_object])
                     driver_link = [dcc, '-flibdcext', 'freestanding', '-fbackend', backend,
-                                   '--gc-sections', '-e', '_start', startup_object, *[item for item in inputs if item.suffix != '.a'],
+                                   *(['-fwhole-program'] if whole else []), '--gc-sections', '-e', '_start', startup_object, *[item for item in inputs if item.suffix != '.a'],
                                    *(['-L', scratch, '-lregistry', '-lunused'] if not whole else []), '-o', scratch / 'driver']
                     run(driver_link)
                     execute(scratch / 'driver', False)
@@ -161,6 +163,7 @@ import app_exports;
     invalid_source = scratch / 'invalid.o'
     bad_manifests = (
         ('dcc-libdcext-manifest 99\n', 'unsupported library source manifest version'),
+        (manifest + 'assembly all legacy legacy.asm\n', "unknown library manifest entry 'assembly'"),
         (manifest + 'source all leaves duplicate.dc\n', "invalid or duplicate library source 'leaves'"),
         (manifest + 'source all escape ../escape.dc\n', "invalid or duplicate library source 'escape'"),
         (manifest + 'startup all entry thunk\nstartup all second thunk\n', 'duplicate library startup selection'),
@@ -169,7 +172,9 @@ import app_exports;
         (include / 'libdcext.manifest').write_text(contents)
         failed([dcc, '-flibdcext', 'freestanding', '-target', target, '-I', include, '-c', entry, '-o', invalid_source], diagnostic)
         if not windows:
-            failed(driver_link, diagnostic)
+            failed([flag for flag in driver_link if flag != '-fwhole-program'], diagnostic)
+            run(driver_link)
+            execute(scratch / 'driver', False)
     (include / 'libdcext.manifest').write_text(manifest)
 
 

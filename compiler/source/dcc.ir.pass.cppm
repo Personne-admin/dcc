@@ -943,6 +943,7 @@ namespace dcc::ir::pass
             {
                 std::pmr::string tmpl(a->template_str, dst.allocator());
                 auto* fresh = dst.make<IrModuleAsm>(std::move(tmpl), a->dialect, a->range, dst.allocator());
+                fresh->deferred_symbol = a->deferred_symbol;
                 for (auto* g : a->globals)
                 {
                     auto it = cctx.global_map.find(g);
