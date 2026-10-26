@@ -1,0 +1,3 @@
+module section_bss;
+@nomangle public u8[32768] zeroes;
+@nomangle public u8* address() { return &zeroes as u8*; }

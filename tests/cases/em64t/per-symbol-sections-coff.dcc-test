@@ -33,5 +33,5 @@ FORBID-COFF-COMDAT: explicit_data
 CONTAINS: section ".text.dcc_main" comdat
 CONTAINS: section ".text.chosen" comdat
 CONTAINS: section ".data.initialized", comdat
-CONTAINS: section ".bss.zeroed", comdat
+CONTAINS: @zeroed = global i32 0, comdat
 CONTAINS: section ".rdata.readonly", comdat

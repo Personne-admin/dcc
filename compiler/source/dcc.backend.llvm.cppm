@@ -2569,7 +2569,9 @@ namespace dcc::backend
                 else if (g->is_dll_export)
                     LLVMSetDLLStorageClass(gv, LLVMDLLExportStorageClass);
                 auto section = object::global_section(g, opts.target.data_sections, opts.target.object_format == ObjectFormat::Coff);
-                if (!section.empty())
+                bool const native_coff_bss = opts.target.object_format == ObjectFormat::Coff && opts.target.data_sections && g->section.empty() &&
+                                             object::classify_global(g) == object::DataSection::Bss;
+                if (!section.empty() && !native_coff_bss)
                     LLVMSetSection(gv, section.c_str());
                 if (opts.target.data_sections && g->section.empty() && !g->is_declaration && !g->is_dll_import &&
                     opts.target.object_format == ObjectFormat::Coff)
