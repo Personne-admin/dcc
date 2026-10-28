@@ -93,3 +93,9 @@ public Status(OtherError) write_all(Other* writer, []const char bytes) {
 }
 
 === ENTRY: main.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -fwhole-program -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -fwhole-program -no-section-check ===
+RUN-EXIT: 0
