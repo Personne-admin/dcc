@@ -1,0 +1,16 @@
+=== FILE: main.dc ===
+module main;
+
+using Immutable = const i32;
+using Device = volatile i32;
+Immutable* first;
+Immutable* second;
+Device* first_device;
+Device* second_device;
+
+void accept(const i32* source, volatile i32* device) {
+    first = source;
+    second = source;
+    first_device = device;
+    second_device = device;
+}

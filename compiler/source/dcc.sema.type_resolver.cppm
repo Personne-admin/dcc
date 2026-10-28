@@ -112,7 +112,7 @@ export namespace dcc::sema
         std::pmr::polymorphic_allocator<> m_alloc;
 
         std::unordered_map<ast::Decl const*, types::TypePtr> m_decl_types;
-        std::unordered_map<ast::UsingDecl const*, types::TypePtr> m_alias_cache;
+        std::unordered_map<ast::UsingDecl const*, detail::ResolvedType> m_alias_cache;
         std::unordered_map<ast::TypeExpr const*, detail::ResolvedType> m_type_cache;
         std::unordered_set<ast::UsingDecl const*> m_alias_resolving;
         std::unordered_set<ast::TypeExpr const*> m_type_resolving;
@@ -912,7 +912,7 @@ export namespace dcc::sema
             if (cacheable)
             {
                 if (auto it = m_alias_cache.find(&u); it != m_alias_cache.end())
-                    return {it->second, types::Qual::None};
+                    return it->second;
             }
 
             if (!m_alias_resolving.insert(&u).second)
@@ -997,7 +997,7 @@ export namespace dcc::sema
 
             m_alias_resolving.erase(&u);
             if (cacheable)
-                m_alias_cache.emplace(&u, out.type);
+                m_alias_cache.emplace(&u, out);
             return out;
         }
 
