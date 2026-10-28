@@ -200,6 +200,7 @@ namespace
         bool bounds_check{false};
         bool restricted_check{false};
         bool partial_eval{false};
+        bool whole_program{false};
         bool pic{false};
         bool shared_link{false};
         bool link_std{false};
@@ -682,6 +683,8 @@ namespace
                         e.restricted_check = true;
                     if (flags_str.find("-fpartial-eval") != std::string::npos)
                         e.partial_eval = true;
+                    if (flags_str.find("-fwhole-program") != std::string::npos)
+                        e.whole_program = true;
                 }
 
                 if (!sec.body.empty())
@@ -1920,7 +1923,7 @@ namespace
         }
 
         dcc::sema::SemaContext sema{sm, diag, ast_ctx, parse_fn, std::move(opts)};
-        sema.analyze_entry(sb->root / fx.entry);
+        auto* const entry_module = sema.analyze_entry(sb->root / fx.entry);
 
         auto make_module_path = [&](std::string_view mp_str) -> dcc::sema::ModulePath {
             std::vector<std::string_view> segs;
@@ -3135,7 +3138,7 @@ namespace
             if (sema_failed)
                 break;
             ScopedTestEnv test_env{exp.env};
-            auto const* mod = sema.graph().all().empty() ? nullptr : sema.graph().all().front().get();
+            auto const* mod = entry_module ? entry_module : (sema.graph().all().empty() ? nullptr : sema.graph().all().front().get());
             if (!mod)
             {
                 ok = false;
@@ -3162,6 +3165,7 @@ namespace
             dcc::ir::IrContext ir_ctx{256 * 1024, &target};
             auto lowerer = std::make_unique<dcc::ir::lower::Lowerer>(ir_ctx, &sema.spec_registry(), &sema.graph(), exp.bounds_check, &sm, &sema.types(),
                                                                      exp.restricted_check, exp.partial_eval);
+            lowerer->set_whole_program(exp.whole_program);
             auto* ir_mod = lowerer->lower_module(*mod);
             if (lowerer->lower_errors().empty() && !verify_fixture_ir(ir_mod, target, exp.base_line))
                 continue;

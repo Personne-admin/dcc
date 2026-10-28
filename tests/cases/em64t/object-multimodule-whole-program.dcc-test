@@ -1,0 +1,20 @@
+=== FILE: helper.dc ===
+module helper;
+
+public i32 helper_value() { return 21; }
+
+=== FILE: main.dc ===
+module main;
+
+import helper;
+using helper::*;
+
+@nomangle public i32 dcc_main() { return helper_value() * 2; }
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -fwhole-program -no-section-check ===
+RUN-EXIT: 42
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -fwhole-program -no-section-check ===
+RUN-EXIT: 42
