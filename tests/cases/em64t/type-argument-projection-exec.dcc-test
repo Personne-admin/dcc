@@ -1,0 +1,85 @@
+=== FILE: contract.dc ===
+module contract;
+
+import core::meta;
+
+public enum Status(E) { Ok, Err(E), }
+
+public using WriteStatus(W) = typeof((null as W*).write_all(""));
+public using WriterError(W) = core::meta::type_argument(WriteStatus(W), 0);
+
+public using Writer(W) = compiles(W* writer, []const char bytes) {
+    Status(WriterError(W)) result = writer.write_all(bytes);
+};
+
+public Status(WriterError(W)) emit(W)(W* writer, []const char bytes) if Writer(W) {
+    return writer.write_all(bytes);
+}
+
+=== FILE: main.dc ===
+module main;
+
+import core::meta;
+public import contract;
+using contract::*;
+
+public enum WriteError : u8 { Full, }
+public enum CountError : u8 { Rejected, }
+public struct Buffer { char[8] bytes; usize count; }
+public struct Counter { usize count; }
+
+public Status(WriteError) write_all(Buffer* writer, []const char bytes) {
+    if bytes.len > 8 - writer.count { return Status::Err(WriteError::Full); }
+    for usize i = 0; i < bytes.len; i++ { writer.bytes[writer.count + i] = bytes[i]; }
+    writer.count += bytes.len;
+    return Status::Ok;
+}
+
+public Status(CountError) write_all(Counter* writer, []const char bytes) {
+    if bytes.len > 4 { return Status::Err(CountError::Rejected); }
+    writer.count += bytes.len;
+    return Status::Ok;
+}
+
+public struct Box(T) { T value; }
+public enum Local : u8 { First }
+
+using Direct = core::meta::type_argument(Box(Local), 0);
+using StatusOf = Status(WriteError);
+using Aliased = core::meta::type_argument(StatusOf, 0);
+
+T project(T)(T value) {
+    core::meta::type_argument(Box(T), 0) projected = value;
+    return projected;
+}
+
+@nomangle public i32 dcc_main() {
+    Buffer buffer = {};
+    Status(WriteError) first = emit(&buffer, "123");
+    if match first { Status::Ok => false, _ => true, } { return 1; }
+    if buffer.count != 3 || buffer.bytes[0] != '1' { return 2; }
+
+    Status(WriteError) full = emit(&buffer, "12345678");
+    if match full { Status::Err(e) => e != WriteError::Full, _ => true, } { return 3; }
+
+    Counter counter = {};
+    Status(CountError) counted = emit(&counter, "abcd");
+    if counter.count != 4 { return 4; }
+    Status(CountError) rejected = emit(&counter, "abcde");
+    if match rejected { Status::Err(e) => e != CountError::Rejected, _ => true, } { return 5; }
+
+    Direct direct = Local::First;
+    Aliased aliased = WriteError::Full;
+    if direct != Local::First || aliased != WriteError::Full { return 6; }
+    Local projected = project(Local::First);
+    if projected != Local::First { return 7; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

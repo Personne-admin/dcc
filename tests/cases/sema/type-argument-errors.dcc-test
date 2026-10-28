@@ -1,0 +1,20 @@
+=== FILE: main.dc ===
+module main;
+
+import core::meta;
+
+enum E1 : u8 { A }
+enum Status(E) { Ok, Err(E), }
+
+using BadSubject = core::meta::type_argument(i32, 0);
+using BadIndex = core::meta::type_argument(Status(E1), 2);
+using BadCount = core::meta::type_argument(Status(E1));
+i32 dynamic_index() { return 0; }
+using BadConstant = core::meta::type_argument(Status(E1), dynamic_index());
+using DependentUnused(W) = core::meta::type_argument(i32, 0);
+
+=== EXPECT-ERRORS ===
+main.dc:8: cannot project type argument 0 from `i32`
+main.dc:9: type argument index 2 is out of range for `Status(E1)`
+main.dc:10: type_argument requires a type and a compile-time index
+main.dc:12: type argument index must be a compile-time constant

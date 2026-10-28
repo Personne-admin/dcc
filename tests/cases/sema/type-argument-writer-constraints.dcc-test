@@ -1,0 +1,73 @@
+=== FILE: writer_contract.dc ===
+module writer_contract;
+
+import core::meta;
+
+public enum Status(E) { Ok, Err(E), }
+
+public using WriteStatus(W) = typeof((null as W*).write_all(""));
+public using WriterError(W) = core::meta::type_argument(WriteStatus(W), 0);
+
+public using Writer(W) = compiles(W* writer, []const char bytes) {
+    Status(WriterError(W)) result = writer.write_all(bytes);
+};
+
+public Status(WriterError(W)) emit(W)(W* writer, []const char bytes) if Writer(W) {
+    return writer.write_all(bytes);
+}
+
+=== FILE: main.dc ===
+module main;
+
+import core::meta;
+public import writer_contract;
+using writer_contract::*;
+
+public enum E1 : u8 { A }
+public enum E2 : u8 { B }
+public struct W1 {}
+public struct W2 {}
+public struct NoWriter {}
+public struct VoidWriter {}
+public struct IntWriter {}
+
+public Status(E1) write_all(W1* writer, []const char bytes) { return Status::Ok; }
+public Status(E2) write_all(W2* writer, []const char bytes) { return Status::Ok; }
+public void write_all(VoidWriter* writer, []const char bytes) {}
+public i32 write_all(IntWriter* writer, []const char bytes) { return 0; }
+
+void positive() {
+    W1 one = {};
+    W2 two = {};
+    Status(E1) a = emit(&one, "a");
+    Status(E2) b = emit(&two, "b");
+}
+
+void missing() {
+    NoWriter writer = {};
+    emit(&writer, "x");
+}
+
+void wrong_void() {
+    VoidWriter writer = {};
+    emit(&writer, "x");
+}
+
+void wrong_int() {
+    IntWriter writer = {};
+    emit(&writer, "x");
+}
+
+void missing_expected() {
+    NoWriter writer = {};
+    Status(E1) value = emit(&writer, "x");
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-ERRORS ===
+main.dc:29: template constraint not satisfied for `emit`
+main.dc:34: template constraint not satisfied for `emit`
+main.dc:39: template constraint not satisfied for `emit`
+main.dc:44: template constraint not satisfied for `emit`
+

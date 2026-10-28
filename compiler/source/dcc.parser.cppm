@@ -1461,7 +1461,8 @@ export namespace dcc::parser
                 {
                     Speculation spec(*this);
                     auto* alias_type = parse_type(true);
-                    if ((ast::node_cast<ast::FuncPtrType>(alias_type) || contains_typeof(alias_type)) && !spec.had_suppressed_errors() && check(TK::Semicolon))
+                    if ((ast::node_cast<ast::FuncPtrType>(alias_type) || contains_typeof(alias_type) || is_type_argument_projection(alias_type)) &&
+                        !spec.had_suppressed_errors() && check(TK::Semicolon))
                     {
                         spec.commit();
                         d->using_kind = ast::UsingKind::Alias;
@@ -1565,6 +1566,12 @@ export namespace dcc::parser
             expect(TK::Semicolon, "after using declaration");
             d->range = range_from(start);
             return d;
+        }
+
+        static bool is_type_argument_projection(ast::TypeExpr const* type)
+        {
+            auto const* named = ast::node_cast<ast::NamedType>(type);
+            return named && named->template_args.size() == 2 && !named->path.segments.empty() && named->path.segments.back().name == "type_argument";
         }
 
         static bool contains_typeof(ast::TypeExpr const* type)

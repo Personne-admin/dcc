@@ -1089,6 +1089,20 @@ typeof(original + 1) mutable_copy = 5;
 using Written(W) = typeof((null as W*).write_all(""));
 ```
 
+`core::meta::type_argument(T, index)` (import `core::meta`) is a
+type expression that returns the `index`-th template argument of a
+generic struct, union or enum. `T` is a type and `index` a
+compile-time `usize` constant. Aliases are resolved to their
+canonical type before projection. A non-generic `T`, an index outside
+the argument list, a non-constant index or a wrong argument count is an
+error. Dependent projections are resolved when their generic arguments are
+known.
+
+```dc
+import core::meta;
+using WriterError(W) = core::meta::type_argument(typeof((null as W*).write_all("")), 0);
+```
+
 ```dc
 struct S {
     u8 a;

@@ -204,6 +204,12 @@ public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Q
 
 )dc";
 
+    constexpr std::string_view kCoreMetaSourceText = R"dc(module core::meta;
+
+public using type_argument(T, usize index) = T;
+
+)dc";
+
     constexpr VirtualModuleEntry kCoreModules[] = {
         {
             .module_path = "core",
@@ -219,6 +225,11 @@ public []const char function_name(FunctionNameStyle style = FunctionNameStyle::Q
             .module_path = "core::source_location",
             .uri = "dcc-core:/core/source_location.dc",
             .source_text = kCoreSourceLocationSourceText,
+        },
+        {
+            .module_path = "core::meta",
+            .uri = "dcc-core:/core/meta.dc",
+            .source_text = kCoreMetaSourceText,
         },
     };
 

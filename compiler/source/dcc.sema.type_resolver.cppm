@@ -815,6 +815,21 @@ export namespace dcc::sema
                 return out;
             }
 
+            if (sym->name == "type_argument")
+            {
+                auto const* owner = sym->module;
+                if (!owner || owner->canonical_path.str() != "core::meta")
+                    for (auto const& candidate : m_modules)
+                        if (candidate->tu && sym->decl && sym->decl->range.begin.fileId == candidate->tu->range.begin.fileId)
+                        {
+                            owner = candidate.get();
+                            break;
+                        }
+
+                if (owner && owner->canonical_path.str() == "core::meta")
+                    return resolve_type_argument(node, mod, env, quiet_unknown);
+            }
+
             out = resolve_symbol_type(*sym, mod, env, node->template_args, node->range, quiet_unknown);
             return out;
         }
@@ -959,6 +974,82 @@ export namespace dcc::sema
                 return {m_types.nominal_t(kind, const_cast<ast::Decl*>(decl)), types::Qual::None};
 
             return {m_types.m_errort(), types::Qual::None};
+        }
+
+        [[nodiscard]] static types::TypeResolution project_type_argument(types::TypeContext& types, diag::DiagnosticEngine& diag, types::TypePtr type,
+                                                                         std::uint64_t index, sm::SourceRange range)
+        {
+            auto projection = dcc::sema::project_type_argument(types, type, index);
+            if (!projection.error.empty())
+            {
+                bool const suppressed = types.type_query_suppression && types.type_query_suppression(false);
+                if (suppressed)
+                    std::ignore = types.type_query_suppression(true);
+                else
+                    diag.error(range, "{}", projection.error);
+            }
+
+            return projection.result;
+        }
+
+        [[nodiscard]] detail::ResolvedType resolve_type_argument(ast::NamedType* node, ModuleInfo const& mod, detail::TemplateEnv const& env,
+                                                                 bool quiet_unknown)
+        {
+            auto report = [&](sm::SourceRange report_range, std::string message) {
+                bool const suppressed = m_types.type_query_suppression && m_types.type_query_suppression(false);
+                if (suppressed)
+                    std::ignore = m_types.type_query_suppression(true);
+                else
+                    m_diag.error(report_range, "{}", message);
+            };
+
+            auto const& args = node->template_args;
+            if (args.size() != 2 || !args[0].type)
+            {
+                report(node->range, "type_argument requires a type and a compile-time index");
+                return {m_types.m_errort(), types::Qual::None};
+            }
+
+            if (!args[1].expr)
+            {
+                report(args[1].range, "type argument index must be a compile-time constant");
+                return {m_types.m_errort(), types::Qual::None};
+            }
+
+            auto index = resolve_const_uint(args[1].expr, mod, env);
+            if (!index)
+            {
+                report(args[1].range, "type argument index must be a compile-time constant");
+                return {m_types.m_errort(), types::Qual::None};
+            }
+
+            auto operand = resolve_type_expr(args[0].type, mod, env, quiet_unknown);
+
+            std::vector<std::pair<std::string_view, types::TypePtr>> sorted(env.types.begin(), env.types.end());
+            std::ranges::sort(sorted, {}, &std::pair<std::string_view, types::TypePtr>::first);
+            std::vector<types::TypePtr> parameters;
+            parameters.reserve(sorted.size());
+            for (auto const& entry : sorted)
+                parameters.push_back(entry.second);
+
+            auto* diag = &m_diag;
+            auto* types = &m_types;
+            auto range = args[1].range;
+            auto operand_type = operand.type;
+            auto projection_index = *index;
+            auto deferred = m_types.deferred_t(
+                node, parameters,
+                [diag, types, range, operand_type, projection_index, parameters](std::span<types::TypePtr const> arguments) {
+                    infer::TemplateBindings bindings{*types};
+                    for (std::size_t i = 0; i < parameters.size() && i < arguments.size(); ++i)
+                        std::ignore = bindings.deduce(parameters[i], arguments[i]);
+
+                    auto resolved = bindings.substitute_qualified(operand_type);
+                    return project_type_argument(*types, *diag, resolved.type, projection_index, range);
+                });
+
+            auto substituted = infer::TemplateBindings{m_types}.substitute_qualified(deferred);
+            return {substituted.type, substituted.quals};
         }
 
         [[nodiscard]] detail::ResolvedType resolve_alias(ast::UsingDecl const& u, ModuleInfo const& mod, detail::TemplateEnv const& env,

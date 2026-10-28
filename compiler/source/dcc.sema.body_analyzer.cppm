@@ -18372,6 +18372,50 @@ export namespace dcc::sema
             }
         }
 
+        [[nodiscard]] bool is_core_meta_type_argument(ast::UsingDecl const& u) noexcept
+        {
+            if (u.alias_path.is_empty() || u.template_params.size() != 2 || u.alias_path.segments.back().name != "type_argument")
+                return false;
+
+            auto* owner = find_defining_module(u);
+            return owner && owner->canonical_path.str() == "core::meta";
+        }
+
+        types::TypePtr resolve_type_argument_in_body(ModuleInfo& mod, Scope const& scope, ast::NamedType const& nt, ast::FuncDecl* fn,
+                                                     std::uint32_t* next_off_ptr, ConstEnv const* const_env)
+        {
+            auto const& args = nt.template_args;
+            if (args.size() != 2 || !args[0].type)
+            {
+                error(nt.range, "type_argument requires a type and a compile-time index");
+                return m_types.m_errort();
+            }
+
+            if (!args[1].expr)
+            {
+                error(args[1].range, "type argument index must be a compile-time constant");
+                return m_types.m_errort();
+            }
+
+            auto subject = args[0].type->sema.canonical ? get_canonical(args[0].type->sema)
+                                                        : resolve_type_node(mod, scope, args[0].type, fn, next_off_ptr, const_env);
+            auto index = try_eval_const_size_expr(mod, scope, args[1].expr);
+            if (index.tag != ConstSizeResult::Tag::Folded || index.value < 0)
+            {
+                error(args[1].range, "type argument index must be a compile-time constant");
+                return m_types.m_errort();
+            }
+
+            auto projection = dcc::sema::project_type_argument(m_types, subject, static_cast<std::uint64_t>(index.value));
+            if (!projection.error.empty())
+            {
+                error(nt.range, "{}", projection.error);
+                return m_types.m_errort();
+            }
+
+            return m_concept_bindings ? m_concept_bindings->substitute(projection.result.type) : projection.result.type;
+        }
+
         ResolvedType resolve_type_node_resolved(ModuleInfo& mod, Scope const& scope, ast::TypeExpr const* t, ast::FuncDecl* fn = nullptr,
                                                 std::uint32_t* next_off_ptr = nullptr, ConstEnv const* const_env = nullptr)
         {
@@ -18446,6 +18490,8 @@ export namespace dcc::sema
                     auto instantiate = [&](ast::Decl const* decl) -> types::TypePtr {
                         if (!decl)
                             return m_types.m_errort();
+                        if (auto const* u = ast::node_cast<ast::UsingDecl>(decl); u && is_core_meta_type_argument(*u))
+                            return resolve_type_argument_in_body(mod, scope, *nt, fn, next_off_ptr, const_env);
                         if (auto const* vd = ast::node_cast<ast::VarDecl>(decl))
                         {
                             if (vd->type && vd->type->sema.canonical)

@@ -201,6 +201,46 @@ export namespace dcc::sema
         return "<type>";
     }
 
+    struct TypeArgumentProjection
+    {
+        types::TypeResolution result{};
+        std::string error;
+    };
+
+    [[nodiscard]] inline TypeArgumentProjection project_type_argument(types::TypeContext& types, types::TypePtr type, std::uint64_t index)
+    {
+        while (auto const* nominal = types::type_cast<types::NominalType>(type))
+            type = nominal->underlying;
+
+        if (!type || type->kind == types::TypeKind::Error)
+            return {{types.m_errort(), types::Qual::None}, {}};
+
+        types::UserType const* user = nullptr;
+        switch (type->kind)
+        {
+            case types::TypeKind::Struct:
+                user = static_cast<types::StructType const*>(type);
+                break;
+            case types::TypeKind::Union:
+                user = static_cast<types::UnionType const*>(type);
+                break;
+            case types::TypeKind::Enum:
+                user = static_cast<types::EnumType const*>(type);
+                break;
+            default:
+                break;
+        }
+
+        if (!user)
+            return {{types.m_errort(), types::Qual::None}, std::format("cannot project type argument {} from `{}`", index, format_dcc_type(type))};
+
+        if (index >= user->template_args.size())
+            return {{types.m_errort(), types::Qual::None},
+                    std::format("type argument index {} is out of range for `{}`", index, format_dcc_type(type))};
+
+        return {{user->template_args[static_cast<std::size_t>(index)], types::Qual::None}, {}};
+    }
+
     [[nodiscard]] inline bool is_func_param_sema_pack(ast::FuncParam const& p, ast::FuncDecl const& fn)
     {
         if (p.is_pack)
