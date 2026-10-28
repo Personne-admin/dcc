@@ -243,6 +243,9 @@ export namespace dcc::sema
 
             switch (node->kind)
             {
+                case ast::TypeKind::Typeof:
+                    validate_canonical(mod, ty, node->range);
+                    return;
                 case ast::TypeKind::Primitive:
                     return;
                 case ast::TypeKind::Named: {
@@ -342,6 +345,8 @@ export namespace dcc::sema
 
             switch (ty->kind)
             {
+                case types::TypeKind::Deferred:
+                    return;
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Int:

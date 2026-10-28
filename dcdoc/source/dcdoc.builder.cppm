@@ -271,6 +271,9 @@ export namespace dcdoc
             using K = dcc::ast::TypeKind;
             switch (node->kind)
             {
+                case K::Typeof:
+                    out.text = "typeof(" + const_expr_text(static_cast<dcc::ast::TypeofType const*>(node)->operand) + ")";
+                    break;
                 case K::Primitive: {
                     auto const* t = static_cast<dcc::ast::PrimitiveType const*>(node);
                     out.text = std::string{dcc::lex::to_string(t->which)};

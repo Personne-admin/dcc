@@ -1068,10 +1068,26 @@ differ in type identity, template matching and mangled names. Rebuild
 libraries and consumers together; physical representation alone does not
 make old callbacks type-compatible.
 
-### 9.4 Compile-time size/alignment queries
+### 9.4 Compile-time type and layout queries
 
 `sizeof`, `alignof`, and `offsetof` are builtins evaluated at compile time;
 all three produce a `usize`.
+
+`typeof(expr)` is a type expression. It checks its operand using ordinary
+expression and overload rules but never evaluates it, including during
+compile-time execution. Lvalue operands preserve their `const` and
+`volatile` qualifiers. Non-lvalues yield their plain unqualified expression
+type; calls use the declared return type. No reference type is introduced.
+Dependent operands are resolved when their generic arguments are known;
+unused dependent aliases do not instantiate their operands. A `typeof`
+result is a non-deduced context for template argument deduction.
+
+```dc
+const i32 original = 3;
+typeof(original) immutable_copy = 4;
+typeof(original + 1) mutable_copy = 5;
+using Written(W) = typeof((null as W*).write_all(""));
+```
 
 ```dc
 struct S {

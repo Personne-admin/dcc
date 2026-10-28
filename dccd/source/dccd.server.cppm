@@ -3316,6 +3316,8 @@ export namespace dccd
 
             switch (ty->kind)
             {
+                case dcc::types::TypeKind::Deferred:
+                    return "typeof(<dependent>)";
                 case dcc::types::TypeKind::Void:
                     return "void";
                 case dcc::types::TypeKind::Bool:

@@ -396,6 +396,22 @@ export namespace dcc::infer
             return substitute_impl(type, memo);
         }
 
+        [[nodiscard]] types::TypeResolution substitute_qualified(types::TypePtr type) const
+        {
+            auto result = substitute(type);
+            types::Qual quals = types::Qual::None;
+            if (auto* deferred = types::type_cast<types::DeferredType>(type))
+            {
+                std::vector<types::TypePtr> arguments;
+                for (auto arg : deferred->arguments)
+                    arguments.push_back(substitute(arg));
+                auto* rebound = types::type_cast<types::DeferredType>(m_types.deferred_t(deferred->origin, arguments, deferred->resolver));
+                if (rebound->result)
+                    quals = rebound->result->quals;
+            }
+            return {result, quals};
+        }
+
         [[nodiscard]] std::vector<RecordField> substitute_record(std::span<RecordField const> fields) const
         {
             std::vector<RecordField> out;
@@ -488,6 +504,11 @@ export namespace dcc::infer
 
             switch (type->kind)
             {
+                case types::TypeKind::Deferred: {
+                    auto const* deferred = static_cast<types::DeferredType const*>(type);
+                    return std::ranges::any_of(deferred->arguments, [&](auto arg) { return contains_param(arg, target); });
+                }
+
                 case types::TypeKind::Pointer: {
                     auto const* t = static_cast<types::PointerType const*>(type);
                     return contains_param(t->pointee, target);
@@ -654,6 +675,9 @@ export namespace dcc::infer
 
             switch (lhs->kind)
             {
+                case types::TypeKind::Deferred:
+                    return fail(DeductionError::Conflict, "typeof is a non-deduced context");
+
                 case types::TypeKind::Void:
                 case types::TypeKind::Bool:
                 case types::TypeKind::Char:
@@ -804,6 +828,42 @@ export namespace dcc::infer
             return fail(DeductionError::KindMismatch, "unsupported type form");
         }
 
+        [[nodiscard]] static bool is_concrete(types::TypePtr type)
+        {
+            if (!type)
+                return false;
+            switch (type->kind)
+            {
+                case types::TypeKind::TemplateParam:
+                case types::TypeKind::Deferred:
+                case types::TypeKind::TypePack:
+                case types::TypeKind::Error:
+                    return false;
+                case types::TypeKind::Pointer:
+                    return is_concrete(static_cast<types::PointerType const*>(type)->pointee);
+                case types::TypeKind::Array:
+                    return is_concrete(static_cast<types::ArrayType const*>(type)->element);
+                case types::TypeKind::Slice:
+                    return is_concrete(static_cast<types::SliceType const*>(type)->element);
+                case types::TypeKind::RuntimeArray:
+                    return is_concrete(static_cast<types::RuntimeArrayType const*>(type)->element);
+                case types::TypeKind::Fam:
+                    return is_concrete(static_cast<types::FamType const*>(type)->element);
+                case types::TypeKind::Nominal:
+                    return is_concrete(static_cast<types::NominalType const*>(type)->underlying);
+                case types::TypeKind::Struct:
+                case types::TypeKind::Union:
+                case types::TypeKind::Enum:
+                    return std::ranges::all_of(static_cast<types::UserType const*>(type)->template_args, is_concrete);
+                case types::TypeKind::FuncPtr: {
+                    auto const* function = static_cast<types::FuncPtrType const*>(type);
+                    return is_concrete(function->return_type) && std::ranges::all_of(function->params, is_concrete);
+                }
+                default:
+                    return true;
+            }
+        }
+
         [[nodiscard]] types::TypePtr substitute_impl(types::TypePtr type, std::unordered_map<types::TypePtr, types::TypePtr>& memo) const
         {
             if (!type)
@@ -824,6 +884,33 @@ export namespace dcc::infer
 
             switch (type->kind)
             {
+                case types::TypeKind::Deferred: {
+                    auto const* t = static_cast<types::DeferredType const*>(type);
+                    std::vector<types::TypePtr> arguments;
+                    bool concrete = true;
+                    for (auto arg : t->arguments)
+                    {
+                        auto sub = substitute_impl(arg, memo);
+                        arguments.push_back(sub);
+                        concrete &= is_concrete(sub);
+                    }
+                    auto const* rebound = static_cast<types::DeferredType const*>(m_types.deferred_t(t->origin, arguments, t->resolver));
+                    out = rebound;
+                    if (concrete)
+                    {
+                        if (!rebound->result && !rebound->resolving)
+                        {
+                            rebound->resolving = true;
+                            rebound->result = rebound->resolver(arguments);
+                            rebound->resolving = false;
+                        }
+                        out = rebound->result ? rebound->result->type : m_types.m_errort();
+                        if (out && out->kind == types::TypeKind::Error)
+                            rebound->result.reset();
+                    }
+                    break;
+                }
+
                 case types::TypeKind::Restricted: {
                     auto const* t = static_cast<types::RestrictedType const*>(type);
                     auto underlying = substitute_impl(t->underlying, memo);
@@ -872,9 +959,10 @@ export namespace dcc::infer
 
                 case types::TypeKind::Pointer: {
                     auto const* t = static_cast<types::PointerType const*>(type);
-                    auto pointee = substitute_impl(t->pointee, memo);
-                    if (pointee != t->pointee)
-                        out = m_types.rebuild_pointer(t, pointee, t->pointee_quals);
+                    auto qualified = substitute_qualified(t->pointee);
+                    auto pointee = qualified.type;
+                    if (pointee != t->pointee || qualified.quals != types::Qual::None)
+                        out = m_types.rebuild_pointer(t, pointee, t->pointee_quals | qualified.quals);
 
                     break;
                 }
@@ -899,9 +987,10 @@ export namespace dcc::infer
 
                 case types::TypeKind::Slice: {
                     auto const* t = static_cast<types::SliceType const*>(type);
-                    auto element = substitute_impl(t->element, memo);
-                    if (element != t->element)
-                        out = m_types.rebuild_slice(t, element, t->element_quals);
+                    auto qualified = substitute_qualified(t->element);
+                    auto element = qualified.type;
+                    if (element != t->element || qualified.quals != types::Qual::None)
+                        out = m_types.rebuild_slice(t, element, t->element_quals | qualified.quals);
 
                     break;
                 }

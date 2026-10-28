@@ -37,6 +37,7 @@ export namespace dcc::types
         TypePack,
         Nominal,
         Error,
+        Deferred,
     };
 
     enum class Qual : std::uint8_t
@@ -417,6 +418,27 @@ export namespace dcc::types
         TemplateParamType(void* p, std::string_view n, std::uint32_t i) : Type(Kind), param(p), name(n), index(i) { is_complete = false; }
     };
 
+    struct TypeResolution
+    {
+        TypePtr type{};
+        Qual quals{Qual::None};
+    };
+
+    struct DeferredType : Type
+    {
+        static constexpr auto Kind = TypeKind::Deferred;
+        void const* origin;
+        std::vector<TypePtr> arguments;
+        std::function<TypeResolution(std::span<TypePtr const>)> resolver;
+        mutable std::optional<TypeResolution> result;
+        mutable bool resolving{};
+        DeferredType(void const* o, std::span<TypePtr const> a, std::function<TypeResolution(std::span<TypePtr const>)> f)
+            : Type(Kind), origin(o), arguments(a.begin(), a.end()), resolver(std::move(f))
+        {
+            is_complete = false;
+        }
+    };
+
     struct ErrorType : Type
     {
         static constexpr auto Kind = TypeKind::Error;
@@ -462,6 +484,8 @@ export namespace dcc::types
     class TypeContext
     {
     public:
+        std::function<bool(bool)> type_query_suppression;
+
         explicit TypeContext(std::size_t initial = 32 * 1024, target::TargetConfig const* target = nullptr) : m_buffer(initial), m_arena(&m_buffer)
         {
             if (target)
@@ -893,6 +917,18 @@ export namespace dcc::types
             return t;
         }
 
+        [[nodiscard]] TypePtr deferred_t(void const* origin, std::span<TypePtr const> arguments,
+                                         std::function<TypeResolution(std::span<TypePtr const>)> resolver)
+        {
+            for (auto const& t : m_deferred)
+                if (t->origin == origin && std::ranges::equal(t->arguments, arguments))
+                    return t.get();
+            auto t = std::make_unique<DeferredType>(origin, arguments, std::move(resolver));
+            auto* result = t.get();
+            m_deferred.push_back(std::move(t));
+            return result;
+        }
+
         [[nodiscard]] TypePtr template_param_t(void* param, std::string_view name, std::uint32_t index)
         {
             for (auto const* t : m_template_params)
@@ -949,6 +985,7 @@ export namespace dcc::types
         std::vector<StructType const*> m_structs;
         std::vector<UnionType const*> m_unions;
         std::vector<EnumType const*> m_enums;
+        std::vector<std::unique_ptr<DeferredType>> m_deferred;
         std::vector<TemplateParamType const*> m_template_params;
         std::vector<NominalType const*> m_nominal_aliases;
 

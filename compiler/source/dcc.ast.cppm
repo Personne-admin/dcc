@@ -110,6 +110,7 @@ export namespace dcc::ast
         Qualified,
         Restricted,
         PackIndex,
+        Typeof,
     };
 
     enum class ExprKind : std::uint8_t
@@ -263,6 +264,7 @@ export namespace dcc::ast
     struct TypeSema
     {
         types::Type const* canonical{};
+        Qual resolved_quals{Qual::None};
         Decl const* resolved_decl{};
         std::uint64_t byte_size{};
         std::uint32_t byte_align{};
@@ -509,6 +511,13 @@ export namespace dcc::ast
         sm::SourceRange range;
         TypePtr type{};
         bool is_pack : 1 {};
+    };
+
+    struct TypeofType : TypeExpr
+    {
+        static constexpr auto Kind = TypeKind::Typeof;
+        ExprPtr operand;
+        TypeofType(sm::SourceRange r, ExprPtr e) : TypeExpr(Kind, r), operand(e) {}
     };
 
     struct PrimitiveType : TypeExpr
@@ -1465,7 +1474,7 @@ export namespace dcc::ast
 
     [[nodiscard]] constexpr bool is_type_start(lex::TokenKind k) noexcept
     {
-        return is_primitive_type(k) || is_qualifier(k) || k == lex::TokenKind::Identifier || k == lex::TokenKind::LBracket;
+        return k == lex::TokenKind::KwTypeof || is_primitive_type(k) || is_qualifier(k) || k == lex::TokenKind::Identifier || k == lex::TokenKind::LBracket;
     }
 
 } // namespace dcc::ast

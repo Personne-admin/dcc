@@ -66,6 +66,7 @@ export namespace dcc::lex
 
         KwAs,
 
+        KwTypeof,
         KwSizeof,
         KwAlignof,
         KwOffsetof,
@@ -253,6 +254,8 @@ export namespace dcc::lex
 
             case TokenKind::KwAs:
                 return "as";
+            case TokenKind::KwTypeof:
+                return "typeof";
             case TokenKind::KwSizeof:
                 return "sizeof";
             case TokenKind::KwAlignof:
@@ -498,6 +501,7 @@ export namespace dcc::lex
             {"static", TokenKind::KwStatic},
             {"struct", TokenKind::KwStruct},
             {"true", TokenKind::KwTrue},
+            {"typeof", TokenKind::KwTypeof},
             {"u16", TokenKind::Kwu16},
             {"u32", TokenKind::Kwu32},
             {"u64", TokenKind::Kwu64},

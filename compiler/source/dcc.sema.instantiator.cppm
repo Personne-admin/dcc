@@ -53,6 +53,12 @@ namespace dcc::sema
 
             switch (t->kind)
             {
+                case ast::TypeKind::Typeof: {
+                    auto* e = static_cast<ast::TypeofType const*>(t);
+                    auto* n = m_ctx.make<ast::TypeofType>(e->range, clone_expr(e->operand));
+                    n->sema = e->sema;
+                    return n;
+                }
                 case ast::TypeKind::Primitive: {
                     auto* e = static_cast<ast::PrimitiveType const*>(t);
                     auto* n = m_ctx.make<ast::PrimitiveType>(e->range, e->which);
@@ -986,6 +992,8 @@ namespace dcc::sema
             if (t->sema.canonical)
             {
                 auto canon = get_canonical(t->sema);
+                auto qualified = m_bindings.substitute_qualified(canon);
+                t->sema.resolved_quals |= static_cast<ast::Qual>(std::to_underlying(qualified.quals));
                 auto sub = deep_substitute(canon);
                 if (sub != canon)
                     set_canonical(t->sema, sub);
@@ -1041,6 +1049,9 @@ namespace dcc::sema
                     }
                     break;
                 }
+                case ast::TypeKind::Typeof:
+                    substitute_in_expr(static_cast<ast::TypeofType*>(t)->operand);
+                    break;
                 case ast::TypeKind::Primitive:
                     break;
                 case ast::TypeKind::Restricted: {
@@ -2017,6 +2028,15 @@ export namespace dcc::sema
         }
     }
 
+    ast::Expr* clone_bound_expression(ast::AstContext& ctx, types::TypeContext& types, ast::Expr const* expr, infer::TemplateBindings const& bindings)
+    {
+        auto* result = AstCloner{ctx}.clone_expr(expr);
+        si::InternedHashMap<types::TypePtr> names;
+        TypeSubstitutor sub{bindings, types, ctx, names, {}};
+        sub.substitute_in_expr(result);
+        return result;
+    }
+
     ast::Expr* clone_default_argument(ast::AstContext& ctx, ast::Expr const* expr, std::span<ast::FuncParam const> params, std::span<ast::Expr* const> args)
     {
         AstCloner cloner{ctx, params, args};
@@ -2489,6 +2509,9 @@ export namespace dcc::sema
 
                 switch (t->kind)
                 {
+                    case ast::TypeKind::Typeof:
+                        replace_in_expr(static_cast<ast::TypeofType*>(t)->operand);
+                        break;
                     case ast::TypeKind::Primitive:
                         break;
                     case ast::TypeKind::Named: {

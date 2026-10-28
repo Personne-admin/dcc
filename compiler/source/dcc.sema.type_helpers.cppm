@@ -178,6 +178,8 @@ export namespace dcc::sema
                 return std::format("range({})", format_dcc_type(static_cast<types::RangeType const*>(ty)->element));
             case types::TypeKind::RangeInclusive:
                 return std::format("range_inclusive({})", format_dcc_type(static_cast<types::RangeInclusiveType const*>(ty)->element));
+            case types::TypeKind::Deferred:
+                return "typeof(<dependent>)";
             case types::TypeKind::TemplateParam:
                 return std::string{static_cast<types::TemplateParamType const*>(ty)->name};
             case types::TypeKind::TypePack:

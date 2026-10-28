@@ -1461,7 +1461,7 @@ export namespace dcc::parser
                 {
                     Speculation spec(*this);
                     auto* alias_type = parse_type(true);
-                    if (ast::node_cast<ast::FuncPtrType>(alias_type) && !spec.had_suppressed_errors() && check(TK::Semicolon))
+                    if ((ast::node_cast<ast::FuncPtrType>(alias_type) || contains_typeof(alias_type)) && !spec.had_suppressed_errors() && check(TK::Semicolon))
                     {
                         spec.commit();
                         d->using_kind = ast::UsingKind::Alias;
@@ -1567,6 +1567,30 @@ export namespace dcc::parser
             return d;
         }
 
+        static bool contains_typeof(ast::TypeExpr const* type)
+        {
+            if (!type)
+                return false;
+            switch (type->kind)
+            {
+                case ast::TypeKind::Typeof:
+                    return true;
+                case ast::TypeKind::Qualified:
+                    return contains_typeof(static_cast<ast::QualifiedType const*>(type)->inner);
+                case ast::TypeKind::Pointer:
+                    return contains_typeof(static_cast<ast::PointerType const*>(type)->pointee);
+                case ast::TypeKind::Array:
+                    return contains_typeof(static_cast<ast::ArrayType const*>(type)->element);
+                case ast::TypeKind::Slice:
+                    return contains_typeof(static_cast<ast::SliceType const*>(type)->element);
+                case ast::TypeKind::Named:
+                    return std::ranges::any_of(static_cast<ast::NamedType const*>(type)->template_args,
+                                               [](auto const& arg) { return contains_typeof(arg.type); });
+                default:
+                    return false;
+            }
+        }
+
         ast::TypeExpr* parse_type(bool allow_restricted = false, bool cast_target = false)
         {
             auto start = loc();
@@ -1646,6 +1670,14 @@ export namespace dcc::parser
                 slice->is_far = true;
                 slice->segment_name = segment_name;
                 return slice;
+            }
+
+            if (match(TK::KwTypeof))
+            {
+                expect(TK::LParen, "after typeof");
+                auto* operand = parse_expr();
+                expect(TK::RParen, "after typeof operand");
+                return m_ctx.make<ast::TypeofType>(range_from(start), operand);
             }
 
             if (ast::is_primitive_type(peek().kind))

@@ -1,0 +1,40 @@
+=== FILE: main.dc ===
+module main;
+
+using Missing(T) = typeof((null as T*).absent());
+struct Empty {}
+
+void missing() {
+    bool supported = compiles { Missing(Empty) ignored; };
+    Missing(Empty) value;
+}
+
+void unknown() {
+    typeof(undeclared) value;
+}
+
+void immutable() {
+    const i32 source = 1;
+    typeof(source) copy = 2;
+    copy = 3;
+}
+
+void wrong_pointer() {
+    const i32 source = 1;
+    typeof(source)* pointer = &source;
+    i32* writable = pointer;
+}
+
+i32 ambiguous(u8 value);
+i32 ambiguous(u16 value);
+
+void overload() {
+    typeof(ambiguous(1)) value;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:3: no visible UFCS function named `absent` in scope
+main.dc:12: unknown name `undeclared`
+main.dc:18: cannot assign to const-qualified target of type `i32`
+main.dc:24: initializer type mismatch: declared `i32*`, initializer `const i32*`
+main.dc:31: ambiguous call to `ambiguous`

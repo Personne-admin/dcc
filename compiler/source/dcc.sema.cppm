@@ -87,7 +87,7 @@ export namespace dcc::sema
             collect_all(m_graph.all(), m_diag, m_types, m_alloc);
             resolve_usings(m_graph.all(), m_diag, m_alloc);
             m_diag.set_parser_recovery_suppression(true);
-            resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
+            resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc, m_ast_ctx, m_spec_registry);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
             validate_public_signatures(m_graph.all(), m_diag);
             analyze_bodies(m_graph.all(), m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target, m_opts.restricted_check);
@@ -133,7 +133,7 @@ export namespace dcc::sema
             collect_all(m_graph.all(), m_diag, m_types, m_alloc);
             resolve_usings(m_graph.all(), m_diag, m_alloc);
             m_diag.set_parser_recovery_suppression(true);
-            resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc);
+            resolve_signature_types(m_graph.all(), m_diag, m_types, m_alloc, m_ast_ctx, m_spec_registry);
             validate_attributes(m_graph.all(), m_diag, m_alloc);
             validate_public_signatures(m_graph.all(), m_diag);
             m_diag.set_parser_recovery_suppression(false);
@@ -156,7 +156,7 @@ export namespace dcc::sema
             auto modules = std::span{m_graph.all()}.subspan(first);
             collect_all(modules, m_diag, m_types, m_alloc);
             resolve_usings(modules, m_diag, m_alloc);
-            resolve_signature_types(modules, m_diag, m_types, m_alloc);
+            resolve_signature_types(modules, m_diag, m_types, m_alloc, m_ast_ctx, m_spec_registry);
             validate_attributes(modules, m_diag, m_alloc);
             validate_public_signatures(modules, m_diag);
             analyze_bodies(modules, m_diag, m_ast_ctx, m_types, m_alloc, m_spec_registry, &m_opts.target, m_opts.restricted_check);

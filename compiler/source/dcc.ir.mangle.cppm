@@ -472,6 +472,9 @@ namespace dcc::ir::mangle
             }
             switch (type->kind)
             {
+                case dcc::types::TypeKind::Deferred:
+                    out += "Dt";
+                    return;
                 case dcc::types::TypeKind::Void:
                     out += 'v';
                     return;

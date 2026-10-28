@@ -14,13 +14,14 @@ import dcc.sm;
 import dcc.types;
 import dcc.sema.scope;
 import dcc.sema.infer;
+import dcc.sema.instantiator;
 import dcc.sema.type_helpers;
 import dcc.sema.body_analyzer;
 
 export namespace dcc::sema
 {
     void resolve_signature_types(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, types::TypeContext& type_ctx,
-                                 std::pmr::polymorphic_allocator<> alloc);
+                                 std::pmr::polymorphic_allocator<> alloc, ast::AstContext& ast_ctx, SpecializationRegistry& reg);
 
     namespace detail
     {
@@ -85,13 +86,35 @@ export namespace dcc::sema
     {
     public:
         TypeResolver(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, types::TypeContext& type_ctx,
-                     std::pmr::polymorphic_allocator<> alloc)
-            : m_modules{modules}, m_diag{diag}, m_types{type_ctx}, m_alloc{alloc}
+                     std::pmr::polymorphic_allocator<> alloc, ast::AstContext& ast_ctx, SpecializationRegistry& reg)
+            : m_ast_ctx{ast_ctx}, m_reg{reg}, m_modules{modules}, m_diag{diag}, m_types{type_ctx}, m_alloc{alloc}
         {
         }
 
         void run()
         {
+            *m_signature_query = [this](ast::Decl const& declaration) {
+                bool unresolved = false;
+                if (auto* function = ast::node_cast<ast::FuncDecl>(&declaration))
+                {
+                    unresolved = function->return_type && !function->return_type->sema.canonical;
+                    for (auto const& param : function->params)
+                        unresolved |= param.type && !param.type->sema.canonical;
+                }
+                else if (auto* variable = ast::node_cast<ast::VarDecl>(&declaration))
+                    unresolved = variable->type && !variable->type->sema.canonical;
+                if (!unresolved)
+                    return;
+                for (auto const& module : m_modules)
+                    if (module->tu && declaration.range.begin.fileId == module->tu->range.begin.fileId)
+                    {
+                        if (auto* function = ast::node_cast<ast::FuncDecl>(&declaration))
+                            resolve_func(*module, const_cast<ast::FuncDecl&>(*function));
+                        else if (auto* variable = ast::node_cast<ast::VarDecl>(&declaration))
+                            resolve_var(*module, const_cast<ast::VarDecl&>(*variable));
+                        return;
+                    }
+            };
             prepare_placeholders();
 
             for (auto const& m : m_modules)
@@ -105,7 +128,12 @@ export namespace dcc::sema
             }
         }
 
+        ~TypeResolver() { *m_signature_query = {}; }
+
     private:
+        ast::AstContext& m_ast_ctx;
+        SpecializationRegistry& m_reg;
+        std::shared_ptr<SignatureQuery> m_signature_query = std::make_shared<SignatureQuery>();
         std::span<std::unique_ptr<ModuleInfo> const> m_modules;
         diag::DiagnosticEngine& m_diag;
         types::TypeContext& m_types;
@@ -592,6 +620,34 @@ export namespace dcc::sema
             detail::ResolvedType out{};
             switch (node->kind)
             {
+                case ast::TypeKind::Typeof: {
+                    auto* query = static_cast<ast::TypeofType*>(node);
+                    resolve_concept_target_expr(query->operand, mod, env);
+                    std::vector<types::TypePtr> parameters;
+                    std::vector<std::pair<std::string_view, types::TypePtr>> sorted(env.types.begin(), env.types.end());
+                    std::ranges::sort(sorted, {}, &std::pair<std::string_view, types::TypePtr>::first);
+                    for (auto const& entry : sorted)
+                        parameters.push_back(entry.second);
+                    auto modules = m_modules;
+                    auto* diag = &m_diag;
+                    auto* context = &m_ast_ctx;
+                    auto* types = &m_types;
+                    auto* registry = &m_reg;
+                    auto* module = const_cast<ModuleInfo*>(&mod);
+                    auto hook = m_signature_query;
+                    auto deferred = m_types.deferred_t(
+                        query, parameters,
+                        [modules, diag, context, types, registry, module, query, parameters, hook](std::span<types::TypePtr const> arguments) {
+                            infer::TemplateBindings bindings{*types};
+                            for (std::size_t i = 0; i < parameters.size(); ++i)
+                                std::ignore = bindings.deduce(parameters[i], arguments[i]);
+                            return analyze_type_operand(modules, *diag, *context, *types, *registry, *module, *query->operand, bindings, *hook);
+                        });
+                    auto resolved = infer::TemplateBindings{m_types}.substitute_qualified(deferred);
+                    out = {resolved.type, resolved.quals};
+                    break;
+                }
+
                 case ast::TypeKind::Primitive:
                     out.type = resolve_primitive(static_cast<ast::PrimitiveType*>(node)->which);
                     break;
@@ -984,7 +1040,9 @@ export namespace dcc::sema
             if (u.target_type)
             {
                 out = resolve_type_expr(u.target_type, mod, inst_env, quiet_unknown);
-                out.type = bindings.substitute(out.type);
+                auto resolved = bindings.substitute_qualified(out.type);
+                out.type = resolved.type;
+                out.quals = detail::qual_or(out.quals, resolved.quals);
             }
             else
             {
@@ -1004,6 +1062,7 @@ export namespace dcc::sema
         void apply_sema(ast::TypeExpr& node, detail::ResolvedType resolved)
         {
             set_canonical(node.sema, resolved.type);
+            node.sema.resolved_quals = static_cast<ast::Qual>(std::to_underlying(resolved.quals));
             node.sema.resolved_decl = resolved_decl(node, resolved.type);
             node.sema.byte_size = resolved.type ? resolved.type->byte_size : 0;
             node.sema.byte_align = resolved.type ? resolved.type->byte_align : 0;
@@ -2730,9 +2789,9 @@ export namespace dcc::sema
     };
 
     void resolve_signature_types(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, types::TypeContext& type_ctx,
-                                 std::pmr::polymorphic_allocator<> alloc)
+                                 std::pmr::polymorphic_allocator<> alloc, ast::AstContext& ast_ctx, SpecializationRegistry& reg)
     {
-        TypeResolver{modules, diag, type_ctx, alloc}.run();
+        TypeResolver{modules, diag, type_ctx, alloc, ast_ctx, reg}.run();
     }
 
 } // namespace dcc::sema

@@ -387,6 +387,12 @@ export namespace dcc::ast
                 visitExpr(f.value);
             }
         }
+        void visitTypeofType(TypeofType const* t) override
+        {
+            line("Typeof");
+            IndentScope is(m_indent_level);
+            visitExpr(t->operand);
+        }
         void visitSizeofExpr(SizeofExpr const* e) override
         {
             line("Sizeof");

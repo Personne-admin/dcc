@@ -24,6 +24,11 @@ import dcc.sema.type_helpers;
 
 export namespace dcc::sema
 {
+    using SignatureQuery = std::function<void(ast::Decl const&)>;
+    types::TypeResolution analyze_type_operand(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx,
+                                               types::TypeContext& types, SpecializationRegistry& reg, ModuleInfo& mod, ast::Expr const& operand,
+                                               infer::TemplateBindings const& bindings, SignatureQuery query = {});
+
     void analyze_bodies(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx,
                         types::TypeContext& type_ctx, std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& reg,
                         target::TargetConfig const* target = nullptr, bool restricted_check = false);
@@ -885,10 +890,38 @@ export namespace dcc::sema
     public:
         BodyAnalyzer(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx, types::TypeContext& type_ctx,
                      std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& spec_registry, target::TargetConfig const* target = nullptr,
-                     bool restricted_check = false)
+                     bool restricted_check = false, bool type_query = false)
             : m_modules{modules}, m_diag{diag}, m_had_prior_errors{diag.has_errors()}, m_ast_ctx{ast_ctx}, m_types{type_ctx}, m_alloc{alloc},
               m_spec_registry{spec_registry}, m_target{target}, m_restricted_check{restricted_check}
         {
+            m_is_type_query = type_query;
+            if (!m_is_type_query)
+                m_previous_type_query_suppression = std::exchange(m_types.type_query_suppression, [this](bool failed) {
+                    if (!m_suppress_errors)
+                        return false;
+                    m_suppressed_error_count += failed;
+                    return true;
+                });
+        }
+
+        ~BodyAnalyzer()
+        {
+            if (!m_is_type_query)
+                m_types.type_query_suppression = std::move(m_previous_type_query_suppression);
+        }
+
+        types::TypeResolution type_of_operand(ModuleInfo& mod, ast::Expr const& operand, infer::TemplateBindings const& bindings, SignatureQuery query)
+        {
+            m_signature_query = std::move(query);
+            m_suppress_errors = m_types.type_query_suppression && m_types.type_query_suppression(false);
+            m_unevaluated = true;
+            m_signature_probe = true;
+            auto* expression = clone_bound_expression(m_ast_ctx, m_types, &operand, bindings);
+            std::uint32_t offset = 0;
+            auto result = analyze_expr(mod, nullptr, *mod.own_scope, *expression, 0, offset);
+            if (m_suppressed_error_count && m_types.type_query_suppression)
+                std::ignore = m_types.type_query_suppression(true);
+            return {result.type, result.is_lvalue ? result.storage_quals : types::Qual::None};
         }
 
         void run()
@@ -972,6 +1005,11 @@ export namespace dcc::sema
         }
 
     private:
+        bool m_is_type_query{};
+        std::function<bool(bool)> m_previous_type_query_suppression;
+        bool m_unevaluated{};
+        SignatureQuery m_signature_query;
+
         std::span<std::unique_ptr<ModuleInfo> const> m_modules;
         diag::DiagnosticEngine& m_diag;
         bool m_had_prior_errors{};
@@ -1985,6 +2023,8 @@ export namespace dcc::sema
 
             switch (ty->kind)
             {
+                case types::TypeKind::Deferred:
+                    return true;
                 case types::TypeKind::TemplateParam:
                     return true;
                 case types::TypeKind::Pointer:
@@ -2094,6 +2134,9 @@ export namespace dcc::sema
 
             switch (ty->kind)
             {
+                case types::TypeKind::Deferred:
+                    why = "typeof operand is still dependent";
+                    return std::nullopt;
                 case types::TypeKind::Bool:
                     return comptime::Value::make_bool(false, ty);
                 case types::TypeKind::Int:
@@ -3095,6 +3138,9 @@ export namespace dcc::sema
                     do_guard(t);
                     switch (t->kind)
                     {
+                        case ast::TypeKind::Typeof:
+                            visit_expr(static_cast<ast::TypeofType*>(t)->operand);
+                            break;
                         case ast::TypeKind::Pointer:
                             visit_type(static_cast<ast::PointerType*>(t)->pointee);
                             break;
@@ -5100,6 +5146,8 @@ export namespace dcc::sema
             if (!type)
                 return false;
 
+            if (ast::has_qual(type->sema.resolved_quals, ast::Qual::Const))
+                return true;
             switch (type->kind)
             {
                 case ast::TypeKind::Array:
@@ -5181,6 +5229,8 @@ export namespace dcc::sema
         {
             if (!type)
                 return types::Qual::None;
+            if (type->sema.resolved_quals != ast::Qual::None)
+                return ast_to_type_qual(type->sema.resolved_quals);
             if (auto* qt = ast::node_cast<ast::QualifiedType>(type))
                 return qual_or(ast_to_type_qual(qt->quals), storage_quals(qt->inner));
             if (auto* arr = ast::node_cast<ast::ArrayType>(type))
@@ -5935,6 +5985,8 @@ export namespace dcc::sema
                 return std::nullopt;
 
             auto const& f = *static_cast<ast::FuncDecl const*>(sym.decl);
+            if (m_signature_query)
+                m_signature_query(f);
             std::vector<types::TypePtr> params;
             params.reserve(f.params.size());
             for (auto const& p : f.params)
@@ -6403,6 +6455,8 @@ export namespace dcc::sema
                 return std::nullopt;
 
             auto const& f = *static_cast<ast::FuncDecl const*>(sym.decl);
+            if (m_signature_query)
+                m_signature_query(f);
             std::vector<types::TypePtr> params;
             params.reserve(f.params.size());
             for (auto const& p : f.params)
@@ -6423,6 +6477,8 @@ export namespace dcc::sema
                 return std::nullopt;
 
             auto const& f = *static_cast<ast::FuncDecl const*>(sym.decl);
+            if (m_signature_query)
+                m_signature_query(f);
             std::vector<types::TypePtr> params;
             params.reserve(f.params.size());
             for (auto const& p : f.params)
@@ -6941,6 +6997,8 @@ export namespace dcc::sema
 
             switch (ty->kind)
             {
+                case types::TypeKind::Deferred:
+                    return std::nullopt;
                 case types::TypeKind::Void:
                     return Layout{0, 1};
                 case types::TypeKind::Bool:
@@ -10177,8 +10235,13 @@ export namespace dcc::sema
             std::pmr::vector<Symbol> out{m_alloc};
             auto append = [&](std::span<Symbol const> syms) {
                 for (auto const& sym : syms)
+                {
+                    if (m_signature_query)
+                        if (auto* function = ast::node_cast<ast::FuncDecl>(sym.decl))
+                            m_signature_query(*function);
                     if (std::ranges::none_of(out, [&](Symbol const& seen) { return seen.decl == sym.decl; }))
                         out.push_back(sym);
+                }
             };
 
             append(local_scope.lookup_values(name));
@@ -11178,7 +11241,7 @@ export namespace dcc::sema
                     expr.sema.is_constant = false;
                 }
             }
-            if (expr.kind == ast::ExprKind::Call && !out.constant && !has_error(out.type) && !expr.sema.is_runtime)
+            if (!m_unevaluated && expr.kind == ast::ExprKind::Call && !out.constant && !has_error(out.type) && !expr.sema.is_runtime)
             {
                 auto const& call = static_cast<ast::CallExpr const&>(expr);
                 if (!fn || call_fold_candidate(call))
@@ -18125,6 +18188,8 @@ export namespace dcc::sema
 
         types::TypePtr decl_type(ast::Decl const& d)
         {
+            if (m_signature_query)
+                m_signature_query(d);
             switch (d.kind)
             {
                 case ast::DeclKind::Var:
@@ -18315,6 +18380,21 @@ export namespace dcc::sema
 
             switch (t->kind)
             {
+                case ast::TypeKind::Typeof: {
+                    auto const* query = static_cast<ast::TypeofType const*>(t);
+                    if (!query->operand)
+                        return {.type = m_types.m_errort()};
+                    auto saved = std::exchange(m_unevaluated, true);
+                    auto saved_probe = std::exchange(m_signature_probe, true);
+                    auto offset = next_off_ptr ? *next_off_ptr : 0u;
+                    auto result = analyze_expr(mod, fn, const_cast<Scope&>(scope), *query->operand, 0, offset, nullptr, const_env);
+                    m_signature_probe = saved_probe;
+                    m_unevaluated = saved;
+                    auto quals = result.is_lvalue ? result.storage_quals : types::Qual::None;
+                    const_cast<ast::TypeSema&>(t->sema).resolved_quals = static_cast<ast::Qual>(std::to_underlying(quals));
+                    return {.type = result.type, .quals = quals};
+                }
+
                 case ast::TypeKind::Primitive: {
                     auto which = static_cast<ast::PrimitiveType const*>(t)->which;
                     switch (which)
@@ -18360,7 +18440,7 @@ export namespace dcc::sema
                     {
                         auto const* pre = get_canonical(t->sema);
                         if (pre && pre->kind != types::TypeKind::Error)
-                            return {.type = pre};
+                            return {.type = pre, .quals = ast_to_type_qual(t->sema.resolved_quals)};
                     }
 
                     auto instantiate = [&](ast::Decl const* decl) -> types::TypePtr {
@@ -18377,6 +18457,7 @@ export namespace dcc::sema
                             if (u->using_kind == ast::UsingKind::Alias && u->target_type && u->target_type->sema.canonical)
                             {
                                 auto underlying = get_canonical(u->target_type->sema);
+                                const_cast<ast::TypeSema&>(t->sema).resolved_quals = u->target_type->sema.resolved_quals;
                                 if (u->sema.is_nominal && underlying && underlying->kind != types::TypeKind::Error)
                                     return m_types.nominal_alias_t(underlying, u);
                                 return underlying;
@@ -18484,7 +18565,9 @@ export namespace dcc::sema
                                 else
                                     std::ignore = bindings.deduce(key, resolved_args[i]);
                             }
-                            auto underlying = bindings.substitute(get_canonical(u->target_type->sema));
+                            auto qualified = bindings.substitute_qualified(get_canonical(u->target_type->sema));
+                            auto underlying = qualified.type;
+                            const_cast<ast::TypeSema&>(t->sema).resolved_quals = static_cast<ast::Qual>(std::to_underlying(qualified.quals));
                             if (u->sema.is_nominal && underlying && underlying->kind != types::TypeKind::Error)
                                 return m_types.nominal_alias_t(underlying, u);
                             return underlying;
@@ -18525,24 +18608,24 @@ export namespace dcc::sema
                     if (nt->path.is_simple())
                     {
                         if (auto const* sym = scope.lookup_type(nt->path.simple_name()))
-                            return {.type = instantiate(sym->decl)};
+                            return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
 
                         if (mod.own_scope)
                             if (auto const* sym = mod.own_scope->lookup_type(nt->path.simple_name()))
-                                return {.type = instantiate(sym->decl)};
+                                return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
 
                         if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
                             if (auto const* sym = m_specialization_defining_module->own_scope->lookup_type(nt->path.simple_name()))
-                                return {.type = instantiate(sym->decl)};
+                                return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
                     }
 
                     if (mod.own_scope)
                         if (auto const* sym = resolve_type_path(*mod.own_scope, nt->path))
-                            return {.type = instantiate(sym->decl)};
+                            return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
 
                     if (m_specialization_defining_module && m_specialization_defining_module->own_scope)
                         if (auto const* sym = resolve_type_path(*m_specialization_defining_module->own_scope, nt->path))
-                            return {.type = instantiate(sym->decl)};
+                            return {.type = instantiate(sym->decl), .quals = ast_to_type_qual(t->sema.resolved_quals)};
 
                     if (!m_had_prior_errors)
                         error(nt->range, "unknown type `{}`", path_str(nt->path));
@@ -18749,6 +18832,14 @@ export namespace dcc::sema
             return materialize_type(resolve_type_node_resolved(mod, scope, t, fn, next_off_ptr, const_env));
         }
     };
+
+    types::TypeResolution analyze_type_operand(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx,
+                                               types::TypeContext& types, SpecializationRegistry& reg, ModuleInfo& mod, ast::Expr const& operand,
+                                               infer::TemplateBindings const& bindings, SignatureQuery query)
+    {
+        BodyAnalyzer analyzer{modules, diag, ast_ctx, types, ast_ctx.allocator(), reg, nullptr, false, true};
+        return analyzer.type_of_operand(mod, operand, bindings, std::move(query));
+    }
 
     void analyze_bodies(std::span<std::unique_ptr<ModuleInfo> const> modules, diag::DiagnosticEngine& diag, ast::AstContext& ast_ctx,
                         types::TypeContext& type_ctx, std::pmr::polymorphic_allocator<> alloc, SpecializationRegistry& reg, target::TargetConfig const* target,

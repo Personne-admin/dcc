@@ -27,6 +27,7 @@ export namespace dcc::ast
         virtual void visitTemplateParams(std::pmr::vector<TemplateParam> const&) {}
         virtual void visitAttrs(std::pmr::vector<Attribute> const&) {}
 
+        virtual void visitTypeofType(TypeofType const*) {}
         virtual void visitPrimitiveType(PrimitiveType const*) {}
         virtual void visitNamedType(NamedType const*) {}
         virtual void visitPointerType(PointerType const*) {}
@@ -125,6 +126,7 @@ export namespace dcc::ast
         void visitTemplateParams(std::pmr::vector<TemplateParam> const& params) override;
         void visitAttrs(std::pmr::vector<Attribute> const& attrs) override;
 
+        void visitTypeofType(TypeofType const* t) override { visitExpr(t->operand); }
         void visitPrimitiveType(PrimitiveType const*) override {}
         void visitNamedType(NamedType const*) override;
         void visitPointerType(PointerType const*) override;
@@ -370,6 +372,9 @@ namespace dcc::ast
 
         switch (type_expr->kind)
         {
+            case TypeKind::Typeof:
+                visitTypeofType(node_cast<TypeofType>(type_expr));
+                break;
             case TypeKind::Primitive:
                 visitPrimitiveType(node_cast<PrimitiveType>(type_expr));
                 break;

@@ -1,0 +1,95 @@
+=== FILE: main.dc ===
+module main;
+
+public import writers;
+using writers::*;
+
+using Used = typeof(declared_only());
+using SignatureOnly = typeof(signature_only(1 as i32));
+using MemberType(W) = typeof((null as W*).field);
+struct ReadOnly { const i32 field; }
+struct Mutable { i32 field; }
+i32 signature_only(T)(T value) { return value.absent(); }
+i32 ctfe_query() {
+    i32 value = 0;
+    typeof(value++) copy = 7;
+    return value;
+}
+const i32 compile_time_proof = ctfe_query();
+using Global = typeof(later_global);
+using GlobalConst = typeof(later_const);
+using NamedWrite = typeof((null as Buffer*).write_all(""));
+i32 later_global;
+const i32 later_const = 12;
+using Unused(W) = typeof((null as W*).absent());
+using Written(W) = typeof((null as W*).write_all(""));
+
+extern i32 declared_only();
+i32 calls;
+i32 effect() { calls += 1; return 3; }
+i32 select(i32 value) { return value; }
+u8 select(u8 value) { return value; }
+
+Written(W) forward(W)(W* writer) { return writer.write_all("a"); }
+
+@nomangle public i32 dcc_main() {
+    Used value = 4;
+    SignatureOnly signature = 5;
+    if signature != 5 || compile_time_proof != 0 { return 13; }
+    ReadOnly readonly = {};
+    MemberType(ReadOnly)* readonly_pointer = &readonly.field;
+    MemberType(Mutable) mutable_field = 1;
+    mutable_field += 1;
+    if *readonly_pointer != 0 || mutable_field != 2 { return 14; }
+    Global plain = 4;
+    GlobalConst* preserved = &later_const;
+    NamedWrite named = Status::Ok;
+    if plain != 4 || *preserved != 12 || match named { Status::Ok => false, _ => true, } { return 12; }
+    typeof(effect()) result = 5;
+    if calls != 0 || value != 4 || result != 5 { return 1; }
+    typeof(calls++) counter = 6;
+    if calls != 0 || counter != 6 { return 2; }
+    const i32 immutable = 7;
+    typeof(immutable + 1) mutable = 8;
+    mutable += 1;
+    if mutable != 9 { return 3; }
+    typeof(immutable)* pointer = &immutable;
+    if *pointer != 7 { return 4; }
+    volatile i32 port = 3;
+    typeof(port)* volatile_pointer = &port;
+    if *volatile_pointer != 3 { return 5; }
+    typeof(select(1 as u8)) narrow = 255;
+    if sizeof(typeof(narrow)) != 1 { return 6; }
+    Buffer buffer = {};
+    Written(Buffer) written = forward(&buffer);
+    if buffer.count != 1 || match written { Status::Ok => false, _ => true, } { return 7; }
+    typeof((null as Other*).write_all("")) other = Status::Err(OtherError::Rejected);
+    if match other { Status::Err(error) => error != OtherError::Rejected, _ => true, } { return 8; }
+    typeof(*(&immutable)) copy = 9;
+    if copy != 9 { return 9; }
+    i32[3] array = {1, 2, 3};
+    typeof(array) array_copy = {4, 5, 6};
+    if array_copy[2] != 6 { return 10; }
+    if compiles { Unused(Buffer) invalid; } { return 11; }
+    return 0;
+}
+
+=== FILE: writers.dc ===
+module writers;
+
+public enum Status(E) { Ok, Err(E), }
+public enum BufferError : u8 { Full, }
+public enum OtherError : u8 { Rejected, }
+public struct Buffer { usize count; }
+public struct Other {}
+
+public Status(BufferError) write_all(Buffer* writer, []const char bytes) {
+    writer.count += bytes.len;
+    return Status::Ok;
+}
+
+public Status(OtherError) write_all(Other* writer, []const char bytes) {
+    return Status::Err(OtherError::Rejected);
+}
+
+=== ENTRY: main.dc ===

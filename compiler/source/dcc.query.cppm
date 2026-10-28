@@ -506,6 +506,9 @@ namespace dcc::query
 
             switch (type_expr->kind)
             {
+                case ast::TypeKind::Typeof:
+                    walk_expr(static_cast<ast::TypeofType const*>(type_expr)->operand, result, target, opts);
+                    break;
                 case ast::TypeKind::Primitive:
                     break;
                 case ast::TypeKind::Named: {
