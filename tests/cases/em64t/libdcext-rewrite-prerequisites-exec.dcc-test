@@ -1,0 +1,87 @@
+=== FILE: writer_contract.dc ===
+module writer_contract;
+
+public enum WriteStatus(E) { Ok, Err(E), }
+
+public using Writer(W, E) = compiles(W* writer, []const char bytes) {
+    WriteStatus(E) result = writer.write_all(bytes);
+};
+
+public WriteStatus(E) emit(W, E)(W* writer, []const char bytes) if Writer(W, E) {
+    return writer.write_all(bytes);
+}
+
+=== FILE: main.dc ===
+module main;
+
+public import writer_contract;
+
+public enum BufferError : u8 { Full, }
+public enum CountError : u8 { Rejected, }
+public struct BufferWriter { char[8] bytes; usize count; }
+public struct CountingWriter { usize count; }
+
+public writer_contract::WriteStatus(BufferError) write_all(BufferWriter* writer, []const char bytes) {
+    if bytes.len > 8 - writer.count {
+        return writer_contract::WriteStatus::Err(BufferError::Full);
+    }
+    for usize i = 0; i < bytes.len; i++ {
+        writer.bytes[writer.count + i] = bytes[i];
+    }
+    writer.count += bytes.len;
+    return writer_contract::WriteStatus::Ok;
+}
+
+public writer_contract::WriteStatus(CountError) write_all(CountingWriter* writer, []const char bytes) {
+    if bytes.len > 4 {
+        return writer_contract::WriteStatus::Err(CountError::Rejected);
+    }
+    writer.count += bytes.len;
+    return writer_contract::WriteStatus::Ok;
+}
+
+struct Heap {}
+struct State { usize calls; }
+struct Stateful { State* state; }
+struct Array(T, A = Heap) { A allocator; []T storage; usize count; }
+
+usize default_size(Array(u8, Heap)* value) {
+    return sizeof(Array(u8, Heap));
+}
+
+@nomangle public i32 dcc_main() {
+    BufferWriter buffer = {};
+    writer_contract::WriteStatus(BufferError) first = writer_contract::emit!(BufferWriter, BufferError)(&buffer, "123");
+    if match first { writer_contract::WriteStatus::Ok => false, _ => true, } { return 1; }
+    if buffer.count != 3 || buffer.bytes[0] != '1' || buffer.bytes[2] != '3' { return 2; }
+    writer_contract::WriteStatus(BufferError) full = writer_contract::emit!(BufferWriter, BufferError)(&buffer, "12345678");
+    if match full { writer_contract::WriteStatus::Err(e) => e != BufferError::Full, _ => true, } { return 3; }
+    if buffer.count != 3 || buffer.bytes[2] != '3' { return 4; }
+
+    CountingWriter counter = {};
+    writer_contract::WriteStatus(CountError) counted = writer_contract::emit!(CountingWriter, CountError)(&counter, "abcd");
+    if match counted { writer_contract::WriteStatus::Ok => false, _ => true, } { return 5; }
+    writer_contract::WriteStatus(CountError) rejected = writer_contract::emit!(CountingWriter, CountError)(&counter, "abcde");
+    if match rejected { writer_contract::WriteStatus::Err(e) => e != CountError::Rejected, _ => true, } { return 6; }
+    if counter.count != 4 { return 7; }
+
+    if sizeof(Heap) != 0 { return 8; }
+    if sizeof(Array(u8)) != 3 * sizeof(usize) { return 9; }
+    if sizeof(Array(u8, Stateful)) != 4 * sizeof(usize) { return 10; }
+    Array(u8) defaulted = {};
+    if default_size(&defaulted) != sizeof(Array(u8)) { return 11; }
+    State state = {};
+    Array(u8, Stateful) stateful = {};
+    stateful.allocator.state = &state;
+    stateful.allocator.state.calls += 1;
+    if state.calls != 1 || stateful.allocator.state != &state { return 12; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

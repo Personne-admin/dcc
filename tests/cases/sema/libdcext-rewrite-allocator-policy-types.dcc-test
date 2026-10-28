@@ -1,0 +1,22 @@
+=== FILE: main.dc ===
+module main;
+
+struct Heap {}
+struct State { usize calls; }
+struct Stateful { State* state; }
+struct Array(T, A = Heap) { A allocator; []T storage; usize count; }
+
+void accept_default(Array(u8) value) {}
+
+void accepted() {
+    Array(u8, Heap) value = {};
+    accept_default(value);
+}
+
+void rejected() {
+    Array(u8, Stateful) value = {};
+    accept_default(value);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:17: no matching call for `accept_default`

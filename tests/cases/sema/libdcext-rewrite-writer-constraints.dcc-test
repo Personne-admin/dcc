@@ -1,0 +1,49 @@
+=== FILE: main.dc ===
+module main;
+
+enum WriteStatus(E) { Ok, Err(E), }
+enum BufferError : u8 { Full, }
+enum OtherError : u8 { Rejected, }
+
+using Writer(W, E) = compiles(W* writer, []const char bytes) {
+    WriteStatus(E) result = writer.write_all(bytes);
+};
+
+struct GoodWriter {}
+struct MissingWriter {}
+struct WrongWriter {}
+
+WriteStatus(BufferError) write_all(GoodWriter* writer, []const char bytes) {
+    return WriteStatus::Ok;
+}
+
+void write_all(WrongWriter* writer, []const char bytes) {}
+
+WriteStatus(E) emit(W, E)(W* writer, []const char bytes) if Writer(W, E) {
+    return writer.write_all(bytes);
+}
+
+void accepted() {
+    GoodWriter writer = {};
+    WriteStatus(BufferError) result = emit(&writer, "ok");
+}
+
+void missing_method() {
+    MissingWriter writer = {};
+    emit!(MissingWriter, BufferError)(&writer, "missing");
+}
+
+void wrong_return() {
+    WrongWriter writer = {};
+    emit!(WrongWriter, BufferError)(&writer, "wrong");
+}
+
+void wrong_error() {
+    GoodWriter writer = {};
+    emit!(GoodWriter, OtherError)(&writer, "error");
+}
+
+=== EXPECT-ERRORS ===
+main.dc:32: template constraint not satisfied for `emit`
+main.dc:37: template constraint not satisfied for `emit`
+main.dc:42: template constraint not satisfied for `emit`
