@@ -11805,7 +11805,12 @@ export namespace dcc::sema
                     }
                     require_binding_storage(u.operand);
                     invalidate_written_target(u.operand, const_env);
-                    out.type = m_types.pointer_to(op.type, op.storage_quals);
+                    {
+                        auto quals = op.storage_quals;
+                        if (!op.is_writable)
+                            quals = qual_or(quals, types::Qual::Const);
+                        out.type = m_types.pointer_to(op.type, quals);
+                    }
                     break;
                 case lex::TokenKind::Star:
                     if (auto const* p = types::type_cast<types::PointerType>(op.type))

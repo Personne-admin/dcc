@@ -1,0 +1,11 @@
+=== FILE: main.dc ===
+module main;
+using Immutable = const i32;
+void leak() {
+    Immutable value = 1;
+    i32* pointer = &value;
+    *pointer = 2;
+}
+
+=== EXPECT-ERRORS ===
+main.dc:5: initializer type mismatch: declared `i32*`, initializer `const i32*`
