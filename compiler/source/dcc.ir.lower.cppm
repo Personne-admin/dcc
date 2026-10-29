@@ -9810,6 +9810,12 @@ export namespace dcc::ir::lower
 
                     auto* ir_elem = lower_type(element);
                     auto* agg = m_ctx.aggregate(ir_ty);
+                    if (cv.slice_base().is_null && cv.slice_length() > cv.size())
+                    {
+                        agg->values.push_back(m_ctx.null_const(m_ctx.pointer_to(ir_elem)));
+                        agg->values.push_back(m_ctx.int_const(m_ctx.usize_t(), static_cast<std::int64_t>(cv.slice_length())));
+                        return agg;
+                    }
                     if (cv.size() == 0)
                     {
                         agg->values.push_back(m_ctx.null_const(m_ctx.pointer_to(ir_elem)));

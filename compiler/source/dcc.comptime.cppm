@@ -354,7 +354,8 @@ export namespace dcc::comptime
             if (kind() == Kind::Aggregate)
                 return std::get<ValueAgg>(m_storage).elements.size();
 
-            return std::get<ValueSlice>(m_storage).length;
+            auto const& slice = std::get<ValueSlice>(m_storage);
+            return slice.base.is_null ? slice.elements.size() : slice.length;
         }
 
         [[nodiscard]] Value& at(std::size_t i)

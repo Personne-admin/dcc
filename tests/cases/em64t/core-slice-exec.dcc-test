@@ -19,6 +19,8 @@ i32 exercise() {
     Empty one = {};
     []Empty empties = core::slice::from_raw(&one, 1);
     if empties.len != 1 { return 5; }
+    []u8 null_len = core::slice::from_raw(null as u8*, 16);
+    if null_len.len != 16 { return 6; }
     return 0;
 }
 

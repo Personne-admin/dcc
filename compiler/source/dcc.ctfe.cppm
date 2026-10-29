@@ -1041,6 +1041,8 @@ export namespace dcc::ctfe
                 return folded(value);
             if (value.kind() == Kind::Slice && value.slice_is_ref())
                 return folded(value);
+            if (value.kind() == Kind::Slice && value.slice_base().is_null && value.slice_length() > value.size())
+                return folded(value);
 
             std::vector<comptime::Value> elements;
             elements.reserve(value.size());
