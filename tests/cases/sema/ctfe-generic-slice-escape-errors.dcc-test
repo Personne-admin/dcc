@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module main;
+
+[]char escape(T)(T v) {
+    T[2] local = {};
+    return local[0..2];
+}
+
+const char first = escape!(char)('a')[0];
+
+=== EXPECT-ERRORS ===
+main.dc:8: initializer for global `first` is not a constant expression: reference to storage that has gone out of scope

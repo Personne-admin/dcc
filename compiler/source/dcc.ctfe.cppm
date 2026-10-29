@@ -855,7 +855,10 @@ export namespace dcc::ctfe
             {
                 if (static_cast<std::size_t>(index) >= r.value->slice_length())
                     return failure("index out of bounds", true);
-                auto element = m_heap.offset(r.value->slice_base(), index);
+                auto base = r.value->slice_base();
+                if (!m_heap.is_live(base))
+                    return expired();
+                auto element = m_heap.offset(base, index);
                 if (!element)
                     return failure("index has no compile-time storage");
                 out = std::move(*element);
