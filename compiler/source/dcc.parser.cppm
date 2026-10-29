@@ -1459,19 +1459,45 @@ export namespace dcc::parser
                 d->template_params = parse_template_param_list();
                 expect(TK::Eq, "after concept template parameters");
                 {
-                    Speculation spec(*this);
-                    auto* alias_type = parse_type(true);
-                    if ((ast::node_cast<ast::FuncPtrType>(alias_type) || contains_typeof(alias_type) || is_type_argument_projection(alias_type)) &&
-                        !spec.had_suppressed_errors() && check(TK::Semicolon))
+                    bool type_ok = false;
+                    bool plain_named = false;
                     {
-                        spec.commit();
+                        Speculation spec(*this);
+                        auto* alias_type = parse_type(true);
+                        type_ok = alias_type && !spec.had_suppressed_errors() && check(TK::Semicolon);
+                        if (type_ok)
+                            if (auto const* named = ast::node_cast<ast::NamedType>(alias_type);
+                                named && named->path.segments.size() == d->alias_path.segments.size() &&
+                                std::ranges::equal(named->path.segments, d->alias_path.segments,
+                                                   [](auto const& a, auto const& b) { return a.name == b.name; }))
+                                type_ok = false;
+                        plain_named = type_ok && ast::node_cast<ast::NamedType>(alias_type) != nullptr;
+                    }
+
+                    if (type_ok)
+                    {
+                        bool expr_ok = false;
+                        ast::Expr* alias_expr = nullptr;
+                        if (plain_named)
+                        {
+                            Speculation spec(*this);
+                            alias_expr = parse_expr();
+                            expr_ok = alias_expr && !spec.had_suppressed_errors() && check(TK::Semicolon);
+                        }
+
                         d->using_kind = ast::UsingKind::Alias;
-                        d->target_type = alias_type;
-                        advance();
+                        d->target_type = parse_type(true);
+                        if (plain_named && expr_ok)
+                        {
+                            d->maybe_concept = true;
+                            d->target_expr = alias_expr;
+                        }
+                        expect(TK::Semicolon, "after using declaration");
                         d->range = range_from(start);
                         return d;
                     }
                 }
+                d->using_kind = ast::UsingKind::Concept;
                 d->target_expr = parse_expr();
                 expect(TK::Semicolon, "after using declaration");
                 d->range = range_from(start);
@@ -1566,36 +1592,6 @@ export namespace dcc::parser
             expect(TK::Semicolon, "after using declaration");
             d->range = range_from(start);
             return d;
-        }
-
-        static bool is_type_argument_projection(ast::TypeExpr const* type)
-        {
-            auto const* named = ast::node_cast<ast::NamedType>(type);
-            return named && named->template_args.size() == 2 && !named->path.segments.empty() && named->path.segments.back().name == "type_argument";
-        }
-
-        static bool contains_typeof(ast::TypeExpr const* type)
-        {
-            if (!type)
-                return false;
-            switch (type->kind)
-            {
-                case ast::TypeKind::Typeof:
-                    return true;
-                case ast::TypeKind::Qualified:
-                    return contains_typeof(static_cast<ast::QualifiedType const*>(type)->inner);
-                case ast::TypeKind::Pointer:
-                    return contains_typeof(static_cast<ast::PointerType const*>(type)->pointee);
-                case ast::TypeKind::Array:
-                    return contains_typeof(static_cast<ast::ArrayType const*>(type)->element);
-                case ast::TypeKind::Slice:
-                    return contains_typeof(static_cast<ast::SliceType const*>(type)->element);
-                case ast::TypeKind::Named:
-                    return std::ranges::any_of(static_cast<ast::NamedType const*>(type)->template_args,
-                                               [](auto const& arg) { return contains_typeof(arg.type); });
-                default:
-                    return false;
-            }
         }
 
         ast::TypeExpr* parse_type(bool allow_restricted = false, bool cast_target = false)

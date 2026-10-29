@@ -1229,6 +1229,7 @@ export namespace dcc::ast
 
         UsingKind using_kind{};
         bool is_spill{};
+        bool maybe_concept{};
 
         Path alias_path;
         sm::SourceRange name_range;

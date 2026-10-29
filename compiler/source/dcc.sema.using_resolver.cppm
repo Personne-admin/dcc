@@ -386,11 +386,61 @@ export namespace dcc::sema
             return progress;
         }
 
+        enum class AliasTargetKind
+        {
+            Type,
+            Concept,
+            Unknown,
+        };
+
+        AliasTargetKind classify_alias_target(ModuleInfo& mod, ast::UsingDecl const& u) const
+        {
+            auto const* named = ast::node_cast<ast::NamedType>(u.target_type);
+            if (!named)
+                return AliasTargetKind::Type;
+
+            if (named->path.is_simple())
+                for (auto const& param : u.template_params)
+                    if (param.name == named->path.simple_name())
+                        return AliasTargetKind::Type;
+
+            if (auto const* sym = resolve_type_path(*mod.own_scope, named->path))
+            {
+                if (auto const* target = ast::node_cast<ast::UsingDecl>(sym->decl); target && target->using_kind == ast::UsingKind::Concept)
+                    return AliasTargetKind::Concept;
+
+
+                return AliasTargetKind::Type;
+            }
+
+            if (!resolve_value_overloads(*mod.own_scope, named->path).empty())
+                return AliasTargetKind::Concept;
+
+            return AliasTargetKind::Unknown;
+        }
+
         bool try_resolve_using(ModuleInfo& mod, ast::UsingDecl& u)
         {
             switch (u.using_kind)
             {
                 case ast::UsingKind::Alias:
+                    if (u.maybe_concept)
+                    {
+                        switch (classify_alias_target(mod, u))
+                        {
+                            case AliasTargetKind::Unknown:
+                                return false;
+                            case AliasTargetKind::Concept:
+                                if (!u.target_expr)
+                                    break;
+                                u.using_kind = ast::UsingKind::Concept;
+                                u.target_type = nullptr;
+                                u.maybe_concept = false;
+                                return resolve_concept(mod, u);
+                            case AliasTargetKind::Type:
+                                break;
+                        }
+                    }
                     return resolve_alias(mod, u);
                 case ast::UsingKind::ValueAlias:
                     return resolve_value_alias(mod, u);
@@ -452,7 +502,7 @@ export namespace dcc::sema
                 if (has_nominal_attr(u))
                     return install_type_alias_marker(mod, u);
 
-                if (auto const* nt = ast::node_cast<ast::NamedType>(u.target_type); nt && nt->template_args.empty())
+                if (auto const* nt = ast::node_cast<ast::NamedType>(u.target_type); u.template_params.empty() && nt && nt->template_args.empty())
                 {
                     if (u.alias_path.is_simple() && nt->path.is_simple() && nt->path.simple_name() == u.alias_path.segments.back().name)
                         return install_type_alias_marker(mod, u);

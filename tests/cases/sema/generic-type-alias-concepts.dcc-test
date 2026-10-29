@@ -1,0 +1,38 @@
+=== FILE: main.dc ===
+module main;
+
+struct Box(T) { T value; }
+using BoxAlias(T) = Box(T);
+
+using IsInt(T) = compiles(T x) {
+    i32 y = x;
+};
+using Bare(T) = IsInt(T);
+using AndNot(T) = IsInt(T) & !IsInt(f64);
+using OrInt(T) = IsInt(T) | IsInt(f64);
+using Negated(T) = !IsInt(f64);
+using Parenthesized(T) = (IsInt(T));
+using NestedParen(T) = ((IsInt(T)) & !IsInt(f64));
+using Direct(T) = compiles(T x) {
+    i32 y = x;
+};
+
+void bare(T)(T value) if Bare(T) {}
+void and_not(T)(T value) if AndNot(T) {}
+void or_int(T)(T value) if OrInt(T) {}
+void negated(T)(T value) if Negated(T) {}
+void parenthesized(T)(T value) if Parenthesized(T) {}
+void nested_paren(T)(T value) if NestedParen(T) {}
+void direct(T)(T value) if Direct(T) {}
+
+@nomangle public i32 dcc_main() {
+    BoxAlias(i32) boxed = { value = 1 };
+    bare(1);
+    and_not(2);
+    or_int(3);
+    negated(4);
+    parenthesized(5);
+    nested_paren(6);
+    direct(7);
+    return boxed.value;
+}
