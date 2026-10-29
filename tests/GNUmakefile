@@ -101,6 +101,9 @@ DCCD_COMPDB_OBJS := \
 	$(OBJ_DIR)/dccd.protocol.pcm.o \
 	$(OBJ_DIR)/dccd.compilation_database.pcm.o
 
+DPM_PCMS := $(wildcard $(PCM_DIR)/dpm.*.pcm)
+DPM_CORE_LIB := $(BUILD_DIR)/lib/libdpmcore.a
+
 DCDOC_PCMS := $(wildcard $(PCM_DIR)/dcdoc.*.pcm)
 DCDOC_OBJS := \
 	$(OBJ_DIR)/dcdoc.model.pcm.o \
@@ -210,6 +213,9 @@ $(BUILD_DIR)/bin/tests/test_compilation_database: $(OBJ_DIR)/tests/source/test_c
 $(BUILD_DIR)/bin/tests/test_dcdoc: $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(DCDOC_OBJS) $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
+$(BUILD_DIR)/bin/tests/test_dpm_manifest: $(OBJ_DIR)/tests/source/test_dpm_manifest.cc.o $(DPM_CORE_LIB) $(COMPILER_LIB)
+	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
+
 $(BUILD_DIR)/bin/tests/%: $(OBJ_DIR)/tests/source/%.cc.o $(COMPILER_LIB)
 	$(call link-binary,$@,$^,$(TEST_LDFLAGS))
 
@@ -234,7 +240,10 @@ $(OBJ_DIR)/tests/source/test_compilation_database.cc.o: $(TOPLEVEL)/tests/source
 $(OBJ_DIR)/tests/source/test_dcdoc.cc.o: $(TOPLEVEL)/tests/source/test_dcdoc.cc $(COMPILER_PCMS) $(DCDOC_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
-$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
+$(OBJ_DIR)/tests/source/test_dpm_manifest.cc.o: $(TOPLEVEL)/tests/source/test_dpm_manifest.cc $(COMPILER_PCMS) $(DPM_PCMS)
+	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
+
+$(filter-out $(OBJ_DIR)/tests/source/test_format.cc.o $(OBJ_DIR)/tests/source/test_protocol.cc.o $(OBJ_DIR)/tests/source/test_lsp.cc.o $(OBJ_DIR)/tests/source/test_workspace_index.cc.o $(OBJ_DIR)/tests/source/test_transport.cc.o $(OBJ_DIR)/tests/source/test_compilation_database.cc.o $(OBJ_DIR)/tests/source/test_dcdoc.cc.o $(OBJ_DIR)/tests/source/test_dpm_manifest.cc.o,$(ALL_TEST_OBJS)): $(OBJ_DIR)/%.o: $(TOPLEVEL)/% $(COMPILER_PCMS)
 	$(call compile-cxx,$<,$@,$(LOCAL_CXXFLAGS))
 
 clean:

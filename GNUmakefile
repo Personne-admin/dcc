@@ -16,7 +16,7 @@ STD_MK := $(TOPLEVEL)/mk/std.mk
 COMPDB_MK := $(TOPLEVEL)/mk/compdb.mk
 SCAN_SCRIPT := $(TOPLEVEL)/mk/scan_modules.py
 
-COMPDB_SUBDIRS := compiler driver dccd dcdoc libdcext
+COMPDB_SUBDIRS := compiler driver dccd dcdoc dpm libdcext
 
 PREFIX ?= /usr/local
 DESTDIR ?=
@@ -47,9 +47,9 @@ else
   MSG = @true
 endif
 
-.PHONY: all compiler driver dccd dcdoc libdcext test test-bin install uninstall compdb clean distclean help tools-windows msi
+.PHONY: all compiler driver dccd dcdoc dpm libdcext test test-bin install uninstall compdb clean distclean help tools-windows msi
 
-all: driver libdcext dccd dcdoc
+all: driver libdcext dccd dcdoc dpm
 
 compiler:
 	@$(MAKE) -C compiler
@@ -62,6 +62,9 @@ dccd: compiler
 
 dcdoc: compiler
 	@$(MAKE) -C dcdoc
+
+dpm: compiler
+	@$(MAKE) -C dpm
 
 libdcext: driver
 	@$(MAKE) -C libdcext
@@ -106,7 +109,7 @@ msi: tools-windows
 	$(Q)wixl -v -a x64 -o $(MSI_OUT) $(TOPLEVEL)/build-windows/dcc.wxs
 	$(call MSG,MSI,$(MSI_OUT))
 
-test: compiler driver libdcext dccd dcdoc
+test: compiler driver libdcext dccd dcdoc dpm
 	@$(MAKE) libdcext TARGET=x86_64-linux BACKEND=custom
 	@$(MAKE) -C tests
 
@@ -125,7 +128,7 @@ test-win: compiler driver dccd
 	@$(MAKE) libdcext TARGET=x86_64-windows BACKEND=custom
 	@$(MAKE) -C tests test-win
 
-install: driver dccd dcdoc libdcext
+install: driver dccd dcdoc dpm libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dcc)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dcc $(DESTDIR)$(BINDIR)/dcc
@@ -137,6 +140,10 @@ install: driver dccd dcdoc libdcext
 	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dcdoc)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
 	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dcdoc $(DESTDIR)$(BINDIR)/dcdoc
+
+	$(call MSG,INSTALL,$(DESTDIR)$(BINDIR)/dpm)
+	$(Q)$(INSTALL) -d $(DESTDIR)$(BINDIR)
+	$(Q)$(INSTALL) -m 755 $(BUILD_DIR)/bin/dpm $(DESTDIR)$(BINDIR)/dpm
 
 	$(call MSG,INSTALL,$(DESTDIR)$(LIBDIR)/libdcext-*.a)
 	$(Q)$(INSTALL) -d $(DESTDIR)$(LIBDIR)
@@ -153,6 +160,7 @@ uninstall:
 	rm -f $(DESTDIR)$(BINDIR)/dcc
 	rm -f $(DESTDIR)$(BINDIR)/dccd
 	rm -f $(DESTDIR)$(BINDIR)/dcdoc
+	rm -f $(DESTDIR)$(BINDIR)/dpm
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext.a
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext-*.a
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
@@ -166,7 +174,7 @@ compdb:
 	@$(MAKE) compdb-merge
 
 clean:
-	@for dir in compiler driver dccd libdcext tests; do \
+	@for dir in compiler driver dccd dpm libdcext tests; do \
 		$(MAKE) -C $$dir clean 2>/dev/null || true; \
 	done
 
