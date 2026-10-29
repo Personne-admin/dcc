@@ -1,0 +1,21 @@
+=== FILE: main.dc ===
+module main;
+
+char* escape() {
+    char x = 'a';
+    return &x;
+}
+
+const bool escaped = *escape() == 'a';
+
+i32 out_of_bounds() {
+    char[2] storage = {};
+    storage[2] = 'x';
+    return 0;
+}
+
+const i32 bounds = out_of_bounds();
+
+=== EXPECT-ERRORS ===
+main.dc:8: initializer for global `escaped` is not a constant expression: reference to storage that has gone out of scope
+main.dc:16: initializer for global `bounds` is not a constant expression: index out of bounds

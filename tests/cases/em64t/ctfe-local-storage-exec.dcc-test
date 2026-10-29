@@ -1,0 +1,82 @@
+=== FILE: main.dc ===
+module main;
+
+struct Pair { i32 x; i32 y; }
+struct Buffer { []char data; usize len; }
+
+void set_y(Pair* p) {
+    p.y = 7;
+}
+
+i32 struct_pointer() {
+    Pair pair = {};
+    set_y(&pair);
+    Pair* alias = &pair;
+    alias.y += 1;
+    return pair.y;
+}
+
+void append(Buffer* b, []const char text) {
+    for usize i = 0; i < text.len; i++ {
+        b.data[b.len] = text[i];
+        b.len += 1;
+    }
+}
+
+i32 buffer_storage() {
+    char[8] storage = {};
+    Buffer b = Buffer { data = storage, len = 0 };
+    append(&b, "abc");
+    return (storage[0] as i32) * 10000 + (storage[2] as i32) * 100 + (b.len as i32);
+}
+
+i32 sub_slice() {
+    char[8] storage = {};
+    Buffer b = Buffer { data = storage[2..6], len = 0 };
+    append(&b, "xy");
+    return (storage[2] as i32) * 10000 + (storage[3] as i32) * 100 + (storage[0] as i32);
+}
+
+void append_generic(T)(Buffer* b, []const T text) {
+    for usize i = 0; i < text.len; i++ {
+        b.data[b.len] = text[i] as char;
+        b.len += 1;
+    }
+}
+
+i32 generic_storage() {
+    char[4] storage = {};
+    Buffer b = Buffer { data = storage, len = 0 };
+    append_generic(&b, "z");
+    return (storage[0] as i32) * 100 + (b.len as i32);
+}
+
+i32 two_aliases() {
+    Pair pair = {};
+    Pair* first = &pair;
+    Pair* second = &pair;
+    first.x = 4;
+    second.x += 1;
+    return pair.x;
+}
+
+const i32 ctfe_struct = struct_pointer();
+const i32 ctfe_buffer = buffer_storage();
+const i32 ctfe_slice = sub_slice();
+const i32 ctfe_generic = generic_storage();
+const i32 ctfe_aliases = two_aliases();
+
+@nomangle public i32 dcc_main() {
+    if ctfe_struct != 8 || struct_pointer() != ctfe_struct { return 1; }
+    if ctfe_buffer != 979903 || buffer_storage() != ctfe_buffer { return 2; }
+    if ctfe_slice != 1212100 || sub_slice() != ctfe_slice { return 3; }
+    if ctfe_generic != 12201 || generic_storage() != ctfe_generic { return 4; }
+    if ctfe_aliases != 5 || two_aliases() != ctfe_aliases { return 5; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

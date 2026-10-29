@@ -476,6 +476,51 @@ export namespace dcc::ctfe
             return var && volatile_type(var->type);
         }
 
+        comptime::Value zero_object(types::TypePtr type)
+        {
+            if (m_cells >= m_context.memory_limit)
+                return {};
+
+            ++m_cells;
+            if (!type)
+                return {};
+
+            switch (type->kind)
+            {
+                case types::TypeKind::Int:
+                    return comptime::Value::make_int(0, type);
+                case types::TypeKind::Bool:
+                    return comptime::Value::make_bool(false, type);
+                case types::TypeKind::Char:
+                    return comptime::Value::make_char(0, type);
+                case types::TypeKind::Float:
+                    return comptime::Value::make_float(0.0, type);
+                case types::TypeKind::NullT:
+                case types::TypeKind::Pointer:
+                case types::TypeKind::FuncPtr:
+                    return comptime::Value::make_null(type);
+                case types::TypeKind::Slice:
+                    return comptime::Value::make_slice({}, type);
+                case types::TypeKind::Array: {
+                    auto const* array = types::type_cast<types::ArrayType>(type);
+                    std::vector<comptime::Value> elements(static_cast<std::size_t>(array->count));
+                    for (auto& element : elements)
+                        element = zero_object(array->element);
+                    return comptime::Value::make_aggregate(std::move(elements), type);
+                }
+                case types::TypeKind::Struct: {
+                    auto fields = record_fields(type);
+                    std::vector<comptime::Value> elements;
+                    elements.reserve(fields.size());
+                    for (auto const& field : fields)
+                        elements.push_back(zero_object(type_of(field.type)));
+                    return comptime::Value::make_aggregate(std::move(elements), type);
+                }
+                default:
+                    return {};
+            }
+        }
+
         comptime::Value default_object(types::TypePtr type)
         {
             if (m_cells >= m_context.memory_limit)
@@ -1063,6 +1108,12 @@ export namespace dcc::ctfe
 
         Result convert(ast::Expr const& expr, types::TypePtr target, bool explicit_cast = false)
         {
+            if (target && expr.kind == ast::ExprKind::Block)
+            {
+                auto const& block = static_cast<ast::BlockExpr const&>(expr);
+                if (block.body.stmts.empty() && !block.body.tail)
+                    return folded(zero_object(target));
+            }
             if (expr.sema.construction_kind == ast::ExprSema::ConstructionKind::Enum && expr.sema.constructed_variant && target &&
                 expr.kind != ast::ExprKind::Call)
             {
@@ -1174,7 +1225,7 @@ export namespace dcc::ctfe
 
                     auto const* array = types::type_cast<types::ArrayType>(type);
                     if (array)
-                        elements.resize(static_cast<std::size_t>(array->count), default_object(array->element));
+                        elements.resize(static_cast<std::size_t>(array->count), zero_object(array->element));
                     return folded(comptime::Value::make_aggregate(std::move(elements), type));
                 }
                 default:
