@@ -1,0 +1,88 @@
+=== FILE: test.dc ===
+module test;
+
+struct Leaf {
+    i32 v = 9;
+    i32 w;
+}
+
+struct Mid {
+    Leaf leaf;
+    Leaf[2] leaves;
+    i32 m = 2;
+}
+
+struct Top {
+    Mid mid;
+    Mid[2] mids;
+    i32 t;
+    i32 u = 1;
+}
+
+struct Plain {
+    Leaf inner;
+    Leaf[2] arr;
+    i32 k;
+}
+
+struct Holder {
+    Plain plain;
+    Leaf[2][2] grid;
+    []const Leaf view;
+    i32 h = 3;
+}
+
+const Top gt = {};
+const Holder gh = {};
+const Leaf[3] gl = {};
+
+i32 check_top(Top t)
+{
+    if t.mid.leaf.v != 9 || t.mid.leaf.w != 0 { return 1; }
+    if t.mid.leaves[0].v != 9 || t.mid.leaves[1].v != 9 { return 2; }
+    if t.mid.m != 2 { return 3; }
+    if t.mids[0].leaf.v != 9 || t.mids[1].leaf.v != 9 { return 4; }
+    if t.mids[1].leaves[0].v != 9 || t.mids[1].leaves[1].v != 9 { return 5; }
+    if t.mids[0].m != 2 || t.mids[1].m != 2 { return 6; }
+    if t.t != 0 || t.u != 1 { return 7; }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main()
+{
+    Top t = {};
+    i32 r = check_top(t);
+    if r != 0 { return r; }
+    r = check_top(gt);
+    if r != 0 { return 10 + r; }
+    Top t2 = Top {};
+    r = check_top(t2);
+    if r != 0 { return 20 + r; }
+
+    Plain p = {};
+    if p.inner.v != 0 || p.arr[0].v != 0 || p.arr[1].v != 0 || p.k != 0 { return 30; }
+
+    Holder h = {};
+    if h.plain.inner.v != 0 || h.plain.arr[1].v != 0 { return 31; }
+    if h.grid[0][0].v != 9 || h.grid[0][1].v != 9 || h.grid[1][0].v != 9 || h.grid[1][1].v != 9 { return 32; }
+    if h.view.len != 0 || h.h != 3 { return 33; }
+    if gh.plain.arr[0].v != 0 || gh.grid[1][1].v != 9 || gh.view.len != 0 { return 34; }
+
+    Leaf[3] la = {};
+    if la[0].v != 9 || la[1].v != 9 || la[2].v != 9 { return 35; }
+    if gl[2].v != 9 || gl[0].w != 0 { return 36; }
+    Leaf[2][2] lm = {};
+    if lm[1][0].v != 9 || lm[0][1].v != 9 { return 37; }
+    i32[4] zeros = {};
+    if zeros[3] != 0 { return 38; }
+
+    Top partial = { mid = {}, mids = {}, t = 5 };
+    if partial.mids[1].leaves[1].v != 9 || partial.t != 5 || partial.u != 1 { return 39; }
+    Mid single = { leaf = { w = 4 }, leaves = {} };
+    if single.leaf.v != 9 || single.leaf.w != 4 || single.leaves[1].v != 9 || single.m != 2 { return 40; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

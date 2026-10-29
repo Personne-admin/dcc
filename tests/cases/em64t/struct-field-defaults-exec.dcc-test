@@ -1,0 +1,93 @@
+=== FILE: lib/schema.dc ===
+module lib::schema;
+
+public enum Opt : u8 { Default, Speed, Size }
+const []const char HIDDEN = "hidden";
+const i32 BASE = 40;
+
+public struct Settings {
+    Opt opt = Opt::Speed;
+    []const char note = HIDDEN;
+    i32 n = BASE + 2;
+}
+
+public struct Project {
+    []const char name;
+    Settings settings = {};
+}
+
+=== FILE: test.dc ===
+module test;
+public import lib::schema;
+
+enum Mode : u8 { Off, Fast, Slow }
+
+struct Inner {
+    i32 x = 5;
+    i32 y;
+}
+
+struct Cfg {
+    []const char name = "none";
+    Mode mode = Mode::Fast;
+    i32 level = 42;
+    bool flag;
+    i32 plain;
+    Inner inner;
+    []const i32 list = { 1, 2 };
+}
+
+struct NoDef {
+    i32 a;
+    i32 b;
+}
+
+struct Pair {
+    i32 a = 4;
+    i32 b;
+    i32 c = 6;
+}
+
+Pair make() {
+    Pair p = {};
+    p.b = 10;
+    return p;
+}
+
+const i32 K = make().a + make().b + make().c;
+const Cfg g = {};
+const lib::schema::Project gp = { name = "x" };
+
+@nomangle
+public i32 dcc_main() {
+    Cfg a = {};
+    Cfg b = { name = "b", flag = true, plain = 7, inner = {} };
+    Cfg c = Cfg {};
+    NoDef z = {};
+    Inner i = {};
+    if a.name.len != 4 { return 1; }
+    if a.mode != Mode::Fast { return 2; }
+    if a.level != 42 { return 3; }
+    if a.flag { return 4; }
+    if a.plain != 0 { return 5; }
+    if a.inner.x != 5 || a.inner.y != 0 { return 6; }
+    if a.list.len != 2 || a.list[1] != 2 { return 7; }
+    if b.name.len != 1 || !b.flag || b.plain != 7 || b.level != 42 || b.inner.x != 5 { return 8; }
+    if c.level != 42 || c.inner.x != 5 || c.inner.y != 0 { return 9; }
+    if z.a != 0 || z.b != 0 { return 10; }
+    if i.x != 5 || i.y != 0 { return 11; }
+    Inner j = { y = 3 };
+    if j.x != 5 || j.y != 3 { return 12; }
+    Cfg d = { flag = false, plain = 0, inner = {} };
+    if d.inner.x != 5 { return 13; }
+    static if K != 20 { return 14; }
+    if g.level != 42 || g.inner.x != 5 { return 15; }
+    if gp.settings.n != 42 || gp.settings.opt != lib::schema::Opt::Speed || gp.settings.note.len != 6 { return 16; }
+    lib::schema::Project l = { name = "z" };
+    if l.settings.note.len != 6 || l.settings.n != 42 { return 17; }
+    return 0;
+}
+
+=== ENTRY: test.dc ===
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

@@ -1298,6 +1298,12 @@ export namespace dcc::ast
                 IndentScope is2(m_indent_level);
                 visitExpr(f.bit_width_expr);
             }
+            if (f.default_value)
+            {
+                line("Default");
+                IndentScope is2(m_indent_level);
+                visitExpr(f.default_value);
+            }
         }
 
         void print_enum_variant(const EnumVariant& v)

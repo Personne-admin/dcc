@@ -1,0 +1,40 @@
+=== FILE: main.dc ===
+module main;
+
+i32 counter = 1;
+
+union U {
+    i32 a = 1;
+}
+
+struct Generic(T) {
+    T v = 0;
+}
+
+struct Bad {
+    i32 a = "text";
+    i32 b = missing_name;
+    i32 c = counter;
+}
+
+struct Partial {
+    i32 a = 1;
+    i32 b;
+    i32 c = 3;
+}
+
+Partial omitted_without_default = { a = 5 };
+Partial positional = { 1 };
+Partial unknown = { zzz = 1, b = 2 };
+Partial duplicate = { a = 1, a = 2, b = 3 };
+
+=== EXPECT-ERRORS ===
+main.dc:6: expected ';' after field declaration, found '='
+main.dc:25: missing initializer for field `b` in struct literal
+main.dc:26: missing initializer for field `b` in struct literal
+main.dc:27: unknown field `zzz` in brace literal
+main.dc:28: duplicate field `a` in brace literal
+main.dc:10: field defaults are not supported on generic structs
+main.dc:14: default value for field `a` type mismatch: expected `i32`, got `[]const char`
+main.dc:15: unknown name `missing_name`
+main.dc:16: default value for field `c` must be a constant expression

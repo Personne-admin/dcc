@@ -2296,7 +2296,7 @@ export namespace dcc::parser
                 while (!check(TK::RBrace) && !eof())
                 {
                     auto prev_pos = m_pos;
-                    auto field = parse_field_decl(true);
+                    auto field = parse_field_decl(true, true);
                     field.index = static_cast<std::uint32_t>(d->fields.size());
                     d->fields.push_back(std::move(field));
                     if (m_pos == prev_pos && !check(TK::RBrace) && !eof())
@@ -2384,7 +2384,7 @@ export namespace dcc::parser
                 error_at(fam_field->range, "struct cannot have both a pack field and a flexible array member");
         }
 
-        ast::FieldDecl parse_field_decl(bool allow_pack = false)
+        ast::FieldDecl parse_field_decl(bool allow_pack = false, bool allow_default = false)
         {
             auto start = loc();
             std::uint32_t doc_start_line = m_enable_doc ? m_lexer.line_number(start.offset) : 0;
@@ -2421,6 +2421,15 @@ export namespace dcc::parser
                     if (f.is_pack)
                         error_at(range_from(start), "pack field cannot be a bitfield");
                 }
+            }
+
+            if (allow_default && check(TK::Eq))
+            {
+                auto eq_start = loc();
+                advance();
+                f.default_value = parse_expr();
+                if (f.is_pack || f.is_bitfield)
+                    error_at(range_from(eq_start), "a pack or bitfield field cannot have a default value");
             }
 
             expect(TK::Semicolon, "after field declaration");

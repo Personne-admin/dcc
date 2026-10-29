@@ -457,6 +457,7 @@ export namespace dcc::ast
         sm::SourceRange name_range;
         TypePtr type{};
         ExprPtr bit_width_expr{};
+        ExprPtr default_value{};
 
         std::uint32_t byte_offset{};
         std::uint32_t index{};
@@ -494,6 +495,7 @@ export namespace dcc::ast
 
         std::uint32_t resolved_field_index{};
         std::uint32_t resolved_field_count{1};
+        Decl const* default_owner{};
     };
 
     struct StructPatternField
@@ -774,6 +776,7 @@ export namespace dcc::ast
     {
         static constexpr auto Kind = ExprKind::Block;
         Block body;
+        bool default_fill{};
         BlockExpr(sm::SourceRange r, Block b) : Expr(Kind, r), body(std::move(b)) {}
     };
 

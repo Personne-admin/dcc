@@ -10466,6 +10466,11 @@ export namespace dcc::ir::lower
                     return nullptr;
                 return lower_implicit_enum_construction(value_expr, [&]() { return lower_expr(value_expr); });
             };
+            auto lower_literal_field = [&](ast::StructLiteralField const& field) -> IrValue* {
+                if (field.default_owner && field.value && field.value->sema.const_value)
+                    return materialize_comptime(*field.value->sema.const_value, get_sema_resolved_type(field.value));
+                return lower_field_value(field.value);
+            };
             std::unordered_map<std::uint32_t, ast::StructLiteralField const*> provided;
             for (auto const& f : sl->fields)
             {
@@ -10518,7 +10523,7 @@ export namespace dcc::ir::lower
                     val = lower_array_lvalue_to_slice(lf->value, field_target_type);
                 if (!val)
                 {
-                    val = lower_field_value(lf->value);
+                    val = lower_literal_field(*lf);
                     if (val && field_target_type && !fd.is_bitfield)
                         val = coerce_array_decay(lf->value, val, get_sema_resolved_type(lf->value), field_target_type);
                 }
@@ -10643,6 +10648,11 @@ export namespace dcc::ir::lower
                     return nullptr;
 
                 return lower_implicit_enum_construction(value_expr, [&]() { return lower_expr(value_expr); });
+            };
+            auto lower_literal_field = [&](ast::StructLiteralField const& field) -> IrValue* {
+                if (field.default_owner && field.value && field.value->sema.const_value)
+                    return materialize_comptime(*field.value->sema.const_value, get_sema_resolved_type(field.value));
+                return lower_field_value(field.value);
             };
 
             if (slicet)
@@ -10772,7 +10782,7 @@ export namespace dcc::ir::lower
                     val = lower_array_lvalue_to_slice(f.value, field_target_type);
                 if (!val)
                 {
-                    val = lower_field_value(f.value);
+                    val = lower_literal_field(f);
                     if (val && field_target_type)
                         val = coerce_array_decay(f.value, val, get_sema_resolved_type(f.value), field_target_type);
                 }

@@ -1,0 +1,24 @@
+=== FILE: main.dc ===
+module m;
+struct Config {
+    i32 level = 3;
+    []const char name = "x";
+    bool flag;
+}
+
+=== EXPECT-AST ===
+TranslationUnit
+  Module m
+  Struct name=Config
+    Field name=level
+      Primitive i32
+      Default
+        IntLiteral 3
+    Field name=name
+      Slice
+        Qualified const
+          Primitive char
+      Default
+        StringLiteral "x"
+    Field name=flag
+      Primitive bool

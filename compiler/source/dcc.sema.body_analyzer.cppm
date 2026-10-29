@@ -951,6 +951,7 @@ export namespace dcc::sema
             }
 
             resolve_global_const_values();
+            validate_field_defaults();
 
             for (auto const& m : m_modules)
             {
@@ -1296,6 +1297,54 @@ export namespace dcc::sema
         ModuleInfo* m_current_module{};
         bool m_signature_probe{};
         std::unordered_map<ast::VarDecl const*, comptime::Value const*> m_global_const_vals;
+
+        detail::ExprResult analyze_field_default(ast::Decl const& owner, ast::Expr& expr, types::TypePtr expected_type, ModuleInfo& mod, ast::FuncDecl* fn,
+                                                 Scope& scope, int loop_depth, std::uint32_t& next_off, ConstEnv const* const_env)
+        {
+            if (auto* defining_mod = find_defining_module(owner); defining_mod && defining_mod->own_scope)
+            {
+                auto* default_scope = make_scope(ScopeKind::Function, defining_mod->own_scope);
+                auto* saved_defining_mod = std::exchange(m_specialization_defining_module, defining_mod);
+                struct DefaultModuleGuard
+                {
+                    ModuleInfo*& slot;
+                    ModuleInfo* saved;
+                    ~DefaultModuleGuard() { slot = saved; }
+                } guard{m_specialization_defining_module, saved_defining_mod};
+                std::uint32_t default_off = 0;
+                auto analyzed = analyze_expr(*defining_mod, nullptr, *default_scope, expr, 0, default_off, expected_type, nullptr);
+                if (!expr.sema.const_value && analyzed.type && !has_error(analyzed.type))
+                {
+                    auto folded = evaluate_constant(expr, ctfe::Mode::Required);
+                    if (folded.flow == ctfe::Flow::Normal && folded.value)
+                    {
+                        expr.sema.const_value = make_value(std::move(*folded.value));
+                        expr.sema.is_constant = true;
+                    }
+                }
+                return analyzed;
+            }
+            return analyze_expr(mod, fn, scope, expr, loop_depth, next_off, expected_type, const_env);
+        }
+
+        static constexpr std::uint64_t k_max_default_fill_elements = 4096;
+
+        [[nodiscard]] bool type_needs_default_init(types::TypePtr type)
+        {
+            if (struct_has_field_defaults(type))
+                return true;
+            auto const* array = types::type_cast<types::ArrayType>(type);
+            return array && type_needs_default_init(array->element);
+        }
+
+        [[nodiscard]] bool struct_has_field_defaults(types::TypePtr type)
+        {
+            auto const* decl = nominal_decl(type);
+            auto const* sd = decl ? ast::node_cast<ast::StructDecl>(decl) : nullptr;
+            if (!sd || !sd->template_params.empty())
+                return false;
+            return std::ranges::any_of(sd->fields, [](ast::FieldDecl const& f) { return f.default_value != nullptr; });
+        }
 
         detail::ExprResult analyze_call_arg(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
                                             types::TypePtr expected_type, ConstEnv const* const_env, ast::FuncDecl const* default_owner)
@@ -9108,6 +9157,55 @@ export namespace dcc::sema
             }
         }
 
+        void validate_field_defaults()
+        {
+            for (auto const& m : m_modules)
+            {
+                if (!m->tu || !m->own_scope)
+                    continue;
+                m_current_module_env = ensure_module_env(*m);
+                m_current_module = m.get();
+                for (auto* d : m->tu->decls)
+                {
+                    auto* sd = ast::node_cast<ast::StructDecl>(d);
+                    if (!sd)
+                        continue;
+                    for (auto& f : sd->fields)
+                    {
+                        if (!f.default_value)
+                            continue;
+                        if (!sd->template_params.empty())
+                        {
+                            error(f.default_value->range, "field defaults are not supported on generic structs");
+                            continue;
+                        }
+                        auto* expected = f.type && f.type->sema.canonical ? get_canonical(f.type->sema) : nullptr;
+                        if (!expected || has_error(expected))
+                            continue;
+                        auto* probe = clone_default_argument(m_ast_ctx, f.default_value, {}, {});
+                        std::uint32_t off = 0;
+                        auto analyzed = analyze_field_default(*sd, *probe, expected, *m, nullptr, *m->own_scope, 0, off, nullptr);
+                        if (!analyzed.type || has_error(analyzed.type))
+                            continue;
+                        if (analyzed.type != expected)
+                        {
+                            error(f.default_value->range, "default value for field `{}` type mismatch: expected `{}`, got `{}`", f.name, format_type_str(expected),
+                                  format_type_str(analyzed.type));
+                            continue;
+                        }
+                        std::unordered_set<ast::VarDecl const*> visiting;
+                        if (probe->sema.const_value || is_constant_initializer_expr(probe, visiting, expected))
+                            continue;
+                        auto result = evaluate_constant(*probe, ctfe::Mode::Required);
+                        if (result.flow != ctfe::Flow::Normal || !result.value)
+                            error(f.default_value->range, "default value for field `{}` must be a constant expression", f.name);
+                    }
+                }
+                m_current_module_env = nullptr;
+                m_current_module = nullptr;
+            }
+        }
+
         void analyze_struct_fields(ModuleInfo& mod, ast::StructDecl& sd)
         {
             if (!mod.own_scope)
@@ -13385,6 +13483,37 @@ export namespace dcc::sema
         detail::ExprResult analyze_block_expr(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::BlockExpr& b, int loop_depth, std::uint32_t& next_off,
                                               types::TypePtr expected_type, ConstEnv const* const_env, bool result_discarded = false)
         {
+            if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && !has_error(expected_type))
+            {
+                if (struct_has_field_defaults(expected_type))
+                {
+                    b.body.tail = m_ast_ctx.make<ast::StructLiteralExpr>(b.range, m_ast_ctx.allocator());
+                    b.default_fill = true;
+                }
+                else if (auto const* array = types::type_cast<types::ArrayType>(expected_type); array && type_needs_default_init(array->element))
+                {
+                    if (array->count > k_max_default_fill_elements)
+                    {
+                        error(b.range, "array of {} elements is too large to initialize with `{{}}` element by element (limit {})", array->count,
+                              k_max_default_fill_elements);
+                        b.sema.construction_kind = ConstructionKind::Zero;
+                        set_resolved_type(b.sema, m_types.m_errort());
+                        detail::ExprResult out{};
+                        out.type = m_types.m_errort();
+                        return out;
+                    }
+                    auto* literal = m_ast_ctx.make<ast::StructLiteralExpr>(b.range, m_ast_ctx.allocator());
+                    for (std::uint64_t i = 0; i < array->count; ++i)
+                    {
+                        ast::StructLiteralField element;
+                        element.range = b.range;
+                        element.value = m_ast_ctx.make<ast::BlockExpr>(b.range, ast::Block{m_ast_ctx.allocator()});
+                        literal->fields.push_back(std::move(element));
+                    }
+                    b.body.tail = literal;
+                    b.default_fill = true;
+                }
+            }
             auto expected_kind = expected_type ? construction_kind_for_type(expected_type) : ConstructionKind::None;
             if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && has_error(expected_type))
             {
@@ -13428,7 +13557,7 @@ export namespace dcc::sema
                 return out;
             }
             bool single_element_tail = b.body.tail && b.body.tail->kind != ast::ExprKind::StructLiteral;
-            if (b.body.tail && !single_element_tail && b.body.stmts.empty() && !static_cast<ast::StructLiteralExpr*>(b.body.tail)->type &&
+            if (b.body.tail && !single_element_tail && !b.default_fill && b.body.stmts.empty() && !static_cast<ast::StructLiteralExpr*>(b.body.tail)->type &&
                 (expected_kind == ConstructionKind::Slice || expected_kind == ConstructionKind::Array))
             {
                 types::TypePtr element{};
@@ -13748,8 +13877,55 @@ export namespace dcc::sema
                 result.construction_kind = kind;
 
                 bool has_splice = false;
-                for (auto& f : s.fields)
+                auto inject_field_defaults = [&]() {
+                    if (is_union || has_splice)
+                        return;
+                    bool any_default = false;
+                    for (auto const& fld : fields)
+                        if (!fld.name.empty())
+                            if (auto* fd = find_field(*record_decl, fld.name); fd && fd->default_value)
+                                any_default = true;
+                    if (!any_default)
+                        return;
+                    bool const was_empty = s.fields.empty();
+                    for (std::size_t i = 0; i < fields.size(); ++i)
+                    {
+                        if (used[i] || fields[i].name.empty() || types::is_fam_type(fields[i].type))
+                            continue;
+                        auto* fd = find_field(*record_decl, fields[i].name);
+                        ast::StructLiteralField injected;
+                        injected.name = fields[i].name;
+                        injected.range = s.range;
+                        if (fd && fd->default_value)
+                        {
+                            injected.value = clone_default_argument(m_ast_ctx, fd->default_value, {}, {});
+                            injected.default_owner = record_decl;
+                        }
+                        else if (was_empty)
+                            injected.value = m_ast_ctx.make<ast::BlockExpr>(s.range, ast::Block{m_ast_ctx.allocator()});
+                        else
+                            continue;
+                        s.fields.push_back(std::move(injected));
+                    }
+                };
+                auto analyze_field_value = [&](ast::StructLiteralField& f, types::TypePtr expected_field) {
+                    if (f.default_owner)
+                        return analyze_field_default(*f.default_owner, *f.value, expected_field, mod, fn, scope, loop_depth, next_off, const_env);
+                    return analyze_expr(mod, fn, scope, *f.value, loop_depth, next_off, expected_field, const_env);
+                };
+                bool defaults_injected = false;
+                for (std::size_t field_slot = 0;; ++field_slot)
                 {
+                    if (field_slot == s.fields.size())
+                    {
+                        if (defaults_injected)
+                            break;
+                        defaults_injected = true;
+                        inject_field_defaults();
+                        if (field_slot == s.fields.size())
+                            break;
+                    }
+                    auto& f = s.fields[field_slot];
                     std::size_t field_index = fields.size();
                     if (f.value && f.value->kind == ast::ExprKind::PackExpansion)
                     {
@@ -13921,7 +14097,7 @@ export namespace dcc::sema
 
                     if (f.value)
                     {
-                        auto val = analyze_expr(mod, fn, scope, *f.value, loop_depth, next_off, expected_field, const_env);
+                        auto val = analyze_field_value(f, expected_field);
                         if (value_alias_implicit_decay(val, expected_field))
                         {
                             reject_value_alias_decay(f.value->range, val);

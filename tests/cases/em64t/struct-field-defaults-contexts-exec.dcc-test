@@ -1,0 +1,29 @@
+=== FILE: test.dc ===
+module test;
+struct P { i32 a = 7; i32 b; }
+P ret() { return {}; }
+i32 take(P p) { return p.a + p.b; }
+T make(T)() { return {}; }
+T make_local(T)() { T v = {}; return v; }
+@nomangle
+public i32 dcc_main() {
+    P x = { a = 1, b = 1 };
+    x = {};
+    if x.a != 7 { return 1; }
+    if ret().a != 7 { return 2; }
+    if take({}) != 7 { return 3; }
+    P[2] arr = { {}, { a = 2, b = 3 } };
+    if arr[0].a != 7 || arr[1].b != 3 { return 4; }
+    []const P sl = { {}, };
+    if sl[0].a != 7 { return 5; }
+    P g = make!(P)();
+    if g.a != 7 { return 6; }
+    P h = make_local!(P)();
+    if h.a != 7 { return 7; }
+    i32 plain = make!(i32)();
+    if plain != 0 { return 8; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0

@@ -1,0 +1,91 @@
+=== FILE: lib/schema.dc ===
+module lib::schema;
+
+public enum Opt : u8 { Default, Speed, Size }
+const []const char HIDDEN = "hidden";
+const i32 BASE = 40;
+
+public struct Settings {
+    Opt opt = Opt::Speed;
+    []const char note = HIDDEN;
+    i32 n = BASE + 2;
+}
+
+public struct Project {
+    []const char name;
+    Settings settings = {};
+    []const Settings extra = {};
+}
+
+=== FILE: main.dc ===
+module main;
+public import lib::schema;
+
+public struct Inner {
+    i32 x = 5;
+    i32 y;
+}
+
+public struct Outer {
+    Inner inner;
+    i32 z = 1;
+}
+
+public struct NoDefaults {
+    i32 a;
+    i32 b;
+}
+
+public const lib::schema::Project p = { name = "x" };
+public const lib::schema::Project q = { name = "y", settings = { n = 9 } };
+public const lib::schema::Settings s0 = {};
+public const lib::schema::Settings s1 = lib::schema::Settings {};
+public const Inner i0 = {};
+public const Inner i1 = Inner {};
+public const Inner i2 = { y = 2 };
+public const Inner i3 = { 7, 8 };
+public const Outer o0 = {};
+public const Outer o1 = { inner = {} };
+public const Outer o2 = { inner = { y = 1 }, z = 2 };
+public const NoDefaults n0 = {};
+
+void locals() {
+    Inner a = {};
+    Outer b = { inner = {} };
+    Outer c = Outer {};
+    lib::schema::Project d = { name = "z" };
+    NoDefaults e = {};
+}
+
+public struct Leaf {
+    i32 v = 9;
+    i32 w;
+}
+
+public struct Mid {
+    Leaf leaf;
+    Leaf[2] leaves;
+    i32 m = 2;
+}
+
+public struct Top {
+    Mid mid;
+    Mid[2] mids;
+    i32 u = 1;
+}
+
+public const Top deep = {};
+public const Leaf[3] leaf_array = {};
+public const Leaf[2][2] leaf_grid = {};
+public const Top partial = { mid = {}, mids = {} };
+
+void nested()
+{
+    Top t = {};
+    Top u = Top {};
+    Leaf[4] a = {};
+    Leaf[2][3] g = {};
+    Mid m = { leaf = { w = 1 }, leaves = {} };
+}
+
+=== ENTRY: main.dc ===

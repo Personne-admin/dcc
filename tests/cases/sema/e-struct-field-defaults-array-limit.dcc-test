@@ -1,0 +1,12 @@
+=== FILE: main.dc ===
+module main;
+
+struct Leaf {
+    i32 v = 9;
+}
+
+Leaf[5000] big = {};
+Leaf[4096] limit = {};
+
+=== EXPECT-ERRORS ===
+main.dc:7: array of 5000 elements is too large to initialize with `{}` element by element (limit 4096)
