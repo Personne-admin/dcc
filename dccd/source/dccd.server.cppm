@@ -18,6 +18,7 @@ import dcc.ast;
 import dcc.comptime;
 import dcc.sema;
 import dcc.sema.type_helpers;
+import dcc.types;
 import dcc.vfs;
 import dcc.target;
 import dcc.config;
@@ -974,6 +975,69 @@ export namespace dccd
             return protocol::build_response(rpc.id.value(), loc->to_json());
         }
 
+        static bool location_in_range(dcc::sm::SourceRange const& range, dcc::sm::Location location) noexcept
+        {
+            return range.valid() && range.begin.fileId == location.fileId && range.begin.offset <= location.offset && location.offset < range.end.offset;
+        }
+
+        [[nodiscard]] std::string source_text_for_range(dcc::sm::SourceRange const& range) const
+        {
+            auto const& sm = m_session->source_manager();
+            auto const* file = sm.get(range.begin.fileId);
+            if (!file || !range.valid() || range.end.fileId != range.begin.fileId || range.end.offset > file->size())
+                return {};
+
+            return std::string{file->text().substr(range.begin.offset, range.end.offset - range.begin.offset)};
+        }
+
+        static protocol::Hover make_hover(std::string text)
+        {
+            protocol::Hover hover;
+            hover.contents.kind = "markdown";
+            hover.contents.value = std::move(text);
+            return hover;
+        }
+
+        [[nodiscard]] std::optional<protocol::Hover> hover_type_expression(dcc::query::NodeAtLocation const& node,
+                                                                            dcc::query::ResolvedSymbol const* symbol) const
+        {
+            auto const* type_expr = node.type_expr;
+            if (!type_expr || !location_in_range(type_expr->range, node.location))
+                return std::nullopt;
+
+            if (type_expr->kind == dcc::ast::TypeKind::Typeof && node.location.offset < type_expr->range.begin.offset + 6)
+            {
+                auto const* type = node.resolved_type;
+                if (!type && type_expr->sema.canonical)
+                    type = dcc::sema::get_canonical(type_expr->sema);
+
+                std::string written = source_text_for_range(type_expr->range);
+                if (written.empty())
+                    written = "typeof(...)";
+
+                if (!type || type->kind == dcc::types::TypeKind::Error || dcc::sema::type_contains_template_param(type))
+                    return make_hover(std::format("```dc\n{}\ndependent\n```", written));
+
+                return make_hover(std::format("```dc\n{}\nresolves to {}\n```", written,
+                                              dcc::sema::format_dcc_type_with_quals(type, type_expr->sema.resolved_quals)));
+            }
+
+            bool const alias_symbol = symbol && (symbol->kind == dcc::query::SymbolKind::UsingAlias ||
+                                                 (symbol->decl && symbol->decl->kind == dcc::ast::DeclKind::Using));
+            if (alias_symbol && type_expr->kind == dcc::ast::TypeKind::Named)
+            {
+                auto const* type = node.resolved_type;
+                if (!type && type_expr->sema.canonical)
+                    type = dcc::sema::get_canonical(type_expr->sema);
+
+                if (type && type->kind != dcc::types::TypeKind::Error && !dcc::sema::type_contains_template_param(type))
+                    return make_hover(
+                        std::format("```dc\n{}\n```", dcc::sema::format_dcc_type_with_quals(type, type_expr->sema.resolved_quals)));
+            }
+
+            return std::nullopt;
+        }
+
         [[nodiscard]] std::optional<protocol::JsonValue> handle_hover(protocol::RpcInfo const& rpc)
         {
             auto params = protocol::HoverParams::from_json(rpc.params.value());
@@ -1001,9 +1065,13 @@ export namespace dccd
             }
 
             auto symbol = dcc::query::resolve_symbol_at(*m_session, *fid_opt, sm_pos);
+            auto node = query_at_params(params.textDocument.uri, sm_pos);
+            if (node)
+                if (auto type_hover = hover_type_expression(*node, symbol ? &*symbol : nullptr))
+                    return protocol::build_response(rpc.id.value(), type_hover->to_json());
+
             if (!symbol || !symbol->has_target())
             {
-                auto node = query_at_params(params.textDocument.uri, sm_pos);
                 if (node && node->resolved_type)
                 {
                     std::string hover_type = format_dcc_type(node->resolved_type);
@@ -1115,26 +1183,59 @@ export namespace dccd
                     if (!ud)
                         return {};
                     std::string name_str = symbol.name.empty() ? "<unnamed>" : std::string{symbol.name};
-
-                    std::string target_str;
-                    if (ud->target_type && ud->target_type->sema.canonical)
-                        target_str = format_dcc_type(dcc::sema::get_canonical(ud->target_type->sema));
-                    else if (!ud->target_path.is_empty())
+                    std::string signature = name_str;
+                    if (!ud->template_params.empty())
                     {
-                        for (std::size_t i = 0; i < ud->target_path.segments.size(); ++i)
+                        signature += "(";
+                        for (std::size_t i = 0; i < ud->template_params.size(); ++i)
                         {
                             if (i > 0)
-                                target_str += "::";
-                            target_str += ud->target_path.segments[i].name;
+                                signature += ", ";
+                            signature += ud->template_params[i].name;
                         }
+                        signature += ")";
                     }
-                    else if (ud->target_expr)
-                        target_str = "<expr>";
+
+                    auto const* target_type = ud->target_type && ud->target_type->sema.canonical
+                                                  ? dcc::sema::get_canonical(ud->target_type->sema)
+                                                  : nullptr;
+                    bool const dependent = !ud->template_params.empty() &&
+                                           (!target_type || target_type->kind == dcc::types::TypeKind::Error ||
+                                            dcc::sema::type_contains_template_param(target_type));
+
+                    std::string target_str;
+                    if (dependent)
+                    {
+                        if (ud->target_type)
+                            target_str = source_text_for_range(ud->target_type->range);
+                        else if (ud->target_expr)
+                            target_str = source_text_for_range(ud->target_expr->range);
+                    }
+
+                    if (target_str.empty())
+                    {
+                        if (target_type)
+                            target_str = format_dcc_type(target_type);
+                        else if (!ud->target_path.is_empty())
+                        {
+                            for (std::size_t i = 0; i < ud->target_path.segments.size(); ++i)
+                            {
+                                if (i > 0)
+                                    target_str += "::";
+                                target_str += ud->target_path.segments[i].name;
+                            }
+                        }
+                        else if (ud->target_expr)
+                            target_str = "<expr>";
+                    }
 
                     if (target_str.empty())
                         target_str = "<unknown>";
 
-                    return std::format("```dc\nusing {} = {}\n```", name_str, target_str);
+                    if (dependent)
+                        return std::format("```dc\nusing {} = {}\n```\ndependent", signature, target_str);
+
+                    return std::format("```dc\nusing {} = {}\n```", signature, target_str);
                 }
                 case dcc::query::SymbolKind::Module:
                 case dcc::query::SymbolKind::ImportAlias:
@@ -1151,6 +1252,15 @@ export namespace dccd
                 if (symbol.kind == dcc::query::SymbolKind::Declaration)
                     return std::format("```dc\n{}\n```", symbol.name);
                 return {};
+            }
+
+            if (target->kind == dcc::ast::DeclKind::Var)
+            {
+                auto const* vd = static_cast<dcc::ast::VarDecl const*>(target);
+                if (vd->type && vd->type->sema.canonical)
+                    return std::format("```dc\n{} {}\n```",
+                                       dcc::sema::format_dcc_type_with_quals(dcc::sema::get_canonical(vd->type->sema), vd->type->sema.resolved_quals),
+                                       vd->name);
             }
 
             return std::format("```dc\n{}\n```", dcc::query::symbol_display_name(symbol));

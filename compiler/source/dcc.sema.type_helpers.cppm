@@ -201,6 +201,68 @@ export namespace dcc::sema
         return "<type>";
     }
 
+    [[nodiscard]] inline std::string format_dcc_qualifiers(ast::Qual quals)
+    {
+        std::string out;
+        if (ast::has_qual(quals, ast::Qual::Const))
+            out += "const ";
+        if (ast::has_qual(quals, ast::Qual::Volatile))
+            out += "volatile ";
+        if (ast::has_qual(quals, ast::Qual::Restrict))
+            out += "restrict ";
+        return out;
+    }
+
+    [[nodiscard]] inline std::string format_dcc_type_with_quals(types::TypePtr type, ast::Qual quals)
+    {
+        return format_dcc_qualifiers(quals) + format_dcc_type(type);
+    }
+
+    [[nodiscard]] inline bool type_contains_template_param(types::TypePtr type) noexcept
+    {
+        if (!type)
+            return false;
+
+        switch (type->kind)
+        {
+            case types::TypeKind::TemplateParam:
+            case types::TypeKind::Deferred:
+                return true;
+            case types::TypeKind::Nominal:
+                return type_contains_template_param(static_cast<types::NominalType const*>(type)->underlying);
+            case types::TypeKind::Pointer:
+                return type_contains_template_param(static_cast<types::PointerType const*>(type)->pointee);
+            case types::TypeKind::Array:
+                return type_contains_template_param(static_cast<types::ArrayType const*>(type)->element);
+            case types::TypeKind::Slice:
+                return type_contains_template_param(static_cast<types::SliceType const*>(type)->element);
+            case types::TypeKind::Fam:
+                return type_contains_template_param(static_cast<types::FamType const*>(type)->element);
+            case types::TypeKind::RuntimeArray:
+                return type_contains_template_param(static_cast<types::RuntimeArrayType const*>(type)->element);
+            case types::TypeKind::FuncPtr: {
+                auto const* fp = static_cast<types::FuncPtrType const*>(type);
+                if (type_contains_template_param(fp->return_type))
+                    return true;
+                for (auto const* param : fp->params)
+                    if (type_contains_template_param(param))
+                        return true;
+                return false;
+            }
+            case types::TypeKind::Struct:
+            case types::TypeKind::Union:
+            case types::TypeKind::Enum: {
+                auto const* user = static_cast<types::UserType const*>(type);
+                for (auto const* arg : user->template_args)
+                    if (type_contains_template_param(arg))
+                        return true;
+                return false;
+            }
+            default:
+                return false;
+        }
+    }
+
     struct TypeArgumentProjection
     {
         types::TypeResolution result{};

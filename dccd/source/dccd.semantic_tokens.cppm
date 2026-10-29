@@ -7,6 +7,7 @@ import dcc.si;
 import dcc.ast;
 import dcc.sema;
 import dcc.sema.type_helpers;
+import dcc.types;
 import dcc.ast.visitor;
 
 export namespace dccd::semantic_tokens
@@ -271,6 +272,10 @@ namespace dccd::semantic_tokens
                 if (!type_expr)
                     return TokenType::Type;
 
+                if (type_expr->sema.canonical)
+                    if (auto const* canonical = dcc::sema::get_canonical(type_expr->sema); canonical && canonical->kind == dcc::types::TypeKind::TemplateParam)
+                        return TokenType::TypeParameter;
+
                 if (auto* decl = type_expr->sema.resolved_decl)
                 {
                     switch (decl->kind)
@@ -416,6 +421,14 @@ namespace dccd::semantic_tokens
             tick();
             if (!type_expr)
                 return;
+
+            if (type_expr->kind == dcc::ast::TypeKind::Typeof)
+            {
+                auto begin = type_expr->range.begin;
+                emit(dcc::sm::SourceRange{begin, dcc::sm::Location{begin.fileId, static_cast<dcc::sm::Offset>(begin.offset + 6)}}, TokenType::Keyword);
+                dcc::ast::RecursiveAstVisitor::visitTypeExpr(type_expr);
+                return;
+            }
 
             if (type_expr->kind == dcc::ast::TypeKind::Named)
             {

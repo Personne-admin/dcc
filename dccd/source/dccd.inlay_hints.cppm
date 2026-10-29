@@ -86,6 +86,33 @@ namespace dccd::inlay_hints
             return false;
         }
 
+        [[nodiscard]] bool type_expr_contains_typeof(dcc::ast::TypeExpr const* type) noexcept
+        {
+            if (!type)
+                return false;
+
+            switch (type->kind)
+            {
+                case dcc::ast::TypeKind::Typeof:
+                    return true;
+                case dcc::ast::TypeKind::Qualified:
+                    return type_expr_contains_typeof(static_cast<dcc::ast::QualifiedType const*>(type)->inner);
+                case dcc::ast::TypeKind::Pointer:
+                    return type_expr_contains_typeof(static_cast<dcc::ast::PointerType const*>(type)->pointee);
+                case dcc::ast::TypeKind::Array:
+                    return type_expr_contains_typeof(static_cast<dcc::ast::ArrayType const*>(type)->element);
+                case dcc::ast::TypeKind::Slice:
+                    return type_expr_contains_typeof(static_cast<dcc::ast::SliceType const*>(type)->element);
+                case dcc::ast::TypeKind::Fam:
+                    return type_expr_contains_typeof(static_cast<dcc::ast::FamType const*>(type)->element);
+                case dcc::ast::TypeKind::Named:
+                    return std::ranges::any_of(static_cast<dcc::ast::NamedType const*>(type)->template_args,
+                                               [](auto const& arg) { return type_expr_contains_typeof(arg.type); });
+                default:
+                    return false;
+            }
+        }
+
         struct TraversalCancelled
         {
         };
@@ -445,15 +472,23 @@ namespace dccd::inlay_hints
                 case dcc::ast::DeclKind::Var: {
                     auto* d = static_cast<dcc::ast::VarDecl const*>(decl);
 
-                    if (d->type == nullptr)
+                    bool const spelled_typeof = d->type && type_expr_contains_typeof(d->type);
+                    if (d->type == nullptr || spelled_typeof)
                     {
-                        dcc::types::Type const* inferred_type = nullptr;
-                        if (d->init)
-                            inferred_type = dcc::sema::get_resolved_type(d->init->sema);
-
-                        if (inferred_type && d->name_range.valid() && range_overlaps(d->name_range, request_range))
+                        dcc::types::Type const* hint_type = nullptr;
+                        if (d->type)
                         {
-                            auto type_str = format_type(inferred_type);
+                            if (d->type->sema.canonical)
+                                hint_type = dcc::sema::get_canonical(d->type->sema);
+                        }
+                        else if (d->init)
+                            hint_type = dcc::sema::get_resolved_type(d->init->sema);
+
+                        if (hint_type && d->name_range.valid() && range_overlaps(d->name_range, request_range))
+                        {
+                            auto type_str = format_type(hint_type);
+                            if (spelled_typeof)
+                                type_str = dcc::sema::format_dcc_qualifiers(d->type->sema.resolved_quals) + type_str;
                             if (!type_str.empty())
                                 emit_type_hint(d->name_range.end, std::format(": {}", type_str));
                         }

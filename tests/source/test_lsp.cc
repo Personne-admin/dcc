@@ -6681,3 +6681,173 @@ TEST_CASE("multiline literal has only string tokens and highlighting resumes aft
         CHECK(after);
     }
 }
+TEST_CASE("typeof hover, inlay hints and semantic tokens resolve and mark dependent uses")
+{
+    namespace st = dccd::semantic_tokens;
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    TempDir td;
+    auto path = td.path / "main.dc";
+
+    auto check_hover = [&](std::string marked, std::string_view expected) {
+        auto [text, pos] = strip_marker(std::move(marked), '|');
+        auto uri = open_file(server, sink, path, text);
+        auto hover = request_hover(server, sink, uri, pos.line, pos.character);
+        REQUIRE(hover.has_value());
+        CHECK(hover->find(expected) != std::string::npos);
+    };
+
+    check_hover("module main;\n"
+                "struct FileWriter { usize count; }\n"
+                "using WriteStatus(W) = typeof((null as W*).write_all(\"\"));\n"
+                "const i32 source = 1;\n"
+                "void f() {\n"
+                "    FileWriter writer = {};\n"
+                "    typeof(writer) cop|y = writer;\n"
+                "}\n",
+                "FileWriter copy");
+
+    check_hover("module main;\n"
+                "struct FileWriter { usize count; }\n"
+                "void f() {\n"
+                "    FileWriter writer = {};\n"
+                "    typeof(writ|er) copy = writer;\n"
+                "}\n",
+                "FileWriter writer");
+
+    check_hover("module main;\n"
+                "const i32 source = 1;\n"
+                "void f() {\n"
+                "    typeof(source) immut|able = 2;\n"
+                "}\n",
+                "const i32 immutable");
+
+    check_hover("module main;\n"
+                "struct FileWriter { usize count; }\n"
+                "using WriteStatus(W) = typeof((null as W*).write_all(\"\"));\n"
+                "void f() {\n"
+                "    FileWriter writer = {};\n"
+                "    typeo|f(writer) copy = writer;\n"
+                "}\n",
+                "resolves to FileWriter");
+
+    check_hover("module main;\n"
+                "const i32 source = 1;\n"
+                "void f() {\n"
+                "    typeo|f(source) immutable = 2;\n"
+                "}\n",
+                "resolves to const i32");
+
+    check_hover("module main;\n"
+                "struct FileWriter { usize count; }\n"
+                "enum WriteError : u8 { Full, }\n"
+                "enum Status(E) { Ok, Err(E), }\n"
+                "Status(WriteError) write_all(FileWriter* w, []const char bytes) { return Status::Ok; }\n"
+                "using WriteStatus(W) = typeof((null as W*).write_all(\"\"));\n"
+                "void f() {\n"
+                "    WriteSt|atus(FileWriter) status = Status::Ok;\n"
+                "}\n",
+                "Status(WriteError)");
+
+    check_hover("module main;\n"
+                "using Unresolv|ed(W) = typeof((null as W*).missing());\n",
+                "using Unresolved(W) = typeof((null as W*).missing())");
+
+    check_hover("module main;\n"
+                "using Unresolved(W) = typeo|f((null as W*).missing());\n",
+                "dependent");
+}
+
+TEST_CASE("typeof declaration inlay hints follow type-hint settings")
+{
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    TempDir td;
+    std::string text = "module main;\n"
+                       "\n"
+                       "struct FileWriter { usize count; }\n"
+                       "const i32 source = 1;\n"
+                       "\n"
+                       "void f() {\n"
+                       "    FileWriter writer = {};\n"
+                       "    typeof(writer) copy = writer;\n"
+                       "    typeof(source) immutable = 2;\n"
+                       "}\n";
+    auto uri = open_file(server, sink, td.path / "main.dc", text);
+    auto range = full_file_range(text);
+
+    auto hints = request_inlay_hints(server, sink, uri, range);
+    CHECK(has_hint(hints, 7u, 23u, ": FileWriter"));
+    CHECK(has_hint(hints, 8u, 28u, ": const i32"));
+    CHECK(!has_any_at(hints, 6u, 21u));
+
+    send_config(server, sink, make_inlay_hint_settings(false, std::nullopt, std::nullopt));
+    hints = request_inlay_hints(server, sink, uri, range);
+    CHECK(!has_any_at(hints, 7u, 23u));
+    CHECK(!has_any_at(hints, 8u, 28u));
+}
+
+TEST_CASE("typeof semantic tokens mark the keyword and dependent template parameters")
+{
+    namespace st = dccd::semantic_tokens;
+
+    Sink sink;
+    dccd::LanguageServer server{&sink.stream};
+    initialize_server(server, sink);
+
+    TempDir td;
+    std::string text = "module main;\n"
+                       "\n"
+                       "struct FileWriter { usize count; }\n"
+                       "enum WriteError : u8 { Full, }\n"
+                       "enum Status(E) { Ok, Err(E), }\n"
+                       "\n"
+                       "Status(WriteError) write_all(FileWriter* w, []const char bytes) { return Status::Ok; }\n"
+                       "\n"
+                       "using WriteStatus(W) = typeof((null as W*).write_all(\"\"));\n"
+                       "\n"
+                       "const i32 source = 1;\n"
+                       "\n"
+                       "void declared() {\n"
+                       "    FileWriter writer = {};\n"
+                       "    typeof(writer) copy = writer;\n"
+                       "    typeof(source) immutable = 2;\n"
+                       "    WriteStatus(FileWriter) status = Status::Ok;\n"
+                       "}\n"
+                       "\n"
+                       "using Unresolved(W) = typeof((null as W*).missing());\n";
+    auto uri = open_file(server, sink, td.path / "main.dc", text);
+    auto resp = send_request(server, sink, make_semantic_tokens_request(uri));
+    REQUIRE(resp.has_value());
+    auto const* result = resp->find_member("result");
+    REQUIRE(result != nullptr);
+    auto const* data = result->get_array("data");
+    REQUIRE(data != nullptr);
+
+    std::vector<std::uint32_t> flat;
+    for (auto const& v : data->as_array())
+    {
+        REQUIRE(v.is_number());
+        flat.push_back(static_cast<std::uint32_t>(v.as_integer()));
+    }
+    auto tokens = decode_delta(flat);
+
+    auto has_token = [&](std::uint32_t line, std::uint32_t character, std::uint32_t length, st::TokenType type) {
+        return std::ranges::any_of(tokens, [&](DecodedToken const& t) {
+            return t.line == line && t.character == character && t.length == length && t.type == static_cast<std::uint32_t>(type);
+        });
+    };
+
+    CHECK(has_token(8u, 23u, 6u, st::TokenType::Keyword));
+    CHECK(has_token(14u, 4u, 6u, st::TokenType::Keyword));
+    CHECK(has_token(15u, 4u, 6u, st::TokenType::Keyword));
+    CHECK(has_token(19u, 22u, 6u, st::TokenType::Keyword));
+    CHECK(has_token(16u, 4u, 11u, st::TokenType::Type));
+    CHECK(has_token(14u, 19u, 4u, st::TokenType::Variable));
+    CHECK(has_token(19u, 38u, 1u, st::TokenType::TypeParameter));
+}
