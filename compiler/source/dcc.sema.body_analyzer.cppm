@@ -6771,6 +6771,20 @@ export namespace dcc::sema
                 }
             }
 
+            if (f.sema.is_intrinsic && f.name.starts_with("atomic_") && !num_value_tparams)
+            {
+                auto op = classify_atomic_op(f.name);
+                if (op == AtomicOp::Fence)
+                    validate_atomic_order(f, receiver, &object, op);
+                else if (op == AtomicOp::CompareExchange)
+                {
+                    if (args.size() == 4)
+                        validate_atomic_cmpxchg_orders(f, args[2], arg_exprs[func_arg_start + 2], args[3], arg_exprs[func_arg_start + 3]);
+                }
+                else if (op != AtomicOp::Unknown && !args.empty())
+                    validate_atomic_order(f, args.back(), arg_exprs[func_arg_start + args.size() - 1], op);
+            }
+
             std::vector<types::TypePtr> actuals;
             actuals.reserve(args.size() + 1);
             actuals.push_back(match->second);

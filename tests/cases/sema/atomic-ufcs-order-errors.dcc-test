@@ -1,0 +1,32 @@
+=== FILE: main.dc ===
+module main;
+import core::atomic;
+using core::atomic::MemoryOrder;
+
+void nonconstant(volatile i32* p, MemoryOrder o) {
+    p.atomic_load(o);
+    p.atomic_store(1, o);
+    p.atomic_exchange(1, o);
+    p.atomic_fetch_add(1, o);
+    p.atomic_compare_exchange(1, 2, o, MemoryOrder::SeqCst);
+    p.atomic_compare_exchange(1, 2, MemoryOrder::SeqCst, o);
+    o.atomic_fence();
+}
+
+void illegal(volatile i32* p) {
+    p.atomic_load(MemoryOrder::Release);
+    p.atomic_store(1, MemoryOrder::Acquire);
+    MemoryOrder::Relaxed.atomic_fence();
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: MemoryOrder argument to `atomic_load` must be a compile-time constant
+main.dc:7: MemoryOrder argument to `atomic_store` must be a compile-time constant
+main.dc:8: MemoryOrder argument to `atomic_exchange` must be a compile-time constant
+main.dc:9: MemoryOrder argument to `atomic_fetch_add` must be a compile-time constant
+main.dc:10: MemoryOrder argument to `atomic_compare_exchange` must be a compile-time constant
+main.dc:11: MemoryOrder argument to `atomic_compare_exchange` must be a compile-time constant
+main.dc:12: MemoryOrder argument to `atomic_fence` must be a compile-time constant
+main.dc:16: atomic_load allows MemoryOrder Relaxed(0), Acquire(1), or SeqCst(4); got 2
+main.dc:17: atomic_store allows MemoryOrder Relaxed(0), Release(2), or SeqCst(4); got 1
+main.dc:18: atomic_fence allows MemoryOrder Acquire(1), Release(2), AcqRel(3), or SeqCst(4); got 0

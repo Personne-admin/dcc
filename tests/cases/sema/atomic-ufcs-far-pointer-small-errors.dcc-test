@@ -1,0 +1,18 @@
+=== TARGET: i8086-binary FLAGS: -mcmodel=small ===
+=== FILE: main.dc ===
+module main;
+import core::atomic;
+using core::atomic::MemoryOrder;
+
+void based(volatile i32^DS p, volatile i32^ q) {
+    core::atomic::atomic_fetch_add(p, 1, MemoryOrder::SeqCst);
+    p.atomic_fetch_add(1, MemoryOrder::SeqCst);
+    core::atomic::atomic_load(q, MemoryOrder::SeqCst);
+    q.atomic_load(MemoryOrder::SeqCst);
+}
+
+=== EXPECT-ERRORS ===
+main.dc:6: no matching call for `core::atomic::atomic_fetch_add`
+main.dc:7: no matching UFCS function for `atomic_fetch_add` on receiver type `volatile i32^DS`
+main.dc:8: no matching call for `core::atomic::atomic_load`
+main.dc:9: no matching UFCS function for `atomic_load` on receiver type `volatile i32^`
