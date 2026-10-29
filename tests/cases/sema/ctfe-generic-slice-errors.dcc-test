@@ -1,0 +1,17 @@
+=== FILE: main.dc ===
+module main;
+
+void set_out_of_bounds(T)([]T values) {
+    values[2] = 'x';
+}
+
+i32 out_of_bounds() {
+    char[2] data = {};
+    set_out_of_bounds!(char)(data);
+    return 0;
+}
+
+const i32 bounds = out_of_bounds();
+
+=== EXPECT-ERRORS ===
+main.dc:13: initializer for global `bounds` is not a constant expression: index out of bounds

@@ -1,0 +1,153 @@
+=== FILE: main.dc ===
+module main;
+
+void fill_slice(T)([]T out, T value) {
+    for usize i = 0; i < out.len; i += 1 {
+        out[i] = value;
+    }
+}
+
+i32 generic_slice() {
+    char[4] data = {};
+    fill_slice!(char)(data, 'a');
+    return if data[0] == 'a' && data[3] == 'a' { 0 } else { 1 };
+}
+
+void fill_sub(T)([]T out, T value) {
+    out[0] = value;
+}
+
+i32 generic_sub() {
+    char[4] data = {};
+    fill_sub!(char)(data[1..3], 'b');
+    return if data[1] == 'b' { 0 } else { 1 };
+}
+
+void fill_array(T)(T[4]* out, T value) {
+    for usize i = 0; i < 4; i += 1 {
+        (*out)[i] = value;
+    }
+}
+
+i32 generic_array() {
+    char[4] data = {};
+    fill_array!(char)(&data, 'c');
+    return if data[0] == 'c' && data[3] == 'c' { 0 } else { 1 };
+}
+
+struct Buf { []char data; usize len; }
+
+void append_generic(T)(Buf* b, []const T text) {
+    for usize i = 0; i < text.len; i += 1 {
+        b.data[b.len] = text[i] as char;
+        b.len += 1;
+    }
+}
+
+i32 generic_field() {
+    char[4] data = {};
+    Buf b = Buf { data = data, len = 0 };
+    append_generic!(char)(&b, "xy");
+    return if data[0] == 'x' && data[1] == 'y' && b.len == 2 { 0 } else { 1 };
+}
+
+[]char view(T)([]T value) {
+    return value[1..3];
+}
+
+i32 generic_view() {
+    char[4] data = {};
+    []char s = view!(char)(data);
+    s[0] = 'x';
+    return if data[1] == 'x' { 0 } else { 1 };
+}
+
+void two(T)([]T a, []T b) {
+    a[0] = 'a';
+    b[0] = 'b';
+}
+
+i32 generic_two() {
+    char[4] data = {};
+    two!(char)(data[0..2], data[2..4]);
+    return if data[0] == 'a' && data[2] == 'b' { 0 } else { 1 };
+}
+
+T* element(T)([]T value, usize index) {
+    return &value[index];
+}
+
+i32 generic_element() {
+    char[2] data = {};
+    char* p = element!(char)(data, 0);
+    *p = 'e';
+    return if data[0] == 'e' { 0 } else { 1 };
+}
+
+T[4]* array_ptr(T)(T[4]* value) {
+    return value;
+}
+
+i32 generic_array_return() {
+    char[4] data = {};
+    char[4]* p = array_ptr!(char)(&data);
+    (*p)[1] = 'f';
+    return if data[1] == 'f' { 0 } else { 1 };
+}
+
+struct Box(T) { T[4] data; }
+
+void fill_box(T)(Box(T)* b) {
+    b.data[0] = 'g';
+}
+
+i32 generic_struct_field() {
+    Box(char) b = {};
+    fill_box!(char)(&b);
+    return if b.data[0] == 'g' { 0 } else { 1 };
+}
+
+void inner(T)([]T value) {
+    value[1] = 'h';
+}
+
+void outer(T)([]T value) {
+    inner!(T)(value[1..3]);
+}
+
+i32 nested_generic() {
+    char[4] data = {};
+    outer!(char)(data);
+    return if data[2] == 'h' { 0 } else { 1 };
+}
+
+const i32 A = generic_slice();
+const i32 B = generic_sub();
+const i32 C = generic_array();
+const i32 D = generic_field();
+const i32 E = generic_view();
+const i32 F = generic_two();
+const i32 G = generic_element();
+const i32 H = generic_array_return();
+const i32 I = generic_struct_field();
+const i32 J = nested_generic();
+
+@nomangle public i32 dcc_main() {
+    if A != 0 || generic_slice() != A { return 1; }
+    if B != 0 || generic_sub() != B { return 2; }
+    if C != 0 || generic_array() != C { return 3; }
+    if D != 0 || generic_field() != D { return 4; }
+    if E != 0 || generic_view() != E { return 5; }
+    if F != 0 || generic_two() != F { return 6; }
+    if G != 0 || generic_element() != G { return 7; }
+    if H != 0 || generic_array_return() != H { return 8; }
+    if I != 0 || generic_struct_field() != I { return 9; }
+    if J != 0 || nested_generic() != J { return 10; }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0

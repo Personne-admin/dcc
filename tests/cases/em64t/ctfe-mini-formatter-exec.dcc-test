@@ -1,0 +1,91 @@
+=== FILE: main.dc ===
+module main;
+
+enum Error : u8 { Full, }
+enum ProbeStatus(E) { Ok, Err(E), }
+struct Buffer { char[32] bytes; usize count; }
+struct Bytes { char[32] data; usize len; }
+
+ProbeStatus(Error) write_all(Buffer* w, []const char text) {
+    if text.len > 32 - w.count {
+        return ProbeStatus::Err(Error::Full);
+    }
+    for usize i = 0; i < text.len; i += 1 {
+        w.bytes[w.count + i] = text[i];
+    }
+    w.count += text.len;
+    return ProbeStatus::Ok;
+}
+
+using ByteWriter(W) = compiles(W* w, []const char text) {
+    ProbeStatus(Error) r = w.write_all(text);
+};
+
+ProbeStatus(Error) write_uint(W)(W* w, u32 value) if ByteWriter(W) {
+    char[10] reversed = {};
+    usize n = 0;
+    while true {
+        reversed[n] = ('0' as u32 + value % 10) as char;
+        n += 1;
+        value /= 10;
+        if value == 0 { break; }
+    }
+    char[10] out = {};
+    for usize i = 0; i < n; i += 1 {
+        out[i] = reversed[n - 1 - i];
+    }
+    return w.write_all(out[0..n]);
+}
+
+ProbeStatus(Error) format_pair(W)(W* w, u32 first, u32 second) if ByteWriter(W) {
+    ProbeStatus(Error) result = write_uint!(W)(w, first);
+    if match result { ProbeStatus::Ok => false, _ => true } { return result; }
+    result = write_all(w, " ");
+    if match result { ProbeStatus::Ok => false, _ => true } { return result; }
+    return write_uint!(W)(w, second);
+}
+
+Bytes format_bytes(u32 first, u32 second) {
+    Buffer buffer = {};
+    ProbeStatus(Error) result = format_pair!(Buffer)(&buffer, first, second);
+    if match result { ProbeStatus::Err(_) => true, _ => false } {
+        return {};
+    }
+    Bytes out = {};
+    out.len = buffer.count;
+    for usize i = 0; i < buffer.count; i += 1 {
+        out.data[i] = buffer.bytes[i];
+    }
+    return out;
+}
+
+bool same(Bytes a, Bytes b) {
+    if a.len != b.len { return false; }
+    for usize i = 0; i < a.len; i += 1 {
+        if a.data[i] != b.data[i] { return false; }
+    }
+    return true;
+}
+
+const Bytes EXPECTED = format_bytes(12, 345);
+const Bytes ZERO = format_bytes(0, 0);
+const Bytes MAX = format_bytes(4294967295, 1);
+
+@nomangle public i32 dcc_main() {
+    Bytes actual = format_bytes(12, 345);
+    if !same(actual, EXPECTED) { return 1; }
+    if !same(format_bytes(0, 0), ZERO) { return 2; }
+    if !same(format_bytes(4294967295, 1), MAX) { return 3; }
+    []const char text = "12 345";
+    if actual.len != text.len { return 4; }
+    for usize i = 0; i < actual.len; i += 1 {
+        if actual.data[i] != text[i] { return 5; }
+    }
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
+RUN-EXIT: 0
