@@ -1329,14 +1329,6 @@ export namespace dcc::sema
 
         static constexpr std::uint64_t k_max_default_fill_elements = 4096;
 
-        [[nodiscard]] bool type_needs_default_init(types::TypePtr type)
-        {
-            if (struct_has_field_defaults(type))
-                return true;
-            auto const* array = types::type_cast<types::ArrayType>(type);
-            return array && type_needs_default_init(array->element);
-        }
-
         [[nodiscard]] bool struct_has_field_defaults(types::TypePtr type)
         {
             auto const* decl = nominal_decl(type);
@@ -1344,6 +1336,59 @@ export namespace dcc::sema
             if (!sd || !sd->template_params.empty())
                 return false;
             return std::ranges::any_of(sd->fields, [](ast::FieldDecl const& f) { return f.default_value != nullptr; });
+        }
+
+        [[nodiscard]] bool type_contains_field_defaults(types::TypePtr type, std::unordered_set<ast::Decl const*>& visiting)
+        {
+            while (auto const* nominal = types::type_cast<types::NominalType>(type))
+                type = nominal->underlying;
+            if (!type)
+                return false;
+            if (struct_has_field_defaults(type))
+                return true;
+            if (auto const* array = types::type_cast<types::ArrayType>(type))
+                return type_contains_field_defaults(array->element, visiting);
+
+            auto const* decl = nominal_decl(type);
+            auto const* sd = decl ? ast::node_cast<ast::StructDecl>(decl) : nullptr;
+            if (!sd || !sd->template_params.empty())
+                return false;
+            if (!visiting.insert(sd).second)
+                return false;
+            for (auto const& field : sd->fields)
+            {
+                if (field.default_value)
+                {
+                    visiting.erase(sd);
+                    return true;
+                }
+                auto const* field_type = field.type && field.type->sema.canonical ? get_canonical(field.type->sema) : nullptr;
+                if (type_contains_field_defaults(field_type, visiting))
+                {
+                    visiting.erase(sd);
+                    return true;
+                }
+            }
+            visiting.erase(sd);
+            return false;
+        }
+
+        [[nodiscard]] bool type_needs_default_init(types::TypePtr type)
+        {
+            std::unordered_set<ast::Decl const*> visiting;
+            return type_contains_field_defaults(type, visiting);
+        }
+
+        [[nodiscard]] bool struct_needs_default_init(types::TypePtr type)
+        {
+            while (auto const* nominal = types::type_cast<types::NominalType>(type))
+                type = nominal->underlying;
+            auto const* decl = nominal_decl(type);
+            auto const* sd = decl ? ast::node_cast<ast::StructDecl>(decl) : nullptr;
+            if (!sd || !sd->template_params.empty())
+                return false;
+            std::unordered_set<ast::Decl const*> visiting;
+            return type_contains_field_defaults(type, visiting);
         }
 
         detail::ExprResult analyze_call_arg(ModuleInfo& mod, ast::FuncDecl* fn, Scope& scope, ast::Expr& expr, int loop_depth, std::uint32_t& next_off,
@@ -13485,7 +13530,7 @@ export namespace dcc::sema
         {
             if (b.body.stmts.empty() && !b.body.tail && expected_type && expected_type != m_types.m_voidt() && !has_error(expected_type))
             {
-                if (struct_has_field_defaults(expected_type))
+                if (struct_needs_default_init(expected_type))
                 {
                     b.body.tail = m_ast_ctx.make<ast::StructLiteralExpr>(b.range, m_ast_ctx.allocator());
                     b.default_fill = true;
@@ -13885,9 +13930,9 @@ export namespace dcc::sema
                         if (!fld.name.empty())
                             if (auto* fd = find_field(*record_decl, fld.name); fd && fd->default_value)
                                 any_default = true;
-                    if (!any_default)
-                        return;
                     bool const was_empty = s.fields.empty();
+                    if (!any_default && !was_empty)
+                        return;
                     for (std::size_t i = 0; i < fields.size(); ++i)
                     {
                         if (used[i] || fields[i].name.empty() || types::is_fam_type(fields[i].type))

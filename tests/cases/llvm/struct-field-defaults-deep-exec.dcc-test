@@ -1,0 +1,55 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module main;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+struct Leaf {
+    i32 v = 9;
+    i32 w;
+}
+
+struct Plain {
+    Leaf inner;
+    Leaf[2] arr;
+    i32 k;
+}
+
+struct Deep {
+    Plain plain;
+    Plain[2] plains;
+    i32 n;
+}
+
+const Plain gp = {};
+const Deep gd = {};
+const Plain[2] gpa = {};
+const i32 GSUM = gp.inner.v + gp.arr[1].v;
+const i32 DSUM = gd.plain.inner.v + gd.plains[1].arr[0].v + gpa[1].inner.v;
+
+@nomangle
+public i32 dcc_main() {
+    Plain p = {};
+    if p.inner.v != 9 || p.arr[0].v != 9 || p.arr[1].v != 9 || p.k != 0 { return 1; }
+    Plain q = Plain {};
+    if q.inner.v != 9 || q.arr[1].v != 9 || q.k != 0 { return 2; }
+    Deep d = {};
+    if d.plain.inner.v != 9 || d.plain.arr[0].v != 9 || d.n != 0 { return 3; }
+    if d.plains[0].inner.v != 9 || d.plains[1].arr[1].v != 9 { return 4; }
+    Plain[2] pa = {};
+    if pa[0].inner.v != 9 || pa[1].arr[0].v != 9 { return 5; }
+    if gp.inner.v != 9 || gp.arr[0].v != 9 || gp.k != 0 { return 6; }
+    if gd.plain.inner.v != 9 || gd.plains[1].arr[0].v != 9 || gd.n != 0 { return 7; }
+    if gpa[0].inner.v != 9 || gpa[1].arr[1].v != 9 { return 8; }
+    if GSUM != 18 || DSUM != 27 { return 9; }
+    return 0;
+}
+
+=== ENTRY: main.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0

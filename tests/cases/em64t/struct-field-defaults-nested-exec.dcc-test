@@ -32,9 +32,20 @@ struct Holder {
     i32 h = 3;
 }
 
+struct Deep {
+    Plain plain;
+    Plain[2] plains;
+    i32 n;
+}
+
 const Top gt = {};
 const Holder gh = {};
 const Leaf[3] gl = {};
+const Plain gp = {};
+const Deep gd = {};
+const Plain[2] gpa = {};
+const i32 GSUM = gp.inner.v + gp.arr[1].v;
+const i32 DSUM = gd.plain.inner.v + gd.plains[1].arr[0].v + gpa[1].inner.v;
 
 i32 check_top(Top t)
 {
@@ -61,13 +72,25 @@ public i32 dcc_main()
     if r != 0 { return 20 + r; }
 
     Plain p = {};
-    if p.inner.v != 0 || p.arr[0].v != 0 || p.arr[1].v != 0 || p.k != 0 { return 30; }
+    if p.inner.v != 9 || p.arr[0].v != 9 || p.arr[1].v != 9 || p.k != 0 { return 30; }
+    Plain p2 = Plain {};
+    if p2.inner.v != 9 || p2.arr[1].v != 9 || p2.k != 0 { return 41; }
 
     Holder h = {};
-    if h.plain.inner.v != 0 || h.plain.arr[1].v != 0 { return 31; }
+    if h.plain.inner.v != 9 || h.plain.arr[1].v != 9 { return 31; }
     if h.grid[0][0].v != 9 || h.grid[0][1].v != 9 || h.grid[1][0].v != 9 || h.grid[1][1].v != 9 { return 32; }
     if h.view.len != 0 || h.h != 3 { return 33; }
-    if gh.plain.arr[0].v != 0 || gh.grid[1][1].v != 9 || gh.view.len != 0 { return 34; }
+    if gh.plain.arr[0].v != 9 || gh.grid[1][1].v != 9 || gh.view.len != 0 { return 34; }
+
+    Deep d = {};
+    if d.plain.inner.v != 9 || d.plain.arr[0].v != 9 || d.n != 0 { return 42; }
+    if d.plains[0].inner.v != 9 || d.plains[1].arr[1].v != 9 { return 43; }
+    if gp.inner.v != 9 || gp.arr[0].v != 9 { return 44; }
+    if gd.plain.inner.v != 9 || gd.plains[1].arr[0].v != 9 || gd.n != 0 { return 45; }
+    Plain[2] pa = {};
+    if pa[0].inner.v != 9 || pa[1].arr[0].v != 9 { return 46; }
+    if gpa[0].inner.v != 9 || gpa[1].arr[1].v != 9 { return 47; }
+    if GSUM != 18 || DSUM != 27 { return 48; }
 
     Leaf[3] la = {};
     if la[0].v != 9 || la[1].v != 9 || la[2].v != 9 { return 35; }
@@ -85,4 +108,7 @@ public i32 dcc_main()
 }
 
 === EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -O2 -no-section-check ===
 RUN-EXIT: 0

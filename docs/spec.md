@@ -152,18 +152,17 @@ A struct literal that names fields may leave out any field that has a default;
 the field then takes its default. A non-empty literal that leaves out a field
 without a default is still an error (`missing initializer for field`).
 
-An empty literal, `{}` or `T {}`, for a struct type that declares at least one
-default gives every field with a default its default. Every other field is
-initialized as if it were written `= {}` for its type, recursively: a nested
-struct type that declares defaults gets those defaults, an array gets each
-element initialized that way, and any type without field defaults gets its
-zero value (see 9.7). Likewise `{}` for an array whose element type is such a
-struct (or an array of one) initializes each element with `{}`; an array of
-more than 4096 elements is rejected. A struct type that declares no defaults
-itself is zeroed by `{}` even if its fields have struct types with defaults.
-For a struct type without defaults, `{}` is the zero value exactly as in 9.7.
-Defaults do not apply to uninitialized locals or to zero-initialized globals
-without an initializer.
+A type has a default value if it, or any type it contains (fields, array
+elements, at any depth), declares field defaults. An empty literal, `{}` or
+`T {}`, for a struct type with a default value initializes every field: a
+field with its own default takes that default, and a field without one is
+initialized as if it were written `= {}` for its type, recursively. A
+default-less struct whose field types contain defaults is therefore filled
+from the nested defaults rather than zeroed. Likewise `{}` for an array whose
+element type has a default value initializes each element with `{}`; an array
+of more than 4096 elements is rejected. A struct type with no field defaults
+anywhere inside is zeroed by `{}` exactly as in 9.7. Defaults do not apply to
+uninitialized locals or to zero-initialized globals without an initializer.
 
 Fields of unions, pack fields, bitfields and fields of generic structs cannot
 have defaults.
@@ -1352,8 +1351,8 @@ Its meaning follows the expected type:
   pointers have offset 0
 - slices: the empty slice, with a zero pointer part and length 0
 - structs, unions, arrays, bitfield structs and nominal aliases: all zero bytes
-  recursively; except that a struct type declaring field defaults (2.1), and an
-  array of such structs, is initialized as described there
+  recursively; except that a struct type with field defaults anywhere inside (2.1),
+  and an array of such structs, is initialized as described there
 - enums: the enumerator with value 0
 - restricted integer types: 0, which must be inside the type's domain
 
