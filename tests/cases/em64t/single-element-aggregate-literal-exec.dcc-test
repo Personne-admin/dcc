@@ -1,0 +1,30 @@
+=== FILE: test.dc ===
+module test;
+
+struct D {
+    i32 a;
+    i32 b;
+}
+
+const []const D g = { { a = 1, b = 2 } };
+const []const []const i32 gn = { { 5, 6 } };
+const D[1] ga = { { a = 7, b = 8 } };
+
+i32 pick([]const D s) {
+    return s[0].a + s[0].b;
+}
+
+@nomangle
+public i32 dcc_main() {
+    []const D l = { { a = 3, b = 4 } };
+    D[1] arr = { { a = 9, b = 10 } };
+    D plain = { { a = 11, b = 12 } };
+    if g.len != 1 { return 1; }
+    if gn.len != 1 { return 2; }
+    if gn[0].len != 2 { return 3; }
+    if l.len != 1 { return 4; }
+    return g[0].a + g[0].b + l[0].a + l[0].b + gn[0][1] + ga[0].b + arr[0].a + plain.b + pick({ { a = 20, b = 1 } });
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 66

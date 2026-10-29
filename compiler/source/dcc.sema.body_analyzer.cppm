@@ -13427,8 +13427,19 @@ export namespace dcc::sema
                 out.is_constant = true;
                 return out;
             }
-            bool has_single_non_struct_tail = b.body.tail && b.body.tail->kind != ast::ExprKind::StructLiteral;
-            if (b.body.stmts.empty() && (has_single_non_struct_tail || !b.body.tail) && expected_kind != ConstructionKind::None)
+            bool single_element_tail = b.body.tail && b.body.tail->kind != ast::ExprKind::StructLiteral;
+            if (b.body.tail && !single_element_tail && b.body.stmts.empty() && !static_cast<ast::StructLiteralExpr*>(b.body.tail)->type &&
+                (expected_kind == ConstructionKind::Slice || expected_kind == ConstructionKind::Array))
+            {
+                types::TypePtr element{};
+                if (auto const* slice = types::type_cast<types::SliceType>(expected_type))
+                    element = slice->element;
+                else if (auto const* array = types::type_cast<types::ArrayType>(expected_type))
+                    element = array->element;
+                if (element && construction_kind_for_type(element) != ConstructionKind::None)
+                    single_element_tail = true;
+            }
+            if (b.body.stmts.empty() && (single_element_tail || !b.body.tail) && expected_kind != ConstructionKind::None)
             {
                 ast::StructLiteralExpr synthetic{b.range, m_alloc};
                 synthetic.type = nullptr;

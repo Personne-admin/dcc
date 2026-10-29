@@ -1,0 +1,22 @@
+=== FILE: test.dc ===
+module test;
+
+struct D {
+    i32 a;
+    i32 b;
+}
+
+const []const D one = { { a = 1, b = 2 } };
+const []const D trailing = { { a = 1, b = 2 }, };
+const []const D two = { { a = 1, b = 2 }, { a = 3, b = 4 } };
+const []const D typed = { D { a = 1, b = 2 } };
+const D[1] array_one = { { a = 1, b = 2 } };
+const []const []const i32 nested = { { 1, 2 } };
+const []const i32 scalar = { 1 };
+const []const i32 redundant = { { 1, 2 } };
+const D plain = { { a = 1, b = 2 } };
+
+void local() {
+    []const D a = { { a = 1, b = 2 } };
+    D[1] b = { { a = 3, b = 4 } };
+}
