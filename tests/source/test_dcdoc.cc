@@ -985,3 +985,44 @@ TEST_CASE("project core module gets a listing while prefix and virtual modules d
         CHECK(!contains(txt, "Source: fmt.dc"));
     }
 }
+
+SECTION("dpm schema");
+
+TEST_CASE("the dpm v1 schema documents every type, field and enumerator")
+{
+    const char* schema_root = ::getenv("DCC_TEST_DPM_SCHEMA");
+    if (!schema_root)
+        return;
+    std::filesystem::path root{schema_root};
+    dcdoc::Builder builder{root / "dpm" / "v1.dc", {root}};
+    dcdoc::Project project = builder.build();
+    REQUIRE(project.file_errors.empty());
+    REQUIRE(!project.items.empty());
+    std::size_t structs = 0;
+    std::size_t fields = 0;
+    std::size_t enumerators = 0;
+    std::string undocumented;
+    for (auto const& item : project.items)
+    {
+        if (item.kind == "struct")
+            ++structs;
+        else if (item.kind == "field")
+            ++fields;
+        else if (item.kind == "enumerator" || item.kind == "variant")
+            ++enumerators;
+        if (item.kind == "struct" || item.kind == "enum" || item.kind == "field" || item.kind == "enumerator" || item.kind == "variant")
+            if (item.doc.empty())
+                undocumented += item.id + " ";
+    }
+    CHECK_EQ(undocumented, std::string{});
+    CHECK(structs >= 12);
+    CHECK(fields >= 60);
+    CHECK(enumerators >= 20);
+    std::string dump = dcdoc::dump(project);
+    CHECK(contains(dump, "dpm::v1::Project"));
+    CHECK(contains(dump, "dpm::v1::Settings"));
+    CHECK(contains(dump, "dpm::v1::Lock"));
+    std::string md = dcdoc::markdown::render_single(project);
+    CHECK(contains(md, "Settings"));
+    CHECK(contains(md, "project.dcon"));
+}

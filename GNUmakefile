@@ -164,6 +164,7 @@ uninstall:
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext.a
 	rm -f $(DESTDIR)$(LIBDIR)/libdcext-*.a
 	find $(DESTDIR)$(INCLUDEDIR)/std -name '*.dc' -delete 2>/dev/null || true
+	rm -rf $(DESTDIR)$(INCLUDEDIR)/dpm
 	rm -f $(DESTDIR)$(DOCDIR)/LICENSE
 
 compdb:

@@ -1,0 +1,312 @@
+module dpm::v1;
+
+/// Tri-state switch: `Default` leaves the choice to dpm (nothing is passed to dcc),
+/// `On` and `Off` force the setting.
+public enum Tri : u8
+{
+    /// Use the value dpm picks for the selected profile and target.
+    Default,
+    /// Force the setting on.
+    On,
+    /// Force the setting off.
+    Off,
+}
+
+/// Compilation target, passed to dcc as `-target`.
+public enum Target : u8
+{
+    /// The host triple of the machine running dpm.
+    Host,
+    /// `x86_64-elf`.
+    X86_64Elf,
+    /// `x86_64-coff`.
+    X86_64Coff,
+    /// `x86-elf`.
+    X86Elf,
+    /// `x86-coff`.
+    X86Coff,
+    /// `i8086-binary`, a flat image.
+    I8086Binary,
+    /// `i8086-mz`, a DOS MZ executable.
+    I8086Mz,
+}
+
+/// Code generator, passed to dcc as `-fbackend`.
+public enum Backend : u8
+{
+    /// Use dcc's default backend.
+    Default,
+    /// The LLVM backend.
+    Llvm,
+    /// The native backend.
+    Custom,
+}
+
+/// Pointer model, passed to dcc as `-mcmodel`.
+public enum Model : u8
+{
+    /// Use dcc's default model for the target.
+    Default,
+    /// `small`.
+    Small,
+    /// `kernel`.
+    Kernel,
+    /// `medium`.
+    Medium,
+    /// `large`.
+    Large,
+    /// `unreal`.
+    Unreal,
+    /// `unreal32`.
+    Unreal32,
+}
+
+/// Optimization level.
+public enum Optimize : u8
+{
+    /// Use the level of the selected profile.
+    Default,
+    /// No optimization (`-O0`).
+    O0,
+    /// Basic optimization (`-O1`).
+    O1,
+    /// Full optimization (`-O2`).
+    O2,
+    /// Optimize for size (`-Os`).
+    Size,
+}
+
+/// Which libdcext variant to link.
+public enum Libdcext : u8
+{
+    /// Pick the variant that matches the target.
+    Default,
+    /// Do not link libdcext.
+    Off,
+    /// The Linux variant.
+    Linux,
+    /// The Windows variant.
+    Windows,
+    /// The freestanding variant.
+    Freestanding,
+}
+
+/// Kind of artifact a product builds.
+public enum Kind : u8
+{
+    /// A program that `dpm run` can start.
+    Executable,
+    /// A shared library (`dcc -shared`).
+    SharedLibrary,
+}
+
+/// Build settings.
+///
+/// The same struct is used project-wide, per product and per profile. A field
+/// left at `Default` (or empty) is not passed to dcc and does not override a
+/// lower layer. Layers, lowest to highest: profile defaults, `Project::settings`,
+/// the selected `Profile::settings`, `Product::settings`, command-line options.
+/// `extra_flags` concatenate across layers instead of overriding.
+public struct Settings
+{
+    /// Compilation target.
+    Target target = Target::Host;
+    /// Code generator.
+    Backend backend = Backend::Default;
+    /// Instruction set (`-farch`), for example `i386`. Empty for dcc's default.
+    []const char arch = "";
+    /// Pointer model (`-mcmodel`).
+    Model model = Model::Default;
+    /// Optimization level.
+    Optimize optimize = Optimize::Default;
+    /// Whole-program compilation (`-fwhole-program`).
+    Tri whole_program = Tri::Default;
+    /// libdcext variant.
+    Libdcext libdcext = Libdcext::Default;
+    /// Emit debug information (`-g`).
+    Tri debug_info = Tri::Default;
+    /// Check array and slice bounds at run time.
+    Tri bounds_check = Tri::Default;
+    /// Trap when a restricted-range value is violated (`-frestricted-check`).
+    Tri restricted_check = Tri::Default;
+    /// Check dynamic-to-near pointer conversions (`-ffar-check`).
+    Tri far_check = Tri::Default;
+    /// Position-independent code (`-fPIC`).
+    Tri pic = Tri::Default;
+    /// i8086 load address as `SEG:OFF` (`-fbase`). Empty for none.
+    []const char base = "";
+    /// i8086 stack reservation (`-fstack-reserve`). Empty for none.
+    []const char stack_reserve = "";
+    /// Extra dcc arguments, appended last. Flags that dpm owns are rejected.
+    []const []const char extra_flags = {};
+}
+
+/// A requirement on another package.
+public struct Dependency
+{
+    /// Where the package comes from: a registry alias (`json5`), a repository
+    /// location (`github.com/user/pkg` or `github.com/user/pkg/subdir`),
+    /// `git+https://host/path.git[#subdir]`, `https://host/pkg.tar.gz`, or
+    /// `path:../pkg`.
+    []const char location;
+    /// Minimum version. The resolved version is the lowest one that satisfies
+    /// every requirement within the same series (same major, or same minor for
+    /// 0.y). Empty for `path:` dependencies.
+    []const char version = "";
+}
+
+/// One artifact a package builds.
+public struct Product
+{
+    /// Product name, unique within the package.
+    []const char name;
+    /// What the product builds.
+    Kind kind = Kind::Executable;
+    /// Entry module file, relative to the package root.
+    []const char entry = "src/main.dc";
+    /// Settings that override the project and profile settings for this product.
+    Settings settings = {};
+    /// Libraries to link (`dcc -l`).
+    []const []const char link = {};
+}
+
+/// A named group of settings, selected with `--profile`.
+///
+/// The profiles `debug` and `release` always exist; declaring a profile of
+/// the same name adds to its defaults.
+public struct Profile
+{
+    /// Profile name.
+    []const char name;
+    /// Settings applied when the profile is selected.
+    Settings settings = {};
+}
+
+/// The contents of `project.dcon`: one package.
+public struct Project
+{
+    /// Package name and import namespace. A single identifier; modules are
+    /// `module <name>::x;` in `<source>/<name>/x.dc`.
+    []const char name;
+    /// Version of this package, as `major.minor.patch` with an optional
+    /// pre-release suffix.
+    []const char version;
+    /// One-line description.
+    []const char description = "";
+    /// SPDX license expression. Informational.
+    []const char license = "";
+    /// Registry alias this package claims. Checked by `dpm registry check`.
+    []const char alias = "";
+    /// Minimum dcc version needed to build this package.
+    []const char requires_dcc = "";
+    /// Import root that dependents see, relative to the package root.
+    []const char source = "src";
+    /// Packages needed to build and use this package.
+    []const Dependency dependencies = {};
+    /// Packages needed only by tests and `dpm run --dev`.
+    []const Dependency dev_dependencies = {};
+    /// Artifacts to build. A package without products is a source library.
+    []const Product products = {};
+    /// Directory holding test programs, relative to the package root.
+    []const char test_dir = "tests";
+    /// Project-wide build settings.
+    Settings settings = {};
+    /// Extra build profiles.
+    []const Profile profiles = {};
+    /// Registry base URL for this project. Empty to use the user configuration.
+    []const char registry = "";
+}
+
+/// One resolved package in a lockfile.
+public struct LockedPackage
+{
+    /// Canonical location, the identity of the package.
+    []const char location;
+    /// Exact resolved version.
+    []const char version;
+    /// Where the source was fetched from: `git+https://...`, `https://...tar.gz`,
+    /// `path:../pkg` or `registry:<id>`.
+    []const char source;
+    /// Full 40-digit commit for git sources. Empty otherwise.
+    []const char commit = "";
+    /// `sha256:` followed by 64 hex digits, the hash of the source tree. Empty
+    /// only for `path:` packages.
+    []const char hash;
+    /// Locations of the direct dependencies, sorted.
+    []const []const char dependencies = {};
+    /// `On` when only dev dependencies need this package.
+    Tri dev = Tri::Default;
+}
+
+/// The contents of `project.lock.dcon`. Written by dpm; hand edits are overwritten.
+public struct Lock
+{
+    /// Fingerprint of the evaluated requirement set, `sha256:` and 64 hex digits.
+    []const char manifest;
+    /// Version of the dcc that last built the project. Informational.
+    []const char dcc = "";
+    /// Resolved packages, sorted by location.
+    []const LockedPackage packages;
+}
+
+/// One published version of a registry package.
+public struct RegistryVersion
+{
+    /// Exact version.
+    []const char version;
+    /// Source: `git+https://...` or `https://...tar.gz`.
+    []const char source;
+    /// Full 40-digit commit. Required for git sources.
+    []const char commit = "";
+    /// `sha256:` followed by 64 hex digits, the hash of the source tree.
+    []const char hash;
+    /// Requirement summary, so resolution needs no fetch of the source.
+    []const Dependency dependencies = {};
+    /// Minimum dcc version needed by this version.
+    []const char requires_dcc = "";
+    /// A yanked version is not chosen by new resolutions.
+    bool yanked = false;
+}
+
+/// A registry alias record, `aliases/<prefix>/<alias>.dcon`.
+public struct RegistryAlias
+{
+    /// The alias.
+    []const char alias;
+    /// Canonical location of the package.
+    []const char location;
+    /// One-line description.
+    []const char description = "";
+    /// Published versions, ascending.
+    []const RegistryVersion versions;
+}
+
+/// A registry location pointer, `locations/<host>/<owner>/<repo>.dcon`.
+public struct RegistryLocation
+{
+    /// The alias that owns this location.
+    []const char alias;
+}
+
+/// The registry descriptor, `registry.dcon` at the registry root.
+public struct RegistryConfig
+{
+    /// Registry format number.
+    i32 format = 1;
+    /// Registry name.
+    []const char name;
+    /// One-line description.
+    []const char description = "";
+}
+
+/// The contents of the user configuration, `~/.config/dpm/config.dcon`.
+public struct UserConfig
+{
+    /// Registry base URLs, tried in order; the first hit wins. Empty for the
+    /// default registry.
+    []const []const char registries = {};
+    /// Cache directory. Empty for the default.
+    []const char cache_dir = "";
+    /// Never touch the network unless a command asks to.
+    bool offline = false;
+}

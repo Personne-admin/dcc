@@ -9,7 +9,14 @@ BINARY := $(BUILD_DIR)/bin/dpm$(EXE_SUFFIX)
 CORE_LIB := $(BUILD_DIR)/lib/libdpmcore.a
 COMPILER_LIB := $(BUILD_DIR)/lib/libcompiler.a
 
-all: $(BINARY)
+SCHEMA_DST := $(BUILD_DIR)/include/dpm/v1.dc
+
+all: $(BINARY) $(SCHEMA_DST)
+
+$(SCHEMA_DST): $(TOPLEVEL)/dpm/schema/dpm/v1.dc
+	$(call MSG,SCHEMA,$@)
+	$(Q)mkdir -p $(dir $@)
+	$(Q)cp $< $@
 
 MODULE_SRCS := $(call find-sources,$(TOPLEVEL)/dpm/source,cppm)
 
@@ -39,6 +46,7 @@ $(OBJS): $(OBJ_DIR)/%.o: $(COMPILER_PCMS) $(MODULE_PCM_FILES)
 
 clean:
 	rm -f $(OBJS) $(DEPS) $(MODULE_OBJS) $(MODULE_PCM_FILES) $(CORE_LIB) $(CORE_LIB).objects $(BINARY)
+	rm -rf $(BUILD_DIR)/include/dpm
 	rm -f $(DEP_DIR)/dpm.modules.*.d.mk
 
 -include $(DEPS)

@@ -2,6 +2,7 @@ import std;
 import dpm.manifest;
 
 #include "harness.hh"
+#include <stdlib.h>
 
 struct TempDir
 {
@@ -148,4 +149,93 @@ TEST_CASE("a missing schema module is an error")
     auto result = dpm::manifest::spike_evaluate("{}", td.path);
     CHECK(!result.ok);
     CHECK(!result.errors.empty());
+}
+
+SECTION("dpm schema v1");
+
+namespace
+{
+    [[nodiscard]] std::filesystem::path schema_root()
+    {
+        const char* root = ::getenv("DCC_TEST_DPM_SCHEMA");
+        return root ? std::filesystem::path{root} : std::filesystem::path{};
+    }
+}
+
+TEST_CASE("a minimal project takes every default from the real schema")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    auto result = dpm::manifest::spike_evaluate(R"({ name = "hello", version = "0.1.0" })", root);
+    REQUIRE(result.ok);
+    CHECK(result.errors.empty());
+    CHECK(contains(result.tree, "name = \"hello\""));
+    CHECK(contains(result.tree, "source = \"src\""));
+    CHECK(contains(result.tree, "test_dir = \"tests\""));
+    CHECK(contains(result.tree, "target = Target::Host"));
+    CHECK(contains(result.tree, "optimize = Optimize::Default"));
+    CHECK(contains(result.tree, "bounds_check = Tri::Default"));
+}
+
+TEST_CASE("a full project with products, profiles and dependencies evaluates")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    auto result = dpm::manifest::spike_evaluate(R"(dpm::v1::Project {
+    name = "app",
+    version = "1.2.3-rc1",
+    description = "an app",
+    requires_dcc = "0.7.0",
+    dependencies = {
+        { location = "json5", version = "1.2.0" },
+        { location = "path:../util" },
+    },
+    dev_dependencies = { { location = "github.com/u/check", version = "0.4.1" } },
+    products = {
+        { name = "app", entry = "src/main.dc", settings = { optimize = dpm::v1::Optimize::Size, whole_program = dpm::v1::Tri::On } },
+        { name = "boot", kind = dpm::v1::Kind::SharedLibrary, link = { "m" } },
+    },
+    settings = { target = dpm::v1::Target::I8086Mz, model = dpm::v1::Model::Small, extra_flags = { "-Wall" } },
+    profiles = { { name = "fast", settings = { optimize = dpm::v1::Optimize::O2, debug_info = dpm::v1::Tri::Off } } },
+})",
+                                                root);
+    REQUIRE(result.ok);
+    CHECK(result.errors.empty());
+    CHECK(contains(result.tree, "version = \"1.2.3-rc1\""));
+    CHECK(contains(result.tree, "location = \"path:../util\""));
+    CHECK(contains(result.tree, "kind = Kind::SharedLibrary"));
+    CHECK(contains(result.tree, "optimize = Optimize::Size"));
+    CHECK(contains(result.tree, "target = Target::I8086Mz"));
+    CHECK(contains(result.tree, "debug_info = Tri::Off"));
+    CHECK(contains(result.tree, "\"-Wall\""));
+}
+
+TEST_CASE("single element slices evaluate as one element")
+{
+    TempDir td;
+    td.write_file("dpm/v1.dc", std::string{k_schema});
+    auto result = dpm::manifest::spike_evaluate(R"({ name = "a", version = "1", optimize = dpm::v1::Optimize::Size, flag = false, count = 1,
+        dependencies = { { location = "github.com/x/y", version = "1.0.0" } }, })",
+                                                td.path);
+    REQUIRE(result.ok);
+    CHECK(contains(result.tree, "dependencies = [\n    {\n      location = \"github.com/x/y\","));
+}
+
+TEST_CASE("the real schema rejects unknown fields and missing required fields")
+{
+    auto root = schema_root();
+    if (root.empty())
+        return;
+    auto typo = dpm::manifest::spike_evaluate(R"({ name = "a", versoin = "1.0.0" })", root);
+    CHECK(!typo.ok);
+    bool found = false;
+    for (auto const& error : typo.errors)
+        if (contains(error, "versoin"))
+            found = true;
+    CHECK(found);
+    auto missing = dpm::manifest::spike_evaluate(R"({ name = "a" })", root);
+    CHECK(!missing.ok);
+    CHECK(!missing.errors.empty());
 }
