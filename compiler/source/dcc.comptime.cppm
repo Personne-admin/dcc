@@ -334,6 +334,20 @@ export namespace dcc::comptime
             std::get<std::uint32_t>(m_storage) = v;
         }
 
+        void set_slice_base(ValuePtr base)
+        {
+            assert(kind() == Kind::Slice);
+            auto& slice = std::get<ValueSlice>(m_storage);
+            slice.elements.clear();
+            slice.base = std::move(base);
+        }
+
+        void set_slice_length(std::size_t length)
+        {
+            assert(kind() == Kind::Slice);
+            std::get<ValueSlice>(m_storage).length = length;
+        }
+
         [[nodiscard]] std::size_t size() const
         {
             assert(kind() == Kind::Aggregate || kind() == Kind::Slice);

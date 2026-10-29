@@ -1,0 +1,21 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+import core;
+
+i32 write_const(i32* p) {
+    []const i32 s = core::slice::from_raw_const(p, 1);
+    s[0] = 3;
+    return 0;
+}
+
+[]i32 escape() {
+    i32[2] data = {};
+    return core::slice::from_raw(&data[0], 2);
+}
+
+const i32 bad = escape()[0];
+
+=== EXPECT-ERRORS ===
+main.dc:15: initializer for global `bad` is not a constant expression: reference to storage that has gone out of scope
+main.dc:6: cannot assign to const-qualified target of type `i32`

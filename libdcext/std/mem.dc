@@ -1,7 +1,7 @@
 module std::mem;
 
 public import std::result;
-import std::slice;
+import core::slice;
 import std::debug;
 
 using result::{ Result, Status, Optional };
@@ -60,7 +60,7 @@ public void raw_free(const Allocator* self, [] u8 buf, usize align) {
 
 public [] T raw_as_typed(T)([] u8 raw, usize n) {
     static if sizeof(T) == 0 {
-        return slice::from_raw(raw.ptr as T*, n);
+        return core::slice::from_raw(raw.ptr as T*, n);
     } else {
         return (raw as []T)[0..n];
     }
@@ -71,7 +71,7 @@ public Result([] T, AllocError) alloc(T)(const Allocator* self, usize n) {
     Optional(usize) size = mem_checked_mul(sizeof(T), n);
     if size.is_none() { return AllocError::OutOfMemory; }
     static if sizeof(T) == 0 {
-        return Result::Ok(slice::from_raw(null as T*, n));
+        return Result::Ok(core::slice::from_raw(null as T*, n));
     } else {
         usize bytes = size.unwrap_some();
         Result([] u8, AllocError) raw_r = self.raw_alloc(bytes, alignof (T));
@@ -97,7 +97,7 @@ public Result([] T, AllocError) alloc_zeroed(T)(const Allocator* self, usize n) 
 
 public void free(T)(const Allocator* self, [] T items) {
     static if sizeof(T) != 0 {
-        []u8 raw = slice::from_raw!u8(items.ptr as u8*, mem_byte_len!T(items.len));
+        []u8 raw = core::slice::from_raw!u8(items.ptr as u8*, mem_byte_len!T(items.len));
         self.raw_free(raw, alignof(T));
     }
 }
@@ -113,7 +113,7 @@ public Result(T*, AllocError) create(T)(const Allocator* self) {
 }
 
 public void destroy(T)(const Allocator* self, T* value) {
-    self.free(slice::from_raw(value, 1));
+    self.free(core::slice::from_raw(value, 1));
 }
 
 /// copies `source` into freshly allocated storage owned by the caller.
@@ -175,7 +175,7 @@ public void set(T)([] T dst, T value) {
 }
 
 public void zero(T)([] T dst) {
-    [] u8 raw = slice::from_raw!u8(dst.ptr as u8*, mem_byte_len!T(dst.len));
+    [] u8 raw = core::slice::from_raw!u8(dst.ptr as u8*, mem_byte_len!T(dst.len));
     for usize i = 0; i < raw.len; i++ {
         raw[i] = 0;
     }
@@ -234,16 +234,16 @@ public void swap(T)(T* a, T* b) {
 
 /// views a value as its raw bytes. the result borrows from `value`.
 public [] const u8 as_bytes(T)(const T* value) {
-    return slice::from_raw_const!u8(value as const u8*, sizeof (T));
+    return core::slice::from_raw_const!u8(value as const u8*, sizeof (T));
 }
 
 public [] u8 as_bytes_mut(T)(T* value) {
-    return slice::from_raw!u8(value as u8*, sizeof (T));
+    return core::slice::from_raw!u8(value as u8*, sizeof (T));
 }
 
 /// views a typed slice as raw bytes.
 public [] const u8 slice_as_bytes(T)([] const T items) {
-    return slice::from_raw_const!u8(
+    return core::slice::from_raw_const!u8(
         items.ptr as const u8*,
         mem_byte_len!T(items.len)
     );
@@ -344,7 +344,7 @@ Result([] u8, AllocError) fixed_alloc(void* ctx, usize len, usize align) {
 
     self.last_offset = start;
     self.offset = start + len;
-    return Result::Ok(slice::from_raw(self.buffer.ptr + start, len));
+    return Result::Ok(core::slice::from_raw(self.buffer.ptr + start, len));
 }
 
 bool fixed_resize(void* ctx, [] u8 buf, usize new_len, usize align) {
@@ -423,7 +423,7 @@ Result([]u8, AllocError) arena_new_chunk(Arena* self, usize len, usize align) {
     Result([]u8, AllocError) got = self.parent.raw_alloc(total.unwrap_some(), alignof(ArenaChunk));
     if got.is_err() { return got.unwrap_err(); }
     []u8 block = got.unwrap();
-    []u8 memory = slice::from_raw(block.ptr + sizeof(ArenaChunk), size);
+    []u8 memory = core::slice::from_raw(block.ptr + sizeof(ArenaChunk), size);
     Result(usize, AllocError) offset = allocation_start(memory, 0, len, align);
     if offset.is_err() {
         self.parent.raw_free(block, alignof(ArenaChunk));
@@ -436,7 +436,7 @@ Result([]u8, AllocError) arena_new_chunk(Arena* self, usize len, usize align) {
     chunk.offset = start + len;
     self.head = chunk;
     self.next_chunk_size = next.unwrap_some();
-    return Result::Ok(slice::from_raw(memory.ptr + start, len));
+    return Result::Ok(core::slice::from_raw(memory.ptr + start, len));
 }
 
 Result([] u8, AllocError) arena_alloc(void* ctx, usize len, usize align) {
@@ -446,7 +446,7 @@ Result([] u8, AllocError) arena_alloc(void* ctx, usize len, usize align) {
         if offset.is_ok() {
             usize start = offset.unwrap();
             self.head.offset = start + len;
-            return Result::Ok(slice::from_raw(self.head.memory.ptr + start, len));
+            return Result::Ok(core::slice::from_raw(self.head.memory.ptr + start, len));
         }
     }
     return arena_new_chunk(self, len, align);
@@ -477,7 +477,7 @@ public void deinit(Arena* self) {
         if size.is_none() { debug::panic("mem::Arena: invalid chunk size"); }
         usize total = size.unwrap_some();
         self.parent.raw_free(
-            slice::from_raw(chunk as u8*, total),
+            core::slice::from_raw(chunk as u8*, total),
             alignof (ArenaChunk)
         );
         chunk = next;

@@ -1,5 +1,6 @@
 module std::slice;
 
+import core::slice;
 public import std::result;
 
 using result::Optional;
@@ -20,17 +21,11 @@ public using Ord(T) = compiles (T a, T b) {
 //!
 
 public [] T from_raw(T)(T* ptr, usize len) {
-    [] T slice;
-    slice.ptr = ptr;
-    slice.len = len;
-    return slice;
+    return core::slice::from_raw!(T)(ptr, len);
 }
 
 public [] const T from_raw_const(T)(const T* ptr, usize len) {
-    [] const T slice;
-    slice.ptr = ptr;
-    slice.len = len;
-    return slice;
+    return core::slice::from_raw_const!(T)(ptr, len);
 }
 
 public bool is_empty(T)([] const T items) {

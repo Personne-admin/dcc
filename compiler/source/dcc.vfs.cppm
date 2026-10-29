@@ -100,6 +100,7 @@ public import core::atomic;
 public import core::source_location;
 public import core::target;
 public import core::seg;
+public import core::slice;
 
 @intrinsic
 public void compile_error([]const char message);
@@ -315,6 +316,10 @@ public using type_argument(T, usize index) = T;
             .module_path = "core::seg",
             .uri = "dcc-core:/core/seg.dc",
         },
+        {
+            .module_path = "core::slice",
+            .uri = "dcc-core:/core/slice.dc",
+        },
     };
 
     [[nodiscard]] DynamicModuleEntry const* lookup_dynamic_by_module_path(std::string_view module_path) noexcept
@@ -377,6 +382,27 @@ public const bool WINDOWS_ABI = {};
                                                                                    : "Default",
                            os, arch, target.pointer_bits == 64, float_available,
                            target.os == dcc::target::Os::Windows || target.object_format == dcc::target::ObjectFormat::Coff);
+    }
+
+    [[nodiscard]] std::string generate_core_slice_source()
+    {
+        return R"dc(module core::slice;
+
+public [] T from_raw(T)(T* ptr, usize len) {
+    [] T slice = {};
+    slice.ptr = ptr;
+    slice.len = len;
+    return slice;
+}
+
+public [] const T from_raw_const(T)(const T* ptr, usize len) {
+    [] const T slice = {};
+    slice.ptr = ptr;
+    slice.len = len;
+    return slice;
+}
+
+)dc";
     }
 
     [[nodiscard]] std::string generate_core_seg_source(dcc::target::TargetConfig const& target)
@@ -489,6 +515,7 @@ public struct DivResult { u64 quotient; u64 remainder; }
 
         std::string source = entry.module_path == "core::i8086_arith" ? generate_i8086_arithmetic_source()
                              : entry.module_path == "core::seg"       ? generate_core_seg_source(target)
+                             : entry.module_path == "core::slice"     ? generate_core_slice_source()
                                                                       : generate_core_target_source(target);
         return smgr.open_virtual_in_memory(std::string{entry.uri}, std::move(source), std::move(syn_path));
     }

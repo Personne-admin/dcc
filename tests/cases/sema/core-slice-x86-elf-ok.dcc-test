@@ -1,0 +1,13 @@
+=== TARGET: x86-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core;
+
+public []u8 near(u8* ptr, usize len) {
+    return core::slice::from_raw(ptr, len);
+}
+
+public [^]u8 far(u8^ ptr, usize len) {
+    return core::seg::from_raw(ptr, len);
+}

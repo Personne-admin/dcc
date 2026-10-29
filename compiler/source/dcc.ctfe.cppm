@@ -911,6 +911,40 @@ export namespace dcc::ctfe
 
         Result store(ast::Expr const& target, comptime::Value value)
         {
+            if (auto const* field = ast::node_cast<ast::FieldAccessExpr>(&target); field && types::type_cast<types::SliceType>(type_of(*field->object)))
+            {
+                if (field->field != "ptr" && field->field != "len")
+                    return failure("slice field has no compile-time storage");
+
+                comptime::ValuePtr slot;
+                auto r = place(*field->object, slot);
+                if (r.flow != Flow::Normal)
+                    return r;
+                auto* object = m_heap.write_target(slot);
+                if (!object || object->kind() != Kind::Slice)
+                    return failure("slice field has no compile-time storage");
+
+                if (field->field == "ptr")
+                {
+                    if (value.kind() == Kind::Null)
+                        object->set_slice_base(comptime::ValuePtr{});
+                    else if (value.kind() == Kind::Pointer)
+                        object->set_slice_base(value.get_pointer());
+                    else
+                        return failure("slice pointer field requires a pointer");
+                }
+                else
+                {
+                    auto length = value.const_to_int();
+                    if (!length || *length < 0)
+                        return failure("slice length field requires a non-negative integer");
+                    object->set_slice_length(static_cast<std::size_t>(*length));
+                }
+
+                m_heap.mark_clean(slot);
+                return folded(std::move(value));
+            }
+
             comptime::ValuePtr ptr;
             auto r = place(target, ptr);
             if (r.flow != Flow::Normal)

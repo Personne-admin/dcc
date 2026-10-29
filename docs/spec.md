@@ -457,7 +457,9 @@ Conversions mirror the pointer rules:
 `core::seg` (§17.1) provides `from_raw` and `from_raw_const`, generated per
 target alongside the pointer operations, to build far and based slices from
 a pointer and a length (`[^]T from_raw(T^ ptr, usize len)` and the
-per-register `[^REG]T from_raw(T^REG ptr, usize len)`).
+per-register `[^REG]T from_raw(T^REG ptr, usize len)`). `core::slice`
+(§17.2) provides the matching near constructors (`[]T from_raw(T* ptr,
+usize len)` and the `const` form).
 
 Far and based slice receivers follow the far pointer receiver rules for UFCS
 (§11): a far or based slice is never converted to a near slice
@@ -1896,6 +1898,21 @@ with a near pointer argument is ambiguous between the two, exactly as
 for non-template overloads that add `const` to a converted type.
 Lowering is deferred: any use that reaches IR lowering reports `far and
 based pointers are not supported by this backend yet`.
+
+### 17.2 Near slice constructors (`core::slice`)
+
+`core::slice` is a compiler-provided module exposing near slice constructors
+that build a pointer/length pair without allocation or an implicit read:
+
+```dc
+[] T from_raw(T)(T* ptr, usize len);
+[] const T from_raw_const(T)(const T* ptr, usize len);
+```
+
+The caller guarantees the range, alignment, lifetime and provenance of the
+storage. A null pointer with length zero is permitted. The generated module
+is the implementation behind the temporary `std::slice::from_raw` and
+`std::slice::from_raw_const` forwards.
 
 ---
 

@@ -1,0 +1,17 @@
+=== TARGET: x86_64-elf ===
+=== FILE: main.dc ===
+module m;
+
+import core;
+
+public []u8 from(u8* ptr, usize len) {
+    return core::slice::from_raw(ptr, len);
+}
+
+public []const u8 from_const(const u8* ptr, usize len) {
+    return core::slice::from_raw_const(ptr, len);
+}
+
+public []i32 through_core(i32* ptr, usize len) {
+    return core::slice::from_raw!(i32)(ptr, len);
+}

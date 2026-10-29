@@ -1,0 +1,13 @@
+=== TARGET: i8086-binary ===
+=== FILE: main.dc ===
+module m;
+
+import core;
+
+public []u8 near(u8* ptr, usize len) {
+    return core::slice::from_raw(ptr, len);
+}
+
+public []const u8 near_const(const u8* ptr, usize len) {
+    return core::slice::from_raw_const(ptr, len);
+}
