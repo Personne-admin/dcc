@@ -1,0 +1,143 @@
+=== TARGET: x86_64-elf ===
+=== FILE: test.dc ===
+module test;
+
+asm @[intel, arch("x86_64")] {
+    ".text\n.global _start\n_start:\nand rsp, -16\ncall dcc_main\nmov edi, eax\nmov eax, 60\nsyscall\nud2\n"
+};
+
+import core::atomic;
+using core::atomic::Atomic;
+using core::atomic::MemoryOrder;
+
+const MemoryOrder seq = MemoryOrder::SeqCst;
+const MemoryOrder acq = MemoryOrder::Acquire;
+const MemoryOrder rel = MemoryOrder::Release;
+
+i32 check_volatile() {
+    volatile i32 u = 100;
+    volatile i32 d = 100;
+
+    if u.atomic_load(seq) != core::atomic::atomic_load(&d, seq) { return 1; }
+    if u.atomic_load(acq) != core::atomic::atomic_load(&d, acq) { return 2; }
+    u.atomic_store(7, rel);
+    core::atomic::atomic_store(&d, 7, rel);
+    if u != d { return 3; }
+
+    i32 a = u.atomic_exchange(9, seq);
+    i32 b = core::atomic::atomic_exchange(&d, 9, seq);
+    if a != b || u != d { return 4; }
+
+    a = u.atomic_fetch_add(5, seq);
+    b = core::atomic::atomic_fetch_add(&d, 5, seq);
+    if a != b || u != d || u != 14 { return 5; }
+
+    a = u.atomic_fetch_sub(3, MemoryOrder::Relaxed);
+    b = core::atomic::atomic_fetch_sub(&d, 3, MemoryOrder::Relaxed);
+    if a != b || u != d || u != 11 { return 6; }
+
+    a = u.atomic_fetch_and(10, seq);
+    b = core::atomic::atomic_fetch_and(&d, 10, seq);
+    if a != b || u != d || u != 10 { return 7; }
+
+    a = u.atomic_fetch_or(5, seq);
+    b = core::atomic::atomic_fetch_or(&d, 5, seq);
+    if a != b || u != d || u != 15 { return 8; }
+
+    a = u.atomic_fetch_xor(6, seq);
+    b = core::atomic::atomic_fetch_xor(&d, 6, seq);
+    if a != b || u != d || u != 9 { return 9; }
+
+    a = u.atomic_compare_exchange(9, 20, seq, seq);
+    b = core::atomic::atomic_compare_exchange(&d, 9, 20, seq, seq);
+    if a != b || u != d || u != 20 { return 10; }
+
+    a = u.atomic_compare_exchange(1, 2, seq, MemoryOrder::Relaxed);
+    b = core::atomic::atomic_compare_exchange(&d, 1, 2, seq, MemoryOrder::Relaxed);
+    if a != b || u != d || u != 20 { return 11; }
+
+    MemoryOrder::SeqCst.atomic_fence();
+    seq.atomic_fence();
+    acq.atomic_fence();
+    MemoryOrder::AcqRel.atomic_fence();
+    core::atomic::atomic_fence(seq);
+    return 0;
+}
+
+i32 check_pointer(volatile i32* pu, volatile i32* pd) {
+    pu.atomic_store(3, seq);
+    core::atomic::atomic_store(pd, 3, seq);
+    i32 a = pu.atomic_fetch_add(4, seq);
+    i32 b = core::atomic::atomic_fetch_add(pd, 4, seq);
+    if a != b || pu.atomic_load(seq) != core::atomic::atomic_load(pd, seq) { return 1; }
+    if pu.atomic_load(seq) != 7 { return 2; }
+    return 0;
+}
+
+i32 check_narrow() {
+    volatile u8 u = 250;
+    volatile u8 d = 250;
+    u8 a = u.atomic_fetch_add(10, seq);
+    u8 b = core::atomic::atomic_fetch_add(&d, 10, seq);
+    if a != b || u != d || u != 4 { return 1; }
+    volatile i64 wu = 1000000000000;
+    volatile i64 wd = 1000000000000;
+    i64 wa = wu.atomic_fetch_sub(1, seq);
+    i64 wb = core::atomic::atomic_fetch_sub(&wd, 1, seq);
+    if wa != wb || wu != wd { return 2; }
+    return 0;
+}
+
+i32 check_atomic_type() {
+    Atomic(i32) u = { value = 40 };
+    Atomic(i32) d = { value = 40 };
+    Atomic(i32)* pu = &u;
+    Atomic(i32)* pd = &d;
+    if pu.atomic_load(seq) != core::atomic::atomic_load(pd, seq) { return 1; }
+    pu.atomic_store(41, seq);
+    core::atomic::atomic_store(pd, 41, seq);
+    i32 a = pu.atomic_exchange(42, seq);
+    i32 b = core::atomic::atomic_exchange(pd, 42, seq);
+    if a != b { return 2; }
+    a = pu.atomic_fetch_add(1, seq);
+    b = core::atomic::atomic_fetch_add(pd, 1, seq);
+    if a != b { return 3; }
+    a = pu.atomic_fetch_sub(1, seq);
+    b = core::atomic::atomic_fetch_sub(pd, 1, seq);
+    if a != b { return 4; }
+    a = pu.atomic_fetch_and(0xF, seq);
+    b = core::atomic::atomic_fetch_and(pd, 0xF, seq);
+    if a != b { return 5; }
+    a = pu.atomic_fetch_or(0x30, seq);
+    b = core::atomic::atomic_fetch_or(pd, 0x30, seq);
+    if a != b { return 6; }
+    a = pu.atomic_fetch_xor(0x3, seq);
+    b = core::atomic::atomic_fetch_xor(pd, 0x3, seq);
+    if a != b { return 7; }
+    a = pu.atomic_compare_exchange(0x39, 5, seq, seq);
+    b = core::atomic::atomic_compare_exchange(pd, 0x39, 5, seq, seq);
+    if a != b || pu.atomic_load(seq) != 5 || core::atomic::atomic_load(pd, seq) != 5 { return 8; }
+    return 0;
+}
+
+@nomangle
+public i32 dcc_main() {
+    i32 r = check_volatile();
+    if r != 0 { return r; }
+    volatile i32 x = 0;
+    volatile i32 y = 0;
+    r = check_pointer(&x, &y);
+    if r != 0 { return 20 + r; }
+    r = check_narrow();
+    if r != 0 { return 30 + r; }
+    r = check_atomic_type();
+    if r != 0 { return 40 + r; }
+    return 0;
+}
+
+=== ENTRY: test.dc ===
+=== EXPECT-EXECUTABLE FLAGS: -O0 ===
+RUN-EXIT: 0
+
+=== EXPECT-EXECUTABLE FLAGS: -O2 ===
+RUN-EXIT: 0

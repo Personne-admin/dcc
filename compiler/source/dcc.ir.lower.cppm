@@ -4058,13 +4058,31 @@ export namespace dcc::ir::lower
             return true;
         }
 
-        [[nodiscard]] IrMemoryOrdering extract_order_from_arg(IrValue* order_val, ast::CallExpr const* call) const
+        [[nodiscard]] ast::Expr const* intrinsic_argument_expr(ast::CallExpr const* call, std::size_t index) const
         {
-            auto* order_int = ir_cast<IrIntConstant>(order_val);
-            if (!order_int)
+            if (call->sema.ufcs_callee)
+            {
+                if (index == 0)
+                {
+                    auto* field_access = ast::node_cast<ast::FieldAccessExpr>(call->callee);
+                    return field_access ? field_access->object : nullptr;
+                }
+                --index;
+            }
+            return index < call->args.size() ? call->args[index] : nullptr;
+        }
+
+        [[nodiscard]] IrMemoryOrdering extract_order_from_arg(IrValue* order_val, std::size_t index, ast::CallExpr const* call) const
+        {
+            std::int64_t raw = 0;
+            if (auto* order_int = ir_cast<IrIntConstant>(order_val))
+                raw = order_int->value;
+            else if (auto const* order_expr = intrinsic_argument_expr(call, index);
+                     order_expr && order_expr->sema.const_value && order_expr->sema.const_value->kind() == comptime::Value::Kind::Int)
+                raw = order_expr->sema.const_value->get_int();
+            else
                 lower_panic(call, "MemoryOrder argument must be a compile-time constant");
 
-            auto raw = order_int->value;
             if (raw < 0 || raw > 4)
                 lower_panic(call, std::format("invalid MemoryOrder value: {}", raw));
 
@@ -4203,7 +4221,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 2)
                     lower_panic(call, "atomic_load requires 2 arguments (ptr, order)");
-                auto order = extract_order_from_arg(args[1], call);
+                auto order = extract_order_from_arg(args[1], 1, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_load(ir_ret, ptr, order);
             }
@@ -4211,7 +4229,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_store requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_store(args[1], ptr, order);
             }
@@ -4219,7 +4237,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_exchange requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::Xchg, ptr, args[1], order);
             }
@@ -4227,7 +4245,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_fetch_add requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::Add, ptr, args[1], order);
             }
@@ -4235,7 +4253,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_fetch_sub requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::Sub, ptr, args[1], order);
             }
@@ -4243,7 +4261,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_fetch_and requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::And, ptr, args[1], order);
             }
@@ -4251,7 +4269,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_fetch_or requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::Or, ptr, args[1], order);
             }
@@ -4259,7 +4277,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 3)
                     lower_panic(call, "atomic_fetch_xor requires 3 arguments (ptr, value, order)");
-                auto order = extract_order_from_arg(args[2], call);
+                auto order = extract_order_from_arg(args[2], 2, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_rmw(ir_ret, IrAtomicRmwOp::Xor, ptr, args[1], order);
             }
@@ -4267,8 +4285,8 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 5)
                     lower_panic(call, "atomic_compare_exchange requires 5 arguments (ptr, expected, desired, success order, failure order)");
-                auto success = extract_order_from_arg(args[3], call);
-                auto failure = extract_order_from_arg(args[4], call);
+                auto success = extract_order_from_arg(args[3], 3, call);
+                auto failure = extract_order_from_arg(args[4], 4, call);
                 auto* ptr = get_atomic_ptr(0);
                 result = m_ctx.atomic_cmpxchg(ir_ret, ptr, args[1], args[2], success, failure);
             }
@@ -4276,7 +4294,7 @@ export namespace dcc::ir::lower
             {
                 if (args.size() < 1)
                     lower_panic(call, "atomic_fence requires 1 argument (order)");
-                auto order = extract_order_from_arg(args[0], call);
+                auto order = extract_order_from_arg(args[0], 0, call);
                 result = m_ctx.fence(order);
             }
             else
