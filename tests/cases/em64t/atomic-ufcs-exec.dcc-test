@@ -1,0 +1,81 @@
+=== FILE: test.dc ===
+module test;
+import core::atomic;
+using core::atomic::Atomic;
+using core::atomic::MemoryOrder;
+
+@nomangle
+public i32 dcc_main() {
+    volatile i32 a = 10;
+    if a.atomic_load(MemoryOrder::SeqCst) != 10 { return 1; }
+    if core::atomic::atomic_load(&a, MemoryOrder::SeqCst) != 10 { return 2; }
+    a.atomic_store(20, MemoryOrder::SeqCst);
+    if core::atomic::atomic_load(&a, MemoryOrder::SeqCst) != 20 { return 3; }
+    core::atomic::atomic_store(&a, 30, MemoryOrder::SeqCst);
+    if a.atomic_load(MemoryOrder::SeqCst) != 30 { return 4; }
+    i32 old = a.atomic_exchange(31, MemoryOrder::SeqCst);
+    if old != 30 || a.atomic_load(MemoryOrder::SeqCst) != 31 { return 5; }
+    old = core::atomic::atomic_exchange(&a, 32, MemoryOrder::SeqCst);
+    if old != 31 || a.atomic_load(MemoryOrder::SeqCst) != 32 { return 6; }
+
+    a = 10;
+    old = a.atomic_fetch_add(5, MemoryOrder::SeqCst);
+    if old != 10 || a.atomic_load(MemoryOrder::SeqCst) != 15 { return 7; }
+    old = core::atomic::atomic_fetch_add(&a, 3, MemoryOrder::SeqCst);
+    if old != 15 || a.atomic_load(MemoryOrder::SeqCst) != 18 { return 8; }
+
+    a = 20;
+    old = a.atomic_fetch_sub(3, MemoryOrder::SeqCst);
+    if old != 20 || a.atomic_load(MemoryOrder::SeqCst) != 17 { return 9; }
+    old = core::atomic::atomic_fetch_sub(&a, 4, MemoryOrder::SeqCst);
+    if old != 17 || a.atomic_load(MemoryOrder::SeqCst) != 13 { return 10; }
+
+    a = 15;
+    old = a.atomic_fetch_and(10, MemoryOrder::SeqCst);
+    if old != 15 || a.atomic_load(MemoryOrder::SeqCst) != 10 { return 11; }
+    old = core::atomic::atomic_fetch_and(&a, 6, MemoryOrder::SeqCst);
+    if old != 10 || a.atomic_load(MemoryOrder::SeqCst) != 2 { return 12; }
+
+    a = 8;
+    old = a.atomic_fetch_or(3, MemoryOrder::SeqCst);
+    if old != 8 || a.atomic_load(MemoryOrder::SeqCst) != 11 { return 13; }
+    old = core::atomic::atomic_fetch_or(&a, 4, MemoryOrder::SeqCst);
+    if old != 11 || a.atomic_load(MemoryOrder::SeqCst) != 15 { return 14; }
+
+    a = 10;
+    old = a.atomic_fetch_xor(6, MemoryOrder::SeqCst);
+    if old != 10 || a.atomic_load(MemoryOrder::SeqCst) != 12 { return 15; }
+    old = core::atomic::atomic_fetch_xor(&a, 3, MemoryOrder::SeqCst);
+    if old != 12 || a.atomic_load(MemoryOrder::SeqCst) != 15 { return 16; }
+
+    a = 5;
+    old = a.atomic_compare_exchange(5, 9, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != 5 || a.atomic_load(MemoryOrder::SeqCst) != 9 { return 17; }
+    old = core::atomic::atomic_compare_exchange(&a, 4, 7, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != 9 || a.atomic_load(MemoryOrder::SeqCst) != 9 { return 18; }
+    old = core::atomic::atomic_compare_exchange(&a, 9, 12, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != 9 || a.atomic_load(MemoryOrder::SeqCst) != 12 { return 19; }
+    old = a.atomic_compare_exchange(12, 13, MemoryOrder::SeqCst, MemoryOrder::SeqCst);
+    if old != 12 || a.atomic_load(MemoryOrder::SeqCst) != 13 { return 20; }
+
+    volatile i32* p = &a;
+    old = p.atomic_fetch_add(1, MemoryOrder::SeqCst);
+    if old != 13 || a.atomic_load(MemoryOrder::SeqCst) != 14 { return 21; }
+    old = core::atomic::atomic_fetch_add(p, 1, MemoryOrder::SeqCst);
+    if old != 14 || a.atomic_load(MemoryOrder::SeqCst) != 15 { return 22; }
+
+    Atomic(i32) box = { value = 7 };
+    Atomic(i32)* bp = &box;
+    if bp.atomic_load(MemoryOrder::SeqCst) != 7 { return 23; }
+    old = bp.atomic_fetch_add(2, MemoryOrder::SeqCst);
+    if old != 7 || core::atomic::atomic_load(bp, MemoryOrder::SeqCst) != 9 { return 24; }
+
+    core::atomic::atomic_fence(MemoryOrder::SeqCst);
+    return 0;
+}
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check ===
+RUN-EXIT: 0
+
+=== EXPECT-EM64T-OBJECT FLAGS: -no-section-check -O2 ===
+RUN-EXIT: 0

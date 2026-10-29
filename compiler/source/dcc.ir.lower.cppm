@@ -3130,6 +3130,44 @@ export namespace dcc::ir::lower
             return m_ctx.func_ref(ir_func);
         }
 
+        IrValue* lower_ufcs_call_receiver(ast::CallExpr const* call, ast::FuncDecl const* callee)
+        {
+            auto* field_access = ast::node_cast<ast::FieldAccessExpr>(call->callee);
+            if (!field_access)
+                return nullptr;
+
+            auto* object = field_access->object;
+            auto* obj_sema_type = get_sema_resolved_type(object);
+            IrValue* obj_val = nullptr;
+            if (object->sema.implicit_addr_of)
+                obj_val = lower_addr_of(object);
+            else if (object->sema.implicit_deref)
+            {
+                auto* ptr_val = lower_expr(object);
+                auto* pointee_ty = (obj_sema_type && obj_sema_type->kind == types::TypeKind::Pointer)
+                                       ? static_cast<types::PointerType const*>(obj_sema_type)->pointee
+                                       : nullptr;
+                if (ptr_val && pointee_ty)
+                {
+                    obj_val = m_ctx.load(lower_type(pointee_ty), ptr_val);
+                    auto name = ident_name();
+                    obj_val->name = m_name_pool.back();
+                    append_inst(obj_val);
+                }
+                else
+                    obj_val = ptr_val;
+            }
+            else
+                obj_val = lower_expr(object);
+
+            if (callee && !callee->params.empty())
+            {
+                auto* first_param_type = get_canonical_type(callee->params[0].type);
+                obj_val = coerce_array_decay(object, obj_val, obj_sema_type, first_param_type);
+            }
+            return obj_val;
+        }
+
         IrValue* lower_call_expr(ast::CallExpr const* call)
         {
             auto* resolved_spec = call->sema.resolved_specialization;
@@ -4140,6 +4178,13 @@ export namespace dcc::ir::lower
             auto name = func->name;
 
             std::vector<IrValue*> args;
+            if (call->sema.ufcs_callee)
+            {
+                auto* receiver = lower_ufcs_call_receiver(call, func);
+                if (!receiver)
+                    lower_panic(call, std::format("intrinsic UFCS call `{}` has no receiver", name));
+                args.push_back(receiver);
+            }
             for (auto* arg_expr : call->args)
                 args.push_back(lower_expr(arg_expr));
 
